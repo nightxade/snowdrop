@@ -87,31 +87,47 @@ export function toDirectConversation(
   };
 }
 
-/** Human-readable lines describing how a group changed. */
+/** "Disappearing messages" sentence for a timer value, with or without an actor. */
+export function timerSentence(actorName: string | null, seconds: number): string {
+  if (actorName === null) {
+    return seconds > 0
+      ? `Disappearing messages were set to ${formatDuration(seconds)}.`
+      : 'Disappearing messages were turned off.';
+  }
+  return seconds > 0
+    ? `${actorName} set disappearing messages to ${formatDuration(seconds)}.`
+    : `${actorName} turned off disappearing messages.`;
+}
+
+/**
+ * Human-readable lines describing how a group changed. `actorName` null
+ * phrases changes passively (several people changed things in one batch).
+ */
 export function describeGroupChange(
   before: Conversation | undefined,
   after: Conversation,
-  actorName: string,
+  actorName: string | null,
   nameOf: (id: string) => string,
 ): string[] {
-  if (!before) return [`${actorName} updated the group.`];
+  if (!before) return [actorName ? `${actorName} updated the group.` : 'The group was updated.'];
   const lines: string[] = [];
   if (before.title !== after.title) {
-    lines.push(`${actorName} changed the group name to "${after.title}".`);
+    lines.push(
+      actorName
+        ? `${actorName} changed the group name to "${after.title}".`
+        : `The group name was changed to "${after.title}".`,
+    );
   }
   if ((before.description ?? '') !== (after.description ?? '')) {
+    const verb = after.description ? 'changed' : 'removed';
     lines.push(
-      after.description
-        ? `${actorName} changed the group description.`
-        : `${actorName} removed the group description.`,
+      actorName
+        ? `${actorName} ${verb} the group description.`
+        : `The group description was ${verb}.`,
     );
   }
   if (before.expireTimerSec !== after.expireTimerSec) {
-    lines.push(
-      after.expireTimerSec > 0
-        ? `${actorName} set disappearing messages to ${formatDuration(after.expireTimerSec)}.`
-        : `${actorName} turned off disappearing messages.`,
-    );
+    lines.push(timerSentence(actorName, after.expireTimerSec));
   }
   const was = new Set(before.memberIds);
   const is = new Set(after.memberIds);

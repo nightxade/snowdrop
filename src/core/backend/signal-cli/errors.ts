@@ -15,6 +15,11 @@ export type SignalCliErrorKind =
   | 'invalid-response'
   /** The daemon has no registered/linked account (start the link flow). */
   | 'no-account'
+  /**
+   * Single-account daemon (`signal-cli -a +X daemon`): it can't tell us which
+   * account it serves, so the user must enter it (settings `connection.account`).
+   */
+  | 'account-required'
   // JSON-RPC error codes (SignalJsonRpcCommandHandler):
   | 'user' // -1  bad input, group not found, …
   | 'unregistered' // -1 with "is not registered"

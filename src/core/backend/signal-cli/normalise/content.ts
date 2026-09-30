@@ -24,6 +24,8 @@ export interface MessageMeta {
   status: MessageStatus;
   /** Maps an address to our canonical id (self aliases → selfId). */
   resolveId: (id: string) => string;
+  /** Start of the disappearing timer (server receive time, capped at now). */
+  timerStart: number;
 }
 
 /** Attachment ids are signal-cli's local file ids; fall back to a stable synthetic id. */
@@ -49,6 +51,13 @@ export function toQuote(q: WireQuote, resolveId: (id: string) => string): Quote 
   }
   const quote: Quote = { authorId: resolveId(author), sentAt: q.id, text };
   if (ranges.length > 0) quote.ranges = ranges;
+  if (q.attachments.length > 0) {
+    quote.attachments = q.attachments.map((a) =>
+      a.filename
+        ? { contentType: a.contentType, fileName: a.filename }
+        : { contentType: a.contentType },
+    );
+  }
   return quote;
 }
 
@@ -126,9 +135,10 @@ export function buildMessage(data: WireDataMessage, meta: MessageMeta): Message 
   };
   if (quote) message.quote = quote;
   const expires = data.expiresInSeconds ?? 0;
-  // Signal starts the timer when the message is read; starting it on arrival
-  // errs on the side of deleting early, never keeping longer than intended.
-  if (expires > 0) message.expiresAt = meta.receivedAt + expires * 1000;
+  // Signal starts the timer when the message is read; starting it when the
+  // server received it errs on the side of deleting early, never keeping a
+  // message longer than intended — and a replayed old message is already due.
+  if (expires > 0) message.expiresAt = meta.timerStart + expires * 1000;
   return message;
 }
 

@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { directConversationId, groupConversationId, messageId } from '@/core/domain';
-import { ALICE, BOB, fixtures, GROUP_ID, SELF_ACI, SELF_NUMBER, T0 } from '../fixtures/envelopes';
+import {
+  ALICE,
+  BOB,
+  dataMessage,
+  fixtures,
+  GROUP_ID,
+  receive,
+  SELF_ACI,
+  SELF_NUMBER,
+  T0,
+} from '../fixtures/envelopes';
+import { describeGroupChange } from './directory';
 import { normaliseReceive } from './envelope';
 import type { AdapterEvent, NormaliseContext } from './types';
 
@@ -58,7 +69,8 @@ describe('normaliseReceive: messages', () => {
       { start: 7, length: 12, style: 'italic' },
       { start: 12, length: 4, style: 'spoiler' },
     ]);
-    expect(payload.expiresAt).toBe(NOW + 3_600_000);
+    // Timer runs from the server's receive time, not from when we saw it.
+    expect(payload.expiresAt).toBe(T0 + 150 + 3_600_000);
   });
 
   it('accepts CLI-style "start:length:STYLE" text styles', () => {
@@ -84,7 +96,12 @@ describe('normaliseReceive: messages', () => {
 
   it('describes a quoted attachment without text and resolves our own id', () => {
     const { payload } = only(run(fixtures.quoteOfAttachment).events, 'message');
-    expect(payload.quote).toEqual({ authorId: SELF_ACI, sentAt: T0 - 1, text: 'Photo' });
+    expect(payload.quote).toEqual({
+      authorId: SELF_ACI,
+      sentAt: T0 - 1,
+      text: 'Photo',
+      attachments: [{ contentType: 'image/jpeg' }],
+    });
   });
 
   it('maps attachments without resolving URLs (lazy download)', () => {
@@ -314,5 +331,97 @@ describe('normaliseReceive: robustness', () => {
     expect(payload.body).toBe('still here');
     expect(payload.quote).toBeUndefined();
     expect(debug).toContain('lenient decode issues');
+  });
+});
+
+describe('normaliseReceive: review fixes', () => {
+  it('turns an undecryptable envelope into a system line in the DM', () => {
+    const payload = {
+      account: SELF_NUMBER,
+      exception: { message: 'Untrusted identity', type: 'UntrustedIdentityException' },
+      envelope: {
+        source: '+15550001111',
+        sourceNumber: '+15550001111',
+        sourceUuid: ALICE,
+        sourceName: 'Alice Liddell',
+        sourceDevice: 1,
+        timestamp: T0 + 7,
+        serverReceivedTimestamp: T0 + 8,
+        serverDeliveredTimestamp: T0 + 9,
+      },
+    };
+    const { payload: m } = only(run(payload).events, 'message');
+    expect(m).toMatchObject({
+      id: messageId(ALICE, T0 + 7),
+      conversationId: DM_ALICE,
+      kind: 'system',
+      systemText:
+        "Couldn't decrypt a message from Alice. Their safety number changed — verify it on your phone.",
+    });
+  });
+
+  it('judges typing staleness by the server receive time, not the sender clock', () => {
+    const skewed = receive('alice', {
+      timestamp: T0 + 3_600_000, // sender clock an hour ahead
+      serverReceivedTimestamp: T0 - 60_000,
+      typingMessage: { action: 'STARTED', timestamp: T0 + 3_600_000 },
+    });
+    expect(run(skewed).events).toEqual([]);
+    const fresh = receive('alice', {
+      timestamp: T0 - 3_600_000, // sender clock an hour behind
+      serverReceivedTimestamp: NOW - 1_000,
+      typingMessage: { action: 'STARTED', timestamp: T0 - 3_600_000 },
+    });
+    expect(run(fresh).events.map((e) => e.kind)).toEqual(['typing']);
+  });
+
+  it('drops the timer to server time so replayed messages are already due', () => {
+    const replay = receive('alice', {
+      serverReceivedTimestamp: T0 - 7_200_000,
+      dataMessage: dataMessage({
+        timestamp: T0 - 7_200_000,
+        message: 'old',
+        expiresInSeconds: 3600,
+      }),
+    });
+    const { payload } = only(run(replay).events, 'message');
+    expect(payload.expiresAt).toBe(T0 - 3_600_000);
+  });
+});
+
+describe('describeGroupChange', () => {
+  const base = {
+    id: GROUP,
+    kind: 'group' as const,
+    title: 'A',
+    memberIds: [ALICE],
+    adminIds: [],
+    expireTimerSec: 0,
+    lastActivityAt: 0,
+  };
+  const nameOf = (id: string) => (id === BOB ? 'Bob' : id);
+
+  it('names the actor when one person made the change', () => {
+    expect(
+      describeGroupChange(base, { ...base, title: 'B', expireTimerSec: 86_400 }, 'Alice', nameOf),
+    ).toEqual([
+      'Alice changed the group name to "B".',
+      'Alice set disappearing messages to 1 day.',
+    ]);
+  });
+
+  it('uses passive wording for batched changes by several people', () => {
+    expect(
+      describeGroupChange(
+        base,
+        { ...base, description: 'hi', memberIds: [ALICE, BOB], adminIds: [ALICE] },
+        null,
+        nameOf,
+      ),
+    ).toEqual([
+      'The group description was changed.',
+      'Bob joined the group.',
+      `${ALICE} is now an admin.`,
+    ]);
   });
 });

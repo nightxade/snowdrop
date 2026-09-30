@@ -34,6 +34,10 @@ export function targetParams(
  * would otherwise break the URI).
  */
 export function toDataUri(contentType: string, fileName: string, base64: string): string {
+  // signal-cli treats anything that fails its data-URI pattern (which needs
+  // at least one data character) as a *file path on the daemon host*. Never
+  // let an empty payload fall through to that.
+  if (base64.length === 0) throw new SignalCliError('user', "Empty files can't be sent.");
   // The media type must look like type/subtype and contain no parameters.
   const type = /^[\w.+-]+\/[\w.+-]+$/u.test(contentType) ? contentType : 'application/octet-stream';
   return `data:${type};filename=${encodeURIComponent(fileName || 'file')};base64,${base64}`;
@@ -67,8 +71,31 @@ export function messageParams(input: MessageParamsInput): RpcParams {
     const qMentions = mentionParams(qRanges);
     if (qStyles.length > 0) params.quoteTextStyle = qStyles;
     if (qMentions.length > 0) params.quoteMention = qMentions;
+    const qAttachments = quoteAttachmentParams(quote.attachments ?? []);
+    if (qAttachments.length > 0) params.quoteAttachment = qAttachments;
   }
   return params;
+}
+
+/**
+ * `quoteAttachment`: `contentType[:filename]`. The CLI syntax splits on `:`
+ * (a third part would be a *preview file path*), so colons in names are
+ * replaced and types that aren't plain type/subtype are skipped.
+ */
+export function quoteAttachmentParams(
+  attachments: readonly { contentType: string; fileName?: string }[],
+): string[] {
+  return attachments.flatMap((a) => {
+    if (!/^[\w.+-]+\/[\w.+-]+$/u.test(a.contentType)) return [];
+    const name = a.fileName?.replaceAll(':', '_');
+    return [name ? `${a.contentType}:${name}` : a.contentType];
+  });
+}
+
+/** Pin durations are Java ints on the daemon side; -1 means "forever". */
+export function pinDurationParam(seconds: number | undefined): number {
+  if (seconds === undefined || !Number.isFinite(seconds) || seconds <= 0) return -1;
+  return Math.min(Math.trunc(seconds), 2_147_483_647) || 1;
 }
 
 const FAILURE_REASONS: Record<string, RecipientFailureReason> = {

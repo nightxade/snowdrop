@@ -28,15 +28,25 @@ signal-cli --version
 Signal changes its servers regularly; releases older than about three months may stop
 working. Keep signal-cli up to date.
 
-## 2. Start the daemon (multi-account mode)
+## 2. Start the daemon
 
 ```sh
-signal-cli daemon --http 127.0.0.1:8080
+signal-cli daemon --http 127.0.0.1:8080 --receive-mode on-connection
 ```
 
-- Start it **without** `-a/--account`. In this multi-account mode Hearth can list your
-  accounts and link a new device itself (`startLink` / `finishLink`). If you do pass
-  `-a +15551234567`, everything still works except linking from inside Hearth.
+- **Multi-account mode (recommended):** start it **without** `-a/--account`. Hearth then
+  lists your accounts (`listAccounts`) and can link a new device itself
+  (`startLink` / `finishLink`).
+- **Single-account mode** (`signal-cli -a +15551234567 daemon --http …`) also works, but
+  this daemon can't tell Hearth which account it serves and has no linking methods: Hearth
+  asks you for the account's phone number (or ACI) once, and linking must be done in a
+  terminal (step 4). Hearth learns the matching ACI from incoming events automatically.
+- `--receive-mode on-connection` makes the daemon fetch messages from Signal only while
+  Hearth is connected, so messages that arrive while Hearth is closed wait on Signal's
+  servers instead of being consumed by the daemon unseen. With the default `on-start`, the
+  daemon receives from the moment it starts, and anything it receives before Hearth first
+  connects is not buffered for Hearth (its event buffer starts recording on the first
+  event-stream connection).
 - Keep the address on `127.0.0.1` (see [Privacy](#privacy)).
 - Optional: `--sse-keepalive-interval 15` (the default). Hearth treats a connection that
   is silent for 45 s as dead and reconnects, so don't raise it above ~30 s.
@@ -84,42 +94,71 @@ qrencode -t ansiutf8 'sgnl://linkdevice?uuid=…&pub_key=…'
 
 With several accounts on one daemon, Hearth uses the one stored in settings
 (`connection.account`, an ACI or phone number) or, if unset, the first account it finds.
+On a single-account daemon `connection.account` is required (Hearth reports
+`account-required` until it is set).
 
 ## What to expect
 
 - **History starts now.** signal-cli keeps no message history, so Hearth shows messages
   received while it (or the daemon's event buffer) was running, and stores them locally in
   IndexedDB (`hearth-signal-cli`). The daemon keeps the last 1000 events in memory; if
-  Hearth was closed (or reloaded) while the daemon kept running, it resumes from the last
-  event it saw.
+  Hearth is reloaded while the daemon keeps running, it resumes after the last event it
+  had _stored_ (the position is saved only after the message is written locally, so a
+  reload can re-deliver, never skip).
 - **Direct conversations** appear once a message is exchanged; groups appear immediately.
 - Stickers, view-once media, payments, polls and shared contacts are shown as a short note
-  ("open it on your phone"); calls and stories are ignored.
+  ("open it on your phone"); calls and stories are ignored. Messages the daemon couldn't
+  decrypt (e.g. a changed safety number) appear as a system line asking you to check the
+  safety number on your phone.
 - Group updates are shown as a system line computed by comparing the group before and
-  after (signal-cli does not say what changed).
+  after (signal-cli does not say what changed). Several updates in a row are summarised
+  in one line without naming who did what.
+- Your own sent images keep only a small (≤ 512 px) preview locally; files over 100 MB
+  can't be sent or opened through the daemon.
+- **Edits** re-send the original reply quote (signal-cli rebuilds the whole message from
+  the edit's parameters). Attachments can't be re-sent with an edit; official Signal
+  clients keep the original's attachments, but this is unverified with signal-cli.
+- Changing a **1:1 disappearing-message timer** uses `updateContact`, which also un-hides
+  the contact if you had hidden it on your phone.
+- The first connection may take a while on large accounts: listing contacts makes the
+  daemon refresh stale profiles from Signal's servers. Hearth connects and receives
+  messages meanwhile; names fill in when the list arrives.
 
 ## Troubleshooting
 
-| Symptom                                                           | Cause / fix                                                                                                                                                               |
-| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| "Cannot reach signal-cli at /signal-cli"                          | Daemon not running, wrong port, or `HEARTH_SIGNAL_CLI_URL` points elsewhere. `curl http://127.0.0.1:8080/api/v1/check`. Restart `npm run dev` after changing the env var. |
-| "Daemon rejected the Host header" (HTTP 421)                      | You're calling the daemon directly or through a proxy that keeps the browser's `Host`. Use the default `/signal-cli` URL.                                                 |
-| "signal-cli has no account yet"                                   | Link a device (step 4) or register one with `signal-cli -a +NUMBER register`.                                                                                             |
-| Stream stays "connecting" / status "error" right after connecting | The event stream answered 400: the configured account doesn't exist on this daemon. Clear the account in settings (Advanced → Connection) or fix it.                      |
-| Messages from before Hearth was opened are missing                | Expected: signal-cli has no history, and its event buffer is lost when the daemon restarts. Keep the daemon running (e.g. as a user service).                             |
-| Sends fail with "untrusted identity"                              | A contact's safety number changed. Verify it on your phone, or `signal-cli -a ACCOUNT trust -a NUMBER`.                                                                   |
-| Sends fail with "rate limited"                                    | Signal throttles new/linked devices; wait (the error includes the retry delay) or solve the captcha challenge with `submitRateLimitChallenge`.                            |
-| Images never load                                                 | The daemon was started with `--ignore-attachments`, or the file is larger than 100 MB (open it on your phone).                                                            |
-| Everything is slow after a daemon restart                         | On reconnect with an unknown event id the daemon replays up to 1000 buffered events; duplicates are merged, it settles within seconds.                                    |
+| Symptom                                                               | Cause / fix                                                                                                                                                                                                                                                                                         |
+| --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "Cannot reach signal-cli at /signal-cli"                              | Daemon not running, wrong port, or `HEARTH_SIGNAL_CLI_URL` points elsewhere. `curl http://127.0.0.1:8080/api/v1/check`. Restart `npm run dev` after changing the env var.                                                                                                                           |
+| "Daemon rejected the Host header" (HTTP 421)                          | You're calling the daemon directly or through a proxy that keeps the browser's `Host`. Use the default `/signal-cli` URL.                                                                                                                                                                           |
+| "signal-cli has no account yet"                                       | Link a device (step 4) or register one with `signal-cli -a +NUMBER register`.                                                                                                                                                                                                                       |
+| "This signal-cli daemon serves a single account" (`account-required`) | The daemon was started with `-a`. Enter that account's number in Hearth, or restart the daemon without `-a` (multi-account mode).                                                                                                                                                                   |
+| HTTP 403 "Forbidden: …" from `/signal-cli`                            | The dev proxy only serves the app's own origin on a loopback address. Open Hearth at `http://localhost:5173` (not a LAN address) and don't call the proxy from other sites.                                                                                                                         |
+| Stream stays "connecting" / status "error" right after connecting     | The event stream answered 400: the configured account doesn't exist on this daemon. Clear the account in settings (Advanced → Connection) or fix it.                                                                                                                                                |
+| Messages from before Hearth was opened are missing                    | signal-cli has no history. Messages from before linking are never available. With the default `--receive-mode on-start`, messages the daemon received before Hearth's first connection (since the daemon started) are not buffered for Hearth; use `--receive-mode on-connection`.                  |
+| Sends fail with "untrusted identity"                                  | A contact's safety number changed. Verify it on your phone, or `signal-cli -a ACCOUNT trust -a NUMBER`.                                                                                                                                                                                             |
+| Sends fail with "rate limited"                                        | Signal throttles new/linked devices; wait (the error includes the retry delay) or solve the captcha challenge with `submitRateLimitChallenge`.                                                                                                                                                      |
+| Images never load                                                     | The daemon was started with `--ignore-attachments`, or the file is larger than 100 MB (open it on your phone).                                                                                                                                                                                      |
+| A burst of old messages right after reconnecting                      | Hearth resumed with a saved event id the daemon doesn't know (it was restarted), so the daemon sent every event it has buffered since it started (at most 1000). Duplicates of messages Hearth already has are merged. If more than 1000 events arrived while Hearth was away, the oldest are gone. |
 
 ## Privacy
 
 - **Bind the daemon to localhost.** It has **no authentication**: anyone who can reach the
   port can read and send your messages. Never use `--http 0.0.0.0:…` (which also disables
   its Host-header check) on a machine others can reach.
+- **Don't expose the dev server.** The proxy forwards to the daemon with the daemon's own
+  Host header, so it is exactly as powerful as the daemon. Hearth's proxy guard only answers
+  requests for a loopback Host from the app's own origin (checked via `Origin` and
+  `Sec-Fetch-Site`), and CORS is disabled on the dev/preview server, so other web pages —
+  including other `localhost` apps — can't use it. Running `vite --host` (or `npm run dev -- --host`) puts the server on your network: the
+  guard then refuses LAN requests, but don't work around it, and never run the proxy on a
+  shared machine.
 - Hearth only talks to the daemon through the local proxy; no other network requests are
   made on its behalf. Link previews are off by default.
 - Message history lives in your browser's IndexedDB for the Hearth origin; clear it from
   Settings → Data & Storage, or by clearing site data.
-- Outgoing attachments are sent to the daemon as `data:` URIs (never as file paths), so
-  the web page can't make the daemon read arbitrary local files.
+- Outgoing attachments are sent to the daemon as `data:` URIs (never as file paths, and
+  never empty — an empty data URI would be read as a path by signal-cli), so the web page
+  can't make the daemon read arbitrary local files.
+- Incoming attachments are handed to the page as `blob:` URLs typed with their real media
+  type only for common raster image, audio and video types; anything else (HTML, SVG, …)
+  is served as opaque bytes so it can never run as a page.

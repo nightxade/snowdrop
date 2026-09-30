@@ -32,8 +32,86 @@ export function bytesToBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-/** Files up to this size keep a `data:` URL so our own sent images survive reloads. */
-export const INLINE_PREVIEW_MAX_BYTES = 1_500_000;
+/**
+ * Media types we let the browser interpret. The content type of an incoming
+ * attachment is chosen by the *sender*; labelling a blob `text/html` or
+ * `image/svg+xml` would make it scriptable if it were ever navigated to or
+ * framed. Everything else is served as opaque bytes.
+ */
+const SAFE_MEDIA_TYPES = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/webp',
+  'image/avif',
+  'image/bmp',
+  'image/heic',
+  'image/heif',
+  'video/mp4',
+  'video/webm',
+  'video/quicktime',
+  'video/3gpp',
+  'audio/mpeg',
+  'audio/mp4',
+  'audio/aac',
+  'audio/ogg',
+  'audio/opus',
+  'audio/webm',
+  'audio/wav',
+  'audio/x-wav',
+  'audio/flac',
+  'audio/amr',
+]);
+
+export function safeMediaType(contentType: string): string {
+  const type = contentType.split(';', 1)[0]?.trim().toLowerCase() ?? '';
+  return SAFE_MEDIA_TYPES.has(type) ? type : 'application/octet-stream';
+}
+
+/** Largest file we send or download through the daemon's JSON API. */
+export const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
+/** Longest edge of the preview we keep for our own sent images. */
+export const THUMBNAIL_MAX_EDGE = 512;
+
+export interface Thumbnail {
+  /** `data:` URL of a small re-encoded preview. */
+  url: string;
+  /** Dimensions of the *original* image. */
+  width: number;
+  height: number;
+}
+
+export type Thumbnailer = (image: Blob) => Promise<Thumbnail | undefined>;
+
+/**
+ * Default thumbnailer: decodes with `createImageBitmap` and re-encodes a
+ * ≤512 px WebP (JPEG where WebP encoding is unavailable). Returns undefined
+ * where the APIs don't exist (tests, old browsers) — the attachment is then
+ * shown as a file card.
+ */
+export const canvasThumbnailer: Thumbnailer = async (image) => {
+  if (typeof createImageBitmap !== 'function' || typeof OffscreenCanvas !== 'function') {
+    return undefined;
+  }
+  const bitmap = await createImageBitmap(image);
+  try {
+    const scale = Math.min(1, THUMBNAIL_MAX_EDGE / Math.max(bitmap.width, bitmap.height));
+    const w = Math.max(1, Math.round(bitmap.width * scale));
+    const h = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = new OffscreenCanvas(w, h);
+    const context = canvas.getContext('2d');
+    if (!context) return undefined;
+    context.drawImage(bitmap, 0, 0, w, h);
+    let blob = await canvas.convertToBlob({ type: 'image/webp', quality: 0.8 });
+    if (blob.type !== 'image/webp')
+      blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.8 });
+    const type = blob.type === 'image/webp' ? 'image/webp' : 'image/jpeg';
+    const base64 = bytesToBase64(new Uint8Array(await blob.arrayBuffer()));
+    return { url: `data:${type};base64,${base64}`, width: bitmap.width, height: bitmap.height };
+  } finally {
+    bitmap.close();
+  }
+};
 
 export interface EncodedAttachment {
   /** What signal-cli's `attachment` param gets. */
@@ -42,23 +120,35 @@ export interface EncodedAttachment {
   attachment: Attachment;
 }
 
+/**
+ * Encodes a picked file for `send`. The local record keeps only a small
+ * thumbnail for images (persisted with the message), never the whole file:
+ * full `data:` URLs would bloat IndexedDB and memory.
+ */
 export async function encodeOutgoing(
   file: OutgoingAttachment,
   id: string,
+  thumbnailer: Thumbnailer = canvasThumbnailer,
 ): Promise<EncodedAttachment> {
+  if (file.data.size === 0) throw new SignalCliError('user', `"${file.fileName}" is empty.`);
+  if (file.data.size > MAX_ATTACHMENT_BYTES) {
+    throw new SignalCliError('user', `"${file.fileName}" is larger than 100 MB.`);
+  }
   const bytes = new Uint8Array(await file.data.arrayBuffer());
-  const base64 = bytesToBase64(bytes);
-  const param = toDataUri(file.contentType, file.fileName, base64);
+  const param = toDataUri(file.contentType, file.fileName, bytesToBase64(bytes));
   const attachment: Attachment = {
     id,
     contentType: file.contentType || 'application/octet-stream',
     fileName: file.fileName,
     size: bytes.length,
   };
-  // Plain data URL (no filename param) so browsers render it; the repository
-  // persists it, unlike a blob: URL which dies with the page.
-  if (bytes.length <= INLINE_PREVIEW_MAX_BYTES) {
-    attachment.url = `data:${attachment.contentType};base64,${base64}`;
+  if (safeMediaType(file.contentType).startsWith('image/')) {
+    const thumb = await thumbnailer(file.data).catch(() => undefined);
+    if (thumb) {
+      attachment.url = thumb.url;
+      attachment.width = thumb.width;
+      attachment.height = thumb.height;
+    }
   }
   return { param, attachment };
 }
@@ -85,7 +175,7 @@ export class AttachmentResolver {
 
   constructor(private readonly options: AttachmentResolverOptions) {
     this.maxEntries = options.maxEntries ?? 200;
-    this.maxBytes = options.maxBytes ?? 100 * 1024 * 1024;
+    this.maxBytes = options.maxBytes ?? MAX_ATTACHMENT_BYTES;
     this.createObjectUrl = options.createObjectUrl ?? ((blob) => URL.createObjectURL(blob));
     this.revokeObjectUrl =
       options.revokeObjectUrl ??
@@ -122,7 +212,8 @@ export class AttachmentResolver {
         return url;
       })
       .finally(() => {
-        this.inFlight.delete(attachment.id);
+        // clear() may have let a newer request for the same id start meanwhile.
+        if (this.inFlight.get(attachment.id) === promise) this.inFlight.delete(attachment.id);
       });
     this.inFlight.set(attachment.id, promise);
     return promise;
@@ -144,7 +235,8 @@ export class AttachmentResolver {
       // Large files take a while to base64 through JSON.
       { timeoutMs: 120_000 },
     );
-    const blob = new Blob([base64ToBytes(data)], { type: attachment.contentType });
+    // Never label the bytes with an unvetted, sender-chosen type (XSS).
+    const blob = new Blob([base64ToBytes(data)], { type: safeMediaType(attachment.contentType) });
     return this.createObjectUrl(blob);
   }
 

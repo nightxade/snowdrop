@@ -6,11 +6,16 @@
  *   validated and normalised by pure functions, and are then applied *in
  *   order* through one promise queue — some need a daemon round-trip first
  *   (a group update is re-listed and diffed) and must not be overtaken by the
- *   message that follows them.
+ *   message that follows them. After each SSE event's work a `checkpoint`
+ *   is emitted; the resume position is persisted only when the sync engine
+ *   acknowledges it (i.e. after the repository write), so a reload can cause
+ *   re-delivery but never loss.
  * - signal-cli keeps no message history and has no DM list; the repository
  *   owns history, and `DirectPeers` remembers who we've talked to.
- * - Multi-account daemons are supported: the chosen account is sent as the
- *   `account` param and `?account=` on the event stream.
+ * - Multi-account daemons: the account is sent as the `account` param and
+ *   `?account=` on the stream. Single-account daemons (`-a +X daemon`) have
+ *   no `listAccounts`; we then send no account param and rely on the
+ *   configured account for our own identity (see SelfIdentity).
  */
 import {
   colorForId,
@@ -21,6 +26,7 @@ import {
   type Contact,
   type Conversation,
   type ConversationId,
+  type Quote,
 } from '@/core/domain';
 import {
   Emitter,
@@ -43,36 +49,41 @@ import type {
   SendInput,
   SendResult,
 } from '../types';
-import { AttachmentResolver, encodeOutgoing } from './attachments';
+import { AttachmentResolver, encodeOutgoing, type Thumbnailer } from './attachments';
+import { Directory } from './directory';
 import { SignalCliError } from './errors';
-import {
-  describeGroupChange,
-  toContact,
-  toDirectConversation,
-  toGroupConversation,
-} from './normalise/directory';
-import { normaliseReceive } from './normalise/envelope';
+import { GroupChangeTracker } from './groupChanges';
+import { isUuid, SelfIdentity } from './identity';
 import { systemMessage } from './normalise/content';
+import { describeGroupChange, timerSentence, toDirectConversation } from './normalise/directory';
+import { normaliseReceive } from './normalise/envelope';
 import type { AdapterEvent, NormaliseContext } from './normalise/types';
-import { enrichSendError, messageParams, recipientFailures, targetParams } from './params';
+import {
+  enrichSendError,
+  messageParams,
+  pinDurationParam,
+  recipientFailures,
+  targetParams,
+} from './params';
+import { DirectPeers } from './peers';
 import { JsonRpcClient, joinUrl, type FetchLike, type RpcParams } from './rpc';
 import { EventStream, type EventStreamState, type SseEvent } from './sse';
-import { unknownValue } from './validate';
-import { DirectPeers } from './peers';
+import { isRecord, unknownValue } from './validate';
 import {
   wireAccounts,
-  wireContacts,
   wireFinishLink,
-  wireGroups,
   wireSendResult,
   wireStartLink,
   type WireAccount,
 } from './wire';
 
 export interface SignalCliBackendOptions {
-  /** Daemon base URL: `/signal-cli` behind the Vite proxy, or `http://127.0.0.1:8080`. */
+  /** Daemon base URL: `/signal-cli` behind the Vite proxy. */
   baseUrl: string;
-  /** Preferred account (number or ACI); the only/first account is used otherwise. */
+  /**
+   * Account (number or ACI). Multi-account daemons: preferred account (else
+   * the first). Single-account daemons: *required* — it's our identity.
+   */
   account?: string | null;
   fetch?: FetchLike;
   clock?: Clock;
@@ -85,15 +96,19 @@ export interface SignalCliBackendOptions {
   debug?: (message: string, detail?: unknown) => void;
   rpcTimeoutMs?: number;
   stream?: { initialDelayMs?: number; maxDelayMs?: number; idleTimeoutMs?: number };
+  /** Makes previews of sent images (tests inject one; the default uses canvas). */
+  thumbnailer?: Thumbnailer;
 }
 
-/** Directory data is re-used this long so connect + initial sync don't list twice. */
-const DIRECTORY_TTL_MS = 5_000;
 /** finishLink blocks until the phone scans the code. */
 const LINK_TIMEOUT_MS = 10 * 60_000;
+/** Quotes of messages sent this session, for edits whose caller omits them. */
+const SENT_QUOTES_MAX = 500;
 
 /** For commands whose result we don't need (it varies across daemon versions). */
 const ignoreResult = unknownValue;
+
+type GroupChanged = Extract<AdapterEvent, { kind: 'groupChanged' }>;
 
 export class SignalCliBackend implements ChatBackend {
   readonly kind = 'signal-cli' as const;
@@ -104,6 +119,9 @@ export class SignalCliBackend implements ChatBackend {
   private readonly clock: Clock;
   private readonly scheduler: Scheduler;
   private readonly attachments: AttachmentResolver;
+  private readonly directory: Directory;
+  private readonly groupChanges = new GroupChangeTracker();
+  private readonly sentQuotes = new Map<string, Quote>();
   private readonly debugLog: (message: string, detail?: unknown) => void;
 
   private status: ConnectionStatus = 'offline';
@@ -115,16 +133,9 @@ export class SignalCliBackend implements ChatBackend {
   private session = 0;
 
   // Per-account state, set on connect.
-  private selfId = '';
-  private selfNumber: string | undefined;
-  private selfAliases = new Set<string>();
+  private identity = new SelfIdentity('');
+  private multiAccount = true;
   private peers: DirectPeers | null = null;
-  private readonly contacts = new Map<string, Contact>();
-  /** DM disappearing timers come from the contact record. */
-  private readonly dmTimers = new Map<string, number>();
-  private readonly groups = new Map<ConversationId, Conversation>();
-  private contactsLoadedAt = -Infinity;
-  private groupsLoadedAt = -Infinity;
 
   constructor(private readonly options: SignalCliBackendOptions) {
     this.clock = options.clock ?? systemClock;
@@ -141,6 +152,19 @@ export class SignalCliBackend implements ChatBackend {
       ...(options.rpcTimeoutMs === undefined ? {} : { timeoutMs: options.rpcTimeoutMs }),
     });
     this.attachments = new AttachmentResolver({ rpc: this.rpc });
+    this.directory = new Directory({
+      rpc: this.rpc,
+      now: () => this.clock.now(),
+      scheduler: this.scheduler,
+      identity: () => this.identity,
+      debug: this.debugLog,
+      onContactChanged: (contact) => {
+        this.emitter.emit('contactUpdated', contact);
+        if (this.peers?.has(contact.id)) {
+          this.emitter.emit('conversationUpdated', this.directConversation(contact.id, 0));
+        }
+      },
+    });
     this.link = {
       start: async () => {
         const { deviceLinkUri } = await this.rpc.call('startLink', undefined, wireStartLink, {
@@ -156,13 +180,18 @@ export class SignalCliBackend implements ChatBackend {
           { account: null, timeoutMs: LINK_TIMEOUT_MS },
         );
         const accountId = result.aci ?? result.number;
-        if (!accountId)
+        if (!accountId) {
           throw new SignalCliError('invalid-response', 'finishLink returned no account');
+        }
         this.preferredAccount = accountId;
         this.options.onAccountSelected?.(accountId);
         return { accountId };
       },
     };
+  }
+
+  private get selfId(): string {
+    return this.identity.selfId;
   }
 
   // ─── Lifecycle ─────────────────────────────────────────────────────────
@@ -179,27 +208,58 @@ export class SignalCliBackend implements ChatBackend {
     this.setStatus('connecting');
     try {
       await this.rpc.check({ timeoutMs: 5_000 });
-      const accounts = await this.rpc.call('listAccounts', undefined, wireAccounts, {
-        account: null,
-      });
-      const account = this.chooseAccount(accounts);
-      this.selectAccount(account);
-      await this.loadDirectory(true);
+      this.selectAccount(await this.discoverAccount());
+      // Stream first: nothing sent to us while we load the directory is missed.
       this.openStream();
+      // listGroups is local to the daemon and fast; listContacts may hit
+      // Signal's servers for stale profiles, so it loads in the background.
+      await this.directory.loadGroups(true);
+      void this.directory.loadContacts(true);
     } catch (error) {
+      await this.closeStream();
       this.setStatus('error');
       throw error;
     }
   }
 
+  /**
+   * Multi-account daemons list their accounts; a single-account daemon
+   * answers METHOD_NOT_FOUND, and then the configured account is our identity.
+   */
+  private async discoverAccount(): Promise<WireAccount & { multi: boolean }> {
+    let accounts: WireAccount[];
+    try {
+      accounts = await this.rpc.call('listAccounts', undefined, wireAccounts, { account: null });
+    } catch (error) {
+      if (!(error instanceof SignalCliError) || error.kind !== 'method-not-found') throw error;
+      const configured = this.preferredAccount;
+      if (!configured) {
+        throw new SignalCliError(
+          'account-required',
+          'This signal-cli daemon serves a single account (started with -a). ' +
+            'Enter that phone number (or ACI) in Hearth to continue.',
+        );
+      }
+      return isUuid(configured)
+        ? { aci: configured, number: undefined, multi: false }
+        : { aci: undefined, number: configured, multi: false };
+    }
+    return { ...this.chooseAccount(accounts), multi: true };
+  }
+
   async disconnect(): Promise<void> {
     await this.connecting?.catch(() => undefined);
     this.session++;
+    await this.closeStream();
+    this.attachments.clear();
+    this.groupChanges.clear();
+    this.setStatus('offline');
+  }
+
+  private async closeStream(): Promise<void> {
     const stream = this.stream;
     this.stream = null;
     await stream?.stop();
-    this.attachments.clear();
-    this.setStatus('offline');
   }
 
   getStatus(): ConnectionStatus {
@@ -213,7 +273,7 @@ export class SignalCliBackend implements ChatBackend {
     return this.emitter.on(event, fn);
   }
 
-  /** The account param in use (after connect). */
+  /** The account param in use (undefined for single-account daemons). */
   get account(): string | undefined {
     return this.rpc.account;
   }
@@ -235,21 +295,17 @@ export class SignalCliBackend implements ChatBackend {
     return chosen;
   }
 
-  private selectAccount(account: WireAccount): void {
+  private selectAccount(account: WireAccount & { multi: boolean }): void {
     // Prefer the ACI: numberless accounts exist, and numbers can change.
-    const param = account.aci ?? account.number ?? '';
-    this.rpc.account = param;
-    this.selfId = param;
-    this.selfNumber = account.number;
-    this.selfAliases = new Set([account.aci, account.number].filter((x): x is string => !!x));
-    this.peers = new DirectPeers(this.options.storage, param);
-    this.contacts.clear();
-    this.groups.clear();
-    this.dmTimers.clear();
-    this.contactsLoadedAt = -Infinity;
-    this.groupsLoadedAt = -Infinity;
-    if (param !== this.preferredAccount) this.options.onAccountSelected?.(param);
-    this.preferredAccount = param;
+    const id = account.aci ?? account.number ?? '';
+    this.multiAccount = account.multi;
+    this.rpc.account = account.multi ? id : undefined;
+    this.identity = new SelfIdentity(id, [account.aci, account.number]);
+    this.peers = new DirectPeers(this.options.storage, id);
+    this.directory.reset();
+    this.groupChanges.clear();
+    if (id !== this.preferredAccount) this.options.onAccountSelected?.(id);
+    this.preferredAccount = id;
   }
 
   private lastEventIdKey(): string {
@@ -258,10 +314,7 @@ export class SignalCliBackend implements ChatBackend {
 
   private openStream(): void {
     const session = this.session;
-    const url = joinUrl(
-      this.options.baseUrl,
-      `/api/v1/events?account=${encodeURIComponent(this.selfId)}`,
-    );
+    const query = this.multiAccount ? `?account=${encodeURIComponent(this.selfId)}` : '';
     let lastEventId = '';
     try {
       lastEventId = this.options.storage?.getItem(this.lastEventIdKey()) ?? '';
@@ -269,7 +322,7 @@ export class SignalCliBackend implements ChatBackend {
       // Storage unavailable: start from live events.
     }
     const stream = new EventStream({
-      url,
+      url: joinUrl(this.options.baseUrl, `/api/v1/events${query}`),
       ...(this.options.fetch ? { fetch: this.options.fetch } : {}),
       scheduler: this.scheduler,
       ...(this.options.random ? { random: this.options.random } : {}),
@@ -301,6 +354,8 @@ export class SignalCliBackend implements ChatBackend {
         break;
       case 'failed':
         this.debugLog('event stream failed', state.error);
+        // Let a later connect() (the UI's "Retry") start over.
+        this.stream = null;
         this.setStatus('error');
         break;
       case 'closed':
@@ -317,40 +372,49 @@ export class SignalCliBackend implements ChatBackend {
   // ─── Incoming events ───────────────────────────────────────────────────
 
   private onSse(event: SseEvent): void {
+    let events: AdapterEvent[] = [];
     if (event.type !== 'receive') {
       this.debugLog(`ignored SSE event "${event.type}"`);
-      return;
+    } else {
+      try {
+        const payload: unknown = JSON.parse(event.data);
+        this.learnSelf(payload);
+        events = normaliseReceive(payload, this.normaliseContext());
+      } catch {
+        this.debugLog('ignored non-JSON SSE data', event.data.slice(0, 200));
+      }
     }
-    try {
-      this.options.storage?.setItem(this.lastEventIdKey(), event.lastEventId);
-    } catch {
-      // Resume position is an optimisation only.
+    // Even an ignored event advances the resume position (once acknowledged).
+    this.enqueue(events, event.lastEventId || undefined);
+  }
+
+  /** Learns our other identifier from payloads (see SelfIdentity). */
+  private learnSelf(payload: unknown): void {
+    if (!isRecord(payload)) return;
+    // The daemon labels every event with the account it belongs to.
+    if (typeof payload.account === 'string') this.identity.add(payload.account);
+    const envelope = payload.envelope;
+    if (isRecord(envelope)) {
+      const uuid = typeof envelope.sourceUuid === 'string' ? envelope.sourceUuid : undefined;
+      const number = typeof envelope.sourceNumber === 'string' ? envelope.sourceNumber : undefined;
+      this.identity.learnPair(uuid, number);
     }
-    let payload: unknown;
-    try {
-      payload = JSON.parse(event.data);
-    } catch {
-      this.debugLog('ignored non-JSON SSE data', event.data.slice(0, 200));
-      return;
-    }
-    const events = normaliseReceive(payload, this.normaliseContext());
-    if (events.length > 0) this.enqueue(events);
   }
 
   private normaliseContext(): NormaliseContext {
     return {
       selfId: this.selfId,
-      selfAliases: this.selfAliases,
+      selfAliases: this.identity.aliases,
       now: this.clock.now(),
-      nameOf: (id) => this.contacts.get(id)?.name,
+      nameOf: (id) => this.directory.contact(id)?.name,
       debug: this.debugLog,
     };
   }
 
   /** Test hook: feeds a raw `receive` payload as if it came from the stream. */
-  ingest(payload: unknown): Promise<void> {
-    const events = normaliseReceive(payload, this.normaliseContext());
-    this.enqueue(events);
+  ingest(payload: unknown, cursor?: string): Promise<void> {
+    this.learnSelf(payload);
+    this.enqueue(normaliseReceive(payload, this.normaliseContext()), cursor);
     return this.queue;
   }
 
@@ -359,8 +423,29 @@ export class SignalCliBackend implements ChatBackend {
     return this.queue;
   }
 
-  private enqueue(events: AdapterEvent[]): void {
+  /** Persists the resume position once the sync engine has stored everything before it. */
+  acknowledge(cursor: string): void {
+    if (!this.selfId) return;
+    try {
+      this.options.storage?.setItem(this.lastEventIdKey(), cursor);
+    } catch {
+      // Resume position is an optimisation only; the worst case is re-delivery.
+    }
+  }
+
+  private enqueue(events: AdapterEvent[], cursor: string | undefined): void {
     const session = this.session;
+    // Snapshot group state *now*: a directory reload before this update is
+    // processed would otherwise already contain the new state.
+    for (const event of events) {
+      if (event.kind === 'groupChanged') {
+        this.groupChanges.arrived(
+          event.conversationId,
+          this.directory.group(event.conversationId),
+          event.actorId,
+        );
+      }
+    }
     this.queue = this.queue.then(async () => {
       for (const event of events) {
         if (session !== this.session) return;
@@ -370,6 +455,7 @@ export class SignalCliBackend implements ChatBackend {
           this.debugLog(`failed to apply ${event.kind}`, error);
         }
       }
+      if (cursor && session === this.session) this.emitter.emit('checkpoint', { cursor });
     });
   }
 
@@ -377,6 +463,7 @@ export class SignalCliBackend implements ChatBackend {
     switch (event.kind) {
       case 'message': {
         const message = event.payload;
+        this.noteUnknown(message.conversationId, message.authorId);
         this.notePeer(message.conversationId, message.receivedAt);
         this.emitter.emit('message', message);
         return;
@@ -388,7 +475,7 @@ export class SignalCliBackend implements ChatBackend {
         await this.applyGroupChange(event);
         return;
       case 'contactsChanged':
-        await this.refreshContacts();
+        await this.directory.loadContacts(true);
         return;
       case 'messageEdited':
         this.emitter.emit('messageEdited', event.payload);
@@ -414,6 +501,18 @@ export class SignalCliBackend implements ChatBackend {
     }
   }
 
+  /** Stale-directory triggers: a stranger wrote, or a group we don't know. */
+  private noteUnknown(conversationId: ConversationId, authorId: string): void {
+    if (authorId !== this.selfId && !this.directory.hasContact(authorId)) {
+      this.directory.scheduleContactsRefresh();
+    }
+    const parsed = parseConversationId(conversationId);
+    if (parsed?.kind === 'group' && !this.directory.group(conversationId)) {
+      // The sync engine re-lists conversations for unknown ids; make that fresh.
+      this.directory.invalidateGroups();
+    }
+  }
+
   /** Remembers a DM peer; announces the conversation the first time we see it. */
   private notePeer(conversationId: ConversationId, at: number): void {
     const parsed = parseConversationId(conversationId);
@@ -427,8 +526,8 @@ export class SignalCliBackend implements ChatBackend {
     return toDirectConversation(
       peerId,
       this.selfId,
-      this.contacts.get(peerId),
-      this.dmTimers.get(peerId) ?? 0,
+      this.directory.contact(peerId),
+      this.directory.dmTimer(peerId),
       lastActivityAt,
     );
   }
@@ -437,151 +536,105 @@ export class SignalCliBackend implements ChatBackend {
     const parsed = parseConversationId(conversationId);
     if (!parsed) return;
     if (parsed.kind === 'direct') {
-      this.dmTimers.set(parsed.target, seconds);
+      this.directory.setDmTimer(parsed.target, seconds);
       this.emitter.emit('conversationUpdated', this.directConversation(parsed.target, 0));
       return;
     }
-    const group = this.groups.get(conversationId);
+    const group = this.directory.group(conversationId);
     if (!group) return;
     const next = { ...group, expireTimerSec: seconds };
-    this.groups.set(conversationId, next);
+    this.directory.setGroup(next);
     this.emitter.emit('conversationUpdated', next);
   }
 
-  private async applyGroupChange(
-    event: Extract<AdapterEvent, { kind: 'groupChanged' }>,
-  ): Promise<void> {
-    const before = this.groups.get(event.conversationId);
-    const [raw] = await this.rpc.call('listGroups', { groupId: [event.groupId] }, wireGroups);
-    if (!raw || !raw.isMember) {
+  private async applyGroupChange(event: GroupChanged): Promise<void> {
+    const turn = this.groupChanges.take(event.conversationId);
+    // A later update to the same group is queued: it will re-list and describe
+    // the combined change (re-listing now would already show its state).
+    if (!turn.last) return;
+    const after = await this.directory.fetchGroup(event.groupId);
+    if (!after) {
       // We left or were removed; keep history, just note it.
-      this.emitter.emit(
-        'message',
-        this.groupSystemMessage(event, 'You are no longer a member of this group.'),
-      );
+      this.emitSystem(event, 'You are no longer a member of this group.');
       return;
     }
-    const after = toGroupConversation(raw, (id) => this.resolveId(id), 0);
-    this.groups.set(after.id, after);
     this.emitter.emit('conversationUpdated', after);
-
-    const actorName = this.nameOf(event.actorId);
+    const actorName = turn.actorId === null ? null : this.nameOf(turn.actorId);
     let lines: string[];
-    if (!before) {
+    if (!turn.before) {
       lines = [
-        event.actorId === this.selfId
-          ? 'You updated the group.'
+        turn.actorId === this.selfId || actorName === null
+          ? 'The group was updated.'
           : `${actorName} added you to the group.`,
       ];
     } else {
-      lines = describeGroupChange(before, after, actorName, (id) => this.nameOf(id));
-      if (lines.length === 0) lines = [`${actorName} updated the group settings.`];
+      lines = describeGroupChange(turn.before, after, actorName, (id) => this.nameOf(id));
+      if (lines.length === 0) {
+        lines = [actorName ? `${actorName} updated the group settings.` : 'The group was updated.'];
+      }
     }
-    this.emitter.emit('message', this.groupSystemMessage(event, lines.join(' ')));
+    this.emitSystem(event, lines.join(' '));
   }
 
-  private groupSystemMessage(event: Extract<AdapterEvent, { kind: 'groupChanged' }>, text: string) {
-    return systemMessage(
-      {
-        conversationId: event.conversationId,
-        authorId: event.actorId,
-        receivedAt: this.clock.now(),
-      },
-      event.sentAt,
-      text,
+  private emitSystem(event: GroupChanged, text: string): void {
+    this.emitter.emit(
+      'message',
+      systemMessage(
+        {
+          conversationId: event.conversationId,
+          authorId: event.actorId,
+          receivedAt: this.clock.now(),
+        },
+        event.sentAt,
+        text,
+      ),
+    );
+  }
+
+  /** A local system line for a change we made from this device. */
+  private emitOwnSystem(conversationId: ConversationId, sentAt: number, text: string): void {
+    this.emitter.emit(
+      'message',
+      systemMessage(
+        { conversationId, authorId: this.selfId, receivedAt: this.clock.now() },
+        sentAt,
+        text,
+      ),
     );
   }
 
   private nameOf(id: string): string {
     if (id === this.selfId) return 'You';
-    return this.contacts.get(id)?.name ?? id;
-  }
-
-  private resolveId(id: string): string {
-    return this.selfAliases.has(id) ? this.selfId : id;
-  }
-
-  // ─── Directory ─────────────────────────────────────────────────────────
-
-  private async loadDirectory(force = false): Promise<void> {
-    await Promise.all([this.loadContacts(force), this.loadGroups(force)]);
-  }
-
-  private async loadContacts(force = false): Promise<Contact[]> {
-    const now = this.clock.now();
-    if (force || now - this.contactsLoadedAt > DIRECTORY_TTL_MS) {
-      // allRecipients: group members we've never messaged still get names.
-      const raw = await this.rpc.call('listContacts', { allRecipients: true }, wireContacts);
-      this.contacts.clear();
-      this.dmTimers.clear();
-      for (const c of raw) {
-        const contact = toContact(c, this.selfId);
-        if (!contact) continue;
-        const id = this.resolveId(contact.id);
-        this.contacts.set(id, id === contact.id ? contact : { ...contact, id, isSelf: true });
-        if (c.messageExpirationTime > 0) this.dmTimers.set(id, c.messageExpirationTime);
-      }
-      this.contactsLoadedAt = now;
-    }
-    return [...this.contacts.values()];
-  }
-
-  private async loadGroups(force = false): Promise<Conversation[]> {
-    const now = this.clock.now();
-    if (force || now - this.groupsLoadedAt > DIRECTORY_TTL_MS) {
-      const raw = await this.rpc.call('listGroups', undefined, wireGroups);
-      this.groups.clear();
-      for (const g of raw) {
-        if (!g.isMember) continue;
-        const conv = toGroupConversation(g, (id) => this.resolveId(id), 0);
-        this.groups.set(conv.id, conv);
-      }
-      this.groupsLoadedAt = now;
-    }
-    return [...this.groups.values()];
-  }
-
-  /** After a contacts sync: re-list and announce what changed. */
-  private async refreshContacts(): Promise<void> {
-    const before = new Map(this.contacts);
-    await this.loadContacts(true);
-    for (const contact of this.contacts.values()) {
-      const prev = before.get(contact.id);
-      if (prev && JSON.stringify(prev) === JSON.stringify(contact)) continue;
-      this.emitter.emit('contactUpdated', contact);
-      if (this.peers?.has(contact.id)) {
-        this.emitter.emit('conversationUpdated', this.directConversation(contact.id, 0));
-      }
-    }
+    return this.directory.contact(id)?.name ?? id;
   }
 
   // ─── Queries ───────────────────────────────────────────────────────────
 
   async getSelf(): Promise<Contact> {
     this.assertAccount();
-    await this.loadContacts();
-    const known = this.contacts.get(this.selfId);
+    await this.directory.loadContacts();
+    const known = this.directory.contact(this.selfId);
     const self: Contact = known
       ? { ...known, isSelf: true }
       : {
           id: this.selfId,
-          name: this.selfNumber ?? 'You',
+          name: this.identity.number ?? 'You',
           color: colorForId(this.selfId),
           isSelf: true,
         };
-    if (this.selfNumber && !self.number) self.number = this.selfNumber;
+    if (this.identity.number && !self.number) self.number = this.identity.number;
     return self;
   }
 
   async listContacts(): Promise<Contact[]> {
     this.assertAccount();
-    const contacts = await this.loadContacts();
+    const contacts = await this.directory.loadContacts();
     return contacts.filter((c) => c.id !== this.selfId);
   }
 
   async listConversations(): Promise<Conversation[]> {
     this.assertAccount();
-    const [groups] = await Promise.all([this.loadGroups(), this.loadContacts()]);
+    const groups = await this.directory.loadGroups();
     const dms = (this.peers?.entries() ?? []).map(([peer, at]) =>
       this.directConversation(peer, at),
     );
@@ -600,10 +653,12 @@ export class SignalCliBackend implements ChatBackend {
 
   async send(input: SendInput): Promise<SendResult> {
     this.assertAccount();
-    const target = targetParams(input.conversationId, this.selfAliases);
+    const target = targetParams(input.conversationId, this.identity.aliases);
     const stamp = this.clock.now().toString(36);
     const encoded = await Promise.all(
-      (input.attachments ?? []).map((file, i) => encodeOutgoing(file, `local:${stamp}:${i}`)),
+      (input.attachments ?? []).map((file, i) =>
+        encodeOutgoing(file, `local:${stamp}:${i}`, this.options.thumbnailer),
+      ),
     );
     const params = {
       ...target,
@@ -622,6 +677,7 @@ export class SignalCliBackend implements ChatBackend {
     } catch (error) {
       throw enrichSendError(error);
     }
+    if (input.quote) this.rememberQuote(input.conversationId, result.timestamp, input.quote);
     const failures = recipientFailures(result);
     this.notePeer(input.conversationId, this.clock.now());
     const out: SendResult = { sentAt: result.timestamp };
@@ -630,13 +686,30 @@ export class SignalCliBackend implements ChatBackend {
     return out;
   }
 
+  private rememberQuote(conversationId: ConversationId, sentAt: number, quote: Quote): void {
+    this.sentQuotes.set(`${conversationId}|${sentAt}`, quote);
+    if (this.sentQuotes.size > SENT_QUOTES_MAX) {
+      const oldest = this.sentQuotes.keys().next().value;
+      if (oldest !== undefined) this.sentQuotes.delete(oldest);
+    }
+  }
+
+  /**
+   * signal-cli builds the edit's *entire* data message from these params, so
+   * the original's quote is re-sent (from the input, or remembered from this
+   * session). Attachments can't be re-sent cheaply; Signal clients keep the
+   * original's attachments for an edit, but this is unverified for signal-cli.
+   */
   async edit(input: EditInput): Promise<{ sentAt: number }> {
     this.assertAccount();
+    const quote =
+      input.quote ?? this.sentQuotes.get(`${input.conversationId}|${input.targetSentAt}`);
     const params = {
-      ...targetParams(input.conversationId, this.selfAliases),
+      ...targetParams(input.conversationId, this.identity.aliases),
       ...messageParams({
         body: input.body,
         ranges: input.ranges,
+        ...(quote ? { quote } : {}),
         editTimestamp: input.targetSentAt,
       }),
     };
@@ -677,7 +750,7 @@ export class SignalCliBackend implements ChatBackend {
       targetTimestamp: input.targetSentAt,
     };
     if (input.pin) {
-      params.pinDuration = input.durationSec ?? -1;
+      params.pinDuration = pinDurationParam(input.durationSec);
       await this.command('sendPinMessage', input.conversationId, params);
     } else {
       await this.command('sendUnpinMessage', input.conversationId, params);
@@ -686,7 +759,7 @@ export class SignalCliBackend implements ChatBackend {
 
   async setTyping(conversationId: ConversationId, typing: boolean): Promise<void> {
     this.assertAccount();
-    const target = targetParams(conversationId, this.selfAliases);
+    const target = targetParams(conversationId, this.identity.aliases);
     if ('noteToSelf' in target) return;
     await this.rpc.call('sendTyping', { ...target, stop: !typing }, ignoreResult);
   }
@@ -696,7 +769,7 @@ export class SignalCliBackend implements ChatBackend {
     // Receipts are addressed to each message's author, not to the conversation.
     const byAuthor = new Map<string, number[]>();
     for (const m of messages) {
-      if (this.selfAliases.has(m.authorId) || m.authorId === this.selfId) continue;
+      if (this.identity.isSelf(m.authorId) || m.authorId === this.selfId) continue;
       byAuthor.set(m.authorId, [...(byAuthor.get(m.authorId) ?? []), m.sentAt]);
     }
     await Promise.all(
@@ -710,6 +783,12 @@ export class SignalCliBackend implements ChatBackend {
     );
   }
 
+  /**
+   * Group: `updateGroup`. DM timer: `updateContact --expiration`, which also
+   * un-hides a contact you had hidden on your phone (signal-cli behaviour).
+   * Our other devices learn the change from Signal, but nothing echoes it to
+   * *this* client, so the system line is written locally.
+   */
   async updateConversation(
     conversationId: ConversationId,
     patch: ConversationPatch,
@@ -722,28 +801,44 @@ export class SignalCliBackend implements ChatBackend {
         throw new SignalCliError('user', 'Direct conversations have no editable name or topic');
       }
       if (patch.expireTimerSec === undefined) return;
-      await this.rpc.call(
+      const result = await this.rpc.call(
         'updateContact',
         { recipient: parsed.target, expiration: patch.expireTimerSec },
         ignoreResult,
       );
-      this.applyTimer(directConversationId(parsed.target), patch.expireTimerSec);
+      const dm = directConversationId(parsed.target);
+      this.applyTimer(dm, patch.expireTimerSec);
+      this.emitOwnSystem(
+        dm,
+        this.resultTimestamp(result),
+        timerSentence('You', patch.expireTimerSec),
+      );
       return;
     }
     const params: RpcParams = { groupId: parsed.target };
     if (patch.title !== undefined) params.name = patch.title;
     if (patch.description !== undefined) params.description = patch.description;
     if (patch.expireTimerSec !== undefined) params.expiration = patch.expireTimerSec;
-    await this.rpc.call('updateGroup', params, ignoreResult);
-    const current = this.groups.get(conversationId);
-    if (current) {
-      const next: Conversation = { ...current };
-      if (patch.title !== undefined) next.title = patch.title;
-      if (patch.description !== undefined) next.description = patch.description;
-      if (patch.expireTimerSec !== undefined) next.expireTimerSec = patch.expireTimerSec;
-      this.groups.set(conversationId, next);
-      this.emitter.emit('conversationUpdated', next);
+    const result = await this.rpc.call('updateGroup', params, ignoreResult);
+    const current = this.directory.group(conversationId);
+    if (!current) return;
+    const next: Conversation = { ...current };
+    if (patch.title !== undefined) next.title = patch.title;
+    if (patch.description !== undefined) next.description = patch.description;
+    if (patch.expireTimerSec !== undefined) next.expireTimerSec = patch.expireTimerSec;
+    this.directory.setGroup(next);
+    this.emitter.emit('conversationUpdated', next);
+    const lines = describeGroupChange(current, next, 'You', (id) => this.nameOf(id));
+    if (lines.length > 0) {
+      this.emitOwnSystem(conversationId, this.resultTimestamp(result), lines.join(' '));
     }
+  }
+
+  /** The `timestamp` of a send-like result, else now (identity of a local system line). */
+  private resultTimestamp(result: unknown): number {
+    return isRecord(result) && typeof result.timestamp === 'number'
+      ? result.timestamp
+      : this.clock.now();
   }
 
   /** A command addressed to a conversation whose result we only check for errors. */
@@ -756,7 +851,7 @@ export class SignalCliBackend implements ChatBackend {
     try {
       await this.rpc.call(
         method,
-        { ...targetParams(conversationId, this.selfAliases), ...params },
+        { ...targetParams(conversationId, this.identity.aliases), ...params },
         ignoreResult,
       );
     } catch (error) {
@@ -765,7 +860,8 @@ export class SignalCliBackend implements ChatBackend {
   }
 
   private assertAccount(): void {
-    if (!this.selfId)
+    if (!this.selfId) {
       throw new SignalCliError('no-account', 'Not connected to a signal-cli account');
+    }
   }
 }

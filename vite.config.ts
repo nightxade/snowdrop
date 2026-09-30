@@ -1,7 +1,10 @@
 /// <reference types="vitest/config" />
 import { fileURLToPath, URL } from 'node:url';
 import react from '@vitejs/plugin-react';
-import { defineConfig, loadEnv, type ProxyOptions } from 'vite';
+import { defineConfig, loadEnv, type Connect, type Plugin, type ProxyOptions } from 'vite';
+import { checkSignalCliRequest } from './devserver/signalCliGuard.ts';
+
+const PROXY_PATH = '/signal-cli';
 
 /**
  * Same-origin path to the signal-cli HTTP daemon. The browser can't call the
@@ -11,13 +14,40 @@ import { defineConfig, loadEnv, type ProxyOptions } from 'vite';
  */
 function signalCliProxy(target: string): Record<string, ProxyOptions> {
   return {
-    '/signal-cli': {
+    [PROXY_PATH]: {
       target,
       changeOrigin: true,
-      rewrite: (path) => path.replace(/^\/signal-cli/u, ''),
+      rewrite: (path) => path.slice(PROXY_PATH.length) || '/',
       // The event stream is long-lived: never time it out at the proxy.
       timeout: 0,
       proxyTimeout: 0,
+    },
+  };
+}
+
+/**
+ * Rejects proxy requests that don't come from the app itself (see
+ * devserver/signalCliGuard.ts). Plugin middlewares added in
+ * configureServer/configurePreviewServer run *before* Vite's proxy.
+ */
+function signalCliGuard(): Plugin {
+  const guard: Connect.NextHandleFunction = (req, res, next) => {
+    const verdict = checkSignalCliRequest(req);
+    if (verdict.ok) {
+      next();
+      return;
+    }
+    res.statusCode = 403;
+    res.setHeader('Content-Type', 'text/plain');
+    res.end(`Forbidden: ${verdict.reason}\n`);
+  };
+  return {
+    name: 'hearth:signal-cli-guard',
+    configureServer(server) {
+      server.middlewares.use(PROXY_PATH, guard);
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use(PROXY_PATH, guard);
     },
   };
 }
@@ -26,17 +56,18 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), 'HEARTH_');
   const proxy = signalCliProxy(env.HEARTH_SIGNAL_CLI_URL ?? 'http://127.0.0.1:8080');
   return {
-    plugins: [react()],
+    plugins: [signalCliGuard(), react()],
     resolve: {
       alias: {
         '@': fileURLToPath(new URL('./src', import.meta.url)),
       },
     },
-    server: { proxy },
-    preview: { proxy },
+    // No CORS: nothing but the app's own origin may talk to the dev server.
+    server: { proxy, cors: false },
+    preview: { proxy, cors: false },
     test: {
       environment: 'happy-dom',
-      include: ['src/**/*.test.{ts,tsx}'],
+      include: ['src/**/*.test.{ts,tsx}', 'devserver/**/*.test.ts'],
       restoreMocks: true,
       // Deterministic day grouping and clock formatting.
       env: { TZ: 'UTC' },

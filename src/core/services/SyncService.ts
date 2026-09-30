@@ -61,6 +61,9 @@ const RECEIPT_STATUS: Record<BackendEvents['receipt']['type'], MessageStatus> = 
   viewed: 'read',
 };
 
+/** How many purged message ids are remembered to suppress re-delivery. */
+const PURGED_TOMBSTONES = 2_000;
+
 export class SyncService {
   private readonly events = new Emitter<SyncEvents>();
   private readonly receipts: ReceiptBuffer;
@@ -350,6 +353,12 @@ export class SyncService {
     );
     on('receipt', (e) => this.onReceipt(e));
     on('readSync', (e) => this.onReadSync(e));
+    // Queued like everything else (and parked behind the initial-sync gate),
+    // so the transport only learns a position once everything before it has
+    // been written to the repository. A lost ack just means re-delivery.
+    on('checkpoint', (e) => {
+      this.deps.backend.acknowledge?.(e.cursor);
+    });
   }
 
   private async run(event: string, fn: () => Promise<void> | void): Promise<void> {
@@ -363,6 +372,13 @@ export class SyncService {
 
   private async onMessage(incoming: Message): Promise<void> {
     const { repository, stores } = this.deps;
+    // A re-delivered (replayed) disappearing message must not come back
+    // after it has been purged, nor flash in if it is already due.
+    if (this.purged.has(incoming.id)) return;
+    if (incoming.expiresAt !== undefined && incoming.expiresAt <= this.deps.clock.now()) {
+      this.rememberPurged(incoming.id);
+      return;
+    }
     const { message, created } = await repository.upsert(incoming, mergeDuplicate);
     const id = message.conversationId;
     stores.messages.getState().appendLive(message);
@@ -526,10 +542,27 @@ export class SyncService {
     const expired = await repository.expired(clock.now(), 500);
     for (const m of expired) {
       await repository.delete(m.id);
+      this.rememberPurged(m.id);
       stores.messages.getState().remove(m.conversationId, m.id);
       if (selfId) stores.conversations.getState().applyRemoval(m, selfId);
     }
     return expired.length;
+  }
+
+  /**
+   * Tombstones of purged disappearing messages (bounded, oldest evicted).
+   * In memory only: after a reload, a replayed message is already past its
+   * `expiresAt` (adapters derive it from the server receive time) and is
+   * dropped by the check in onMessage instead.
+   */
+  private readonly purged = new Set<MessageId>();
+
+  private rememberPurged(id: MessageId): void {
+    this.purged.add(id);
+    if (this.purged.size > PURGED_TOMBSTONES) {
+      const oldest = this.purged.values().next().value;
+      if (oldest !== undefined) this.purged.delete(oldest);
+    }
   }
 
   /** Consumes a refresh requested while one was in flight. */

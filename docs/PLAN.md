@@ -746,6 +746,51 @@ attachment ids for not-yet-downloaded files, behaviour of numberless accounts.
 Several accounts on one daemon share the `hearth-signal-cli` database. Avatars
 (`getAvatar`) are not fetched yet.
 
+### P5 review round 1
+
+**Contract (all optional / backward-compatible).**
+- `BackendEvents.checkpoint { cursor }` + `ChatBackend.acknowledge?(cursor)`:
+  the adapter emits a checkpoint after each SSE event's work; `SyncService`
+  queues it like any event (so also behind the initial-sync gate) and
+  acknowledges after the preceding repository writes. Only then is the
+  `Last-Event-ID` persisted, so a reload re-delivers instead of losing.
+  Events dropped by `stop()` are never acknowledged.
+- `EditInput.quote?` — signal-cli rebuilds the edit's whole data message from
+  params, so the original quote is re-sent (the adapter also remembers quotes of
+  messages sent this session). **SendService should pass the original's quote**
+  (not done yet: SendService belongs to P1/P2 owners).
+- `Quote.attachments?: { contentType, fileName? }[]` — filled for incoming
+  quotes; sent as `quoteAttachment`. **The UI should copy the quoted message's
+  attachment types into its outgoing quote.**
+- `resolveAttachmentUrl` JSDoc: URLs only for `<img>/<video>/<audio>` or
+  `<a download>`, never navigation/frames.
+
+**Adapter.** Single-account daemons (`listAccounts` → METHOD_NOT_FOUND): no
+`account` param, no `?account=`, identity from `settings.connection.account`
+(else `SignalCliError('account-required')`); `SelfIdentity` learns the other
+identifier from the payload `account` field, envelope number/uuid pairs and
+contact records. Connect opens the stream first, awaits only `listGroups`, and
+loads contacts in the background (180 s timeout, shared in-flight request,
+failure keeps the cache); directory TTL 10 min, refreshed on contacts sync, a
+stranger's message (debounced) and messages for unknown groups. A fatally
+failed stream clears itself so `connect()` can retry. Group updates: the
+"before" snapshot is taken on arrival; runs of queued updates to one group are
+diffed once, on the last, phrased passively when several people were involved.
+Own `updateGroup`/`updateContact` changes write local system lines.
+Attachments: blobs are typed only with allow-listed raster image/audio/video
+types (else `application/octet-stream`); sent images keep a ≤ 512 px WebP/JPEG
+thumbnail instead of the file; empty and > 100 MB files are rejected before
+encoding. Undecryptable envelopes become a system line. Typing staleness and
+disappearing timers use the server receive time.
+
+**SyncService.** Tombstones for purged disappearing messages (in memory,
+bounded to 2000) and a drop of messages already past `expiresAt` on arrival,
+so a replay can't resurrect them.
+
+**Dev server.** `devserver/signalCliGuard.ts` (plugin middleware, runs before
+the proxy): loopback Host only; `Sec-Fetch-Site` same-origin/none; `Origin`,
+when present, must be the app's origin. `server.cors` / `preview.cors` = false.
+
 
 ### P2 Shell
 

@@ -17,12 +17,16 @@ import {
   ALICE_NUMBER,
   BOB,
   BOB_NUMBER,
+  dataMessage,
   fixtures,
+  groupInfo,
+  receive,
   GROUP_ID,
   SELF_ACI,
   SELF_NUMBER,
   T0,
 } from './fixtures/envelopes';
+import { DIRECTORY_TTL_MS } from './directory';
 import { SignalCliBackend } from './SignalCliBackend';
 import { FakeDaemon, flush } from './testing';
 
@@ -191,8 +195,8 @@ describe('SignalCliBackend: connection', () => {
     expect(backend.getStatus()).toBe('error');
   });
 
-  it('reconnects the stream, resuming from the last event id, and persists it across sessions', async () => {
-    const { backend, daemon, scheduler, statuses, storage } = await connected();
+  it('reconnects the stream, resuming from the last event id in memory', async () => {
+    const { backend, daemon, scheduler, statuses } = await connected();
     daemon.lastStream!.push(
       `id:run-5\nevent:receive\ndata:${JSON.stringify(fixtures.typingStarted)}\n\n`,
     );
@@ -205,6 +209,26 @@ describe('SignalCliBackend: connection', () => {
     expect(daemon.lastStream!.headers.get('Last-Event-ID')).toBe('run-5');
     expect(statuses.at(-1)).toBe('online');
     await backend.disconnect();
+  });
+
+  it('persists the resume position only when acknowledged, after the events', async () => {
+    const { backend, daemon, scheduler, storage } = await connected();
+    const order: string[] = [];
+    backend.on('message', (m) => order.push(`message:${m.sentAt}`));
+    backend.on('checkpoint', (c) => order.push(`checkpoint:${c.cursor}`));
+    daemon.lastStream!.push(
+      `id:run-7\nevent:receive\ndata:${JSON.stringify(fixtures.dmText)}\n\n` +
+        `id:run-8\nevent:receive\ndata:"not an envelope"\n\n`,
+    );
+    await flush();
+    await backend.idle();
+    expect(order).toEqual([`message:${T0}`, 'checkpoint:run-7', 'checkpoint:run-8']);
+    const key = `hearth.signal-cli.lastEventId.${SELF_ACI}`;
+    // Not acknowledged ⇒ a reload would re-deliver (never lose) these events.
+    expect(storage.getItem(key)).toBeNull();
+    backend.acknowledge('run-7');
+    expect(storage.getItem(key)).toBe('run-7');
+    await backend.disconnect();
 
     const again = new SignalCliBackend({
       baseUrl: '/signal-cli',
@@ -214,8 +238,20 @@ describe('SignalCliBackend: connection', () => {
     });
     await again.connect();
     await flush();
-    expect(daemon.lastStream!.headers.get('Last-Event-ID')).toBe('run-5');
+    expect(daemon.lastStream!.headers.get('Last-Event-ID')).toBe('run-7');
     await again.disconnect();
+  });
+
+  it('can connect again after the stream failed fatally', async () => {
+    const { daemon } = daemonWithAccount();
+    daemon.eventStatuses = [400];
+    const { backend, statuses } = await connected({ daemon });
+    expect(statuses.at(-1)).toBe('error');
+    await backend.connect();
+    await flush();
+    expect(statuses.at(-1)).toBe('online');
+    expect(daemon.streams).toHaveLength(1);
+    await backend.disconnect();
   });
 
   it('reports an error status when the stream is refused (e.g. unknown account)', async () => {
@@ -351,7 +387,13 @@ describe('SignalCliBackend: commands', () => {
       sentAt: T0 + 5000,
       recipientFailures: [{ recipientId: BOB, reason: 'untrusted-identity' }],
       attachments: [
-        expect.objectContaining({ fileName: 'a.txt', url: 'data:text/plain;base64,aGk=' }),
+        // Only images keep a (thumbnail) preview; never the full file.
+        {
+          id: expect.stringMatching(/^local:/u) as unknown,
+          contentType: 'text/plain',
+          fileName: 'a.txt',
+          size: 2,
+        },
       ],
     });
     await backend.disconnect();
@@ -521,7 +563,7 @@ describe('SignalCliBackend: commands', () => {
 
 describe('SignalCliBackend + SyncService', () => {
   it('delivers streamed envelopes into the stores end to end', async () => {
-    const { backend, daemon, scheduler } = setup();
+    const { backend, daemon, scheduler, storage } = setup();
     const stores = createStores();
     const repository = new MemoryMessageRepository();
     const sync = new SyncService({ backend, repository, stores, clock: scheduler, scheduler });
@@ -546,7 +588,188 @@ describe('SignalCliBackend + SyncService', () => {
     const stored = await repository.get(messageId(ALICE, T0));
     expect(stored).toMatchObject({ body: 'hello there (edited)', editedAt: T0 + 20 });
     expect(stores.conversations.getState().unread[GROUP]).toMatchObject({ count: 1, mentions: 1 });
+    // The sync engine acknowledged the last event after storing it.
+    expect(storage.getItem(`hearth.signal-cli.lastEventId.${SELF_ACI}`)).toBe('r-3');
     await sync.stop();
     expect(stores.session.getState().status).toBe('offline');
+  });
+});
+
+describe('SignalCliBackend: single-account daemons', () => {
+  function singleDaemon() {
+    const made = daemonWithAccount();
+    made.daemon.handle('listAccounts', () => ({
+      error: { code: -32601, message: 'Method not implemented' },
+    }));
+    return made;
+  }
+
+  it('asks for the account when the daemon cannot list accounts', async () => {
+    const { daemon } = singleDaemon();
+    const { backend } = setup({ daemon });
+    await expect(backend.connect()).rejects.toMatchObject({ kind: 'account-required' });
+    expect(daemon.streams).toHaveLength(0);
+  });
+
+  it('connects without account params and learns our other identifier', async () => {
+    const { daemon } = singleDaemon();
+    const { backend } = await connected({ daemon, account: SELF_NUMBER });
+    expect(backend.account).toBeUndefined();
+    expect(daemon.streamUrls).toEqual(['/signal-cli/api/v1/events']);
+    const rpcCalls = daemon.calls.filter((c) => c.method !== 'listAccounts');
+    expect(rpcCalls.length).toBeGreaterThan(0);
+    for (const call of rpcCalls) expect(call.params).not.toHaveProperty('account');
+
+    // Our own sync transcript carries our ACI + number: both are "us".
+    const messages = collect(backend, 'message');
+    const reactions = collect(backend, 'reaction');
+    await backend.ingest(fixtures.syncSentDm);
+    await backend.ingest(fixtures.reactionAdd); // targets us by ACI
+    expect(messages[0]?.authorId).toBe(SELF_NUMBER);
+    expect(reactions[0]?.targetAuthorId).toBe(SELF_NUMBER);
+    await backend.send({ conversationId: directConversationId(ALICE), body: 'x', ranges: [] });
+    expect(daemon.callsTo('send').at(-1)).not.toHaveProperty('account');
+    await backend.disconnect();
+  });
+});
+
+describe('SignalCliBackend: directory loading', () => {
+  it('opens the stream without waiting for a slow listContacts', async () => {
+    const { daemon, contacts } = daemonWithAccount();
+    let release: () => void = () => undefined;
+    daemon.handle(
+      'listContacts',
+      () =>
+        new Promise((resolve) => {
+          release = () => {
+            resolve({ result: contacts });
+          };
+        }),
+    );
+    const { backend } = setup({ daemon });
+    const updated = collect(backend, 'contactUpdated');
+    await backend.connect();
+    await flush();
+    expect(backend.getStatus()).toBe('online');
+    expect(daemon.streams).toHaveLength(1);
+    // Initial sync waits for the same (single) in-flight request.
+    const listing = backend.listContacts();
+    release();
+    expect((await listing).map((c) => c.name)).toEqual(['Alice Liddell', 'Bob Ross']);
+    expect(daemon.callsTo('listContacts')).toHaveLength(1);
+    expect(updated.map((c) => c.name)).toContain('Alice Liddell');
+    await backend.disconnect();
+  });
+
+  it('never fails the initial sync because listContacts failed', async () => {
+    const { daemon } = daemonWithAccount();
+    daemon.handle('listContacts', () => ({ error: { code: -3, message: 'network' } }));
+    const { backend } = await connected({ daemon });
+    await expect(backend.listContacts()).resolves.toEqual([]);
+    await backend.disconnect();
+  });
+
+  it('re-lists groups when a message arrives for a group it does not know', async () => {
+    const { backend, daemon } = await connected();
+    const before = daemon.callsTo('listGroups').length;
+    await backend.listConversations();
+    expect(daemon.callsTo('listGroups')).toHaveLength(before); // cached (long TTL)
+    await backend.ingest(
+      receive('alice', {
+        dataMessage: dataMessage({
+          timestamp: T0 + 3,
+          message: 'hi',
+          groupInfo: { groupId: 'bmV3', groupName: null, revision: 1, type: 'DELIVER' },
+        }),
+      }),
+    );
+    await backend.listConversations();
+    expect(daemon.callsTo('listGroups')).toHaveLength(before + 1);
+    await backend.disconnect();
+  });
+});
+
+describe('SignalCliBackend: group change runs', () => {
+  it('describes back-to-back updates once, without misattributing them', async () => {
+    const { backend, groups } = await connected();
+    groups[0] = group({
+      name: 'Crux Collective',
+      members: [...group().members, { number: BOB_NUMBER, uuid: BOB, isAdmin: false }],
+    });
+    const messages = collect(backend, 'message');
+    const aliceUpdate = receive('alice', {
+      dataMessage: dataMessage({ timestamp: T0 + 90, groupInfo: groupInfo('UPDATE') }),
+    });
+    void backend.ingest(fixtures.groupUpdate);
+    await backend.ingest(aliceUpdate);
+    expect(messages).toEqual([
+      expect.objectContaining({
+        id: messageId(ALICE, T0 + 90),
+        systemText: 'The group name was changed to "Crux Collective". Bob Ross joined the group.',
+      }),
+    ]);
+    await backend.disconnect();
+  });
+
+  it('diffs against the state from when the update arrived, even after a reload', async () => {
+    const { backend, groups, scheduler } = await connected();
+    groups[0] = group({ name: 'Renamed' });
+    const messages = collect(backend, 'message');
+    // Queue the update behind a slow contacts sync, then reload groups first.
+    const pending = backend.ingest(fixtures.contactsSync);
+    void backend.ingest(fixtures.groupUpdate);
+    scheduler.advance(DIRECTORY_TTL_MS + 1);
+    await backend.listConversations();
+    await pending;
+    await backend.idle();
+    expect(messages.map((m) => m.systemText)).toEqual([
+      'Bob Ross changed the group name to "Renamed".',
+    ]);
+    await backend.disconnect();
+  });
+});
+
+describe('SignalCliBackend: own changes and edits', () => {
+  it('writes local system lines for our own conversation changes', async () => {
+    const { backend } = await connected();
+    const messages = collect(backend, 'message');
+    await backend.updateConversation(GROUP, { title: 'New' });
+    await backend.updateConversation(directConversationId(ALICE), { expireTimerSec: 60 });
+    expect(messages).toEqual([
+      expect.objectContaining({
+        id: messageId(SELF_ACI, 1),
+        kind: 'system',
+        systemText: 'You changed the group name to "New".',
+      }),
+      expect.objectContaining({
+        conversationId: directConversationId(ALICE),
+        systemText: 'You set disappearing messages to 1 minute.',
+      }),
+    ]);
+    await backend.disconnect();
+  });
+
+  it('re-sends the original quote with an edit', async () => {
+    const { backend, daemon } = await connected();
+    const dm = directConversationId(ALICE);
+    const quote = { authorId: ALICE, sentAt: T0, text: 'hello there' };
+    const { sentAt } = await backend.send({ conversationId: dm, body: 'hi', ranges: [], quote });
+    await backend.edit({ conversationId: dm, targetSentAt: sentAt, body: 'hi!', ranges: [] });
+    expect(daemon.callsTo('send').at(-1)).toMatchObject({
+      editTimestamp: sentAt,
+      quoteTimestamp: T0,
+      quoteAuthor: ALICE,
+      quoteMessage: 'hello there',
+    });
+    const other = { authorId: BOB, sentAt: 5, text: 'x' };
+    await backend.edit({
+      conversationId: dm,
+      targetSentAt: 99,
+      body: 'y',
+      ranges: [],
+      quote: other,
+    });
+    expect(daemon.callsTo('send').at(-1)).toMatchObject({ editTimestamp: 99, quoteAuthor: BOB });
+    await backend.disconnect();
   });
 });

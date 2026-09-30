@@ -9,7 +9,6 @@
  */
 import {
   directConversationId,
-  formatDuration,
   groupConversationId,
   type ConversationId,
   type MessageStatus,
@@ -24,11 +23,18 @@ import {
   type WireEnvelope,
 } from '../wire';
 import { buildMessage, systemMessage } from './content';
+import { timerSentence } from './directory';
 import { toBodyRanges } from './ranges';
 import type { AdapterEvent, NormaliseContext } from './types';
 
 /** Typing indicators older than this are dropped (Signal clients expire them after 15 s). */
 export const TYPING_STALE_MS = 15_000;
+
+/** Server receive time (epoch ms), when the daemon reported one. */
+function serverTime(envelope: WireEnvelope): number | undefined {
+  const t = envelope.serverReceivedTimestamp;
+  return t !== undefined && t > 0 ? t : undefined;
+}
 
 /** Who sent the data message and where it belongs. */
 interface Origin {
@@ -38,6 +44,8 @@ interface Origin {
   own: boolean;
   /** Human name of the author for system texts. */
   actorName: string;
+  /** When the disappearing timer starts (see buildMessage). */
+  timerStart: number;
 }
 
 /**
@@ -52,9 +60,47 @@ export function normaliseReceive(payload: unknown, ctx: NormaliseContext): Adapt
   }
   if (decoded.issues.length > 0) ctx.debug('lenient decode issues', decoded.issues);
   const { envelope, exception } = decoded.value;
-  if (exception) ctx.debug('daemon reported a receive exception', exception);
+  if (exception) {
+    ctx.debug('daemon reported a receive exception', exception);
+    const notice = envelope ? decryptionFailure(envelope, exception.type, ctx) : null;
+    if (notice) return [notice];
+  }
   if (!envelope) return [];
   return normaliseEnvelope(envelope, ctx);
+}
+
+/**
+ * An envelope we couldn't decrypt (untrusted identity, broken session…).
+ * Dropping it silently would leave an invisible gap in the conversation, so
+ * it becomes a system line pointing the user at their phone.
+ */
+function decryptionFailure(
+  envelope: WireEnvelope,
+  type: string | undefined,
+  ctx: NormaliseContext,
+): AdapterEvent | null {
+  const hasContent =
+    envelope.dataMessage ??
+    envelope.editMessage ??
+    envelope.syncMessage ??
+    envelope.receiptMessage ??
+    envelope.typingMessage;
+  if (hasContent) return null;
+  const raw = addressId(envelope.sourceUuid, envelope.sourceNumber, envelope.source);
+  if (!raw || ctx.selfAliases.has(raw)) return null;
+  const name = ctx.nameOf(raw) ?? envelope.sourceName ?? raw;
+  const hint =
+    type === 'UntrustedIdentityException'
+      ? 'Their safety number changed — verify it on your phone.'
+      : 'Check the safety number on your phone.';
+  return {
+    kind: 'message',
+    payload: systemMessage(
+      { conversationId: directConversationId(raw), authorId: raw, receivedAt: ctx.now },
+      envelope.timestamp,
+      `Couldn't decrypt a message from ${name}. ${hint}`,
+    ),
+  };
 }
 
 export function normaliseEnvelope(envelope: WireEnvelope, ctx: NormaliseContext): AdapterEvent[] {
@@ -67,6 +113,9 @@ export function normaliseEnvelope(envelope: WireEnvelope, ctx: NormaliseContext)
   const source = resolve(rawSource);
   const nameOf = (id: string, fallback?: string): string =>
     id === ctx.selfId ? 'You' : (ctx.nameOf(id) ?? fallback ?? id);
+  // Server time, so a replayed old message expires on schedule instead of
+  // getting a fresh timer from "now".
+  const timerStart = Math.min(ctx.now, serverTime(envelope) ?? ctx.now);
 
   if (envelope.receiptMessage) {
     const r = envelope.receiptMessage;
@@ -86,8 +135,9 @@ export function normaliseEnvelope(envelope: WireEnvelope, ctx: NormaliseContext)
     if (source === ctx.selfId) return [];
     // Typing is ephemeral: a replay after reconnect (the daemon re-sends up to
     // 1000 buffered events) must not show people typing minutes ago. The
-    // server timestamp is immune to the sender's clock skew.
-    const at = envelope.serverReceivedTimestamp ?? t.timestamp ?? envelope.timestamp;
+    // server's receive time is immune to the sender's clock skew; the typing
+    // message's own timestamp is the sender's clock and only a last resort.
+    const at = serverTime(envelope) ?? t.timestamp ?? envelope.timestamp;
     if (ctx.now - at > TYPING_STALE_MS) return [];
     const conversationId = t.groupId
       ? groupConversationId(t.groupId)
@@ -115,6 +165,7 @@ export function normaliseEnvelope(envelope: WireEnvelope, ctx: NormaliseContext)
         conversationId: groupId ? groupConversationId(groupId) : directConversationId(peer),
         own: true,
         actorName: 'You',
+        timerStart,
       };
       if (sent.editMessage) events.push(...fromEdit(sent.editMessage, origin, resolve));
       if (sent.dataMessage)
@@ -150,6 +201,7 @@ export function normaliseEnvelope(envelope: WireEnvelope, ctx: NormaliseContext)
       conversationId: groupId ? groupConversationId(groupId) : directConversationId(source),
       own: source === ctx.selfId,
       actorName: nameOf(source, envelope.sourceName),
+      timerStart,
     };
     if (envelope.editMessage) return fromEdit(envelope.editMessage, origin, resolve);
     return fromData(data, origin, ctx, resolve, nameOf);
@@ -289,10 +341,7 @@ function fromData(
   } else if (data.isExpirationUpdate) {
     const seconds = data.expiresInSeconds ?? 0;
     events.push({ kind: 'expirationChanged', conversationId, seconds });
-    const text =
-      seconds > 0
-        ? `${origin.actorName} set disappearing messages to ${formatDuration(seconds)}.`
-        : `${origin.actorName} turned off disappearing messages.`;
+    const text = timerSentence(origin.actorName, seconds);
     events.push({ kind: 'message', payload: systemMessage(meta, data.timestamp, text) });
     // Expiration updates carry no content of their own.
     return events;
@@ -305,7 +354,12 @@ function fromData(
   }
 
   const status: MessageStatus = origin.own ? 'sent' : 'read';
-  const message = buildMessage(data, { ...meta, status, resolveId: resolve });
+  const message = buildMessage(data, {
+    ...meta,
+    status,
+    resolveId: resolve,
+    timerStart: origin.timerStart,
+  });
   if (message) events.push({ kind: 'message', payload: message });
   else if (events.length === 0) ctx.debug('ignored data message without content', data.timestamp);
   return events;

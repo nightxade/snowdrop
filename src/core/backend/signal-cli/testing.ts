@@ -10,9 +10,11 @@ export interface RpcCall {
   params: Record<string, unknown>;
 }
 
-export type RpcHandler = (
-  params: Record<string, unknown>,
-) => { result: unknown } | { error: { code: number; message: string; data?: unknown } };
+export type RpcReply =
+  { result: unknown } | { error: { code: number; message: string; data?: unknown } };
+
+/** May answer later (a Promise) to simulate a slow daemon call. */
+export type RpcHandler = (params: Record<string, unknown>) => RpcReply | Promise<RpcReply>;
 
 /** An SSE response body the test pushes text into. */
 export class FakeEventStream {
@@ -109,14 +111,15 @@ export class FakeDaemon {
       const params = request.params ?? {};
       this.calls.push({ method: request.method, params });
       const handler = this.handlers.get(request.method);
-      const reply = handler
+      const reply: RpcReply | Promise<RpcReply> = handler
         ? handler(params)
         : { error: { code: -32601, message: 'Method not implemented' } };
-      return Promise.resolve(
-        new Response(JSON.stringify({ jsonrpc: '2.0', id: request.id, ...reply }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        }),
+      return Promise.resolve(reply).then(
+        (r) =>
+          new Response(JSON.stringify({ jsonrpc: '2.0', id: request.id, ...r }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }),
       );
     }
     return Promise.resolve(new Response(null, { status: 404 }));
