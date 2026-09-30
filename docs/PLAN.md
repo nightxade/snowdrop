@@ -55,7 +55,17 @@ the plan in the same change with a justification.
 | Message list       | `react-virtuoso`                                    | reverse-scroll chat, variable heights, prepend without jump |
 | Persistence        | `idb` (IndexedDB)                                   | signal-cli keeps **no history**; we must |
 | Icons              | `lucide-react`                                      | ISC |
-| Fuzzy search       | small in-house scorer (no dep)                      | quick switcher |
+| Fuzzy search       | small in-house scorer (no dep)                      | ranking tuned to our data |
+| Command palette    | `cmdk` (MIT)                                        | quick switcher / command list, accessible listbox |
+| Drag & drop        | `@dnd-kit/core` + `@dnd-kit/sortable` (MIT)         | spaces/channel reordering with keyboard support |
+| Emoji picker/data  | `frimousse` (MIT, unstyled, themeable) + `emojibase-data` | picker + `:shortcode:` autocomplete |
+| Toasts             | `sonner` (MIT)                                      | notifications/errors |
+| Floating UI        | `@floating-ui/react` (MIT)                          | autocomplete popover anchored to caret |
+
+**Rule:** prefer a well-maintained permissive OSS library over hand-rolling
+anything with non-trivial a11y or interaction complexity (menus, focus traps,
+virtualisation, DnD, pickers). Wrap each third-party UI lib behind a thin
+`ui/primitives` component so it can be swapped later.
 | QR                 | `qrcode` (MIT)                                      | device linking |
 | Tests              | Vitest + Testing Library + happy-dom                | |
 | Lint/format        | ESLint (typescript-eslint, react-hooks, import boundaries) + Prettier | |
