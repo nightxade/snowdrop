@@ -66,6 +66,23 @@ function isEnvelope(value: unknown): value is Envelope {
   );
 }
 
+/** Where unreadable data is parked before defaults overwrite it. */
+export const backupKey = (key: string): string => `${key}.backup`;
+
+/**
+ * Keeps a copy of data we're about to discard (corrupt JSON, a newer app
+ * version's format, a failed migration) so a downgrade or bug fix can
+ * recover it instead of the user silently losing their settings.
+ */
+function backup(storage: KeyValueStorage, key: string, raw: string, reason: string): void {
+  console.warn(`[hearth] could not load "${key}" (${reason}); backed up to "${backupKey(key)}"`);
+  try {
+    storage.setItem(backupKey(key), raw);
+  } catch {
+    // Out of quota: nothing more we can do safely.
+  }
+}
+
 export function loadVersioned<T>(storage: KeyValueStorage, schema: VersionedSchema<T>): T {
   let raw: string | null;
   try {
@@ -77,15 +94,27 @@ export function loadVersioned<T>(storage: KeyValueStorage, schema: VersionedSche
 
   try {
     const parsed: unknown = JSON.parse(raw);
-    if (!isEnvelope(parsed) || parsed.v > schema.version) return schema.defaults();
+    if (!isEnvelope(parsed)) {
+      backup(storage, schema.key, raw, 'unrecognised format');
+      return schema.defaults();
+    }
+    if (parsed.v > schema.version) {
+      backup(storage, schema.key, raw, `written by a newer version (v${parsed.v})`);
+      return schema.defaults();
+    }
     let data = parsed.data;
     for (let v = parsed.v + 1; v <= schema.version; v++) {
       const migrate = schema.migrations?.[v];
       if (migrate) data = migrate(data);
     }
-    return schema.parse(data) ?? schema.defaults();
+    const result = schema.parse(data);
+    if (result === null) {
+      backup(storage, schema.key, raw, 'failed validation');
+      return schema.defaults();
+    }
+    return result;
   } catch (error) {
-    console.warn(`[hearth] could not load "${schema.key}", using defaults`, error);
+    backup(storage, schema.key, raw, error instanceof Error ? error.message : 'parse error');
     return schema.defaults();
   }
 }
@@ -109,23 +138,58 @@ export interface Subscribable<S> {
   subscribe(listener: (state: S, prev: S) => void): () => void;
 }
 
+export interface PersistenceBinding {
+  /** Writes any pending change now. */
+  flush(): void;
+  /** Flushes and stops listening. */
+  dispose(): void;
+}
+
 /**
  * Writes `select(state)` to storage whenever it changes (by reference).
- * Returns an unsubscribe function.
+ * With `debounce`, bursts (typing a draft, dragging a slider) are coalesced
+ * into one write; `flush()` forces it (e.g. on page hide).
  */
 export function bindPersistence<S, T>(
   store: Subscribable<S>,
   storage: KeyValueStorage,
   schema: VersionedSchema<T>,
   select: (state: S) => T,
-): () => void {
+  debounce?: { ms: number; schedule: (fn: () => void, ms: number) => () => void },
+): PersistenceBinding {
   let last = select(store.getState());
-  return store.subscribe((state) => {
+  let pending: T | undefined;
+  let cancel: (() => void) | null = null;
+
+  const flush = (): void => {
+    cancel?.();
+    cancel = null;
+    if (pending === undefined) return;
+    const value = pending;
+    pending = undefined;
+    saveVersioned(storage, schema, value);
+  };
+
+  const unsubscribe = store.subscribe((state) => {
     const next = select(state);
     if (next === last) return;
     last = next;
-    saveVersioned(storage, schema, next);
+    pending = next;
+    if (!debounce) {
+      flush();
+      return;
+    }
+    cancel?.();
+    cancel = debounce.schedule(flush, debounce.ms);
   });
+
+  return {
+    flush,
+    dispose: () => {
+      unsubscribe();
+      flush();
+    },
+  };
 }
 
 /** Tiny structural guard helpers for `parse` implementations. */

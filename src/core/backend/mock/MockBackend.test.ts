@@ -185,6 +185,36 @@ describe('MockBackend', () => {
     expect(msg.deleted).toBe(true);
   });
 
+  it('pins messages and lets admins delete others’ messages', async () => {
+    const { backend } = setup();
+    await backend.connect();
+    const conv = backend.world.conversationIds.get('kiln-eng')!;
+    const target = backend.world.histories
+      .get(conv)!
+      .find((m) => m.authorId !== backend.world.self.id && !m.deleted)!;
+    const ref = { authorId: target.authorId, sentAt: target.sentAt };
+    await backend.pinMessage({
+      conversationId: conv,
+      targetAuthorId: ref.authorId,
+      targetSentAt: ref.sentAt,
+      pin: true,
+    });
+    expect(backend.world.histories.get(conv)!.find((m) => m.id === target.id)?.pinned).toBe(true);
+    await backend.adminDelete(conv, ref);
+    expect(backend.world.histories.get(conv)!.find((m) => m.id === target.id)).toMatchObject({
+      deleted: true,
+      deletedBy: backend.world.self.id,
+    });
+    // Not an admin of this group.
+    const books = backend.world.conversationIds.get('books')!;
+    const other = backend.world.histories
+      .get(books)!
+      .find((m) => m.authorId !== backend.world.self.id)!;
+    await expect(
+      backend.adminDelete(books, { authorId: other.authorId, sentAt: other.sentAt }),
+    ).rejects.toThrow(/admin/u);
+  });
+
   it('simulates liveliness on the injected scheduler and stops cleanly', async () => {
     const { backend, scheduler } = setup();
     await backend.connect();

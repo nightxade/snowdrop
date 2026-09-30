@@ -7,7 +7,7 @@
 import { CommandRegistry } from '@/core/commands';
 import type { Contact, Conversation, ConversationId, Message } from '@/core/domain';
 import { ObservableList } from '@/core/lib';
-import type { DraftPipeline, OutgoingDraft } from '@/core/services';
+import { isValidDraft, type DraftPipeline, type OutgoingDraft } from '@/core/services';
 import type { SpaceId } from '@/core/stores';
 
 /**
@@ -22,8 +22,13 @@ export interface Owned {
 }
 
 export type SlashResult =
-  /** Send this text instead of the command. */
-  | { type: 'send'; text: string }
+  /**
+   * Send this text instead of the command. `format` says how to read it
+   * ('markdown' when the text relies on escaping); the composer passes it on
+   * as `OutgoingDraft.format`, so output is right regardless of the user's
+   * markdown setting.
+   */
+  | { type: 'send'; text: string; format?: 'markdown' | 'plain' }
   /** Put this text into the composer for further editing. */
   | { type: 'replace'; text: string }
   /** Show an inline error in the composer. */
@@ -133,12 +138,23 @@ export class Registries implements DraftPipeline {
       });
   }
 
-  /** Runs send transforms in registration order; a throwing transform is skipped, not fatal. */
+  /**
+   * Runs send transforms in registration order. A transform that throws or
+   * returns something that isn't a valid draft for the same conversation is
+   * skipped (and reported) — a buggy plugin must never block or redirect a send.
+   */
   async transform(draft: OutgoingDraft): Promise<OutgoingDraft> {
     let current = draft;
     for (const entry of this.sendTransforms.list()) {
       try {
-        current = await entry.transform(current);
+        const next: unknown = await entry.transform(current);
+        if (isValidDraft(next, current)) current = next;
+        else
+          this.onError(
+            new TypeError('Transform returned an invalid draft'),
+            entry.owner,
+            'send transform',
+          );
       } catch (error) {
         this.onError(error, entry.owner, 'send transform');
       }

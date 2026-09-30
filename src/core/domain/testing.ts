@@ -24,6 +24,8 @@ export function makeMessage(partial: Partial<Message> = {}): Message {
     reactions: [],
     status: 'read',
     kind: 'normal',
+    // Tests usually reason in sentAt order; mirror it as the arrival order.
+    seq: sentAt,
     ...partial,
   };
 }
@@ -35,9 +37,6 @@ export function makeConversation(partial: Partial<Conversation> = {}): Conversat
     title: 'Conversation',
     memberIds: [],
     adminIds: [],
-    muted: false,
-    archived: false,
-    pinned: false,
     expireTimerSec: 0,
     lastActivityAt: 0,
     ...partial,

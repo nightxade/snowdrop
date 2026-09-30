@@ -51,6 +51,8 @@ export interface MockWorld {
   conversationIds: Map<string, ConversationId>;
   lively: ConversationId[];
   pools: Map<ConversationId, readonly string[]>;
+  /** Demo-only local organisation (pins/mutes are device-local in Hearth). */
+  defaultLocal: { pinned: ConversationId[]; muted: ConversationId[] };
   defaultSpaces: {
     name: string;
     emoji: string;
@@ -393,9 +395,6 @@ export function buildWorld({ seed, now }: WorldOptions): MockWorld {
       title: peer ? nameFor(peer) : (seedConv.title ?? 'Group'),
       memberIds,
       adminIds: (seedConv.admins ?? []).map(personId),
-      muted: seedConv.muted ?? false,
-      archived: false,
-      pinned: seedConv.pinned ?? false,
       expireTimerSec: seedConv.expireTimerSec ?? 0,
       lastActivityAt: messages.at(-1)?.sentAt ?? now - HISTORY_DAYS * DAY,
     };
@@ -432,6 +431,12 @@ export function buildWorld({ seed, now }: WorldOptions): MockWorld {
     lively,
     pools,
     defaultSpaces,
+    defaultLocal: {
+      pinned: CONVERSATIONS.filter((c) => c.pinned).flatMap(
+        (c) => conversationIds.get(c.key) ?? [],
+      ),
+      muted: CONVERSATIONS.filter((c) => c.muted).flatMap((c) => conversationIds.get(c.key) ?? []),
+    },
   };
 }
 

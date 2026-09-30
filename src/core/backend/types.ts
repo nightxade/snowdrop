@@ -54,9 +54,43 @@ export interface ReactInput {
   remove: boolean;
 }
 
+/** Protocol-level changes only; pin/mute/archive are local (see localStore). */
 export type ConversationPatch = Partial<
-  Pick<Conversation, 'muted' | 'expireTimerSec' | 'title' | 'description'>
+  Pick<Conversation, 'expireTimerSec' | 'title' | 'description'>
 >;
+
+export type RecipientFailureReason =
+  'unregistered' | 'untrusted-identity' | 'rate-limited' | 'network' | 'unknown';
+
+export interface RecipientFailure {
+  recipientId: string;
+  reason: RecipientFailureReason;
+}
+
+/**
+ * Result of a send. Adapters throw when nobody received the message; partial
+ * failures in groups are reported per recipient and the message counts as sent.
+ */
+export interface SendResult {
+  sentAt: number;
+  attachments?: Attachment[];
+  recipientFailures?: RecipientFailure[];
+}
+
+/** A message reference as Signal addresses it. */
+export interface MessageRef {
+  authorId: string;
+  sentAt: number;
+}
+
+export interface PinInput {
+  conversationId: ConversationId;
+  targetAuthorId: string;
+  targetSentAt: number;
+  pin: boolean;
+  /** How long the pin lasts; omit for "until unpinned". */
+  durationSec?: number;
+}
 
 export interface HistoryQuery {
   /** Return messages strictly older than this sentAt; omit for the newest page. */
@@ -89,7 +123,20 @@ export interface BackendEvents {
     ranges: BodyRange[];
     editedAt: number;
   };
-  messageDeleted: { conversationId: ConversationId; authorId: string; targetSentAt: number };
+  messageDeleted: {
+    conversationId: ConversationId;
+    authorId: string;
+    targetSentAt: number;
+    /** Set for admin deletes (the deleter differs from the author). */
+    deletedBy?: string;
+  };
+  messagePinned: {
+    conversationId: ConversationId;
+    targetAuthorId: string;
+    targetSentAt: number;
+    pinned: boolean;
+    by: string;
+  };
   reaction: {
     conversationId: ConversationId;
     targetAuthorId: string;
@@ -104,7 +151,7 @@ export interface BackendEvents {
    * We read these messages on another linked device. Signal identifies them
    * only by (author, sentAt); the sync engine resolves the conversation.
    */
-  readSync: { messages: { authorId: string; sentAt: number }[] };
+  readSync: { messages: MessageRef[] };
   conversationUpdated: Conversation;
   contactUpdated: Contact;
 }
@@ -128,15 +175,15 @@ export interface ChatBackend {
   listConversations(): Promise<Conversation[]>;
 
   /** Resolves with the timestamp Signal assigned, which becomes the message identity. */
-  send(input: SendInput): Promise<{ sentAt: number; attachments?: Attachment[] }>;
+  send(input: SendInput): Promise<SendResult>;
   edit(input: EditInput): Promise<{ sentAt: number }>;
   react(input: ReactInput): Promise<void>;
   deleteForEveryone(conversationId: ConversationId, sentAt: number): Promise<void>;
+  /** Group admins deleting someone else's message, when the protocol supports it. */
+  adminDelete?(conversationId: ConversationId, target: MessageRef): Promise<void>;
+  pinMessage?(input: PinInput): Promise<void>;
   setTyping(conversationId: ConversationId, typing: boolean): Promise<void>;
-  markRead(
-    conversationId: ConversationId,
-    messages: { authorId: string; sentAt: number }[],
-  ): Promise<void>;
+  markRead(conversationId: ConversationId, messages: MessageRef[]): Promise<void>;
   updateConversation?(conversationId: ConversationId, patch: ConversationPatch): Promise<void>;
 
   /**

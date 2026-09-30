@@ -91,7 +91,13 @@ export class PluginRuntime {
   async startAll(): Promise<void> {
     await this.reconcile();
     this.settingsUnsub ??= this.host.stores.settings.subscribe((state, prev) => {
-      if (state.plugins !== prev.plugins) void this.reconcile();
+      // Only enablement changes matter here: changing a plugin's *settings*
+      // must not restart it (or retry one that failed to start).
+      if (state.plugins === prev.plugins) return;
+      const toggled = [...this.slots.keys()].some(
+        (id) => state.plugins[id]?.enabled !== prev.plugins[id]?.enabled,
+      );
+      if (toggled) void this.reconcile();
     });
   }
 
@@ -117,7 +123,8 @@ export class PluginRuntime {
 
   start(id: string): Promise<void> {
     return this.enqueue(id, async (slot) => {
-      if (slot.status === 'running' || slot.status === 'starting') return;
+      // Start/stop are serialised per plugin, so 'starting' is never observed here.
+      if (slot.status === 'running') return;
       const disposables = new DisposableStore((error) => {
         this.report(error, id, 'dispose');
       });

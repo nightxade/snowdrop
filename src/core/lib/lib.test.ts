@@ -76,6 +76,15 @@ describe('DisposableStore', () => {
     expect(onError).toHaveBeenCalledOnce();
   });
 
+  it('never runs a disposer twice via its handle after dispose()', () => {
+    const store = new DisposableStore();
+    const fn = vi.fn();
+    const handle = store.add(fn);
+    store.dispose();
+    handle();
+    expect(fn).toHaveBeenCalledOnce();
+  });
+
   it('runs disposers added after disposal immediately', () => {
     const store = new DisposableStore();
     store.dispose();

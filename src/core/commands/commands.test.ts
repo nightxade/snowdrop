@@ -84,16 +84,31 @@ describe('keybind matching', () => {
     ).toBe(true);
   });
 
-  it('falls back to the physical key code (Alt on macOS, shifted symbols)', () => {
+  it('falls back to the physical key only for non-printable output (Alt on macOS)', () => {
     expect(
       matchesKeybind(ev('˚', { altKey: true, code: 'KeyK' }), parseKeybind('Alt+K')!, true),
     ).toBe(true);
+    // Shifted symbols are matched by the character they produce.
     expect(
       matchesKeybind(
         ev('?', { ctrlKey: true, shiftKey: true, code: 'Slash' }),
-        parseKeybind('Mod+Shift+/')!,
+        parseKeybind('Mod+Shift+?')!,
         false,
       ),
+    ).toBe(true);
+  });
+
+  it('respects non-QWERTY layouts', () => {
+    // Dvorak: the QWERTY "/" key types "z"; Ctrl+Z must not fire Mod+/.
+    expect(
+      matchesKeybind(ev('z', { ctrlKey: true, code: 'Slash' }), parseKeybind('Mod+/')!, false),
+    ).toBe(false);
+    // Dvorak: QWERTY "K" types "t"; Ctrl+T must not fire Mod+K.
+    expect(
+      matchesKeybind(ev('t', { ctrlKey: true, code: 'KeyK' }), parseKeybind('Mod+K')!, false),
+    ).toBe(false);
+    expect(
+      matchesKeybind(ev('k', { ctrlKey: true, code: 'KeyV' }), parseKeybind('Mod+K')!, false),
     ).toBe(true);
   });
 

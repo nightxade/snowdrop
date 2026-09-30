@@ -19,7 +19,7 @@ const shape = (items: RenderItem[]): string[] =>
       case 'system':
         return 'system';
       case 'message':
-        return `${i.message.authorId}${i.continuation ? '+' : ''}`;
+        return `${i.authorId}${i.continuation ? '+' : ''}`;
     }
   });
 
@@ -47,7 +47,8 @@ describe('groupMessages', () => {
       msg('a', Date.UTC(2026, 8, 30, 0, 1)),
     ]);
     expect(shape(items)).toEqual(['day', 'a', 'a', 'day', 'a']);
-    expect(items[0]).toMatchObject({ type: 'day-divider', key: 'day-2026-09-29' });
+    expect(items[0]).toMatchObject({ type: 'day-divider' });
+    expect(items[0]?.key).toMatch(/^day-2026-09-29-/u);
   });
 
   it('breaks groups on system messages', () => {
@@ -94,6 +95,18 @@ describe('groupMessages', () => {
   it('respects a custom gap', () => {
     const items = groupMessages([msg('a', T0), msg('a', T0 + 2 * min)], { gapMs: min });
     expect(shape(items)).toEqual(['day', 'a', 'a']);
+  });
+
+  it('orders the new-messages divider by arrival (seq), not the sender clock', () => {
+    // A skewed sender: sentAt in the past but it arrived after the cursor.
+    const items = groupMessages([msg('a', T0, { seq: 1 }), msg('b', T0 - 60 * min, { seq: 2 })], {
+      readCursor: 1,
+    });
+    expect(shape(items)).toEqual(['day', 'a', 'new', 'b']);
+    // Negative gaps never continue a group.
+    expect(
+      shape(groupMessages([msg('a', T0, { seq: 1 }), msg('a', T0 - min, { seq: 2 })])),
+    ).toEqual(['day', 'a', 'a']);
   });
 
   it('uses the client nonce as key so optimistic rows keep identity', () => {

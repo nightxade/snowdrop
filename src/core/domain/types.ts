@@ -23,6 +23,12 @@ export interface Contact {
 /** `true` = muted indefinitely; `{ until }` = epoch ms when the mute lapses. */
 export type MuteState = boolean | { until: number };
 
+/**
+ * Protocol state of a conversation, as the backend reports it. Local-only
+ * organisation (pinned, muted, archived, draft) lives in the persisted
+ * `localStore` and is combined into a `ConversationView` by selectors, so a
+ * backend update can never clobber it.
+ */
 export interface Conversation {
   id: ConversationId;
   kind: ConversationKind;
@@ -31,14 +37,21 @@ export interface Conversation {
   avatarUrl?: string;
   memberIds: string[];
   adminIds: string[];
-  muted: MuteState;
-  archived: boolean;
-  pinned: boolean;
   /** Disappearing-message timer in seconds; 0 = off. */
   expireTimerSec: number;
   lastActivityAt: number;
+}
+
+/** Device-local per-conversation state (never sent to Signal). */
+export interface LocalConversationState {
+  pinned: boolean;
+  muted: MuteState;
+  archived: boolean;
   draft?: string;
 }
+
+/** What the UI renders: protocol state + local state. */
+export type ConversationView = Conversation & LocalConversationState;
 
 /** Mirrors Signal's native body-range styles so formatting survives the round trip. */
 export type TextStyle = 'bold' | 'italic' | 'strikethrough' | 'monospace' | 'spoiler';
@@ -88,6 +101,8 @@ export interface Quote {
   authorId: string;
   sentAt: number;
   text: string;
+  /** Styles and mentions of the quoted text (UTF-16 offsets into `text`). */
+  ranges?: BodyRange[];
 }
 
 /**
@@ -102,9 +117,20 @@ export interface Message {
   id: MessageId;
   conversationId: ConversationId;
   authorId: string;
-  /** Sender's timestamp (epoch ms) — half of the Signal message identity. */
+  /**
+   * Sender's timestamp (epoch ms) — half of the Signal message identity.
+   * Identity only: senders' clocks can be skewed, so never order by it.
+   */
   sentAt: number;
+  /** When this device received (or sent) it. */
   receivedAt: number;
+  /**
+   * Local, monotonically increasing arrival sequence assigned by the
+   * repository. The timeline and unread state are ordered by this, so a
+   * sender with a wrong clock can't bury a new message in the past.
+   * Absent only on messages that have not been stored yet.
+   */
+  seq?: number;
   body: string;
   ranges: BodyRange[];
   quote?: Quote;
@@ -114,12 +140,20 @@ export interface Message {
   edits?: number;
   editedAt?: number;
   deleted?: boolean;
+  /** Who deleted it, when it was an admin delete rather than the author. */
+  deletedBy?: string;
+  /** Epoch ms after which the message is purged (disappearing messages). */
   expiresAt?: number;
   status: MessageStatus;
   kind: MessageKind;
   systemText?: string;
   pinned?: boolean;
-  /** Client nonce for optimistic messages; cleared once acknowledged. */
+  /** Recipients the send failed for (partial group sends); status stays 'sent'. */
+  failedRecipients?: string[];
+  /**
+   * Client nonce of an outgoing message. Kept after acknowledgement (in memory
+   * and storage) so render keys survive the pending → acknowledged id swap.
+   */
   nonce?: string;
 }
 

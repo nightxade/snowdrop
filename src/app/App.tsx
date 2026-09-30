@@ -11,13 +11,14 @@ export function App() {
   const { stores } = useHearth();
   const status = useStore(stores.session, sessionSelectors.status);
   const ready = useStore(stores.session, sessionSelectors.ready);
-  const conversations = useStore(stores.conversations, conversationsSelectors.ordered);
+  const conversations = useStore(stores.conversations, conversationsSelectors.byId);
+  const count = Object.keys(conversations).length;
 
   return (
     <main className={styles.root} data-hearth="app">
       <h1 className={styles.title}>Hearth — foundation ready</h1>
       <p className={styles.meta} aria-live="polite">
-        {ready ? `${conversations.length} conversations` : 'Connecting…'} · {status}
+        {ready ? `${count} conversations` : 'Connecting…'} · {status}
       </p>
     </main>
   );

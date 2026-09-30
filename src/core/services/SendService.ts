@@ -1,17 +1,26 @@
 /**
  * Outgoing actions with optimistic UI.
  *
- * Every action updates the stores immediately, then talks to the backend and
- * either confirms (reconcile + persist) or rolls back. Sends that fail stay in
- * the list as "failed" with the original input kept for retry, so nothing the
- * user typed is ever lost.
+ * Sends appear immediately as `pending:<nonce>` rows (with a reserved seq, so
+ * they keep their place in the timeline) and are persisted with their input
+ * in an outbox, so a reload never loses what the user typed. When the
+ * backend acknowledges, the row is reconciled to its real identity.
+ *
+ * Messages that are still pending can be edited, reacted to or deleted
+ * without blocking the user: the effect is shown immediately and the backend
+ * operation is queued and replayed against the real id once the send is
+ * acknowledged. If the send never went out (it failed), an edit simply
+ * rewrites what will be sent and a delete discards it.
  */
 import type { ChatBackend, SendInput } from '@/core/backend';
 import {
+  advanceStatus,
   applyDelete,
   applyEdit,
   applyReaction,
   attachMentions,
+  isPendingMessageId,
+  mergeDuplicate,
   messageId,
   parseMarkdownToRanges,
   pendingMessageId,
@@ -23,6 +32,7 @@ import {
 import { createNonce, type Clock } from '@/core/lib';
 import type { MessageRepository } from '@/core/persistence';
 import type { Stores } from '@/core/stores';
+import { ReceiptBuffer } from './ReceiptBuffer';
 import {
   consoleReporter,
   PASSTHROUGH_PIPELINE,
@@ -40,6 +50,8 @@ export interface SendServiceDeps {
   stores: Stores;
   clock: Clock;
   pipeline?: DraftPipeline;
+  /** Shared with SyncService so receipts that beat our send's ack aren't lost. */
+  receipts?: ReceiptBuffer;
   newNonce?: () => string;
   onError?: ErrorReporter;
 }
@@ -48,15 +60,32 @@ export class NotSignedInError extends Error {
   override name = 'NotSignedInError';
 }
 
+/** An operation on a message that must wait for its send to be acknowledged. */
+interface QueuedOp {
+  context: string;
+  apply: (m: Message) => Message;
+  revert: (m: Message) => Message;
+  commit: (target: Message) => Promise<void>;
+}
+
+interface Outgoing {
+  conversationId: ConversationId;
+  input: SendInput;
+  inFlight: boolean;
+  queue: QueuedOp[];
+}
+
 export class SendService {
-  private readonly pending = new Map<string, SendInput>();
+  private readonly outgoing = new Map<string, Outgoing>();
   private readonly typingSentAt = new Map<ConversationId, number>();
   private readonly pipeline: DraftPipeline;
+  private readonly receipts: ReceiptBuffer;
   private readonly newNonce: () => string;
   private readonly onError: ErrorReporter;
 
   constructor(private readonly deps: SendServiceDeps) {
     this.pipeline = deps.pipeline ?? PASSTHROUGH_PIPELINE;
+    this.receipts = deps.receipts ?? new ReceiptBuffer();
     this.newNonce = deps.newNonce ?? (() => createNonce('msg'));
     this.onError = deps.onError ?? consoleReporter;
   }
@@ -67,26 +96,45 @@ export class SendService {
     return self.id;
   }
 
-  /** Turns composer text into Signal body + ranges (markdown if enabled, plus mentions). */
-  compose(text: string, mentionIds: readonly string[]): { body: string; ranges: BodyRange[] } {
-    const markdown = this.deps.stores.settings.getState().behaviour.markdown;
+  /**
+   * Turns composer text into Signal body + ranges: markdown (per `format`, or
+   * the user's setting when omitted) plus mentions.
+   */
+  compose(
+    text: string,
+    mentionIds: readonly string[],
+    format?: OutgoingDraft['format'],
+  ): { body: string; ranges: BodyRange[] } {
+    const markdown =
+      format === undefined
+        ? this.deps.stores.settings.getState().behaviour.markdown
+        : format === 'markdown';
     const parsed = markdown ? parseMarkdownToRanges(text) : { body: text, ranges: [] };
     return { body: parsed.body, ranges: attachMentions(parsed.body, parsed.ranges, mentionIds) };
   }
 
+  // ─── Sending ───────────────────────────────────────────────────────────
+
   /**
-   * Sends a draft. Resolves with the optimistic message's nonce (a stable
-   * handle for retry/discard), or null if the draft was empty after transforms.
-   * Never rejects for network errors — those surface as a "failed" message.
+   * Sends a draft. Resolves with the message's nonce (a stable handle for
+   * retry/discard), or null if the draft was empty after transforms. Never
+   * rejects for network errors — those surface as a "failed" message.
+   * The message is only visible if the conversation window is anchored to
+   * the present; the UI jumps there before sending.
    */
   async send(draft: OutgoingDraft): Promise<string | null> {
     const selfId = this.selfId();
     const transformed = await this.pipeline.transform(draft);
-    const { body, ranges } = this.compose(transformed.text, transformed.mentionIds);
+    const { body, ranges } = this.compose(
+      transformed.text,
+      transformed.mentionIds,
+      transformed.format,
+    );
     if (body.trim() === '' && transformed.attachments.length === 0) return null;
 
+    const { repository, stores, clock } = this.deps;
     const nonce = this.newNonce();
-    const now = this.deps.clock.now();
+    const now = clock.now();
     const input: SendInput = {
       conversationId: transformed.conversationId,
       body,
@@ -101,6 +149,8 @@ export class SendService {
       authorId: selfId,
       sentAt: now,
       receivedAt: now,
+      // Reserved now so the message keeps its place however long the send takes.
+      seq: await repository.allocateSeq(),
       body,
       ranges,
       attachments: transformed.attachments.map((a, i) => ({
@@ -116,107 +166,216 @@ export class SendService {
     };
     if (input.quote) optimistic.quote = input.quote;
 
-    this.pending.set(nonce, input);
-    this.deps.stores.messages.getState().upsert(optimistic);
-    this.deps.stores.conversations.getState().bumpActivity(input.conversationId, now);
+    this.outgoing.set(nonce, {
+      conversationId: input.conversationId,
+      input,
+      inFlight: false,
+      queue: [],
+    });
+    stores.messages.getState().appendLive(optimistic);
+    stores.conversations.getState().bumpActivity(input.conversationId, now);
     this.typingSentAt.delete(input.conversationId);
+    await Promise.all([
+      repository.upsert(optimistic, mergeDuplicate),
+      repository.putOutbox({ nonce, input, createdAt: now }),
+    ]);
     await this.attempt(nonce);
     return nonce;
   }
 
-  /** Re-sends a failed message with its original input. */
+  /**
+   * Restores unsent messages after a restart. They were interrupted, so they
+   * come back as failed (with Retry) rather than silently re-sending.
+   */
+  async restoreOutbox(): Promise<number> {
+    const entries = await this.deps.repository.listOutbox();
+    for (const entry of entries) {
+      if (this.outgoing.has(entry.nonce)) continue;
+      const id = pendingMessageId(entry.nonce);
+      this.outgoing.set(entry.nonce, {
+        conversationId: entry.input.conversationId,
+        input: entry.input,
+        inFlight: false,
+        queue: [],
+      });
+      const markFailed = (m: Message): Message => ({ ...m, status: 'failed' });
+      await this.deps.repository.update(id, markFailed);
+      this.deps.stores.messages.getState().update(entry.input.conversationId, id, markFailed);
+    }
+    return entries.length;
+  }
+
+  /** Re-sends a failed message with its original (or since edited) input. */
   async retry(conversationId: ConversationId, nonce: string): Promise<void> {
-    if (!this.pending.has(nonce)) return;
+    const out = this.outgoing.get(nonce);
+    if (!out || out.inFlight) return;
+    const setPending = (m: Message): Message => ({ ...m, status: 'pending' });
     this.deps.stores.messages
       .getState()
-      .update(conversationId, pendingMessageId(nonce), (m) => ({ ...m, status: 'pending' }));
+      .update(conversationId, pendingMessageId(nonce), setPending);
+    await this.deps.repository.update(pendingMessageId(nonce), setPending);
     await this.attempt(nonce);
   }
 
-  /** Drops a failed (never delivered) message. */
-  discard(conversationId: ConversationId, nonce: string): void {
-    this.pending.delete(nonce);
+  /** Drops a message that was never delivered. */
+  async discard(conversationId: ConversationId, nonce: string): Promise<void> {
+    const out = this.outgoing.get(nonce);
+    if (out?.inFlight) return;
+    this.outgoing.delete(nonce);
     this.deps.stores.messages.getState().remove(conversationId, pendingMessageId(nonce));
+    await Promise.all([
+      this.deps.repository.delete(pendingMessageId(nonce)),
+      this.deps.repository.deleteOutbox(nonce),
+    ]);
   }
 
   private async attempt(nonce: string): Promise<void> {
-    const input = this.pending.get(nonce);
-    if (!input) return;
-    const messages = this.deps.stores.messages.getState();
-    const optimisticId = pendingMessageId(nonce);
+    const out = this.outgoing.get(nonce);
+    if (!out) return;
+    const { repository, stores, backend, clock } = this.deps;
+    const pendingId = pendingMessageId(nonce);
+    out.inFlight = true;
+    let result;
     try {
-      const result = await this.deps.backend.send(input);
-      const selfId = this.selfId();
-      const base: Message = messages.findByNonce(input.conversationId, nonce) ?? {
-        // The optimistic row can be gone if the window was reset; rebuild from the input.
-        id: optimisticId,
-        conversationId: input.conversationId,
-        authorId: selfId,
-        sentAt: result.sentAt,
-        receivedAt: result.sentAt,
-        body: input.body,
-        ranges: input.ranges,
-        attachments: [],
-        reactions: [],
-        status: 'pending',
-        kind: 'normal',
-        ...(input.quote ? { quote: input.quote } : {}),
-      };
-      const final: Message = {
-        ...base,
-        id: messageId(selfId, result.sentAt),
-        sentAt: result.sentAt,
-        receivedAt: result.sentAt,
-        attachments: result.attachments ?? base.attachments,
-        status: 'sent',
-      };
-      this.pending.delete(nonce);
-      this.deps.stores.messages.getState().reconcile(input.conversationId, nonce, final);
-      await this.deps.repository.put(final);
-      // Replying means you've seen everything before it.
-      if (this.deps.stores.conversations.getState().markRead(input.conversationId, result.sentAt)) {
-        await this.deps.repository.setReadCursor(input.conversationId, result.sentAt);
-      }
+      result = await backend.send(out.input);
     } catch (error) {
-      this.deps.stores.messages
-        .getState()
-        .update(input.conversationId, optimisticId, (m) => ({ ...m, status: 'failed' }));
+      out.inFlight = false;
+      const markFailed = (m: Message): Message => ({ ...m, status: 'failed' });
+      stores.messages.getState().update(out.conversationId, pendingId, markFailed);
+      await repository.update(pendingId, markFailed);
       this.onError(error, 'send failed');
+      return;
+    }
+
+    const selfId = this.selfId();
+    const pendingRow =
+      stores.messages.getState().findByNonce(out.conversationId, nonce) ??
+      (await repository.get(pendingId));
+    // What was actually sent — queued edits/reactions are replayed below.
+    const final: Message = {
+      id: messageId(selfId, result.sentAt),
+      conversationId: out.conversationId,
+      authorId: selfId,
+      sentAt: result.sentAt,
+      receivedAt: pendingRow?.receivedAt ?? clock.now(),
+      body: out.input.body,
+      ranges: out.input.ranges,
+      attachments: result.attachments ?? pendingRow?.attachments ?? [],
+      reactions: [],
+      // A receipt may already have arrived for this timestamp.
+      status: advanceStatus('sent', this.receipts.take(result.sentAt, clock.now()) ?? 'sent'),
+      kind: 'normal',
+      nonce,
+      ...(pendingRow?.seq === undefined ? {} : { seq: pendingRow.seq }),
+      ...(out.input.quote ? { quote: out.input.quote } : {}),
+      ...(result.recipientFailures?.length
+        ? { failedRecipients: result.recipientFailures.map((f) => f.recipientId) }
+        : {}),
+    };
+
+    // Merge (not overwrite): a sync echo or receipts may have landed already.
+    await repository.delete(pendingId);
+    const { message: stored } = await repository.upsert(final, mergeDuplicate);
+    await repository.deleteOutbox(nonce);
+    this.outgoing.delete(nonce);
+
+    // Show the queued operations' effects straight away; commit them next.
+    const shown = out.queue.reduce((m, op) => op.apply(m), stored);
+    stores.messages.getState().reconcile(out.conversationId, nonce, shown);
+    if (
+      stored.seq !== undefined &&
+      stores.conversations.getState().markRead(out.conversationId, stored.seq)
+    ) {
+      // Replying means you've seen everything before it.
+      await repository.setReadCursor(out.conversationId, stored.seq);
+    }
+    for (const op of out.queue) await this.commitQueued(out.conversationId, stored, op);
+  }
+
+  private async commitQueued(
+    conversationId: ConversationId,
+    target: Message,
+    op: QueuedOp,
+  ): Promise<void> {
+    try {
+      await op.commit(target);
+      await this.deps.repository.update(target.id, op.apply);
+    } catch (error) {
+      this.deps.stores.messages.getState().update(conversationId, target.id, op.revert);
+      this.onError(error, op.context);
     }
   }
 
-  /** Optimistically edits one of our messages; rolls back on failure. */
+  /**
+   * Routes an operation: acknowledged messages go through the optimistic
+   * commit path; pending ones show it now and queue the commit.
+   */
+  private async operate(
+    conversationId: ConversationId,
+    id: MessageId,
+    op: QueuedOp,
+  ): Promise<boolean> {
+    if (!isPendingMessageId(id)) return this.optimistic(conversationId, id, op);
+    const nonce = id.slice('pending:'.length);
+    const out = this.outgoing.get(nonce);
+    if (!out) return false;
+    this.deps.stores.messages.getState().update(conversationId, id, op.apply);
+    out.queue.push(op);
+    return true;
+  }
+
+  // ─── Edit / react / delete ─────────────────────────────────────────────
+
+  private findLoaded(conversationId: ConversationId, id: MessageId): Message | undefined {
+    return this.deps.stores.messages.getState().windows[conversationId]?.byId[id];
+  }
+
+  /** Edits one of our messages; see the class comment for pending messages. */
   async edit(
     conversationId: ConversationId,
     id: MessageId,
     text: string,
     mentionIds: readonly string[] = [],
   ): Promise<boolean> {
-    const original = this.deps.stores.messages.getState().windows[conversationId]?.byId[id];
+    const original = this.findLoaded(conversationId, id);
     if (!original || original.authorId !== this.selfId() || original.deleted) return false;
     const { body, ranges } = this.compose(text, mentionIds);
     if (body.trim() === '' || (body === original.body && sameRanges(ranges, original.ranges))) {
       return false;
     }
-    const optimisticAt = this.deps.clock.now();
-    let editedAt = optimisticAt;
-    return this.optimistic({
-      conversationId,
-      id,
+
+    // Not sent yet (failed): just change what will be sent — no edit needed.
+    const nonce = original.nonce;
+    const out = nonce === undefined ? undefined : this.outgoing.get(nonce);
+    if (nonce !== undefined && out && !out.inFlight && isPendingMessageId(id)) {
+      out.input = { ...out.input, body, ranges };
+      const rewrite = (m: Message): Message => ({ ...m, body, ranges });
+      this.deps.stores.messages.getState().update(conversationId, id, rewrite);
+      await Promise.all([
+        this.deps.repository.update(id, rewrite),
+        this.deps.repository.putOutbox({
+          nonce,
+          input: out.input,
+          createdAt: original.receivedAt,
+        }),
+      ]);
+      return true;
+    }
+
+    let editedAt = this.deps.clock.now();
+    return this.operate(conversationId, id, {
       context: 'edit failed',
       apply: (m) => applyEdit(m, { body, ranges, editedAt }),
       revert: (m) => restoreContent(m, original),
-      commit: async () => {
+      commit: async (target) => {
         const result = await this.deps.backend.edit({
           conversationId,
-          targetSentAt: original.sentAt,
+          targetSentAt: target.sentAt,
           body,
           ranges,
         });
         editedAt = result.sentAt;
       },
-      // Store already shows the edit; just adopt the server timestamp.
-      confirm: (m) => ({ ...m, editedAt }),
     });
   }
 
@@ -230,9 +389,7 @@ export class SendService {
     const selfId = this.selfId();
     const reaction = { emoji, authorId: selfId, at: this.deps.clock.now() };
     const previous = target.reactions.find((r) => r.authorId === selfId);
-    return this.optimistic({
-      conversationId,
-      id: target.id,
+    return this.operate(conversationId, target.id, {
       context: 'reaction failed',
       apply: (m) => ({ ...m, reactions: applyReaction(m.reactions, reaction, remove) }),
       revert: (m) => ({
@@ -242,11 +399,11 @@ export class SendService {
           ...(previous ? [previous] : []),
         ],
       }),
-      commit: () =>
+      commit: (real) =>
         this.deps.backend.react({
           conversationId,
-          targetAuthorId: target.authorId,
-          targetSentAt: target.sentAt,
+          targetAuthorId: real.authorId,
+          targetSentAt: real.sentAt,
           emoji,
           remove,
         }),
@@ -262,15 +419,22 @@ export class SendService {
 
   async deleteForEveryone(conversationId: ConversationId, target: Message): Promise<boolean> {
     if (target.authorId !== this.selfId() || target.deleted) return false;
-    return this.optimistic({
-      conversationId,
-      id: target.id,
+    const nonce = target.nonce;
+    const out = nonce === undefined ? undefined : this.outgoing.get(nonce);
+    if (nonce !== undefined && out && !out.inFlight && isPendingMessageId(target.id)) {
+      // Never delivered: deleting for everyone is just discarding it.
+      await this.discard(conversationId, nonce);
+      return true;
+    }
+    return this.operate(conversationId, target.id, {
       context: 'delete failed',
-      apply: applyDelete,
+      apply: (m) => applyDelete(m),
       revert: () => target,
-      commit: () => this.deps.backend.deleteForEveryone(conversationId, target.sentAt),
+      commit: (real) => this.deps.backend.deleteForEveryone(conversationId, real.sentAt),
     });
   }
+
+  // ─── Typing ────────────────────────────────────────────────────────────
 
   /**
    * Reports composer activity. Throttled to one "started" per
@@ -303,27 +467,22 @@ export class SendService {
    * then persists it — or reverts it. Operations are functions (not snapshots)
    * so concurrent incoming changes to the same message survive both paths.
    */
-  private async optimistic(op: {
-    conversationId: ConversationId;
-    id: MessageId;
-    context: string;
-    apply: (m: Message) => Message;
-    revert: (m: Message) => Message;
-    commit: () => Promise<unknown>;
-    confirm?: (m: Message) => Message;
-  }): Promise<boolean> {
-    const { conversationId, id } = op;
+  private async optimistic(
+    conversationId: ConversationId,
+    id: MessageId,
+    op: QueuedOp,
+  ): Promise<boolean> {
+    const target = this.findLoaded(conversationId, id) ?? (await this.deps.repository.get(id));
+    if (!target) return false;
     this.deps.stores.messages.getState().update(conversationId, id, op.apply);
     try {
-      await op.commit();
+      await op.commit(target);
     } catch (error) {
       this.deps.stores.messages.getState().update(conversationId, id, op.revert);
       this.onError(error, op.context);
       return false;
     }
-    const confirm = op.confirm;
-    if (confirm) this.deps.stores.messages.getState().update(conversationId, id, confirm);
-    await this.deps.repository.update(id, (m) => (confirm ? confirm(op.apply(m)) : op.apply(m)));
+    await this.deps.repository.update(id, op.apply);
     return true;
   }
 }

@@ -22,15 +22,18 @@ import {
 import {
   bindPersistence,
   defaultStorage,
+  type PersistenceBinding,
   loadVersioned,
   MemoryMessageRepository,
   type KeyValueStorage,
   type MessageRepository,
 } from '@/core/persistence';
 import { BUILTIN_PLUGINS, PluginRuntime, Registries, type PluginHost } from '@/core/plugins';
-import { HistoryService, SendService, SyncService } from '@/core/services';
+import { HistoryService, ReceiptBuffer, SendService, SyncService } from '@/core/services';
 import {
   createStores,
+  localSchema,
+  selectLocalData,
   selectSettingsData,
   selectSpacesData,
   settingsSchema,
@@ -63,6 +66,8 @@ export interface Hearth {
   history: HistoryService;
   /** Connects, syncs and starts plugins. */
   start(): Promise<void>;
+  /** Writes debounced persisted state now (call on page hide). */
+  flush(): void;
   dispose(): Promise<void>;
 }
 
@@ -75,11 +80,18 @@ export function createHearth(options: HearthOptions = {}): Hearth {
   const stores = createStores({
     settings: loadVersioned(storage, settingsSchema),
     spaces: loadVersioned(storage, spacesSchema),
+    local: loadVersioned(storage, localSchema),
   });
-  cleanups.push(
+  // Drafts change per keystroke: coalesce those writes.
+  const debounce = {
+    ms: 400,
+    schedule: (fn: () => void, ms: number) => scheduler.setTimeout(fn, ms),
+  };
+  const bindings: PersistenceBinding[] = [
     bindPersistence(stores.settings, storage, settingsSchema, selectSettingsData),
     bindPersistence(stores.spaces, storage, spacesSchema, selectSpacesData),
-  );
+    bindPersistence(stores.local, storage, localSchema, selectLocalData, debounce),
+  ];
 
   const reportError = (error: unknown, context: string): void => {
     console.error(`[hearth] ${context}`, error);
@@ -92,6 +104,8 @@ export function createHearth(options: HearthOptions = {}): Hearth {
   const mock = new MockBackend({ clock, scheduler, latencyMs: options.mockLatencyMs ?? 120 });
   const backend: ChatBackend = mock;
   const repository: MessageRepository = new MemoryMessageRepository();
+  // Shared so a receipt that beats the send's acknowledgement isn't lost.
+  const receipts = new ReceiptBuffer();
 
   const registries = new Registries((error, owner, where) => {
     reportError(error, `plugin "${owner}" failed in ${where}`);
@@ -103,6 +117,7 @@ export function createHearth(options: HearthOptions = {}): Hearth {
     stores,
     clock,
     pipeline: registries,
+    receipts,
     onError: reportError,
   });
   const sync = new SyncService({
@@ -111,6 +126,7 @@ export function createHearth(options: HearthOptions = {}): Hearth {
     stores,
     clock,
     scheduler,
+    receipts,
     onError: reportError,
   });
   const history = new HistoryService({ backend, repository, stores, onError: reportError });
@@ -181,10 +197,13 @@ export function createHearth(options: HearthOptions = {}): Hearth {
 
     async start() {
       await sync.start();
-      // Default spaces make the rail/sidebar structure visible on first demo run.
-      stores.spaces.getState().seedDefaults(mock.world.defaultSpaces);
-      const known = Object.values(stores.conversations.getState().byId).map((c) => c.id);
-      stores.spaces.getState().retainConversations(new Set(known));
+      await send.restoreOutbox();
+      if (backend.kind === 'mock') {
+        // Demo-only defaults so the Discord-like structure is visible on first run.
+        // Never applied to a real account, and never re-applied after the user changes them.
+        stores.spaces.getState().seedDefaults(mock.world.defaultSpaces);
+        stores.local.getState().seedDefaults(mock.world.defaultLocal);
+      }
       await plugins.startAll();
       syncLiveliness();
       cleanups.push(
@@ -195,8 +214,13 @@ export function createHearth(options: HearthOptions = {}): Hearth {
       );
     },
 
+    flush() {
+      for (const binding of bindings) binding.flush();
+    },
+
     async dispose() {
       for (const off of cleanups.splice(0)) off();
+      for (const binding of bindings.splice(0)) binding.dispose();
       mock.liveliness.stop();
       await plugins.stopAll();
       await sync.stop();

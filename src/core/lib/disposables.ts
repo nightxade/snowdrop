@@ -1,34 +1,40 @@
 /**
  * Collects cleanup functions and runs them in reverse order. Used by plugin
  * contexts and services so "stop" can never leak a subscription.
+ *
+ * Every disposer runs at most once, whether it's triggered through its own
+ * handle, through `dispose()`, or both.
  */
 
 export type Disposer = () => void;
 
-export class DisposableStore {
-  private disposers: Disposer[] = [];
-  private disposed = false;
+interface Entry {
+  fn: Disposer;
+  done: boolean;
+}
 
-  /** Registers a disposer; if already disposed it runs immediately. */
-  add(disposer: Disposer): Disposer {
-    if (this.disposed) {
-      safeRun(disposer, this.onError);
-      return () => undefined;
-    }
-    this.disposers.push(disposer);
-    let done = false;
-    return () => {
-      if (done) return;
-      done = true;
-      this.disposers = this.disposers.filter((d) => d !== disposer);
-      safeRun(disposer, this.onError);
-    };
-  }
+export class DisposableStore {
+  private entries: Entry[] = [];
+  private disposed = false;
 
   constructor(private readonly onError: (error: unknown) => void = defaultOnError) {}
 
+  /** Registers a disposer; if already disposed it runs immediately. */
+  add(fn: Disposer): Disposer {
+    const entry: Entry = { fn, done: false };
+    if (this.disposed) {
+      this.run(entry);
+      return () => undefined;
+    }
+    this.entries.push(entry);
+    return () => {
+      this.entries = this.entries.filter((e) => e !== entry);
+      this.run(entry);
+    };
+  }
+
   get size(): number {
-    return this.disposers.length;
+    return this.entries.length;
   }
 
   get isDisposed(): boolean {
@@ -38,17 +44,19 @@ export class DisposableStore {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    const list = this.disposers.reverse();
-    this.disposers = [];
-    for (const d of list) safeRun(d, this.onError);
+    const list = this.entries.reverse();
+    this.entries = [];
+    for (const entry of list) this.run(entry);
   }
-}
 
-function safeRun(fn: Disposer, onError: (error: unknown) => void): void {
-  try {
-    fn();
-  } catch (error) {
-    onError(error);
+  private run(entry: Entry): void {
+    if (entry.done) return;
+    entry.done = true;
+    try {
+      entry.fn();
+    } catch (error) {
+      this.onError(error);
+    }
   }
 }
 

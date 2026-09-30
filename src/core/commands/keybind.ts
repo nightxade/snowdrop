@@ -120,7 +120,17 @@ export function matchesKeybind(event: KeyEventLike, kb: Keybind, isMac: boolean)
   ) {
     return false;
   }
-  return normaliseKey(event.key) === want.key || keyFromCode(event.code) === want.key;
+  const key = normaliseKey(event.key);
+  if (key === want.key) return true;
+  // Fall back to the physical key only when the layout produced something that
+  // isn't a printable ASCII character (Alt on macOS gives "˚" for K). A
+  // printable key is what the user meant: on Dvorak, the key at QWERTY "/"
+  // types "z", and Ctrl+Z must not trigger a Mod+/ binding.
+  return !isPrintableAscii(event.key) && keyFromCode(event.code) === want.key;
+}
+
+function isPrintableAscii(key: string): boolean {
+  return key.length === 1 && key >= ' ' && key <= '~';
 }
 
 const MODIFIER_KEYS = new Set(['control', 'meta', 'alt', 'shift', 'os', 'altgraph']);

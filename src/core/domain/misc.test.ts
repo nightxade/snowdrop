@@ -17,6 +17,7 @@ import {
   applyDelete,
   applyEdit,
   applyReaction,
+  mergeDuplicate,
   summarizeReactions,
 } from './messageOps';
 import { makeMessage } from './testing';
@@ -88,6 +89,15 @@ describe('fuzzy', () => {
   it('prefers word-start acronyms', () => {
     const ranked = fuzzyFilter('cc', ['Recycle centre', 'Climbing Club', 'accent'], (x) => x);
     expect(ranked[0]?.item).toBe('Climbing Club');
+  });
+
+  it('finds matches a greedy scan would miss', () => {
+    expect(fuzzyMatch('ma', 'Emma Moss')?.indices).toEqual([2, 3]);
+    expect(fuzzyMatch('bc', 'abc b')?.indices).toEqual([1, 2]);
+    expect(fuzzyMatch('clb', 'Climbing Club')?.indices).toEqual([0, 1, 4]);
+    // Consecutive letters beat jumping to a later word start.
+    expect(fuzzyMatch('ar', 'Mark Rogers')?.indices).toEqual([1, 2]);
+    expect(fuzzyMatch('team', 'Steam Team x')?.indices).toEqual([6, 7, 8, 9]);
   });
 
   it('returns UTF-16 indices for highlighting', () => {
@@ -178,6 +188,40 @@ describe('messageOps', () => {
     expect(deleted).toMatchObject({ deleted: true, body: '' });
     expect(deleted.quote).toBeUndefined();
     expect(applyEdit(deleted, { body: 'zombie', ranges: [], editedAt: 6 }).body).toBe('');
+  });
+
+  it('ignores edits older than the one shown (out-of-order delivery)', () => {
+    const m = makeMessage({ body: 'v0' });
+    const v2 = applyEdit(m, { body: 'v2', ranges: [], editedAt: 3000 });
+    const stale = applyEdit(v2, { body: 'v1', ranges: [], editedAt: 2000 });
+    expect(stale).toMatchObject({ body: 'v2', edits: 1 });
+  });
+
+  it('records who deleted a message when it was an admin', () => {
+    const m = makeMessage({ authorId: 'a', pinned: true });
+    expect(applyDelete(m, 'admin').deletedBy).toBe('admin');
+    expect(applyDelete(m, 'a').deletedBy).toBeUndefined();
+    expect(applyDelete(m).pinned).toBeUndefined();
+  });
+
+  it('merges duplicates without losing later events', () => {
+    const stored = makeMessage({
+      body: 'edited',
+      edits: 1,
+      editedAt: 50,
+      status: 'read',
+      seq: 7,
+      reactions: [r('👍', 'b')],
+    });
+    const redelivered = makeMessage({ body: 'original', status: 'delivered', seq: 99 });
+    expect(mergeDuplicate(stored, redelivered)).toMatchObject({
+      body: 'edited',
+      status: 'read',
+      seq: 7,
+      reactions: [r('👍', 'b')],
+    });
+    const newer = makeMessage({ body: 'newer', editedAt: 60, edits: 2 });
+    expect(mergeDuplicate(stored, newer)).toMatchObject({ body: 'newer', edits: 2, seq: 7 });
   });
 
   it('summarises reactions by emoji', () => {

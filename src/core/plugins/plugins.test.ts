@@ -214,6 +214,35 @@ describe('PluginRuntime lifecycle', () => {
     await runtime.stopAll();
   });
 
+  it('(H) does not restart a failed plugin when another plugin’s settings change', async () => {
+    const start = vi.fn(() => {
+      throw new Error('boom');
+    });
+    const bad = definePlugin({
+      id: 'bad',
+      name: 'Bad',
+      description: '',
+      authors: [],
+      enabledByDefault: true,
+      start,
+    });
+    const other = definePlugin({
+      id: 'other',
+      name: 'O',
+      description: '',
+      authors: [],
+      enabledByDefault: true,
+      start: () => undefined,
+    });
+    const { runtime, stores } = setup([bad, other]);
+    await runtime.startAll();
+    for (let i = 0; i < 3; i++) {
+      stores.settings.getState().setPluginSetting('other', 'x', i);
+      await Promise.resolve();
+    }
+    expect(start).toHaveBeenCalledOnce();
+  });
+
   it('never disables required plugins', async () => {
     const plugin = definePlugin({
       id: 'core',
@@ -334,6 +363,24 @@ describe('PluginRuntime lifecycle', () => {
 });
 
 describe('Registries pipeline', () => {
+  it('skips transforms that return malformed drafts or redirect the conversation', async () => {
+    const onError = vi.fn<(error: unknown, owner: string, where: string) => void>();
+    const r = new Registries(onError);
+    r.sendTransforms.add({ owner: 'null', transform: () => null as unknown as OutgoingDraft });
+    r.sendTransforms.add({
+      owner: 'redirect',
+      transform: (d) => ({ ...d, conversationId: conversationIdFor('elsewhere') }),
+    });
+    r.sendTransforms.add({
+      owner: 'badtext',
+      transform: (d) => ({ ...d, text: 42 as unknown as string }),
+    });
+    r.sendTransforms.add({ owner: 'ok', transform: (d) => ({ ...d, text: `${d.text}!` }) });
+    const out = await r.transform(draft('x'));
+    expect(out).toEqual(draft('x!'));
+    expect(onError.mock.calls.map((c) => c[1])).toEqual(['null', 'redirect', 'badtext']);
+  });
+
   it('runs transforms in order and skips a throwing one', async () => {
     const onError = vi.fn();
     const r = new Registries(onError);
@@ -418,9 +465,14 @@ describe('built-in plugins', () => {
     expect(await run('shrug', 'oh well')).toEqual({
       type: 'send',
       text: 'oh well ¯\\\\\\_(ツ)\\_/¯',
+      format: 'markdown',
     });
-    expect(await run('me', 'waves')).toEqual({ type: 'send', text: '_waves_' });
-    expect(await run('spoiler', 'it was him')).toEqual({ type: 'send', text: '||it was him||' });
+    expect(await run('me', 'waves')).toEqual({ type: 'send', text: '_waves_', format: 'markdown' });
+    expect(await run('spoiler', 'it was him')).toEqual({
+      type: 'send',
+      text: '||it was him||',
+      format: 'markdown',
+    });
     expect((await run('me', '')).type).toBe('error');
     expect((await run('tableflip', '')).type).toBe('send');
   });

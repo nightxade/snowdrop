@@ -15,6 +15,11 @@ createRoot(container).render(
   </StrictMode>,
 );
 
+// Debounced state (drafts) must reach storage even if the tab closes mid-burst.
+window.addEventListener('pagehide', () => {
+  hearth.flush();
+});
+
 hearth.start().catch((error: unknown) => {
   console.error('[hearth] failed to start', error);
 });

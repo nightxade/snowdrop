@@ -61,14 +61,14 @@ the plan in the same change with a justification.
 | Emoji picker/data  | `frimousse` (MIT, unstyled, themeable) + `emojibase-data` | picker + `:shortcode:` autocomplete |
 | Toasts             | `sonner` (MIT)                                      | notifications/errors |
 | Floating UI        | `@floating-ui/react` (MIT)                          | autocomplete popover anchored to caret |
+| QR                 | `qrcode` (MIT)                                      | device linking |
+| Tests              | Vitest + Testing Library + happy-dom                | |
+| Lint/format        | ESLint (typescript-eslint, react-hooks, import boundaries) + Prettier | |
 
 **Rule:** prefer a well-maintained permissive OSS library over hand-rolling
 anything with non-trivial a11y or interaction complexity (menus, focus traps,
 virtualisation, DnD, pickers). Wrap each third-party UI lib behind a thin
 `ui/primitives` component so it can be swapped later.
-| QR                 | `qrcode` (MIT)                                      | device linking |
-| Tests              | Vitest + Testing Library + happy-dom                | |
-| Lint/format        | ESLint (typescript-eslint, react-hooks, import boundaries) + Prettier | |
 
 Package manager: **npm**. Node ≥ 20.
 
@@ -507,28 +507,31 @@ Recorded by the builder of each phase. Where these refine §3, they win.
   `NotificationService` is deferred to P4.
 
 **Domain (§3.1)**
-- `Message.nonce?` — client-only nonce of optimistic messages; kept on the
-  reconciled message in memory so render keys stay stable across the
-  `pending:<nonce>` → `author:sentAt` id swap; stripped when persisted.
+- `Message.nonce?` — client nonce of outgoing messages; kept after
+  acknowledgement (in memory and storage) so render keys stay stable across
+  the `pending:<nonce>` → `author:sentAt` id swap.
 - `Contact.color` holds `var(--hearth-avatar-N)` (a slot, not a colour) so each
   theme can retune hues.
 - `groupMessages` returns *flat* render items (`day-divider`, `new-divider`,
   `system`, `message` with `continuation: boolean`) because the virtualised list
-  renders one row per item. Replies always start a new group.
+  renders one row per item. Items carry message **ids**, not messages (rows
+  subscribe per id). Replies and negative (clock-skew) gaps start a new group.
 - Extra pure helpers: `bodyToPlainText`, `attachMentions`, `applyReaction`
   (one reaction per author, Signal semantics), `advanceStatus` (receipts never
   downgrade), `applyEdit`, `applyDelete`, `summarizeReactions`, `escapeMarkdown`,
   `fuzzyMatch`/`fuzzyFilter` (with highlight indices), `initialsFor`.
-- Markdown: also `__bold__`, multi-backtick spans and fenced blocks (language tag
-  dropped); `_` respects word boundaries; unclosed inner markers never swallow an
-  outer closer. Mentions: the composer puts U+FFFC in the text and passes ids in
-  order; ids are re-attached *after* parsing.
+- Markdown: a linear CommonMark delimiter-run algorithm (left/right flanking,
+  rule of 3, `openersBottom`). Chat deviations: no `__bold__` (so `__init__.py`
+  survives), `~~`/`||` must be exactly two and never intraword, http(s) URLs are
+  atomic like code spans, a fenced block's first line is dropped only if it is a
+  known language id. Mentions: the composer puts U+FFFC in the text and passes
+  ids in order; ids are re-attached *after* parsing.
 
 **Backend contract (§3.2)**
 - `send()` may return resolved `attachments`.
 - New event `readSync { messages: {authorId, sentAt}[] }` (read on another linked
   device; Signal gives no conversation id, the sync engine resolves it).
-- Optional `fetchHistory?(conv, { before?, limit })` → `{ messages, hasMoreBefore,
+- Optional `fetchHistory?(conv, { before?: sentAt, limit })` → `{ messages, hasMoreBefore,
   readUpTo? }`. Only the mock implements it; signal-cli has no history. The
   repository is the source of truth: `SyncService` seeds the newest page on first
   sight, `HistoryService` backfills older pages from the backend when local
@@ -538,7 +541,8 @@ Recorded by the builder of each phase. Where these refine §3, they win.
   queue so e.g. an edit can't overtake its message.
 
 **Persistence**
-- `MessageRepository` also stores per-conversation read cursors.
+- `MessageRepository` also stores per-conversation read cursors, the outbox,
+  and answers search / mentions / expired queries (see "Review round 1").
 - The demo (mock) uses the in-memory repository: its world is regenerated each
   launch relative to "now", so persisting it would mix timelines. Mock identities
   (contact/conversation ids) come from a separate PRNG stream and are stable
@@ -554,7 +558,11 @@ Recorded by the builder of each phase. Where these refine §3, they win.
   `plugins[id].enabled` is optional: absent ⇒ the plugin's `enabledByDefault`.
 - Spaces model: spaces with ≥1 category, a `rail` of spaces **and folders**,
   collapsed Home sections, and a `seeded` flag so deleted default spaces never
-  come back. `HOME = 'home'` is the pseudo space id in `uiStore`.
+  come back (seeded for the mock backend only). Assignments are never
+  auto-pruned; unknown conversations are hidden via
+  `spacesSelectors.visibleConversationIds`. The parser restores invariants
+  (dedupes conversations/categories/rail entries). `HOME = 'home'` is the
+  pseudo space id in `uiStore`.
 - `uiStore` also holds a capped toast queue (`pushToast` / `dismissToast`),
   used by `ctx.toast`.
 
@@ -586,3 +594,73 @@ Recorded by the builder of each phase. Where these refine §3, they win.
 - Current majors at time of writing: TypeScript 6, Vite 8, Vitest 5, ESLint 10.
   ESLint type-aware linting uses explicit `tsconfig.app.json`/`tsconfig.node.json`
   projects (the solution-style root hid `noUncheckedIndexedAccess`).
+
+### P1 review round 1
+
+**Ordering & identity (M6).** `(authorId, sentAt)` is identity only. Every
+stored message gets `seq`, a local monotonic arrival sequence assigned by the
+repository (`upsert`; backfilled history gets seqs *below* everything stored;
+optimistic sends reserve one with `allocateSeq()` so they keep their place).
+Timeline order, the repository index (`[conversationId, seq]`), read cursors,
+unread counting, the "new messages" divider and conversation activity
+(`receivedAt`) all use local arrival, so a sender with a skewed clock can't
+bury a new message.
+
+**Conversation model (M4).** `Conversation` is protocol-only
+(`id, kind, title, description?, avatarUrl?, memberIds, adminIds,
+expireTimerSec, lastActivityAt`). `pinned / muted / archived / draft` moved to
+`LocalConversationState` in the persisted `localStore` (with contact notes);
+`ConversationView = Conversation & LocalConversationState` is derived by
+memoised selectors (`stores/views.ts`). `ConversationPatch` no longer includes
+`muted`. Drafts persist (debounced writes, flushed on `pagehide`).
+
+**Backend contract additions (minor 12).**
+- `Quote.ranges?` (styles + mentions of the quoted text).
+- `send()` → `SendResult { sentAt, attachments?, recipientFailures? }`;
+  adapters throw if nobody received it; partial group failures set
+  `Message.failedRecipients`.
+- `pinMessage?(PinInput)` + event `messagePinned`; `adminDelete?(conv, ref)` +
+  `messageDeleted.deletedBy?` → `Message.deletedBy`.
+- `markRead` / `readSync` use `MessageRef { authorId, sentAt }`.
+
+**Repository.** `upsert(message, merge)` (get-then-merge in one transaction;
+`mergeDuplicate` keeps later edits/reactions/deletion/seq and only advances
+status), `upsertMany(…, { backfill })`, `page({ before | after: seq })`,
+`latest`, `allocateSeq`, `search(text, { conversationId?, limit })` (linear
+scan for now), `mentions(contactId)` (multiEntry index), `expired(now)`
+(`expiresAt` index), outbox (`putOutbox/listOutbox/deleteOutbox`).
+
+**Sync (M3, M8, minors 1/2/11/12).** The event queue is gated on the initial
+sync, so envelopes delivered while loading are processed afterwards against
+real cursors (first-seen conversations treat only *pre-session* history as
+read). `start()`/`stop()` are idempotent and restartable; a failed start tears
+down its subscriptions and drops anything queued. Duplicate deliveries don't
+re-count or re-notify; stale edits (`editedAt` ≤ current) are ignored; unknown
+DM senders get a synthesised conversation; conversation refreshes coalesce with
+one follow-up; expired messages are purged on a timer.
+
+**Send (B1, M5, minors 3/9/10).** Sends persist a `pending:<nonce>` row and an
+outbox entry (restored as *failed* after a reload). Edit/react/delete on a
+pending message are shown immediately and queued, then replayed against the
+real id after acknowledgement; on a failed (never sent) message an edit rewrites
+the outgoing input and a delete discards it. `lastOwn` excludes pending/failed.
+Receipts that arrive before the send is acknowledged are held in a shared
+`ReceiptBuffer` (60 s TTL) and applied on reconcile; reconcile merges instead of
+overwriting. `OutgoingDraft.format?: 'markdown' | 'plain'` (slash results carry
+`format`); plugin transforms whose output isn't a valid draft for the same
+conversation are skipped.
+
+**Windows (M7).** `ConversationWindow = { ids, byId, hasMoreBefore,
+hasMoreAfter, anchoredToPresent, loading, loaded }`, capped (400 by default)
+with eviction on the far side. `HistoryService`: `open` (snapshots the unread
+marker into `uiStore.unreadMarkers`), `ensureLoaded`, `loadOlder`, `loadNewer`,
+`jumpTo(messageId)`, `jumpToPresent`. Live messages append only to windows
+anchored to the present (the UI jumps to present before sending). In-place
+updates keep `ids` identity; `createRenderItemsSelector` recomputes layout only
+when ids/marker change.
+
+**Other.** Keybinds use `event.code` only when `event.key` isn't printable
+ASCII (non-QWERTY layouts). Fuzzy matching is an O(q·c) DP. The plugin runtime
+reconciles only on enable-flag changes. `loadVersioned` backs up unusable data
+to `<key>.backup` before defaults take over.
+

@@ -1,4 +1,5 @@
 import { createContactsStore, type ContactsStore } from './contacts';
+import { createLocalStore, type LocalData, type LocalStore } from './local';
 import { createConversationsStore, type ConversationsStore } from './conversations';
 import { createMessagesStore, type MessagesStore } from './messages';
 import { createSessionStore, type SessionStore } from './session';
@@ -8,6 +9,8 @@ import { createTypingStore, type TypingStore } from './typing';
 import { createUiStore, type UiStore } from './ui';
 
 export * from './contacts';
+export * from './local';
+export * from './views';
 export * from './conversations';
 export * from './messages';
 export * from './session';
@@ -21,6 +24,8 @@ export interface Stores {
   session: SessionStore;
   contacts: ContactsStore;
   conversations: ConversationsStore;
+  /** Device-local conversation state (pin/mute/archive/draft) and contact notes. */
+  local: LocalStore;
   messages: MessagesStore;
   typing: TypingStore;
   spaces: SpacesStore;
@@ -31,6 +36,9 @@ export interface Stores {
 export interface StoresInit {
   settings?: Settings;
   spaces?: SpacesData;
+  local?: LocalData;
+  /** Max messages per conversation window. */
+  windowCap?: number;
 }
 
 export function createStores(init: StoresInit = {}): Stores {
@@ -38,7 +46,8 @@ export function createStores(init: StoresInit = {}): Stores {
     session: createSessionStore(),
     contacts: createContactsStore(),
     conversations: createConversationsStore(),
-    messages: createMessagesStore(),
+    local: createLocalStore(init.local),
+    messages: createMessagesStore(init.windowCap),
     typing: createTypingStore(),
     spaces: createSpacesStore(init.spaces),
     ui: createUiStore(),

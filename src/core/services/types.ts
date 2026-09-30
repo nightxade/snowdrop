@@ -12,6 +12,26 @@ export interface OutgoingDraft {
   mentionIds: string[];
   quote?: Quote;
   attachments: OutgoingAttachment[];
+  /**
+   * How to interpret `text`. Omitted = follow the user's markdown setting.
+   * Generated text (slash commands) that relies on escaping says 'markdown'
+   * explicitly so it renders correctly even with markdown turned off.
+   */
+  format?: 'markdown' | 'plain';
+}
+
+/** Structural check for drafts coming back from (untrusted) plugin transforms. */
+export function isValidDraft(value: unknown, original: OutgoingDraft): value is OutgoingDraft {
+  if (typeof value !== 'object' || value === null) return false;
+  const d = value as Partial<Record<keyof OutgoingDraft, unknown>>;
+  return (
+    d.conversationId === original.conversationId &&
+    typeof d.text === 'string' &&
+    Array.isArray(d.mentionIds) &&
+    d.mentionIds.every((id) => typeof id === 'string') &&
+    Array.isArray(d.attachments) &&
+    (d.format === undefined || d.format === 'markdown' || d.format === 'plain')
+  );
 }
 
 /**

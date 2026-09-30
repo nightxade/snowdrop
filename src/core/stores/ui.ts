@@ -53,6 +53,12 @@ export interface UiState {
   scrollAnchors: Record<ConversationId, ScrollAnchor>;
   windowFocused: boolean;
   toasts: Toast[];
+  /**
+   * Read-cursor snapshot taken when a conversation is opened. The "new
+   * messages" divider uses this, so auto-marking read while the user looks at
+   * the conversation doesn't make the divider jump or vanish.
+   */
+  unreadMarkers: Record<ConversationId, number>;
 
   selectSpace(space: SpaceSelection): void;
   selectConversation(conversationId: ConversationId, space?: SpaceSelection): void;
@@ -63,6 +69,7 @@ export interface UiState {
   setEditing(target: EditingTarget | null): void;
   setScrollAnchor(conversationId: ConversationId, anchor: ScrollAnchor | null): void;
   setWindowFocused(focused: boolean): void;
+  setUnreadMarker(conversationId: ConversationId, seq: number | null): void;
   pushToast(toast: Omit<Toast, 'id'>): string;
   dismissToast(id: string): void;
 }
@@ -80,6 +87,7 @@ export function createUiStore(newId: () => string = () => createNonce('toast')):
     scrollAnchors: {},
     windowFocused: true,
     toasts: [],
+    unreadMarkers: {},
 
     selectSpace: (selectedSpace) => {
       set({ selectedSpace });
@@ -124,6 +132,12 @@ export function createUiStore(newId: () => string = () => createNonce('toast')):
     setWindowFocused: (windowFocused) => {
       set({ windowFocused });
     },
+    setUnreadMarker: (conversationId, seq) => {
+      set((s) => {
+        const { [conversationId]: _previous, ...rest } = s.unreadMarkers;
+        return { unreadMarkers: seq === null ? rest : { ...rest, [conversationId]: seq } };
+      });
+    },
     pushToast: (toast) => {
       const id = newId();
       set((s) => ({ toasts: [...s.toasts, { ...toast, id }].slice(-MAX_TOASTS) }));
@@ -144,4 +158,5 @@ export const uiSelectors = {
   replyTo: (id: ConversationId) => (s: UiState) => s.replyTo[id] ?? null,
   editing: (s: UiState) => s.editing,
   toasts: (s: UiState) => s.toasts,
+  unreadMarker: (id: ConversationId) => (s: UiState) => s.unreadMarkers[id],
 };

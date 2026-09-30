@@ -6,222 +6,369 @@
  * sending means recipients on the official apps see *native* formatting and
  * never stray asterisks.
  *
- * Supported syntax (a deliberately small, chat-oriented subset):
- *   **bold**  __bold__  *italic*  _italic_  ~~strike~~  ||spoiler||
- *   `code`  ``code with ` inside``  ```fenced\ncode```
- *   \* (backslash escapes any of  \ * _ ~ | ` )
+ * Supported syntax (a chat-oriented subset of CommonMark + GFM):
+ *   **bold**  *italic*  _italic_  ***both***  ~~strike~~  ||spoiler||
+ *   `code`  ``code with ` inside``  ```lang\nfenced code```
+ *   \*  (backslash escapes any of  \ * _ ~ | ` )
  *
- * Rules:
- * - Openers must be followed by non-whitespace; closers preceded by
- *   non-whitespace, so `2 * 3 * 4` stays literal.
- * - Underscore delimiters respect word boundaries (`snake_case_name` is literal).
- * - Unmatched delimiters are left as literal text.
- * - Code spans are atomic: nothing inside them is interpreted.
- * - An unclosed inner delimiter never swallows an outer closer:
- *   `**a *b**` → bold("a *b").
- * - All indices are UTF-16 code units, which is what Signal expects and what
- *   JavaScript string indices already are, so no conversion is needed.
+ * The algorithm is CommonMark's delimiter-run procedure: runs of `*`/`_`
+ * are classified as left/right-flanking, then matched closer-by-closer
+ * against a delimiter stack with the "rule of 3" and per-kind lower bounds
+ * (`openersBottom`), which keeps it linear in the input length.
+ *
+ * Deliberate differences from CommonMark, tuned for chat:
+ * - `__x__` is *not* bold (runs of 2+ underscores are literal), so
+ *   `__init__.py` and `snake__case` survive intact.
+ * - `~~` and `||` must be exactly two characters and follow the stricter
+ *   underscore flanking rules, so `if (a||b)` stays literal.
+ * - URLs (http/https) are atomic like code spans: `web.archive.org/web/*`
+ *   never opens emphasis.
+ * - All indices are UTF-16 code units — Signal's wire unit and JavaScript's
+ *   native string index — so no conversion is needed.
  */
 import type { BodyRange, TextStyle } from './types';
-
-type Delimiter = '**' | '__' | '*' | '_' | '~~' | '||';
-
-const DELIMITER_STYLE: Record<Delimiter, TextStyle> = {
-  '**': 'bold',
-  __: 'bold',
-  '*': 'italic',
-  _: 'italic',
-  '~~': 'strikethrough',
-  '||': 'spoiler',
-};
-
-/** Longest first so `**` wins over `*`. */
-const DELIMITERS: readonly Delimiter[] = ['**', '__', '~~', '||', '*', '_'];
-
-const ESCAPABLE = new Set(['\\', '*', '_', '~', '|', '`']);
 
 export interface ParsedMarkdown {
   body: string;
   ranges: BodyRange[];
 }
 
+type DelimChar = '*' | '_' | '~' | '|';
+
+interface TextToken {
+  kind: 'text';
+  text: string;
+}
+
+interface CodeToken {
+  kind: 'code';
+  text: string;
+}
+
+interface DelimToken {
+  kind: 'delim';
+  char: DelimChar;
+  /** Original run length. */
+  length: number;
+  /** Characters consumed from the left (as a closer) / right (as an opener). */
+  usedLeft: number;
+  usedRight: number;
+  canOpen: boolean;
+  canClose: boolean;
+  /** Output offsets, filled during assembly. */
+  closeAt: number;
+  openAt: number;
+}
+
+type Token = TextToken | CodeToken | DelimToken;
+
+/** Doubly linked delimiter-stack entry. */
+interface StackNode {
+  token: DelimToken;
+  /** Characters still available for matching. */
+  count: number;
+  prev: StackNode | null;
+  next: StackNode | null;
+}
+
+interface Span {
+  opener: DelimToken;
+  closer: DelimToken;
+  style: TextStyle;
+}
+
+const ESCAPABLE = new Set(['\\', '*', '_', '~', '|', '`']);
+const DELIM_CHARS = new Set<string>(['*', '_', '~', '|']);
+
 const isWhitespace = (ch: string | undefined): boolean => ch === undefined || /\s/u.test(ch);
+const isPunctuation = (ch: string | undefined): boolean =>
+  ch !== undefined && /[\p{P}\p{S}]/u.test(ch);
 const isWordChar = (ch: string | undefined): boolean =>
   ch !== undefined && /[\p{L}\p{N}]/u.test(ch);
-const isUnderscore = (d: Delimiter): boolean => d === '_' || d === '__';
 
-interface ParseResult {
-  /** Input index just past the consumed closer (or where parsing stopped). */
-  end: number;
-  closed: boolean;
-}
+/** Language tags we strip from the first line of a fenced block. Anything else is content. */
+const CODE_LANGUAGES = new Set(
+  (
+    'js javascript ts typescript jsx tsx json json5 py python rb ruby rs rust go java kt kotlin ' +
+    'c h cpp c++ cc hpp cs csharp fs fsharp swift dart lua r php pl perl sh bash zsh fish shell ' +
+    'console ps powershell sql html xml svg css scss sass less yaml yml toml ini md markdown diff ' +
+    'patch text txt plaintext dockerfile makefile graphql gql proto elixir ex erlang hs haskell ' +
+    'scala clj clojure ocaml ml nix vim zig asm wasm tex latex csv log'
+  ).split(' '),
+);
 
-class Parser {
-  private out = '';
-  private ranges: BodyRange[] = [];
-  /** Memo of (position, open-delimiter stack) pairs already known not to close. */
-  private readonly failed = new Set<string>();
+// ─── Code spans ────────────────────────────────────────────────────────────
 
-  constructor(private readonly src: string) {}
-
-  run(): ParsedMarkdown {
-    this.parse(0, []);
-    const ranges = [...this.ranges].sort((a, b) => a.start - b.start || b.length - a.length);
-    return { body: this.out, ranges };
-  }
-
-  private delimiterAt(i: number): Delimiter | null {
-    for (const d of DELIMITERS) if (this.src.startsWith(d, i)) return d;
-    return null;
-  }
-
-  private canOpen(d: Delimiter, i: number): boolean {
-    const after = this.src[i + d.length];
-    if (isWhitespace(after)) return false;
-    if (isUnderscore(d) && isWordChar(this.src[i - 1])) return false;
-    return true;
-  }
-
-  private canClose(d: Delimiter, i: number, contentStart: number): boolean {
-    if (i <= contentStart) return false;
-    if (!this.src.startsWith(d, i)) return false;
-    if (isWhitespace(this.src[i - 1])) return false;
-    if (isUnderscore(d) && isWordChar(this.src[i + d.length])) return false;
-    return true;
-  }
-
-  /** Length of the run of identical characters starting at `i`. */
-  private runLength(i: number): number {
-    const ch = this.src[i];
-    let n = 0;
-    while (this.src[i + n] === ch) n++;
-    return n;
-  }
-
-  /**
-   * Parses from `start` until the innermost open delimiter closes (success) or
-   * until end of input / an ancestor's closer (failure; the caller rolls back
-   * and treats its opener as literal text).
-   */
-  private parse(start: number, stack: readonly Delimiter[]): ParseResult {
-    const src = this.src;
-    const current = stack.at(-1);
-    const ancestors = stack.slice(0, -1);
-    let i = start;
-
-    while (i < src.length) {
-      const ch = src[i] as string;
-
-      if (ch === '\\' && i + 1 < src.length && ESCAPABLE.has(src[i + 1] as string)) {
-        this.out += src.charAt(i + 1);
-        i += 2;
-        continue;
-      }
-
-      if (ch === '`') {
-        i = this.codeSpan(i);
-        continue;
-      }
-
-      if (current !== undefined) {
-        const selfCloses = this.canClose(current, i, start);
-        const ancestor = ancestors.find((a) => a !== current && this.canClose(a, i, start));
-        // `***x***` closes both italic and bold; `**a *b**` must close the bold,
-        // leaving the inner `*` literal. The run length disambiguates.
-        if (
-          selfCloses &&
-          (ancestor === undefined || this.runLength(i) >= current.length + ancestor.length)
-        ) {
-          return { end: i + current.length, closed: true };
-        }
-        if (ancestor !== undefined) return { end: i, closed: false };
-      }
-
-      const d = this.delimiterAt(i);
-      if (d !== null) {
-        const end = !stack.includes(d) && this.canOpen(d, i) ? this.tryStyled(d, i, stack) : null;
-        if (end !== null) {
-          i = end;
-        } else {
-          this.out += d;
-          i += d.length;
-        }
-        continue;
-      }
-
-      this.out += ch;
-      i += 1;
+/** Positions of every maximal backtick run, grouped by run length, ascending. */
+function indexBacktickRuns(src: string): Map<number, number[]> {
+  const byLength = new Map<number, number[]>();
+  for (let i = 0; i < src.length;) {
+    if (src[i] !== '`') {
+      i++;
+      continue;
     }
-    return { end: i, closed: false };
-  }
-
-  /** Attempts a styled span opened by `d` at `i`; returns the index after it, or null. */
-  private tryStyled(d: Delimiter, i: number, stack: readonly Delimiter[]): number | null {
-    const nextStack = [...stack, d];
-    const memoKey = `${i}|${nextStack.join(' ')}`;
-    if (this.failed.has(memoKey)) return null;
-
-    const outMark = this.out.length;
-    const rangeMark = this.ranges.length;
-    const result = this.parse(i + d.length, nextStack);
-
-    if (result.closed && this.out.length > outMark) {
-      this.ranges.push({
-        start: outMark,
-        length: this.out.length - outMark,
-        style: DELIMITER_STYLE[d],
-      });
-      return result.end;
-    }
-    this.failed.add(memoKey);
-    this.out = this.out.slice(0, outMark);
-    this.ranges.length = rangeMark;
-    return null;
-  }
-
-  /** Emits a code span starting at the backtick run at `i`; returns the next index. */
-  private codeSpan(i: number): number {
-    const src = this.src;
     let n = 0;
     while (src[i + n] === '`') n++;
-    const fence = '`'.repeat(n);
-
-    let search = i + n;
-    let close = -1;
-    while (search < src.length) {
-      const at = src.indexOf(fence, search);
-      if (at === -1) break;
-      let runEnd = at;
-      while (src[runEnd] === '`') runEnd++;
-      if (runEnd - at === n) {
-        close = at;
-        break;
-      }
-      search = runEnd;
-    }
-
-    if (close === -1) {
-      this.out += fence;
-      return i + n;
-    }
-
-    let content = src.slice(i + n, close);
-    if (n >= 3) {
-      // Fenced block: drop an optional language tag line and edge newlines.
-      content = content.replace(/^[\w+#.-]*\n/u, '').replace(/\n$/u, '');
-    }
-    if (content.length === 0) {
-      this.out += src.slice(i, close + n);
-      return close + n;
-    }
-    this.ranges.push({ start: this.out.length, length: content.length, style: 'monospace' });
-    this.out += content;
-    return close + n;
+    const list = byLength.get(n);
+    if (list) list.push(i);
+    else byLength.set(n, [i]);
+    i += n;
   }
+  return byLength;
 }
 
+/** First element of a sorted list strictly greater than `after` (binary search). */
+function firstAfter(list: readonly number[], after: number): number | undefined {
+  let lo = 0;
+  let hi = list.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if ((list[mid] as number) > after) hi = mid;
+    else lo = mid + 1;
+  }
+  return list[lo];
+}
+
+function fencedContent(raw: string): string {
+  let content = raw;
+  const tag = /^[ \t]*([A-Za-z][\w+#.-]{0,15})[ \t]*\n/u.exec(content);
+  if (tag && CODE_LANGUAGES.has((tag[1] as string).toLowerCase()))
+    content = content.slice(tag[0].length);
+  else if (content.startsWith('\n')) content = content.slice(1);
+  if (content.endsWith('\n')) content = content.slice(0, -1);
+  return content;
+}
+
+function inlineContent(raw: string): string {
+  // CommonMark: strip one surrounding space so `` ` `` `` can show a backtick.
+  if (raw.length >= 2 && raw.startsWith(' ') && raw.endsWith(' ') && raw.trim() !== '') {
+    return raw.slice(1, -1);
+  }
+  return raw;
+}
+
+// ─── Tokenizer ─────────────────────────────────────────────────────────────
+
+const URL_START = /^https?:\/\//iu;
+const URL_BODY = /^https?:\/\/[^\s<>"`]+/iu;
+const URL_TRAILING = /[.,!?;:'")\]}*_~|]+$/u;
+
+function classify(
+  src: string,
+  start: number,
+  length: number,
+  char: DelimChar,
+): Pick<DelimToken, 'canOpen' | 'canClose'> {
+  const before = src[start - 1];
+  const after = src[start + length];
+  const leftFlanking =
+    !isWhitespace(after) &&
+    (!isPunctuation(after) || isWhitespace(before) || isPunctuation(before));
+  const rightFlanking =
+    !isWhitespace(before) &&
+    (!isPunctuation(before) || isWhitespace(after) || isPunctuation(after));
+  if (char === '*') return { canOpen: leftFlanking, canClose: rightFlanking };
+  // `_`, `~~` and `||` never open or close inside a word.
+  return {
+    canOpen: leftFlanking && (!rightFlanking || isPunctuation(before)),
+    canClose: rightFlanking && (!leftFlanking || isPunctuation(after)),
+  };
+}
+
+function tokenize(src: string): Token[] {
+  const tokens: Token[] = [];
+  const runs = indexBacktickRuns(src);
+  let text = '';
+  const flush = (): void => {
+    if (text) tokens.push({ kind: 'text', text });
+    text = '';
+  };
+
+  let i = 0;
+  while (i < src.length) {
+    const ch = src[i] as string;
+
+    if (ch === '\\' && ESCAPABLE.has(src.charAt(i + 1))) {
+      text += src.charAt(i + 1);
+      i += 2;
+      continue;
+    }
+
+    if (ch === '`') {
+      let n = 0;
+      while (src[i + n] === '`') n++;
+      const close = firstAfter(runs.get(n) ?? [], i + n - 1);
+      const raw = close === undefined ? '' : src.slice(i + n, close);
+      const content = close === undefined ? '' : n >= 3 ? fencedContent(raw) : inlineContent(raw);
+      if (close === undefined || content === '') {
+        // Unmatched (or empty) runs are literal text.
+        const end = close === undefined ? i + n : close + n;
+        text += src.slice(i, end);
+        i = end;
+        continue;
+      }
+      flush();
+      tokens.push({ kind: 'code', text: content });
+      i = close + n;
+      continue;
+    }
+
+    if (
+      (ch === 'h' || ch === 'H') &&
+      !isWordChar(src[i - 1]) &&
+      URL_START.test(src.slice(i, i + 8))
+    ) {
+      const match = URL_BODY.exec(src.slice(i, i + 2048));
+      if (match) {
+        const url = match[0].replace(URL_TRAILING, '');
+        text += url;
+        i += url.length;
+        continue;
+      }
+    }
+
+    if (DELIM_CHARS.has(ch)) {
+      const char = ch as DelimChar;
+      let n = 0;
+      while (src[i + n] === ch) n++;
+      // `~~`/`||` must be exactly two; `_` runs longer than one are literal (no __bold__).
+      const valid = char === '*' || (char === '_' ? n === 1 : n === 2);
+      if (!valid) {
+        text += src.slice(i, i + n);
+        i += n;
+        continue;
+      }
+      flush();
+      tokens.push({
+        kind: 'delim',
+        char,
+        length: n,
+        usedLeft: 0,
+        usedRight: 0,
+        closeAt: 0,
+        openAt: 0,
+        ...classify(src, i, n, char),
+      });
+      i += n;
+      continue;
+    }
+
+    text += ch;
+    i++;
+  }
+  flush();
+  return tokens;
+}
+
+// ─── Emphasis matching (CommonMark "process emphasis") ─────────────────────
+
+function styleFor(char: DelimChar, use: number): TextStyle {
+  if (char === '~') return 'strikethrough';
+  if (char === '|') return 'spoiler';
+  return use === 2 ? 'bold' : 'italic';
+}
+
+function matchEmphasis(tokens: readonly Token[]): Span[] {
+  let head: StackNode | null = null;
+  let tail: StackNode | null = null;
+  for (const token of tokens) {
+    if (token.kind !== 'delim' || (!token.canOpen && !token.canClose)) continue;
+    const node: StackNode = { token, count: token.length, prev: tail, next: null };
+    if (tail) tail.next = node;
+    else head = node;
+    tail = node;
+  }
+
+  const remove = (node: StackNode): void => {
+    if (node.prev) node.prev.next = node.next;
+    else head = node.next;
+    if (node.next) node.next.prev = node.prev;
+    else tail = node.prev;
+  };
+
+  const spans: Span[] = [];
+  // Lower bound for the opener search, per closer kind; this is what keeps it linear.
+  const openersBottom = new Map<string, StackNode | null>();
+  let current: StackNode | null = head;
+
+  while (current) {
+    const closer: StackNode = current;
+    const c = closer.token;
+    if (!c.canClose) {
+      current = closer.next;
+      continue;
+    }
+    const key = `${c.char}${c.canOpen ? 1 : 0}${c.length % 3}`;
+    const bottom = openersBottom.has(key) ? openersBottom.get(key) : undefined;
+
+    let opener = closer.prev;
+    while (opener && opener !== bottom) {
+      const o = opener.token;
+      if (o.char === c.char && o.canOpen) {
+        const needsPair = c.char === '~' || c.char === '|';
+        // Rule of 3 (CommonMark): prevents `*foo**bar*` style mis-nesting.
+        const ruleOf3 =
+          !needsPair &&
+          (o.canClose || c.canOpen) &&
+          (o.length + c.length) % 3 === 0 &&
+          !(o.length % 3 === 0 && c.length % 3 === 0);
+        if (!ruleOf3 && (!needsPair || (opener.count >= 2 && closer.count >= 2))) break;
+      }
+      opener = opener.prev;
+    }
+
+    if (opener && opener !== bottom) {
+      const pair = c.char === '~' || c.char === '|';
+      const use = pair ? 2 : opener.count >= 2 && closer.count >= 2 ? 2 : 1;
+      spans.push({ opener: opener.token, closer: c, style: styleFor(c.char, use) });
+      opener.count -= use;
+      closer.count -= use;
+      opener.token.usedRight += use;
+      c.usedLeft += use;
+      // Delimiters between a matched pair can no longer match anything.
+      for (let n = opener.next; n && n !== closer; n = n.next) remove(n);
+      if (opener.count === 0) remove(opener);
+      if (closer.count === 0) {
+        current = closer.next;
+        remove(closer);
+      }
+    } else {
+      openersBottom.set(key, closer.prev);
+      current = closer.next;
+      if (!c.canOpen) remove(closer);
+    }
+  }
+  return spans;
+}
+
+// ─── Assembly ──────────────────────────────────────────────────────────────
+
 export function parseMarkdownToRanges(text: string): ParsedMarkdown {
-  return new Parser(text).run();
+  const tokens = tokenize(text);
+  const spans = matchEmphasis(tokens);
+
+  let body = '';
+  const ranges: BodyRange[] = [];
+  for (const token of tokens) {
+    if (token.kind === 'text') {
+      body += token.text;
+    } else if (token.kind === 'code') {
+      ranges.push({ start: body.length, length: token.text.length, style: 'monospace' });
+      body += token.text;
+    } else {
+      // Closer chars are consumed from the left, opener chars from the right;
+      // whatever is left in the middle is literal.
+      token.closeAt = body.length;
+      body += token.char.repeat(token.length - token.usedLeft - token.usedRight);
+      token.openAt = body.length;
+    }
+  }
+  for (const span of spans) {
+    const length = span.closer.closeAt - span.opener.openAt;
+    if (length > 0) ranges.push({ start: span.opener.openAt, length, style: span.style });
+  }
+  ranges.sort((a, b) => a.start - b.start || b.length - a.length);
+  return { body, ranges };
 }
 
 /** Escapes text so it round-trips through parseMarkdownToRanges unchanged. */

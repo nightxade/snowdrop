@@ -79,8 +79,6 @@ export interface SpacesState extends SpacesData {
   toggleFolder(folderId: string): void;
   toggleHomeSection(section: HomeSection): void;
   seedDefaults(seeds: readonly SpaceSeedInput[]): void;
-  /** Drops references to conversations that no longer exist. */
-  retainConversations(existing: ReadonlySet<ConversationId>): void;
 }
 
 export type SpacesStore = StoreApi<SpacesState>;
@@ -129,7 +127,8 @@ function railWithout(rail: readonly RailEntry[], spaceId: SpaceId): RailEntry[] 
     }
     const spaceIds = entry.spaceIds.filter((id) => id !== spaceId);
     // A folder of one is just a space.
-    if (spaceIds.length === 1) out.push({ type: 'space', id: spaceIds[0] as SpaceId });
+    const [only] = spaceIds;
+    if (spaceIds.length === 1 && only !== undefined) out.push({ type: 'space', id: only });
     else if (spaceIds.length > 1) out.push({ ...entry, spaceIds });
   }
   return out;
@@ -377,25 +376,6 @@ export function createSpacesStore(
         }
         set({ seeded: true });
       },
-
-      retainConversations: (existing) => {
-        const spaces: Record<SpaceId, Space> = {};
-        let changed = false;
-        for (const [id, space] of Object.entries(get().spaces)) {
-          const categories: Category[] = [];
-          for (const c of space.categories) {
-            const kept = c.conversationIds.filter((x) => existing.has(x));
-            if (kept.length === c.conversationIds.length) {
-              categories.push(c);
-            } else {
-              changed = true;
-              categories.push({ ...c, conversationIds: kept });
-            }
-          }
-          spaces[id] = { ...space, categories };
-        }
-        if (changed) set({ spaces });
-      },
     };
   });
 }
@@ -435,6 +415,16 @@ export const spacesSelectors = {
     (conversationId: ConversationId) =>
     (s: SpacesState): SpaceId | null =>
       spaceIndex(s.spaces).get(conversationId) ?? null,
+  /**
+   * Category entries whose conversation is currently known. Assignments are
+   * never pruned automatically — a partial conversation list (still syncing,
+   * backend hiccup) must not wipe the user's organisation — orphans are just
+   * hidden until the conversation reappears.
+   */
+  visibleConversationIds: (
+    category: Category,
+    known: Readonly<Record<string, unknown>>,
+  ): ConversationId[] => category.conversationIds.filter((id) => id in known),
   /** Home shows every DM plus groups not assigned to any space. */
   isInHome:
     (conversationId: ConversationId, kind: 'direct' | 'group') =>
@@ -504,17 +494,46 @@ export const spacesSchema: VersionedSchema<SpacesData> = {
   parse: (data) => {
     if (!isRecord(data)) return null;
     const spaces: Record<SpaceId, Space> = {};
+    // Restore invariants hand-edited or buggy data may break: a conversation
+    // lives in at most one category, ids are unique, each space appears once
+    // on the rail.
+    const seenConversations = new Set<ConversationId>();
+    const seenCategories = new Set<string>();
     if (isRecord(data.spaces)) {
       for (const raw of Object.values(data.spaces)) {
         const space = parseSpace(raw);
-        if (space) spaces[space.id] = space;
+        if (!space || spaces[space.id]) continue;
+        const categories = space.categories
+          .filter((c) => !seenCategories.has(c.id) && (seenCategories.add(c.id), true))
+          .map((c) => ({
+            ...c,
+            conversationIds: c.conversationIds.filter(
+              (id) => !seenConversations.has(id) && (seenConversations.add(id), true),
+            ),
+          }));
+        if (categories.length === 0) continue;
+        spaces[space.id] = { ...space, categories };
       }
     }
-    const rail = Array.isArray(data.rail)
-      ? data.rail.map((e) => parseRailEntry(e, spaces)).filter((e): e is RailEntry => e !== null)
-      : [];
+    const onRail = new Set<SpaceId>();
+    const rail: RailEntry[] = [];
+    if (Array.isArray(data.rail)) {
+      for (const raw of data.rail) {
+        const entry = parseRailEntry(raw, spaces);
+        if (!entry) continue;
+        if (entry.type === 'space') {
+          if (onRail.has(entry.id)) continue;
+          onRail.add(entry.id);
+          rail.push(entry);
+        } else {
+          const spaceIds = entry.spaceIds.filter((id) => !onRail.has(id) && (onRail.add(id), true));
+          const [only] = spaceIds;
+          if (spaceIds.length === 1 && only !== undefined) rail.push({ type: 'space', id: only });
+          else if (spaceIds.length > 1) rail.push({ ...entry, spaceIds });
+        }
+      }
+    }
     // Any space missing from the rail is appended so it can't become unreachable.
-    const onRail = new Set(flattenRail(rail));
     for (const id of Object.keys(spaces)) if (!onRail.has(id)) rail.push({ type: 'space', id });
     const home = isRecord(data.homeCollapsed) ? data.homeCollapsed : {};
     return {

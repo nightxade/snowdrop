@@ -173,10 +173,39 @@ describe('spacesStore', () => {
     expect(repaired.rail).toEqual([{ type: 'space', id: 'x' }]);
   });
 
-  it('drops conversations that no longer exist', () => {
+  it('never prunes assignments; hides unknown conversations instead', () => {
     const store = setup();
     const a = store.getState().createSpace({ name: 'A', conversationIds: [c1, c2] });
-    store.getState().retainConversations(new Set([c2]));
-    expect(idsIn(store, a)).toEqual([[c2]]);
+    const category = store.getState().spaces[a]!.categories[0]!;
+    expect(spacesSelectors.visibleConversationIds(category, { [c2]: {} })).toEqual([c2]);
+    expect(idsIn(store, a)).toEqual([[c1, c2]]);
+  });
+
+  it('restores invariants when parsing duplicated data', () => {
+    const cat = (id: string, conversationIds: string[]) => ({ id, name: id, conversationIds });
+    const storage = createMemoryStorage({
+      [spacesSchema.key]: JSON.stringify({
+        v: 1,
+        data: {
+          spaces: {
+            s1: { id: 's1', name: 'S1', categories: [cat('k1', [c1, c2, c1]), cat('k1', [c3])] },
+            s2: { id: 's2', name: 'S2', categories: [cat('k2', [c2, c4])] },
+          },
+          rail: [
+            { type: 'space', id: 's1' },
+            { type: 'folder', id: 'f', name: 'F', spaceIds: ['s1', 's2'] },
+            { type: 'space', id: 's2' },
+          ],
+        },
+      }),
+    });
+    const data = loadVersioned(storage, spacesSchema);
+    expect(data.spaces.s1?.categories.map((c) => c.conversationIds)).toEqual([[c1, c2]]);
+    expect(data.spaces.s2?.categories.map((c) => c.conversationIds)).toEqual([[c4]]);
+    // The folder lost s1 (already on the rail) and collapsed to a plain tile.
+    expect(data.rail).toEqual([
+      { type: 'space', id: 's1' },
+      { type: 'space', id: 's2' },
+    ]);
   });
 });

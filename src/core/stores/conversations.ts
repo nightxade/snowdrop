@@ -1,3 +1,11 @@
+/**
+ * Protocol-level conversation state plus read state.
+ *
+ * Read cursors and unread counts are keyed on `seq` (local arrival order),
+ * never on sender timestamps: a sender with a skewed clock must still
+ * produce an unread badge. Local organisation (pin/mute/archive/draft) is in
+ * `localStore`; `views.ts` combines the two for rendering.
+ */
 import { createStore, type StoreApi } from 'zustand/vanilla';
 import {
   mentionsContact,
@@ -16,28 +24,30 @@ export const NO_UNREAD: UnreadState = Object.freeze({ count: 0, mentions: 0 });
 
 export interface ConversationsState {
   byId: Record<ConversationId, Conversation>;
-  /** sentAt of the last message the user has read, per conversation. */
+  /** seq of the last message the user has read, per conversation. */
   readCursors: Record<ConversationId, number>;
   unread: Record<ConversationId, UnreadState>;
 
   upsertMany(conversations: readonly Conversation[]): void;
+  /** Replaces protocol fields, keeping the newest local activity time. */
   upsert(conversation: Conversation): void;
-  patch(id: ConversationId, patch: Partial<Omit<Conversation, 'id'>>): void;
   /** Moves lastActivityAt forward (never backward: late events must not reorder the list). */
   bumpActivity(id: ConversationId, at: number): void;
   setReadCursors(cursors: Record<ConversationId, number>): void;
   setUnread(id: ConversationId, unread: UnreadState): void;
-  /** Counts an incoming message if it's unread; see countsAsUnread. */
+  /** Counts a newly stored message if it's unread; see countsAsUnread. */
   applyIncoming(message: Message, selfId: string): void;
-  /** Advances the read cursor to `upTo` and clears unread. Returns true if anything changed. */
-  markRead(id: ConversationId, upTo: number): boolean;
+  /** Un-counts a message that stopped counting (deleted) if it was unread. */
+  applyRemoval(message: Message, selfId: string): void;
+  /** Advances the read cursor to `upToSeq` and clears unread. Returns true if anything changed. */
+  markRead(id: ConversationId, upToSeq: number): boolean;
 }
 
 export type ConversationsStore = StoreApi<ConversationsState>;
 
 /**
  * Whether a message contributes to the unread badge: it's from someone else,
- * it's a real (non-system, non-deleted) message and it's after the cursor.
+ * it's a real (non-system, non-deleted) message and it arrived after the cursor.
  */
 export function countsAsUnread(
   message: Message,
@@ -48,7 +58,8 @@ export function countsAsUnread(
     message.authorId !== selfId &&
     message.kind === 'normal' &&
     !message.deleted &&
-    (cursor === undefined || message.sentAt > cursor)
+    message.seq !== undefined &&
+    (cursor === undefined || message.seq > cursor)
   );
 }
 
@@ -73,106 +84,75 @@ export function isMuted(muted: MuteState, now: number): boolean {
 }
 
 export function createConversationsStore(): ConversationsStore {
-  return createStore<ConversationsState>()((set, get) => ({
-    byId: {},
-    readCursors: {},
-    unread: {},
-
-    upsertMany: (conversations) => {
-      if (conversations.length === 0) return;
-      set((s) => {
-        const byId = { ...s.byId };
-        for (const c of conversations) byId[c.id] = c;
-        return { byId };
-      });
-    },
-    upsert: (conversation) => {
-      set((s) => ({ byId: { ...s.byId, [conversation.id]: conversation } }));
-    },
-    patch: (id, patch) => {
-      const current = get().byId[id];
-      if (!current) return;
-      set((s) => ({ byId: { ...s.byId, [id]: { ...current, ...patch } } }));
-    },
-    bumpActivity: (id, at) => {
-      const current = get().byId[id];
-      if (!current || current.lastActivityAt >= at) return;
-      set((s) => ({ byId: { ...s.byId, [id]: { ...current, lastActivityAt: at } } }));
-    },
-    setReadCursors: (cursors) => {
-      set((s) => ({ readCursors: { ...s.readCursors, ...cursors } }));
-    },
-    setUnread: (id, unread) => {
-      const current = get().unread[id] ?? NO_UNREAD;
-      if (current.count === unread.count && current.mentions === unread.mentions) return;
-      set((s) => ({ unread: { ...s.unread, [id]: unread } }));
-    },
-    applyIncoming: (message, selfId) => {
+  return createStore<ConversationsState>()((set, get) => {
+    const adjustUnread = (message: Message, selfId: string, delta: 1 | -1): void => {
       const id = message.conversationId;
       if (!countsAsUnread(message, selfId, get().readCursors[id])) return;
       const current = get().unread[id] ?? NO_UNREAD;
       get().setUnread(id, {
-        count: current.count + 1,
-        mentions: current.mentions + (mentionsContact(message, selfId) ? 1 : 0),
+        count: Math.max(0, current.count + delta),
+        mentions: Math.max(0, current.mentions + (mentionsContact(message, selfId) ? delta : 0)),
       });
-    },
-    markRead: (id, upTo) => {
-      const s = get();
-      const cursor = s.readCursors[id];
-      const hadUnread = (s.unread[id]?.count ?? 0) > 0;
-      if (cursor !== undefined && cursor >= upTo && !hadUnread) return false;
-      set((state) => ({
-        readCursors: { ...state.readCursors, [id]: Math.max(cursor ?? 0, upTo) },
-        unread: { ...state.unread, [id]: NO_UNREAD },
-      }));
-      return true;
-    },
-  }));
-}
+    };
 
-/** Pinned first is a sidebar concern; this is the canonical recency order. */
-function compareByActivity(a: Conversation, b: Conversation): number {
-  return b.lastActivityAt - a.lastActivityAt || a.title.localeCompare(b.title);
-}
+    return {
+      byId: {},
+      readCursors: {},
+      unread: {},
 
-const orderedCache = new WeakMap<Record<ConversationId, Conversation>, Conversation[]>();
+      upsertMany: (conversations) => {
+        if (conversations.length === 0) return;
+        set((s) => {
+          const byId = { ...s.byId };
+          for (const c of conversations) {
+            const existing = byId[c.id];
+            byId[c.id] = existing
+              ? { ...c, lastActivityAt: Math.max(c.lastActivityAt, existing.lastActivityAt) }
+              : c;
+          }
+          return { byId };
+        });
+      },
+      upsert: (conversation) => {
+        get().upsertMany([conversation]);
+      },
+      bumpActivity: (id, at) => {
+        const current = get().byId[id];
+        if (!current || current.lastActivityAt >= at) return;
+        set((s) => ({ byId: { ...s.byId, [id]: { ...current, lastActivityAt: at } } }));
+      },
+      setReadCursors: (cursors) => {
+        set((s) => ({ readCursors: { ...s.readCursors, ...cursors } }));
+      },
+      setUnread: (id, unread) => {
+        const current = get().unread[id] ?? NO_UNREAD;
+        if (current.count === unread.count && current.mentions === unread.mentions) return;
+        set((s) => ({ unread: { ...s.unread, [id]: unread.count === 0 ? NO_UNREAD : unread } }));
+      },
+      applyIncoming: (message, selfId) => {
+        adjustUnread(message, selfId, 1);
+      },
+      applyRemoval: (message, selfId) => {
+        adjustUnread(message, selfId, -1);
+      },
+      markRead: (id, upToSeq) => {
+        const s = get();
+        const cursor = s.readCursors[id];
+        const hadUnread = (s.unread[id]?.count ?? 0) > 0;
+        if (cursor !== undefined && cursor >= upToSeq && !hadUnread) return false;
+        set((state) => ({
+          readCursors: { ...state.readCursors, [id]: Math.max(cursor ?? upToSeq, upToSeq) },
+          unread: { ...state.unread, [id]: NO_UNREAD },
+        }));
+        return true;
+      },
+    };
+  });
+}
 
 export const conversationsSelectors = {
   byId: (s: ConversationsState) => s.byId,
   conversation: (id: ConversationId) => (s: ConversationsState) => s.byId[id],
-  /** Stable (memoised on byId identity) list, most recent activity first; archived excluded. */
-  ordered: (s: ConversationsState): Conversation[] => {
-    let cached = orderedCache.get(s.byId);
-    if (!cached) {
-      cached = Object.values(s.byId)
-        .filter((c) => !c.archived)
-        .sort(compareByActivity);
-      orderedCache.set(s.byId, cached);
-    }
-    return cached;
-  },
   unread: (id: ConversationId) => (s: ConversationsState) => s.unread[id] ?? NO_UNREAD,
   readCursor: (id: ConversationId) => (s: ConversationsState) => s.readCursors[id],
 };
-
-/** Sum of unread across conversations, skipping muted ones for the count (mentions always count). */
-export function totalUnread(
-  s: Pick<ConversationsState, 'byId' | 'unread'>,
-  ids: readonly ConversationId[],
-  now: number,
-): UnreadState & { hasUnread: boolean } {
-  let count = 0;
-  let mentions = 0;
-  let hasUnread = false;
-  for (const id of ids) {
-    const u = s.unread[id];
-    const conv = s.byId[id];
-    if (!u || !conv) continue;
-    mentions += u.mentions;
-    if (!isMuted(conv.muted, now)) {
-      count += u.count;
-      if (u.count > 0) hasUnread = true;
-    }
-  }
-  return { count, mentions, hasUnread };
-}

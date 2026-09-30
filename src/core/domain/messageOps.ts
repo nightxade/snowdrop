@@ -33,11 +33,17 @@ export function advanceStatus(current: MessageStatus, next: MessageStatus): Mess
   return STATUS_RANK[next] > STATUS_RANK[current] ? next : current;
 }
 
+/**
+ * Applies an edit. Edits can arrive out of order (retries, multiple devices),
+ * so one that isn't newer than what we already show is ignored — otherwise
+ * the message could end on stale text.
+ */
 export function applyEdit(
   message: Message,
   edit: { body: string; ranges: BodyRange[]; editedAt: number },
 ): Message {
   if (message.deleted) return message;
+  if (message.editedAt !== undefined && edit.editedAt <= message.editedAt) return message;
   return {
     ...message,
     body: edit.body,
@@ -47,10 +53,48 @@ export function applyEdit(
   };
 }
 
-/** Remote delete: keep the row (so the timeline doesn't shift) but drop content. */
-export function applyDelete(message: Message): Message {
-  const { quote: _quote, ...rest } = message;
-  return { ...rest, deleted: true, body: '', ranges: [], attachments: [], reactions: [] };
+/**
+ * Remote delete: keep the row (so the timeline doesn't shift) but drop
+ * content. `deletedBy` is set for admin deletes (someone other than the author).
+ */
+export function applyDelete(message: Message, deletedBy?: string): Message {
+  const { quote: _quote, pinned: _pinned, ...rest } = message;
+  const out: Message = {
+    ...rest,
+    deleted: true,
+    body: '',
+    ranges: [],
+    attachments: [],
+    reactions: [],
+  };
+  if (deletedBy !== undefined && deletedBy !== message.authorId) out.deletedBy = deletedBy;
+  return out;
+}
+
+/**
+ * Merges a message we already have with a re-delivery of it (duplicate
+ * envelope, sync echo of our own send, backfilled history). The stored copy
+ * wins for everything later events mutate — edits, reactions, deletion,
+ * pinning, local seq — and delivery status only ever advances.
+ */
+export function mergeDuplicate(existing: Message, incoming: Message): Message {
+  const merged: Message = {
+    ...incoming,
+    ...existing,
+    status: advanceStatus(existing.status, incoming.status),
+  };
+  // A newer edit carried by the incoming copy still applies.
+  if (
+    incoming.editedAt !== undefined &&
+    (existing.editedAt === undefined || incoming.editedAt > existing.editedAt) &&
+    !existing.deleted
+  ) {
+    merged.body = incoming.body;
+    merged.ranges = incoming.ranges;
+    merged.editedAt = incoming.editedAt;
+    merged.edits = Math.max(existing.edits ?? 0, incoming.edits ?? 0);
+  }
+  return merged;
 }
 
 /** Summarises reactions into pills: emoji → authors, in first-seen order. */

@@ -17,7 +17,6 @@ describe('parseMarkdownToRanges', () => {
 
   it.each([
     ['**bold**', 'bold'],
-    ['__bold__', 'bold'],
     ['*it*', 'italic'],
     ['_it_', 'italic'],
     ['~~gone~~', 'strikethrough'],
@@ -64,8 +63,37 @@ describe('parseMarkdownToRanges', () => {
     expect(p('****')).toEqual({ body: '****', ranges: [] });
   });
 
-  it('does not let an unclosed inner marker swallow the outer closer', () => {
-    expect(p('**a *b**')).toEqual({ body: 'a *b', ranges: [r(0, 4, 'bold')] });
+  it('follows CommonMark for mixed runs', () => {
+    // CommonMark: `**a *b**` → `*<em>a <em>b</em></em>`.
+    expect(p('**a *b**')).toEqual({
+      body: '*a b',
+      ranges: [r(1, 3, 'italic'), r(3, 1, 'italic')],
+    });
+  });
+
+  it('nests emphasis of different lengths correctly', () => {
+    expect(p('*a **b** c*')).toEqual({
+      body: 'a b c',
+      ranges: [r(0, 5, 'italic'), r(2, 1, 'bold')],
+    });
+    expect(p('**a *b* c**')).toEqual({
+      body: 'a b c',
+      ranges: [r(0, 5, 'bold'), r(2, 1, 'italic')],
+    });
+    expect(p('_a **b** c_')).toEqual({
+      body: 'a b c',
+      ranges: [r(0, 5, 'italic'), r(2, 1, 'bold')],
+    });
+    const both = p('~~**x**~~');
+    expect(both.body).toBe('x');
+    expect(both.ranges).toEqual(
+      expect.arrayContaining([r(0, 1, 'strikethrough'), r(0, 1, 'bold')]),
+    );
+  });
+
+  it('applies the rule of 3', () => {
+    // `*foo**bar*` is one italic span, not italic + stray bold.
+    expect(p('*foo**bar*')).toEqual({ body: 'foo**bar', ranges: [r(0, 8, 'italic')] });
   });
 
   it('requires non-whitespace inside delimiters', () => {
@@ -73,8 +101,11 @@ describe('parseMarkdownToRanges', () => {
     expect(p('** spaced **')).toEqual({ body: '** spaced **', ranges: [] });
   });
 
-  it('respects word boundaries for underscores', () => {
+  it('respects word boundaries for underscores and has no __bold__', () => {
     expect(p('snake_case_name')).toEqual({ body: 'snake_case_name', ranges: [] });
+    expect(p('__init__.py')).toEqual({ body: '__init__.py', ranges: [] });
+    expect(p('__bold__')).toEqual({ body: '__bold__', ranges: [] });
+    expect(p('_a_b_')).toEqual({ body: 'a_b', ranges: [r(0, 3, 'italic')] });
     expect(p('use _this_ one')).toEqual({ body: 'use this one', ranges: [r(4, 4, 'italic')] });
   });
 
@@ -88,7 +119,7 @@ describe('parseMarkdownToRanges', () => {
   it('handles backslash escapes', () => {
     expect(p('\\*not italic\\*')).toEqual({ body: '*not italic*', ranges: [] });
     expect(p('a \\\\ b')).toEqual({ body: 'a \\ b', ranges: [] });
-    expect(p('**a \\** b**')).toEqual({ body: 'a ** b', ranges: [r(0, 6, 'bold')] });
+    expect(p('**a \\*\\* b**')).toEqual({ body: 'a ** b', ranges: [r(0, 6, 'bold')] });
     // A backslash before a non-special character is literal.
     expect(p('C:\\path')).toEqual({ body: 'C:\\path', ranges: [] });
   });
@@ -112,6 +143,29 @@ describe('parseMarkdownToRanges', () => {
       body: 'look:\nconst x = 1;\ndone',
       ranges: [r(6, 12, 'monospace')],
     });
+    // Only known language ids are stripped; other first lines are content.
+    expect(p('```hello\nworld```').body).toBe('hello\nworld');
+    expect(p('``` js\ncode```').body).toBe('code');
+    expect(p('```\ncode\n```').body).toBe('code');
+  });
+
+  it('strips one padding space in inline code', () => {
+    expect(p('`` ` ``')).toEqual({ body: '`', ranges: [r(0, 1, 'monospace')] });
+    expect(p('` `')).toEqual({ body: ' ', ranges: [r(0, 1, 'monospace')] });
+  });
+
+  it('treats URLs as atomic', () => {
+    const url = 'https://web.archive.org/web/*/example.com/*';
+    expect(p(`see ${url} *now*`)).toEqual({ body: `see ${url} now`, ranges: [r(48, 3, 'italic')] });
+    expect(p('https://x.io/a_b_c and _it_')).toEqual({
+      body: 'https://x.io/a_b_c and it',
+      ranges: [r(23, 2, 'italic')],
+    });
+  });
+
+  it('keeps || and ~~ literal inside words', () => {
+    expect(p('if (a||b) and (c||d)')).toEqual({ body: 'if (a||b) and (c||d)', ranges: [] });
+    expect(p('|||a|||')).toEqual({ body: '|||a|||', ranges: [] });
   });
 
   it('uses UTF-16 code unit offsets (Signal wire units)', () => {
@@ -133,12 +187,20 @@ describe('parseMarkdownToRanges', () => {
     expect(p('**line one\nline two**').ranges).toEqual([r(0, 17, 'bold')]);
   });
 
-  it('stays fast on pathological input', () => {
-    const evil = '*_'.repeat(400) + '~~||'.repeat(200);
-    const t = performance.now();
-    const out = p(evil);
-    expect(performance.now() - t).toBeLessThan(500);
-    expect(out.body.length).toBeGreaterThan(0);
+  it('is linear on pathological input', () => {
+    const inputs = [
+      '**a *b _c ~~d '.repeat(400), // ~5.6 KB of unclosed openers (was 5.9 s)
+      '**a *b _c ~~d ||e **f'.repeat(250),
+      '*a'.repeat(3000),
+      '*_'.repeat(2000) + '~~||'.repeat(1000),
+      '`` ` '.repeat(1000),
+      'int main(int argc, char **argv) { char *p = *argv; if (a || b) x_y = *p; }\n'.repeat(60),
+    ];
+    for (const input of inputs) {
+      const t = performance.now();
+      p(input);
+      expect(performance.now() - t, `${input.slice(0, 20)}… (${input.length})`).toBeLessThan(60);
+    }
   });
 });
 

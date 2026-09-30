@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createStore } from 'zustand/vanilla';
+import { ManualScheduler } from '@/core/lib';
 import {
+  backupKey,
   bindPersistence,
   createMemoryStorage,
   isRecord,
@@ -41,6 +43,18 @@ describe('versioned key/value', () => {
     );
   });
 
+  it('backs up data it cannot use before defaults overwrite it', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const future = JSON.stringify({ v: 9, data: { name: 'from the future' } });
+    const storage = createMemoryStorage({ test: future });
+    expect(loadVersioned(storage, schema).name).toBe('default');
+    expect(storage.getItem(backupKey('test'))).toBe(future);
+
+    const corrupt = createMemoryStorage({ test: '{nope' });
+    loadVersioned(corrupt, schema);
+    expect(corrupt.getItem(backupKey('test'))).toBe('{nope');
+  });
+
   it('migrates old versions step by step', () => {
     const storage = createMemoryStorage({ test: JSON.stringify({ v: 1, data: { title: 'old' } }) });
     expect(loadVersioned(storage, schema)).toEqual({ name: 'old', size: 12 });
@@ -59,13 +73,31 @@ describe('versioned key/value', () => {
       data: { name: 'a', size: 1 },
       other: 0,
     }));
-    const off = bindPersistence(store, storage, schema, (s) => s.data);
+    const binding = bindPersistence(store, storage, schema, (s) => s.data);
     store.setState({ other: 1 });
     expect(setItem).not.toHaveBeenCalled();
     store.setState({ data: { name: 'b', size: 2 } });
     expect(setItem).toHaveBeenCalledOnce();
-    off();
+    binding.dispose();
     store.setState({ data: { name: 'c', size: 3 } });
     expect(loadVersioned(storage, schema).name).toBe('b');
+  });
+
+  it('coalesces bursts when debounced and flushes on dispose', () => {
+    const storage = createMemoryStorage();
+    const setItem = vi.spyOn(storage, 'setItem');
+    const scheduler = new ManualScheduler();
+    const store = createStore<{ data: V2 }>()(() => ({ data: { name: 'a', size: 1 } }));
+    const binding = bindPersistence(store, storage, schema, (s) => s.data, {
+      ms: 300,
+      schedule: (fn, ms) => scheduler.setTimeout(fn, ms),
+    });
+    for (let i = 0; i < 5; i++) store.setState({ data: { name: `n${i}`, size: i } });
+    expect(setItem).not.toHaveBeenCalled();
+    scheduler.advance(300);
+    expect(setItem).toHaveBeenCalledOnce();
+    store.setState({ data: { name: 'last', size: 9 } });
+    binding.dispose();
+    expect(loadVersioned(storage, schema).name).toBe('last');
   });
 });

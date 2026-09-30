@@ -33,7 +33,10 @@ import type {
   EditInput,
   HistoryPage,
   HistoryQuery,
+  MessageRef,
+  PinInput,
   ReactInput,
+  SendResult,
   SendInput,
 } from '../types';
 import { Liveliness, type LivelinessOptions } from './liveliness';
@@ -141,10 +144,9 @@ export class MockBackend implements ChatBackend {
   async fetchHistory(conversationId: ConversationId, query: HistoryQuery): Promise<HistoryPage> {
     await this.delay();
     const history = this.world.histories.get(conversationId) ?? [];
+    const before = query.before;
     const end =
-      query.before === undefined
-        ? history.length
-        : history.findIndex((m) => m.sentAt >= (query.before as number));
+      before === undefined ? history.length : history.findIndex((m) => m.sentAt >= before);
     const stop = end === -1 ? history.length : end;
     const start = Math.max(0, stop - query.limit);
     const page: HistoryPage = {
@@ -158,7 +160,7 @@ export class MockBackend implements ChatBackend {
 
   // ─── Commands ──────────────────────────────────────────────────────────
 
-  async send(input: SendInput): Promise<{ sentAt: number; attachments?: Attachment[] }> {
+  async send(input: SendInput): Promise<SendResult> {
     await this.delay();
     this.assertOnline();
     this.takeFailure();
@@ -221,6 +223,28 @@ export class MockBackend implements ChatBackend {
     this.assertOnline();
     this.takeFailure();
     this.updateMessage(conversationId, this.world.self.id, sentAt, applyDelete);
+  }
+
+  async adminDelete(conversationId: ConversationId, target: MessageRef): Promise<void> {
+    await this.delay();
+    this.assertOnline();
+    this.takeFailure();
+    const conv = this.requireConversation(conversationId);
+    if (!conv.adminIds.includes(this.world.self.id))
+      throw new MockBackendError('Not a group admin');
+    this.updateMessage(conversationId, target.authorId, target.sentAt, (m) =>
+      applyDelete(m, this.world.self.id),
+    );
+  }
+
+  async pinMessage(input: PinInput): Promise<void> {
+    await this.delay();
+    this.assertOnline();
+    this.takeFailure();
+    this.updateMessage(input.conversationId, input.targetAuthorId, input.targetSentAt, (m) => ({
+      ...m,
+      pinned: input.pin,
+    }));
   }
 
   async setTyping(conversationId: ConversationId, typing: boolean): Promise<void> {

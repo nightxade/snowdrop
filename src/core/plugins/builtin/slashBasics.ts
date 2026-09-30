@@ -8,6 +8,9 @@ const UNFLIP = escapeMarkdown('┬─┬ノ( º _ ºノ)');
 
 const withText = (args: string, face: string): string => (args ? `${args} ${face}` : face);
 
+/** Our output is markdown (escaped faces, _me_, ||spoiler||) whatever the user's setting. */
+const send = (text: string) => ({ type: 'send', text, format: 'markdown' }) as const;
+
 export const slashBasicsPlugin = definePlugin({
   id: 'slash-basics',
   name: 'Slash Basics',
@@ -20,37 +23,33 @@ export const slashBasicsPlugin = definePlugin({
       name: 'shrug',
       description: 'Appends ¯\\_(ツ)_/¯ to your message.',
       usage: '[message]',
-      execute: (args) => ({ type: 'send', text: withText(args, SHRUG) }),
+      execute: (args) => send(withText(args, SHRUG)),
     });
     ctx.slash.register({
       name: 'tableflip',
       description: 'Appends (╯°□°)╯︵ ┻━┻ to your message.',
       usage: '[message]',
-      execute: (args) => ({ type: 'send', text: withText(args, TABLEFLIP) }),
+      execute: (args) => send(withText(args, TABLEFLIP)),
     });
     ctx.slash.register({
       name: 'unflip',
       description: 'Appends ┬─┬ノ( º _ ºノ) to your message.',
       usage: '[message]',
-      execute: (args) => ({ type: 'send', text: withText(args, UNFLIP) }),
+      execute: (args) => send(withText(args, UNFLIP)),
     });
     ctx.slash.register({
       name: 'me',
       description: 'Sends an action in italics.',
       usage: '<action>',
       execute: (args) =>
-        args
-          ? { type: 'send', text: `_${args}_` }
-          : { type: 'error', message: 'Usage: /me <action>' },
+        args ? send(`_${args}_`) : { type: 'error', message: 'Usage: /me <action>' },
     });
     ctx.slash.register({
       name: 'spoiler',
       description: 'Sends your message as a spoiler.',
       usage: '<message>',
       execute: (args) =>
-        args
-          ? { type: 'send', text: `||${args}||` }
-          : { type: 'error', message: 'Usage: /spoiler <message>' },
+        args ? send(`||${args}||`) : { type: 'error', message: 'Usage: /spoiler <message>' },
     });
   },
 });
