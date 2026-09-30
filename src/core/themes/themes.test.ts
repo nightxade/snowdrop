@@ -1,0 +1,129 @@
+import { afterEach, describe, expect, it } from 'vitest';
+import { BUILTIN_THEMES, findTheme, LINEN } from './builtin';
+import {
+  adjustLightness,
+  contrastRatio,
+  oklchToRgb,
+  parseHex,
+  rgbToOklch,
+  toHex,
+  withAlpha,
+} from './color';
+import {
+  applyAppearance,
+  buildThemeCss,
+  clearAppearance,
+  deriveAccentTokens,
+  STYLE_IDS,
+  type AppearanceInput,
+} from './engine';
+import { isTokenName } from './tokens';
+
+const base: AppearanceInput = {
+  themeId: 'ember',
+  accent: null,
+  density: 'cozy',
+  fontScale: 1,
+  zoom: 1,
+  saturation: 1,
+  reducedMotion: 'system',
+  quickCss: '',
+};
+
+describe('color math', () => {
+  it('round-trips hex through OKLCH', () => {
+    for (const hex of ['#ff7a59', '#000000', '#ffffff', '#3ccf91', '#4a68c4']) {
+      expect(toHex(oklchToRgb(rgbToOklch(parseHex(hex)!)))).toBe(hex);
+    }
+    expect(parseHex('#abc')).toEqual(parseHex('#aabbcc'));
+    expect(parseHex('nope')).toBeNull();
+  });
+
+  it('shifts lightness while keeping hue, staying in gamut', () => {
+    const base = rgbToOklch(parseHex('#ff7a59')!);
+    const lighter = rgbToOklch(parseHex(adjustLightness('#ff7a59', 0.08))!);
+    expect(lighter.l).toBeGreaterThan(base.l);
+    expect(Math.abs(lighter.h - base.h)).toBeLessThan(3);
+    expect(adjustLightness('#ffffff', 0.2)).toBe('#ffffff');
+  });
+
+  it('computes contrast and alpha', () => {
+    expect(contrastRatio('#000000', '#ffffff')).toBeCloseTo(21, 0);
+    expect(withAlpha('#ff7a59', 0.1)).toBe('rgba(255, 122, 89, 0.1)');
+  });
+});
+
+describe('themes', () => {
+  it('only override known tokens', () => {
+    for (const theme of BUILTIN_THEMES) {
+      for (const name of Object.keys(theme.tokens)) expect(isTokenName(name)).toBe(true);
+    }
+    expect(findTheme('missing').id).toBe('ember');
+  });
+
+  it('keep body text contrast ≥ 4.5:1 on chat surfaces', () => {
+    const emberChat = '#1b1d22';
+    for (const theme of BUILTIN_THEMES) {
+      const bg = theme.tokens['bg-chat'] ?? emberChat;
+      const text = theme.tokens.text ?? '#e9e7e4';
+      const muted = theme.tokens['text-muted'] ?? '#a4a1a0';
+      expect(contrastRatio(text, bg)).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(muted, bg)).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  it('derives an accent family appropriate to the theme kind', () => {
+    const dark = deriveAccentTokens('#3ccf91', 'dark');
+    const light = deriveAccentTokens('#3ccf91', 'light');
+    const L = (hex: string | undefined) => rgbToOklch(parseHex(hex!)!).l;
+    expect(L(dark['accent-hover'])).toBeGreaterThan(L('#3ccf91'));
+    expect(L(light['accent-hover'])).toBeLessThan(L('#3ccf91'));
+    expect(dark['text-on-accent']).toBe('#1a0f0b');
+    expect(deriveAccentTokens('#1a237e', 'dark')['text-on-accent']).toBe('#ffffff');
+    expect(deriveAccentTokens('bogus', 'dark')).toEqual({});
+  });
+
+  it('builds CSS with overrides, accent and scale tokens', () => {
+    const css = buildThemeCss({ ...base, themeId: 'linen', accent: '#3366ff', fontScale: 1.125 });
+    expect(css).toContain(`--hearth-bg-chat: ${LINEN.tokens['bg-chat']};`);
+    expect(css).toContain('--hearth-accent: #3366ff;');
+    expect(css).toContain('--hearth-font-scale: 1.125;');
+    expect(buildThemeCss({ ...base, themeId: 'high-contrast' })).toContain('0 0 0 2px #ffffff');
+  });
+});
+
+describe('applyAppearance', () => {
+  afterEach(() => {
+    clearAppearance(document);
+  });
+
+  it('writes ordered style tags and root attributes', () => {
+    const late = document.createElement('style');
+    late.id = 'late';
+    applyAppearance(document, { ...base, quickCss: 'body{color:red}', pluginCss: '.x{}' });
+    document.head.appendChild(late);
+    applyAppearance(document, {
+      ...base,
+      themeId: 'linen',
+      quickCss: 'body{color:blue}',
+      reducedMotion: 'on',
+      saturation: 0.5,
+      density: 'compact',
+    });
+
+    const ids = [...document.head.querySelectorAll('style')].map((s) => s.id);
+    expect(ids.slice(-3)).toEqual([STYLE_IDS.theme, STYLE_IDS.plugins, STYLE_IDS.quickCss]);
+    expect(document.getElementById(STYLE_IDS.quickCss)?.textContent).toBe('body{color:blue}');
+    const root = document.documentElement;
+    expect(root.getAttribute('data-theme')).toBe('linen');
+    expect(root.getAttribute('data-theme-kind')).toBe('light');
+    expect(root.getAttribute('data-density')).toBe('compact');
+    expect(root.getAttribute('data-reduced-motion')).toBe('on');
+    expect(root.hasAttribute('data-saturation-adjusted')).toBe(true);
+
+    applyAppearance(document, base);
+    expect(root.hasAttribute('data-reduced-motion')).toBe(false);
+    expect(document.querySelectorAll(`#${STYLE_IDS.theme}`)).toHaveLength(1);
+    late.remove();
+  });
+});

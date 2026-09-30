@@ -1,0 +1,19 @@
+.root {
+  display: grid;
+  place-content: center;
+  gap: var(--hearth-space-3);
+  min-height: 100%;
+  text-align: center;
+  background: var(--hearth-bg-chat);
+}
+
+.title {
+  font-size: var(--hearth-font-size-display);
+  font-weight: var(--hearth-font-weight-semibold);
+  color: var(--hearth-text-strong);
+}
+
+.meta {
+  color: var(--hearth-text-muted);
+  font-size: var(--hearth-font-size-ui);
+}

@@ -79,6 +79,7 @@ hearth/src/
   app/                 # composition root: providers, bootstrap, routing of views
   core/                # NO React imports allowed here
     domain/            # pure types + pure helpers (ids, time grouping, body ranges)
+    lib/               # leaf utilities: typed Emitter, Clock/Scheduler, disposables, observable lists
     backend/           # ChatBackend contract + adapters
       types.ts
       mock/            # rich demo world with simulated activity
@@ -107,11 +108,14 @@ hearth/src/
 
 **Dependency rules (enforced by ESLint `import/no-restricted-paths`):**
 - `core/**` must not import `ui/**`, `app/**`, `react`.
-- `core/domain` imports nothing else from `core`.
+- `core/domain` imports nothing else from `core`; `core/lib` likewise.
 - `ui/primitives` must not import `ui/features` or `core/**` (pure presentational).
 - `ui/features/*` may import `core/**`, `ui/primitives`, `ui/hooks`, and
   another feature only through that feature's `index.ts`.
-- Adapters under `core/backend/*` are only imported by `app/` (composition root).
+- Adapters under `core/backend/*` are only imported by `app/` (composition root)
+  (test files may import the mock).
+- `scripts/verify-boundaries.mjs` (run by `npm run lint`) lints fixture files
+  in each layer and fails if any of these rules stops firing.
 
 ### 3.1 Domain model (`core/domain`)
 
@@ -487,3 +491,98 @@ gates and commits. Quality gates for every phase:
   raw hex outside `tokens.css`/theme files.
 - Tests colocated as `*.test.ts(x)`.
 - Comments explain *why*, not *what*.
+
+## 8. Implementation notes & deviations
+
+Recorded by the builder of each phase. Where these refine §3, they win.
+
+### P1 Foundation
+
+**Structure**
+- New leaf module `core/lib` (Emitter with listener-error isolation,
+  `Clock`/`Scheduler` + `ManualScheduler` for tests, `DisposableStore`,
+  `ObservableList` with stable snapshots for `useSyncExternalStore`, nonces).
+  Same boundary rule as `core/domain`.
+- `core/services` gained `HistoryService` (paging) next to Sync/Send.
+  `NotificationService` is deferred to P4.
+
+**Domain (§3.1)**
+- `Message.nonce?` — client-only nonce of optimistic messages; kept on the
+  reconciled message in memory so render keys stay stable across the
+  `pending:<nonce>` → `author:sentAt` id swap; stripped when persisted.
+- `Contact.color` holds `var(--hearth-avatar-N)` (a slot, not a colour) so each
+  theme can retune hues.
+- `groupMessages` returns *flat* render items (`day-divider`, `new-divider`,
+  `system`, `message` with `continuation: boolean`) because the virtualised list
+  renders one row per item. Replies always start a new group.
+- Extra pure helpers: `bodyToPlainText`, `attachMentions`, `applyReaction`
+  (one reaction per author, Signal semantics), `advanceStatus` (receipts never
+  downgrade), `applyEdit`, `applyDelete`, `summarizeReactions`, `escapeMarkdown`,
+  `fuzzyMatch`/`fuzzyFilter` (with highlight indices), `initialsFor`.
+- Markdown: also `__bold__`, multi-backtick spans and fenced blocks (language tag
+  dropped); `_` respects word boundaries; unclosed inner markers never swallow an
+  outer closer. Mentions: the composer puts U+FFFC in the text and passes ids in
+  order; ids are re-attached *after* parsing.
+
+**Backend contract (§3.2)**
+- `send()` may return resolved `attachments`.
+- New event `readSync { messages: {authorId, sentAt}[] }` (read on another linked
+  device; Signal gives no conversation id, the sync engine resolves it).
+- Optional `fetchHistory?(conv, { before?, limit })` → `{ messages, hasMoreBefore,
+  readUpTo? }`. Only the mock implements it; signal-cli has no history. The
+  repository is the source of truth: `SyncService` seeds the newest page on first
+  sight, `HistoryService` backfills older pages from the backend when local
+  history runs out. `readUpTo` seeds read cursors on first sync; otherwise a
+  first-seen conversation starts fully read (no stale badge flood).
+- Status events are applied immediately; all other events go through one ordered
+  queue so e.g. an edit can't overtake its message.
+
+**Persistence**
+- `MessageRepository` also stores per-conversation read cursors.
+- The demo (mock) uses the in-memory repository: its world is regenerated each
+  launch relative to "now", so persisting it would mix timelines. Mock identities
+  (contact/conversation ids) come from a separate PRNG stream and are stable
+  across launches, so persisted Spaces keep working. `IdbMessageRepository` is
+  ready for P5.
+- Settings/spaces persist via `loadVersioned/saveVersioned` (`{ v, data }`,
+  step-wise migrations, per-field validation, corrupt data → defaults).
+
+**Stores (§3.3)**
+- Settings sections: `appearance`, `notifications`, `behaviour` (incl.
+  `markdown`, `linkPreviews: false` default), `connection` (backend choice,
+  daemon URL, mock liveliness), `keybinds`, `plugins`, `quickCss`.
+  `plugins[id].enabled` is optional: absent ⇒ the plugin's `enabledByDefault`.
+- Spaces model: spaces with ≥1 category, a `rail` of spaces **and folders**,
+  collapsed Home sections, and a `seeded` flag so deleted default spaces never
+  come back. `HOME = 'home'` is the pseudo space id in `uiStore`.
+- `uiStore` also holds a capped toast queue (`pushToast` / `dismissToast`),
+  used by `ctx.toast`.
+
+**Plugins (§3.4)**
+- Extra capabilities: `ctx.send.addTypingGuard` (Silent Typing),
+  `ctx.onDispose`, `ctx.backend = { kind, status(), sendText(), onMessage() }`
+  (`onMessage` fires after a message is stored). Definition flags `required`
+  (can't be disabled) and `preview` (UI lands later).
+- Slash commands return `SlashResult` (`send` | `replace` | `error` | `done`);
+  `parseSlash()` parses composer text.
+- `Registries` implements the send pipeline (`DraftPipeline`): transforms run in
+  order and a throwing transform is skipped, never blocking the send.
+- Built-ins: Clear URLs ✔, Silent Typing ✔, Slash Basics ✔ (`/shrug`,
+  `/tableflip`, `/unflip`, `/me`, `/spoiler`), Keyword Alerts (toast ✔,
+  highlight → P4), Relative Timestamps (preview → P4), "Message Tools" = Copy as
+  Markdown + word count (preview → P4).
+
+**Commands / themes**
+- Keybinds are stored as portable strings with `Mod` (Cmd on macOS, Ctrl
+  elsewhere); matching falls back to `event.code` for layout-shifted keys.
+  Core command ids + §4.11 defaults live in `core/commands/defaults.ts`.
+- `tokens.css` adds layout, font-scale, zoom and saturation tokens; a test keeps
+  it in sync with `core/themes/tokens.ts`. The theme engine sets
+  `data-theme`, `data-theme-kind`, `data-density`, `data-reduced-motion`,
+  `data-saturation-adjusted` on `<html>` and keeps its three `<style>` tags last
+  in `<head>`. Linen uses a darker ember (`#d4502c`) for contrast on paper.
+
+**Tooling**
+- Current majors at time of writing: TypeScript 6, Vite 8, Vitest 5, ESLint 10.
+  ESLint type-aware linting uses explicit `tsconfig.app.json`/`tsconfig.node.json`
+  projects (the solution-style root hid `noUncheckedIndexedAccess`).

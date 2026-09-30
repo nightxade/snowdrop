@@ -1,0 +1,67 @@
+/**
+ * Pure, immutable message transitions shared by the sync engine, the send
+ * pipeline and the mock backend, so every layer applies protocol semantics
+ * identically.
+ */
+import type { BodyRange, Message, MessageStatus, Reaction } from './types';
+
+/** Signal allows one reaction per author per message; a new one replaces the old. */
+export function applyReaction(
+  reactions: readonly Reaction[],
+  reaction: Reaction,
+  remove: boolean,
+): Reaction[] {
+  const others = reactions.filter((r) => r.authorId !== reaction.authorId);
+  if (remove) {
+    const existing = reactions.find((r) => r.authorId === reaction.authorId);
+    // Only remove if the emoji matches, otherwise a late "remove" could wipe a newer reaction.
+    return existing && existing.emoji !== reaction.emoji ? [...reactions] : others;
+  }
+  return [...others, reaction];
+}
+
+const STATUS_RANK: Record<MessageStatus, number> = {
+  failed: -1,
+  pending: 0,
+  sent: 1,
+  delivered: 2,
+  read: 3,
+};
+
+/** Receipts may arrive out of order; status only ever moves forward. */
+export function advanceStatus(current: MessageStatus, next: MessageStatus): MessageStatus {
+  return STATUS_RANK[next] > STATUS_RANK[current] ? next : current;
+}
+
+export function applyEdit(
+  message: Message,
+  edit: { body: string; ranges: BodyRange[]; editedAt: number },
+): Message {
+  if (message.deleted) return message;
+  return {
+    ...message,
+    body: edit.body,
+    ranges: edit.ranges,
+    edits: (message.edits ?? 0) + 1,
+    editedAt: edit.editedAt,
+  };
+}
+
+/** Remote delete: keep the row (so the timeline doesn't shift) but drop content. */
+export function applyDelete(message: Message): Message {
+  const { quote: _quote, ...rest } = message;
+  return { ...rest, deleted: true, body: '', ranges: [], attachments: [], reactions: [] };
+}
+
+/** Summarises reactions into pills: emoji → authors, in first-seen order. */
+export function summarizeReactions(
+  reactions: readonly Reaction[],
+): { emoji: string; authorIds: string[]; firstAt: number }[] {
+  const byEmoji = new Map<string, { emoji: string; authorIds: string[]; firstAt: number }>();
+  for (const r of [...reactions].sort((a, b) => a.at - b.at)) {
+    const entry = byEmoji.get(r.emoji);
+    if (entry) entry.authorIds.push(r.authorId);
+    else byEmoji.set(r.emoji, { emoji: r.emoji, authorIds: [r.authorId], firstAt: r.at });
+  }
+  return [...byEmoji.values()];
+}

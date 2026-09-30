@@ -1,0 +1,145 @@
+/*
+ * Hearth design tokens — base (Ember, dark) theme.
+ *
+ * Every visual constant lives here as a `--hearth-*` custom property. Themes
+ * (core/themes) override a subset of these on :root via a single <style> tag,
+ * so components must only ever reference tokens, never raw values.
+ * The list of names is mirrored in core/themes/tokens.ts; a test keeps the
+ * two in sync.
+ */
+:root {
+  /* Surfaces */
+  --hearth-bg-rail: #101114;
+  --hearth-bg-sidebar: #15171b;
+  --hearth-bg-chat: #1b1d22;
+  --hearth-bg-elevated: #22252b;
+  --hearth-bg-floating: #0c0d10;
+  --hearth-bg-input: #22252b;
+  --hearth-bg-hover: rgba(255, 255, 255, 0.04);
+  --hearth-bg-active: rgba(255, 255, 255, 0.08);
+  --hearth-bg-selected: rgba(255, 255, 255, 0.1);
+  --hearth-bg-overlay: rgba(6, 7, 9, 0.72);
+  --hearth-border: rgba(255, 255, 255, 0.06);
+  --hearth-border-strong: rgba(255, 255, 255, 0.12);
+
+  /* Text */
+  --hearth-text: #e9e7e4;
+  --hearth-text-strong: #ffffff;
+  --hearth-text-muted: #a4a1a0;
+  --hearth-text-faint: #6f6c6b;
+  --hearth-text-on-accent: #1a0f0b;
+  --hearth-text-link: #ffa184;
+
+  /* Accent (overridable via Appearance → accent colour) */
+  --hearth-accent: #ff7a59;
+  --hearth-accent-hover: #ff8f73;
+  --hearth-accent-active: #e9664a;
+  --hearth-accent-soft: rgba(255, 122, 89, 0.16);
+
+  /* Status */
+  --hearth-danger: #f0506e;
+  --hearth-danger-soft: rgba(240, 80, 110, 0.14);
+  --hearth-success: #3ccf91;
+  --hearth-warning: #f5b44a;
+  --hearth-info: #6ab7ff;
+
+  /* Messages */
+  --hearth-mention-bg: rgba(255, 122, 89, 0.1);
+  --hearth-mention-bar: #ff7a59;
+  --hearth-mention-pill-bg: rgba(255, 122, 89, 0.22);
+  --hearth-mention-pill-text: #ffd2c4;
+  --hearth-code-bg: #121317;
+  --hearth-spoiler-bg: #3a3d45;
+  --hearth-highlight-bg: rgba(245, 180, 74, 0.14);
+  --hearth-focus-ring: #ff7a59;
+  --hearth-scrollbar-thumb: rgba(255, 255, 255, 0.14);
+
+  /* Avatar hues: tuned so white initials stay legible (≥ 4.5:1). */
+  --hearth-avatar-1: #c2553f;
+  --hearth-avatar-2: #b8651d;
+  --hearth-avatar-3: #8f7a14;
+  --hearth-avatar-4: #4f8a2b;
+  --hearth-avatar-5: #248a5c;
+  --hearth-avatar-6: #1f8584;
+  --hearth-avatar-7: #2878a8;
+  --hearth-avatar-8: #4a68c4;
+  --hearth-avatar-9: #7059c7;
+  --hearth-avatar-10: #9150b3;
+  --hearth-avatar-11: #b24b8a;
+  --hearth-avatar-12: #c14b62;
+
+  /* Spacing (4px grid) */
+  --hearth-space-0: 0;
+  --hearth-space-1: 2px;
+  --hearth-space-2: 4px;
+  --hearth-space-3: 8px;
+  --hearth-space-4: 12px;
+  --hearth-space-5: 16px;
+  --hearth-space-6: 20px;
+  --hearth-space-7: 24px;
+  --hearth-space-8: 32px;
+  --hearth-space-9: 48px;
+
+  /* Radii */
+  --hearth-radius-xs: 4px;
+  --hearth-radius-sm: 8px;
+  --hearth-radius-md: 12px;
+  --hearth-radius-lg: 16px;
+  --hearth-radius-full: 9999px;
+
+  /* Layout */
+  --hearth-rail-width: 72px;
+  --hearth-sidebar-width: 248px;
+  --hearth-members-width: 248px;
+  --hearth-header-height: 48px;
+  --hearth-tile-size: 48px;
+
+  /* Typography */
+  --hearth-font-sans: 'Inter Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --hearth-font-mono: 'JetBrains Mono Variable', ui-monospace, 'SFMono-Regular', monospace;
+  --hearth-font-scale: 1;
+  --hearth-font-size-xs: calc(11px * var(--hearth-font-scale));
+  --hearth-font-size-sm: calc(12px * var(--hearth-font-scale));
+  --hearth-font-size-ui: calc(14px * var(--hearth-font-scale));
+  --hearth-font-size-message: calc(15px * var(--hearth-font-scale));
+  --hearth-font-size-header: calc(16px * var(--hearth-font-scale));
+  --hearth-font-size-title: calc(20px * var(--hearth-font-scale));
+  --hearth-font-size-display: calc(28px * var(--hearth-font-scale));
+  --hearth-line-height-message: 1.375;
+  --hearth-line-height-ui: 1.3;
+  --hearth-font-weight-regular: 400;
+  --hearth-font-weight-medium: 500;
+  --hearth-font-weight-semibold: 600;
+  --hearth-font-weight-bold: 700;
+  --hearth-tracking-label: 0.02em;
+
+  /* Shadows — floating layers only */
+  --hearth-shadow-menu: 0 8px 24px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  --hearth-shadow-popout: 0 12px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  --hearth-shadow-modal: 0 24px 64px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.06);
+
+  /* Motion */
+  --hearth-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --hearth-duration-fast: 120ms;
+  --hearth-duration-base: 160ms;
+  --hearth-duration-slow: 200ms;
+
+  /* Misc */
+  --hearth-saturation: 1;
+  --hearth-zoom: 1;
+}
+
+/* Reduced motion (OS preference, or `data-reduced-motion` set by the app). */
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-reduced-motion='off']) {
+    --hearth-duration-fast: 0ms;
+    --hearth-duration-base: 0ms;
+    --hearth-duration-slow: 0ms;
+  }
+}
+
+:root[data-reduced-motion='on'] {
+  --hearth-duration-fast: 0ms;
+  --hearth-duration-base: 0ms;
+  --hearth-duration-slow: 0ms;
+}

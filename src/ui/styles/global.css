@@ -1,0 +1,62 @@
+@import '@fontsource-variable/inter';
+@import '@fontsource-variable/jetbrains-mono';
+@import './reset.css';
+@import './tokens.css';
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+html {
+  zoom: var(--hearth-zoom);
+}
+
+body {
+  background: var(--hearth-bg-chat);
+  color: var(--hearth-text);
+  font-family: var(--hearth-font-sans);
+  font-size: var(--hearth-font-size-ui);
+  line-height: var(--hearth-line-height-ui);
+  font-feature-settings: 'cv11', 'ss01';
+}
+
+/* A filter creates a containing block for fixed children, so only apply it when needed. */
+:root[data-saturation-adjusted] body {
+  filter: saturate(var(--hearth-saturation));
+}
+
+code,
+kbd,
+pre,
+samp {
+  font-family: var(--hearth-font-mono);
+}
+
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--hearth-focus-ring);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: var(--hearth-accent-soft);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--hearth-scrollbar-thumb) transparent;
+}
+
+a {
+  color: var(--hearth-text-link);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
