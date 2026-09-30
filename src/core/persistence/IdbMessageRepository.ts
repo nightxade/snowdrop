@@ -7,7 +7,13 @@
  * expiresAt are indexed for the inbox and the disappearing-message purge.
  */
 import { openDB, type DBSchema, type IDBPDatabase, type IDBPTransaction } from 'idb';
-import { asConversationId, type ConversationId, type Message, type MessageId } from '@/core/domain';
+import {
+  asConversationId,
+  pendingMessageId,
+  type ConversationId,
+  type Message,
+  type MessageId,
+} from '@/core/domain';
 import {
   fromStored,
   matchesSearch,
@@ -282,6 +288,51 @@ export class IdbMessageRepository implements MessageRepository {
 
   async setReadCursor(conversationId: ConversationId, seq: number): Promise<void> {
     await this.db.put('readCursors', { conversationId, seq });
+  }
+
+  async stageOutgoing(pending: Message, entry: OutboxEntry): Promise<void> {
+    const tx = this.db.transaction(['messages', 'outbox'], 'readwrite');
+    await Promise.all([
+      tx.objectStore('messages').put(toStored(pending)),
+      tx.objectStore('outbox').put(entry),
+      tx.done,
+    ]);
+  }
+
+  async commitOutgoing(nonce: string, final: Message, merge: MergeFn): Promise<UpsertResult> {
+    const tx = this.db.transaction(['messages', 'meta', 'outbox'], 'readwrite');
+    const messages = tx.objectStore('messages');
+    await messages.delete(pendingMessageId(nonce));
+    await tx.objectStore('outbox').delete(nonce);
+    const existing = await messages.get(final.id);
+    let result: UpsertResult;
+    if (existing) {
+      const merged = merge(fromStored(existing), final);
+      await messages.put(toStored(merged));
+      result = { message: merged, created: false };
+    } else {
+      const meta = tx.objectStore('meta');
+      const seq = (await meta.get(SEQ_KEY)) ?? { key: SEQ_KEY, min: 1, max: 0 };
+      const stored = { ...final, seq: final.seq ?? seq.max + 1 };
+      await meta.put({
+        ...seq,
+        max: Math.max(seq.max, stored.seq),
+        min: Math.min(seq.min, stored.seq),
+      });
+      await messages.put(toStored(stored));
+      result = { message: stored, created: true };
+    }
+    await tx.done;
+    return result;
+  }
+
+  async discardOutgoing(nonce: string): Promise<void> {
+    const tx = this.db.transaction(['messages', 'outbox'], 'readwrite');
+    await Promise.all([
+      tx.objectStore('messages').delete(pendingMessageId(nonce)),
+      tx.objectStore('outbox').delete(nonce),
+      tx.done,
+    ]);
   }
 
   async putOutbox(entry: OutboxEntry): Promise<void> {

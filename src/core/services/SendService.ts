@@ -174,11 +174,10 @@ export class SendService {
     });
     stores.messages.getState().appendLive(optimistic);
     stores.conversations.getState().bumpActivity(input.conversationId, now);
+    stores.conversations.getState().noteLatest(optimistic);
     this.typingSentAt.delete(input.conversationId);
-    await Promise.all([
-      repository.upsert(optimistic, mergeDuplicate),
-      repository.putOutbox({ nonce, input, createdAt: now }),
-    ]);
+    // Row and outbox entry together, or neither: a crash can't orphan one.
+    await repository.stageOutgoing(optimistic, { nonce, input, createdAt: now });
     await this.attempt(nonce);
     return nonce;
   }
@@ -188,19 +187,51 @@ export class SendService {
    * come back as failed (with Retry) rather than silently re-sending.
    */
   async restoreOutbox(): Promise<number> {
-    const entries = await this.deps.repository.listOutbox();
+    const { repository, stores } = this.deps;
+    const entries = await repository.listOutbox();
+    const selfId = stores.session.getState().self?.id;
     for (const entry of entries) {
       if (this.outgoing.has(entry.nonce)) continue;
       const id = pendingMessageId(entry.nonce);
+      const conversationId = entry.input.conversationId;
       this.outgoing.set(entry.nonce, {
-        conversationId: entry.input.conversationId,
+        conversationId,
         input: entry.input,
         inFlight: false,
         queue: [],
       });
       const markFailed = (m: Message): Message => ({ ...m, status: 'failed' });
-      await this.deps.repository.update(id, markFailed);
-      this.deps.stores.messages.getState().update(entry.input.conversationId, id, markFailed);
+      const existing = await repository.update(id, markFailed);
+      if (existing) {
+        stores.messages.getState().update(conversationId, id, markFailed);
+        continue;
+      }
+      if (!selfId) continue;
+      // Outbox entry without its row (older data, or storage that lost it):
+      // rebuild the row from the input so the message is visible and retryable.
+      const row: Message = {
+        id,
+        conversationId,
+        authorId: selfId,
+        sentAt: entry.createdAt,
+        receivedAt: entry.createdAt,
+        seq: await repository.allocateSeq(),
+        body: entry.input.body,
+        ranges: entry.input.ranges,
+        attachments: (entry.input.attachments ?? []).map((a, i) => ({
+          id: `${entry.nonce}-${i}`,
+          contentType: a.contentType,
+          fileName: a.fileName,
+          size: a.data.size,
+        })),
+        reactions: [],
+        status: 'failed',
+        kind: 'normal',
+        nonce: entry.nonce,
+        ...(entry.input.quote ? { quote: entry.input.quote } : {}),
+      };
+      await repository.stageOutgoing(row, entry);
+      stores.messages.getState().appendLive(row);
     }
     return entries.length;
   }
@@ -223,10 +254,7 @@ export class SendService {
     if (out?.inFlight) return;
     this.outgoing.delete(nonce);
     this.deps.stores.messages.getState().remove(conversationId, pendingMessageId(nonce));
-    await Promise.all([
-      this.deps.repository.delete(pendingMessageId(nonce)),
-      this.deps.repository.deleteOutbox(nonce),
-    ]);
+    await this.deps.repository.discardOutgoing(nonce);
   }
 
   private async attempt(nonce: string): Promise<void> {
@@ -274,14 +302,25 @@ export class SendService {
     };
 
     // Merge (not overwrite): a sync echo or receipts may have landed already.
-    await repository.delete(pendingId);
-    const { message: stored } = await repository.upsert(final, mergeDuplicate);
-    await repository.deleteOutbox(nonce);
+    let { message: stored } = await repository.commitOutgoing(nonce, final, mergeDuplicate);
     this.outgoing.delete(nonce);
+    // A receipt handled while we were committing found no row and was parked; claim it now.
+    const late = this.receipts.take(result.sentAt, clock.now());
+    if (late !== undefined) {
+      stored =
+        (await repository.update(stored.id, (m) => ({
+          ...m,
+          status: advanceStatus(m.status, late),
+        }))) ?? stored;
+    }
+    // Re-read right before showing it: receipts applied to the stored row after
+    // the commit never reached the store (it still held the pending row).
+    stored = (await repository.get(stored.id)) ?? stored;
 
     // Show the queued operations' effects straight away; commit them next.
     const shown = out.queue.reduce((m, op) => op.apply(m), stored);
     stores.messages.getState().reconcile(out.conversationId, nonce, shown);
+    stores.conversations.getState().noteLatest(shown);
     if (
       stored.seq !== undefined &&
       stores.conversations.getState().markRead(out.conversationId, stored.seq)

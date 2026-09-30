@@ -1,0 +1,42 @@
+.button {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--hearth-radius-sm);
+  color: var(--hearth-text-muted);
+  transition:
+    background-color var(--hearth-duration-fast) var(--hearth-ease),
+    color var(--hearth-duration-fast) var(--hearth-ease);
+}
+
+.button[data-size='sm'] {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--hearth-radius-xs);
+}
+
+.button:hover:not(:disabled) {
+  background: var(--hearth-bg-hover);
+  color: var(--hearth-text-strong);
+}
+
+.button[data-active] {
+  color: var(--hearth-text-strong);
+}
+
+.button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.button svg {
+  width: 20px;
+  height: 20px;
+}
+
+.button[data-size='sm'] svg {
+  width: 16px;
+  height: 16px;
+}

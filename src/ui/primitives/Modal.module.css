@@ -1,0 +1,111 @@
+.overlay {
+  position: fixed;
+  z-index: 40;
+  inset: 0;
+  background: var(--hearth-bg-overlay);
+  animation: fade var(--hearth-duration-base) var(--hearth-ease);
+}
+
+.content {
+  position: fixed;
+  z-index: 41;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  width: min(440px, calc(100vw - 32px));
+  max-height: min(720px, calc(100dvh - 48px));
+  overflow: hidden;
+  border-radius: var(--hearth-radius-lg);
+  background: var(--hearth-bg-elevated);
+  box-shadow: var(--hearth-shadow-modal);
+  transform: translate(-50%, -50%);
+  animation: rise var(--hearth-duration-slow) var(--hearth-ease);
+}
+
+.content[data-size='sm'] {
+  width: min(360px, calc(100vw - 32px));
+}
+
+.content[data-size='lg'] {
+  width: min(600px, calc(100vw - 32px));
+}
+
+.content[data-placement='top'] {
+  top: 14vh;
+  transform: translate(-50%, 0);
+  animation-name: rise-top;
+}
+
+.header {
+  position: relative;
+  padding: var(--hearth-space-7) var(--hearth-space-8) var(--hearth-space-4) var(--hearth-space-7);
+}
+
+.header[data-hidden] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.title {
+  color: var(--hearth-text-strong);
+  font-size: var(--hearth-font-size-title);
+  font-weight: var(--hearth-font-weight-bold);
+  line-height: 1.25;
+}
+
+.description {
+  margin-top: var(--hearth-space-3);
+  color: var(--hearth-text-muted);
+  font-size: var(--hearth-font-size-ui);
+  line-height: 1.45;
+}
+
+.close {
+  position: absolute;
+  top: var(--hearth-space-5);
+  right: var(--hearth-space-5);
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  padding: var(--hearth-space-3) var(--hearth-space-7) var(--hearth-space-7);
+  overflow-y: auto;
+}
+
+.header[data-hidden] + .body {
+  padding: var(--hearth-space-5);
+}
+
+.footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--hearth-space-3);
+  padding: var(--hearth-space-5) var(--hearth-space-7);
+  background: var(--hearth-bg-sidebar);
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translate(-50%, calc(-50% + 8px)) scale(0.98);
+  }
+}
+
+@keyframes rise-top {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px) scale(0.98);
+  }
+}

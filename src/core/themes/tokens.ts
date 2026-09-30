@@ -21,6 +21,8 @@ export const TOKEN_NAMES = [
   'text-muted',
   'text-faint',
   'text-on-accent',
+  'text-on-avatar',
+  'text-on-danger',
   'text-link',
   'accent',
   'accent-hover',

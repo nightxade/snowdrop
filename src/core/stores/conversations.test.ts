@@ -118,3 +118,26 @@ describe('protocol vs local state', () => {
     expect(totalUnread(unread, local.getState().conversations, [conv, muted], 3000).count).toBe(7);
   });
 });
+
+describe('lastMessage previews', () => {
+  it('keeps the newest by seq and follows updates of the same message', () => {
+    const store = createConversationsStore();
+    const a = makeMessage({ conversationId: conv, authorId: 'a', sentAt: 1, seq: 5, body: 'a' });
+    const older = makeMessage({ conversationId: conv, authorId: 'b', sentAt: 2, seq: 3 });
+    store.getState().noteLatest(a);
+    store.getState().noteLatest(older);
+    expect(conversationsSelectors.lastMessage(conv)(store.getState())).toBe(a);
+    const edited = { ...a, body: 'edited' };
+    store.getState().noteLatest(edited);
+    expect(store.getState().lastMessage[conv]?.body).toBe('edited');
+  });
+
+  it('swaps an optimistic message for its acknowledged form via the nonce', () => {
+    const store = createConversationsStore();
+    const pending = makeMessage({ conversationId: conv, authorId: SELF, seq: 9, nonce: 'n1' });
+    store.getState().noteLatest(pending);
+    const acked = { ...pending, id: makeMessage({ sentAt: 99 }).id, seq: 9 };
+    store.getState().noteLatest(acked);
+    expect(store.getState().lastMessage[conv]).toBe(acked);
+  });
+});

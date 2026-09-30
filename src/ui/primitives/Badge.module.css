@@ -1,0 +1,31 @@
+.badge {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: var(--hearth-radius-full);
+  font-size: var(--hearth-font-size-xs);
+  font-weight: var(--hearth-font-weight-bold);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.badge[data-variant='mention'] {
+  background: var(--hearth-danger);
+  color: var(--hearth-text-on-danger);
+}
+
+.badge[data-variant='count'] {
+  background: var(--hearth-bg-active);
+  color: var(--hearth-text);
+}
+
+.badge[data-variant='dot'] {
+  min-width: 8px;
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  background: var(--hearth-text-strong);
+}

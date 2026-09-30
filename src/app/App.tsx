@@ -1,25 +1,63 @@
+import { useEffect } from 'react';
 import { useStore } from 'zustand';
-import { conversationsSelectors, sessionSelectors } from '@/core/stores';
+import type { BackendChoice } from '@/core/stores';
+import { Welcome } from '@/ui/features/onboarding';
+import { AppShell } from '@/ui/features/shell';
+import type { Hearth } from './createHearth';
 import { useHearth } from './HearthProvider';
-import styles from './App.module.css';
 
-/**
- * Placeholder shell proving the wiring end to end (backend → sync → stores →
- * React). Replaced by the real layout in P2.
- */
-export function App() {
-  const { stores } = useHearth();
-  const status = useStore(stores.session, sessionSelectors.status);
-  const ready = useStore(stores.session, sessionSelectors.ready);
-  const conversations = useStore(stores.conversations, conversationsSelectors.byId);
-  const count = Object.keys(conversations).length;
+const started = new WeakSet<Hearth>();
 
-  return (
-    <main className={styles.root} data-hearth="app">
-      <h1 className={styles.title}>Hearth — foundation ready</h1>
-      <p className={styles.meta} aria-live="polite">
-        {ready ? `${count} conversations` : 'Connecting…'} · {status}
-      </p>
-    </main>
-  );
+/** Starts a Hearth instance once, whatever StrictMode does to effects. */
+export function startOnce(hearth: Hearth): void {
+  if (started.has(hearth)) return;
+  started.add(hearth);
+  hearth.start().catch((error: unknown) => {
+    // The session store carries the error; the shell shows it with a retry.
+    console.error('[hearth] failed to start', error);
+  });
+}
+
+export interface AppProps {
+  /**
+   * Called when the chosen backend differs from the running instance's
+   * (createHearth picks the transport once). The browser entry reloads.
+   */
+  onBackendChange?: () => void;
+}
+
+/** First run shows the welcome screen; afterwards the shell boots straight into the chosen backend. */
+export function App({ onBackendChange }: AppProps) {
+  const hearth = useHearth();
+  const choice = useStore(hearth.stores.settings, (s) => s.connection.backend);
+  const daemonUrl = useStore(hearth.stores.settings, (s) => s.connection.daemonUrl);
+  const matches = choice !== null && choice === hearth.backend.kind;
+
+  useEffect(() => {
+    if (choice === null) return;
+    if (matches) startOnce(hearth);
+    else onBackendChange?.();
+  }, [choice, matches, hearth, onBackendChange]);
+
+  if (choice === null) {
+    const choose = (backend: BackendChoice, url?: string) => {
+      hearth.stores.settings
+        .getState()
+        .update('connection', { backend, ...(url !== undefined ? { daemonUrl: url } : {}) });
+      // Persist before a possible reload.
+      hearth.flush();
+    };
+    return (
+      <Welcome
+        defaultDaemonUrl={daemonUrl}
+        onDemo={() => {
+          choose('mock');
+        }}
+        onConnect={(url) => {
+          choose('signal-cli', url);
+        }}
+      />
+    );
+  }
+  return <AppShell />;
 }

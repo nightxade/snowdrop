@@ -1,0 +1,40 @@
+import { describe, expect, it } from 'vitest';
+import { conversationIdFor, makeMessage } from '@/core/domain/testing';
+import { previewText } from './preview';
+
+const conv = conversationIdFor('g');
+const names: Record<string, string> = { a: 'Mira Okafor', me: 'Me' };
+const ctx = { selfId: 'me', isGroup: true, nameFor: (id: string) => names[id] ?? '?' };
+
+describe('previewText', () => {
+  it('prefixes the author in groups and "You" for own messages', () => {
+    expect(
+      previewText(makeMessage({ conversationId: conv, authorId: 'a', body: 'hi  there' }), ctx),
+    ).toBe('Mira: hi there');
+    expect(
+      previewText(makeMessage({ conversationId: conv, authorId: 'me', body: 'ok' }), ctx),
+    ).toBe('You: ok');
+    expect(
+      previewText(makeMessage({ conversationId: conv, authorId: 'a', body: 'x' }), {
+        ...ctx,
+        isGroup: false,
+      }),
+    ).toBe('x');
+  });
+
+  it('describes attachments, deletions and system lines', () => {
+    const photo = makeMessage({
+      authorId: 'a',
+      body: '',
+      attachments: [{ id: '1', contentType: 'image/png' }],
+    });
+    expect(previewText(photo, ctx)).toBe('Mira: Photo');
+    expect(previewText(makeMessage({ authorId: 'a', deleted: true }), ctx)).toBe(
+      'Mira: Message deleted',
+    );
+    expect(previewText(makeMessage({ kind: 'system', systemText: 'Mira joined' }), ctx)).toBe(
+      'Mira joined',
+    );
+    expect(previewText(undefined, ctx)).toBe('');
+  });
+});

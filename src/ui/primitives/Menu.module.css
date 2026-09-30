@@ -1,0 +1,117 @@
+.content {
+  z-index: 50;
+  min-width: 200px;
+  max-width: 300px;
+  max-height: var(--radix-context-menu-content-available-height, 70vh);
+  padding: 6px;
+  overflow-y: auto;
+  border-radius: var(--hearth-radius-sm);
+  background: var(--hearth-bg-floating);
+  box-shadow: var(--hearth-shadow-menu);
+  transform-origin: var(
+    --radix-context-menu-content-transform-origin,
+    var(--radix-dropdown-menu-content-transform-origin)
+  );
+  animation: menu-in var(--hearth-duration-fast) var(--hearth-ease);
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: var(--hearth-space-3);
+  min-height: 32px;
+  padding: 6px 8px;
+  border-radius: var(--hearth-radius-xs);
+  color: var(--hearth-text);
+  font-size: var(--hearth-font-size-ui);
+  font-weight: var(--hearth-font-weight-medium);
+  line-height: var(--hearth-line-height-ui);
+  cursor: pointer;
+  outline: none;
+  user-select: none;
+}
+
+/* Highlight follows focus (keyboard and pointer), so it replaces the focus ring. */
+.item:focus-visible {
+  outline: none;
+}
+
+.item[data-highlighted],
+.item[data-state='open'] {
+  background: var(--hearth-accent-soft);
+  color: var(--hearth-text-strong);
+}
+
+.item[data-danger] {
+  color: var(--hearth-danger);
+}
+
+.item[data-danger][data-highlighted] {
+  background: var(--hearth-danger);
+  color: var(--hearth-text-on-danger);
+}
+
+.item[data-disabled] {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.item[data-disabled][data-highlighted] {
+  background: transparent;
+}
+
+.text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hint {
+  color: var(--hearth-text-faint);
+  font-size: var(--hearth-font-size-sm);
+}
+
+.icon,
+.check,
+.chevron {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  color: var(--hearth-text-muted);
+}
+
+.item[data-highlighted] .icon,
+.item[data-highlighted] .chevron,
+.item[data-state='open'] .chevron {
+  color: currentColor;
+}
+
+.check {
+  color: var(--hearth-accent);
+}
+
+.separator {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--hearth-border);
+}
+
+.label {
+  padding: 6px 8px 4px;
+  color: var(--hearth-text-faint);
+  font-size: var(--hearth-font-size-sm);
+  font-weight: var(--hearth-font-weight-semibold);
+  letter-spacing: var(--hearth-tracking-label);
+  text-transform: uppercase;
+}
+
+@keyframes menu-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}

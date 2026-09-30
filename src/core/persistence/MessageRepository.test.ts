@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mergeDuplicate, messageId, type Message } from '@/core/domain';
+import { mergeDuplicate, messageId, pendingMessageId, type Message } from '@/core/domain';
 import { conversationIdFor, makeMessage } from '@/core/domain/testing';
 import { IdbMessageRepository } from './IdbMessageRepository';
 import { MemoryMessageRepository } from './MemoryMessageRepository';
@@ -184,6 +184,44 @@ describe.each(implementations)('MessageRepository (%s)', (_name, create) => {
     await repo.update(messageId('x', 1000), (m) => ({ ...m, expiresAt: 5_000 }));
     await repo.update(messageId('y', 2000), (m) => ({ ...m, expiresAt: 9_000 }));
     expect((await repo.expired(6_000, 10)).map((m) => m.body)).toEqual(['a1']);
+  });
+
+  it('stages, commits and discards outgoing messages atomically', async () => {
+    const input = { conversationId: a, body: 'hi', ranges: [] };
+    const seq = await repo.allocateSeq();
+    const pending = incoming({
+      conversationId: a,
+      authorId: 'me',
+      sentAt: 5,
+      id: pendingMessageId('n1'),
+      nonce: 'n1',
+      seq,
+    });
+    await repo.stageOutgoing(pending, { nonce: 'n1', input, createdAt: 1 });
+    expect(await repo.get(pendingMessageId('n1'))).toBeDefined();
+    expect(await repo.listOutbox()).toHaveLength(1);
+
+    const final = incoming({
+      conversationId: a,
+      authorId: 'me',
+      sentAt: 777,
+      nonce: 'n1',
+      seq,
+      status: 'sent',
+    });
+    const { message } = await repo.commitOutgoing('n1', final, mergeDuplicate);
+    expect(message).toMatchObject({ id: messageId('me', 777), seq });
+    expect(await repo.get(pendingMessageId('n1'))).toBeUndefined();
+    expect(await repo.listOutbox()).toEqual([]);
+    expect((await repo.latest(a))?.id).toBe(messageId('me', 777));
+
+    await repo.stageOutgoing(
+      { ...pending, id: pendingMessageId('n2'), nonce: 'n2' },
+      { nonce: 'n2', input, createdAt: 2 },
+    );
+    await repo.discardOutgoing('n2');
+    expect(await repo.get(pendingMessageId('n2'))).toBeUndefined();
+    expect(await repo.listOutbox()).toEqual([]);
   });
 
   it('stores the outbox, read cursors and clears everything', async () => {

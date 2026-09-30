@@ -1,36 +1,153 @@
-import { act } from 'react';
-import { createRoot } from 'react-dom/client';
-import { describe, expect, it } from 'vitest';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, describe, expect, it } from 'vitest';
 import { createMemoryStorage } from '@/core/persistence';
+import { spacesSelectors, uiSelectors } from '@/core/stores';
 import { App } from './App';
-import { createHearth } from './createHearth';
+import { createHearth, type Hearth } from './createHearth';
 import { HearthProvider } from './HearthProvider';
 
 // Tell React this environment supports act().
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
+const hearths: Hearth[] = [];
+
+afterEach(async () => {
+  cleanup();
+  for (const h of hearths.splice(0)) await h.dispose();
+});
+
+async function bootDemo(): Promise<Hearth> {
+  const hearth = createHearth({ storage: createMemoryStorage(), mockLatencyMs: 0 });
+  hearths.push(hearth);
+  hearth.stores.settings.getState().update('connection', { mockLiveliness: false });
+  render(
+    <HearthProvider hearth={hearth}>
+      <App />
+    </HearthProvider>,
+  );
+  // First run: the welcome screen, then the demo.
+  expect(screen.getByRole('heading', { name: 'Hearth' })).toBeTruthy();
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: /Try the demo/u }));
+    await Promise.resolve();
+  });
+  await act(async () => {
+    await hearth.start();
+    await hearth.sync.idle();
+  });
+  return hearth;
+}
+
+function key(init: KeyboardEventInit) {
+  act(() => {
+    window.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, ...init }));
+  });
+}
+
 describe('<App />', () => {
-  it('renders the placeholder and reflects the synced store', async () => {
-    const hearth = createHearth({ storage: createMemoryStorage(), mockLatencyMs: 0 });
-    const container = document.createElement('div');
-    const root = createRoot(container);
-    act(() => {
-      root.render(
-        <HearthProvider hearth={hearth}>
-          <App />
-        </HearthProvider>,
-      );
-    });
-    expect(container.textContent).toContain('Hearth — foundation ready');
-    expect(container.textContent).toContain('Connecting…');
+  it('goes from the welcome screen into the demo shell', async () => {
+    const hearth = await bootDemo();
+    expect(hearth.stores.settings.getState().connection.backend).toBe('mock');
+    expect(document.querySelector('[data-hearth="rail"]')).not.toBeNull();
+    const sidebar = document.querySelector<HTMLElement>('[data-hearth="sidebar"]')!;
+    expect(within(sidebar).getByRole('region', { name: 'Direct Messages' })).toBeTruthy();
+    expect(within(sidebar).getByRole('region', { name: 'Groups' })).toBeTruthy();
+    // Every seeded space has a rail tile.
+    const rail = document.querySelector<HTMLElement>('[data-hearth="rail"]')!;
+    for (const id of spacesSelectors.orderedIds(hearth.stores.spaces.getState())) {
+      const name = hearth.stores.spaces.getState().spaces[id]!.name;
+      expect(within(rail).getByRole('button', { name: new RegExp(`^${name}`, 'u') })).toBeTruthy();
+    }
+  });
 
-    await act(() => hearth.start());
-    expect(container.textContent).toContain('22 conversations');
-    expect(container.textContent).toContain('online');
+  it('shows unread and mention indicators on space tiles; muting keeps mentions only', async () => {
+    const hearth = await bootDemo();
+    const { stores } = hearth;
+    const spaceId = spacesSelectors.orderedIds(stores.spaces.getState())[0]!;
+    const space = stores.spaces.getState().spaces[spaceId]!;
+    const convs = space.categories.flatMap((c) => c.conversationIds);
+    act(() => {
+      for (const c of convs)
+        stores.conversations.getState().setUnread(c, { count: 0, mentions: 0 });
+      stores.conversations.getState().setUnread(convs[0]!, { count: 2, mentions: 1 });
+    });
+    const tile = screen.getByRole('button', { name: `${space.name}, 1 mention` });
+    const item = tile.closest('[data-tone]')!;
+    expect(item.hasAttribute('data-unread')).toBe(true);
+    expect(within(item as HTMLElement).getByText('1')).toBeTruthy();
 
     act(() => {
-      root.unmount();
+      stores.spaces.getState().updateSpace(spaceId, { muted: true });
     });
-    await hearth.dispose();
+    expect(item.hasAttribute('data-unread')).toBe(false);
+    expect(within(item as HTMLElement).getByText('1')).toBeTruthy();
+
+    act(() => {
+      stores.conversations.getState().setUnread(convs[0]!, { count: 2, mentions: 0 });
+    });
+    expect(screen.getByRole('button', { name: space.name })).toBeTruthy();
+  });
+
+  it('navigates by keyboard: Alt+↓, Alt+Shift+↓, Ctrl+Shift+M and Escape', async () => {
+    const hearth = await bootDemo();
+    const { stores } = hearth;
+    const selected = () => uiSelectors.selectedConversation(stores.ui.getState());
+
+    // Alt+↓ with nothing open picks the first row of the visible list.
+    key({ key: 'ArrowDown', code: 'ArrowDown', altKey: true });
+    const first = selected();
+    expect(first).not.toBeNull();
+    const sidebar = document.querySelector<HTMLElement>('[data-hearth="sidebar"]')!;
+    expect(within(sidebar).getByRole('button', { current: 'page' })).toBeTruthy();
+    key({ key: 'ArrowDown', code: 'ArrowDown', altKey: true });
+    expect(selected()).not.toBe(first);
+    key({ key: 'ArrowUp', code: 'ArrowUp', altKey: true });
+    expect(selected()).toBe(first);
+
+    // Alt+Shift+↓ jumps to an unread conversation, switching space if needed.
+    // A group inside the first space, so the jump has to switch spaces.
+    const firstSpace = spacesSelectors.orderedIds(stores.spaces.getState())[0]!;
+    const target = stores.spaces.getState().spaces[firstSpace]!.categories[0]!.conversationIds[0]!;
+    await act(async () => {
+      for (const c of Object.keys(stores.conversations.getState().byId))
+        stores.conversations.getState().setUnread(c as typeof target, { count: 0, mentions: 0 });
+      stores.local.getState().setMuted(target, false);
+      stores.conversations.getState().setUnread(target, { count: 3, mentions: 1 });
+      await Promise.resolve();
+    });
+    key({ key: 'ArrowDown', code: 'ArrowDown', altKey: true, shiftKey: true });
+    expect(selected()).toBe(target);
+    expect(stores.ui.getState().selectedSpace).toBe(firstSpace);
+
+    // Ctrl+Shift+M toggles the member list.
+    const before = stores.ui.getState().memberListOpen;
+    key({ key: 'M', code: 'KeyM', ctrlKey: true, shiftKey: true });
+    expect(stores.ui.getState().memberListOpen).toBe(!before);
+
+    // Escape marks the open conversation read.
+    stores.conversations.getState().setUnread(target, { count: 3, mentions: 1 });
+    key({ key: 'Escape', code: 'Escape' });
+    await act(async () => {
+      await hearth.sync.idle();
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(stores.conversations.getState().unread[target]?.count ?? 0).toBe(0);
+  });
+
+  it('arrow keys move focus between sidebar rows', async () => {
+    await bootDemo();
+    const rows = document.querySelectorAll<HTMLElement>(
+      '[data-hearth="conversation-list"] [data-roving-item]',
+    );
+    expect(rows.length).toBeGreaterThan(3);
+    act(() => {
+      rows[1]!.focus();
+    });
+    fireEvent.keyDown(rows[1]!, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(rows[2]);
+    fireEvent.keyDown(rows[2]!, { key: 'Home' });
+    expect(document.activeElement).toBe(rows[0]);
+    fireEvent.keyDown(rows[0]!, { key: 'End' });
+    expect(document.activeElement).toBe(rows[rows.length - 1]);
   });
 });

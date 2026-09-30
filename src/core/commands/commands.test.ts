@@ -118,6 +118,21 @@ describe('keybind matching', () => {
     expect(serializeKeybind(kb)).toBe('Mod+Shift+K');
   });
 
+  it('records shortcuts the same way it matches them (round trip)', () => {
+    const presses: [string, KeyEventLike, boolean][] = [
+      ['Mod+Shift+?', ev('?', { ctrlKey: true, shiftKey: true, code: 'Slash' }), false], // US Ctrl+Shift+/
+      ['Mod+Z', ev('z', { ctrlKey: true, code: 'Slash' }), false], // Dvorak Ctrl+Z
+      ['Mod+K', ev('k', { metaKey: true, code: 'KeyK' }), true],
+      ['Alt+K', ev('˚', { altKey: true, code: 'KeyK' }), true], // macOS Option+K
+    ];
+    for (const [expected, press, mac] of presses) {
+      const recorded = keybindFromEvent(press, mac)!;
+      expect(serializeKeybind(recorded)).toBe(expected);
+      expect(matchesKeybind(press, recorded, mac)).toBe(true);
+      expect(matchesKeybind(press, parseKeybind(serializeKeybind(recorded))!, mac)).toBe(true);
+    }
+  });
+
   it('formats per platform', () => {
     const kb = parseKeybind('Mod+Shift+K')!;
     expect(formatKeybind(kb, true)).toBe('⇧⌘K');

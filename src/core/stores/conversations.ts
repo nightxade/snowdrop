@@ -27,6 +27,8 @@ export interface ConversationsState {
   /** seq of the last message the user has read, per conversation. */
   readCursors: Record<ConversationId, number>;
   unread: Record<ConversationId, UnreadState>;
+  /** Newest known message per conversation (sidebar previews). */
+  lastMessage: Record<ConversationId, Message>;
 
   upsertMany(conversations: readonly Conversation[]): void;
   /** Replaces protocol fields, keeping the newest local activity time. */
@@ -41,6 +43,11 @@ export interface ConversationsState {
   applyRemoval(message: Message, selfId: string): void;
   /** Advances the read cursor to `upToSeq` and clears unread. Returns true if anything changed. */
   markRead(id: ConversationId, upToSeq: number): boolean;
+  /**
+   * Records `message` as the preview if it is newer (by seq) than the current
+   * one, or is the same message (same id or nonce) in a newer state.
+   */
+  noteLatest(message: Message): void;
 }
 
 export type ConversationsStore = StoreApi<ConversationsState>;
@@ -99,6 +106,7 @@ export function createConversationsStore(): ConversationsStore {
       byId: {},
       readCursors: {},
       unread: {},
+      lastMessage: {},
 
       upsertMany: (conversations) => {
         if (conversations.length === 0) return;
@@ -146,6 +154,20 @@ export function createConversationsStore(): ConversationsStore {
         }));
         return true;
       },
+      noteLatest: (message) => {
+        const id = message.conversationId;
+        const current = get().lastMessage[id];
+        if (current === message) return;
+        const same =
+          current !== undefined &&
+          (current.id === message.id ||
+            (current.nonce !== undefined && current.nonce === message.nonce));
+        const newer =
+          current === undefined ||
+          (message.seq ?? Number.MAX_SAFE_INTEGER) > (current.seq ?? Number.MAX_SAFE_INTEGER);
+        if (!same && !newer) return;
+        set((s) => ({ lastMessage: { ...s.lastMessage, [id]: message } }));
+      },
     };
   });
 }
@@ -155,4 +177,5 @@ export const conversationsSelectors = {
   conversation: (id: ConversationId) => (s: ConversationsState) => s.byId[id],
   unread: (id: ConversationId) => (s: ConversationsState) => s.unread[id] ?? NO_UNREAD,
   readCursor: (id: ConversationId) => (s: ConversationsState) => s.readCursors[id],
+  lastMessage: (id: ConversationId) => (s: ConversationsState) => s.lastMessage[id],
 };

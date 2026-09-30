@@ -367,8 +367,38 @@ export function parseMarkdownToRanges(text: string): ParsedMarkdown {
     const length = span.closer.closeAt - span.opener.openAt;
     if (length > 0) ranges.push({ start: span.opener.openAt, length, style: span.style });
   }
-  ranges.sort((a, b) => a.start - b.start || b.length - a.length);
-  return { body, ranges };
+  return { body, ranges: normalizeRanges(ranges) };
+}
+
+/**
+ * Merges overlapping or touching ranges of the same style. Nested emphasis of
+ * one style (`**a *b**` → italic inside italic) is legal CommonMark but means
+ * nothing to Signal, and overlapping duplicates confuse recipients' clients.
+ * Output: sorted by start, then longer first; no two same-style ranges overlap.
+ */
+function normalizeRanges(ranges: readonly BodyRange[]): BodyRange[] {
+  const byStyle = new Map<TextStyle | undefined, BodyRange[]>();
+  for (const r of ranges) {
+    const list = byStyle.get(r.style);
+    if (list) list.push(r);
+    else byStyle.set(r.style, [r]);
+  }
+  const out: BodyRange[] = [];
+  for (const list of byStyle.values()) {
+    list.sort((a, b) => a.start - b.start);
+    let current: BodyRange | undefined;
+    for (const r of list) {
+      if (current && r.start <= current.start + current.length) {
+        const end = Math.max(current.start + current.length, r.start + r.length);
+        current = { ...current, length: end - current.start };
+      } else {
+        if (current) out.push(current);
+        current = { ...r };
+      }
+    }
+    if (current) out.push(current);
+  }
+  return out.sort((a, b) => a.start - b.start || b.length - a.length);
 }
 
 /** Escapes text so it round-trips through parseMarkdownToRanges unchanged. */

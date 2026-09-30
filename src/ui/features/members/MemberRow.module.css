@@ -1,0 +1,54 @@
+.item {
+  padding: 1px 0;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--hearth-space-4);
+  width: 100%;
+  height: 40px;
+  padding: 0 var(--hearth-space-3);
+  border-radius: var(--hearth-radius-sm);
+  text-align: left;
+  opacity: 0.85;
+  transition:
+    background-color var(--hearth-duration-fast) var(--hearth-ease),
+    opacity var(--hearth-duration-fast) var(--hearth-ease);
+}
+
+.row:hover,
+.row[data-state='open'] {
+  background: var(--hearth-bg-hover);
+  opacity: 1;
+}
+
+.row[data-state='open'] {
+  background: var(--hearth-bg-selected);
+}
+
+.row:focus-visible {
+  outline-offset: -2px;
+}
+
+/* Contact hues are tuned for avatar fills; mix toward the text colour for legibility. */
+.name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--hearth-font-size-ui);
+  font-weight: var(--hearth-font-weight-medium);
+  color: color-mix(in oklab, var(--name-color) 55%, var(--hearth-text-strong));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.you {
+  color: var(--hearth-text-faint);
+  font-weight: var(--hearth-font-weight-regular);
+}
+
+.emoji {
+  flex: none;
+  font-size: 14px;
+}

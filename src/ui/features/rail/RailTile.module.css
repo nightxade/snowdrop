@@ -1,0 +1,117 @@
+.item {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  width: var(--hearth-rail-width);
+  padding: var(--hearth-space-2) 0;
+}
+
+.item[data-dragging] {
+  z-index: 2;
+  opacity: 0.9;
+}
+
+/* Edge indicator: absent → 8px (unread) → 20px (hover) → 40px (selected). */
+.pill {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 4px;
+  height: 0;
+  border-radius: 0 var(--hearth-radius-xs) var(--hearth-radius-xs) 0;
+  background: var(--hearth-accent);
+  opacity: 0;
+  transform: translateY(-50%);
+  transition:
+    height var(--hearth-duration-slow) var(--hearth-ease),
+    opacity var(--hearth-duration-fast) var(--hearth-ease);
+}
+
+.item[data-unread] .pill {
+  height: 8px;
+  opacity: 1;
+}
+
+.item:hover .pill {
+  height: 20px;
+  opacity: 1;
+}
+
+.item[data-selected] .pill {
+  height: 40px;
+  opacity: 1;
+}
+
+.tile {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: var(--hearth-tile-size);
+  height: var(--hearth-tile-size);
+  overflow: hidden;
+  border-radius: var(--hearth-radius-lg);
+  background: color-mix(
+    in oklab,
+    var(--tile-hue, var(--hearth-bg-elevated)) 18%,
+    var(--hearth-bg-elevated)
+  );
+  color: var(--hearth-text);
+  font-size: var(--hearth-font-size-header);
+  font-weight: var(--hearth-font-weight-semibold);
+  line-height: 1;
+  transition:
+    border-radius var(--hearth-duration-slow) var(--hearth-ease),
+    background-color var(--hearth-duration-slow) var(--hearth-ease),
+    color var(--hearth-duration-fast) var(--hearth-ease);
+  user-select: none;
+}
+
+.tile:focus-visible {
+  outline-offset: 3px;
+}
+
+.item:hover .tile,
+.item[data-selected] .tile,
+.tile[data-state='open'] {
+  border-radius: var(--hearth-radius-md);
+  background: var(--tile-hue, var(--hearth-accent));
+  color: var(--hearth-text-on-avatar);
+}
+
+.item[data-tone='accent'] .tile {
+  background: var(--hearth-bg-elevated);
+  color: var(--hearth-accent);
+}
+
+.item[data-tone='accent']:hover .tile,
+.item[data-tone='accent'][data-selected] .tile {
+  background: var(--hearth-accent);
+  color: var(--hearth-text-on-accent);
+}
+
+/* The add tile is an outline: it's an action, not a place. */
+.item[data-tone='quiet'] .tile {
+  border: 1.5px dashed var(--hearth-border-strong);
+  background: transparent;
+  color: var(--hearth-text-muted);
+}
+
+.item[data-tone='quiet']:hover .tile,
+.item[data-tone='quiet'] .tile:focus-visible {
+  border-color: var(--hearth-accent);
+  border-radius: var(--hearth-radius-md);
+  background: var(--hearth-accent-soft);
+  color: var(--hearth-accent);
+}
+
+.item[data-tone='quiet'] .pill {
+  display: none;
+}
+
+.badge {
+  position: absolute;
+  right: 8px;
+  bottom: 0;
+  box-shadow: 0 0 0 3px var(--hearth-bg-rail);
+  pointer-events: none;
+}

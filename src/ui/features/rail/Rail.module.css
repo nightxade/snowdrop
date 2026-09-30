@@ -1,0 +1,21 @@
+.rail {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  width: var(--hearth-rail-width);
+  height: 100%;
+  background: var(--hearth-bg-rail);
+}
+
+.scroller {
+  flex: 1;
+  padding: var(--hearth-space-4) 0;
+}
+
+.separator {
+  width: 32px;
+  height: 2px;
+  margin: var(--hearth-space-2) auto;
+  border-radius: var(--hearth-radius-full);
+  background: var(--hearth-border-strong);
+}

@@ -1,0 +1,61 @@
+.panel {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--hearth-space-2);
+  height: 56px;
+  padding: 0 var(--hearth-space-3);
+  background: color-mix(in srgb, var(--hearth-bg-rail) 70%, var(--hearth-bg-sidebar));
+}
+
+.identity {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--hearth-space-3);
+  min-width: 0;
+  padding: var(--hearth-space-2);
+}
+
+.text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.name {
+  overflow: hidden;
+  color: var(--hearth-text-strong);
+  font-size: var(--hearth-font-size-ui);
+  font-weight: var(--hearth-font-weight-semibold);
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subtitle {
+  overflow: hidden;
+  color: var(--hearth-text-muted);
+  font-size: var(--hearth-font-size-sm);
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subtitle[data-status='connecting'] {
+  color: var(--hearth-warning);
+}
+
+.subtitle[data-status='offline'],
+.subtitle[data-status='error'] {
+  color: var(--hearth-danger);
+}
+
+.buttons {
+  display: flex;
+  flex: none;
+}
+
+.off {
+  color: var(--hearth-danger);
+}

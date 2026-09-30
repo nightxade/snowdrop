@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { createSettingsStore, defaultSettings, parseSettings } from './settings';
+import { createMemoryStorage, loadVersioned } from '@/core/persistence';
+import { createSettingsStore, defaultSettings, parseSettings, settingsSchema } from './settings';
 
 describe('settingsStore', () => {
   it('updates sections immutably', () => {
@@ -49,5 +50,27 @@ describe('settingsStore', () => {
     });
     expect(parsed.keybinds).toEqual({ x: 'Mod+X' });
     expect(parseSettings(null)).toEqual(d);
+  });
+
+  it('migrates v1 connection settings (account, proxy URL) and keeps custom URLs', () => {
+    const v1 = (daemonUrl: string) =>
+      createMemoryStorage({
+        'hearth.settings': JSON.stringify({
+          v: 1,
+          data: { connection: { backend: 'signal-cli', daemonUrl, mockLiveliness: false } },
+        }),
+      });
+    expect(loadVersioned(v1('http://127.0.0.1:8080'), settingsSchema).connection).toEqual({
+      backend: 'signal-cli',
+      daemonUrl: '/signal-cli',
+      account: null,
+      mockLiveliness: false,
+    });
+    expect(loadVersioned(v1('http://10.0.0.2:9000'), settingsSchema).connection.daemonUrl).toBe(
+      'http://10.0.0.2:9000',
+    );
+    expect(
+      parseSettings({ connection: { account: '+15550000000', daemonUrl: '  ' } }).connection,
+    ).toMatchObject({ account: '+15550000000', daemonUrl: '/signal-cli' });
   });
 });

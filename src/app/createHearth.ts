@@ -5,6 +5,7 @@
  */
 import type { ChatBackend } from '@/core/backend';
 import { MockBackend } from '@/core/backend/mock';
+import { SignalCliBackend, type FetchLike } from '@/core/backend/signal-cli';
 import {
   type CommandRegistry,
   CoreCommand,
@@ -23,6 +24,7 @@ import {
   bindPersistence,
   defaultStorage,
   type PersistenceBinding,
+  IdbMessageRepository,
   loadVersioned,
   MemoryMessageRepository,
   type KeyValueStorage,
@@ -42,6 +44,7 @@ import {
   type Stores,
 } from '@/core/stores';
 import { applyAppearance, type ThemeDocument } from '@/core/themes';
+import { deferredRepository } from './deferredRepository';
 
 export interface HearthOptions {
   storage?: KeyValueStorage;
@@ -51,6 +54,10 @@ export interface HearthOptions {
   scheduler?: Scheduler;
   /** Mock network latency in ms. */
   mockLatencyMs?: number;
+  /** signal-cli transport override (tests). */
+  fetch?: FetchLike;
+  /** Message repository override (tests); defaults per backend. */
+  repository?: MessageRepository;
 }
 
 export interface Hearth {
@@ -69,6 +76,54 @@ export interface Hearth {
   /** Writes debounced persisted state now (call on page hide). */
   flush(): void;
   dispose(): Promise<void>;
+}
+
+interface BackendChoice {
+  backend: ChatBackend;
+  repository: MessageRepository;
+  /** Set only for the demo, which has extra knobs (liveliness, seeded spaces). */
+  mock: MockBackend | null;
+}
+
+/**
+ * Picks the transport from settings. The choice is made once per Hearth
+ * instance; switching backends means creating a new instance.
+ * - mock (also before the user has chosen): in-memory history, because the
+ *   demo world is regenerated each launch relative to "now" and persisting it
+ *   would mix timelines.
+ * - signal-cli: IndexedDB history, since the daemon keeps none.
+ */
+function createBackend(
+  options: HearthOptions,
+  stores: Stores,
+  storage: KeyValueStorage,
+  clock: Clock,
+  scheduler: Scheduler,
+): BackendChoice {
+  const connection = stores.settings.getState().connection;
+  if (connection.backend === 'signal-cli') {
+    const backend = new SignalCliBackend({
+      baseUrl: connection.daemonUrl,
+      account: connection.account,
+      ...(options.fetch ? { fetch: options.fetch } : {}),
+      clock,
+      scheduler,
+      storage,
+      onAccountSelected: (account) => {
+        if (stores.settings.getState().connection.account !== account) {
+          stores.settings.getState().update('connection', { account });
+        }
+      },
+    });
+    const repository =
+      options.repository ??
+      (typeof indexedDB === 'undefined'
+        ? new MemoryMessageRepository()
+        : deferredRepository(IdbMessageRepository.open('hearth-signal-cli')));
+    return { backend, repository, mock: null };
+  }
+  const mock = new MockBackend({ clock, scheduler, latencyMs: options.mockLatencyMs ?? 120 });
+  return { backend: mock, repository: options.repository ?? new MemoryMessageRepository(), mock };
 }
 
 export function createHearth(options: HearthOptions = {}): Hearth {
@@ -97,13 +152,7 @@ export function createHearth(options: HearthOptions = {}): Hearth {
     console.error(`[hearth] ${context}`, error);
   };
 
-  // TODO(P5): choose the signal-cli adapter + IdbMessageRepository when
-  // settings.connection.backend === 'signal-cli'. The mock regenerates its
-  // world each launch, so its history lives in memory only (persisting it
-  // would mix timelines from different launches).
-  const mock = new MockBackend({ clock, scheduler, latencyMs: options.mockLatencyMs ?? 120 });
-  const backend: ChatBackend = mock;
-  const repository: MessageRepository = new MemoryMessageRepository();
+  const { backend, repository, mock } = createBackend(options, stores, storage, clock, scheduler);
   // Shared so a receipt that beats the send's acknowledgement isn't lost.
   const receipts = new ReceiptBuffer();
 
@@ -179,6 +228,7 @@ export function createHearth(options: HearthOptions = {}): Hearth {
 
   const syncLiveliness = (): void => {
     const on = stores.settings.getState().connection.mockLiveliness;
+    if (!mock) return;
     if (on && backend.getStatus() === 'online') mock.liveliness.start();
     else mock.liveliness.stop();
   };
@@ -198,7 +248,7 @@ export function createHearth(options: HearthOptions = {}): Hearth {
     async start() {
       await sync.start();
       await send.restoreOutbox();
-      if (backend.kind === 'mock') {
+      if (mock) {
         // Demo-only defaults so the Discord-like structure is visible on first run.
         // Never applied to a real account, and never re-applied after the user changes them.
         stores.spaces.getState().seedDefaults(mock.world.defaultSpaces);
@@ -221,7 +271,7 @@ export function createHearth(options: HearthOptions = {}): Hearth {
     async dispose() {
       for (const off of cleanups.splice(0)) off();
       for (const binding of bindings.splice(0)) binding.dispose();
-      mock.liveliness.stop();
+      mock?.liveliness.stop();
       await plugins.stopAll();
       await sync.stop();
     },

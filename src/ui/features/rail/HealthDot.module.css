@@ -1,0 +1,37 @@
+.wrap {
+  display: grid;
+  flex: none;
+  place-items: center;
+  height: 40px;
+}
+
+.dot {
+  width: 12px;
+  height: 12px;
+  border-radius: var(--hearth-radius-full);
+  background: var(--hearth-danger);
+  box-shadow: 0 0 0 4px var(--hearth-danger-soft);
+}
+
+.dot[data-status='connecting'] {
+  background: var(--hearth-warning);
+  box-shadow: 0 0 0 4px var(--hearth-highlight-bg);
+  cursor: default;
+  animation: breathe 1.6s var(--hearth-ease) infinite;
+}
+
+@keyframes breathe {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :global(:root:not([data-reduced-motion='off'])) .dot {
+    animation: none;
+  }
+}
+
+:global(:root[data-reduced-motion='on']) .dot {
+  animation: none;
+}

@@ -664,3 +664,171 @@ ASCII (non-QWERTY layouts). Fuzzy matching is an O(q·c) DP. The plugin runtime
 reconciles only on enable-flag changes. `loadVersioned` backs up unusable data
 to `<key>.backup` before defaults take over.
 
+### P5 signal-cli
+
+**Modules** (`core/backend/signal-cli/`): `validate` (tiny decoder combinators;
+no dependency — we need *lenient* optional sub-objects: a bad `quote` is
+dropped with a debug note instead of failing the message), `wire` (decoders
+mirroring signal-cli's `Json*` records, types inferred from them), `rpc`
+(JSON-RPC client, typed `SignalCliError` kinds incl. `unregistered`,
+`untrusted-identity`, `rate-limited`, `send-failed` with per-recipient
+failures), `sse` (incremental WHATWG parser + `EventStream` over `fetch`:
+Last-Event-ID on first connect, equal-jitter exponential backoff, `retry:`,
+45 s idle watchdog vs. the daemon's 15 s keep-alives, fatal 4xx), `normalise/*`
+(pure envelope → events), `params` (send/quote/style/mention params, result
+mapping), `attachments`, `peers`, `SignalCliBackend`. Fixtures in
+`fixtures/envelopes.ts` are hand-written from the Java records; `testing.ts`
+is a fake daemon (RPC + controllable SSE).
+
+**Contract (backward-compatible).** New optional
+`ChatBackend.resolveAttachmentUrl?(conv, attachment)`: signal-cli only exposes
+attachment bytes via `getAttachment` (base64), so incoming attachments carry no
+`url`; the UI calls this when an attachment is rendered and gets a cached
+`blob:` URL (LRU of 200, revoked on disconnect; > 100 MB refused). Our own sent
+attachments keep a plain `data:` URL when ≤ 1.5 MB (persisted), since nothing
+echoes them back. The mock is unchanged (its attachments have URLs).
+
+**Identity.** Everyone is identified by ACI when known, else number. Every
+alias of our account (ACI, number) is mapped to one `selfId` (ACI) — sync
+transcripts, reaction targets and quotes addressed by number still resolve to
+us. Outgoing params pass ids through (signal-cli accepts ACIs everywhere).
+
+**Normalisation decisions.** Incoming → `status: 'read'`, sync transcripts →
+our own `'sent'` messages. Edits → `messageEdited` (`editedAt` = the edit's
+timestamp). Admin delete → `messageDeleted { authorId: target, deletedBy }`.
+Unsupported content (sticker, view-once, payment, shared contact, poll) becomes
+an italic note in the body; poll votes, calls and stories are ignored with a
+debug log. Disappearing timer: `expiresAt = receivedAt + timer` (Signal starts
+it on read, so we err on deleting early). Timer updates → system line +
+conversation patch. Group updates (`groupInfo.type = UPDATE`) → the backend
+re-lists the group, diffs (name, description, timer, joined/left, new
+admins) and emits `conversationUpdated` + one system line (same
+`(author, sentAt)` id as the update). Typing older than 15 s (by server
+timestamp) is dropped, because the daemon replays up to 1000 buffered events
+on reconnect. Adapter events are applied through one queue so a group refresh
+can't be overtaken by the next message.
+
+**Conversations.** Groups come from `listGroups` (members only). signal-cli has
+no DM list, so `DirectPeers` (localStorage, per account) remembers peers we've
+exchanged messages with; a new peer emits `conversationUpdated` before its
+first message. Contacts come from `listContacts { allRecipients: true }` so
+group members get names (nickname → contact name → profile name → number). DM
+disappearing timers come from the contact record; `updateConversation` uses
+`updateContact --expiration` for DMs and `updateGroup` for groups.
+
+**Connection.** `connect`: `/check` → `listAccounts` → preferred account
+(settings) or the first → directory → stream (`?account=`). No account ⇒
+`SignalCliError('no-account')` (onboarding shows the link flow).
+`link.start/finish` use `startLink`/`finishLink` without an account param
+(multi-account daemon). Status: stream open ⇒ online; first retry ⇒
+connecting; ≥ 3rd retry ⇒ offline; refused stream ⇒ error. The last event id
+is persisted per account so a page reload resumes the stream.
+
+**Settings v2.** `connection.account: string | null` (migration adds it).
+`connection.daemonUrl` is the *browser-side* base URL, default `/signal-cli`:
+the daemon sends no CORS headers and pins the Host header, so the browser goes
+through the Vite dev/preview proxy (`changeOrigin`, no timeouts; target
+`HEARTH_SIGNAL_CLI_URL`, default `http://127.0.0.1:8080`). The v1 default
+`http://127.0.0.1:8080` is migrated to `/signal-cli`; custom values are kept.
+
+**Composition root.** `createHearth` picks the backend from
+`settings.connection.backend` once per instance (switching = new instance).
+signal-cli uses IndexedDB (`hearth-signal-cli`) through `deferredRepository`
+(a proxy that awaits `IdbMessageRepository.open()`, keeping `createHearth`
+synchronous); falls back to memory without IndexedDB. `onAccountSelected`
+writes the account into settings. Demo seeding/liveliness only for the mock.
+
+**Known limits / not verified against a real daemon.** All tests use fixtures
+and a fake daemon. Unverified: exact `send`/`sendReaction` param coercion for
+arrays (`recipient`, `textStyle`, `mention`, `targetTimestamp`), `updateContact`
+result shape, mention placeholder handling in bodies from official clients,
+attachment ids for not-yet-downloaded files, behaviour of numberless accounts.
+Several accounts on one daemon share the `hearth-signal-cli` database. Avatars
+(`getAvatar`) are not fetched yet.
+
+
+### P2 Shell
+
+**Structure**
+- `ui/hooks` holds the React-side context: `AppServices` (the structural
+  subset of `Hearth` features need), `useHearth/useStores`, `ShellLayout`
+  (narrow/drawer/nav state), `useObservableList`, `useMediaQuery`,
+  `useRovingFocus`, `useKeybindLabel`, `useNow`. `app/HearthProvider` provides
+  both the full `Hearth` (for app/) and `AppServices` (for ui/), so features
+  never import the composition root.
+- Extra feature folders: `conversation` (avatar look, row/preview helpers,
+  shared conversation menu + actions), `shell` (layout, keyboard, commands,
+  modal host, toast bridge, interim settings/shortcuts dialogs).
+- Primitives added beyond §3: `Drawer` (left slide-over, swipe/Esc/scrim),
+  `HearthMark` (logo glyph, same drawing as `public/hearth.svg`),
+  `TypingDots`, `VisuallyHidden`. Menus take a declarative `MenuEntry[]`
+  (built lazily when opened) rendered by both `ContextMenu` and `DropdownMenu`;
+  `tidyMenu` drops stray separators. Wrappers pass extra trigger props through
+  so `Tooltip`/`ContextMenu`/`DropdownMenu`/`Popover` compose via `asChild`.
+- New deps: Radix tooltip/popover/context-menu/dropdown-menu/dialog/switch/slot,
+  lucide-react, sonner, @dnd-kit core/sortable/utilities/modifiers; dev:
+  @testing-library react/dom/user-event. `@floating-ui/react` and `cmdk` are
+  not needed yet (P3 composer autocomplete / P4 palette).
+
+**Core changes (minimal)**
+- `conversationsStore.lastMessage` + `noteLatest(message)` for sidebar
+  previews: newest by seq, or the same message (id or nonce) in a newer state.
+  Fed by `SyncService` (seed, incoming, edits/deletes via `updateMessage`) and
+  `SendService` (optimistic + reconcile). Known gap: discarding a failed send
+  leaves the preview on it until the next message.
+- `spacesStore.updateSpace({ emoji: '' })` clears the emoji.
+- Tokens `text-on-avatar` and `text-on-danger` (white in every theme).
+- Tooling bug fixed: `scripts/verify-boundaries.mjs` overwrote and then
+  deleted the real `ui/features/sidebar/index.ts` (a fixture path); it now
+  backs up and restores pre-existing files.
+
+**Behaviour decisions**
+- Onboarding: `settings.connection.backend === null` shows the welcome
+  screen. "Try the demo" sets `mock` and starts the running instance. The
+  signal-cli form saves `backend`/`daemonUrl` and, because `createHearth` picks
+  the transport once, `main.tsx` reloads into a fresh instance
+  (`App.onBackendChange`). Device linking (`no-account`) is still P4/P5.
+- Opening a conversation calls `HistoryService.open` and marks it read while
+  the window is focused (`useConversationLifecycle`); P3's list should narrow
+  this to "read when scrolled to the bottom". Window focus/visibility is
+  mirrored into `uiStore.windowFocused`.
+- Navigation commands (`core.prev/nextConversation`, `core.prev/nextUnread`)
+  are registered by the shell (`useCoreCommands`) because they need view
+  order. Alt+↑/↓ walks the *rendered* sidebar rows; Alt+Shift+↑/↓ walks Home
+  then every space in rail order (wrapping, switching space) and stops at
+  conversations that are unread and not muted (conversation or space), or that
+  mention you. One global keydown listener feeds `KeybindDispatcher`; it skips
+  events already `defaultPrevented` (Radix layers handle their own Escape) and
+  Escape while a modal is open.
+- Collapsed sections/categories still show the open conversation and unread
+  rows. Home lists archived conversations in a collapsible "Archived — N"
+  section (local state, collapsed by default). Row hover: × archives (Home),
+  cog opens the same menu as right-click (spaces).
+- Conversation menu: Mark as read, Mute ▸ (15m/1h/8h/24h/forever) or Unmute,
+  Pin/Unpin, Move to space ▸ (check = current space; Remove from space; New
+  space…), Copy ID, plugin items, Archive/Unarchive. *Disappearing messages ▸*
+  is not offered: the UI has no service call for `updateConversation` yet (P3/P4).
+- Space menu: Mark all as read, Mute space, Edit, Move up/down (keyboard
+  reordering, since dnd-kit is wired pointer-only so Enter/Space still
+  activate tiles and roving tabindex survives), plugin items, Delete (confirm
+  dialog; conversations return to Home, view falls back to Home).
+- Rail: tiles are tinted with their hue at 18% and fill fully on hover/select
+  (16px → 12px radius). Edge bar in accent: 8px unread → 20px hover → 40px
+  selected. Mention badge bottom-right. The add tile is a dashed outline.
+  Folders render collapsed as a 2×2 preview and expanded on a tinted segment;
+  creating folders by drag is P4.
+- Member list below 1100px is an overlay sheet with a scrim; crossing into the
+  narrow layout closes it and restores the wide preference on the way back.
+  Below 760px the rail + sidebar live in a `Drawer` that opens by default when
+  nothing is selected and closes on selection.
+- Header: title opens a details popover; topic click expands in place;
+  disappearing-timer chip; plugin `headerButtons` (each in a `PluginBoundary`);
+  member toggle (groups). Pinned/search/inbox buttons wait for P3 data.
+- Interim modals: a small fuzzy quick switcher (conversations only; P4 replaces
+  with cmdk), a Settings dialog with the theme picker and demo activity toggle
+  (P4 replaces with the full overlay), and a keyboard-shortcut sheet (Ctrl+/).
+- Create/Edit space covers name, icon (12 emoji or initials) and colour; the
+  group checklist with suggestions is P4.
+- The message area is a frame: `role="log"` region with the conversation's
+  opening block and a note; the composer is a disabled shell with a live typing
+  strip of reserved height. P3 mounts the list and editor inside these.

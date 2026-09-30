@@ -1,0 +1,163 @@
+.row {
+  position: relative;
+  margin: 0 var(--hearth-space-3);
+  padding: 1px 0;
+}
+
+/* Unread edge pill: the same language as the rail's unread bar. */
+.row[data-unread]:not([data-selected])::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: calc(var(--hearth-space-3) * -1);
+  width: 4px;
+  height: 8px;
+  border-radius: 0 var(--hearth-radius-xs) var(--hearth-radius-xs) 0;
+  background: var(--hearth-text-strong);
+  transform: translateY(-50%);
+}
+
+.main {
+  display: flex;
+  align-items: center;
+  gap: var(--hearth-space-4);
+  width: 100%;
+  height: 40px;
+  padding: 0 var(--hearth-space-3);
+  border-radius: var(--hearth-radius-sm);
+  color: var(--hearth-text-muted);
+  text-align: left;
+  transition:
+    background-color var(--hearth-duration-fast) var(--hearth-ease),
+    color var(--hearth-duration-fast) var(--hearth-ease);
+}
+
+.row[data-variant='channel'] .main {
+  gap: var(--hearth-space-3);
+  height: 32px;
+}
+
+.main:focus-visible {
+  outline-offset: -2px;
+}
+
+.row:hover .main,
+.main[data-state='open'] {
+  background: var(--hearth-bg-hover);
+  color: var(--hearth-text);
+}
+
+.row[data-selected] .main {
+  background: var(--hearth-bg-selected);
+  color: var(--hearth-text-strong);
+}
+
+.row[data-unread] .main {
+  color: var(--hearth-text-strong);
+}
+
+.row[data-muted]:not([data-selected]) .main {
+  opacity: 0.5;
+}
+
+.row[data-muted]:hover .main {
+  opacity: 0.8;
+}
+
+.glyph {
+  flex: none;
+  color: var(--hearth-text-faint);
+}
+
+.row[data-selected] .glyph,
+.row[data-unread] .glyph {
+  color: var(--hearth-text-muted);
+}
+
+.text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+}
+
+.title {
+  overflow: hidden;
+  font-size: var(--hearth-font-size-ui);
+  font-weight: var(--hearth-font-weight-medium);
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row[data-unread] .title {
+  font-weight: var(--hearth-font-weight-semibold);
+}
+
+.preview {
+  display: flex;
+  align-items: center;
+  gap: var(--hearth-space-3);
+  min-width: 0;
+  color: var(--hearth-text-faint);
+  font-size: var(--hearth-font-size-sm);
+  line-height: 16px;
+}
+
+.row[data-selected] .preview,
+.row:hover .preview {
+  color: var(--hearth-text-muted);
+}
+
+.preview[data-typing] {
+  color: var(--hearth-text-muted);
+}
+
+.previewText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mutedIcon {
+  flex: none;
+  color: var(--hearth-text-faint);
+}
+
+.badge {
+  margin-left: auto;
+}
+
+/* Hover affordance sits over the badge area; the badge steps aside while it shows. */
+.actions {
+  position: absolute;
+  top: 50%;
+  right: var(--hearth-space-3);
+  display: flex;
+  opacity: 0;
+  transform: translateY(-50%);
+  transition: opacity var(--hearth-duration-fast) var(--hearth-ease);
+  pointer-events: none;
+}
+
+.row:hover .actions,
+.row:focus-within .actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.row:hover .badge,
+.row:focus-within .badge {
+  visibility: hidden;
+}
+
+.row:hover .mutedIcon,
+.row:focus-within .mutedIcon {
+  visibility: hidden;
+}
+
+.row:hover .text,
+.row:focus-within .text {
+  padding-right: var(--hearth-space-6);
+}

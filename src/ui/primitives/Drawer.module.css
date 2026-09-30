@@ -1,0 +1,58 @@
+.overlay {
+  position: fixed;
+  z-index: 30;
+  inset: 0;
+  background: var(--hearth-bg-overlay);
+  animation: fade var(--hearth-duration-slow) var(--hearth-ease);
+}
+
+.content {
+  position: fixed;
+  z-index: 31;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  max-width: calc(100vw - 48px);
+  box-shadow: var(--hearth-shadow-modal);
+  animation: slide var(--hearth-duration-slow) var(--hearth-ease);
+  touch-action: pan-y;
+}
+
+.content:focus {
+  outline: none;
+}
+
+.content[data-state='closed'] {
+  animation: slide-out var(--hearth-duration-base) var(--hearth-ease) forwards;
+}
+
+.overlay[data-state='closed'] {
+  animation: fade var(--hearth-duration-base) var(--hearth-ease) reverse forwards;
+}
+
+.title {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes slide {
+  from {
+    transform: translateX(-100%);
+  }
+}
+
+@keyframes slide-out {
+  to {
+    transform: translateX(-100%);
+  }
+}

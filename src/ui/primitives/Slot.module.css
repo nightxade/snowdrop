@@ -1,0 +1,17 @@
+.slot {
+  display: contents;
+}
+
+.failed {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hearth-space-2);
+  height: 20px;
+  padding: 0 var(--hearth-space-3);
+  border-radius: var(--hearth-radius-full);
+  background: var(--hearth-danger-soft);
+  color: var(--hearth-danger);
+  font-size: var(--hearth-font-size-xs);
+  font-weight: var(--hearth-font-weight-semibold);
+  white-space: nowrap;
+}

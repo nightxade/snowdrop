@@ -1,0 +1,129 @@
+.card {
+  position: relative;
+  width: 320px;
+  max-width: 100%;
+  overflow: hidden;
+  border-radius: var(--hearth-radius-md);
+}
+
+.banner {
+  height: 72px;
+  background:
+    linear-gradient(
+      160deg,
+      transparent 40%,
+      color-mix(in oklab, var(--banner) 60%, var(--hearth-bg-floating)) 100%
+    ),
+    var(--banner);
+}
+
+.avatar {
+  position: absolute;
+  top: 28px;
+  left: var(--hearth-space-5);
+  display: flex;
+  border-radius: var(--hearth-radius-full);
+  box-shadow: 0 0 0 6px var(--hearth-bg-floating);
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hearth-space-5);
+  padding: 44px var(--hearth-space-5) var(--hearth-space-5);
+}
+
+.name {
+  color: var(--hearth-text-strong);
+  font-size: var(--hearth-font-size-title);
+  font-weight: var(--hearth-font-weight-bold);
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.profileName {
+  color: var(--hearth-text-muted);
+  font-size: var(--hearth-font-size-ui);
+}
+
+.about {
+  padding: var(--hearth-space-4);
+  border-radius: var(--hearth-radius-sm);
+  background: var(--hearth-bg-hover);
+  color: var(--hearth-text);
+  font-size: var(--hearth-font-size-ui);
+  line-height: 1.45;
+}
+
+.facts {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--hearth-space-4);
+  font-size: var(--hearth-font-size-sm);
+}
+
+.facts dt {
+  color: var(--hearth-text-muted);
+}
+
+.facts dd {
+  margin: 0;
+  color: var(--hearth-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hearth-space-3);
+}
+
+.note {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hearth-space-2);
+}
+
+.noteLabel {
+  color: var(--hearth-text-muted);
+  font-size: var(--hearth-font-size-sm);
+  font-weight: var(--hearth-font-weight-semibold);
+  letter-spacing: var(--hearth-tracking-label);
+  text-transform: uppercase;
+}
+
+.noteHint {
+  color: var(--hearth-text-faint);
+  font-weight: var(--hearth-font-weight-regular);
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.noteInput {
+  width: 100%;
+  min-height: 40px;
+  padding: var(--hearth-space-3);
+  border: 1px solid transparent;
+  border-radius: var(--hearth-radius-xs);
+  background: transparent;
+  color: var(--hearth-text);
+  font-size: var(--hearth-font-size-sm);
+  line-height: 1.4;
+  resize: vertical;
+  transition:
+    background-color var(--hearth-duration-fast) var(--hearth-ease),
+    border-color var(--hearth-duration-fast) var(--hearth-ease);
+}
+
+.noteInput:hover {
+  background: var(--hearth-bg-hover);
+}
+
+.noteInput:focus {
+  border-color: var(--hearth-accent);
+  background: var(--hearth-bg-input);
+}
+
+.noteInput::placeholder {
+  color: var(--hearth-text-faint);
+}

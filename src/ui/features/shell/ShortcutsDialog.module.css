@@ -1,0 +1,28 @@
+.groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hearth-space-6);
+}
+
+.heading {
+  margin-bottom: var(--hearth-space-3);
+  color: var(--hearth-text-faint);
+  font-size: var(--hearth-font-size-sm);
+  font-weight: var(--hearth-font-weight-semibold);
+  letter-spacing: var(--hearth-tracking-label);
+  text-transform: uppercase;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--hearth-space-5);
+  min-height: 36px;
+  border-bottom: 1px solid var(--hearth-border);
+  color: var(--hearth-text);
+}
+
+.row dd {
+  margin: 0;
+}

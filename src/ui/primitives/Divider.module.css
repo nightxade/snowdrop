@@ -1,0 +1,15 @@
+.divider {
+  display: block;
+  flex: none;
+  background: var(--hearth-border-strong);
+}
+
+.divider[data-orientation='horizontal'] {
+  width: 100%;
+  height: 1px;
+}
+
+.divider[data-orientation='vertical'] {
+  width: 1px;
+  height: 24px;
+}

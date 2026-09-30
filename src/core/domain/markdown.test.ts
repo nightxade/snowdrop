@@ -64,11 +64,12 @@ describe('parseMarkdownToRanges', () => {
   });
 
   it('follows CommonMark for mixed runs', () => {
-    // CommonMark: `**a *b**` → `*<em>a <em>b</em></em>`.
-    expect(p('**a *b**')).toEqual({
-      body: '*a b',
-      ranges: [r(1, 3, 'italic'), r(3, 1, 'italic')],
-    });
+    // CommonMark: `**a *b**` → `*<em>a <em>b</em></em>`; the nested same-style
+    // range is folded into its parent so no two italic ranges overlap.
+    expect(p('**a *b**')).toEqual({ body: '*a b', ranges: [r(1, 3, 'italic')] });
+    expect(p('*a *b* c*')).toEqual({ body: 'a b c', ranges: [r(0, 5, 'italic')] });
+    // Distinct styles on the same span are kept.
+    expect(p('***x***').ranges).toHaveLength(2);
   });
 
   it('nests emphasis of different lengths correctly', () => {
@@ -187,6 +188,28 @@ describe('parseMarkdownToRanges', () => {
     expect(p('**line one\nline two**').ranges).toEqual([r(0, 17, 'bold')]);
   });
 
+  it('never emits overlapping ranges of the same style', () => {
+    const samples = [
+      '**a *b**',
+      '*a **b** c*',
+      '~~a ~~b~~ c~~',
+      '||a||b||',
+      '***a** b*',
+      '*a **b***',
+      '_a _b_ c_',
+    ];
+    for (const sample of samples) {
+      const { ranges } = p(sample);
+      for (const x of ranges) {
+        for (const y of ranges) {
+          if (x === y || x.style !== y.style) continue;
+          const overlap = x.start < y.start + y.length && y.start < x.start + x.length;
+          expect(overlap, `${sample}: ${JSON.stringify(ranges)}`).toBe(false);
+        }
+      }
+    }
+  });
+
   it('is linear on pathological input', () => {
     const inputs = [
       '**a *b _c ~~d '.repeat(400), // ~5.6 KB of unclosed openers (was 5.9 s)
@@ -194,6 +217,10 @@ describe('parseMarkdownToRanges', () => {
       '*a'.repeat(3000),
       '*_'.repeat(2000) + '~~||'.repeat(1000),
       '`` ` '.repeat(1000),
+      '*'.repeat(20000),
+      '_ '.repeat(10000),
+      '``a `b '.repeat(3000),
+      Array.from({ length: 3000 }, (_, i) => '`'.repeat((i % 50) + 1) + 'x').join(''),
       'int main(int argc, char **argv) { char *p = *argv; if (a || b) x_y = *p; }\n'.repeat(60),
     ];
     for (const input of inputs) {

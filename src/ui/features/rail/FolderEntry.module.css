@@ -1,0 +1,40 @@
+.collapsed {
+  padding: 7px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px;
+  width: 100%;
+  height: 100%;
+}
+
+.mini {
+  display: grid;
+  place-items: center;
+  border-radius: 5px;
+  background: var(--tile-hue);
+  color: var(--hearth-text-on-avatar);
+  font-size: 9px;
+  font-weight: var(--hearth-font-weight-bold);
+  line-height: 1;
+}
+
+.open {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: var(--hearth-space-2);
+}
+
+/* Tinted segment behind the folder's tiles. */
+.open::before {
+  content: '';
+  position: absolute;
+  inset: var(--hearth-space-2) calc((var(--hearth-rail-width) - var(--hearth-tile-size)) / 2 - 4px)
+    0;
+  border-radius: calc(var(--hearth-radius-lg) + 4px);
+  background: var(--hearth-bg-active);
+  pointer-events: none;
+}

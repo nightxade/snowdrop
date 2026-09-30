@@ -103,6 +103,16 @@ export interface Quote {
   text: string;
   /** Styles and mentions of the quoted text (UTF-16 offsets into `text`). */
   ranges?: BodyRange[];
+  /**
+   * Attachments of the quoted message (type + name only). Lets a reply to an
+   * attachment-only message say what it quotes, natively on every client.
+   */
+  attachments?: QuotedAttachment[];
+}
+
+export interface QuotedAttachment {
+  contentType: string;
+  fileName?: string;
 }
 
 /**

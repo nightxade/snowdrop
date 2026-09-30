@@ -1,0 +1,41 @@
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hearth-space-6);
+  width: 100%;
+  padding: var(--hearth-space-7);
+  border-radius: var(--hearth-radius-lg);
+  background: var(--hearth-bg-elevated);
+  box-shadow: var(--hearth-shadow-popout);
+}
+
+.title {
+  color: var(--hearth-text-strong);
+  font-size: var(--hearth-font-size-title);
+  font-weight: var(--hearth-font-weight-bold);
+}
+
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hearth-space-4);
+  padding-left: var(--hearth-space-6);
+  color: var(--hearth-text-muted);
+  font-size: var(--hearth-font-size-ui);
+  line-height: 1.5;
+  list-style: decimal;
+}
+
+.steps li::marker {
+  color: var(--hearth-text-faint);
+  font-weight: var(--hearth-font-weight-semibold);
+}
+
+.code {
+  padding: 1px 6px;
+  border-radius: var(--hearth-radius-xs);
+  background: var(--hearth-code-bg);
+  color: var(--hearth-text);
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+}

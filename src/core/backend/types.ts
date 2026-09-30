@@ -44,6 +44,13 @@ export interface EditInput {
   targetSentAt: number;
   body: string;
   ranges: BodyRange[];
+  /**
+   * The original message's quote. signal-cli builds the edit's whole data
+   * message from the call's params, so without it the edit would drop the
+   * reply context on recipients' devices. (Attachments can't be re-sent with
+   * an edit; Signal clients keep the original's attachments.)
+   */
+  quote?: Quote;
 }
 
 export interface ReactInput {
@@ -154,6 +161,13 @@ export interface BackendEvents {
   readSync: { messages: MessageRef[] };
   conversationUpdated: Conversation;
   contactUpdated: Contact;
+  /**
+   * Every event emitted before this one is complete for transport position
+   * `cursor`. The sync engine processes it in queue order — i.e. after the
+   * preceding events are persisted — and then calls `backend.acknowledge`.
+   * Only transports that can resume (signal-cli's SSE ids) emit it.
+   */
+  checkpoint: { cursor: string };
 }
 
 export interface LinkFlow {
@@ -192,6 +206,28 @@ export interface ChatBackend {
    * to provide a rich seeded world. Callers must treat it as optional.
    */
   fetchHistory?(conversationId: ConversationId, query: HistoryQuery): Promise<HistoryPage>;
+
+  /**
+   * Turns an attachment that arrived without a `url` into a renderable one.
+   * signal-cli only hands out attachment bytes on request, so its adapter
+   * leaves `url` unset and downloads lazily (cached `blob:` URL) when the UI
+   * shows the attachment. Adapters whose attachments always carry a `url`
+   * (the mock) omit this. The returned URL may be revoked after disconnect.
+   *
+   * Security: the content type is sender-controlled. Adapters only label the
+   * bytes with it when it is an allow-listed raster image / audio / video
+   * type (never SVG or HTML); anything else is `application/octet-stream`.
+   * The UI must use these URLs only as `<img>/<video>/<audio>` sources or
+   * `<a download>` targets — never navigate to them or open them in a frame.
+   */
+  resolveAttachmentUrl?(conversationId: ConversationId, attachment: Attachment): Promise<string>;
+
+  /**
+   * Marks transport position `cursor` (from a `checkpoint` event) as durably
+   * processed, so a restart resumes after it. Losing an acknowledgement only
+   * causes re-delivery, which the sync engine deduplicates.
+   */
+  acknowledge?(cursor: string): void;
 
   link?: LinkFlow;
 

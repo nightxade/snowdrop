@@ -1,0 +1,25 @@
+.scroller {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  transition: scrollbar-color var(--hearth-duration-base) var(--hearth-ease);
+}
+
+/* Bars appear while the pointer is over the list, like a desktop app. */
+.scroller:hover,
+.scroller:focus-within {
+  scrollbar-color: var(--hearth-scrollbar-thumb) transparent;
+}
+
+.scroller[data-scrollbar='none'] {
+  scrollbar-gutter: auto;
+  scrollbar-width: none;
+}
+
+.scroller[data-scrollbar='none']::-webkit-scrollbar {
+  display: none;
+}

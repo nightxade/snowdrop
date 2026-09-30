@@ -50,7 +50,15 @@ export interface BehaviourSettings {
 export interface ConnectionSettings {
   /** Chosen on the welcome screen; null until the user picks. */
   backend: BackendChoice | null;
+  /**
+   * Base URL the *browser* uses to reach signal-cli. The default is the
+   * same-origin Vite proxy path (`/signal-cli` → HEARTH_SIGNAL_CLI_URL,
+   * default http://127.0.0.1:8080), because the daemon sends no CORS headers
+   * and pins the Host header. An absolute URL only works same-origin.
+   */
   daemonUrl: string;
+  /** signal-cli account (ACI or number) in multi-account mode; null = the only/first one. */
+  account: string | null;
   /** Mock only: simulated activity. */
   mockLiveliness: boolean;
 }
@@ -71,6 +79,11 @@ export interface Settings {
   plugins: Record<string, PluginEntry>;
   quickCss: string;
 }
+
+/** Same-origin dev/preview proxy path to the daemon (see vite.config.ts). */
+export const DEFAULT_DAEMON_URL = '/signal-cli';
+/** v1's default, which a browser can't use directly (no CORS on the daemon). */
+const LEGACY_DAEMON_URL = 'http://127.0.0.1:8080';
 
 export function defaultSettings(): Settings {
   return {
@@ -93,7 +106,12 @@ export function defaultSettings(): Settings {
       markdown: true,
       linkPreviews: false,
     },
-    connection: { backend: null, daemonUrl: 'http://127.0.0.1:8080', mockLiveliness: true },
+    connection: {
+      backend: null,
+      daemonUrl: DEFAULT_DAEMON_URL,
+      account: null,
+      mockLiveliness: true,
+    },
     keybinds: {},
     plugins: {},
     quickCss: '',
@@ -232,7 +250,11 @@ export function parseSettings(data: unknown): Settings {
     },
     connection: {
       backend: c.backend === 'mock' || c.backend === 'signal-cli' ? c.backend : null,
-      daemonUrl: str(c.daemonUrl, d.connection.daemonUrl),
+      daemonUrl:
+        typeof c.daemonUrl === 'string' && c.daemonUrl.trim()
+          ? c.daemonUrl.trim()
+          : d.connection.daemonUrl,
+      account: typeof c.account === 'string' && c.account ? c.account : null,
       mockLiveliness: bool(c.mockLiveliness, d.connection.mockLiveliness),
     },
     keybinds,
@@ -243,7 +265,17 @@ export function parseSettings(data: unknown): Settings {
 
 export const settingsSchema: VersionedSchema<Settings> = {
   key: 'hearth.settings',
-  version: 1,
+  version: 2,
+  migrations: {
+    // v2 (P5): `connection.account`; the untouched v1 default daemon URL moves
+    // to the same-origin proxy path (a custom URL is kept as the user set it).
+    2: (data) => {
+      if (!isRecord(data) || !isRecord(data.connection)) return data;
+      const connection: Record<string, unknown> = { ...data.connection, account: null };
+      if (connection.daemonUrl === LEGACY_DAEMON_URL) connection.daemonUrl = DEFAULT_DAEMON_URL;
+      return { ...data, connection };
+    },
+  },
   defaults: defaultSettings,
   parse: parseSettings,
 };

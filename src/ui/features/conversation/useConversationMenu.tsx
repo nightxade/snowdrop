@@ -1,0 +1,169 @@
+import { BellOff, Bell, Check, Copy, Archive, ArchiveRestore, Pin, PinOff } from 'lucide-react';
+import { useCallback } from 'react';
+import { isMuted } from '@/core/stores';
+import type { ConversationId } from '@/core/domain';
+import { spacesSelectors } from '@/core/stores';
+import { useHearth } from '@/ui/hooks';
+import type { MenuEntry } from '@/ui/primitives';
+import { archive, copyText, markRead, MUTE_OPTIONS, muteState } from './actions';
+
+const ICON = 16;
+
+/**
+ * Builds the conversation context menu on demand (PLAN §4.3). Reads state at
+ * open time rather than subscribing, so a list of rows doesn't re-render for
+ * menus nobody opened.
+ */
+export function useConversationMenu(id: ConversationId): () => MenuEntry[] {
+  const app = useHearth();
+  return useCallback(() => {
+    const { stores, registries } = app;
+    const conversation = stores.conversations.getState().byId[id];
+    if (!conversation) return [];
+    const local = stores.local.getState().conversations[id] ?? {
+      pinned: false,
+      muted: false,
+      archived: false,
+    };
+    const unread = stores.conversations.getState().unread[id];
+    const now = Date.now();
+    const muted = isMuted(local.muted, now);
+    const spaces = stores.spaces.getState();
+    const currentSpace = spacesSelectors.spaceOf(id)(spaces);
+    const orderedSpaces = spacesSelectors.orderedIds(spaces).flatMap((sid) => {
+      const space = spaces.spaces[sid];
+      return space ? [space] : [];
+    });
+
+    const plugin = registries.menus.conversation
+      .list()
+      .filter((item) => {
+        try {
+          return item.visible?.(conversation) ?? true;
+        } catch {
+          return false;
+        }
+      })
+      .map((item): MenuEntry => ({
+        kind: 'item',
+        id: `plugin:${item.owner}:${item.id}`,
+        label: item.label,
+        ...(item.danger ? { danger: true } : {}),
+        onSelect: () => {
+          try {
+            item.onSelect(conversation);
+          } catch (error) {
+            console.error(`[hearth] plugin "${item.owner}" menu item failed`, error);
+          }
+        },
+      }));
+
+    return [
+      {
+        kind: 'item',
+        id: 'read',
+        label: 'Mark as read',
+        disabled: !unread || unread.count === 0,
+        icon: <Check size={ICON} />,
+        onSelect: () => {
+          markRead(app, id);
+        },
+      },
+      { kind: 'separator', id: 's1' },
+      muted
+        ? {
+            kind: 'item',
+            id: 'unmute',
+            label: 'Unmute',
+            icon: <Bell size={ICON} />,
+            onSelect: () => {
+              stores.local.getState().setMuted(id, false);
+            },
+          }
+        : {
+            kind: 'submenu',
+            id: 'mute',
+            label: 'Mute',
+            icon: <BellOff size={ICON} />,
+            items: MUTE_OPTIONS.map((option): MenuEntry => ({
+              kind: 'item',
+              id: `mute-${option.id}`,
+              label: option.label,
+              onSelect: () => {
+                stores.local.getState().setMuted(id, muteState(option.ms, Date.now()));
+              },
+            })),
+          },
+      {
+        kind: 'item',
+        id: 'pin',
+        label: local.pinned ? 'Unpin' : 'Pin to top',
+        icon: local.pinned ? <PinOff size={ICON} /> : <Pin size={ICON} />,
+        onSelect: () => {
+          stores.local.getState().setPinned(id, !local.pinned);
+        },
+      },
+      {
+        kind: 'submenu',
+        id: 'move',
+        label: 'Move to space',
+        items: [
+          ...orderedSpaces.map((space): MenuEntry => ({
+            kind: 'check',
+            id: `space-${space.id}`,
+            label: `${space.emoji ? `${space.emoji}  ` : ''}${space.name}`,
+            checked: space.id === currentSpace,
+            onSelect: () => {
+              if (space.id === currentSpace) spaces.unassign(id);
+              else spaces.assign(id, space.id);
+            },
+          })),
+          ...(orderedSpaces.length > 0 ? [{ kind: 'separator', id: 'move-sep' } as const] : []),
+          ...(currentSpace
+            ? [
+                {
+                  kind: 'item',
+                  id: 'unassign',
+                  label: 'Remove from space',
+                  onSelect: () => {
+                    spaces.unassign(id);
+                  },
+                } as const,
+              ]
+            : []),
+          {
+            kind: 'item',
+            id: 'new-space',
+            label: 'New space…',
+            onSelect: () => {
+              stores.ui
+                .getState()
+                .openModal({ type: 'createSpace', props: { conversationIds: [id] } });
+            },
+          },
+        ],
+      },
+      { kind: 'separator', id: 's2' },
+      {
+        kind: 'item',
+        id: 'copy-id',
+        label: 'Copy ID',
+        icon: <Copy size={ICON} />,
+        onSelect: () => {
+          void copyText(app, id, 'conversation ID');
+        },
+      },
+      ...(plugin.length > 0 ? [{ kind: 'separator', id: 's-plugins' } as const, ...plugin] : []),
+      { kind: 'separator', id: 's3' },
+      {
+        kind: 'item',
+        id: 'archive',
+        label: local.archived ? 'Unarchive' : 'Archive',
+        icon: local.archived ? <ArchiveRestore size={ICON} /> : <Archive size={ICON} />,
+        onSelect: () => {
+          archive(app, id, !local.archived);
+        },
+      },
+    ];
+  }, [app, id]);
+}

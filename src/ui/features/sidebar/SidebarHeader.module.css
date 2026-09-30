@@ -1,0 +1,81 @@
+.header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  height: var(--hearth-header-height);
+  padding: 0 var(--hearth-space-3);
+  border-bottom: 1px solid var(--hearth-border);
+}
+
+.find {
+  display: flex;
+  align-items: center;
+  gap: var(--hearth-space-3);
+  width: 100%;
+  height: 30px;
+  padding: 0 var(--hearth-space-3);
+  border-radius: var(--hearth-radius-sm);
+  background: var(--hearth-bg-rail);
+  color: var(--hearth-text-faint);
+  font-size: var(--hearth-font-size-sm);
+  text-align: left;
+  transition: color var(--hearth-duration-fast) var(--hearth-ease);
+}
+
+.find:hover {
+  color: var(--hearth-text-muted);
+}
+
+.findIcon {
+  flex: none;
+}
+
+.findText {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spaceButton {
+  display: flex;
+  align-items: center;
+  gap: var(--hearth-space-3);
+  width: 100%;
+  height: 36px;
+  padding: 0 var(--hearth-space-3);
+  border-radius: var(--hearth-radius-sm);
+  color: var(--hearth-text-strong);
+  font-size: var(--hearth-font-size-header);
+  font-weight: var(--hearth-font-weight-semibold);
+  text-align: left;
+  transition: background-color var(--hearth-duration-fast) var(--hearth-ease);
+}
+
+.spaceButton:hover,
+.spaceButton[data-state='open'] {
+  background: var(--hearth-bg-hover);
+}
+
+.spaceEmoji {
+  font-size: 16px;
+}
+
+.spaceName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chevron {
+  flex: none;
+  color: var(--hearth-text-muted);
+  transition: transform var(--hearth-duration-base) var(--hearth-ease);
+}
+
+.spaceButton[data-state='open'] .chevron {
+  transform: rotate(180deg);
+}

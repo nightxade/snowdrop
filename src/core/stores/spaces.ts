@@ -184,6 +184,8 @@ export function createSpacesStore(
           const next = { ...space, ...patch };
           if (patch.name !== undefined) next.name = patch.name.trim() || space.name;
           if (patch.hue !== undefined) next.hue = clampHue(patch.hue);
+          // An empty emoji clears it (the tile falls back to initials).
+          if (patch.emoji === '') delete next.emoji;
           return next;
         });
       },

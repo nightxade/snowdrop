@@ -1,0 +1,13 @@
+.list {
+  flex: 1;
+  padding: var(--hearth-space-2) var(--hearth-space-3) var(--hearth-space-5);
+}
+
+.heading {
+  margin: var(--hearth-space-6) var(--hearth-space-3) var(--hearth-space-2);
+  color: var(--hearth-text-faint);
+  font-size: var(--hearth-font-size-sm);
+  font-weight: var(--hearth-font-weight-semibold);
+  letter-spacing: var(--hearth-tracking-label);
+  text-transform: uppercase;
+}

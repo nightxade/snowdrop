@@ -1,0 +1,31 @@
+.content {
+  z-index: 60;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hearth-space-3);
+  max-width: 280px;
+  padding: 6px 10px;
+  border-radius: var(--hearth-radius-sm);
+  background: var(--hearth-bg-floating);
+  box-shadow: var(--hearth-shadow-menu);
+  color: var(--hearth-text-strong);
+  font-size: var(--hearth-font-size-ui);
+  font-weight: var(--hearth-font-weight-semibold);
+  line-height: var(--hearth-line-height-ui);
+  transform-origin: var(--radix-tooltip-content-transform-origin);
+  animation: pop var(--hearth-duration-fast) var(--hearth-ease);
+  user-select: none;
+}
+
+.shortcut {
+  color: var(--hearth-text-muted);
+  font-size: var(--hearth-font-size-sm);
+  font-weight: var(--hearth-font-weight-medium);
+}
+
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}

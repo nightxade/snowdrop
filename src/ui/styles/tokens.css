@@ -28,6 +28,8 @@
   --hearth-text-muted: #a4a1a0;
   --hearth-text-faint: #6f6c6b;
   --hearth-text-on-accent: #1a0f0b;
+  --hearth-text-on-avatar: #ffffff;
+  --hearth-text-on-danger: #ffffff;
   --hearth-text-link: #ffa184;
 
   /* Accent (overridable via Appearance → accent colour) */

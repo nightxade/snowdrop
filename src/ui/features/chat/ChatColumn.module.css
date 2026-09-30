@@ -1,0 +1,108 @@
+.column {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  height: 100%;
+  background: var(--hearth-bg-chat);
+}
+
+.body {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.conversation {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.members {
+  display: flex;
+  flex: none;
+}
+
+/* < 1100px: the member list floats over the conversation as a sheet. */
+.members[data-sheet] {
+  position: absolute;
+  z-index: 5;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  max-width: calc(100% - 48px);
+  animation: sheet-in var(--hearth-duration-slow) var(--hearth-ease);
+}
+
+.scrim {
+  position: absolute;
+  z-index: 4;
+  inset: 0;
+  background: var(--hearth-bg-overlay);
+  cursor: default;
+  animation: fade var(--hearth-duration-slow) var(--hearth-ease);
+}
+
+@keyframes sheet-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+
+.empty {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--hearth-space-3);
+  padding: var(--hearth-space-8) var(--hearth-space-5);
+  text-align: center;
+}
+
+.mark {
+  margin-bottom: var(--hearth-space-4);
+  color: var(--hearth-accent);
+  opacity: 0.9;
+}
+
+.emptyTitle {
+  color: var(--hearth-text-strong);
+  font-size: var(--hearth-font-size-title);
+  font-weight: var(--hearth-font-weight-semibold);
+}
+
+.emptyBody {
+  color: var(--hearth-text-muted);
+}
+
+.shortcuts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hearth-space-3);
+  min-width: 240px;
+  margin-top: var(--hearth-space-6);
+}
+
+.shortcuts > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--hearth-space-6);
+  color: var(--hearth-text-muted);
+  font-size: var(--hearth-font-size-sm);
+}
+
+.shortcuts dd {
+  margin: 0;
+}

@@ -1,0 +1,114 @@
+.header {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--hearth-space-3);
+  min-height: var(--hearth-header-height);
+  padding: var(--hearth-space-2) var(--hearth-space-3) var(--hearth-space-2) var(--hearth-space-4);
+  border-bottom: 1px solid var(--hearth-border);
+  background: var(--hearth-bg-chat);
+}
+
+.header[data-expanded] {
+  align-items: flex-start;
+  padding-top: var(--hearth-space-3);
+  padding-bottom: var(--hearth-space-3);
+}
+
+.title {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--hearth-space-3);
+  max-width: 45%;
+  height: 32px;
+  padding: 0 var(--hearth-space-3) 0 var(--hearth-space-2);
+  border-radius: var(--hearth-radius-sm);
+  transition: background-color var(--hearth-duration-fast) var(--hearth-ease);
+}
+
+.title:hover,
+.title[data-state='open'] {
+  background: var(--hearth-bg-hover);
+}
+
+.glyph {
+  flex: none;
+  color: var(--hearth-text-faint);
+}
+
+.titleText {
+  overflow: hidden;
+  color: var(--hearth-text-strong);
+  font-size: var(--hearth-font-size-header);
+  font-weight: var(--hearth-font-weight-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.divider {
+  margin: 0 var(--hearth-space-2);
+}
+
+.header[data-expanded] .divider {
+  margin-top: 4px;
+}
+
+.topic {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--hearth-text-muted);
+  font-size: var(--hearth-font-size-ui);
+  line-height: 20px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topic:hover {
+  color: var(--hearth-text);
+}
+
+.topic[aria-expanded='true'] {
+  padding-top: 6px;
+  white-space: normal;
+}
+
+.actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--hearth-space-2);
+  margin-left: auto;
+}
+
+.timer {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hearth-space-2);
+  height: 24px;
+  margin-right: var(--hearth-space-2);
+  padding: 0 var(--hearth-space-3);
+  border-radius: var(--hearth-radius-full);
+  background: var(--hearth-bg-active);
+  color: var(--hearth-text-muted);
+  font-size: var(--hearth-font-size-sm);
+  font-weight: var(--hearth-font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 759.98px) {
+  .title {
+    max-width: none;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .divider,
+  .topic {
+    display: none;
+  }
+}

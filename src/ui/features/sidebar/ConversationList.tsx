@@ -1,0 +1,123 @@
+import { Inbox } from 'lucide-react';
+import { useId, useState } from 'react';
+import { useStore } from 'zustand';
+import { HOME, sessionSelectors, type HomeSection } from '@/core/stores';
+import { useRovingFocus, useStores } from '@/ui/hooks';
+import { EmptyState, Scroller, Skeleton } from '@/ui/primitives';
+import { ConversationRow } from './ConversationRow';
+import { visibleIds } from './model';
+import { SectionHeader } from './SectionHeader';
+import { useSidebarModel } from './useSidebarModel';
+import styles from './ConversationList.module.css';
+
+export function ConversationList() {
+  const stores = useStores();
+  const ready = useStore(stores.session, sessionSelectors.ready);
+  const unread = useStore(stores.conversations, (s) => s.unread);
+  const { space, sections, archived, selected } = useSidebarModel();
+  const onKeyDown = useRovingFocus('vertical');
+  const [showArchived, setShowArchived] = useState(false);
+  const baseId = useId();
+
+  if (!ready) return <ListSkeleton />;
+
+  const variant = space === HOME ? 'home' : 'channel';
+  const rows = sections.map((section) => ({
+    section,
+    ids: visibleIds(section, selected, unread),
+  }));
+  // Exactly one row is reachable by Tab: the open conversation, else the first row.
+  const allIds = rows.flatMap((r) => r.ids);
+  const tabStop = selected && allIds.includes(selected) ? selected : allIds[0];
+
+  const toggle = (sectionId: string) => {
+    if (space === HOME) stores.spaces.getState().toggleHomeSection(sectionId as HomeSection);
+    else stores.spaces.getState().toggleCategory(space, sectionId);
+  };
+
+  const isEmpty = sections.every((s) => s.ids.length === 0) && archived.length === 0;
+
+  return (
+    <Scroller className={styles.scroller} data-hearth="conversation-list">
+      <nav
+        aria-label={space === HOME ? 'Home conversations' : 'Space conversations'}
+        onKeyDown={onKeyDown}
+      >
+        {isEmpty && (
+          <EmptyState size="sm" icon={<Inbox />} title="Nothing here yet">
+            {space === HOME
+              ? 'Conversations appear here as soon as someone messages you.'
+              : 'Move a group here with right-click → Move to space.'}
+          </EmptyState>
+        )}
+        {rows.map(({ section, ids }) => {
+          const listId = `${baseId}-${section.id}`;
+          return (
+            <section key={section.id} className={styles.section} aria-label={section.title}>
+              <SectionHeader
+                title={section.title}
+                collapsed={section.collapsed}
+                controls={listId}
+                onToggle={() => {
+                  toggle(section.id);
+                }}
+              />
+              <ul id={listId} className={styles.list}>
+                {ids.map((id) => (
+                  <ConversationRow
+                    key={id}
+                    id={id}
+                    variant={variant}
+                    selected={id === selected}
+                    tabStop={id === tabStop}
+                  />
+                ))}
+              </ul>
+            </section>
+          );
+        })}
+        {archived.length > 0 && (
+          <section className={styles.section} aria-label="Archived">
+            <SectionHeader
+              title={`Archived — ${archived.length}`}
+              collapsed={!showArchived}
+              controls={`${baseId}-archived`}
+              onToggle={() => {
+                setShowArchived((v) => !v);
+              }}
+            />
+            <ul id={`${baseId}-archived`} className={styles.list}>
+              {showArchived &&
+                archived.map((id) => (
+                  <ConversationRow
+                    key={id}
+                    id={id}
+                    variant="home"
+                    selected={id === selected}
+                    tabStop={false}
+                  />
+                ))}
+            </ul>
+          </section>
+        )}
+      </nav>
+    </Scroller>
+  );
+}
+
+function ListSkeleton() {
+  return (
+    <div className={styles.skeleton} aria-busy="true" aria-label="Loading conversations">
+      <Skeleton width={96} height={10} />
+      {[0.72, 0.55, 0.8, 0.62, 0.48, 0.7, 0.58].map((w, i) => (
+        <div key={i} className={styles.skeletonRow}>
+          <Skeleton width={32} height={32} radius="full" />
+          <div className={styles.skeletonText}>
+            <Skeleton width={`${w * 100}%`} height={10} />
+            <Skeleton width={`${w * 70}%`} height={8} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}

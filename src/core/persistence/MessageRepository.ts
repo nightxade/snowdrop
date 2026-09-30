@@ -89,6 +89,19 @@ export interface MessageRepository {
   getReadCursors(): Promise<Map<ConversationId, number>>;
   setReadCursor(conversationId: ConversationId, seq: number): Promise<void>;
 
+  /**
+   * Stores an outgoing message's pending row *and* its outbox entry in one
+   * transaction, so a crash can't leave one without the other.
+   */
+  stageOutgoing(pending: Message, entry: OutboxEntry): Promise<void>;
+  /**
+   * Atomically replaces a pending row with the acknowledged message: deletes
+   * `pending:<nonce>` and the outbox entry, and upserts `final` (merging with
+   * anything already stored under its real id, e.g. a sync echo).
+   */
+  commitOutgoing(nonce: string, final: Message, merge: MergeFn): Promise<UpsertResult>;
+  /** Atomically drops an unsent message's pending row and outbox entry. */
+  discardOutgoing(nonce: string): Promise<void>;
   putOutbox(entry: OutboxEntry): Promise<void>;
   deleteOutbox(nonce: string): Promise<void>;
   listOutbox(): Promise<OutboxEntry[]>;

@@ -1,0 +1,41 @@
+.skeleton {
+  display: block;
+  flex: none;
+  border-radius: var(--hearth-radius-xs);
+  background:
+    linear-gradient(90deg, transparent 0%, var(--hearth-bg-hover) 50%, transparent 100%) 0 0 / 200%
+      100% no-repeat,
+    var(--hearth-bg-active);
+  animation: shimmer 1.4s linear infinite;
+}
+
+.skeleton[data-radius='sm'] {
+  border-radius: var(--hearth-radius-sm);
+}
+
+.skeleton[data-radius='full'] {
+  border-radius: var(--hearth-radius-full);
+}
+
+@keyframes shimmer {
+  from {
+    background-position:
+      150% 0,
+      0 0;
+  }
+  to {
+    background-position:
+      -50% 0,
+      0 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :global(:root:not([data-reduced-motion='off'])) .skeleton {
+    animation: none;
+  }
+}
+
+:global(:root[data-reduced-motion='on']) .skeleton {
+  animation: none;
+}

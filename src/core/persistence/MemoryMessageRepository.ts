@@ -2,7 +2,7 @@
  * In-memory MessageRepository: used by tests, by the demo (whose world is
  * regenerated every launch), and as a fallback when IndexedDB is unavailable.
  */
-import type { ConversationId, Message, MessageId } from '@/core/domain';
+import { pendingMessageId, type ConversationId, type Message, type MessageId } from '@/core/domain';
 import {
   matchesSearch,
   searchTerms,
@@ -184,6 +184,21 @@ export class MemoryMessageRepository implements MessageRepository {
   setReadCursor(conversationId: ConversationId, seq: number): Promise<void> {
     this.cursors.set(conversationId, seq);
     return Promise.resolve();
+  }
+
+  async stageOutgoing(pending: Message, entry: OutboxEntry): Promise<void> {
+    this.store(clone(pending));
+    await this.putOutbox(entry);
+  }
+
+  async commitOutgoing(nonce: string, final: Message, merge: MergeFn): Promise<UpsertResult> {
+    await this.discardOutgoing(nonce);
+    return this.upsert(final, merge);
+  }
+
+  async discardOutgoing(nonce: string): Promise<void> {
+    await this.delete(pendingMessageId(nonce));
+    this.outbox.delete(nonce);
   }
 
   putOutbox(entry: OutboxEntry): Promise<void> {

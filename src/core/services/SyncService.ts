@@ -68,8 +68,15 @@ export class SyncService {
   private unsubscribers: Unsubscribe[] = [];
   private queue: Promise<void> = Promise.resolve();
   private startPromise: Promise<void> | null = null;
-  /** Bumped on stop/failed start; queued handlers from older generations are dropped. */
+  /** Bumped on stop; queued handlers from older generations are dropped. */
   private generation = 0;
+  /**
+   * While true (until an initial sync succeeds), queued events are parked in
+   * `backlog` instead of running. The backlog survives a failed start and is
+   * replayed after the next successful one: signal-cli won't redeliver them.
+   */
+  private gated = true;
+  private backlog: { event: string; task: () => Promise<void> | void }[] = [];
   private pruneTimer: Cancel | null = null;
   private purgeTimer: Cancel | null = null;
   private refreshing: Promise<void> | null = null;
@@ -92,26 +99,43 @@ export class SyncService {
   private async doStart(): Promise<void> {
     const { backend, stores } = this.deps;
     stores.session.getState().setBackendKind(backend.kind);
-    let openGate: () => void = () => undefined;
-    this.queue = new Promise<void>((resolve) => {
-      openGate = resolve;
-    });
+    this.gated = true;
     this.subscribe();
     try {
       await backend.connect();
       await this.initialSync();
-      stores.session.getState().setReady(true);
-      this.schedulePurge(0);
     } catch (error) {
-      // Drop subscriptions (and anything queued behind the gate) so a retry starts clean.
-      this.teardown();
+      // Drop the subscriptions so a retry doesn't double-subscribe, but keep the
+      // backlog: those envelopes are gone from the daemon once delivered.
+      this.unsubscribeAll();
       stores.session.getState().setError(error instanceof Error ? error.message : String(error));
       stores.session.getState().setStatus('error');
       this.onError(error, 'initial sync failed');
       throw error;
-    } finally {
-      openGate();
     }
+    stores.session.getState().setReady(true);
+    this.openGate();
+    this.schedulePurge(0);
+  }
+
+  /** Releases events parked during initial sync, in arrival order. */
+  private openGate(): void {
+    this.gated = false;
+    const parked = this.backlog;
+    this.backlog = [];
+    for (const { event, task } of parked) this.enqueue(event, task);
+  }
+
+  private enqueue(event: string, task: () => Promise<void> | void): void {
+    const generation = this.generation;
+    this.queue = this.queue.then(() =>
+      generation === this.generation ? this.run(event, task) : undefined,
+    );
+  }
+
+  private unsubscribeAll(): void {
+    for (const off of this.unsubscribers) off();
+    this.unsubscribers = [];
   }
 
   async stop(): Promise<void> {
@@ -130,9 +154,10 @@ export class SyncService {
 
   private teardown(): void {
     this.generation++;
-    for (const off of this.unsubscribers) off();
-    this.unsubscribers = [];
+    this.unsubscribeAll();
     this.queue = Promise.resolve();
+    this.backlog = [];
+    this.gated = true;
   }
 
   /** Post-processing hooks (plugins, notifications) that should see stored state. */
@@ -193,7 +218,10 @@ export class SyncService {
       }
     }
     const latest = await repository.latest(conv.id);
-    if (latest) stores.conversations.getState().bumpActivity(conv.id, latest.receivedAt);
+    if (latest) {
+      stores.conversations.getState().bumpActivity(conv.id, latest.receivedAt);
+      stores.conversations.getState().noteLatest(latest);
+    }
     // First sight with no read info: everything stored *before this session* is
     // read. Live events are gated until after this, so they still count.
     cursor ??= latest?.seq ?? 0;
@@ -251,7 +279,6 @@ export class SyncService {
 
   private subscribe(): void {
     const { backend } = this.deps;
-    const generation = this.generation;
     const on = <E extends keyof BackendEvents>(
       event: E,
       handler: (payload: BackendEvents[E]) => Promise<void> | void,
@@ -263,9 +290,9 @@ export class SyncService {
             void this.run(event, () => handler(payload));
             return;
           }
-          this.queue = this.queue.then(() =>
-            generation === this.generation ? this.run(event, () => handler(payload)) : undefined,
-          );
+          const task = () => handler(payload);
+          if (this.gated) this.backlog.push({ event, task });
+          else this.enqueue(event, task);
         }),
       );
     };
@@ -340,6 +367,7 @@ export class SyncService {
     const id = message.conversationId;
     stores.messages.getState().appendLive(message);
     stores.conversations.getState().bumpActivity(id, message.receivedAt);
+    stores.conversations.getState().noteLatest(message);
     stores.typing.getState().setTyping(id, message.authorId, false, this.deps.clock.now());
     if (!stores.conversations.getState().byId[id]) this.ensureConversation(message);
     if (message.expiresAt !== undefined)
@@ -403,6 +431,10 @@ export class SyncService {
   ): Promise<void> {
     await this.deps.repository.update(id, fn);
     this.deps.stores.messages.getState().update(conversationId, id, fn);
+    // Keep the sidebar preview in step with edits/deletions of the newest message.
+    const conversations = this.deps.stores.conversations.getState();
+    const latest = conversations.lastMessage[conversationId];
+    if (latest?.id === id) conversations.noteLatest(fn(latest));
   }
 
   private async removeContent(

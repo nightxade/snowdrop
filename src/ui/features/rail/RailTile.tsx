@@ -1,0 +1,88 @@
+import type { ButtonHTMLAttributes, CSSProperties, ReactNode, Ref } from 'react';
+import { Badge, ContextMenu, Tooltip, type MenuEntry } from '@/ui/primitives';
+import styles from './RailTile.module.css';
+
+export interface RailTileProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+  label: string;
+  selected?: boolean;
+  unread?: boolean;
+  mentions?: number;
+  /** CSS colour for hover/selected fill (a space's hue). */
+  hue?: string;
+  /** 'accent' = the Home and add tiles, which fill with the accent instead of a hue. */
+  tone?: 'hue' | 'accent' | 'quiet';
+  menu?: () => readonly MenuEntry[];
+  /** Content of the tile: emoji, initials, glyph. */
+  children: ReactNode;
+  /** Applied to the tile's wrapper (drag transforms). */
+  wrapperStyle?: CSSProperties | undefined;
+  wrapperRef?: Ref<HTMLDivElement> | undefined;
+  dragging?: boolean;
+  ref?: Ref<HTMLButtonElement> | undefined;
+}
+
+/**
+ * One rail tile with its edge indicator (unread → hover → selected grows the
+ * bar) and a mention badge. The squircle → rounded-square morph on
+ * hover/selection is the rail's signature motion.
+ */
+export function RailTile({
+  label,
+  selected = false,
+  unread = false,
+  mentions = 0,
+  hue,
+  tone = 'hue',
+  menu,
+  children,
+  wrapperStyle,
+  wrapperRef,
+  dragging,
+  className,
+  ref,
+  ...button
+}: RailTileProps) {
+  const a11yLabel = [
+    label,
+    mentions > 0 ? `${mentions} mention${mentions === 1 ? '' : 's'}` : unread ? 'unread' : '',
+  ]
+    .filter(Boolean)
+    .join(', ');
+  const tile = (
+    <button
+      ref={ref}
+      type="button"
+      className={[styles.tile, className].filter(Boolean).join(' ')}
+      aria-label={a11yLabel}
+      aria-current={selected ? 'page' : undefined}
+      data-roving-item
+      tabIndex={selected ? 0 : -1}
+      {...button}
+    >
+      {children}
+    </button>
+  );
+  return (
+    <div
+      ref={wrapperRef}
+      className={styles.item}
+      style={{ ...(hue ? { '--tile-hue': hue } : {}), ...wrapperStyle }}
+      data-selected={selected ? '' : undefined}
+      data-unread={unread ? '' : undefined}
+      data-tone={tone}
+      data-dragging={dragging ? '' : undefined}
+    >
+      <span className={styles.pill} aria-hidden />
+      <Tooltip label={label} side="right" disabled={dragging ?? false}>
+        {menu ? (
+          <ContextMenu entries={menu} label={`${label} options`}>
+            {tile}
+          </ContextMenu>
+        ) : (
+          tile
+        )}
+      </Tooltip>
+      {mentions > 0 && <Badge variant="mention" count={mentions} className={styles.badge} />}
+    </div>
+  );
+}

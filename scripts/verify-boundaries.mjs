@@ -5,7 +5,7 @@
 // each layer and asserts the expected violations are reported — and that
 // allowed imports are not. Fixtures are written to a temp folder inside src
 // (so the TS project and path resolver see them) and always removed.
-import { existsSync, mkdirSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ESLint } from 'eslint';
@@ -68,8 +68,11 @@ const cases = [
 
 const created = [];
 const createdDirs = [];
+/** Real files a fixture temporarily replaces (e.g. a feature's index.ts), restored afterwards. */
+const backups = new Map();
 const touch = (rel, source) => {
   const file = path.join(root, 'src', rel);
+  if (existsSync(file)) backups.set(file, readFileSync(file));
   // Remember directories we create so cleanup leaves the tree as it was.
   for (let dir = path.dirname(file); !existsSync(dir); dir = path.dirname(dir))
     createdDirs.push(dir);
@@ -96,7 +99,11 @@ try {
     }
   }
 } finally {
-  for (const file of created) rmSync(file, { force: true });
+  for (const file of created) {
+    const original = backups.get(file);
+    if (original === undefined) rmSync(file, { force: true });
+    else writeFileSync(file, original);
+  }
   // Deepest first, so parents are empty by the time we reach them.
   for (const dir of createdDirs.sort((a, b) => b.length - a.length)) rmdirSync(dir);
 }

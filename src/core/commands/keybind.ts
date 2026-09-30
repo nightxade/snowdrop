@@ -135,13 +135,18 @@ function isPrintableAscii(key: string): boolean {
 
 const MODIFIER_KEYS = new Set(['control', 'meta', 'alt', 'shift', 'os', 'altgraph']);
 
-/** Builds a keybind from a key press (for "record shortcut" UIs); null for bare modifiers. */
+/**
+ * Builds a keybind from a key press (for "record shortcut" UIs); null for bare
+ * modifiers. Records exactly what matchesKeybind will compare against — the
+ * produced character when it's printable ASCII, the physical key otherwise —
+ * so a recorded shortcut always matches the press that recorded it, on any layout.
+ */
 export function keybindFromEvent(event: KeyEventLike, isMac: boolean): Keybind | null {
   const key = normaliseKey(event.key);
   if (MODIFIER_KEYS.has(key)) return null;
   const mod = isMac ? event.metaKey : event.ctrlKey;
   return {
-    key: keyFromCode(event.code) ?? key,
+    key: isPrintableAscii(event.key) ? key : (keyFromCode(event.code) ?? key),
     mod,
     ctrl: isMac ? event.ctrlKey : false,
     meta: isMac ? false : event.metaKey,
