@@ -11,37 +11,6 @@
   opacity: 0.9;
 }
 
-/* Edge indicator: absent → 8px (unread) → 20px (hover) → 40px (selected). */
-.pill {
-  position: absolute;
-  top: 50%;
-  left: 0;
-  width: 4px;
-  height: 0;
-  border-radius: 0 var(--hearth-radius-xs) var(--hearth-radius-xs) 0;
-  background: var(--hearth-accent);
-  opacity: 0;
-  transform: translateY(-50%);
-  transition:
-    height var(--hearth-duration-slow) var(--hearth-ease),
-    opacity var(--hearth-duration-fast) var(--hearth-ease);
-}
-
-.item[data-unread] .pill {
-  height: 8px;
-  opacity: 1;
-}
-
-.item:hover .pill {
-  height: 20px;
-  opacity: 1;
-}
-
-.item[data-selected] .pill {
-  height: 40px;
-  opacity: 1;
-}
-
 .tile {
   display: grid;
   flex: none;
@@ -49,7 +18,7 @@
   width: var(--hearth-tile-size);
   height: var(--hearth-tile-size);
   overflow: hidden;
-  border-radius: var(--hearth-radius-lg);
+  border-radius: var(--hearth-radius-tile);
   background: color-mix(
     in oklab,
     var(--tile-hue, var(--hearth-bg-elevated)) 18%,
@@ -60,22 +29,30 @@
   font-weight: var(--hearth-font-weight-semibold);
   line-height: 1;
   transition:
-    border-radius var(--hearth-duration-slow) var(--hearth-ease),
-    background-color var(--hearth-duration-slow) var(--hearth-ease),
+    background-color var(--hearth-duration-base) var(--hearth-ease),
+    box-shadow var(--hearth-duration-base) var(--hearth-ease),
     color var(--hearth-duration-fast) var(--hearth-ease);
   user-select: none;
 }
 
+/* Keyboard focus sits outside the selection ring so the two never read alike. */
 .tile:focus-visible {
-  outline-offset: 3px;
+  outline: 2px dashed var(--hearth-text-strong);
+  outline-offset: 7px;
 }
 
 .item:hover .tile,
 .item[data-selected] .tile,
 .tile[data-state='open'] {
-  border-radius: var(--hearth-radius-md);
-  background: var(--tile-hue, var(--hearth-accent));
+  background: var(--tile-hue, var(--hearth-bg-active));
   color: var(--hearth-text-on-avatar);
+}
+
+/* Selected: a 2px accent ring, 3px away from the tile. */
+.item[data-selected] .tile {
+  box-shadow:
+    0 0 0 3px var(--hearth-bg-rail),
+    0 0 0 5px var(--hearth-accent);
 }
 
 .item[data-tone='accent'] .tile {
@@ -85,8 +62,8 @@
 
 .item[data-tone='accent']:hover .tile,
 .item[data-tone='accent'][data-selected] .tile {
-  background: var(--hearth-accent);
-  color: var(--hearth-text-on-accent);
+  background: var(--hearth-bg-active);
+  color: var(--hearth-accent);
 }
 
 /* The add tile is an outline: it's an action, not a place. */
@@ -96,16 +73,23 @@
   color: var(--hearth-text-muted);
 }
 
-.item[data-tone='quiet']:hover .tile,
-.item[data-tone='quiet'] .tile:focus-visible {
-  border-color: var(--hearth-accent);
-  border-radius: var(--hearth-radius-md);
-  background: var(--hearth-accent-soft);
-  color: var(--hearth-accent);
+.item[data-tone='quiet']:hover .tile {
+  border-color: var(--hearth-text-muted);
+  background: var(--hearth-bg-hover);
+  color: var(--hearth-text-strong);
 }
 
-.item[data-tone='quiet'] .pill {
-  display: none;
+/* Unread: a small light dot on the tile's top-left corner. */
+.dot {
+  position: absolute;
+  top: calc(var(--hearth-space-2) - 2px);
+  left: calc((var(--hearth-rail-width) - var(--hearth-tile-size)) / 2 - 2px);
+  width: 10px;
+  height: 10px;
+  border-radius: var(--hearth-radius-full);
+  background: var(--hearth-text-strong);
+  box-shadow: 0 0 0 3px var(--hearth-bg-rail);
+  pointer-events: none;
 }
 
 .badge {

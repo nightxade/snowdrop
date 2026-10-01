@@ -1,0 +1,186 @@
+.row {
+  position: relative;
+  display: grid;
+  grid-template-areas:
+    '. quote'
+    'gutter content';
+  grid-template-columns: 72px minmax(0, 1fr);
+  padding: 2px var(--hearth-space-9) 2px 0;
+  outline: none;
+  transition: background-color var(--hearth-duration-fast) var(--hearth-ease);
+}
+
+.row[data-message-active] {
+  background: var(--hearth-bg-hover);
+}
+
+.row:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--hearth-focus-ring);
+}
+
+/* Mentions of you: tinted row with an accent bar on the left edge. */
+.row[data-mention] {
+  background: var(--hearth-mention-bg);
+  box-shadow: inset 2px 0 0 var(--hearth-mention-bar);
+}
+
+.row[data-mention][data-message-active] {
+  background: color-mix(in srgb, var(--hearth-mention-bg), var(--hearth-accent) 6%);
+}
+
+.row[data-mention]:focus-visible {
+  box-shadow:
+    inset 2px 0 0 var(--hearth-mention-bar),
+    inset 0 0 0 2px var(--hearth-focus-ring);
+}
+
+.row[data-flash] {
+  animation: flash 1.6s var(--hearth-ease);
+}
+
+@keyframes flash {
+  0%,
+  35% {
+    background-color: var(--hearth-highlight-bg);
+    box-shadow: inset 2px 0 0 var(--hearth-warning);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row[data-flash] {
+    animation: none;
+    background: var(--hearth-highlight-bg);
+  }
+}
+
+:root[data-reduced-motion='on'] .row[data-flash] {
+  animation: none;
+  background: var(--hearth-highlight-bg);
+}
+
+.row[data-pending] .content {
+  opacity: 0.6;
+}
+
+.quote {
+  grid-area: quote;
+  min-width: 0;
+}
+
+.gutter {
+  grid-area: gutter;
+  display: flex;
+  justify-content: center;
+  padding-right: var(--hearth-space-2);
+  padding-left: var(--hearth-space-2);
+}
+
+.avatarButton {
+  display: block;
+  height: 40px;
+  margin-top: 2px;
+  border-radius: var(--hearth-radius-full);
+  cursor: pointer;
+}
+
+.avatarButton:active {
+  transform: translateY(1px);
+}
+
+.content {
+  grid-area: content;
+  min-width: 0;
+}
+
+.header {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  line-height: calc(var(--hearth-font-size-message) * var(--hearth-line-height-message));
+}
+
+.name {
+  overflow: hidden;
+  /* Same legibility recipe as the member list: the hue, pulled toward strong text. */
+  color: color-mix(in oklab, var(--name-color) 55%, var(--hearth-text-strong));
+  font-size: var(--hearth-font-size-message);
+  font-weight: var(--hearth-font-weight-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.name:hover {
+  text-decoration: underline;
+}
+
+.decorations {
+  align-self: center;
+  margin-left: var(--hearth-space-2);
+}
+
+.body {
+  min-width: 0;
+}
+
+.deleted {
+  color: var(--hearth-text-faint);
+  font-size: var(--hearth-font-size-message);
+  font-style: italic;
+  line-height: var(--hearth-line-height-message);
+}
+
+/* ─── Compact: one line, "[time] Author body" ───────────────────────── */
+
+.row[data-compact] {
+  grid-template-columns: 64px minmax(0, 1fr);
+  padding-top: 1px;
+  padding-bottom: 1px;
+}
+
+.row[data-compact] .gutter {
+  justify-content: flex-end;
+  padding-right: var(--hearth-space-3);
+}
+
+.row[data-compact] .content {
+  display: block;
+}
+
+.row[data-compact] .header {
+  display: inline;
+  margin-right: var(--hearth-space-2);
+}
+
+.row[data-compact] .name::after {
+  content: '';
+}
+
+.row[data-compact] .body {
+  display: inline;
+}
+
+.row[data-compact] .deleted {
+  display: inline;
+}
+
+.compactAvatar {
+  display: inline-block;
+  margin-right: var(--hearth-space-2);
+  vertical-align: -3px;
+}
+
+.row[data-compact] .quote {
+  padding-left: 20px;
+}
+
+@media (max-width: 759.98px) {
+  .row {
+    grid-template-columns: 60px minmax(0, 1fr);
+    padding-right: var(--hearth-space-4);
+  }
+
+  .row[data-compact] {
+    grid-template-columns: 52px minmax(0, 1fr);
+  }
+}

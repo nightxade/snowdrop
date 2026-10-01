@@ -1,6 +1,8 @@
 .screen {
   position: relative;
   display: grid;
+  /* minmax(0, …): the track must not grow to fit no-wrap content (the command chip). */
+  grid-template-columns: minmax(0, 1fr);
   min-height: 100%;
   overflow: auto;
   place-items: center;

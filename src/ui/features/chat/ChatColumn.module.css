@@ -26,39 +26,6 @@
   flex: none;
 }
 
-/* < 1100px: the member list floats over the conversation as a sheet. */
-.members[data-sheet] {
-  position: absolute;
-  z-index: 5;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  max-width: calc(100% - 48px);
-  animation: sheet-in var(--hearth-duration-slow) var(--hearth-ease);
-}
-
-.scrim {
-  position: absolute;
-  z-index: 4;
-  inset: 0;
-  background: var(--hearth-bg-overlay);
-  cursor: default;
-  animation: fade var(--hearth-duration-slow) var(--hearth-ease);
-}
-
-@keyframes sheet-in {
-  from {
-    transform: translateX(24px);
-    opacity: 0;
-  }
-}
-
-@keyframes fade {
-  from {
-    opacity: 0;
-  }
-}
-
 .empty {
   display: flex;
   flex: 1;

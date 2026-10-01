@@ -12,9 +12,17 @@
 }
 
 .button[data-size='sm'] {
+  position: relative;
   width: 24px;
   height: 24px;
   border-radius: var(--hearth-radius-xs);
+}
+
+/* Small buttons look small but keep a 32px hit target (PLAN §4.12). */
+.button[data-size='sm']::before {
+  content: '';
+  position: absolute;
+  inset: -4px;
 }
 
 .button:hover:not(:disabled) {

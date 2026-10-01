@@ -1,0 +1,80 @@
+.composer {
+  position: relative;
+  flex: none;
+  padding: 0 var(--hearth-space-5);
+}
+
+.error {
+  margin-bottom: var(--hearth-space-2);
+  padding: var(--hearth-space-2) var(--hearth-space-4);
+  border-radius: var(--hearth-radius-sm);
+  background: var(--hearth-danger-soft);
+  color: var(--hearth-danger);
+  font-size: var(--hearth-font-size-sm);
+  font-weight: var(--hearth-font-weight-medium);
+}
+
+.shell {
+  border-radius: var(--hearth-radius-md);
+  background: var(--hearth-bg-input);
+}
+
+.box {
+  border-radius: var(--hearth-radius-md);
+  transition: box-shadow var(--hearth-duration-fast) var(--hearth-ease);
+}
+
+.shell[data-reply] .box {
+  border-radius: 0 0 var(--hearth-radius-md) var(--hearth-radius-md);
+}
+
+.box:focus-within {
+  box-shadow: inset 0 0 0 1px var(--hearth-border-strong);
+}
+
+.field {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--hearth-space-2);
+  min-height: 44px;
+  padding: 6px var(--hearth-space-3);
+}
+
+.button {
+  flex: none;
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  min-height: 32px;
+  padding: 5px var(--hearth-space-2);
+  border: 0;
+  background: transparent;
+  color: var(--hearth-text);
+  font: inherit;
+  font-size: var(--hearth-font-size-message);
+  line-height: var(--hearth-line-height-message);
+  outline: none;
+  overflow-y: auto;
+  resize: none;
+  scrollbar-color: var(--hearth-scrollbar-thumb) transparent;
+  scrollbar-width: thin;
+}
+
+.input:focus-visible {
+  outline: none;
+}
+
+.input::placeholder {
+  overflow: hidden;
+  color: var(--hearth-text-faint);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 759.98px) {
+  .composer {
+    padding: 0 var(--hearth-space-3);
+  }
+}

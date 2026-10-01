@@ -25,13 +25,3 @@
     opacity: 0.45;
   }
 }
-
-@media (prefers-reduced-motion: reduce) {
-  :global(:root:not([data-reduced-motion='off'])) .dot {
-    animation: none;
-  }
-}
-
-:global(:root[data-reduced-motion='on']) .dot {
-  animation: none;
-}

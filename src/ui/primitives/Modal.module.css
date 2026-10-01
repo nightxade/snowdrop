@@ -23,6 +23,10 @@
   animation: rise var(--hearth-duration-slow) var(--hearth-ease);
 }
 
+.content:focus {
+  outline: none;
+}
+
 .content[data-size='sm'] {
   width: min(360px, calc(100vw - 32px));
 }

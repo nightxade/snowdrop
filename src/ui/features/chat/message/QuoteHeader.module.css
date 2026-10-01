@@ -1,0 +1,71 @@
+.quote {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: 20px;
+  margin-bottom: var(--hearth-space-1);
+}
+
+/* Curved connector from the reply's avatar up to the quoted line. */
+.connector {
+  position: absolute;
+  top: 9px;
+  left: -38px;
+  width: 30px;
+  height: 12px;
+  border-top: 2px solid var(--hearth-border-strong);
+  border-left: 2px solid var(--hearth-border-strong);
+  border-top-left-radius: 6px;
+}
+
+.quote[data-compact] .connector {
+  left: -16px;
+  width: 12px;
+}
+
+.button {
+  display: flex;
+  align-items: center;
+  gap: var(--hearth-space-2);
+  min-width: 0;
+  max-width: 100%;
+  color: var(--hearth-text-muted);
+  font-size: var(--hearth-font-size-sm);
+  line-height: 20px;
+  text-align: left;
+}
+
+.button > :first-child {
+  opacity: 0.85;
+}
+
+.name {
+  flex: none;
+  color: color-mix(in oklab, var(--name-color) 55%, var(--hearth-text-strong));
+  font-weight: var(--hearth-font-weight-semibold);
+  opacity: 0.9;
+}
+
+.name:hover {
+  text-decoration: underline;
+}
+
+.text {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.text[data-italic] {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hearth-space-2);
+  font-style: italic;
+}
+
+.button:hover .text {
+  color: var(--hearth-text);
+}

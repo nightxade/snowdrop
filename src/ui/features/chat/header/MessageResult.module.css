@@ -1,0 +1,73 @@
+.result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hearth-space-2);
+  width: 100%;
+  padding: var(--hearth-space-3) var(--hearth-space-4);
+  border: 1px solid var(--hearth-border);
+  border-radius: var(--hearth-radius-sm);
+  background: var(--hearth-bg-chat);
+  text-align: left;
+  transition:
+    border-color var(--hearth-duration-fast) var(--hearth-ease),
+    background-color var(--hearth-duration-fast) var(--hearth-ease);
+}
+
+.result:hover {
+  border-color: var(--hearth-border-strong);
+  background: var(--hearth-bg-elevated);
+}
+
+.context {
+  color: var(--hearth-text-muted);
+  font-size: var(--hearth-font-size-xs);
+  font-weight: var(--hearth-font-weight-semibold);
+}
+
+.row {
+  display: flex;
+  gap: var(--hearth-space-3);
+  min-width: 0;
+}
+
+.main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--hearth-space-3);
+  min-width: 0;
+}
+
+.name {
+  overflow: hidden;
+  color: color-mix(in oklab, var(--name-color) 55%, var(--hearth-text-strong));
+  font-size: var(--hearth-font-size-ui);
+  font-weight: var(--hearth-font-weight-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.time {
+  flex: none;
+  color: var(--hearth-text-faint);
+  font-size: var(--hearth-font-size-xs);
+}
+
+.body {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: var(--hearth-font-size-ui);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+/* Results are previews: no interactive pieces inside a button. */
+.body :is(button, a, [role='button']) {
+  pointer-events: none;
+}

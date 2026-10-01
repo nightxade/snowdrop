@@ -13,7 +13,16 @@ import styles from './ConversationList.module.css';
 export function ConversationList() {
   const stores = useStores();
   const ready = useStore(stores.session, sessionSelectors.ready);
-  const unread = useStore(stores.conversations, (s) => s.unread);
+  // Collapsed sections only need *which* conversations are unread, not the
+  // counts; a joined key keeps the list from re-rendering on every message.
+  const unreadKey = useStore(stores.conversations, (s) =>
+    Object.keys(s.unread)
+      .filter((id) => (s.unread[id as keyof typeof s.unread]?.count ?? 0) > 0)
+      .sort()
+      .join('\n'),
+  );
+  const unread: Record<string, { count: number; mentions: number }> = {};
+  for (const id of unreadKey ? unreadKey.split('\n') : []) unread[id] = { count: 1, mentions: 0 };
   const { space, sections, archived, selected } = useSidebarModel();
   const onKeyDown = useRovingFocus('vertical');
   const [showArchived, setShowArchived] = useState(false);
@@ -79,7 +88,7 @@ export function ConversationList() {
         {archived.length > 0 && (
           <section className={styles.section} aria-label="Archived">
             <SectionHeader
-              title={`Archived — ${archived.length}`}
+              title={`Archived · ${archived.length}`}
               collapsed={!showArchived}
               controls={`${baseId}-archived`}
               onToggle={() => {

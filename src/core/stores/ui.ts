@@ -59,6 +59,13 @@ export interface UiState {
    * the conversation doesn't make the divider jump or vanish.
    */
   unreadMarkers: Record<ConversationId, number>;
+  /**
+   * Conversations whose message list is scrolled away from the newest
+   * message (or shows a detached window). Incoming messages there are not
+   * "seen", so the sync engine doesn't auto-mark them read. Absent = the
+   * bottom is visible.
+   */
+  scrolledUp: Record<ConversationId, true>;
 
   selectSpace(space: SpaceSelection): void;
   selectConversation(conversationId: ConversationId, space?: SpaceSelection): void;
@@ -70,6 +77,7 @@ export interface UiState {
   setScrollAnchor(conversationId: ConversationId, anchor: ScrollAnchor | null): void;
   setWindowFocused(focused: boolean): void;
   setUnreadMarker(conversationId: ConversationId, seq: number | null): void;
+  setScrolledUp(conversationId: ConversationId, scrolledUp: boolean): void;
   pushToast(toast: Omit<Toast, 'id'>): string;
   dismissToast(id: string): void;
 }
@@ -88,6 +96,7 @@ export function createUiStore(newId: () => string = () => createNonce('toast')):
     windowFocused: true,
     toasts: [],
     unreadMarkers: {},
+    scrolledUp: {},
 
     selectSpace: (selectedSpace) => {
       set({ selectedSpace });
@@ -138,6 +147,13 @@ export function createUiStore(newId: () => string = () => createNonce('toast')):
         return { unreadMarkers: seq === null ? rest : { ...rest, [conversationId]: seq } };
       });
     },
+    setScrolledUp: (conversationId, scrolledUp) => {
+      set((s) => {
+        if ((s.scrolledUp[conversationId] === true) === scrolledUp) return s;
+        const { [conversationId]: _previous, ...rest } = s.scrolledUp;
+        return { scrolledUp: scrolledUp ? { ...rest, [conversationId]: true } : rest };
+      });
+    },
     pushToast: (toast) => {
       const id = newId();
       set((s) => ({ toasts: [...s.toasts, { ...toast, id }].slice(-MAX_TOASTS) }));
@@ -159,4 +175,5 @@ export const uiSelectors = {
   editing: (s: UiState) => s.editing,
   toasts: (s: UiState) => s.toasts,
   unreadMarker: (id: ConversationId) => (s: UiState) => s.unreadMarkers[id],
+  scrolledUp: (id: ConversationId) => (s: UiState) => s.scrolledUp[id] === true,
 };

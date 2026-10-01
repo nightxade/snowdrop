@@ -4,15 +4,15 @@
   padding: 1px 0;
 }
 
-/* Unread edge pill: the same language as the rail's unread bar. */
+/* Unread: a flat-sided 4×12 tab on the sidebar edge (accent is reserved for selection). */
 .row[data-unread]:not([data-selected])::before {
   content: '';
   position: absolute;
   top: 50%;
   left: calc(var(--hearth-space-3) * -1);
   width: 4px;
-  height: 8px;
-  border-radius: 0 var(--hearth-radius-xs) var(--hearth-radius-xs) 0;
+  height: 12px;
+  border-radius: 0 2px 2px 0;
   background: var(--hearth-text-strong);
   transform: translateY(-50%);
 }
@@ -22,8 +22,8 @@
   align-items: center;
   gap: var(--hearth-space-4);
   width: 100%;
-  height: 40px;
-  padding: 0 var(--hearth-space-3);
+  min-height: 40px;
+  padding: var(--hearth-space-1) var(--hearth-space-3);
   border-radius: var(--hearth-radius-sm);
   color: var(--hearth-text-muted);
   text-align: left;
@@ -34,7 +34,7 @@
 
 .row[data-variant='channel'] .main {
   gap: var(--hearth-space-3);
-  height: 32px;
+  min-height: 32px;
 }
 
 .main:focus-visible {
@@ -86,7 +86,7 @@
   overflow: hidden;
   font-size: var(--hearth-font-size-ui);
   font-weight: var(--hearth-font-weight-medium);
-  line-height: 18px;
+  line-height: 1.3;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -102,7 +102,7 @@
   min-width: 0;
   color: var(--hearth-text-faint);
   font-size: var(--hearth-font-size-sm);
-  line-height: 16px;
+  line-height: 1.3;
 }
 
 .row[data-selected] .preview,
@@ -142,22 +142,22 @@
 }
 
 .row:hover .actions,
-.row:focus-within .actions {
+.row:has(:focus-visible) .actions {
   opacity: 1;
   pointer-events: auto;
 }
 
 .row:hover .badge,
-.row:focus-within .badge {
+.row:has(:focus-visible) .badge {
   visibility: hidden;
 }
 
 .row:hover .mutedIcon,
-.row:focus-within .mutedIcon {
+.row:has(:focus-visible) .mutedIcon {
   visibility: hidden;
 }
 
 .row:hover .text,
-.row:focus-within .text {
+.row:has(:focus-visible) .text {
   padding-right: var(--hearth-space-6);
 }

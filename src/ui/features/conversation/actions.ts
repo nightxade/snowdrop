@@ -2,8 +2,15 @@
  * Conversation actions shared by the sidebar context menu, the row hover
  * buttons, the chat header and keyboard commands.
  */
-import { HOUR, MINUTE, type ConversationId, type MuteState } from '@/core/domain';
-import { uiSelectors } from '@/core/stores';
+import {
+  directConversationId,
+  HOUR,
+  MINUTE,
+  type Contact,
+  type ConversationId,
+  type MuteState,
+} from '@/core/domain';
+import { HOME, uiSelectors } from '@/core/stores';
 import type { AppServices } from '@/ui/hooks';
 
 export const MUTE_OPTIONS: readonly { id: string; label: string; ms: number | null }[] = [
@@ -24,6 +31,31 @@ export function openConversation(
   space: string = app.stores.ui.getState().selectedSpace,
 ): void {
   app.stores.ui.getState().selectConversation(id, space);
+}
+
+/**
+ * Opens the direct conversation with a contact, creating a local placeholder
+ * if there's none yet (Signal has no "create DM" call: the conversation
+ * exists as soon as either side sends; the sync engine replaces the
+ * placeholder with the backend's record).
+ */
+export function openDirectConversation(app: AppServices, contact: Contact): ConversationId {
+  const id = directConversationId(contact.id);
+  const { conversations, session, ui } = app.stores;
+  if (!conversations.getState().byId[id]) {
+    const selfId = session.getState().self?.id;
+    conversations.getState().upsert({
+      id,
+      kind: 'direct',
+      title: contact.name,
+      memberIds: selfId ? [selfId, contact.id] : [contact.id],
+      adminIds: [],
+      expireTimerSec: 0,
+      lastActivityAt: 0,
+    });
+  }
+  ui.getState().selectConversation(id, HOME);
+  return id;
 }
 
 export function markRead(app: AppServices, id: ConversationId): void {

@@ -1,0 +1,33 @@
+.wrap {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.list {
+  flex: 1;
+  min-height: 0;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--hearth-scrollbar-thumb) transparent;
+  scrollbar-width: thin;
+}
+
+.list:focus-visible {
+  /* Virtuoso sets an inline outline: none on its scroller. */
+  box-shadow: inset 0 0 0 2px var(--hearth-focus-ring);
+}
+
+/* Group spacing is padding (the virtualiser measures border boxes, not margins). */
+.item[data-group-start] {
+  padding-top: var(--hearth-space-5);
+}
+
+.item[data-group-start][data-compact] {
+  padding-top: var(--hearth-space-2);
+}
+
+.footer {
+  height: var(--hearth-space-6);
+}

@@ -1,62 +1,83 @@
+import { useState } from 'react';
 import { useStore } from 'zustand';
 import { CoreCommand } from '@/core/commands';
 import { uiSelectors } from '@/core/stores';
 import { useKeybindLabel, useShellLayout, useStores } from '@/ui/hooks';
-import { useConversationView } from '@/ui/features/conversation';
 import { MembersPanel } from '@/ui/features/members';
-import { HearthMark, Kbd } from '@/ui/primitives';
+import { Drawer, HearthMark, Kbd } from '@/ui/primitives';
 import { ChatHeader } from './ChatHeader';
-import { ComposerShell } from './ComposerShell';
+import { ChatController, ChatControllerProvider, useSearchOpen } from './ChatController';
+import { ConversationArea } from './ConversationArea';
+import { SearchSlot } from './SearchSlot';
 import { ConnectionBanner } from './ConnectionBanner';
-import { MessagePane } from './MessagePane';
+import { useChatCommands } from './useChatCommands';
 import styles from './ChatColumn.module.css';
 
 /**
  * Header across the top; below it the conversation (messages + composer)
- * and, for groups, the member list — inline when wide, a sheet when narrow.
+ * and, for groups, the member list: inline when wide, a modal sheet when
+ * narrow. Subscribes only to the selected id, its kind and the member-list
+ * flag; each part subscribes to what it renders (PLAN §8, P2 review).
  */
 export function ChatColumn() {
+  // One controller per column: lets header, commands, list and composer drive each other.
+  const [chat] = useState(() => new ChatController());
+  return (
+    <ChatControllerProvider value={chat}>
+      <ChatColumnInner />
+    </ChatControllerProvider>
+  );
+}
+
+function ChatColumnInner() {
   const stores = useStores();
+  useChatCommands();
+  const searchOpen = useSearchOpen();
   const { narrow, drawer } = useShellLayout();
   const selected = useStore(stores.ui, uiSelectors.selectedConversation);
+  const kind = useStore(stores.conversations, (s) =>
+    selected ? s.byId[selected]?.kind : undefined,
+  );
   const membersOpen = useStore(stores.ui, uiSelectors.memberListOpen);
-  const conversation = useConversationView(selected);
-  const showMembers = conversation?.kind === 'group' && membersOpen;
+  const showSearch = searchOpen && kind !== undefined && selected !== null;
+  const showMembers = !showSearch && kind === 'group' && membersOpen && selected !== null;
+  const closeMembers = () => {
+    stores.ui.getState().toggleMemberList(false);
+  };
 
   return (
-    <main className={styles.column} data-hearth="chat" aria-label={conversation?.title ?? 'Chat'}>
+    <main className={styles.column} data-hearth="chat" aria-label="Chat">
       {/* With nothing open the header would be an empty bar; keep it only for the drawer button. */}
-      {(conversation ?? drawer) && <ChatHeader conversation={conversation} />}
+      {(kind ?? drawer) && <ChatHeader conversationId={kind ? selected : null} />}
       <ConnectionBanner />
       <div className={styles.body}>
         <div className={styles.conversation}>
-          {conversation ? (
+          {selected && kind ? (
             <>
-              <MessagePane key={conversation.id} conversation={conversation} />
-              <ComposerShell conversation={conversation} />
+              <ConversationArea key={selected} conversationId={selected} />
             </>
           ) : (
             <NothingOpen />
           )}
         </div>
-        {showMembers && (
-          <>
-            {narrow && (
-              <button
-                type="button"
-                className={styles.scrim}
-                aria-label="Close member list"
-                tabIndex={-1}
-                onClick={() => {
-                  stores.ui.getState().toggleMemberList(false);
-                }}
-              />
-            )}
-            <div className={styles.members} data-sheet={narrow ? '' : undefined}>
-              <MembersPanel conversation={conversation} />
+        {showSearch && <SearchSlot conversationId={selected} narrow={narrow} />}
+        {showMembers &&
+          (narrow ? (
+            <Drawer
+              side="right"
+              open
+              onOpenChange={(open) => {
+                if (!open) closeMembers();
+              }}
+              label="Members"
+            >
+              <MembersPanel conversationId={selected} onClose={closeMembers} />
+            </Drawer>
+          ) : (
+            <div className={styles.members}>
+              <MembersPanel conversationId={selected} />
             </div>
-          </>
-        )}
+          ))}
       </div>
     </main>
   );

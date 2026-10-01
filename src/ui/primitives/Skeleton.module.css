@@ -29,13 +29,3 @@
       0 0;
   }
 }
-
-@media (prefers-reduced-motion: reduce) {
-  :global(:root:not([data-reduced-motion='off'])) .skeleton {
-    animation: none;
-  }
-}
-
-:global(:root[data-reduced-motion='on']) .skeleton {
-  animation: none;
-}

@@ -15,3 +15,21 @@
   font-weight: var(--hearth-font-weight-semibold);
   white-space: nowrap;
 }
+.failedLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hearth-space-2);
+}
+
+.retry {
+  padding: 0 var(--hearth-space-2);
+  border-radius: var(--hearth-radius-xs);
+  color: var(--hearth-text-strong);
+  font-weight: var(--hearth-font-weight-semibold);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.retry:hover {
+  background: var(--hearth-danger-soft);
+}

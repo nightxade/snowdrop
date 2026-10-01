@@ -23,6 +23,8 @@ export interface LocalData {
   conversations: Record<ConversationId, LocalConversationState>;
   /** contactId → private note (profile popout). */
   contactNotes: Record<string, string>;
+  /** emoji → times used for a reaction; the hover bar offers the most used. */
+  reactionUsage: Record<string, number>;
   /** Demo defaults are applied once per install. */
   seeded: boolean;
 }
@@ -41,13 +43,14 @@ export interface LocalState extends LocalData {
   setDraft(id: ConversationId, draft: string): void;
   /** Empty notes are removed. */
   setNote(contactId: string, note: string): void;
+  noteReactionUsed(emoji: string): void;
   seedDefaults(seed: LocalSeed): void;
 }
 
 export type LocalStore = StoreApi<LocalState>;
 
 export function defaultLocalData(): LocalData {
-  return { conversations: {}, contactNotes: {}, seeded: false };
+  return { conversations: {}, contactNotes: {}, reactionUsage: {}, seeded: false };
 }
 
 export function createLocalStore(initial: LocalData = defaultLocalData()): LocalStore {
@@ -82,6 +85,16 @@ export function createLocalStore(initial: LocalData = defaultLocalData()): Local
         return { contactNotes: note.trim() === '' ? rest : { ...rest, [contactId]: note } };
       });
     },
+    noteReactionUsed: (emoji) => {
+      set((s) => {
+        const usage = { ...s.reactionUsage, [emoji]: (s.reactionUsage[emoji] ?? 0) + 1 };
+        // Keep the map small: only the most used survive.
+        const kept = Object.entries(usage)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, MAX_TRACKED_REACTIONS);
+        return { reactionUsage: Object.fromEntries(kept) };
+      });
+    },
     seedDefaults: (seed) => {
       if (get().seeded) return;
       for (const id of seed.pinned ?? []) get().setPinned(id, true);
@@ -91,16 +104,39 @@ export function createLocalStore(initial: LocalData = defaultLocalData()): Local
   }));
 }
 
+const MAX_TRACKED_REACTIONS = 24;
+/** Offered before the user has reacted enough for a personal top list. */
+export const DEFAULT_QUICK_REACTIONS: readonly string[] = ['👍', '❤️', '😂'];
+
+const quickCache = new WeakMap<Record<string, number>, readonly string[]>();
+
 export const localSelectors = {
   conversations: (s: LocalState) => s.conversations,
   conversation: (id: ConversationId) => (s: LocalState) =>
     s.conversations[id] ?? DEFAULT_LOCAL_CONVERSATION,
   draft: (id: ConversationId) => (s: LocalState) => s.conversations[id]?.draft ?? '',
   note: (contactId: string) => (s: LocalState) => s.contactNotes[contactId] ?? '',
+  /** The three most used reactions, topped up with defaults. Stable per usage map. */
+  quickReactions: (s: LocalState): readonly string[] => {
+    let list = quickCache.get(s.reactionUsage);
+    if (!list) {
+      const used = Object.entries(s.reactionUsage)
+        .sort((a, b) => b[1] - a[1])
+        .map(([emoji]) => emoji);
+      list = [...new Set([...used, ...DEFAULT_QUICK_REACTIONS])].slice(0, 3);
+      quickCache.set(s.reactionUsage, list);
+    }
+    return list;
+  },
 };
 
 export function selectLocalData(s: LocalState): LocalData {
-  return { conversations: s.conversations, contactNotes: s.contactNotes, seeded: s.seeded };
+  return {
+    conversations: s.conversations,
+    contactNotes: s.contactNotes,
+    reactionUsage: s.reactionUsage,
+    seeded: s.seeded,
+  };
 }
 
 function parseMute(value: unknown): MuteState {
@@ -135,6 +171,13 @@ export const localSchema: VersionedSchema<LocalData> = {
         if (typeof note === 'string' && note.trim() !== '') contactNotes[id] = note;
       }
     }
-    return { conversations, contactNotes, seeded: data.seeded === true };
+    const reactionUsage: Record<string, number> = {};
+    if (isRecord(data.reactionUsage)) {
+      for (const [emoji, count] of Object.entries(data.reactionUsage)) {
+        if (typeof count === 'number' && Number.isFinite(count) && count > 0 && emoji.length <= 32)
+          reactionUsage[emoji] = count;
+      }
+    }
+    return { conversations, contactNotes, reactionUsage, seeded: data.seeded === true };
   },
 };

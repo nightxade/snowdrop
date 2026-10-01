@@ -1,6 +1,6 @@
 import * as RadixDialog from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { IconButton } from './IconButton';
 import styles from './Modal.module.css';
 
@@ -19,6 +19,22 @@ export interface ModalProps {
   /** Hide the visual header (title stays available to screen readers). */
   hideHeader?: boolean;
   className?: string | undefined;
+  /**
+   * Where focus goes on close. Defaults to the element focused when the modal
+   * opened (if it's still in the document). Return null to use that default.
+   */
+  returnFocus?: () => HTMLElement | null | undefined;
+}
+
+/** First element marked `data-autofocus`, else the first field, else the dialog itself. */
+function initialFocus(content: HTMLElement): HTMLElement {
+  return (
+    content.querySelector<HTMLElement>('[data-autofocus]') ??
+    content.querySelector<HTMLElement>(
+      'input:not([type=hidden]):not([disabled]), textarea:not([disabled]), select:not([disabled])',
+    ) ??
+    content
+  );
 }
 
 export function Modal({
@@ -32,7 +48,12 @@ export function Modal({
   placement = 'center',
   hideHeader,
   className,
+  returnFocus,
 }: ModalProps) {
+  // Captured on first render, i.e. before Radix moves focus into the dialog.
+  const [opener] = useState(() =>
+    typeof document === 'undefined' ? null : (document.activeElement as HTMLElement | null),
+  );
   return (
     <RadixDialog.Root open={open} onOpenChange={onOpenChange}>
       <RadixDialog.Portal>
@@ -42,6 +63,17 @@ export function Modal({
           data-size={size}
           data-placement={placement}
           {...(description ? {} : { 'aria-describedby': undefined })}
+          onOpenAutoFocus={(e) => {
+            // Radix would focus the first tabbable: the close button. Start
+            // where the user will act instead.
+            e.preventDefault();
+            initialFocus(e.currentTarget as HTMLElement).focus();
+          }}
+          onCloseAutoFocus={(e) => {
+            e.preventDefault();
+            const target = returnFocus?.() ?? (opener && document.contains(opener) ? opener : null);
+            target?.focus();
+          }}
         >
           <header className={styles.header} data-hidden={hideHeader ? '' : undefined}>
             <RadixDialog.Title className={styles.title}>{title}</RadixDialog.Title>

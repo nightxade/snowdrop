@@ -1,5 +1,13 @@
 export { ConversationAvatar } from './ConversationAvatar';
-export { archive, copyText, markRead, MUTE_OPTIONS, muteState, openConversation } from './actions';
+export {
+  archive,
+  copyText,
+  markRead,
+  MUTE_OPTIONS,
+  muteState,
+  openConversation,
+  openDirectConversation,
+} from './actions';
 export { previewText, type PreviewContext } from './preview';
 export {
   conversationAvatar,
@@ -9,3 +17,4 @@ export {
   type AvatarLook,
 } from './useConversation';
 export { useConversationMenu } from './useConversationMenu';
+export { formatPhone } from './formatPhone';

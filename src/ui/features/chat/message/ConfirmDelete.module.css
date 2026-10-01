@@ -1,0 +1,34 @@
+.preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hearth-space-1);
+  max-height: 160px;
+  margin: 0;
+  padding: var(--hearth-space-4);
+  overflow: hidden;
+  border-radius: var(--hearth-radius-sm);
+  background: var(--hearth-bg-chat);
+  box-shadow: inset 0 0 0 1px var(--hearth-border);
+}
+
+.author {
+  color: var(--hearth-text-strong);
+  font-weight: var(--hearth-font-weight-semibold);
+}
+
+.text {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--hearth-text);
+  font-size: var(--hearth-font-size-message);
+  line-height: var(--hearth-line-height-message);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  white-space: pre-wrap;
+}
+
+.tip {
+  margin-top: var(--hearth-space-4);
+  color: var(--hearth-text-faint);
+  font-size: var(--hearth-font-size-sm);
+}

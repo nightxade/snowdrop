@@ -82,6 +82,8 @@ export interface MessageRepository {
   search(text: string, query: SearchQuery): Promise<Message[]>;
   /** Messages mentioning a contact, newest first (the mentions inbox). */
   mentions(contactId: string, query: { before?: number; limit: number }): Promise<Message[]>;
+  /** Pinned messages of a conversation, newest first (the header's pins popover). */
+  pinned(conversationId: ConversationId, limit: number): Promise<Message[]>;
   /** Messages whose expiresAt has passed (disappearing messages). */
   expired(now: number, limit: number): Promise<Message[]>;
 

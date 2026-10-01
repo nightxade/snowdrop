@@ -1,7 +1,13 @@
 import * as RadixContext from '@radix-ui/react-context-menu';
 import * as RadixDropdown from '@radix-ui/react-dropdown-menu';
 import { Check, ChevronRight } from 'lucide-react';
-import type { HTMLAttributes, ReactElement, Ref } from 'react';
+import {
+  useState,
+  type HTMLAttributes,
+  type KeyboardEvent,
+  type ReactElement,
+  type Ref,
+} from 'react';
 import { tidyMenu, type MenuEntry } from './menuModel';
 import styles from './Menu.module.css';
 
@@ -44,6 +50,11 @@ function Entries({ parts: P, entries }: { parts: Parts; entries: readonly MenuEn
           <P.Sub key={entry.id}>
             <P.SubTrigger className={styles.item}>
               <span className={styles.text}>{entry.label}</span>
+              {entry.icon && (
+                <span className={styles.icon} aria-hidden>
+                  {entry.icon}
+                </span>
+              )}
               <ChevronRight className={styles.chevron} size={16} aria-hidden />
             </P.SubTrigger>
             <P.Portal>
@@ -96,16 +107,52 @@ export interface ContextMenuProps extends TriggerPassthrough {
   label?: string;
 }
 
+/** Keys that open an item's context menu from the keyboard (PLAN §4.11). */
+export function isContextMenuKey(
+  e: Pick<KeyboardEvent, 'key' | 'shiftKey' | 'ctrlKey' | 'metaKey' | 'altKey'>,
+): boolean {
+  if (e.key === 'ContextMenu') return true;
+  if (e.key === 'F10' && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) return true;
+  return e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey;
+}
+
+/**
+ * Radix opens context menus only from a pointer `contextmenu` event, so the
+ * keyboard shortcut synthesises one anchored near the element's start.
+ */
+function openFromKeyboard(event: KeyboardEvent<HTMLElement>): void {
+  if (!isContextMenuKey(event)) return;
+  event.preventDefault();
+  const el = event.currentTarget;
+  const rect = el.getBoundingClientRect();
+  el.dispatchEvent(
+    new MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      clientX: rect.left + Math.min(24, rect.width / 2),
+      clientY: rect.top + rect.height / 2,
+    }),
+  );
+}
+
 export function ContextMenu({
   entries,
   children,
   onOpenChange,
   label,
+  onKeyDown,
   ...trigger
 }: ContextMenuProps) {
   return (
     <RadixContext.Root {...(onOpenChange ? { onOpenChange } : {})} modal={false}>
-      <RadixContext.Trigger asChild {...trigger}>
+      <RadixContext.Trigger
+        asChild
+        {...trigger}
+        onKeyDown={(e) => {
+          onKeyDown?.(e);
+          if (!e.defaultPrevented) openFromKeyboard(e);
+        }}
+      >
         {children}
       </RadixContext.Trigger>
       <RadixContext.Portal>
@@ -140,14 +187,29 @@ export function DropdownMenu({
   open,
   onOpenChange,
   label,
+  onKeyDown,
   ...trigger
 }: DropdownMenuProps) {
+  // Uncontrolled by default; tracked here so the context-menu keys can open it too.
+  const [ownOpen, setOwnOpen] = useState(false);
+  const isOpen = open ?? ownOpen;
+  const setOpen = (next: boolean) => {
+    if (open === undefined) setOwnOpen(next);
+    onOpenChange?.(next);
+  };
   return (
-    <RadixDropdown.Root
-      {...(open !== undefined ? { open } : {})}
-      {...(onOpenChange ? { onOpenChange } : {})}
-    >
-      <RadixDropdown.Trigger asChild {...trigger}>
+    <RadixDropdown.Root open={isOpen} onOpenChange={setOpen}>
+      <RadixDropdown.Trigger
+        asChild
+        {...trigger}
+        onKeyDown={(e) => {
+          onKeyDown?.(e);
+          if (!e.defaultPrevented && isContextMenuKey(e)) {
+            e.preventDefault();
+            setOpen(true);
+          }
+        }}
+      >
         {children}
       </RadixDropdown.Trigger>
       <RadixDropdown.Portal>

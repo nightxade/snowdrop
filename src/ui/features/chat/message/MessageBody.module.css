@@ -1,0 +1,87 @@
+.body {
+  color: var(--hearth-text);
+  font-size: var(--hearth-font-size-message);
+  line-height: var(--hearth-line-height-message);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  user-select: text;
+}
+
+.body[data-jumbo] {
+  font-size: calc(40px * var(--hearth-font-scale));
+  line-height: 1.2;
+}
+
+.body strong {
+  color: var(--hearth-text-strong);
+  font-weight: var(--hearth-font-weight-bold);
+}
+
+.link {
+  color: var(--hearth-text-link);
+  text-decoration: none;
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
+.code {
+  padding: 1px 4px;
+  border-radius: var(--hearth-radius-xs);
+  background: var(--hearth-code-bg);
+  font-family: var(--hearth-font-mono);
+  font-size: 0.86em;
+}
+
+.block {
+  max-width: min(100%, 720px);
+  margin: var(--hearth-space-2) 0;
+  padding: var(--hearth-space-3) var(--hearth-space-4);
+  overflow-x: auto;
+  border: 1px solid var(--hearth-border);
+  border-radius: var(--hearth-radius-sm);
+  background: var(--hearth-code-bg);
+  font-family: var(--hearth-font-mono);
+  font-size: calc(13px * var(--hearth-font-scale));
+  line-height: 1.5;
+  white-space: pre;
+  scrollbar-color: var(--hearth-scrollbar-thumb) transparent;
+  scrollbar-width: thin;
+}
+
+.mention {
+  padding: 0 2px;
+  border-radius: var(--hearth-radius-xs);
+  background: var(--hearth-mention-pill-bg);
+  color: var(--hearth-mention-pill-text);
+  font-weight: var(--hearth-font-weight-medium);
+  cursor: pointer;
+  transition: background-color var(--hearth-duration-fast) var(--hearth-ease);
+}
+
+.mention:hover {
+  background: var(--hearth-accent);
+  color: var(--hearth-text-on-accent);
+}
+
+.spoiler {
+  border-radius: var(--hearth-radius-xs);
+  background: var(--hearth-spoiler-bg);
+  cursor: pointer;
+  transition: background-color var(--hearth-duration-base) var(--hearth-ease);
+}
+
+.spoiler:not([data-revealed]):hover {
+  background: var(--hearth-bg-active);
+  background: color-mix(in srgb, var(--hearth-spoiler-bg) 85%, var(--hearth-text));
+}
+
+.spoilerText {
+  opacity: 0;
+}
+
+.spoiler[data-revealed] {
+  background: var(--hearth-bg-active);
+  cursor: text;
+}

@@ -26,7 +26,7 @@
   --hearth-text: #e9e7e4;
   --hearth-text-strong: #ffffff;
   --hearth-text-muted: #a4a1a0;
-  --hearth-text-faint: #6f6c6b;
+  --hearth-text-faint: #908c8a;
   --hearth-text-on-accent: #1a0f0b;
   --hearth-text-on-avatar: #ffffff;
   --hearth-text-on-danger: #ffffff;
@@ -40,6 +40,7 @@
 
   /* Status */
   --hearth-danger: #f0506e;
+  --hearth-danger-strong: #c93553;
   --hearth-danger-soft: rgba(240, 80, 110, 0.14);
   --hearth-success: #3ccf91;
   --hearth-warning: #f5b44a;
@@ -56,13 +57,13 @@
   --hearth-focus-ring: #ff7a59;
   --hearth-scrollbar-thumb: rgba(255, 255, 255, 0.14);
 
-  /* Avatar hues: tuned so white initials stay legible (≥ 4.5:1). */
-  --hearth-avatar-1: #c2553f;
-  --hearth-avatar-2: #b8651d;
-  --hearth-avatar-3: #8f7a14;
-  --hearth-avatar-4: #4f8a2b;
-  --hearth-avatar-5: #248a5c;
-  --hearth-avatar-6: #1f8584;
+  /* Avatar hues: white initials reach ≥ 4.5:1 on every hue (tested in themes.test.ts). */
+  --hearth-avatar-1: #bd523c;
+  --hearth-avatar-2: #a95b1a;
+  --hearth-avatar-3: #806d12;
+  --hearth-avatar-4: #4a8028;
+  --hearth-avatar-5: #218055;
+  --hearth-avatar-6: #1c7b7a;
   --hearth-avatar-7: #2878a8;
   --hearth-avatar-8: #4a68c4;
   --hearth-avatar-9: #7059c7;
@@ -83,6 +84,7 @@
   --hearth-space-9: 48px;
 
   /* Radii */
+  --hearth-radius-tile: 14px;
   --hearth-radius-xs: 4px;
   --hearth-radius-sm: 8px;
   --hearth-radius-md: 12px;

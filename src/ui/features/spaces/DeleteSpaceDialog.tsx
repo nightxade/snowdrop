@@ -23,12 +23,12 @@ export function DeleteSpaceDialog({ spaceId, onClose }: { spaceId: SpaceId; onCl
       }
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>
+          {/* The safe choice gets focus, so Enter can't delete by accident. */}
+          <Button variant="ghost" data-autofocus onClick={onClose}>
             Cancel
           </Button>
           <Button
             variant="danger"
-            autoFocus
             onClick={() => {
               deleteSpace(app, spaceId);
               onClose();

@@ -4,7 +4,9 @@
  * concrete `Hearth` from app/createHearth satisfies this structurally.
  */
 import { createContext, use, type ReactNode } from 'react';
+import type { ChatBackend } from '@/core/backend';
 import type { CommandRegistry, KeybindDispatcher } from '@/core/commands';
+import type { MessageRepository } from '@/core/persistence';
 import type { PluginRuntime, Registries } from '@/core/plugins';
 import type { HistoryService, SendService, SyncService } from '@/core/services';
 import type { Stores } from '@/core/stores';
@@ -18,6 +20,14 @@ export interface AppServices {
   sync: SyncService;
   send: SendService;
   history: HistoryService;
+  /**
+   * The only transport capabilities the UI may touch directly: its kind and
+   * lazy attachment URLs (render-only, see ChatBackend.resolveAttachmentUrl).
+   * Everything else goes through the services.
+   */
+  backend: Pick<ChatBackend, 'kind' | 'resolveAttachmentUrl'>;
+  /** Read-only history queries (search, mentions inbox, pins). */
+  repository: Pick<MessageRepository, 'search' | 'mentions' | 'pinned'>;
   /** Connects and syncs; the app calls it once a backend has been chosen. */
   start(): Promise<void>;
 }

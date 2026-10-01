@@ -275,7 +275,12 @@ export class SyncService {
 
   private isViewing(conversationId: ConversationId): boolean {
     const ui = this.deps.stores.ui.getState();
-    return ui.windowFocused && uiSelectors.selectedConversation(ui) === conversationId;
+    // Only when the newest messages are actually on screen (the list reports scrolling away).
+    return (
+      ui.windowFocused &&
+      uiSelectors.selectedConversation(ui) === conversationId &&
+      !uiSelectors.scrolledUp(conversationId)(ui)
+    );
   }
 
   // ─── Events ────────────────────────────────────────────────────────────

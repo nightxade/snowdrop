@@ -7,36 +7,22 @@ import { useHearth } from '@/ui/hooks';
  * Side effects of navigation, in one place so every path (click, keyboard,
  * switcher, plugin) behaves the same:
  * - opening a conversation loads its history (HistoryService.open snapshots
- *   the unread marker first) and marks it read while the window has focus;
+ *   the unread marker first). Marking read is the message list's job: only
+ *   when its newest message is on screen and the window has focus;
  * - window focus is mirrored into the ui store (SyncService only auto-reads
- *   incoming messages for a focused, open conversation);
+ *   incoming messages for a focused, open conversation scrolled to the bottom);
  * - a deleted space falls back to Home.
  */
 export function useConversationLifecycle(): void {
-  const { stores, history, sync } = useHearth();
+  const { stores, history } = useHearth();
   const selected = useStore(stores.ui, uiSelectors.selectedConversation);
   const ready = useStore(stores.session, sessionSelectors.ready);
-  const focused = useStore(stores.ui, (s) => s.windowFocused);
   const space = useStore(stores.ui, uiSelectors.selectedSpace);
   const spaceExists = useStore(stores.spaces, (s) => space === HOME || space in s.spaces);
 
   useEffect(() => {
-    if (!selected || !ready) return;
-    let cancelled = false;
-    void history.open(selected).then(() => {
-      // P3's message list will refine this to "read when scrolled to the bottom".
-      if (!cancelled && stores.ui.getState().windowFocused)
-        void sync.markConversationRead(selected);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [selected, ready, history, sync, stores]);
-
-  // Coming back to the window reads what arrived while away.
-  useEffect(() => {
-    if (focused && selected && ready) void sync.markConversationRead(selected);
-  }, [focused, selected, ready, sync]);
+    if (selected && ready) void history.open(selected);
+  }, [selected, ready, history]);
 
   useEffect(() => {
     const update = () => {

@@ -1,8 +1,8 @@
 .header {
   display: flex;
   align-items: center;
-  height: 24px;
-  margin: var(--hearth-space-5) var(--hearth-space-3) var(--hearth-space-2) var(--hearth-space-2);
+  min-height: 28px;
+  margin: var(--hearth-space-4) var(--hearth-space-3) var(--hearth-space-2) var(--hearth-space-2);
 }
 
 .toggle {
@@ -11,7 +11,7 @@
   align-items: center;
   gap: var(--hearth-space-2);
   min-width: 0;
-  height: 100%;
+  min-height: 28px;
   padding-right: var(--hearth-space-3);
   border-radius: var(--hearth-radius-xs);
   color: var(--hearth-text-faint);
@@ -35,8 +35,6 @@
   overflow: hidden;
   font-size: var(--hearth-font-size-sm);
   font-weight: var(--hearth-font-weight-semibold);
-  letter-spacing: var(--hearth-tracking-label);
   text-overflow: ellipsis;
-  text-transform: uppercase;
   white-space: nowrap;
 }

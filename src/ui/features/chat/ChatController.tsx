@@ -1,0 +1,104 @@
+/**
+ * Imperative wiring between the chat column's parts: the header, commands
+ * and composer ask the message list to scroll/reveal, and the drop overlay
+ * hands files to the composer. Parts register handlers while mounted; calls
+ * to an unmounted part are no-ops (or queued, for cross-conversation jumps).
+ */
+import { createContext, use, useSyncExternalStore } from 'react';
+import type { ConversationId, MessageId } from '@/core/domain';
+
+export interface ListHandle {
+  conversationId: ConversationId;
+  /** Scrolls to the newest message, reloading the present first if detached. */
+  jumpToPresent(): Promise<void>;
+  /** Scrolls to (loading history around, if needed) and flashes a message. */
+  reveal(messageId: MessageId, options?: { flash?: boolean }): Promise<boolean>;
+}
+
+export interface ComposerHandle {
+  conversationId: ConversationId;
+  addFiles(files: readonly File[]): void;
+  focus(): void;
+}
+
+export class ChatController {
+  private list: ListHandle | null = null;
+  private composer: ComposerHandle | null = null;
+  /** A jump requested for a conversation whose list isn't mounted yet (mentions inbox). */
+  private pending: { conversationId: ConversationId; messageId: MessageId } | null = null;
+  private searchOpen = false;
+  private readonly listeners = new Set<() => void>();
+
+  /** The in-conversation search panel (Ctrl+F), shared by the header button and the column. */
+  isSearchOpen = (): boolean => this.searchOpen;
+
+  setSearchOpen(open: boolean): void {
+    if (this.searchOpen === open) return;
+    this.searchOpen = open;
+    for (const fn of this.listeners) fn();
+  }
+
+  subscribe = (fn: () => void): (() => void) => {
+    this.listeners.add(fn);
+    return () => {
+      this.listeners.delete(fn);
+    };
+  };
+
+  registerList(handle: ListHandle): () => void {
+    this.list = handle;
+    const pending = this.pending;
+    if (pending?.conversationId === handle.conversationId) {
+      this.pending = null;
+      void handle.reveal(pending.messageId);
+    }
+    return () => {
+      if (this.list === handle) this.list = null;
+    };
+  }
+
+  registerComposer(handle: ComposerHandle): () => void {
+    this.composer = handle;
+    return () => {
+      if (this.composer === handle) this.composer = null;
+    };
+  }
+
+  jumpToPresent(): Promise<void> {
+    return this.list?.jumpToPresent() ?? Promise.resolve();
+  }
+
+  /** Reveals a message; if its conversation's list isn't mounted, on mount. */
+  reveal(conversationId: ConversationId, messageId: MessageId): Promise<boolean> {
+    if (this.list?.conversationId === conversationId) return this.list.reveal(messageId);
+    this.pending = { conversationId, messageId };
+    return Promise.resolve(true);
+  }
+
+  addFiles(files: readonly File[]): void {
+    this.composer?.addFiles(files);
+  }
+
+  focusComposer(): void {
+    this.composer?.focus();
+  }
+}
+
+const ChatControllerContext = createContext<ChatController | null>(null);
+
+export const ChatControllerProvider = ChatControllerContext.Provider;
+
+export function useChatController(): ChatController {
+  const controller = use(ChatControllerContext);
+  if (!controller) throw new Error('useChatController must be used inside <ChatColumn>');
+  return controller;
+}
+
+export function useSearchOpen(): boolean {
+  const controller = useChatController();
+  return useSyncExternalStore(
+    controller.subscribe,
+    controller.isSearchOpen,
+    controller.isSearchOpen,
+  );
+}

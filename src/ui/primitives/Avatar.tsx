@@ -51,9 +51,7 @@ export function Avatar({
             }}
           />
         ) : (
-          <span className={styles.fallback} data-testid="avatar-fallback">
-            {fallback}
-          </span>
+          <span className={styles.fallback}>{fallback}</span>
         )}
       </span>
       {status !== undefined && status !== null && <span className={styles.status}>{status}</span>}

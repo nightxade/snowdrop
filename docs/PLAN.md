@@ -299,17 +299,22 @@ swipe/Escape to close). Min supported width 360px.
 
 ### 4.2 Spaces rail
 - **Home** at top (Hearth glyph): all DMs + unassigned groups. Unread
-  indicator = small accent bar on the left edge; mention count = red badge
-  bottom-right of the icon.
+  indicator = small light dot (`--hearth-text-strong`) on the tile's top-left
+  corner; mention count = red badge (`--hearth-danger-strong`) bottom-right.
+  No left-edge pill: that is another product's trade dress.
 - Separator, then **Spaces**: local, user-defined collections of Signal
   groups (and optionally DMs), shown as rounded-square tiles with emoji or
-  initials on a chosen colour. Tooltip with name on hover (right side).
-- Selected space: tile gets a stronger radius change + full-height edge bar.
+  initials, tinted with the space colour and filled with it on hover.
+  Constant 14px radius (`--hearth-radius-tile`, no shape morph). Tooltip with
+  name on hover (right side).
+- Selected space: 2px `--hearth-accent` ring at a 3px offset from the tile.
+  Accent is reserved for selection; keyboard focus is a dashed outline further
+  out so the two never read alike.
 - Drag to reorder; drag tile onto tile creates a **folder** (expand/collapse).
 - `+` tile → Create Space dialog (name, emoji/colour, pick groups with a
   searchable checklist; suggestions based on shared members).
-- Right-click tile: Mark all read, Mute space, Edit, Delete (confirm; groups
-  return to Home).
+- Right-click tile (or Shift+F10 / Ctrl+Enter): Mark all read, Mute space,
+  Edit, Move up/down, Delete (confirm; groups return to Home).
 - Bottom: connection health dot (only visible when not online).
 
 ### 4.3 Sidebar
@@ -319,13 +324,16 @@ swipe/Escape to close). Min supported width 360px.
   collapsible, sorted by last activity. Rows: avatar (DMs) / group glyph,
   title, one-line preview (DMs only when hovered? → no: show a muted last-message
   preview for DMs and groups in Home; hidden in Spaces for a cleaner channel feel),
-  unread = bold title + white text, mention badge, muted = 50% opacity, typing
-  = animated dots replacing preview.
+  unread = bold title + strong text and a flat-sided 4×12 tab
+  (`border-radius: 0 2px 2px 0`, `--hearth-text-strong`) on the sidebar edge,
+  mention badge, muted = 50% opacity, typing = animated dots replacing preview.
+  Section labels are sentence case ("Direct Messages", "Archived · 3").
 - In a Space: collapsible **categories** (user-created; default "Chats") with
   channel-style rows: `#` glyph, title, badges. Drag rows between categories.
 - Row hover shows a close/archive `×` (Home) or settings cog (Spaces).
-- Right-click row: Mark as read, Mute ▸ (15m/1h/8h/24h/until I turn it back
-  on), Pin/Unpin, Move to space ▸, Copy ID, Disappearing messages ▸, Archive.
+- Right-click row (or Shift+F10 / ContextMenu key / Ctrl+Enter on a focused
+  row): Mark as read, Mute ▸ (15m/1h/8h/24h/until I turn it back on),
+  Pin/Unpin, Move to space ▸, Copy ID, Disappearing messages ▸, Archive.
 - **User panel** at the bottom: avatar + profile name + "linked device"
   subtitle (or connection state in colour when degraded); buttons: toggle
   notifications (bell), settings (cog).
@@ -388,12 +396,16 @@ results panel), toggle member list (groups), inbox (mentions across convos).
 - Placeholder: "Message #group-name" / "Message @Name".
 
 ### 4.7 Member list (groups)
-- Sections: **Admins — N**, **Members — N**. Rows: avatar, name (colour),
-  about-emoji. No fake presence.
-- Click → **profile popout** anchored to the row: banner in contact colour,
-  large avatar, name, profile name, about, number (if shared), "Message"
-  button, "Copy safety-number hint" (safety number verification itself is
-  done on the phone), note field (local, persisted).
+- Sections in sentence case: **Admins · N**, **Members · N**. Rows: avatar,
+  name (contact colour mixed toward text for legibility), about-emoji. No fake
+  presence. Below 1100px the list is a modal sheet from the right (focus
+  trapped, Esc closes, focus returns to the toggle).
+- Click → **profile popout** anchored to the row: a header tinted with the
+  contact colour holding a 48px avatar *left of* the name (no banner with an
+  overlapping avatar ring), profile name, "Group admin" chip where relevant;
+  then about, number (formatted, if shared), "Message" (always enabled: opens
+  or creates the DM), "Copy safety-number steps" (verification itself happens
+  on the phone), and a private note ("Add a private note…", local, persisted).
 
 ### 4.8 Quick switcher (Ctrl/Cmd+K)
 Modal with fuzzy search over conversations, spaces and commands (prefix `>`
@@ -448,12 +460,15 @@ surface as a slim banner at the top of the chat column, with retry.
 - Base dark neutral with a hint of warmth (not pure grey): rail `#101114`,
   sidebar `#15171b`, chat `#1b1d22`, elevated `#22252b`, floating `#0c0d10`,
   border `rgba(255,255,255,.06)`, text `#e9e7e4`, muted `#a4a1a0`,
-  faint `#6f6c6b`. Accent ember `#ff7a59`, danger `#f0506e`,
+  faint `#908c8a`. Accent ember `#ff7a59`, danger `#f0506e` (badge/button
+  fills use `danger-strong` `#c93553` so white text passes 4.5:1),
   success `#3ccf91`, warning `#f5b44a`, mention bg `rgba(255,122,89,.10)`.
-- 12 avatar hues tuned for contrast in each theme.
+- 12 avatar hues; white initials ≥ 4.5:1 on each (tested, all themes).
+- All text tokens ≥ 4.5:1 on every surface in every built-in theme
+  (`src/test/contrast.test.ts`).
 - Type: Inter; message 15px/1.375, UI 14px, headers 16px 600,
-  section labels 12px 600 uppercase +0.02em tracking.
-- Radii: 4 / 8 / 12 / 16; spaces tiles 16 → 12 when selected.
+  section labels 12px 600 sentence case (no uppercase tracking).
+- Radii: 4 / 8 / 12 / 16; rail tiles a constant 14.
 - Shadows only on floating layers (menus, popouts, modals).
 
 ## 5. Mock backend world
@@ -588,7 +603,7 @@ Recorded by the builder of each phase. Where these refine §3, they win.
   it in sync with `core/themes/tokens.ts`. The theme engine sets
   `data-theme`, `data-theme-kind`, `data-density`, `data-reduced-motion`,
   `data-saturation-adjusted` on `<html>` and keeps its three `<style>` tags last
-  in `<head>`. Linen uses a darker ember (`#d4502c`) for contrast on paper.
+  in `<head>`. Linen uses a darker ember (`#bc4526` since the P2 review) for contrast on paper.
 
 **Tooling**
 - Current majors at time of writing: TypeScript 6, Vite 8, Vitest 5, ESLint 10.
@@ -877,3 +892,139 @@ when present, must be the app's origin. `server.cors` / `preview.cors` = false.
 - The message area is a frame: `role="log"` region with the conversation's
   opening block and a note; the composer is a disabled shell with a live typing
   strip of reserved height. P3 mounts the list and editor inside these.
+
+### P2 review round 1
+
+Finding → fix (details in the phase report). Items that change contracts
+other phases build on:
+- **Signatures (for P3).** `ChatHeader({ conversationId })` and
+  `MembersPanel({ conversationId, onClose? })` take ids and subscribe
+  themselves; `ChatColumn` subscribes only to the selected id, its kind and
+  the member-list flag. `ComposerShell` still takes the view, adapted by a
+  memoised `ComposerSlot` in `ChatColumn` (P3 can drop it when the composer
+  takes an id). `ProfilePopout`'s `conversationId` is optional and shows the
+  "Group admin" chip.
+- **Focus.** `Modal` records the opener and restores it on close (or
+  `returnFocus()`), and on open focuses `[data-autofocus]`, else the first
+  field, else the dialog (never the close button). `ui/hooks/focusTargets`:
+  `focusConversation(id)` / `conversationFocusTarget(id)` land focus on the
+  conversation's sidebar row (`[data-conversation-id]`); the composer should
+  call `setConversationFocusResolver` so navigation lands in the composer.
+- **Keyboard menus.** `ContextMenu` opens on Shift+F10, the ContextMenu key
+  and Ctrl/Cmd+Enter (`isContextMenuKey`), listed in the shortcuts sheet.
+- **Overlays.** `Drawer` takes `side: 'left' | 'right'`; the narrow member list
+  uses the right-hand drawer.
+- **Tokens.** New `danger-strong` (badge/danger-button fills), `radius-tile`;
+  faint text, Linen accent/danger and avatar hues 1–6 retuned for 4.5:1.
+- **Motion.** Reduced motion is centralised in `global.css` (stops keyframe
+  animations as well as zeroing the duration tokens); components no longer
+  carry their own reduced-motion blocks (P3's chat modules still do; harmless).
+- **Clock.** `useNow(interval)` shares one timer per interval.
+- **Tooling.** `verify-boundaries.mjs` only creates new, uniquely named
+  fixtures (`__boundary_<pid>_<n>__.ts`), never touches existing files, and
+  cleans up on exit, SIGINT/SIGTERM and at startup.
+- **Dev dependency.** `vitest-axe` (MIT) for the axe smoke test; it pulls in
+  `axe-core`, which is MPL-2.0 (dev/test only, not shipped).
+
+### P3 Messaging
+
+**Structure (`ui/features/chat`).** `ChatController` (one per column, React
+context) wires the parts imperatively: the list registers
+`jumpToPresent`/`reveal(id)`, the composer registers `addFiles`/`focus`, and
+it holds the search-panel flag (`useSearchOpen`) so `ChatHeader` keeps its
+id-only signature. A reveal for a conversation whose list isn't mounted yet
+(mentions inbox) is queued and runs on mount. `ConversationArea` = pane +
+composer + drop target; `SearchSlot` replaces the member list while search is
+open (right drawer when narrow). `ComposerShell`/`ComposerSlot` are gone:
+`MessagePane` and `Composer` take a `conversationId`. Folders: `list/`
+(virtualiser, dividers, overlays, read tracking, row state), `message/` (row,
+body, attachments, reactions, hover bar, menu, editor), `composer/`,
+`header/` (search panel, pins, mentions inbox), `lib/` (pure helpers).
+
+**Message list.** `react-virtuoso` with `firstItemIndex`. Deviation: the
+index bookkeeping (`lib/indexTracker`) is keyed on render-item keys (nonce or
+id; messages are ordered by `seq`), not on `seq` itself, because the items
+include dividers. It shifts by how far the first surviving row moved; no
+overlap ⇒ a new `epoch`, which remounts the virtualiser at the right start
+(jump target, else the unread divider if it is > 12 rows from the end, else
+the bottom). While older history is unloaded the window's leading day divider
+is dropped: it would be a guess, and it moved to the new top on every
+prepend, changing an already-measured row (visible jump). Rows render
+`padding`, never margins (Virtuoso measures border boxes). While at (or opened
+at) the bottom, `totalListHeightChanged` re-pins it so images/fonts settling
+can't leave the newest message half-hidden. Hover and flash are exclusive
+list-wide state (`list/rowState`), because a row scrolled out from under a
+still pointer never receives `pointerleave`; keyboard focus (`:focus-visible`)
+also activates a row, a mouse click inside it doesn't.
+
+**Read state (core change).** `uiStore.scrolledUp[conv]` (absent = bottom
+visible) is published by the list; `SyncService.isViewing` now also requires
+it, so arrivals while scrolled up stay unread and feed the jump pill's
+counter. The list marks read only when the window is anchored, its bottom is
+visible and the window is focused (`useReadTracking`). P2's mark-on-open and
+mark-on-focus in `useConversationLifecycle` were removed. The "N new messages
+since HH:MM" bar counts what was unread at open (snapshot), shows while the
+divider is above the viewport (measured against the scroller, not Virtuoso's
+overscanned range), jumps to the divider or — if it isn't loaded —
+`HistoryService.jumpToFirstUnread`, and its "Mark as read" keeps the divider.
+
+**Core additions.** `SendService`: `edit` passes the original's quote as
+`EditInput.quote`; `pin(conv, msg, pin)`, `adminDelete(conv, msg)`,
+`deleteForMe(conv, msg)` (local: discard if unsent, else repository delete +
+store remove; a later backfill could resurrect it — known gap) and
+`capabilities { pin, adminDelete }`. `MessageRepository.pinned(conv, limit)`
+(memory + IDB reverse scan). `HistoryService.jumpToFirstUnread`. `localStore`
+gained `reactionUsage` + `noteReactionUsed` and
+`localSelectors.quickReactions` (top 3, defaults 👍 ❤️ 😂). `AppServices` gained
+`backend: Pick<ChatBackend, 'kind' | 'resolveAttachmentUrl'>` and
+`repository: Pick<MessageRepository, 'search' | 'mentions' | 'pinned'>`.
+
+**Rendering.** Body: `rangesToSegments` → elements; multi-line monospace is a
+code block; spoilers are buttons until revealed; http(s) links open in a new
+tab (`noopener noreferrer`); emoji-only bodies (≤ 10) are jumbo; `(edited)`
+sits inline after the text; `preview` mode renders statically for results
+lists (no nested controls). Mentions and author names open the profile
+popout (`ProfilePopout` now exported by `members`). Names use the member-list
+legibility mix of the contact hue; 16px avatars show a colour dot, not
+initials. Attachments: allow-list in `lib/attachments` (raster images,
+mp4/webm/mov, common audio; SVG only as an inline `data:` URL, i.e. the demo)
+rendered only via `<img>/<video>/<audio>/<a download>`; URL-less attachments
+resolve through `useAttachmentUrl` (`backend.resolveAttachmentUrl`, cached,
+loading/error + retry). Grid of ≤ 4 (+N), single images sized from
+width/height before load. `Lightbox` and `EmojiPicker`/`EmojiPickerPopover`
+are new primitives (Radix Dialog; frimousse).
+
+**Emoji data (privacy).** frimousse defaults to a public CDN; a Vite plugin
+(`devserver/emojibase.ts`) serves `emojibase-data`'s `en/data.json` and
+`messages.json` from our origin (middleware in dev/preview, emitted assets in
+the build). `:shortcode:` autocomplete uses the same data plus GitHub
+shortcodes (lazy chunk).
+
+**Composer.** Plain textarea. Mentions are readable `@Full Name` text plus
+tokens; on send each known label becomes U+FFFC and its id joins `mentionIds`
+(an edited label is sent as text); restored drafts re-derive tokens from
+member names. Autocomplete via `@floating-ui/react` above the field (listbox
+with `aria-activedescendant` on the textarea; no `combobox` role, which axe
+rejects on a textarea). Formatting shortcuts go through `execCommand
+('insertText')` so they join native undo (fallback `setRangeText`). Slash
+commands run on send (`send`/`replace`/`error`/`done`). Sending while detached
+calls `jumpToPresent` first; replies carry the quoted message's attachment
+types. Attachments live in composer state (lost on switching conversation —
+known gap); **no spoiler toggle**: `OutgoingAttachment` has no spoiler flag.
+Escape: dismiss autocomplete → cancel reply → mark read (empty). The composer
+registers `setConversationFocusResolver`, so navigation lands in it (the P2
+shell test now expects that).
+
+**Commands.** `core.jumpToPresent` and `core.searchConversation` are
+registered by `useChatCommands`. Header: pinned messages (only if the backend
+pins), search toggle, mentions inbox.
+
+**Dev only.** `app/devTools.ts` (dynamic import under `import.meta.env.DEV`):
+`window.__hearth`, `__hearth.stress(n)` / `?stress=5000`, `__hearth.failNext()`.
+
+**Known gaps.** Interactive pieces inside messages (avatar, name, images) are
+still separate tab stops; ↑/↓ move between messages. Scroll position isn't
+restored when switching back to a conversation (it opens at the bottom /
+divider). Search highlights no terms. In happy-dom Virtuoso renders no rows at
+an initial index, so the scroll + flash of a jump is verified by Playwright,
+not unit tests.

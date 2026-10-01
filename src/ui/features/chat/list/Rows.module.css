@@ -1,0 +1,84 @@
+.day {
+  display: flex;
+  align-items: center;
+  height: 24px;
+  /* Padding, not margin: the virtualiser doesn't measure margins. */
+  padding: var(--hearth-space-6) var(--hearth-space-5) var(--hearth-space-1);
+  box-sizing: content-box;
+}
+
+.day::before,
+.day::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--hearth-border-strong);
+}
+
+.dayLabel {
+  padding: 0 var(--hearth-space-3);
+  color: var(--hearth-text-muted);
+  font-size: var(--hearth-font-size-sm);
+  font-weight: var(--hearth-font-weight-semibold);
+}
+
+.new {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 8px;
+  margin: 0;
+  padding: var(--hearth-space-3) var(--hearth-space-5) 0;
+  box-sizing: content-box;
+}
+
+.new::before {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--hearth-danger);
+}
+
+.newTag {
+  padding: 0 6px;
+  border-radius: var(--hearth-radius-xs);
+  background: var(--hearth-danger);
+  color: var(--hearth-text-on-danger);
+  font-size: var(--hearth-font-size-xs);
+  font-weight: var(--hearth-font-weight-bold);
+  line-height: 16px;
+  text-transform: uppercase;
+}
+
+.system {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) auto;
+  align-items: center;
+  padding: var(--hearth-space-3) var(--hearth-space-9) var(--hearth-space-3) 0;
+  color: var(--hearth-text-muted);
+  font-size: var(--hearth-font-size-ui);
+}
+
+.systemIcon {
+  display: grid;
+  place-items: center;
+  color: var(--hearth-text-faint);
+}
+
+.systemText {
+  overflow-wrap: anywhere;
+}
+
+.systemTime {
+  margin-left: var(--hearth-space-3);
+  color: var(--hearth-text-faint);
+  font-size: var(--hearth-font-size-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 759.98px) {
+  .system {
+    grid-template-columns: 60px minmax(0, 1fr) auto;
+    padding-right: var(--hearth-space-4);
+  }
+}

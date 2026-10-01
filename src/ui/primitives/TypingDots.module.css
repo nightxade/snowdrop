@@ -34,15 +34,3 @@
     transform: translateY(-2px);
   }
 }
-
-@media (prefers-reduced-motion: reduce) {
-  :global(:root:not([data-reduced-motion='off'])) .dots > span {
-    animation: none;
-    opacity: 0.7;
-  }
-}
-
-:global(:root[data-reduced-motion='on']) .dots > span {
-  animation: none;
-  opacity: 0.7;
-}

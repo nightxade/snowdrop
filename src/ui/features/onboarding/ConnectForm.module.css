@@ -39,3 +39,24 @@
   font-size: 0.9em;
   overflow-wrap: anywhere;
 }
+
+.command {
+  display: flex;
+  max-width: 100%;
+  align-items: center;
+  gap: var(--hearth-space-2);
+  margin-top: var(--hearth-space-3);
+  padding: var(--hearth-space-2) var(--hearth-space-2) var(--hearth-space-2) var(--hearth-space-4);
+  border-radius: var(--hearth-radius-sm);
+  background: var(--hearth-code-bg);
+}
+
+.commandText {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  color: var(--hearth-text);
+  font-size: 0.9em;
+  white-space: nowrap;
+  scrollbar-width: none;
+}

@@ -8,15 +8,18 @@ export interface DrawerProps {
   /** Accessible name. */
   label: string;
   children: ReactNode;
+  /** Edge it slides from. Default left (navigation); right for side sheets. */
+  side?: 'left' | 'right';
 }
 
 const SWIPE_CLOSE_PX = 60;
 
 /**
- * Slide-over panel from the left edge (small screens). Escape, the scrim or a
- * leftward swipe close it; focus is trapped while open.
+ * Modal slide-over panel from a screen edge (small screens). Escape, the
+ * scrim or a swipe back towards the edge close it; focus is trapped while
+ * open and returns to where it was on close.
  */
-export function Drawer({ open, onOpenChange, label, children }: DrawerProps) {
+export function Drawer({ open, onOpenChange, label, children, side = 'left' }: DrawerProps) {
   const start = useRef<{ x: number; y: number } | null>(null);
   return (
     <RadixDialog.Root open={open} onOpenChange={onOpenChange}>
@@ -24,6 +27,7 @@ export function Drawer({ open, onOpenChange, label, children }: DrawerProps) {
         <RadixDialog.Overlay className={styles.overlay} />
         <RadixDialog.Content
           className={styles.content}
+          data-side={side}
           aria-describedby={undefined}
           onOpenAutoFocus={(e) => {
             // Focus the panel itself rather than its first button, so opening
@@ -39,8 +43,8 @@ export function Drawer({ open, onOpenChange, label, children }: DrawerProps) {
             start.current = null;
             if (!s) return;
             const dx = e.clientX - s.x;
-            if (dx < -SWIPE_CLOSE_PX && Math.abs(e.clientY - s.y) < Math.abs(dx))
-              onOpenChange(false);
+            const towardEdge = side === 'left' ? dx < -SWIPE_CLOSE_PX : dx > SWIPE_CLOSE_PX;
+            if (towardEdge && Math.abs(e.clientY - s.y) < Math.abs(dx)) onOpenChange(false);
           }}
         >
           <RadixDialog.Title className={styles.title}>{label}</RadixDialog.Title>

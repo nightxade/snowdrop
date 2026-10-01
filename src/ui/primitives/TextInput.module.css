@@ -9,8 +9,6 @@
   color: var(--hearth-text-muted);
   font-size: var(--hearth-font-size-sm);
   font-weight: var(--hearth-font-weight-semibold);
-  letter-spacing: var(--hearth-tracking-label);
-  text-transform: uppercase;
 }
 
 .field {

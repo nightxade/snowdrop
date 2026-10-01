@@ -58,6 +58,7 @@ export const ConversationRow = memo(function ConversationRow({
           type="button"
           className={styles.main}
           data-roving-item
+          data-conversation-id={id}
           tabIndex={tabStop ? 0 : -1}
           aria-current={selected ? 'page' : undefined}
           aria-label={label}

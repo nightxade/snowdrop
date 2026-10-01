@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Button, TextInput } from '@/ui/primitives';
+import { Check, Copy } from 'lucide-react';
+import { Button, IconButton, TextInput } from '@/ui/primitives';
 import styles from './ConnectForm.module.css';
 
 /** Accepts the same-origin proxy path ("/signal-cli") or an http(s) URL. */
@@ -15,6 +16,31 @@ export function validateDaemonUrl(value: string): string | null {
   } catch {
     return 'That doesn’t look like an address. Try /signal-cli or http://127.0.0.1:8080.';
   }
+}
+
+const DAEMON_COMMAND = 'signal-cli daemon --http 127.0.0.1:8080';
+
+/** A shell command on one line (scrolls rather than wraps) with a copy button. */
+function CommandChip({ command }: { command: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <span className={styles.command}>
+      <code className={styles.commandText}>{command}</code>
+      <IconButton
+        size="sm"
+        label={copied ? 'Copied' : 'Copy command'}
+        icon={copied ? <Check /> : <Copy />}
+        onClick={() => {
+          void navigator.clipboard.writeText(command).then(
+            () => {
+              setCopied(true);
+            },
+            () => undefined,
+          );
+        }}
+      />
+    </span>
+  );
 }
 
 export function ConnectForm({
@@ -40,8 +66,8 @@ export function ConnectForm({
       <ol className={styles.steps}>
         <li>Install signal-cli and register or link your number with it.</li>
         <li>
-          Start the daemon:{' '}
-          <code className={styles.code}>signal-cli daemon --http 127.0.0.1:8080</code>
+          Start the daemon:
+          <CommandChip command={DAEMON_COMMAND} />
         </li>
         <li>
           Keep the address below unless you changed the dev proxy. The daemon has no CORS support,

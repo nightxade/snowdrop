@@ -64,6 +64,11 @@ interface BoundaryProps {
   onError?: (error: unknown, entry: SlotEntry) => void;
 }
 
+/**
+ * Error boundary for one plugin contribution. It resets by itself when the
+ * plugin supplies a new component (e.g. after being re-enabled or updated),
+ * and offers Retry for transient failures.
+ */
 export class PluginBoundary extends Component<BoundaryProps, { failed: boolean }> {
   override state = { failed: false };
 
@@ -76,16 +81,31 @@ export class PluginBoundary extends Component<BoundaryProps, { failed: boolean }
     else console.error(`[hearth] plugin "${this.props.entry.owner}" failed to render`, error);
   }
 
+  override componentDidUpdate(previous: BoundaryProps): void {
+    if (this.state.failed && previous.entry.component !== this.props.entry.component) {
+      this.setState({ failed: false });
+    }
+  }
+
+  private readonly retry = (): void => {
+    this.setState({ failed: false });
+  };
+
   override render(): ReactNode {
     if (!this.state.failed) return this.props.children;
     const { owner } = this.props.entry;
     return (
-      <Tooltip label={`The "${owner}" plugin hit an error here. Other features keep working.`}>
-        <span className={styles.failed} role="status" tabIndex={0}>
-          <TriangleAlert size={12} aria-hidden />
-          {owner} failed
-        </span>
-      </Tooltip>
+      <span className={styles.failed} role="status">
+        <Tooltip label={`The "${owner}" plugin hit an error here. Other features keep working.`}>
+          <span className={styles.failedLabel} tabIndex={0}>
+            <TriangleAlert size={12} aria-hidden />
+            {owner} failed
+          </span>
+        </Tooltip>
+        <button type="button" className={styles.retry} onClick={this.retry}>
+          Retry
+        </button>
+      </span>
     );
   }
 }

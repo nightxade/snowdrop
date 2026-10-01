@@ -1,0 +1,212 @@
+.attachments {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--hearth-space-2);
+  margin-top: var(--hearth-space-2);
+}
+
+.grid {
+  display: grid;
+  gap: var(--hearth-space-1);
+  width: min(400px, 100%);
+  overflow: hidden;
+  border-radius: var(--hearth-radius-sm);
+}
+
+/* One image: its own aspect ratio, sized from width/height before it loads. */
+.grid[data-count='1'] {
+  max-width: 100%;
+  height: auto;
+}
+
+.grid[data-count='2'] {
+  grid-template-columns: 1fr 1fr;
+  height: 200px;
+}
+
+.grid[data-count='3'] {
+  grid-template-columns: 2fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  height: 300px;
+}
+
+.grid[data-count='3'] > :first-child {
+  grid-row: span 2;
+}
+
+.grid[data-count='4'] {
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  height: 300px;
+}
+
+.tile {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--hearth-bg-elevated);
+  cursor: zoom-in;
+}
+
+.tile[data-state] {
+  display: grid;
+  place-items: center;
+  cursor: default;
+}
+
+.tile[data-state='loading'] {
+  background: linear-gradient(
+    100deg,
+    var(--hearth-bg-elevated) 30%,
+    var(--hearth-bg-active) 50%,
+    var(--hearth-bg-elevated) 70%
+  );
+  background-size: 300% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tile[data-state='loading'] {
+    animation: none;
+  }
+}
+
+:root[data-reduced-motion='on'] .tile[data-state='loading'] {
+  animation: none;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0 0;
+  }
+}
+
+.tileError {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--hearth-space-2);
+  color: var(--hearth-text-muted);
+  font-size: var(--hearth-font-size-sm);
+}
+
+.retry {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hearth-space-2);
+  padding: 2px 8px;
+  border-radius: var(--hearth-radius-xs);
+  background: var(--hearth-bg-active);
+  color: var(--hearth-text);
+}
+
+.media {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: filter var(--hearth-duration-fast) var(--hearth-ease);
+}
+
+.tile:hover .media {
+  filter: brightness(1.06);
+}
+
+.grid[data-count='1'] .media {
+  object-fit: contain;
+}
+
+.play {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin: -22px 0 0 -22px;
+  border-radius: var(--hearth-radius-full);
+  background: var(--hearth-bg-overlay);
+  color: var(--hearth-text-strong);
+}
+
+.more {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--hearth-bg-overlay);
+  color: var(--hearth-text-strong);
+  font-size: var(--hearth-font-size-title);
+  font-weight: var(--hearth-font-weight-semibold);
+}
+
+.card {
+  display: flex;
+  align-items: center;
+  gap: var(--hearth-space-4);
+  width: min(400px, 100%);
+  min-height: 60px;
+  padding: var(--hearth-space-4);
+  border: 1px solid var(--hearth-border);
+  border-radius: var(--hearth-radius-sm);
+  background: var(--hearth-bg-elevated);
+}
+
+.cardIcon {
+  flex: none;
+  color: var(--hearth-accent);
+}
+
+.cardText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--hearth-space-1);
+  min-width: 0;
+}
+
+.cardName {
+  overflow: hidden;
+  color: var(--hearth-text-link);
+  font-size: var(--hearth-font-size-ui);
+  font-weight: var(--hearth-font-weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cardMeta {
+  color: var(--hearth-text-faint);
+  font-size: var(--hearth-font-size-sm);
+}
+
+.audio {
+  width: 100%;
+  height: 32px;
+  margin-top: var(--hearth-space-2);
+}
+
+.download {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--hearth-radius-sm);
+  color: var(--hearth-text-muted);
+  transition:
+    background-color var(--hearth-duration-fast) var(--hearth-ease),
+    color var(--hearth-duration-fast) var(--hearth-ease);
+}
+
+.download:hover {
+  background: var(--hearth-bg-hover);
+  color: var(--hearth-text-strong);
+}

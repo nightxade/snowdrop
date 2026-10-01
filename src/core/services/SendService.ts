@@ -407,11 +407,14 @@ export class SendService {
       apply: (m) => applyEdit(m, { body, ranges, editedAt }),
       revert: (m) => restoreContent(m, original),
       commit: async (target) => {
+        // signal-cli rebuilds the whole data message from the edit's params:
+        // without the original quote the edit would drop the reply context.
         const result = await this.deps.backend.edit({
           conversationId,
           targetSentAt: target.sentAt,
           body,
           ranges,
+          ...(target.quote ? { quote: target.quote } : {}),
         });
         editedAt = result.sentAt;
       },
@@ -471,6 +474,66 @@ export class SendService {
       revert: () => target,
       commit: (real) => this.deps.backend.deleteForEveryone(conversationId, real.sentAt),
     });
+  }
+
+  /** What the transport supports beyond the required contract (menus hide the rest). */
+  get capabilities(): { pin: boolean; adminDelete: boolean } {
+    return {
+      pin: this.deps.backend.pinMessage !== undefined,
+      adminDelete: this.deps.backend.adminDelete !== undefined,
+    };
+  }
+
+  /** Pins or unpins a message for everyone, when the transport supports pins. */
+  async pin(conversationId: ConversationId, target: Message, pin: boolean): Promise<boolean> {
+    const pinMessage = this.deps.backend.pinMessage?.bind(this.deps.backend);
+    if (!pinMessage || target.deleted || target.kind !== 'normal') return false;
+    const set =
+      (value: boolean) =>
+      (m: Message): Message => {
+        const { pinned: _pinned, ...rest } = m;
+        return value ? { ...rest, pinned: true } : rest;
+      };
+    return this.operate(conversationId, target.id, {
+      context: pin ? 'pin failed' : 'unpin failed',
+      apply: set(pin),
+      revert: set(target.pinned === true),
+      commit: (real) =>
+        pinMessage({
+          conversationId,
+          targetAuthorId: real.authorId,
+          targetSentAt: real.sentAt,
+          pin,
+        }),
+    });
+  }
+
+  /** A group admin deleting someone else's message, when the transport supports it. */
+  async adminDelete(conversationId: ConversationId, target: Message): Promise<boolean> {
+    const adminDelete = this.deps.backend.adminDelete?.bind(this.deps.backend);
+    if (!adminDelete || target.deleted || isPendingMessageId(target.id)) return false;
+    const selfId = this.selfId();
+    return this.optimistic(conversationId, target.id, {
+      context: 'delete failed',
+      apply: (m) => applyDelete(m, selfId),
+      revert: () => target,
+      commit: (real) =>
+        adminDelete(conversationId, { authorId: real.authorId, sentAt: real.sentAt }),
+    });
+  }
+
+  /**
+   * Removes a message from this device only. Unsent messages are discarded
+   * (nothing to keep); everything else is dropped from history and the view.
+   */
+  async deleteForMe(conversationId: ConversationId, target: Message): Promise<void> {
+    const nonce = target.nonce;
+    if (nonce !== undefined && isPendingMessageId(target.id) && this.outgoing.has(nonce)) {
+      await this.discard(conversationId, nonce);
+      return;
+    }
+    this.deps.stores.messages.getState().remove(conversationId, target.id);
+    await this.deps.repository.delete(target.id);
   }
 
   // ─── Typing ────────────────────────────────────────────────────────────

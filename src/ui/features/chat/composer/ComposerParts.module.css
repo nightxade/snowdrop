@@ -1,0 +1,112 @@
+.tray {
+  display: flex;
+  gap: var(--hearth-space-4);
+  margin: 0;
+  padding: var(--hearth-space-4) var(--hearth-space-4) var(--hearth-space-3);
+  overflow-x: auto;
+  border-bottom: 1px solid var(--hearth-border);
+  list-style: none;
+  scrollbar-color: var(--hearth-scrollbar-thumb) transparent;
+  scrollbar-width: thin;
+}
+
+.tile {
+  position: relative;
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: var(--hearth-space-1);
+  width: 136px;
+  padding: var(--hearth-space-3);
+  border-radius: var(--hearth-radius-sm);
+  background: var(--hearth-bg-elevated);
+}
+
+.preview {
+  display: grid;
+  place-items: center;
+  height: 96px;
+  overflow: hidden;
+  border-radius: var(--hearth-radius-xs);
+  background: var(--hearth-bg-chat);
+}
+
+.thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.fileIcon {
+  color: var(--hearth-accent);
+}
+
+.fileName {
+  overflow: hidden;
+  margin-top: var(--hearth-space-2);
+  color: var(--hearth-text);
+  font-size: var(--hearth-font-size-sm);
+  font-weight: var(--hearth-font-weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fileSize {
+  color: var(--hearth-text-faint);
+  font-size: var(--hearth-font-size-xs);
+}
+
+.remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  background: var(--hearth-bg-floating);
+  box-shadow: var(--hearth-shadow-menu);
+}
+
+.remove:hover:not(:disabled) {
+  background: var(--hearth-danger);
+  color: var(--hearth-text-on-danger);
+}
+
+.reply {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--hearth-space-3);
+  height: 36px;
+  padding: 0 var(--hearth-space-3) 0 var(--hearth-space-4);
+  border-radius: var(--hearth-radius-md) var(--hearth-radius-md) 0 0;
+  background: var(--hearth-bg-elevated);
+  color: var(--hearth-text-muted);
+  font-size: var(--hearth-font-size-sm);
+}
+
+.replyText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.replyName {
+  color: color-mix(in oklab, var(--name-color) 55%, var(--hearth-text-strong));
+  font-weight: var(--hearth-font-weight-semibold);
+}
+
+.typing {
+  display: flex;
+  align-items: center;
+  gap: var(--hearth-space-3);
+  height: 24px;
+  padding: 0 var(--hearth-space-2);
+  overflow: hidden;
+  color: var(--hearth-text-muted);
+  font-size: var(--hearth-font-size-sm);
+  font-weight: var(--hearth-font-weight-medium);
+}
+
+.typingText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

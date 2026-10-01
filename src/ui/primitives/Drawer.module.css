@@ -31,6 +31,16 @@
   animation: fade var(--hearth-duration-base) var(--hearth-ease) reverse forwards;
 }
 
+.content[data-side='right'] {
+  right: 0;
+  left: auto;
+  animation-name: slide-right;
+}
+
+.content[data-side='right'][data-state='closed'] {
+  animation-name: slide-right-out;
+}
+
 .title {
   position: absolute;
   width: 1px;
@@ -54,5 +64,17 @@
 @keyframes slide-out {
   to {
     transform: translateX(-100%);
+  }
+}
+
+@keyframes slide-right {
+  from {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes slide-right-out {
+  to {
+    transform: translateX(100%);
   }
 }

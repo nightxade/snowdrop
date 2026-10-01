@@ -2,8 +2,8 @@
   display: inline-grid;
   flex: none;
   place-items: center;
-  min-width: 16px;
-  height: 16px;
+  min-width: calc(16px * var(--hearth-font-scale));
+  height: calc(16px * var(--hearth-font-scale));
   padding: 0 5px;
   border-radius: var(--hearth-radius-full);
   font-size: var(--hearth-font-size-xs);
@@ -13,7 +13,7 @@
 }
 
 .badge[data-variant='mention'] {
-  background: var(--hearth-danger);
+  background: var(--hearth-danger-strong);
   color: var(--hearth-text-on-danger);
 }
 

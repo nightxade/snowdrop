@@ -266,6 +266,21 @@ export class IdbMessageRepository implements MessageRepository {
       .slice(0, limit);
   }
 
+  async pinned(conversationId: ConversationId, limit: number): Promise<Message[]> {
+    // Pins are rare and there's no index for them: one reverse scan of the conversation.
+    const out: Message[] = [];
+    let cursor = await this.db
+      .transaction('messages')
+      .store.index('byConversationSeq')
+      .openCursor(this.range(conversationId, -Infinity, Infinity, false, false), 'prev');
+    while (cursor && out.length < limit) {
+      const m = fromStored(cursor.value);
+      if (m.pinned === true && !m.deleted) out.push(m);
+      cursor = await cursor.continue();
+    }
+    return out;
+  }
+
   async expired(now: number, limit: number): Promise<Message[]> {
     const rows = await this.db.getAllFromIndex(
       'messages',

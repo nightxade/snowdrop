@@ -22,9 +22,10 @@ export interface RailTileProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 /**
- * One rail tile with its edge indicator (unread → hover → selected grows the
- * bar) and a mention badge. The squircle → rounded-square morph on
- * hover/selection is the rail's signature motion.
+ * One rail tile. The language is Hearth's own: a constant-radius tile that
+ * fills with its hue on hover, an accent ring (offset from the tile) for the
+ * selected space, a small light dot at the top-left corner for unread, and a
+ * mention badge at the bottom-right.
  */
 export function RailTile({
   label,
@@ -72,7 +73,6 @@ export function RailTile({
       data-tone={tone}
       data-dragging={dragging ? '' : undefined}
     >
-      <span className={styles.pill} aria-hidden />
       <Tooltip label={label} side="right" disabled={dragging ?? false}>
         {menu ? (
           <ContextMenu entries={menu} label={`${label} options`}>
@@ -82,6 +82,7 @@ export function RailTile({
           tile
         )}
       </Tooltip>
+      {unread && <span className={styles.dot} aria-hidden />}
       {mentions > 0 && <Badge variant="mention" count={mentions} className={styles.badge} />}
     </div>
   );

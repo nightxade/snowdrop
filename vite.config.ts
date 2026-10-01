@@ -2,6 +2,7 @@
 import { fileURLToPath, URL } from 'node:url';
 import react from '@vitejs/plugin-react';
 import { defineConfig, loadEnv, type Connect, type Plugin, type ProxyOptions } from 'vite';
+import { emojibaseAssets } from './devserver/emojibase.ts';
 import { checkSignalCliRequest } from './devserver/signalCliGuard.ts';
 
 const PROXY_PATH = '/signal-cli';
@@ -56,7 +57,7 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), 'HEARTH_');
   const proxy = signalCliProxy(env.HEARTH_SIGNAL_CLI_URL ?? 'http://127.0.0.1:8080');
   return {
-    plugins: [signalCliGuard(), react()],
+    plugins: [signalCliGuard(), emojibaseAssets(), react()],
     resolve: {
       alias: {
         '@': fileURLToPath(new URL('./src', import.meta.url)),

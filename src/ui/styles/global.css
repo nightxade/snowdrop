@@ -60,3 +60,27 @@ a {
 a:hover {
   text-decoration: underline;
 }
+
+/*
+ * Reduced motion, in one place: the duration tokens already drop to 0 (see
+ * tokens.css); this also stops keyframe animations (spinners, shimmer,
+ * typing dots) that don't use those tokens, whether the preference comes
+ * from the OS or from Settings.
+ */
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-reduced-motion='off']) *,
+  :root:not([data-reduced-motion='off']) *::before,
+  :root:not([data-reduced-motion='off']) *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+:root[data-reduced-motion='on'] *,
+:root[data-reduced-motion='on'] *::before,
+:root[data-reduced-motion='on'] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  scroll-behavior: auto !important;
+}

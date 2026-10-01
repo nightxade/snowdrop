@@ -6,11 +6,18 @@ import {
   isMuted,
   sessionSelectors,
   typingSelectors,
+  type ContactsState,
 } from '@/core/stores';
 import { useNow, useStores } from '@/ui/hooks';
 import { previewText, useConversationView } from '@/ui/features/conversation';
 
-/** Everything a sidebar row renders, each piece subscribed separately. */
+const nameIn = (s: ContactsState) => (contactId: string) => s.byId[contactId]?.name ?? 'Someone';
+
+/**
+ * Everything a sidebar row renders. Derived strings (preview, typing line)
+ * are computed inside the selectors, so a row re-renders only when the text
+ * it shows changes, not whenever any contact changes.
+ */
 export function useRowState(id: ConversationId, withPreview: boolean) {
   const stores = useStores();
   const view = useConversationView(id);
@@ -18,27 +25,24 @@ export function useRowState(id: ConversationId, withPreview: boolean) {
   const selfId = useStore(stores.session, sessionSelectors.selfId);
   const typers = useStore(stores.typing, typingSelectors.typers(id));
   const last = useStore(stores.conversations, (s) => (withPreview ? s.lastMessage[id] : undefined));
-  const contacts = useStore(stores.contacts, (s) => s.byId);
-  // Timed mutes lapse on their own; re-check once a minute.
+  const isGroup = view?.kind === 'group';
+  const preview = useStore(stores.contacts, (s) =>
+    withPreview ? previewText(last, { selfId, isGroup, nameFor: nameIn(s) }) : '',
+  );
+  const typing = useStore(stores.contacts, (s) => {
+    const others = typers.filter((t) => t !== selfId);
+    if (others.length === 0) return null;
+    if (!isGroup) return 'typing…';
+    return describeTypers(others.map((t) => nameIn(s)(t).split(' ')[0] ?? ''));
+  });
+  // Timed mutes lapse on their own; the shared minute clock re-checks them.
   const now = useNow(60_000);
-
-  const nameFor = (contactId: string) => contacts[contactId]?.name ?? 'Someone';
-  const others = typers.filter((t) => t !== selfId);
-  const typing =
-    others.length === 0
-      ? null
-      : view?.kind === 'direct'
-        ? 'typing…'
-        : describeTypers(others.map((t) => nameFor(t).split(' ')[0] ?? ''));
 
   return {
     view,
     unread,
     muted: view ? isMuted(view.muted, now) : false,
     typing,
-    preview:
-      withPreview && view
-        ? previewText(last, { selfId, isGroup: view.kind === 'group', nameFor })
-        : '',
+    preview,
   };
 }

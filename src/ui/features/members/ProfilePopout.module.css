@@ -6,43 +6,51 @@
   border-radius: var(--hearth-radius-md);
 }
 
-.banner {
-  height: 72px;
-  background:
-    linear-gradient(
-      160deg,
-      transparent 40%,
-      color-mix(in oklab, var(--banner) 60%, var(--hearth-bg-floating)) 100%
-    ),
-    var(--banner);
+.header {
+  display: flex;
+  align-items: center;
+  gap: var(--hearth-space-4);
+  padding: var(--hearth-space-5);
+  border-bottom: 1px solid var(--hearth-border);
+  /* A wash of the contact's colour, strong enough to identify, quiet enough to read on. */
+  background: color-mix(in oklab, var(--tint) 22%, var(--hearth-bg-floating));
 }
 
-.avatar {
-  position: absolute;
-  top: 28px;
-  left: var(--hearth-space-5);
+.names {
   display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--hearth-space-1);
+  min-width: 0;
+}
+
+.role {
+  margin-top: var(--hearth-space-2);
+  padding: 2px var(--hearth-space-3);
   border-radius: var(--hearth-radius-full);
-  box-shadow: 0 0 0 6px var(--hearth-bg-floating);
+  background: var(--hearth-bg-active);
+  color: var(--hearth-text);
+  font-size: var(--hearth-font-size-xs);
+  font-weight: var(--hearth-font-weight-semibold);
 }
 
 .body {
   display: flex;
   flex-direction: column;
   gap: var(--hearth-space-5);
-  padding: 44px var(--hearth-space-5) var(--hearth-space-5);
+  padding: var(--hearth-space-5);
 }
 
 .name {
   color: var(--hearth-text-strong);
-  font-size: var(--hearth-font-size-title);
+  font-size: var(--hearth-font-size-header);
   font-weight: var(--hearth-font-weight-bold);
-  line-height: 1.25;
+  line-height: 1.3;
   overflow-wrap: anywhere;
 }
 
 .profileName {
-  color: var(--hearth-text-muted);
+  color: var(--hearth-text);
   font-size: var(--hearth-font-size-ui);
 }
 
@@ -88,8 +96,6 @@
   color: var(--hearth-text-muted);
   font-size: var(--hearth-font-size-sm);
   font-weight: var(--hearth-font-weight-semibold);
-  letter-spacing: var(--hearth-tracking-label);
-  text-transform: uppercase;
 }
 
 .noteHint {

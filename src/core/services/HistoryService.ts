@@ -102,6 +102,25 @@ export class HistoryService {
     return applied;
   }
 
+  /**
+   * Jumps to the first message after a read position that someone else sent
+   * (the "N new messages" bar when the divider isn't loaded). Resolves with
+   * its id, or null if there is none.
+   */
+  async jumpToFirstUnread(
+    conversationId: ConversationId,
+    afterSeq: number,
+    selfId: string | null,
+  ): Promise<MessageId | null> {
+    const page = await this.deps.repository.page(conversationId, {
+      after: afterSeq,
+      limit: this.pageSize,
+    });
+    const first = page.find((m) => m.authorId !== selfId && m.kind === 'normal') ?? page[0];
+    if (!first) return null;
+    return (await this.jumpTo(conversationId, first.id)) ? first.id : null;
+  }
+
   /** Loads the page before the oldest loaded message. */
   loadOlder(conversationId: ConversationId): Promise<void> {
     const window = this.deps.stores.messages.getState().windows[conversationId];

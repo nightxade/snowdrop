@@ -168,6 +168,16 @@ export class MemoryMessageRepository implements MessageRepository {
     );
   }
 
+  pinned(conversationId: ConversationId, limit: number): Promise<Message[]> {
+    return Promise.resolve(
+      [...(this.timelines.get(conversationId) ?? [])]
+        .filter((m) => m.pinned === true && !m.deleted)
+        .sort((a, b) => bySeq(b, a))
+        .slice(0, limit)
+        .map(clone),
+    );
+  }
+
   expired(now: number, limit: number): Promise<Message[]> {
     return Promise.resolve(
       [...this.messages.values()]

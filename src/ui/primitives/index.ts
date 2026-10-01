@@ -3,11 +3,19 @@ export { Badge, formatBadgeCount, type BadgeProps } from './Badge';
 export { Button, type ButtonProps, type ButtonSize, type ButtonVariant } from './Button';
 export { Divider } from './Divider';
 export { Drawer, type DrawerProps } from './Drawer';
+export {
+  EMOJIBASE_URL,
+  EmojiPicker,
+  EmojiPickerPopover,
+  type EmojiPickerPopoverProps,
+  type EmojiPickerProps,
+} from './EmojiPicker';
 export { EmptyState, type EmptyStateProps } from './EmptyState';
 export { HearthMark } from './HearthMark';
 export { IconButton, type IconButtonProps } from './IconButton';
 export { Kbd, splitCombo } from './Kbd';
-export { ContextMenu, DropdownMenu, type ContextMenuProps, type DropdownMenuProps } from './Menu';
+export { Lightbox, type LightboxItem, type LightboxProps } from './Lightbox';
+export { ContextMenu, DropdownMenu, isContextMenuKey, type ContextMenuProps, type DropdownMenuProps } from './Menu';
 export { tidyMenu, type MenuEntry } from './menuModel';
 export { Modal, ModalClose, type ModalProps } from './Modal';
 export { Popover, PopoverClose, type PopoverProps } from './Popover';

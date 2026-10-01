@@ -70,7 +70,7 @@
 }
 
 .button[data-variant='danger'] {
-  background: var(--hearth-danger);
+  background: var(--hearth-danger-strong);
   color: var(--hearth-text-on-danger);
 }
 

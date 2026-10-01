@@ -1,15 +1,10 @@
 import { MessageSquare, ShieldCheck } from 'lucide-react';
 import { useId, type CSSProperties } from 'react';
 import { useStore } from 'zustand';
-import {
-  directConversationId,
-  initialsFor,
-  type Contact,
-  type ConversationId,
-} from '@/core/domain';
-import { HOME, localSelectors } from '@/core/stores';
+import { initialsFor, type Contact, type ConversationId } from '@/core/domain';
+import { localSelectors } from '@/core/stores';
 import { useHearth } from '@/ui/hooks';
-import { copyText } from '@/ui/features/conversation';
+import { copyText, formatPhone, openDirectConversation } from '@/ui/features/conversation';
 import { Avatar, Button } from '@/ui/primitives';
 import styles from './ProfilePopout.module.css';
 
@@ -17,39 +12,46 @@ export function safetyNumberHint(name: string): string {
   return `To verify ${name}, open your chat with them in the Signal app on your phone, tap their name, then “View safety number”, and compare it with theirs in person or over a call.`;
 }
 
-/** Profile card anchored to a member row (PLAN §4.7). The note is local-only and persisted. */
+/**
+ * Profile card for a contact (PLAN §4.7): identity on a header tinted with the
+ * contact's colour, about, number, actions and a private note (local-only,
+ * persisted). `conversationId` is the group it was opened from, if any, and
+ * adds that group's role.
+ */
 export function ProfilePopout({
   contact,
+  conversationId,
   onClose,
 }: {
   contact: Contact;
-  conversationId: ConversationId;
+  conversationId?: ConversationId | undefined;
   onClose: () => void;
 }) {
   const app = useHearth();
   const { stores } = app;
   const note = useStore(stores.local, localSelectors.note(contact.id));
-  const dm = directConversationId(contact.id);
-  const hasDm = useStore(stores.conversations, (s) => dm in s.byId);
+  const isAdmin = useStore(stores.conversations, (s) =>
+    conversationId ? (s.byId[conversationId]?.adminIds.includes(contact.id) ?? false) : false,
+  );
   const noteId = useId();
   const showProfileName = contact.profileName && contact.profileName !== contact.name;
 
   return (
-    <div className={styles.card} style={{ '--banner': contact.color } as CSSProperties}>
-      <div className={styles.banner} />
-      <span className={styles.avatar}>
+    <div className={styles.card} style={{ '--tint': contact.color } as CSSProperties}>
+      <header className={styles.header}>
         <Avatar
           src={contact.avatarUrl}
           fallback={initialsFor(contact.name)}
           color={contact.color}
-          size={80}
+          size={48}
         />
-      </span>
-      <div className={styles.body}>
         <div className={styles.names}>
           <p className={styles.name}>{contact.name}</p>
           {showProfileName && <p className={styles.profileName}>{contact.profileName}</p>}
+          {isAdmin && <span className={styles.role}>Group admin</span>}
         </div>
+      </header>
+      <div className={styles.body}>
         {(contact.about ?? contact.aboutEmoji) && (
           <p className={styles.about}>
             {contact.aboutEmoji && <span aria-hidden>{contact.aboutEmoji} </span>}
@@ -59,7 +61,7 @@ export function ProfilePopout({
         {contact.number && (
           <dl className={styles.facts}>
             <dt>Phone</dt>
-            <dd>{contact.number}</dd>
+            <dd>{formatPhone(contact.number)}</dd>
           </dl>
         )}
         {!contact.isSelf && (
@@ -68,10 +70,8 @@ export function ProfilePopout({
               variant="primary"
               fullWidth
               icon={<MessageSquare size={16} />}
-              disabled={!hasDm}
-              title={hasDm ? undefined : 'You don’t have a direct conversation with them yet'}
               onClick={() => {
-                stores.ui.getState().selectConversation(dm, HOME);
+                openDirectConversation(app, contact);
                 onClose();
               }}
             >
@@ -99,7 +99,7 @@ export function ProfilePopout({
             className={styles.noteInput}
             rows={2}
             maxLength={500}
-            placeholder="Click to add a note"
+            placeholder="Add a private note…"
             value={note}
             onChange={(e) => {
               stores.local.getState().setNote(contact.id, e.target.value);

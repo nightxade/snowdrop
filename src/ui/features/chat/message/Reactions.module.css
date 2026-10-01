@@ -1,0 +1,79 @@
+.reactions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--hearth-space-2);
+  margin-top: var(--hearth-space-2);
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: var(--hearth-radius-sm);
+  background: var(--hearth-bg-elevated);
+  color: var(--hearth-text-muted);
+  font-size: var(--hearth-font-size-ui);
+  transition:
+    border-color var(--hearth-duration-fast) var(--hearth-ease),
+    background-color var(--hearth-duration-fast) var(--hearth-ease);
+}
+
+.pill:hover {
+  border-color: var(--hearth-border-strong);
+}
+
+.pill[data-mine] {
+  border-color: var(--hearth-accent);
+  background: var(--hearth-accent-soft);
+  color: var(--hearth-text-strong);
+}
+
+.emoji {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.count {
+  min-width: 8px;
+  font-weight: var(--hearth-font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.add {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 26px;
+  border-radius: var(--hearth-radius-sm);
+  background: var(--hearth-bg-elevated);
+  color: var(--hearth-text-muted);
+  opacity: 0;
+  transition: opacity var(--hearth-duration-fast) var(--hearth-ease);
+}
+
+/* Only offered while the message is hovered/focused, like the hover bar. */
+[data-message-active] .add,
+.add[data-open],
+.add:focus-visible {
+  opacity: 1;
+}
+
+.add:hover {
+  color: var(--hearth-text-strong);
+}
+
+.tip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hearth-space-3);
+  font-weight: var(--hearth-font-weight-medium);
+}
+
+.tipEmoji {
+  font-size: 24px;
+  line-height: 1;
+}

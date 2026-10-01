@@ -1,0 +1,85 @@
+.time {
+  color: var(--hearth-text-faint);
+  font-size: var(--hearth-font-size-sm);
+  font-weight: var(--hearth-font-weight-medium);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.time[data-variant='header'] {
+  margin-left: var(--hearth-space-3);
+  color: var(--hearth-text-muted);
+}
+
+/* Continuation rows: the time appears in the gutter only on hover/focus. */
+.time[data-variant='gutter'] {
+  display: block;
+  font-size: var(--hearth-font-size-xs);
+  line-height: calc(var(--hearth-font-size-message) * var(--hearth-line-height-message));
+  text-align: right;
+  opacity: 0;
+}
+
+[data-message-active] .time[data-variant='gutter'] {
+  opacity: 1;
+}
+
+.time[data-variant='compact'] {
+  display: block;
+  font-size: var(--hearth-font-size-xs);
+  line-height: calc(var(--hearth-font-size-message) * var(--hearth-line-height-message));
+  text-align: right;
+}
+
+.mark {
+  display: inline-grid;
+  place-items: center;
+  margin-left: var(--hearth-space-2);
+  color: var(--hearth-text-faint);
+  vertical-align: -1px;
+}
+
+.mark[data-pinned] {
+  color: var(--hearth-accent);
+}
+
+.notes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--hearth-space-2) var(--hearth-space-4);
+}
+
+.edited {
+  margin-left: var(--hearth-space-2);
+  color: var(--hearth-text-faint);
+  white-space: nowrap;
+  font-size: var(--hearth-font-size-xs);
+  cursor: default;
+}
+
+.failed,
+.partial {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hearth-space-2);
+  color: var(--hearth-danger);
+  font-size: var(--hearth-font-size-sm);
+  font-weight: var(--hearth-font-weight-medium);
+}
+
+.partial {
+  color: var(--hearth-warning);
+  cursor: default;
+}
+
+.action {
+  color: var(--hearth-text-link);
+  font-size: inherit;
+  font-weight: var(--hearth-font-weight-semibold);
+}
+
+.action:hover {
+  text-decoration: underline;
+}

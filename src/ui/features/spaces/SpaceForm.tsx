@@ -47,7 +47,6 @@ export function SpaceForm({
           value={draft.name}
           maxLength={40}
           placeholder="e.g. Book club"
-          autoFocus
           onChange={(e) => {
             onChange({ ...draft, name: e.target.value });
           }}

@@ -13,8 +13,8 @@ afterEach(cleanup);
 
 describe('Avatar', () => {
   it('shows initials when there is no image', () => {
-    render(<Avatar fallback="MO" color="red" label="Mira" />);
-    expect(screen.getByTestId('avatar-fallback').textContent).toBe('MO');
+    const { container } = render(<Avatar fallback="MO" color="red" label="Mira" />);
+    expect(container.textContent).toBe('MO');
     expect(screen.getByRole('img', { name: 'Mira' })).toBeTruthy();
   });
 
@@ -24,7 +24,7 @@ describe('Avatar', () => {
     expect(img).not.toBeNull();
     fireEvent.error(img!);
     expect(container.querySelector('img')).toBeNull();
-    expect(screen.getByTestId('avatar-fallback').textContent).toBe('MO');
+    expect(container.textContent).toBe('MO');
   });
 
   it('tries again when the source changes', () => {

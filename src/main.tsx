@@ -6,6 +6,12 @@ import '@/ui/styles/global.css';
 // Themes apply immediately (the welcome screen is themed too); connecting
 // waits until a backend has been chosen, which <App> handles.
 const hearth = createHearth({ document });
+if (import.meta.env.DEV) {
+  // Dynamic import keeps the dev helpers (and their mock import) out of production bundles.
+  void import('@/app/devTools').then(({ installDevTools }) => {
+    installDevTools(hearth);
+  });
+}
 const container = document.getElementById('root');
 if (!container) throw new Error('Missing #root element');
 

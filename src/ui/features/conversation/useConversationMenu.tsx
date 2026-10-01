@@ -1,4 +1,14 @@
-import { BellOff, Bell, Check, Copy, Archive, ArchiveRestore, Pin, PinOff } from 'lucide-react';
+import {
+  Archive,
+  ArchiveRestore,
+  Bell,
+  BellOff,
+  Check,
+  Copy,
+  FolderInput,
+  Pin,
+  PinOff,
+} from 'lucide-react';
 import { useCallback } from 'react';
 import { isMuted } from '@/core/stores';
 import type { ConversationId } from '@/core/domain';
@@ -107,6 +117,7 @@ export function useConversationMenu(id: ConversationId): () => MenuEntry[] {
         kind: 'submenu',
         id: 'move',
         label: 'Move to space',
+        icon: <FolderInput size={ICON} />,
         items: [
           ...orderedSpaces.map((space): MenuEntry => ({
             kind: 'check',
