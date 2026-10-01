@@ -1,7 +1,7 @@
 import { Pin } from 'lucide-react';
 import { useState } from 'react';
 import type { ConversationView } from '@/core/domain';
-import { useHearth } from '@/ui/hooks';
+import { useShrike } from '@/ui/hooks';
 import { IconButton, Popover } from '@/ui/primitives';
 import { useChatController } from '../ChatController';
 import { MessageResult } from './MessageResult';
@@ -9,7 +9,7 @@ import { PopoverFrame, useOnOpen } from './ListPopover';
 import styles from './ListPopover.module.css';
 
 export function PinnedPopover({ conversation }: { conversation: ConversationView }) {
-  const { repository } = useHearth();
+  const { repository } = useShrike();
   const chat = useChatController();
   const [open, setOpen] = useState(false);
   const load = useOnOpen(open, () => repository.pinned(conversation.id, 50), [conversation.id]);

@@ -223,7 +223,7 @@ describe('SignalCliBackend: connection', () => {
     await flush();
     await backend.idle();
     expect(order).toEqual([`message:${T0}`, 'checkpoint:run-7', 'checkpoint:run-8']);
-    const key = `hearth.signal-cli.lastEventId.${SELF_ACI}`;
+    const key = `shrike.signal-cli.lastEventId.${SELF_ACI}`;
     // Not acknowledged ⇒ a reload would re-deliver (never lose) these events.
     expect(storage.getItem(key)).toBeNull();
     backend.acknowledge('run-7');
@@ -537,8 +537,8 @@ describe('SignalCliBackend: commands', () => {
     const { backend, onAccountSelected } = setup({ daemon });
     const { uri } = await backend.link.start();
     expect(uri).toBe('sgnl://linkdevice?uuid=X&pub_key=Y');
-    expect(await backend.link.finish(uri, 'Hearth')).toEqual({ accountId: SELF_ACI });
-    expect(daemon.callsTo('finishLink')[0]).toEqual({ deviceLinkUri: uri, deviceName: 'Hearth' });
+    expect(await backend.link.finish(uri, 'Shrike')).toEqual({ accountId: SELF_ACI });
+    expect(daemon.callsTo('finishLink')[0]).toEqual({ deviceLinkUri: uri, deviceName: 'Shrike' });
     expect(daemon.callsTo('startLink')[0]).toEqual({});
     expect(onAccountSelected).toHaveBeenCalledWith(SELF_ACI);
   });
@@ -589,7 +589,7 @@ describe('SignalCliBackend + SyncService', () => {
     expect(stored).toMatchObject({ body: 'hello there (edited)', editedAt: T0 + 20 });
     expect(stores.conversations.getState().unread[GROUP]).toMatchObject({ count: 1, mentions: 1 });
     // The sync engine acknowledged the last event after storing it.
-    expect(storage.getItem(`hearth.signal-cli.lastEventId.${SELF_ACI}`)).toBe('r-3');
+    expect(storage.getItem(`shrike.signal-cli.lastEventId.${SELF_ACI}`)).toBe('r-3');
     await sync.stop();
     expect(stores.session.getState().status).toBe('offline');
   });

@@ -1,31 +1,31 @@
 import { act, cleanup, fireEvent, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { Hearth } from '@/app/createHearth';
+import type { Shrike } from '@/app/createShrike';
 import { MENTION_PLACEHOLDER, type ConversationId } from '@/core/domain';
 import { messagesSelectors } from '@/core/stores';
-import { bootHearth, renderWithHearth, settle } from '@/test/renderWithHearth';
+import { bootShrike, renderWithShrike, settle } from '@/test/renderWithShrike';
 import { ChatController, ChatControllerProvider } from '../ChatController';
 import { Composer } from './Composer';
 
-const hearths: Hearth[] = [];
+const shrikes: Shrike[] = [];
 afterEach(async () => {
   cleanup();
-  for (const h of hearths.splice(0)) await h.dispose();
+  for (const h of shrikes.splice(0)) await h.dispose();
 });
 
 async function setup() {
-  const hearth = await bootHearth();
-  hearths.push(hearth);
-  const conv = Object.values(hearth.stores.conversations.getState().byId).find(
-    (c) => c.title === 'Kiln · Engineering',
+  const shrike = await bootShrike();
+  shrikes.push(shrike);
+  const conv = Object.values(shrike.stores.conversations.getState().byId).find(
+    (c) => c.title === 'Orchard · Engineering',
   )!;
   await act(async () => {
-    hearth.stores.ui.getState().selectConversation(conv.id);
-    await hearth.history.open(conv.id);
+    shrike.stores.ui.getState().selectConversation(conv.id);
+    await shrike.history.open(conv.id);
   });
   const chat = new ChatController();
-  renderWithHearth(
-    hearth,
+  renderWithShrike(
+    shrike,
     <ChatControllerProvider value={chat}>
       <Composer conversationId={conv.id} />
     </ChatControllerProvider>,
@@ -36,13 +36,13 @@ async function setup() {
     input.setSelectionRange(value.length, value.length);
     fireEvent.select(input);
   };
-  return { hearth, conv, input, typeText, chat };
+  return { shrike, conv, input, typeText, chat };
 }
 
-function lastOwn(hearth: Hearth, id: ConversationId) {
-  const selfId = hearth.stores.session.getState().self!.id;
+function lastOwn(shrike: Shrike, id: ConversationId) {
+  const selfId = shrike.stores.session.getState().self!.id;
   return messagesSelectors
-    .list(id)(hearth.stores.messages.getState())
+    .list(id)(shrike.stores.messages.getState())
     .findLast((m) => m.authorId === selfId);
 }
 
@@ -53,35 +53,35 @@ describe('<Composer />', () => {
   });
 
   it('sends on Enter and inserts a newline on Shift+Enter', async () => {
-    const { hearth, input, typeText } = await setup();
-    const send = vi.spyOn(hearth.send, 'send');
+    const { shrike, input, typeText } = await setup();
+    const send = vi.spyOn(shrike.send, 'send');
     typeText('first line');
     const shiftEnter = fireEvent.keyDown(input, { key: 'Enter', shiftKey: true });
     expect(shiftEnter).toBe(true); // not prevented: the browser inserts the newline
     expect(send).not.toHaveBeenCalled();
     fireEvent.keyDown(input, { key: 'Enter' });
-    await settle(hearth);
+    await settle(shrike);
     expect(send).toHaveBeenCalledTimes(1);
     expect(send.mock.calls[0]?.[0].text).toBe('first line');
     expect(input.value).toBe('');
   });
 
   it('swaps Enter and Shift+Enter with the setting', async () => {
-    const { hearth, input, typeText } = await setup();
+    const { shrike, input, typeText } = await setup();
     act(() => {
-      hearth.stores.settings.getState().update('behaviour', { enterToSend: false });
+      shrike.stores.settings.getState().update('behaviour', { enterToSend: false });
     });
-    const send = vi.spyOn(hearth.send, 'send');
+    const send = vi.spyOn(shrike.send, 'send');
     typeText('hello');
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(send).not.toHaveBeenCalled();
     fireEvent.keyDown(input, { key: 'Enter', shiftKey: true });
-    await settle(hearth);
+    await settle(shrike);
     expect(send).toHaveBeenCalledTimes(1);
   });
 
   it('accepts a member mention with Tab and sends it as a mention range', async () => {
-    const { hearth, conv, input, typeText } = await setup();
+    const { shrike, conv, input, typeText } = await setup();
     typeText('hey @');
     const list = screen.getByRole('listbox');
     const options = within(list).getAllByRole('option');
@@ -95,14 +95,14 @@ describe('<Composer />', () => {
     expect(input.value).toMatch(/^hey @\S.* $/u);
     expect(picked, input.value).toContain(input.value.slice(5, -1));
 
-    const send = vi.spyOn(hearth.send, 'send');
+    const send = vi.spyOn(shrike.send, 'send');
     typeText(`${input.value}see this`);
     fireEvent.keyDown(input, { key: 'Enter' });
-    await settle(hearth);
+    await settle(shrike);
     const draft = send.mock.calls[0]?.[0];
     expect(draft?.text).toContain(MENTION_PLACEHOLDER);
     expect(draft?.mentionIds).toHaveLength(1);
-    const sent = lastOwn(hearth, conv.id);
+    const sent = lastOwn(shrike, conv.id);
     expect(sent?.ranges.some((r) => r.mentionId === draft?.mentionIds[0])).toBe(true);
   });
 
@@ -129,23 +129,23 @@ describe('<Composer />', () => {
   });
 
   it('edits the last own message with Up in an empty composer', async () => {
-    const { hearth, conv, input, typeText } = await setup();
+    const { shrike, conv, input, typeText } = await setup();
     typeText('to be edited');
     fireEvent.keyDown(input, { key: 'Enter' });
-    await settle(hearth);
-    const own = lastOwn(hearth, conv.id)!;
+    await settle(shrike);
+    const own = lastOwn(shrike, conv.id)!;
     fireEvent.keyDown(input, { key: 'ArrowUp' });
-    expect(hearth.stores.ui.getState().editing).toEqual({
+    expect(shrike.stores.ui.getState().editing).toEqual({
       conversationId: conv.id,
       messageId: own.id,
     });
   });
 
   it('does not start editing when there is text', async () => {
-    const { hearth, input, typeText } = await setup();
+    const { shrike, input, typeText } = await setup();
     typeText('draft');
     fireEvent.keyDown(input, { key: 'ArrowUp' });
-    expect(hearth.stores.ui.getState().editing).toBeNull();
+    expect(shrike.stores.ui.getState().editing).toBeNull();
   });
 
   it('wraps the selection with Ctrl+B', async () => {
@@ -157,8 +157,8 @@ describe('<Composer />', () => {
   });
 
   it('persists the draft per conversation', async () => {
-    const { hearth, conv, typeText } = await setup();
+    const { shrike, conv, typeText } = await setup();
     typeText('unfinished thought');
-    expect(hearth.stores.local.getState().conversations[conv.id]?.draft).toBe('unfinished thought');
+    expect(shrike.stores.local.getState().conversations[conv.id]?.draft).toBe('unfinished thought');
   });
 });

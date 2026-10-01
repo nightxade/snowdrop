@@ -18,7 +18,7 @@ const incoming = (partial: Partial<Message>): Message => {
 let dbCounter = 0;
 const implementations: [string, () => Promise<MessageRepository & { close?: () => void }>][] = [
   ['memory', () => Promise.resolve(new MemoryMessageRepository())],
-  ['indexeddb', () => IdbMessageRepository.open(`hearth-test-${++dbCounter}`)],
+  ['indexeddb', () => IdbMessageRepository.open(`shrike-test-${++dbCounter}`)],
 ];
 
 describe.each(implementations)('MessageRepository (%s)', (_name, create) => {

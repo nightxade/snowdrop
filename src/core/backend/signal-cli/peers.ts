@@ -18,7 +18,7 @@ export class DirectPeers {
     private readonly storage: KeyValueStorage | undefined,
     account: string,
   ) {
-    this.key = `hearth.signal-cli.peers.${account}`;
+    this.key = `shrike.signal-cli.peers.${account}`;
     this.load();
   }
 

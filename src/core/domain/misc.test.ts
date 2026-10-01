@@ -58,7 +58,7 @@ describe('colorForId', () => {
       seen.add(idx);
     }
     expect(seen.size).toBe(AVATAR_HUE_COUNT);
-    expect(colorForId('x')).toMatch(/^var\(--hearth-avatar-\d{1,2}\)$/u);
+    expect(colorForId('x')).toMatch(/^var\(--shrike-avatar-\d{1,2}\)$/u);
   });
 
   it('derives initials', () => {
@@ -226,12 +226,12 @@ describe('messageOps', () => {
 
   it('summarises reactions by emoji', () => {
     expect(
-      summarizeReactions([r('👍', 'a', 2), r('🔥', 'b', 1), r('👍', 'c', 3)]).map((s) => [
+      summarizeReactions([r('👍', 'a', 2), r('🎯', 'b', 1), r('👍', 'c', 3)]).map((s) => [
         s.emoji,
         s.authorIds,
       ]),
     ).toEqual([
-      ['🔥', ['b']],
+      ['🎯', ['b']],
       ['👍', ['a', 'c']],
     ]);
   });

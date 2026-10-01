@@ -227,7 +227,7 @@ export const fixtures = {
     dataMessage: dataMessage({
       timestamp: T0 + 40,
       reaction: {
-        emoji: '🔥',
+        emoji: '🎯',
         targetAuthor: SELF_NUMBER,
         targetAuthorNumber: SELF_NUMBER,
         targetAuthorUuid: SELF_ACI,
@@ -242,7 +242,7 @@ export const fixtures = {
     dataMessage: dataMessage({
       timestamp: T0 + 41,
       reaction: {
-        emoji: '🔥',
+        emoji: '🎯',
         targetAuthor: SELF_NUMBER,
         // Only the number: must still resolve to our ACI.
         targetAuthorNumber: SELF_NUMBER,

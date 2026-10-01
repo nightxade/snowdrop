@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { CoreCommand, DEFAULT_KEYBINDS } from '@/core/commands';
 import { isMuted, uiSelectors, type Stores } from '@/core/stores';
-import { useHearth } from '@/ui/hooks';
+import { useShrike } from '@/ui/hooks';
 import {
   currentGlobalOrder,
   currentNavigationOrder,
@@ -53,7 +53,7 @@ export function stepSidebar(stores: Stores, delta: 1 | -1): boolean {
  * by the composition root.
  */
 export function useCoreCommands(): void {
-  const { commands, stores } = useHearth();
+  const { commands, stores } = useShrike();
   useEffect(() => {
     const disposers = [
       commands.register({

@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useHearth } from '@/ui/hooks';
+import { useShrike } from '@/ui/hooks';
 
 export function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
@@ -20,7 +20,7 @@ export function isEditableTarget(target: EventTarget | null): boolean {
  * a menu first and only marks the conversation read when nothing's open.
  */
 export function useKeyboard(): void {
-  const { keybinds, stores } = useHearth();
+  const { keybinds, stores } = useShrike();
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing) return;

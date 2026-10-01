@@ -8,7 +8,7 @@ export function ConversationIntro({ conversation }: { conversation: Conversation
   const peer = usePeer(conversation);
   const isGroup = conversation.kind === 'group';
   return (
-    <div className={styles.intro} data-hearth="conversation-intro">
+    <div className={styles.intro} data-shrike="conversation-intro">
       <ConversationAvatar conversation={conversation} size={80} />
       <h2 className={styles.title}>{conversation.title}</h2>
       <p className={styles.lede}>

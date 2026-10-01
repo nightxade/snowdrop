@@ -3,7 +3,7 @@
   align-items: center;
   height: 24px;
   /* Padding, not margin: the virtualiser doesn't measure margins. */
-  padding: var(--hearth-space-6) var(--hearth-space-5) var(--hearth-space-1);
+  padding: var(--shrike-space-6) var(--shrike-space-5) var(--shrike-space-1);
   box-sizing: content-box;
 }
 
@@ -12,14 +12,14 @@
   content: '';
   flex: 1;
   height: 1px;
-  background: var(--hearth-border-strong);
+  background: var(--shrike-border-strong);
 }
 
 .dayLabel {
-  padding: 0 var(--hearth-space-3);
-  color: var(--hearth-text-muted);
-  font-size: var(--hearth-font-size-sm);
-  font-weight: var(--hearth-font-weight-semibold);
+  padding: 0 var(--shrike-space-3);
+  color: var(--shrike-text-muted);
+  font-size: var(--shrike-font-size-sm);
+  font-weight: var(--shrike-font-weight-semibold);
 }
 
 .new {
@@ -28,7 +28,7 @@
   align-items: center;
   height: 8px;
   margin: 0;
-  padding: var(--hearth-space-3) var(--hearth-space-5) 0;
+  padding: var(--shrike-space-3) var(--shrike-space-5) 0;
   box-sizing: content-box;
 }
 
@@ -36,16 +36,16 @@
   content: '';
   flex: 1;
   height: 1px;
-  background: var(--hearth-danger);
+  background: var(--shrike-danger);
 }
 
 .newTag {
   padding: 0 6px;
-  border-radius: var(--hearth-radius-xs);
-  background: var(--hearth-danger);
-  color: var(--hearth-text-on-danger);
-  font-size: var(--hearth-font-size-xs);
-  font-weight: var(--hearth-font-weight-bold);
+  border-radius: var(--shrike-radius-xs);
+  background: var(--shrike-danger);
+  color: var(--shrike-text-on-danger);
+  font-size: var(--shrike-font-size-xs);
+  font-weight: var(--shrike-font-weight-bold);
   line-height: 16px;
   text-transform: uppercase;
 }
@@ -54,15 +54,15 @@
   display: grid;
   grid-template-columns: 72px minmax(0, 1fr) auto;
   align-items: center;
-  padding: var(--hearth-space-3) var(--hearth-space-9) var(--hearth-space-3) 0;
-  color: var(--hearth-text-muted);
-  font-size: var(--hearth-font-size-ui);
+  padding: var(--shrike-space-3) var(--shrike-space-9) var(--shrike-space-3) 0;
+  color: var(--shrike-text-muted);
+  font-size: var(--shrike-font-size-ui);
 }
 
 .systemIcon {
   display: grid;
   place-items: center;
-  color: var(--hearth-text-faint);
+  color: var(--shrike-text-faint);
 }
 
 .systemText {
@@ -70,15 +70,15 @@
 }
 
 .systemTime {
-  margin-left: var(--hearth-space-3);
-  color: var(--hearth-text-faint);
-  font-size: var(--hearth-font-size-xs);
+  margin-left: var(--shrike-space-3);
+  color: var(--shrike-text-faint);
+  font-size: var(--shrike-font-size-xs);
   font-variant-numeric: tabular-nums;
 }
 
 @media (max-width: 759.98px) {
   .system {
     grid-template-columns: 60px minmax(0, 1fr) auto;
-    padding-right: var(--hearth-space-4);
+    padding-right: var(--shrike-space-4);
   }
 }

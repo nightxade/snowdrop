@@ -3,7 +3,7 @@ import { useId, type CSSProperties } from 'react';
 import { useStore } from 'zustand';
 import { initialsFor, type Contact, type ConversationId } from '@/core/domain';
 import { localSelectors } from '@/core/stores';
-import { useHearth } from '@/ui/hooks';
+import { useShrike } from '@/ui/hooks';
 import { copyText, formatPhone, openDirectConversation } from '@/ui/features/conversation';
 import { Avatar, Button } from '@/ui/primitives';
 import styles from './ProfilePopout.module.css';
@@ -27,7 +27,7 @@ export function ProfilePopout({
   conversationId?: ConversationId | undefined;
   onClose: () => void;
 }) {
-  const app = useHearth();
+  const app = useShrike();
   const { stores } = app;
   const note = useStore(stores.local, localSelectors.note(contact.id));
   const isAdmin = useStore(stores.conversations, (s) =>

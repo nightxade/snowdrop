@@ -4,18 +4,18 @@
   place-items: center;
   width: 32px;
   height: 32px;
-  border-radius: var(--hearth-radius-sm);
-  color: var(--hearth-text-muted);
+  border-radius: var(--shrike-radius-sm);
+  color: var(--shrike-text-muted);
   transition:
-    background-color var(--hearth-duration-fast) var(--hearth-ease),
-    color var(--hearth-duration-fast) var(--hearth-ease);
+    background-color var(--shrike-duration-fast) var(--shrike-ease),
+    color var(--shrike-duration-fast) var(--shrike-ease);
 }
 
 .button[data-size='sm'] {
   position: relative;
   width: 24px;
   height: 24px;
-  border-radius: var(--hearth-radius-xs);
+  border-radius: var(--shrike-radius-xs);
 }
 
 /* Small buttons look small but keep a 32px hit target (PLAN §4.12). */
@@ -26,12 +26,12 @@
 }
 
 .button:hover:not(:disabled) {
-  background: var(--hearth-bg-hover);
-  color: var(--hearth-text-strong);
+  background: var(--shrike-bg-hover);
+  color: var(--shrike-text-strong);
 }
 
 .button[data-active] {
-  color: var(--hearth-text-strong);
+  color: var(--shrike-text-strong);
 }
 
 .button:disabled {

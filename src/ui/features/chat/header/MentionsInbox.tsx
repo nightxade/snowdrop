@@ -2,7 +2,7 @@ import { AtSign, Inbox } from 'lucide-react';
 import { useState } from 'react';
 import { useStore } from 'zustand';
 import { sessionSelectors } from '@/core/stores';
-import { useHearth } from '@/ui/hooks';
+import { useShrike } from '@/ui/hooks';
 import { IconButton, Popover } from '@/ui/primitives';
 import { useChatController } from '../ChatController';
 import { MessageResult } from './MessageResult';
@@ -10,7 +10,7 @@ import { PopoverFrame, useOnOpen } from './ListPopover';
 import styles from './ListPopover.module.css';
 
 export function MentionsInbox() {
-  const { repository, stores } = useHearth();
+  const { repository, stores } = useShrike();
   const chat = useChatController();
   const selfId = useStore(stores.session, sessionSelectors.selfId);
   const titles = useStore(stores.conversations, (s) => s.byId);

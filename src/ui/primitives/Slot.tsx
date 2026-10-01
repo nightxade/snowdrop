@@ -78,7 +78,7 @@ export class PluginBoundary extends Component<BoundaryProps, { failed: boolean }
 
   override componentDidCatch(error: unknown, _info: ErrorInfo): void {
     if (this.props.onError) this.props.onError(error, this.props.entry);
-    else console.error(`[hearth] plugin "${this.props.entry.owner}" failed to render`, error);
+    else console.error(`[shrike] plugin "${this.props.entry.owner}" failed to render`, error);
   }
 
   override componentDidUpdate(previous: BoundaryProps): void {

@@ -146,7 +146,7 @@ function parseMute(value: unknown): MuteState {
 }
 
 export const localSchema: VersionedSchema<LocalData> = {
-  key: 'hearth.local',
+  key: 'shrike.local',
   version: 1,
   defaults: defaultLocalData,
   parse: (data) => {

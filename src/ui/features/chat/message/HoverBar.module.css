@@ -2,15 +2,15 @@
   position: absolute;
   z-index: 2;
   top: -16px;
-  right: var(--hearth-space-5);
+  right: var(--shrike-space-5);
   display: flex;
   align-items: center;
   gap: 2px;
   padding: 2px;
-  border-radius: var(--hearth-radius-sm);
-  background: var(--hearth-bg-elevated);
-  box-shadow: var(--hearth-shadow-menu);
-  animation: bar-in var(--hearth-duration-fast) var(--hearth-ease);
+  border-radius: var(--shrike-radius-sm);
+  background: var(--shrike-bg-elevated);
+  box-shadow: var(--shrike-shadow-menu);
+  animation: bar-in var(--shrike-duration-fast) var(--shrike-ease);
 }
 
 @keyframes bar-in {
@@ -25,16 +25,16 @@
   place-items: center;
   width: 32px;
   height: 32px;
-  border-radius: var(--hearth-radius-sm);
+  border-radius: var(--shrike-radius-sm);
   font-size: 18px;
   line-height: 1;
   transition:
-    background-color var(--hearth-duration-fast) var(--hearth-ease),
-    transform var(--hearth-duration-fast) var(--hearth-ease);
+    background-color var(--shrike-duration-fast) var(--shrike-ease),
+    transform var(--shrike-duration-fast) var(--shrike-ease);
 }
 
 .quick:hover {
-  background: var(--hearth-bg-hover);
+  background: var(--shrike-bg-hover);
   transform: scale(1.12);
 }
 
@@ -42,14 +42,14 @@
   width: 1px;
   height: 20px;
   margin: 0 2px;
-  background: var(--hearth-border-strong);
+  background: var(--shrike-border-strong);
 }
 
 .danger {
-  color: var(--hearth-danger);
+  color: var(--shrike-danger);
 }
 
 .danger:hover:not(:disabled) {
-  background: var(--hearth-danger-soft);
-  color: var(--hearth-danger);
+  background: var(--shrike-danger-soft);
+  color: var(--shrike-danger);
 }

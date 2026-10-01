@@ -13,7 +13,7 @@ export const MessagePane = memo(function MessagePane({
   const conversation = useConversationView(conversationId);
   if (!conversation) return null;
   return (
-    <section className={styles.pane} data-hearth="message-pane" aria-label="Messages">
+    <section className={styles.pane} data-shrike="message-pane" aria-label="Messages">
       <MessageList conversation={conversation} />
     </section>
   );

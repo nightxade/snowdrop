@@ -1,8 +1,8 @@
 .sidebar {
   display: flex;
   flex-direction: column;
-  width: var(--hearth-sidebar-width);
+  width: var(--shrike-sidebar-width);
   min-width: 0;
   height: 100%;
-  background: var(--hearth-bg-sidebar);
+  background: var(--shrike-bg-sidebar);
 }

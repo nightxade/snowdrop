@@ -61,5 +61,5 @@ export class DisposableStore {
 }
 
 function defaultOnError(error: unknown): void {
-  console.error('[hearth] disposer failed', error);
+  console.error('[shrike] disposer failed', error);
 }

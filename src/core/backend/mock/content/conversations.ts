@@ -89,10 +89,10 @@ export const CASUAL_LINES: readonly string[] = [
 export const CONVERSATIONS: readonly ConversationSeed[] = [
   // ─── Work ─────────────────────────────────────────────────────────────
   {
-    key: 'kiln-eng',
+    key: 'orchard-eng',
     kind: 'group',
-    title: 'Kiln · Engineering',
-    description: 'Day-to-day engineering chat for the Kiln app. Incidents go to #release-train.',
+    title: 'Orchard · Engineering',
+    description: 'Day-to-day engineering chat for the Orchard app. Incidents go to #release-train.',
     members: ['ines', 'tomasz', 'oren', 'dev', 'mireille', 'priya'],
     admins: ['ines', 'me'],
     activity: 1.4,
@@ -136,9 +136,9 @@ export const CONVERSATIONS: readonly ConversationSeed[] = [
         author: 'oren',
         text: 'Found the culprit for the duplicate notifications. We subscribe twice when the socket reconnects:\n```ts\nsocket.on("open", () => {\n  subscribe(channel);   // runs on every reconnect\n});\nsubscribe(channel);     // …and once more at boot\n```\nFix is to make `subscribe` idempotent per channel.',
         reactions: [
-          ['🔥', 'ines'],
+          ['🎯', 'ines'],
           ['🙏', 'tomasz'],
-          ['🔥', 'dev'],
+          ['🎯', 'dev'],
         ],
       },
       {
@@ -190,9 +190,9 @@ export const CONVERSATIONS: readonly ConversationSeed[] = [
     ],
   },
   {
-    key: 'kiln-design',
+    key: 'orchard-design',
     kind: 'group',
-    title: 'Kiln · Design Crit',
+    title: 'Orchard · Design Crit',
     description: 'Show work early. Be kind, be specific.',
     members: ['priya', 'mireille', 'ines', 'samir'],
     admins: ['priya'],
@@ -238,9 +238,9 @@ export const CONVERSATIONS: readonly ConversationSeed[] = [
     ],
   },
   {
-    key: 'kiln-release',
+    key: 'orchard-release',
     kind: 'group',
-    title: 'Kiln · Release Train',
+    title: 'Orchard · Release Train',
     description: 'Releases, rollouts and incidents. Keep it factual.',
     members: ['dev', 'ines', 'oren', 'tomasz'],
     admins: ['dev'],
@@ -278,9 +278,9 @@ export const CONVERSATIONS: readonly ConversationSeed[] = [
     ],
   },
   {
-    key: 'kiln-watercooler',
+    key: 'orchard-watercooler',
     kind: 'group',
-    title: 'Kiln · Watercooler',
+    title: 'Orchard · Watercooler',
     description: 'Off-topic. Pets, plants, lunch.',
     members: ['ines', 'tomasz', 'priya', 'oren', 'mireille', 'dev', 'samir', 'tavi'],
     activity: 1.3,
@@ -300,7 +300,7 @@ export const CONVERSATIONS: readonly ConversationSeed[] = [
       'I finally finished that 1000-piece puzzle',
       'who left a single grape on the meeting room table',
       'the office plant has a new leaf 🌱',
-      'fire drill at 11, just so you know',
+      'evacuation drill at 11, just so you know',
     ],
     scripted: [
       {
@@ -314,7 +314,7 @@ export const CONVERSATIONS: readonly ConversationSeed[] = [
           ['😮', 'priya'],
           ['❤️', 'ines'],
           ['❤️', 'tavi'],
-          ['🔥', 'me'],
+          ['🎯', 'me'],
         ],
       },
       {
@@ -375,8 +375,8 @@ export const CONVERSATIONS: readonly ConversationSeed[] = [
         image: 'peaks',
         reactions: [
           ['🧗', 'lucia'],
-          ['🔥', 'kofi'],
-          ['🔥', 'emeka'],
+          ['🎯', 'kofi'],
+          ['🎯', 'emeka'],
         ],
       },
       {
@@ -738,10 +738,10 @@ export const CONVERSATIONS: readonly ConversationSeed[] = [
 export const DEFAULT_SPACES: readonly SpaceSeed[] = [
   {
     name: 'Work',
-    emoji: '🔥',
+    emoji: '💼',
     categories: [
-      { name: 'Teams', conversations: ['kiln-eng', 'kiln-design', 'kiln-release'] },
-      { name: 'Social', conversations: ['kiln-watercooler'] },
+      { name: 'Teams', conversations: ['orchard-eng', 'orchard-design', 'orchard-release'] },
+      { name: 'Social', conversations: ['orchard-watercooler'] },
     ],
   },
   {

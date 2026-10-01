@@ -138,7 +138,7 @@ describe('MockBackend', () => {
     const { backend, scheduler } = setup();
     await backend.connect();
     const receipts = collect(backend, 'receipt');
-    const conv = backend.world.conversationIds.get('kiln-eng')!;
+    const conv = backend.world.conversationIds.get('orchard-eng')!;
     const a = await backend.send({ conversationId: conv, body: 'hi', ranges: [] });
     const b = await backend.send({ conversationId: conv, body: 'again', ranges: [] });
     expect(a.sentAt).toBe(NOW);
@@ -150,7 +150,7 @@ describe('MockBackend', () => {
 
   it('rejects when offline and on injected failures', async () => {
     const { backend } = setup();
-    const conv = backend.world.conversationIds.get('kiln-eng')!;
+    const conv = backend.world.conversationIds.get('orchard-eng')!;
     await expect(backend.send({ conversationId: conv, body: 'x', ranges: [] })).rejects.toThrow(
       /Not connected/u,
     );
@@ -188,7 +188,7 @@ describe('MockBackend', () => {
   it('pins messages and lets admins delete others’ messages', async () => {
     const { backend } = setup();
     await backend.connect();
-    const conv = backend.world.conversationIds.get('kiln-eng')!;
+    const conv = backend.world.conversationIds.get('orchard-eng')!;
     const target = backend.world.histories
       .get(conv)!
       .find((m) => m.authorId !== backend.world.self.id && !m.deleted)!;

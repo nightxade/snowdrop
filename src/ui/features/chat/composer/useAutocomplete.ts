@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useStore } from 'zustand';
 import { fuzzyFilter, type Contact, type ConversationView } from '@/core/domain';
 import { contactsSelectors, sessionSelectors } from '@/core/stores';
-import { useHearth, useObservableList } from '@/ui/hooks';
+import { useShrike, useObservableList } from '@/ui/hooks';
 import { loadEmojiIndex, searchEmoji, type EmojiEntry } from './emojiIndex';
 import type { MentionToken } from './mentionTokens';
 import { findTrigger, type Trigger } from './triggers';
@@ -38,7 +38,7 @@ export function useAutocomplete(
   caret: number,
   conversation: ConversationView,
 ): Autocomplete {
-  const { stores, registries } = useHearth();
+  const { stores, registries } = useShrike();
   const contacts = useStore(stores.contacts, contactsSelectors.byId);
   const selfId = useStore(stores.session, sessionSelectors.selfId);
   const commands = useObservableList(registries.slash);
@@ -59,7 +59,7 @@ export function useAutocomplete(
         if (!cancelled) setEmojiIndex(index);
       })
       .catch((error: unknown) => {
-        console.warn('[hearth] emoji shortcodes unavailable', error);
+        console.warn('[shrike] emoji shortcodes unavailable', error);
       });
     return () => {
       cancelled = true;

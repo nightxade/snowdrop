@@ -8,7 +8,7 @@ export interface AvatarProps {
   src?: string | undefined;
   /** Initials or an emoji, shown on `color` when there's no usable image. */
   fallback: string;
-  /** Any CSS colour value (usually `var(--hearth-avatar-N)`). */
+  /** Any CSS colour value (usually `var(--shrike-avatar-N)`). */
   color: string;
   size?: AvatarSize;
   shape?: 'circle' | 'rounded';

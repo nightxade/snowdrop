@@ -9,7 +9,7 @@ import tokensCss from '@/ui/styles/tokens.css?raw';
 const base: Record<string, string> = {};
 // Only the top-level :root block (reduced-motion overrides follow later).
 const rootBlock = tokensCss.slice(0, tokensCss.indexOf('}'));
-for (const m of rootBlock.matchAll(/--hearth-([a-z0-9-]+)\s*:\s*([^;]+);/gu)) {
+for (const m of rootBlock.matchAll(/--shrike-([a-z0-9-]+)\s*:\s*([^;]+);/gu)) {
   base[m[1] as string] = (m[2] as string).trim();
 }
 

@@ -4,7 +4,7 @@ import { CoreCommand } from '@/core/commands';
 import { uiSelectors } from '@/core/stores';
 import { useKeybindLabel, useShellLayout, useStores } from '@/ui/hooks';
 import { MembersPanel } from '@/ui/features/members';
-import { Drawer, HearthMark, Kbd } from '@/ui/primitives';
+import { Drawer, Kbd, ShrikeMark } from '@/ui/primitives';
 import { ChatHeader } from './ChatHeader';
 import { ChatController, ChatControllerProvider, useSearchOpen } from './ChatController';
 import { ConversationArea } from './ConversationArea';
@@ -46,7 +46,7 @@ function ChatColumnInner() {
   };
 
   return (
-    <main className={styles.column} data-hearth="chat" aria-label="Chat">
+    <main className={styles.column} data-shrike="chat" aria-label="Chat">
       {/* With nothing open the header would be an empty bar; keep it only for the drawer button. */}
       {(kind ?? drawer) && <ChatHeader conversationId={kind ? selected : null} />}
       <ConnectionBanner />
@@ -88,7 +88,7 @@ function NothingOpen() {
   const next = useKeybindLabel(CoreCommand.NextUnread);
   return (
     <div className={styles.empty}>
-      <HearthMark size={56} className={styles.mark} />
+      <ShrikeMark size={56} className={styles.mark} />
       <p className={styles.emptyTitle}>Pick a conversation</p>
       <p className={styles.emptyBody}>Choose one from the list, or jump straight to one.</p>
       <dl className={styles.shortcuts}>

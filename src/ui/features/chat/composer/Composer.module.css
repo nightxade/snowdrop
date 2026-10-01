@@ -1,43 +1,43 @@
 .composer {
   position: relative;
   flex: none;
-  padding: 0 var(--hearth-space-5);
+  padding: 0 var(--shrike-space-5);
 }
 
 .error {
-  margin-bottom: var(--hearth-space-2);
-  padding: var(--hearth-space-2) var(--hearth-space-4);
-  border-radius: var(--hearth-radius-sm);
-  background: var(--hearth-danger-soft);
-  color: var(--hearth-danger);
-  font-size: var(--hearth-font-size-sm);
-  font-weight: var(--hearth-font-weight-medium);
+  margin-bottom: var(--shrike-space-2);
+  padding: var(--shrike-space-2) var(--shrike-space-4);
+  border-radius: var(--shrike-radius-sm);
+  background: var(--shrike-danger-soft);
+  color: var(--shrike-danger);
+  font-size: var(--shrike-font-size-sm);
+  font-weight: var(--shrike-font-weight-medium);
 }
 
 .shell {
-  border-radius: var(--hearth-radius-md);
-  background: var(--hearth-bg-input);
+  border-radius: var(--shrike-radius-md);
+  background: var(--shrike-bg-input);
 }
 
 .box {
-  border-radius: var(--hearth-radius-md);
-  transition: box-shadow var(--hearth-duration-fast) var(--hearth-ease);
+  border-radius: var(--shrike-radius-md);
+  transition: box-shadow var(--shrike-duration-fast) var(--shrike-ease);
 }
 
 .shell[data-reply] .box {
-  border-radius: 0 0 var(--hearth-radius-md) var(--hearth-radius-md);
+  border-radius: 0 0 var(--shrike-radius-md) var(--shrike-radius-md);
 }
 
 .box:focus-within {
-  box-shadow: inset 0 0 0 1px var(--hearth-border-strong);
+  box-shadow: inset 0 0 0 1px var(--shrike-border-strong);
 }
 
 .field {
   display: flex;
   align-items: flex-end;
-  gap: var(--hearth-space-2);
+  gap: var(--shrike-space-2);
   min-height: 44px;
-  padding: 6px var(--hearth-space-3);
+  padding: 6px var(--shrike-space-3);
 }
 
 .button {
@@ -48,17 +48,17 @@
   flex: 1;
   min-width: 0;
   min-height: 32px;
-  padding: 5px var(--hearth-space-2);
+  padding: 5px var(--shrike-space-2);
   border: 0;
   background: transparent;
-  color: var(--hearth-text);
+  color: var(--shrike-text);
   font: inherit;
-  font-size: var(--hearth-font-size-message);
-  line-height: var(--hearth-line-height-message);
+  font-size: var(--shrike-font-size-message);
+  line-height: var(--shrike-line-height-message);
   outline: none;
   overflow-y: auto;
   resize: none;
-  scrollbar-color: var(--hearth-scrollbar-thumb) transparent;
+  scrollbar-color: var(--shrike-scrollbar-thumb) transparent;
   scrollbar-width: thin;
 }
 
@@ -68,13 +68,13 @@
 
 .input::placeholder {
   overflow: hidden;
-  color: var(--hearth-text-faint);
+  color: var(--shrike-text-faint);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 @media (max-width: 759.98px) {
   .composer {
-    padding: 0 var(--hearth-space-3);
+    padding: 0 var(--shrike-space-3);
   }
 }

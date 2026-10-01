@@ -12,7 +12,7 @@ import { Virtuoso, type Components, type VirtuosoHandle } from 'react-virtuoso';
 import { useStore } from 'zustand';
 import type { ConversationId, ConversationView, MessageId, RenderItem } from '@/core/domain';
 import { conversationsSelectors } from '@/core/stores';
-import { useHearth } from '@/ui/hooks';
+import { useShrike } from '@/ui/hooks';
 import { useChatController } from '../ChatController';
 import { MessageItem } from '../message/MessageItem';
 import { ConversationIntro } from './ConversationIntro';
@@ -59,7 +59,7 @@ const ListEl = forwardRef<
       aria-live="polite"
       aria-relevant="additions"
       aria-label={context ? `Messages in ${context.conversation.title}` : 'Messages'}
-      data-hearth="message-log"
+      data-shrike="message-log"
     >
       {children}
     </div>
@@ -83,7 +83,7 @@ const COMPONENTS: Components<RenderItem, ListContext> = {
  * jumps to old messages replace the window and remount at the target.
  */
 export function MessageList({ conversation }: { conversation: ConversationView }) {
-  const app = useHearth();
+  const app = useShrike();
   const { stores, history } = app;
   const chat = useChatController();
   const conversationId: ConversationId = conversation.id;
@@ -203,7 +203,7 @@ export function MessageList({ conversation }: { conversation: ConversationView }
   const firstRendered = useRef(0);
   const measureDivider = () => {
     const el = scroller.current;
-    const divider = el?.querySelector('[data-hearth="new-divider"]');
+    const divider = el?.querySelector('[data-shrike="new-divider"]');
     let pos: 'above' | 'visible' | 'below';
     if (el && divider) {
       const view = el.getBoundingClientRect();

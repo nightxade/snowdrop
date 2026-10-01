@@ -34,7 +34,7 @@ export function emojibaseAssets(): Plugin {
     res.end(read(file));
   };
   return {
-    name: 'hearth:emojibase-assets',
+    name: 'shrike:emojibase-assets',
     configureServer(server) {
       server.middlewares.use(`/${EMOJIBASE_PATH}`, serve);
     },

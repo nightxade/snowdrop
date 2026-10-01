@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useStore } from 'zustand';
 import { HOME, sessionSelectors, uiSelectors } from '@/core/stores';
-import { useHearth } from '@/ui/hooks';
+import { useShrike } from '@/ui/hooks';
 
 /**
  * Side effects of navigation, in one place so every path (click, keyboard,
@@ -14,7 +14,7 @@ import { useHearth } from '@/ui/hooks';
  * - a deleted space falls back to Home.
  */
 export function useConversationLifecycle(): void {
-  const { stores, history } = useHearth();
+  const { stores, history } = useShrike();
   const selected = useStore(stores.ui, uiSelectors.selectedConversation);
   const ready = useStore(stores.session, sessionSelectors.ready);
   const space = useStore(stores.ui, uiSelectors.selectedSpace);

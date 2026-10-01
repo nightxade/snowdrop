@@ -2,8 +2,8 @@
   position: relative;
   display: flex;
   justify-content: center;
-  width: var(--hearth-rail-width);
-  padding: var(--hearth-space-2) 0;
+  width: var(--shrike-rail-width);
+  padding: var(--shrike-space-2) 0;
 }
 
 .item[data-dragging] {
@@ -15,80 +15,80 @@
   display: grid;
   flex: none;
   place-items: center;
-  width: var(--hearth-tile-size);
-  height: var(--hearth-tile-size);
+  width: var(--shrike-tile-size);
+  height: var(--shrike-tile-size);
   overflow: hidden;
-  border-radius: var(--hearth-radius-tile);
+  border-radius: var(--shrike-radius-tile);
   background: color-mix(
     in oklab,
-    var(--tile-hue, var(--hearth-bg-elevated)) 18%,
-    var(--hearth-bg-elevated)
+    var(--tile-hue, var(--shrike-bg-elevated)) 18%,
+    var(--shrike-bg-elevated)
   );
-  color: var(--hearth-text);
-  font-size: var(--hearth-font-size-header);
-  font-weight: var(--hearth-font-weight-semibold);
+  color: var(--shrike-text);
+  font-size: var(--shrike-font-size-header);
+  font-weight: var(--shrike-font-weight-semibold);
   line-height: 1;
   transition:
-    background-color var(--hearth-duration-base) var(--hearth-ease),
-    box-shadow var(--hearth-duration-base) var(--hearth-ease),
-    color var(--hearth-duration-fast) var(--hearth-ease);
+    background-color var(--shrike-duration-base) var(--shrike-ease),
+    box-shadow var(--shrike-duration-base) var(--shrike-ease),
+    color var(--shrike-duration-fast) var(--shrike-ease);
   user-select: none;
 }
 
 /* Keyboard focus sits outside the selection ring so the two never read alike. */
 .tile:focus-visible {
-  outline: 2px dashed var(--hearth-text-strong);
+  outline: 2px dashed var(--shrike-text-strong);
   outline-offset: 7px;
 }
 
 .item:hover .tile,
 .item[data-selected] .tile,
 .tile[data-state='open'] {
-  background: var(--tile-hue, var(--hearth-bg-active));
-  color: var(--hearth-text-on-avatar);
+  background: var(--tile-hue, var(--shrike-bg-active));
+  color: var(--shrike-text-on-avatar);
 }
 
 /* Selected: a 2px accent ring, 3px away from the tile. */
 .item[data-selected] .tile {
   box-shadow:
-    0 0 0 3px var(--hearth-bg-rail),
-    0 0 0 5px var(--hearth-accent);
+    0 0 0 3px var(--shrike-bg-rail),
+    0 0 0 5px var(--shrike-accent);
 }
 
 .item[data-tone='accent'] .tile {
-  background: var(--hearth-bg-elevated);
-  color: var(--hearth-accent);
+  background: var(--shrike-bg-elevated);
+  color: var(--shrike-accent);
 }
 
 .item[data-tone='accent']:hover .tile,
 .item[data-tone='accent'][data-selected] .tile {
-  background: var(--hearth-bg-active);
-  color: var(--hearth-accent);
+  background: var(--shrike-bg-active);
+  color: var(--shrike-accent);
 }
 
 /* The add tile is an outline: it's an action, not a place. */
 .item[data-tone='quiet'] .tile {
-  border: 1.5px dashed var(--hearth-border-strong);
+  border: 1.5px dashed var(--shrike-border-strong);
   background: transparent;
-  color: var(--hearth-text-muted);
+  color: var(--shrike-text-muted);
 }
 
 .item[data-tone='quiet']:hover .tile {
-  border-color: var(--hearth-text-muted);
-  background: var(--hearth-bg-hover);
-  color: var(--hearth-text-strong);
+  border-color: var(--shrike-text-muted);
+  background: var(--shrike-bg-hover);
+  color: var(--shrike-text-strong);
 }
 
 /* Unread: a small light dot on the tile's top-left corner. */
 .dot {
   position: absolute;
-  top: calc(var(--hearth-space-2) - 2px);
-  left: calc((var(--hearth-rail-width) - var(--hearth-tile-size)) / 2 - 2px);
+  top: calc(var(--shrike-space-2) - 2px);
+  left: calc((var(--shrike-rail-width) - var(--shrike-tile-size)) / 2 - 2px);
   width: 10px;
   height: 10px;
-  border-radius: var(--hearth-radius-full);
-  background: var(--hearth-text-strong);
-  box-shadow: 0 0 0 3px var(--hearth-bg-rail);
+  border-radius: var(--shrike-radius-full);
+  background: var(--shrike-text-strong);
+  box-shadow: 0 0 0 3px var(--shrike-bg-rail);
   pointer-events: none;
 }
 
@@ -96,6 +96,6 @@
   position: absolute;
   right: 8px;
   bottom: 0;
-  box-shadow: 0 0 0 3px var(--hearth-bg-rail);
+  box-shadow: 0 0 0 3px var(--shrike-bg-rail);
   pointer-events: none;
 }

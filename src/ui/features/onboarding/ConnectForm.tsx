@@ -71,7 +71,7 @@ export function ConnectForm({
         </li>
         <li>
           Keep the address below unless you changed the dev proxy. The daemon has no CORS support,
-          so Hearth reaches it through the same-origin path{' '}
+          so Shrike reaches it through the same-origin path{' '}
           <code className={styles.code}>/signal-cli</code>.
         </li>
       </ol>

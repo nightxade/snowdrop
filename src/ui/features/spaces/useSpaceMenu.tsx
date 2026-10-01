@@ -1,7 +1,7 @@
 import { ArrowDown, ArrowUp, BellOff, Check, Pencil, Trash2 } from 'lucide-react';
 import { useCallback } from 'react';
 import { HOME, type SpaceId } from '@/core/stores';
-import { useHearth, type AppServices } from '@/ui/hooks';
+import { useShrike, type AppServices } from '@/ui/hooks';
 import type { MenuEntry } from '@/ui/primitives';
 
 const ICON = 16;
@@ -20,7 +20,7 @@ export function markSpaceRead(app: AppServices, spaceId: SpaceId): void {
 
 /** Space context/dropdown menu (PLAN §4.2): mark read, mute, edit, delete + plugin items. */
 export function useSpaceMenu(spaceId: SpaceId): () => MenuEntry[] {
-  const app = useHearth();
+  const app = useShrike();
   return useCallback(() => {
     const { stores, registries } = app;
     const space = stores.spaces.getState().spaces[spaceId];
@@ -47,7 +47,7 @@ export function useSpaceMenu(spaceId: SpaceId): () => MenuEntry[] {
           try {
             item.onSelect({ spaceId });
           } catch (error) {
-            console.error(`[hearth] plugin "${item.owner}" menu item failed`, error);
+            console.error(`[shrike] plugin "${item.owner}" menu item failed`, error);
           }
         },
       }));

@@ -94,9 +94,9 @@ describe('MessageBody', () => {
   });
 
   it('detects emoji-only messages for jumbo display', () => {
-    expect(isJumbo('🔥🔥', [])).toBe(true);
+    expect(isJumbo('🎯🎯', [])).toBe(true);
     expect(isJumbo('👍🏽 ❤️', [])).toBe(true);
     expect(isJumbo('ok 👍', [])).toBe(false);
-    expect(isJumbo('🔥', [{ start: 0, length: 2, style: 'bold' }])).toBe(false);
+    expect(isJumbo('🎯', [{ start: 0, length: 2, style: 'bold' }])).toBe(false);
   });
 });

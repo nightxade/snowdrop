@@ -183,7 +183,7 @@ describe('normaliseReceive: actions on messages', () => {
       conversationId: GROUP,
       targetAuthorId: SELF_ACI,
       targetSentAt: T0 - 5,
-      reaction: { emoji: '🔥', authorId: ALICE, at: T0 + 40 },
+      reaction: { emoji: '🎯', authorId: ALICE, at: T0 + 40 },
       remove: false,
     });
     const remove = only(run(fixtures.reactionRemove).events, 'reaction').payload;

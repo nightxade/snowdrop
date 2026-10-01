@@ -2,8 +2,8 @@
   position: fixed;
   z-index: 30;
   inset: 0;
-  background: var(--hearth-bg-overlay);
-  animation: fade var(--hearth-duration-slow) var(--hearth-ease);
+  background: var(--shrike-bg-overlay);
+  animation: fade var(--shrike-duration-slow) var(--shrike-ease);
 }
 
 .content {
@@ -14,8 +14,8 @@
   left: 0;
   display: flex;
   max-width: calc(100vw - 48px);
-  box-shadow: var(--hearth-shadow-modal);
-  animation: slide var(--hearth-duration-slow) var(--hearth-ease);
+  box-shadow: var(--shrike-shadow-modal);
+  animation: slide var(--shrike-duration-slow) var(--shrike-ease);
   touch-action: pan-y;
 }
 
@@ -24,11 +24,11 @@
 }
 
 .content[data-state='closed'] {
-  animation: slide-out var(--hearth-duration-base) var(--hearth-ease) forwards;
+  animation: slide-out var(--shrike-duration-base) var(--shrike-ease) forwards;
 }
 
 .overlay[data-state='closed'] {
-  animation: fade var(--hearth-duration-base) var(--hearth-ease) reverse forwards;
+  animation: fade var(--shrike-duration-base) var(--shrike-ease) reverse forwards;
 }
 
 .content[data-side='right'] {

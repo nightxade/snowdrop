@@ -63,7 +63,7 @@ export function FolderEntry({
               <span
                 key={id}
                 className={styles.mini}
-                style={{ '--tile-hue': `var(--hearth-avatar-${space.hue})` } as CSSProperties}
+                style={{ '--tile-hue': `var(--shrike-avatar-${space.hue})` } as CSSProperties}
               >
                 {space.emoji ?? initialsFor(space.name).slice(0, 1)}
               </span>

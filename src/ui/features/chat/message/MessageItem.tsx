@@ -15,7 +15,7 @@ import {
   sessionSelectors,
   UNKNOWN_CONTACT_NAME,
 } from '@/core/stores';
-import { useHearth, useObservableList } from '@/ui/hooks';
+import { useShrike, useObservableList } from '@/ui/hooks';
 import { Avatar, ContextMenu, Slot } from '@/ui/primitives';
 import { useChatController } from '../ChatController';
 import * as act from './actions';
@@ -38,7 +38,7 @@ import styles from './MessageItem.module.css';
 export interface MessageItemProps {
   conversationId: ConversationId;
   id: MessageId;
-  /** Continues the previous author's group: no avatar/header (cozy). */
+  /** Continues the previous author's group: no avatar/header (comfortable). */
   continuation: boolean;
   compact: boolean;
   /** Show 16px avatars in compact mode. */
@@ -57,7 +57,7 @@ export const MessageItem = memo(function MessageItem({
   compact,
   compactAvatars,
 }: MessageItemProps) {
-  const app = useHearth();
+  const app = useShrike();
   const { stores } = app;
   const chat = useChatController();
   const m = useStore(stores.messages, messagesSelectors.message(conversationId, id));
@@ -84,7 +84,7 @@ export const MessageItem = memo(function MessageItem({
   if (!m) return null;
   const perms = act.permissionsFor(app, m);
   const name = author?.name ?? UNKNOWN_CONTACT_NAME;
-  const color = author?.color ?? 'var(--hearth-avatar-1)';
+  const color = author?.color ?? 'var(--shrike-avatar-1)';
   const active = hovered || focused || menuOpen || contextOpen || pickerOpen;
   const mentionsMe = selfId !== null && m.authorId !== selfId && mentionsContact(m, selfId);
   const showHeader = compact || !continuation;
@@ -142,7 +142,7 @@ export const MessageItem = memo(function MessageItem({
       <ContextMenu entries={menu} onOpenChange={setContextOpen} label="Message actions">
         <div
           className={styles.row}
-          data-hearth="message"
+          data-shrike="message"
           data-compact={compact ? '' : undefined}
           data-continuation={continuation && !compact ? '' : undefined}
           data-mention={mentionsMe ? '' : undefined}

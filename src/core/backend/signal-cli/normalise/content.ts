@@ -1,7 +1,7 @@
 /**
  * Data message → domain `Message` (the visible content of one envelope).
  *
- * Content Hearth can't render natively (stickers, view-once media, payments,
+ * Content Shrike can't render natively (stickers, view-once media, payments,
  * shared contacts, polls) is shown as an honest italic note rather than
  * dropped silently, so the conversation never has invisible gaps.
  */

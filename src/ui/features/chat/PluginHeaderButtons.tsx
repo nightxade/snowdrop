@@ -1,11 +1,11 @@
 import { Puzzle } from 'lucide-react';
 import type { ConversationView } from '@/core/domain';
-import { useHearth, useObservableList } from '@/ui/hooks';
+import { useShrike, useObservableList } from '@/ui/hooks';
 import { IconButton, isRenderableComponent, PluginBoundary } from '@/ui/primitives';
 
 /** Header buttons contributed by plugins (ctx.headerBar.addButton), each isolated. */
 export function PluginHeaderButtons({ conversation }: { conversation: ConversationView }) {
-  const { registries } = useHearth();
+  const { registries } = useShrike();
   const buttons = useObservableList(registries.headerButtons);
   const visible = buttons.filter((b) => {
     try {
@@ -31,7 +31,7 @@ export function PluginHeaderButtons({ conversation }: { conversation: Conversati
                 try {
                   button.onClick(conversation);
                 } catch (error) {
-                  console.error(`[hearth] plugin "${button.owner}" header button failed`, error);
+                  console.error(`[shrike] plugin "${button.owner}" header button failed`, error);
                 }
               }}
             />

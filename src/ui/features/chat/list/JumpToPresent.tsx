@@ -21,7 +21,7 @@ export function JumpToPresent({
       ? `${count > 99 ? '99+' : count} new message${count === 1 ? '' : 's'}`
       : 'Jump to present';
   return (
-    <div className={styles.jumpWrap} data-hearth="jump-to-present">
+    <div className={styles.jumpWrap} data-shrike="jump-to-present">
       <Tooltip label="Jump to present" {...(shortcut ? { shortcut } : {})}>
         <button
           type="button"

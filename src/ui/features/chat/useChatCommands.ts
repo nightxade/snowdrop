@@ -1,12 +1,12 @@
 import { useEffect } from 'react';
 import { CoreCommand, DEFAULT_KEYBINDS } from '@/core/commands';
 import { uiSelectors } from '@/core/stores';
-import { useHearth } from '@/ui/hooks';
+import { useShrike } from '@/ui/hooks';
 import { useChatController } from './ChatController';
 
 /** Registers the commands that need the message list (PLAN §4.11): jump to present, search. */
 export function useChatCommands(): void {
-  const { commands, stores } = useHearth();
+  const { commands, stores } = useShrike();
   const chat = useChatController();
   useEffect(() => {
     const hasConversation = () => uiSelectors.selectedConversation(stores.ui.getState()) !== null;

@@ -4,7 +4,7 @@ import { useStore } from 'zustand';
 import { CoreCommand } from '@/core/commands';
 import type { ConversationId, ConversationView } from '@/core/domain';
 import { messagesSelectors, sessionSelectors, uiSelectors } from '@/core/stores';
-import { setConversationFocusResolver, useHearth } from '@/ui/hooks';
+import { setConversationFocusResolver, useShrike } from '@/ui/hooks';
 import { useConversationView } from '@/ui/features/conversation';
 import { EmojiPickerPopover, IconButton } from '@/ui/primitives';
 import { useChatController } from '../ChatController';
@@ -31,7 +31,7 @@ export const Composer = memo(function Composer({
 });
 
 function ComposerInner({ conversation }: { conversation: ConversationView }) {
-  const app = useHearth();
+  const app = useShrike();
   const { stores, commands } = app;
   const chat = useChatController();
   const conversationId = conversation.id;
@@ -158,7 +158,7 @@ function ComposerInner({ conversation }: { conversation: ConversationView }) {
       : `Message @${conversation.title}`;
 
   return (
-    <div className={styles.composer} data-hearth="composer">
+    <div className={styles.composer} data-shrike="composer">
       {state.error && (
         <p className={styles.error} role="alert">
           {state.error}

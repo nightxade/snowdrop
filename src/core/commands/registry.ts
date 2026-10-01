@@ -78,7 +78,7 @@ export class CommandRegistry {
 }
 
 function defaultOnError(error: unknown, command: Command): void {
-  console.error(`[hearth] command "${command.id}" failed`, error);
+  console.error(`[shrike] command "${command.id}" failed`, error);
 }
 
 /**

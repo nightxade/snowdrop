@@ -1,32 +1,32 @@
 .result {
   display: flex;
   flex-direction: column;
-  gap: var(--hearth-space-2);
+  gap: var(--shrike-space-2);
   width: 100%;
-  padding: var(--hearth-space-3) var(--hearth-space-4);
-  border: 1px solid var(--hearth-border);
-  border-radius: var(--hearth-radius-sm);
-  background: var(--hearth-bg-chat);
+  padding: var(--shrike-space-3) var(--shrike-space-4);
+  border: 1px solid var(--shrike-border);
+  border-radius: var(--shrike-radius-sm);
+  background: var(--shrike-bg-chat);
   text-align: left;
   transition:
-    border-color var(--hearth-duration-fast) var(--hearth-ease),
-    background-color var(--hearth-duration-fast) var(--hearth-ease);
+    border-color var(--shrike-duration-fast) var(--shrike-ease),
+    background-color var(--shrike-duration-fast) var(--shrike-ease);
 }
 
 .result:hover {
-  border-color: var(--hearth-border-strong);
-  background: var(--hearth-bg-elevated);
+  border-color: var(--shrike-border-strong);
+  background: var(--shrike-bg-elevated);
 }
 
 .context {
-  color: var(--hearth-text-muted);
-  font-size: var(--hearth-font-size-xs);
-  font-weight: var(--hearth-font-weight-semibold);
+  color: var(--shrike-text-muted);
+  font-size: var(--shrike-font-size-xs);
+  font-weight: var(--shrike-font-weight-semibold);
 }
 
 .row {
   display: flex;
-  gap: var(--hearth-space-3);
+  gap: var(--shrike-space-3);
   min-width: 0;
 }
 
@@ -40,29 +40,29 @@
 .head {
   display: flex;
   align-items: baseline;
-  gap: var(--hearth-space-3);
+  gap: var(--shrike-space-3);
   min-width: 0;
 }
 
 .name {
   overflow: hidden;
-  color: color-mix(in oklab, var(--name-color) 55%, var(--hearth-text-strong));
-  font-size: var(--hearth-font-size-ui);
-  font-weight: var(--hearth-font-weight-semibold);
+  color: color-mix(in oklab, var(--name-color) 55%, var(--shrike-text-strong));
+  font-size: var(--shrike-font-size-ui);
+  font-weight: var(--shrike-font-weight-semibold);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .time {
   flex: none;
-  color: var(--hearth-text-faint);
-  font-size: var(--hearth-font-size-xs);
+  color: var(--shrike-text-faint);
+  font-size: var(--shrike-font-size-xs);
 }
 
 .body {
   display: -webkit-box;
   overflow: hidden;
-  font-size: var(--hearth-font-size-ui);
+  font-size: var(--shrike-font-size-ui);
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
 }

@@ -31,7 +31,7 @@ export function TypingLine({ conversationId }: { conversationId: ConversationId 
   const contacts = useStore(stores.contacts, contactsSelectors.byId);
   const text = typingText(typers, selfId, contacts);
   return (
-    <div className={styles.typing} aria-live="polite" data-hearth="typing-line">
+    <div className={styles.typing} aria-live="polite" data-shrike="typing-line">
       {text && (
         <>
           <TypingDots />

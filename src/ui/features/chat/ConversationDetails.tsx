@@ -1,13 +1,13 @@
 import { Copy, Timer } from 'lucide-react';
 import { formatDuration, type ConversationView } from '@/core/domain';
-import { useHearth } from '@/ui/hooks';
+import { useShrike } from '@/ui/hooks';
 import { ConversationAvatar, copyText, usePeer } from '@/ui/features/conversation';
 import { Button } from '@/ui/primitives';
 import styles from './ConversationDetails.module.css';
 
 /** The "about this conversation" popover opened from the header title. */
 export function ConversationDetails({ conversation }: { conversation: ConversationView }) {
-  const app = useHearth();
+  const app = useShrike();
   const peer = usePeer(conversation);
   const isGroup = conversation.kind === 'group';
   const about = isGroup ? conversation.description : peer?.about;

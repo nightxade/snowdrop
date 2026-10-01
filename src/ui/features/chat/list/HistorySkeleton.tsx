@@ -6,7 +6,7 @@ const WIDTHS = ['62%', '38%', '80%', '54%', '70%', '44%', '66%', '30%'];
 /** Placeholder rows while history loads (shimmer stops under reduced motion). */
 export function HistorySkeleton({ rows }: { rows: number }) {
   return (
-    <div className={styles.skeleton} aria-hidden data-hearth="history-skeleton">
+    <div className={styles.skeleton} aria-hidden data-shrike="history-skeleton">
       {Array.from({ length: rows }, (_, i) => (
         <div key={i} className={styles.skeletonRow}>
           <Skeleton width={40} height={40} radius="full" />

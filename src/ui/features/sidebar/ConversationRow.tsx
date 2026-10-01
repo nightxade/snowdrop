@@ -1,7 +1,7 @@
 import { BellOff, Hash, AtSign, Settings, X } from 'lucide-react';
 import { memo } from 'react';
 import type { ConversationId } from '@/core/domain';
-import { useHearth } from '@/ui/hooks';
+import { useShrike } from '@/ui/hooks';
 import {
   archive,
   ConversationAvatar,
@@ -27,7 +27,7 @@ export const ConversationRow = memo(function ConversationRow({
   selected,
   tabStop,
 }: ConversationRowProps) {
-  const app = useHearth();
+  const app = useShrike();
   const { view, unread, muted, typing, preview } = useRowState(id, variant === 'home');
   const menu = useConversationMenu(id);
   if (!view) return null;
@@ -51,7 +51,7 @@ export const ConversationRow = memo(function ConversationRow({
       data-selected={selected ? '' : undefined}
       data-unread={hasUnread ? '' : undefined}
       data-muted={muted ? '' : undefined}
-      data-hearth="conversation-row"
+      data-shrike="conversation-row"
     >
       <ContextMenu entries={menu} label={`${view.title} options`}>
         <button

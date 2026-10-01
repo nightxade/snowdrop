@@ -8,7 +8,7 @@
 import { createStore, type StoreApi } from 'zustand/vanilla';
 import { isRecord, type VersionedSchema } from '@/core/persistence';
 
-export type Density = 'cozy' | 'compact';
+export type Density = 'comfortable' | 'compact';
 export type ReducedMotion = 'system' | 'on' | 'off';
 export type NotificationMode = 'all' | 'mentions' | 'none';
 export type BackendChoice = 'mock' | 'signal-cli';
@@ -52,7 +52,7 @@ export interface ConnectionSettings {
   backend: BackendChoice | null;
   /**
    * Base URL the *browser* uses to reach signal-cli. The default is the
-   * same-origin Vite proxy path (`/signal-cli` → HEARTH_SIGNAL_CLI_URL,
+   * same-origin Vite proxy path (`/signal-cli` → SHRIKE_SIGNAL_CLI_URL,
    * default http://127.0.0.1:8080), because the daemon sends no CORS headers
    * and pins the Host header. An absolute URL only works same-origin.
    */
@@ -88,9 +88,9 @@ const LEGACY_DAEMON_URL = 'http://127.0.0.1:8080';
 export function defaultSettings(): Settings {
   return {
     appearance: {
-      themeId: 'ember',
+      themeId: 'dusk',
       accent: null,
-      density: 'cozy',
+      density: 'comfortable',
       fontScale: 1,
       zoom: 1,
       saturation: 1,
@@ -227,7 +227,7 @@ export function parseSettings(data: unknown): Settings {
     appearance: {
       themeId: str(a.themeId, d.appearance.themeId),
       accent: typeof a.accent === 'string' && HEX.test(a.accent) ? a.accent : null,
-      density: oneOf(a.density, ['cozy', 'compact'], d.appearance.density),
+      density: oneOf(a.density, ['comfortable', 'compact'], d.appearance.density),
       fontScale: num(a.fontScale, d.appearance.fontScale, 0.875, 1.25),
       zoom: num(a.zoom, d.appearance.zoom, 0.8, 1.5),
       saturation: num(a.saturation, d.appearance.saturation, 0, 1),
@@ -264,7 +264,7 @@ export function parseSettings(data: unknown): Settings {
 }
 
 export const settingsSchema: VersionedSchema<Settings> = {
-  key: 'hearth.settings',
+  key: 'shrike.settings',
   version: 2,
   migrations: {
     // v2 (P5): `connection.account`; the untouched v1 default daemon URL moves

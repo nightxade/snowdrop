@@ -1,12 +1,12 @@
 import { useStore } from 'zustand';
 import { sessionSelectors } from '@/core/stores';
-import { useHearth } from '@/ui/hooks';
+import { useShrike } from '@/ui/hooks';
 import { Tooltip } from '@/ui/primitives';
 import styles from './HealthDot.module.css';
 
 /** Only shown when the connection isn't healthy (PLAN §4.2); click retries. */
 export function HealthDot() {
-  const { stores, sync } = useHearth();
+  const { stores, sync } = useShrike();
   const status = useStore(stores.session, sessionSelectors.status);
   const ready = useStore(stores.session, sessionSelectors.ready);
   if (status === 'online' || (!ready && status === 'offline')) return null;

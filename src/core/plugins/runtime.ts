@@ -186,7 +186,7 @@ export class PluginRuntime {
       try {
         fn();
       } catch (error) {
-        console.error('[hearth] plugin runtime listener failed', error);
+        console.error('[shrike] plugin runtime listener failed', error);
       }
     }
   }
@@ -205,7 +205,7 @@ export class PluginRuntime {
 
   private report(error: unknown, id: string, where: string): void {
     if (this.host.onError) this.host.onError(error, id, where);
-    else console.error(`[hearth] plugin "${id}" failed during ${where}`, error);
+    else console.error(`[shrike] plugin "${id}" failed during ${where}`, error);
   }
 
   // ─── Context ──────────────────────────────────────────────────────────

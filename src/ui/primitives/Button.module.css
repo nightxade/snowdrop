@@ -3,18 +3,18 @@
   flex: none;
   align-items: center;
   justify-content: center;
-  gap: var(--hearth-space-3);
+  gap: var(--shrike-space-3);
   height: 36px;
-  padding: 0 var(--hearth-space-5);
-  border-radius: var(--hearth-radius-sm);
-  font-size: var(--hearth-font-size-ui);
-  font-weight: var(--hearth-font-weight-semibold);
+  padding: 0 var(--shrike-space-5);
+  border-radius: var(--shrike-radius-sm);
+  font-size: var(--shrike-font-size-ui);
+  font-weight: var(--shrike-font-weight-semibold);
   line-height: 1;
   white-space: nowrap;
   transition:
-    background-color var(--hearth-duration-fast) var(--hearth-ease),
-    color var(--hearth-duration-fast) var(--hearth-ease),
-    transform var(--hearth-duration-fast) var(--hearth-ease);
+    background-color var(--shrike-duration-fast) var(--shrike-ease),
+    color var(--shrike-duration-fast) var(--shrike-ease),
+    transform var(--shrike-duration-fast) var(--shrike-ease);
 }
 
 .button:active:not(:disabled) {
@@ -28,14 +28,14 @@
 
 .button[data-size='sm'] {
   height: 28px;
-  padding: 0 var(--hearth-space-4);
-  font-size: var(--hearth-font-size-sm);
+  padding: 0 var(--shrike-space-4);
+  font-size: var(--shrike-font-size-sm);
 }
 
 .button[data-size='lg'] {
   height: 44px;
-  padding: 0 var(--hearth-space-6);
-  font-size: var(--hearth-font-size-header);
+  padding: 0 var(--shrike-space-6);
+  font-size: var(--shrike-font-size-header);
 }
 
 .button[data-full] {
@@ -43,35 +43,35 @@
 }
 
 .button[data-variant='primary'] {
-  background: var(--hearth-accent);
-  color: var(--hearth-text-on-accent);
+  background: var(--shrike-accent);
+  color: var(--shrike-text-on-accent);
 }
 
 .button[data-variant='primary']:hover:not(:disabled) {
-  background: var(--hearth-accent-hover);
+  background: var(--shrike-accent-hover);
 }
 
 .button[data-variant='secondary'] {
-  background: var(--hearth-bg-active);
-  color: var(--hearth-text-strong);
+  background: var(--shrike-bg-active);
+  color: var(--shrike-text-strong);
 }
 
 .button[data-variant='secondary']:hover:not(:disabled) {
-  background: var(--hearth-bg-selected);
+  background: var(--shrike-bg-selected);
 }
 
 .button[data-variant='ghost'] {
-  color: var(--hearth-text);
+  color: var(--shrike-text);
 }
 
 .button[data-variant='ghost']:hover:not(:disabled) {
-  background: var(--hearth-bg-hover);
-  color: var(--hearth-text-strong);
+  background: var(--shrike-bg-hover);
+  color: var(--shrike-text-strong);
 }
 
 .button[data-variant='danger'] {
-  background: var(--hearth-danger-strong);
-  color: var(--hearth-text-on-danger);
+  background: var(--shrike-danger-strong);
+  color: var(--shrike-text-on-danger);
 }
 
 .button[data-variant='danger']:hover:not(:disabled) {
@@ -81,5 +81,5 @@
 .icon {
   display: grid;
   place-items: center;
-  margin-left: calc(var(--hearth-space-2) * -1);
+  margin-left: calc(var(--shrike-space-2) * -1);
 }

@@ -1,3 +1,3 @@
-export { createHearth, type Hearth, type HearthOptions } from './createHearth';
-export { HearthProvider, useHearth } from './HearthProvider';
+export { createShrike, type Shrike, type ShrikeOptions } from './createShrike';
+export { ShrikeProvider, useShrike } from './ShrikeProvider';
 export { App } from './App';

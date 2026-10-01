@@ -5,13 +5,13 @@ import { FakeDaemon, flush } from '@/core/backend/signal-cli/testing';
 import { ManualScheduler } from '@/core/lib';
 import { createMemoryStorage, loadVersioned, MemoryMessageRepository } from '@/core/persistence';
 import { settingsSchema, spacesSelectors } from '@/core/stores';
-import { createHearth } from './createHearth';
+import { createShrike } from './createShrike';
 import { deferredRepository } from './deferredRepository';
 
-describe('createHearth with signal-cli', () => {
+describe('createShrike with signal-cli', () => {
   it('picks the signal-cli backend from settings and remembers the account', async () => {
     const storage = createMemoryStorage({
-      'hearth.settings': JSON.stringify({
+      'shrike.settings': JSON.stringify({
         v: 2,
         data: { connection: { backend: 'signal-cli', daemonUrl: '/signal-cli', account: null } },
       }),
@@ -21,24 +21,24 @@ describe('createHearth with signal-cli', () => {
       .reply('listContacts', [])
       .reply('listGroups', []);
     const scheduler = new ManualScheduler(Date.now());
-    const hearth = createHearth({
+    const shrike = createShrike({
       storage,
       fetch: daemon.fetch,
       repository: new MemoryMessageRepository(),
       clock: scheduler,
       scheduler,
     });
-    expect(hearth.backend.kind).toBe('signal-cli');
-    await hearth.start();
+    expect(shrike.backend.kind).toBe('signal-cli');
+    await shrike.start();
     await flush();
-    expect(hearth.stores.session.getState().self?.id).toBe(SELF_ACI);
-    expect(hearth.stores.settings.getState().connection.account).toBe(SELF_ACI);
-    hearth.flush();
+    expect(shrike.stores.session.getState().self?.id).toBe(SELF_ACI);
+    expect(shrike.stores.settings.getState().connection.account).toBe(SELF_ACI);
+    shrike.flush();
     expect(loadVersioned(storage, settingsSchema).connection.account).toBe(SELF_ACI);
     // No demo spaces on a real account.
-    expect(spacesSelectors.orderedIds(hearth.stores.spaces.getState())).toHaveLength(0);
-    await hearth.dispose();
-    expect(hearth.stores.session.getState().status).toBe('offline');
+    expect(spacesSelectors.orderedIds(shrike.stores.spaces.getState())).toHaveLength(0);
+    await shrike.dispose();
+    expect(shrike.stores.session.getState().status).toBe('offline');
   });
 });
 

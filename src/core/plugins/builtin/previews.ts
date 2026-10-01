@@ -9,7 +9,7 @@ export const relativeTimestampsPlugin = definePlugin({
   id: 'relative-timestamps',
   name: 'Relative Timestamps',
   description: 'Shows "3m ago" style times next to messages.',
-  authors: ['hearth'],
+  authors: ['shrike'],
   tags: ['appearance', 'messages'],
   preview: true,
   settings: defineSettings({
@@ -32,7 +32,7 @@ export const messageToolsPlugin = definePlugin({
   id: 'message-tools',
   name: 'Message Tools',
   description: 'Adds "Copy as Markdown" and a word count to the message hover bar.',
-  authors: ['hearth'],
+  authors: ['shrike'],
   tags: ['messages'],
   preview: true,
   start() {

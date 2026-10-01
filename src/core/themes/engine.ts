@@ -31,9 +31,9 @@ export interface AppearanceInput {
 }
 
 export const STYLE_IDS = {
-  theme: 'hearth-theme',
-  plugins: 'hearth-plugins',
-  quickCss: 'hearth-quickcss',
+  theme: 'shrike-theme',
+  plugins: 'shrike-plugins',
+  quickCss: 'shrike-quickcss',
 } as const;
 
 /**

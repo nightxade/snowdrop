@@ -12,7 +12,7 @@ import { Plus } from 'lucide-react';
 import { useStore } from 'zustand';
 import { HOME, spacesSelectors } from '@/core/stores';
 import { useRovingFocus, useStores } from '@/ui/hooks';
-import { HearthMark, Scroller } from '@/ui/primitives';
+import { Scroller, ShrikeMark } from '@/ui/primitives';
 import { HealthDot } from './HealthDot';
 import { RailTile } from './RailTile';
 import { SortableRailEntry } from './SortableRailEntry';
@@ -39,7 +39,7 @@ export function Rail() {
   };
 
   return (
-    <nav className={styles.rail} aria-label="Spaces" data-hearth="rail">
+    <nav className={styles.rail} aria-label="Spaces" data-shrike="rail">
       <Scroller scrollbar="none" className={styles.scroller} onKeyDown={onKeyDown}>
         <RailTile
           label="Home"
@@ -51,7 +51,7 @@ export function Rail() {
             stores.ui.getState().selectSpace(HOME);
           }}
         >
-          <HearthMark size={26} />
+          <ShrikeMark size={26} />
         </RailTile>
         <div className={styles.separator} role="separator" />
         <DndContext

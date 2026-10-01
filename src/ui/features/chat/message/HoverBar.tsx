@@ -2,7 +2,7 @@ import { Ellipsis, Pencil, Puzzle, Reply, RotateCw, SmilePlus, Trash2 } from 'lu
 import { useStore } from 'zustand';
 import type { Message } from '@/core/domain';
 import { localSelectors } from '@/core/stores';
-import { useHearth, useObservableList } from '@/ui/hooks';
+import { useShrike, useObservableList } from '@/ui/hooks';
 import {
   DropdownMenu,
   EmojiPickerPopover,
@@ -35,7 +35,7 @@ export interface HoverBarProps {
 /** Floating quick actions at a message's top-right (hover or keyboard focus). */
 export function HoverBar(props: HoverBarProps) {
   const { message: m, permissions: p } = props;
-  const { stores, registries } = useHearth();
+  const { stores, registries } = useShrike();
   const quick = useStore(stores.local, localSelectors.quickReactions);
   const shift = useShiftHeld();
   const plugins = useObservableList(registries.hoverActions).filter((a) => {
@@ -47,7 +47,7 @@ export function HoverBar(props: HoverBarProps) {
   });
 
   return (
-    <div className={styles.bar} role="toolbar" aria-label="Message actions" data-hearth="hover-bar">
+    <div className={styles.bar} role="toolbar" aria-label="Message actions" data-shrike="hover-bar">
       {p.failed ? (
         <IconButton label="Retry sending" icon={<RotateCw />} onClick={props.onRetry} />
       ) : (
@@ -100,7 +100,7 @@ export function HoverBar(props: HoverBarProps) {
                 try {
                   action.onClick(m);
                 } catch (error) {
-                  console.error(`[hearth] plugin "${action.owner}" hover action failed`, error);
+                  console.error(`[shrike] plugin "${action.owner}" hover action failed`, error);
                 }
               }}
             />

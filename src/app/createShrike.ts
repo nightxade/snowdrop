@@ -46,7 +46,7 @@ import {
 import { applyAppearance, type ThemeDocument } from '@/core/themes';
 import { deferredRepository } from './deferredRepository';
 
-export interface HearthOptions {
+export interface ShrikeOptions {
   storage?: KeyValueStorage;
   /** Where themes are applied; omit for headless use (tests). */
   document?: ThemeDocument;
@@ -60,7 +60,7 @@ export interface HearthOptions {
   repository?: MessageRepository;
 }
 
-export interface Hearth {
+export interface Shrike {
   stores: Stores;
   backend: ChatBackend;
   repository: MessageRepository;
@@ -86,7 +86,7 @@ interface BackendChoice {
 }
 
 /**
- * Picks the transport from settings. The choice is made once per Hearth
+ * Picks the transport from settings. The choice is made once per Shrike
  * instance; switching backends means creating a new instance.
  * - mock (also before the user has chosen): in-memory history, because the
  *   demo world is regenerated each launch relative to "now" and persisting it
@@ -94,7 +94,7 @@ interface BackendChoice {
  * - signal-cli: IndexedDB history, since the daemon keeps none.
  */
 function createBackend(
-  options: HearthOptions,
+  options: ShrikeOptions,
   stores: Stores,
   storage: KeyValueStorage,
   clock: Clock,
@@ -119,14 +119,14 @@ function createBackend(
       options.repository ??
       (typeof indexedDB === 'undefined'
         ? new MemoryMessageRepository()
-        : deferredRepository(IdbMessageRepository.open('hearth-signal-cli')));
+        : deferredRepository(IdbMessageRepository.open('shrike-signal-cli')));
     return { backend, repository, mock: null };
   }
   const mock = new MockBackend({ clock, scheduler, latencyMs: options.mockLatencyMs ?? 120 });
   return { backend: mock, repository: options.repository ?? new MemoryMessageRepository(), mock };
 }
 
-export function createHearth(options: HearthOptions = {}): Hearth {
+export function createShrike(options: ShrikeOptions = {}): Shrike {
   const storage = options.storage ?? defaultStorage();
   const clock = options.clock ?? systemClock;
   const scheduler = options.scheduler ?? systemScheduler;
@@ -149,7 +149,7 @@ export function createHearth(options: HearthOptions = {}): Hearth {
   ];
 
   const reportError = (error: unknown, context: string): void => {
-    console.error(`[hearth] ${context}`, error);
+    console.error(`[shrike] ${context}`, error);
   };
 
   const { backend, repository, mock } = createBackend(options, stores, storage, clock, scheduler);

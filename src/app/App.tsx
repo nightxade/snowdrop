@@ -3,49 +3,49 @@ import { useStore } from 'zustand';
 import type { BackendChoice } from '@/core/stores';
 import { Welcome } from '@/ui/features/onboarding';
 import { AppShell } from '@/ui/features/shell';
-import type { Hearth } from './createHearth';
-import { useHearth } from './HearthProvider';
+import type { Shrike } from './createShrike';
+import { useShrike } from './ShrikeProvider';
 
-const started = new WeakSet<Hearth>();
+const started = new WeakSet<Shrike>();
 
-/** Starts a Hearth instance once, whatever StrictMode does to effects. */
-export function startOnce(hearth: Hearth): void {
-  if (started.has(hearth)) return;
-  started.add(hearth);
-  hearth.start().catch((error: unknown) => {
+/** Starts a Shrike instance once, whatever StrictMode does to effects. */
+export function startOnce(shrike: Shrike): void {
+  if (started.has(shrike)) return;
+  started.add(shrike);
+  shrike.start().catch((error: unknown) => {
     // The session store carries the error; the shell shows it with a retry.
-    console.error('[hearth] failed to start', error);
+    console.error('[shrike] failed to start', error);
   });
 }
 
 export interface AppProps {
   /**
    * Called when the chosen backend differs from the running instance's
-   * (createHearth picks the transport once). The browser entry reloads.
+   * (createShrike picks the transport once). The browser entry reloads.
    */
   onBackendChange?: () => void;
 }
 
 /** First run shows the welcome screen; afterwards the shell boots straight into the chosen backend. */
 export function App({ onBackendChange }: AppProps) {
-  const hearth = useHearth();
-  const choice = useStore(hearth.stores.settings, (s) => s.connection.backend);
-  const daemonUrl = useStore(hearth.stores.settings, (s) => s.connection.daemonUrl);
-  const matches = choice !== null && choice === hearth.backend.kind;
+  const shrike = useShrike();
+  const choice = useStore(shrike.stores.settings, (s) => s.connection.backend);
+  const daemonUrl = useStore(shrike.stores.settings, (s) => s.connection.daemonUrl);
+  const matches = choice !== null && choice === shrike.backend.kind;
 
   useEffect(() => {
     if (choice === null) return;
-    if (matches) startOnce(hearth);
+    if (matches) startOnce(shrike);
     else onBackendChange?.();
-  }, [choice, matches, hearth, onBackendChange]);
+  }, [choice, matches, shrike, onBackendChange]);
 
   if (choice === null) {
     const choose = (backend: BackendChoice, url?: string) => {
-      hearth.stores.settings
+      shrike.stores.settings
         .getState()
         .update('connection', { backend, ...(url !== undefined ? { daemonUrl: url } : {}) });
       // Persist before a possible reload.
-      hearth.flush();
+      shrike.flush();
     };
     return (
       <Welcome

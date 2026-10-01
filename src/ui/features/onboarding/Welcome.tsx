@@ -1,6 +1,6 @@
 import { ArrowLeft, PlugZap, Sparkles } from 'lucide-react';
 import { useState } from 'react';
-import { HearthMark, TooltipProvider } from '@/ui/primitives';
+import { ShrikeMark, TooltipProvider } from '@/ui/primitives';
 import { ConnectForm } from './ConnectForm';
 import styles from './Welcome.module.css';
 
@@ -17,18 +17,18 @@ export function Welcome({ onDemo, onConnect, defaultDaemonUrl }: WelcomeProps) {
   const [step, setStep] = useState<'choose' | 'connect'>('choose');
   return (
     <TooltipProvider>
-      <main className={styles.screen} data-hearth="welcome">
-        <div className={styles.glow} aria-hidden />
+      <main className={styles.screen} data-shrike="welcome">
+        <div className={styles.streaks} aria-hidden />
         <div className={styles.column}>
           <div className={styles.brand}>
-            <HearthMark size={48} className={styles.mark} />
-            <h1 className={styles.wordmark}>Hearth</h1>
+            <ShrikeMark size={48} className={styles.mark} />
+            <h1 className={styles.wordmark}>Shrike</h1>
           </div>
           {step === 'choose' ? (
             <>
               <p className={styles.lede}>
-                Your Signal conversations, arranged like a community: spaces for your groups, a
-                sidebar for everything else, and a keyboard for all of it.
+                Your Signal conversations, sorted and quick to reach: spaces for your groups, a
+                sidebar for everything else, and a shortcut for all of it.
               </p>
               <div className={styles.choices}>
                 <button type="button" className={styles.choice} data-primary onClick={onDemo}>
@@ -78,7 +78,7 @@ export function Welcome({ onDemo, onConnect, defaultDaemonUrl }: WelcomeProps) {
             </>
           )}
           <p className={styles.footnote}>
-            Works with Signal through signal-cli. Hearth is an independent project, not made by or
+            Works with Signal through signal-cli. Shrike is an independent project, not made by or
             affiliated with Signal. Everything stays on this device.
           </p>
         </div>

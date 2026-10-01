@@ -47,7 +47,7 @@ export function ConversationList() {
   const isEmpty = sections.every((s) => s.ids.length === 0) && archived.length === 0;
 
   return (
-    <Scroller className={styles.scroller} data-hearth="conversation-list">
+    <Scroller className={styles.scroller} data-shrike="conversation-list">
       <nav
         aria-label={space === HOME ? 'Home conversations' : 'Space conversations'}
         onKeyDown={onKeyDown}

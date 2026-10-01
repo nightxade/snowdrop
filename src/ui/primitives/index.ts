@@ -11,7 +11,6 @@ export {
   type EmojiPickerProps,
 } from './EmojiPicker';
 export { EmptyState, type EmptyStateProps } from './EmptyState';
-export { HearthMark } from './HearthMark';
 export { IconButton, type IconButtonProps } from './IconButton';
 export { Kbd, splitCombo } from './Kbd';
 export { Lightbox, type LightboxItem, type LightboxProps } from './Lightbox';
@@ -21,6 +20,7 @@ export { Modal, ModalClose, type ModalProps } from './Modal';
 export { Popover, PopoverClose, type PopoverProps } from './Popover';
 export { Scroller, type ScrollerProps } from './Scroller';
 export { SearchInput, type SearchInputProps } from './SearchInput';
+export { ShrikeMark } from './ShrikeMark';
 export { Skeleton, type SkeletonProps } from './Skeleton';
 export {
   isRenderableComponent,

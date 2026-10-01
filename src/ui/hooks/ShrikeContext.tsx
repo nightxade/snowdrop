@@ -1,7 +1,7 @@
 /**
  * The composed app as the React tree sees it. Declared here (not in app/) so
  * features can depend on it without importing the composition root; the
- * concrete `Hearth` from app/createHearth satisfies this structurally.
+ * concrete `Shrike` from app/createShrike satisfies this structurally.
  */
 import { createContext, use, type ReactNode } from 'react';
 import type { ChatBackend } from '@/core/backend';
@@ -32,24 +32,24 @@ export interface AppServices {
   start(): Promise<void>;
 }
 
-const HearthContext = createContext<AppServices | null>(null);
+const ShrikeContext = createContext<AppServices | null>(null);
 
-export function HearthContextProvider({
+export function ShrikeContextProvider({
   value,
   children,
 }: {
   value: AppServices;
   children: ReactNode;
 }) {
-  return <HearthContext value={value}>{children}</HearthContext>;
+  return <ShrikeContext value={value}>{children}</ShrikeContext>;
 }
 
-export function useHearth(): AppServices {
-  const hearth = use(HearthContext);
-  if (!hearth) throw new Error('useHearth must be used inside <HearthProvider>');
-  return hearth;
+export function useShrike(): AppServices {
+  const shrike = use(ShrikeContext);
+  if (!shrike) throw new Error('useShrike must be used inside <ShrikeProvider>');
+  return shrike;
 }
 
 export function useStores(): Stores {
-  return useHearth().stores;
+  return useShrike().stores;
 }

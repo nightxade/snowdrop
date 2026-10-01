@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { useStore } from 'zustand';
 import { formatClock, type ConversationId } from '@/core/domain';
 import { conversationsSelectors, sessionSelectors, uiSelectors } from '@/core/stores';
-import { useHearth } from '@/ui/hooks';
+import { useShrike } from '@/ui/hooks';
 import styles from './Overlays.module.css';
 
 /**
@@ -24,7 +24,7 @@ export function NewMessagesBar({
   dividerVisible: boolean;
   onJump: () => void;
 }) {
-  const { stores, sync } = useHearth();
+  const { stores, sync } = useShrike();
   const marker = useStore(stores.ui, uiSelectors.unreadMarker(conversationId));
   const selfId = useStore(stores.session, sessionSelectors.selfId);
   const clock24h = useStore(stores.settings, (s) => s.appearance.clock24h);
@@ -47,7 +47,7 @@ export function NewMessagesBar({
   const show = !dismissed && count > 0 && marker !== undefined && (dividerAbove || !dividerLoaded);
   if (!show) return null;
   return (
-    <div className={styles.bar} role="status" data-hearth="new-messages-bar">
+    <div className={styles.bar} role="status" data-shrike="new-messages-bar">
       <button type="button" className={styles.barJump} onClick={onJump}>
         {count > 99 ? '99+' : count} new message{count === 1 ? '' : 's'}
         {since !== undefined && dividerLoaded && ` since ${formatClock(since, { clock24h })}`}

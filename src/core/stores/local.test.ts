@@ -73,9 +73,9 @@ describe('localStore', () => {
   it('tracks reaction usage and offers the three most used', () => {
     const store = createLocalStore();
     expect(localSelectors.quickReactions(store.getState())).toEqual(['👍', '❤️', '😂']);
-    store.getState().noteReactionUsed('🔥');
-    store.getState().noteReactionUsed('🔥');
+    store.getState().noteReactionUsed('🎯');
+    store.getState().noteReactionUsed('🎯');
     store.getState().noteReactionUsed('🎉');
-    expect(localSelectors.quickReactions(store.getState())).toEqual(['🔥', '🎉', '👍']);
+    expect(localSelectors.quickReactions(store.getState())).toEqual(['🎯', '🎉', '👍']);
   });
 });

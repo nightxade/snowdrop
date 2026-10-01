@@ -5,57 +5,57 @@
     '. quote'
     'gutter content';
   grid-template-columns: 72px minmax(0, 1fr);
-  padding: 2px var(--hearth-space-9) 2px 0;
+  padding: 2px var(--shrike-space-9) 2px 0;
   outline: none;
-  transition: background-color var(--hearth-duration-fast) var(--hearth-ease);
+  transition: background-color var(--shrike-duration-fast) var(--shrike-ease);
 }
 
 .row[data-message-active] {
-  background: var(--hearth-bg-hover);
+  background: var(--shrike-bg-hover);
 }
 
 .row:focus-visible {
-  box-shadow: inset 0 0 0 2px var(--hearth-focus-ring);
+  box-shadow: inset 0 0 0 2px var(--shrike-focus-ring);
 }
 
 /* Mentions of you: tinted row with an accent bar on the left edge. */
 .row[data-mention] {
-  background: var(--hearth-mention-bg);
-  box-shadow: inset 2px 0 0 var(--hearth-mention-bar);
+  background: var(--shrike-mention-bg);
+  box-shadow: inset 2px 0 0 var(--shrike-mention-bar);
 }
 
 .row[data-mention][data-message-active] {
-  background: color-mix(in srgb, var(--hearth-mention-bg), var(--hearth-accent) 6%);
+  background: color-mix(in srgb, var(--shrike-mention-bg), var(--shrike-accent) 6%);
 }
 
 .row[data-mention]:focus-visible {
   box-shadow:
-    inset 2px 0 0 var(--hearth-mention-bar),
-    inset 0 0 0 2px var(--hearth-focus-ring);
+    inset 2px 0 0 var(--shrike-mention-bar),
+    inset 0 0 0 2px var(--shrike-focus-ring);
 }
 
 .row[data-flash] {
-  animation: flash 1.6s var(--hearth-ease);
+  animation: flash 1.6s var(--shrike-ease);
 }
 
 @keyframes flash {
   0%,
   35% {
-    background-color: var(--hearth-highlight-bg);
-    box-shadow: inset 2px 0 0 var(--hearth-warning);
+    background-color: var(--shrike-highlight-bg);
+    box-shadow: inset 2px 0 0 var(--shrike-warning);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .row[data-flash] {
     animation: none;
-    background: var(--hearth-highlight-bg);
+    background: var(--shrike-highlight-bg);
   }
 }
 
 :root[data-reduced-motion='on'] .row[data-flash] {
   animation: none;
-  background: var(--hearth-highlight-bg);
+  background: var(--shrike-highlight-bg);
 }
 
 .row[data-pending] .content {
@@ -71,15 +71,15 @@
   grid-area: gutter;
   display: flex;
   justify-content: center;
-  padding-right: var(--hearth-space-2);
-  padding-left: var(--hearth-space-2);
+  padding-right: var(--shrike-space-2);
+  padding-left: var(--shrike-space-2);
 }
 
 .avatarButton {
   display: block;
   height: 40px;
   margin-top: 2px;
-  border-radius: var(--hearth-radius-full);
+  border-radius: var(--shrike-radius-full);
   cursor: pointer;
 }
 
@@ -96,15 +96,15 @@
   display: flex;
   align-items: baseline;
   min-width: 0;
-  line-height: calc(var(--hearth-font-size-message) * var(--hearth-line-height-message));
+  line-height: calc(var(--shrike-font-size-message) * var(--shrike-line-height-message));
 }
 
 .name {
   overflow: hidden;
   /* Same legibility recipe as the member list: the hue, pulled toward strong text. */
-  color: color-mix(in oklab, var(--name-color) 55%, var(--hearth-text-strong));
-  font-size: var(--hearth-font-size-message);
-  font-weight: var(--hearth-font-weight-semibold);
+  color: color-mix(in oklab, var(--name-color) 55%, var(--shrike-text-strong));
+  font-size: var(--shrike-font-size-message);
+  font-weight: var(--shrike-font-weight-semibold);
   text-overflow: ellipsis;
   white-space: nowrap;
   cursor: pointer;
@@ -116,7 +116,7 @@
 
 .decorations {
   align-self: center;
-  margin-left: var(--hearth-space-2);
+  margin-left: var(--shrike-space-2);
 }
 
 .body {
@@ -124,10 +124,10 @@
 }
 
 .deleted {
-  color: var(--hearth-text-faint);
-  font-size: var(--hearth-font-size-message);
+  color: var(--shrike-text-faint);
+  font-size: var(--shrike-font-size-message);
   font-style: italic;
-  line-height: var(--hearth-line-height-message);
+  line-height: var(--shrike-line-height-message);
 }
 
 /* ─── Compact: one line, "[time] Author body" ───────────────────────── */
@@ -140,7 +140,7 @@
 
 .row[data-compact] .gutter {
   justify-content: flex-end;
-  padding-right: var(--hearth-space-3);
+  padding-right: var(--shrike-space-3);
 }
 
 .row[data-compact] .content {
@@ -149,7 +149,7 @@
 
 .row[data-compact] .header {
   display: inline;
-  margin-right: var(--hearth-space-2);
+  margin-right: var(--shrike-space-2);
 }
 
 .row[data-compact] .name::after {
@@ -166,7 +166,7 @@
 
 .compactAvatar {
   display: inline-block;
-  margin-right: var(--hearth-space-2);
+  margin-right: var(--shrike-space-2);
   vertical-align: -3px;
 }
 
@@ -177,7 +177,7 @@
 @media (max-width: 759.98px) {
   .row {
     grid-template-columns: 60px minmax(0, 1fr);
-    padding-right: var(--hearth-space-4);
+    padding-right: var(--shrike-space-4);
   }
 
   .row[data-compact] {

@@ -13,7 +13,7 @@ interface Generated {
 }
 
 const PALETTES: readonly (readonly string[])[] = [
-  ['#1d2b53', '#7e2553', '#ff7a59', '#ffcc70'],
+  ['#1d2b53', '#7e2553', '#d4744a', '#ffcc70'],
   ['#0f2027', '#2c5364', '#78c2ad', '#f2e8cf'],
   ['#2d1e2f', '#6d3b47', '#e07a5f', '#f4d58d'],
   ['#14213d', '#3a506b', '#5bc0be', '#fca311'],
@@ -116,7 +116,7 @@ function garden(rnd: Random): Generated {
   const w = 1000;
   const h = 1000;
   const leafColors = ['#2f6f3e', '#4f9a53', '#7cc36b', '#a8d672'];
-  const bloomColors = ['#ff7a59', '#f5b44a', '#f0506e', '#ffd6e0', '#c38bff'];
+  const bloomColors = ['#d4744a', '#f5b44a', '#f0506e', '#ffd6e0', '#c38bff'];
   const leaves = Array.from({ length: 26 }, () => {
     const x = rnd.int(0, w);
     const y = rnd.int(300, h);

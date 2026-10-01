@@ -1,4 +1,4 @@
-export { HearthContextProvider, useHearth, useStores, type AppServices } from './HearthContext';
+export { ShrikeContextProvider, useShrike, useStores, type AppServices } from './ShrikeContext';
 export { useObservableList, type ListSource } from './useObservableList';
 export { BREAKPOINTS, useMediaQuery } from './useMediaQuery';
 export { useKeybindLabel } from './useKeybindLabel';

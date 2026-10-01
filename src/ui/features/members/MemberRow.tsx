@@ -30,7 +30,7 @@ export const MemberRow = memo(function MemberRow({
             className={styles.row}
             data-roving-item
             tabIndex={tabStop ? 0 : -1}
-            data-hearth="member-row"
+            data-shrike="member-row"
           >
             <Avatar
               src={contact.avatarUrl}

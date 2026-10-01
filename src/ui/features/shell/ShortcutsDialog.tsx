@@ -1,13 +1,13 @@
 import { useSyncExternalStore } from 'react';
 import { useStore } from 'zustand';
 import { formatKeybind, isMacPlatform, resolveKeybinds } from '@/core/commands';
-import { useHearth } from '@/ui/hooks';
+import { useShrike } from '@/ui/hooks';
 import { Kbd, Modal } from '@/ui/primitives';
 import styles from './ShortcutsDialog.module.css';
 
 /** Every command with an effective keybind, grouped by category (Ctrl+/). */
 export function ShortcutsDialog({ onClose }: { onClose: () => void }) {
-  const { commands, stores } = useHearth();
+  const { commands, stores } = useShrike();
   const all = useSyncExternalStore(
     (fn) => commands.subscribe(fn),
     () => commands.all(),

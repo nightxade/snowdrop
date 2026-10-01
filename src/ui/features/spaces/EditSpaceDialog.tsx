@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import type { SpaceId } from '@/core/stores';
-import { useHearth } from '@/ui/hooks';
+import { useShrike } from '@/ui/hooks';
 import { Button, Modal } from '@/ui/primitives';
 import { SpaceForm, type SpaceDraft } from './SpaceForm';
 
 export function EditSpaceDialog({ spaceId, onClose }: { spaceId: SpaceId; onClose: () => void }) {
-  const app = useHearth();
+  const app = useShrike();
   const space = app.stores.spaces.getState().spaces[spaceId];
   const [draft, setDraft] = useState<SpaceDraft>(() => ({
     name: space?.name ?? '',

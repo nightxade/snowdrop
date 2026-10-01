@@ -3,39 +3,39 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { createMemoryStorage } from '@/core/persistence';
 import { spacesSelectors, uiSelectors } from '@/core/stores';
 import { App } from './App';
-import { createHearth, type Hearth } from './createHearth';
-import { HearthProvider } from './HearthProvider';
+import { createShrike, type Shrike } from './createShrike';
+import { ShrikeProvider } from './ShrikeProvider';
 
 // Tell React this environment supports act().
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
-const hearths: Hearth[] = [];
+const shrikes: Shrike[] = [];
 
 afterEach(async () => {
   cleanup();
-  for (const h of hearths.splice(0)) await h.dispose();
+  for (const h of shrikes.splice(0)) await h.dispose();
 });
 
-async function bootDemo(): Promise<Hearth> {
-  const hearth = createHearth({ storage: createMemoryStorage(), mockLatencyMs: 0 });
-  hearths.push(hearth);
-  hearth.stores.settings.getState().update('connection', { mockLiveliness: false });
+async function bootDemo(): Promise<Shrike> {
+  const shrike = createShrike({ storage: createMemoryStorage(), mockLatencyMs: 0 });
+  shrikes.push(shrike);
+  shrike.stores.settings.getState().update('connection', { mockLiveliness: false });
   render(
-    <HearthProvider hearth={hearth}>
+    <ShrikeProvider shrike={shrike}>
       <App />
-    </HearthProvider>,
+    </ShrikeProvider>,
   );
   // First run: the welcome screen, then the demo.
-  expect(screen.getByRole('heading', { name: 'Hearth' })).toBeTruthy();
+  expect(screen.getByRole('heading', { name: 'Shrike' })).toBeTruthy();
   await act(async () => {
     fireEvent.click(screen.getByRole('button', { name: /Try the demo/u }));
     await Promise.resolve();
   });
   await act(async () => {
-    await hearth.start();
-    await hearth.sync.idle();
+    await shrike.start();
+    await shrike.sync.idle();
   });
-  return hearth;
+  return shrike;
 }
 
 function key(init: KeyboardEventInit) {
@@ -46,23 +46,23 @@ function key(init: KeyboardEventInit) {
 
 describe('<App />', () => {
   it('goes from the welcome screen into the demo shell', async () => {
-    const hearth = await bootDemo();
-    expect(hearth.stores.settings.getState().connection.backend).toBe('mock');
-    expect(document.querySelector('[data-hearth="rail"]')).not.toBeNull();
-    const sidebar = document.querySelector<HTMLElement>('[data-hearth="sidebar"]')!;
+    const shrike = await bootDemo();
+    expect(shrike.stores.settings.getState().connection.backend).toBe('mock');
+    expect(document.querySelector('[data-shrike="rail"]')).not.toBeNull();
+    const sidebar = document.querySelector<HTMLElement>('[data-shrike="sidebar"]')!;
     expect(within(sidebar).getByRole('region', { name: 'Direct Messages' })).toBeTruthy();
     expect(within(sidebar).getByRole('region', { name: 'Groups' })).toBeTruthy();
     // Every seeded space has a rail tile.
-    const rail = document.querySelector<HTMLElement>('[data-hearth="rail"]')!;
-    for (const id of spacesSelectors.orderedIds(hearth.stores.spaces.getState())) {
-      const name = hearth.stores.spaces.getState().spaces[id]!.name;
+    const rail = document.querySelector<HTMLElement>('[data-shrike="rail"]')!;
+    for (const id of spacesSelectors.orderedIds(shrike.stores.spaces.getState())) {
+      const name = shrike.stores.spaces.getState().spaces[id]!.name;
       expect(within(rail).getByRole('button', { name: new RegExp(`^${name}`, 'u') })).toBeTruthy();
     }
   });
 
   it('shows unread and mention indicators on space tiles; muting keeps mentions only', async () => {
-    const hearth = await bootDemo();
-    const { stores } = hearth;
+    const shrike = await bootDemo();
+    const { stores } = shrike;
     const spaceId = spacesSelectors.orderedIds(stores.spaces.getState())[0]!;
     const space = stores.spaces.getState().spaces[spaceId]!;
     const convs = space.categories.flatMap((c) => c.conversationIds);
@@ -89,15 +89,15 @@ describe('<App />', () => {
   });
 
   it('navigates by keyboard: Alt+↓, Alt+Shift+↓, Ctrl+Shift+M and Escape', async () => {
-    const hearth = await bootDemo();
-    const { stores } = hearth;
+    const shrike = await bootDemo();
+    const { stores } = shrike;
     const selected = () => uiSelectors.selectedConversation(stores.ui.getState());
 
     // Alt+↓ with nothing open picks the first row of the visible list.
     key({ key: 'ArrowDown', code: 'ArrowDown', altKey: true });
     const first = selected();
     expect(first).not.toBeNull();
-    const sidebar = document.querySelector<HTMLElement>('[data-hearth="sidebar"]')!;
+    const sidebar = document.querySelector<HTMLElement>('[data-shrike="sidebar"]')!;
     expect(within(sidebar).getByRole('button', { current: 'page' })).toBeTruthy();
     key({ key: 'ArrowDown', code: 'ArrowDown', altKey: true });
     expect(selected()).not.toBe(first);
@@ -128,7 +128,7 @@ describe('<App />', () => {
     stores.conversations.getState().setUnread(target, { count: 3, mentions: 1 });
     key({ key: 'Escape', code: 'Escape' });
     await act(async () => {
-      await hearth.sync.idle();
+      await shrike.sync.idle();
       await new Promise((r) => setTimeout(r, 0));
     });
     expect(stores.conversations.getState().unread[target]?.count ?? 0).toBe(0);
@@ -137,7 +137,7 @@ describe('<App />', () => {
   it('arrow keys move focus between sidebar rows', async () => {
     await bootDemo();
     const rows = document.querySelectorAll<HTMLElement>(
-      '[data-hearth="conversation-list"] [data-roving-item]',
+      '[data-shrike="conversation-list"] [data-roving-item]',
     );
     expect(rows.length).toBeGreaterThan(3);
     act(() => {

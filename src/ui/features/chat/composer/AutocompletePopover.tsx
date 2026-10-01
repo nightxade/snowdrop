@@ -85,7 +85,7 @@ export function AutocompletePopover({
         }}
         style={floatingStyles}
         className={styles.popover}
-        data-hearth="autocomplete"
+        data-shrike="autocomplete"
       >
         <div className={styles.title}>
           {TITLES[kind]}

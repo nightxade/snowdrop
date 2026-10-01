@@ -4,7 +4,7 @@
   flex-direction: column;
   min-width: 0;
   height: 100%;
-  background: var(--hearth-bg-chat);
+  background: var(--shrike-bg-chat);
 }
 
 .body {
@@ -32,42 +32,42 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: var(--hearth-space-3);
-  padding: var(--hearth-space-8) var(--hearth-space-5);
+  gap: var(--shrike-space-3);
+  padding: var(--shrike-space-8) var(--shrike-space-5);
   text-align: center;
 }
 
 .mark {
-  margin-bottom: var(--hearth-space-4);
-  color: var(--hearth-accent);
+  margin-bottom: var(--shrike-space-4);
+  color: var(--shrike-accent);
   opacity: 0.9;
 }
 
 .emptyTitle {
-  color: var(--hearth-text-strong);
-  font-size: var(--hearth-font-size-title);
-  font-weight: var(--hearth-font-weight-semibold);
+  color: var(--shrike-text-strong);
+  font-size: var(--shrike-font-size-title);
+  font-weight: var(--shrike-font-weight-semibold);
 }
 
 .emptyBody {
-  color: var(--hearth-text-muted);
+  color: var(--shrike-text-muted);
 }
 
 .shortcuts {
   display: flex;
   flex-direction: column;
-  gap: var(--hearth-space-3);
+  gap: var(--shrike-space-3);
   min-width: 240px;
-  margin-top: var(--hearth-space-6);
+  margin-top: var(--shrike-space-6);
 }
 
 .shortcuts > div {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--hearth-space-6);
-  color: var(--hearth-text-muted);
-  font-size: var(--hearth-font-size-sm);
+  gap: var(--shrike-space-6);
+  color: var(--shrike-text-muted);
+  font-size: var(--shrike-font-size-sm);
 }
 
 .shortcuts dd {

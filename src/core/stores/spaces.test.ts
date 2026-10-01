@@ -29,8 +29,8 @@ describe('spacesStore', () => {
     const store = setup();
     const work = store
       .getState()
-      .createSpace({ name: ' Work ', emoji: '🔥', conversationIds: [c1, c2, c1] });
-    expect(store.getState().spaces[work]).toMatchObject({ name: 'Work', emoji: '🔥' });
+      .createSpace({ name: ' Work ', emoji: '💼', conversationIds: [c1, c2, c1] });
+    expect(store.getState().spaces[work]).toMatchObject({ name: 'Work', emoji: '💼' });
     expect(idsIn(store, work)).toEqual([[c1, c2]]);
     expect(spacesSelectors.orderedIds(store.getState())).toEqual([work]);
   });
@@ -126,7 +126,7 @@ describe('spacesStore', () => {
     const seeds = [
       {
         name: 'Work',
-        emoji: '🔥',
+        emoji: '💼',
         categories: [
           { name: 'Teams', conversationIds: [c1] },
           { name: 'Social', conversationIds: [c2] },

@@ -9,7 +9,7 @@ import {
   DAY,
   type Message,
 } from '@/core/domain';
-import { useHearth } from '@/ui/hooks';
+import { useShrike } from '@/ui/hooks';
 import { Tooltip } from '@/ui/primitives';
 import { useMinuteClock } from '../lib/useMinuteClock';
 import styles from './MessageMeta.module.css';
@@ -32,7 +32,7 @@ export function MessageMeta({
   message: Message;
   variant: 'header' | 'gutter' | 'compact';
 }) {
-  const { stores } = useHearth();
+  const { stores } = useShrike();
   const clock24h = useStore(stores.settings, (s) => s.appearance.clock24h);
   const now = useMinuteClock();
   const opts = { clock24h };

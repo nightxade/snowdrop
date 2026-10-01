@@ -1,40 +1,40 @@
 .root {
   display: flex;
   flex-direction: column;
-  gap: var(--hearth-space-3);
+  gap: var(--shrike-space-3);
   min-width: 0;
 }
 
 .label {
-  color: var(--hearth-text-muted);
-  font-size: var(--hearth-font-size-sm);
-  font-weight: var(--hearth-font-weight-semibold);
+  color: var(--shrike-text-muted);
+  font-size: var(--shrike-font-size-sm);
+  font-weight: var(--shrike-font-weight-semibold);
 }
 
 .field {
   display: flex;
   align-items: center;
-  gap: var(--hearth-space-3);
+  gap: var(--shrike-space-3);
   height: 40px;
-  padding: 0 var(--hearth-space-4);
-  border: 1px solid var(--hearth-border-strong);
-  border-radius: var(--hearth-radius-sm);
-  background: var(--hearth-bg-input);
-  transition: border-color var(--hearth-duration-fast) var(--hearth-ease);
+  padding: 0 var(--shrike-space-4);
+  border: 1px solid var(--shrike-border-strong);
+  border-radius: var(--shrike-radius-sm);
+  background: var(--shrike-bg-input);
+  transition: border-color var(--shrike-duration-fast) var(--shrike-ease);
 }
 
 .field[data-size='sm'] {
   height: 28px;
-  padding: 0 var(--hearth-space-3);
-  border-radius: var(--hearth-radius-xs);
+  padding: 0 var(--shrike-space-3);
+  border-radius: var(--shrike-radius-xs);
 }
 
 .field:focus-within {
-  border-color: var(--hearth-accent);
+  border-color: var(--shrike-accent);
 }
 
 .field[data-invalid] {
-  border-color: var(--hearth-danger);
+  border-color: var(--shrike-danger);
 }
 
 .input {
@@ -44,13 +44,13 @@
   padding: 0;
   border: none;
   background: transparent;
-  color: var(--hearth-text-strong);
-  font-size: var(--hearth-font-size-ui);
+  color: var(--shrike-text-strong);
+  font-size: var(--shrike-font-size-ui);
   outline: none;
 }
 
 .field[data-size='sm'] .input {
-  font-size: var(--hearth-font-size-sm);
+  font-size: var(--shrike-font-size-sm);
 }
 
 .input::-webkit-search-cancel-button,
@@ -59,7 +59,7 @@
 }
 
 .input::placeholder {
-  color: var(--hearth-text-faint);
+  color: var(--shrike-text-faint);
 }
 
 .input:focus-visible {
@@ -70,7 +70,7 @@
   display: grid;
   flex: none;
   place-items: center;
-  color: var(--hearth-text-faint);
+  color: var(--shrike-text-faint);
 }
 
 .adornment svg {
@@ -79,11 +79,11 @@
 }
 
 .hint {
-  color: var(--hearth-text-muted);
-  font-size: var(--hearth-font-size-sm);
+  color: var(--shrike-text-muted);
+  font-size: var(--shrike-font-size-sm);
   line-height: 1.4;
 }
 
 .hint[data-error] {
-  color: var(--hearth-danger);
+  color: var(--shrike-danger);
 }

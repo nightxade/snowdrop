@@ -1,9 +1,9 @@
 /**
  * Development-only helpers (never installed in production builds):
- * - `window.__hearth` — the running instance, for poking at state.
- * - `__hearth.stress(n)` / `?stress=5000` — backfills n synthetic messages
+ * - `window.__shrike` — the running instance, for poking at state.
+ * - `__shrike.stress(n)` / `?stress=5000` — backfills n synthetic messages
  *   into the open (or first group) conversation, to profile scrolling.
- * - `__hearth.failNext()` — the demo backend rejects its next command, to
+ * - `__shrike.failNext()` — the demo backend rejects its next command, to
  *   see failure states (e.g. a failed send with Retry).
  */
 import { MockBackend } from '@/core/backend/mock';
@@ -15,7 +15,7 @@ import {
   type Message,
 } from '@/core/domain';
 import { uiSelectors } from '@/core/stores';
-import type { Hearth } from './createHearth';
+import type { Shrike } from './createShrike';
 
 const LINES = [
   'Pushed the fix, can someone **review**?',
@@ -30,8 +30,8 @@ const LINES = [
   '~~Friday~~ Saturday then',
 ];
 
-async function stress(hearth: Hearth, count: number): Promise<ConversationId | null> {
-  const { stores, repository, history } = hearth;
+async function stress(shrike: Shrike, count: number): Promise<ConversationId | null> {
+  const { stores, repository, history } = shrike;
   const ui = stores.ui.getState();
   const conversations = Object.values(stores.conversations.getState().byId);
   const target =
@@ -56,7 +56,7 @@ async function stress(hearth: Hearth, count: number): Promise<ConversationId | n
       ranges,
       attachments: [],
       reactions:
-        i % 11 === 0 ? [{ emoji: '🔥', authorId: authors[0] ?? authorId, at: sentAt + 1000 }] : [],
+        i % 11 === 0 ? [{ emoji: '🎯', authorId: authors[0] ?? authorId, at: sentAt + 1000 }] : [],
       status: 'read',
       kind: 'normal',
     });
@@ -66,22 +66,22 @@ async function stress(hearth: Hearth, count: number): Promise<ConversationId | n
   return target.id;
 }
 
-export function installDevTools(hearth: Hearth): void {
+export function installDevTools(shrike: Shrike): void {
   const tools = {
-    hearth,
-    stress: (count = 5000) => stress(hearth, count),
+    shrike,
+    stress: (count = 5000) => stress(shrike, count),
     failNext: () => {
-      if (hearth.backend instanceof MockBackend) hearth.backend.failNext();
+      if (shrike.backend instanceof MockBackend) shrike.backend.failNext();
     },
   };
-  Object.assign(window, { __hearth: tools });
+  Object.assign(window, { __shrike: tools });
   const count = Number(new URLSearchParams(window.location.search).get('stress'));
   if (count > 0) {
-    const unsubscribe = hearth.stores.session.subscribe((s) => {
+    const unsubscribe = shrike.stores.session.subscribe((s) => {
       if (!s.ready) return;
       unsubscribe();
-      void stress(hearth, count).then((id) => {
-        if (id) hearth.stores.ui.getState().selectConversation(id);
+      void stress(shrike, count).then((id) => {
+        if (id) shrike.stores.ui.getState().selectConversation(id);
       });
     });
   }

@@ -1,4 +1,4 @@
-# Hearth — Build Plan
+# Shrike — Build Plan
 
 > A community-style desktop-class chat UI for the Signal network, driven by a
 > local `signal-cli` daemon. Server-rail / channel-list / chat / member-list
@@ -28,9 +28,15 @@ the plan in the same change with a justification.
 
 ## 1. Legal / ethical guardrails
 
-- Original name ("Hearth"), original logo (simple SVG glyph drawn by us),
-  original palette (default accent: warm ember `#ff7a59`, *not* Discord
-  blurple or Signal blue), original iconography (lucide-react, ISC).
+- Original name ("Shrike", after the small, sharp, quick songbird), original
+  logo (a geometric shrike head drawn by us: straight cuts, hooked beak, the
+  bird's black eye mask; no speech bubble, nothing like the Signal, Discord or
+  Twitter/X marks), original palette (default accent: rufous `#d4744a`, the
+  red-backed shrike's chestnut, *not* Discord blurple or Signal blue),
+  original iconography (lucide-react, ISC).
+- Name collisions are checked before adopting a name or logo: "Shrike" was
+  checked against existing chat products. An earlier name collided with one
+  and was dropped (see §8).
 - No Discord or Signal assets, fonts (gg sans / Signal's Inter build), sounds,
   logos, copy, or trademarks in UI chrome. Text may say "works with Signal
   via signal-cli" descriptively, never implying endorsement.
@@ -41,7 +47,7 @@ the plan in the same change with a justification.
 - Every dependency must be MIT / ISC / Apache-2.0 / BSD / OFL. Reviewer
   checks `package.json` additions.
 - `scratch/` (outside the repo) holds reference clones; never copy code from
-  them into `hearth/`.
+  them into `shrike/`.
 
 ## 2. Tech stack
 
@@ -75,7 +81,7 @@ Package manager: **npm**. Node ≥ 20.
 ## 3. Architecture
 
 ```
-hearth/src/
+shrike/src/
   app/                 # composition root: providers, bootstrap, routing of views
   core/                # NO React imports allowed here
     domain/            # pure types + pure helpers (ids, time grouping, body ranges)
@@ -226,7 +232,7 @@ reasonable (dogfooding keeps them honest).
 ```ts
 definePlugin({
   id: 'clear-urls', name: 'Clear URLs', description: 'Strips tracking params from links you send.',
-  authors: ['hearth'], tags: ['privacy'],
+  authors: ['shrike'], tags: ['privacy'],
   settings: defineSettings({ extraParams: { type: 'string', label: 'Extra params', default: '' } }),
   start(ctx) {  // ctx: PluginContext — scoped, auto-disposed on stop
     ctx.send.addTransform((draft) => ({ ...draft, body: strip(draft.body, ctx.settings.get('extraParams')) }))
@@ -264,17 +270,17 @@ Built-in plugins (ship at least these, prove the API):
 ### 3.5 Theming (`core/themes`, `ui/styles`)
 
 - All colour/space/radius/shadow/motion values are CSS custom properties
-  (`--hearth-*`) defined in `tokens.css` for the base (dark) theme.
+  (`--shrike-*`) defined in `tokens.css` for the base (dark) theme.
 - A theme = `{ id, name, tokens: Partial<Record<TokenName,string>>, css?: string }`
-  applied to `:root` via a single `<style id="hearth-theme">`.
-- Built-in: **Ember (dark, default)**, **Midnight (OLED black)**, **Linen (light)**,
+  applied to `:root` via a single `<style id="shrike-theme">`.
+- Built-in: **Dusk (dark, default)**, **Midnight (OLED black)**, **Linen (light)**,
   **High Contrast**.
-- Appearance settings: theme, accent colour (overrides `--hearth-accent*`,
-  derived shades via OKLCH computations), message density (cozy/compact),
+- Appearance settings: theme, accent colour (overrides `--shrike-accent*`,
+  derived shades via OKLCH computations), message density (comfortable/compact),
   font scale (87.5–125%), UI zoom, saturation, reduced motion, show avatars
   in compact mode, 12/24h time.
 - **QuickCSS**: live-editing textarea (monospace, tab-indent) injected last.
-- Stable styling hooks: every major region carries a `data-hearth="region-name"`
+- Stable styling hooks: every major region carries a `data-shrike="region-name"`
   attribute so user CSS/themes don't depend on hashed CSS-module class names.
 
 ## 4. UX specification (TOP PRIORITY)
@@ -298,16 +304,16 @@ Responsive: < 1100px hides member list (toggle overlays it as a sheet);
 swipe/Escape to close). Min supported width 360px.
 
 ### 4.2 Spaces rail
-- **Home** at top (Hearth glyph): all DMs + unassigned groups. Unread
-  indicator = small light dot (`--hearth-text-strong`) on the tile's top-left
-  corner; mention count = red badge (`--hearth-danger-strong`) bottom-right.
+- **Home** at top (Shrike glyph): all DMs + unassigned groups. Unread
+  indicator = small light dot (`--shrike-text-strong`) on the tile's top-left
+  corner; mention count = red badge (`--shrike-danger-strong`) bottom-right.
   No left-edge pill: that is another product's trade dress.
 - Separator, then **Spaces**: local, user-defined collections of Signal
   groups (and optionally DMs), shown as rounded-square tiles with emoji or
   initials, tinted with the space colour and filled with it on hover.
-  Constant 14px radius (`--hearth-radius-tile`, no shape morph). Tooltip with
+  Constant 14px radius (`--shrike-radius-tile`, no shape morph). Tooltip with
   name on hover (right side).
-- Selected space: 2px `--hearth-accent` ring at a 3px offset from the tile.
+- Selected space: 2px `--shrike-accent` ring at a 3px offset from the tile.
   Accent is reserved for selection; keyboard focus is a dashed outline further
   out so the two never read alike.
 - Drag to reorder; drag tile onto tile creates a **folder** (expand/collapse).
@@ -325,7 +331,7 @@ swipe/Escape to close). Min supported width 360px.
   title, one-line preview (DMs only when hovered? → no: show a muted last-message
   preview for DMs and groups in Home; hidden in Spaces for a cleaner channel feel),
   unread = bold title + strong text and a flat-sided 4×12 tab
-  (`border-radius: 0 2px 2px 0`, `--hearth-text-strong`) on the sidebar edge,
+  (`border-radius: 0 2px 2px 0`, `--shrike-text-strong`) on the sidebar edge,
   mention badge, muted = 50% opacity, typing = animated dots replacing preview.
   Section labels are sentence case ("Direct Messages", "Archived · 3").
 - In a Space: collapsible **categories** (user-created; default "Chats") with
@@ -354,7 +360,7 @@ results panel), toggle member list (groups), inbox (mentions across convos).
   is off-screen.
 - **Jump to present** pill appears when scrolled up > 1 screen; new messages
   while scrolled up increment a counter on that pill instead of auto-scrolling.
-- **Message anatomy (cozy):** 40px avatar, author name (contact colour) +
+- **Message anatomy (comfortable):** 40px avatar, author name (contact colour) +
   decorations + timestamp (hover: full date tooltip), body with native
   formatting & mentions (mention of self = accent-tinted row background +
   left accent bar), "(edited)" tag with tooltip, attachments (image grid ≤4,
@@ -415,7 +421,7 @@ opens without closing? (no — keep simple).
 
 ### 4.9 Settings (full-screen overlay, Escape to close)
 Left nav grouped: **User** (My Profile, Privacy), **App** (Appearance,
-Accessibility, Notifications, Keybinds, Behaviour), **Hearth** (Plugins,
+Accessibility, Notifications, Keybinds, Behaviour), **Shrike** (Plugins,
 Themes, QuickCSS), **Advanced** (Connection, Data & Storage — export/clear
 local history, About/licences). Changes apply live; no Save button. Search
 box filters settings entries.
@@ -457,12 +463,19 @@ surface as a slim banner at the top of the chat column, with retry.
 - Hit targets ≥ 32px in rail/sidebar.
 
 ### 4.13 Visual language
-- Base dark neutral with a hint of warmth (not pure grey): rail `#101114`,
-  sidebar `#15171b`, chat `#1b1d22`, elevated `#22252b`, floating `#0c0d10`,
-  border `rgba(255,255,255,.06)`, text `#e9e7e4`, muted `#a4a1a0`,
-  faint `#908c8a`. Accent ember `#ff7a59`, danger `#f0506e` (badge/button
-  fills use `danger-strong` `#c93553` so white text passes 4.5:1),
-  success `#3ccf91`, warning `#f5b44a`, mention bg `rgba(255,122,89,.10)`.
+- Logo: `ShrikeMark` / `public/shrike.svg`, a shrike's head in profile built
+  from straight cuts, with a short hooked beak and a bold mask stripe through
+  the eye. In the app it is one colour (currentColor, mask knocked out); the
+  favicon puts a pale head and black mask on a rufous tile. Reads at 16px.
+- Default theme **Dusk**: graphite neutrals (cool grey, like the bird's
+  plumage): rail `#101114`, sidebar `#15171b`, chat `#1b1d22`, elevated
+  `#22252b`, floating `#0c0d10`, border `rgba(255,255,255,.06)`, text
+  `#e6e8eb`, muted `#a2a5aa`, faint `#8d9096`. Accent rufous `#d4744a`
+  (hover `#e58359`, active `#c06238`, dark `#1a0f0b` text on it), danger
+  `#f0506e` (badge/button fills use `danger-strong` `#c93553` so white text
+  passes 4.5:1), success `#3ccf91`, warning `#f5b44a`, mention bg
+  `rgba(212,116,74,.10)`. Linen uses a deeper rufous `#a84f2c` (white text on
+  it), High Contrast a lighter `#ef8d62`.
 - 12 avatar hues; white initials ≥ 4.5:1 on each (tested, all themes).
 - All text tokens ≥ 4.5:1 on every surface in every built-in theme
   (`src/test/contrast.test.ts`).
@@ -511,6 +524,8 @@ gates and commits. Quality gates for every phase:
 
 Recorded by the builder of each phase. Where these refine §3, they win.
 
+Renamed from Hearth on 2026-09-30 due to a name collision.
+
 ### P1 Foundation
 
 **Structure**
@@ -525,7 +540,7 @@ Recorded by the builder of each phase. Where these refine §3, they win.
 - `Message.nonce?` — client nonce of outgoing messages; kept after
   acknowledgement (in memory and storage) so render keys stay stable across
   the `pending:<nonce>` → `author:sentAt` id swap.
-- `Contact.color` holds `var(--hearth-avatar-N)` (a slot, not a colour) so each
+- `Contact.color` holds `var(--shrike-avatar-N)` (a slot, not a colour) so each
   theme can retune hues.
 - `groupMessages` returns *flat* render items (`day-divider`, `new-divider`,
   `system`, `message` with `continuation: boolean`) because the virtualised list
@@ -603,7 +618,7 @@ Recorded by the builder of each phase. Where these refine §3, they win.
   it in sync with `core/themes/tokens.ts`. The theme engine sets
   `data-theme`, `data-theme-kind`, `data-density`, `data-reduced-motion`,
   `data-saturation-adjusted` on `<html>` and keeps its three `<style>` tags last
-  in `<head>`. Linen uses a darker ember (`#bc4526` since the P2 review) for contrast on paper.
+  in `<head>`. Linen uses a deeper accent for contrast on paper (now rufous `#a84f2c`).
 
 **Tooling**
 - Current majors at time of writing: TypeScript 6, Vite 8, Vitest 5, ESLint 10.
@@ -743,13 +758,13 @@ is persisted per account so a page reload resumes the stream.
 `connection.daemonUrl` is the *browser-side* base URL, default `/signal-cli`:
 the daemon sends no CORS headers and pins the Host header, so the browser goes
 through the Vite dev/preview proxy (`changeOrigin`, no timeouts; target
-`HEARTH_SIGNAL_CLI_URL`, default `http://127.0.0.1:8080`). The v1 default
+`SHRIKE_SIGNAL_CLI_URL`, default `http://127.0.0.1:8080`). The v1 default
 `http://127.0.0.1:8080` is migrated to `/signal-cli`; custom values are kept.
 
-**Composition root.** `createHearth` picks the backend from
+**Composition root.** `createShrike` picks the backend from
 `settings.connection.backend` once per instance (switching = new instance).
-signal-cli uses IndexedDB (`hearth-signal-cli`) through `deferredRepository`
-(a proxy that awaits `IdbMessageRepository.open()`, keeping `createHearth`
+signal-cli uses IndexedDB (`shrike-signal-cli`) through `deferredRepository`
+(a proxy that awaits `IdbMessageRepository.open()`, keeping `createShrike`
 synchronous); falls back to memory without IndexedDB. `onAccountSelected`
 writes the account into settings. Demo seeding/liveliness only for the mock.
 
@@ -758,7 +773,7 @@ and a fake daemon. Unverified: exact `send`/`sendReaction` param coercion for
 arrays (`recipient`, `textStyle`, `mention`, `targetTimestamp`), `updateContact`
 result shape, mention placeholder handling in bodies from official clients,
 attachment ids for not-yet-downloaded files, behaviour of numberless accounts.
-Several accounts on one daemon share the `hearth-signal-cli` database. Avatars
+Several accounts on one daemon share the `shrike-signal-cli` database. Avatars
 (`getAvatar`) are not fetched yet.
 
 ### P5 review round 1
@@ -811,16 +826,16 @@ when present, must be the app's origin. `server.cors` / `preview.cors` = false.
 
 **Structure**
 - `ui/hooks` holds the React-side context: `AppServices` (the structural
-  subset of `Hearth` features need), `useHearth/useStores`, `ShellLayout`
+  subset of `Shrike` features need), `useShrike/useStores`, `ShellLayout`
   (narrow/drawer/nav state), `useObservableList`, `useMediaQuery`,
-  `useRovingFocus`, `useKeybindLabel`, `useNow`. `app/HearthProvider` provides
-  both the full `Hearth` (for app/) and `AppServices` (for ui/), so features
+  `useRovingFocus`, `useKeybindLabel`, `useNow`. `app/ShrikeProvider` provides
+  both the full `Shrike` (for app/) and `AppServices` (for ui/), so features
   never import the composition root.
 - Extra feature folders: `conversation` (avatar look, row/preview helpers,
   shared conversation menu + actions), `shell` (layout, keyboard, commands,
   modal host, toast bridge, interim settings/shortcuts dialogs).
 - Primitives added beyond §3: `Drawer` (left slide-over, swipe/Esc/scrim),
-  `HearthMark` (logo glyph, same drawing as `public/hearth.svg`),
+  `ShrikeMark` (logo glyph, same drawing as `public/shrike.svg`),
   `TypingDots`, `VisuallyHidden`. Menus take a declarative `MenuEntry[]`
   (built lazily when opened) rendered by both `ContextMenu` and `DropdownMenu`;
   `tidyMenu` drops stray separators. Wrappers pass extra trigger props through
@@ -845,7 +860,7 @@ when present, must be the app's origin. `server.cors` / `preview.cors` = false.
 **Behaviour decisions**
 - Onboarding: `settings.connection.backend === null` shows the welcome
   screen. "Try the demo" sets `mock` and starts the running instance. The
-  signal-cli form saves `backend`/`daemonUrl` and, because `createHearth` picks
+  signal-cli form saves `backend`/`daemonUrl` and, because `createShrike` picks
   the transport once, `main.tsx` reloads into a fresh instance
   (`App.onBackendChange`). Device linking (`no-account`) is still P4/P5.
 - Opening a conversation calls `HistoryService.open` and marks it read while
@@ -1020,7 +1035,7 @@ registered by `useChatCommands`. Header: pinned messages (only if the backend
 pins), search toggle, mentions inbox.
 
 **Dev only.** `app/devTools.ts` (dynamic import under `import.meta.env.DEV`):
-`window.__hearth`, `__hearth.stress(n)` / `?stress=5000`, `__hearth.failNext()`.
+`window.__shrike`, `__shrike.stress(n)` / `?stress=5000`, `__shrike.failNext()`.
 
 **Known gaps.** Interactive pieces inside messages (avatar, name, images) are
 still separate tab stops; ↑/↓ move between messages. Scroll position isn't

@@ -1,12 +1,12 @@
 /** Boots the real app on the demo backend for integration tests. */
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { App, createHearth, HearthProvider, type Hearth } from '@/app';
+import { App, createShrike, ShrikeProvider, type Shrike } from '@/app';
 import { createMemoryStorage } from '@/core/persistence';
 
 // Tell React this environment supports act().
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
-export const live: Hearth[] = [];
+export const live: Shrike[] = [];
 
 export async function disposeAll(): Promise<void> {
   for (const h of live.splice(0)) await h.dispose();
@@ -33,24 +33,24 @@ export function setViewport(width: number): void {
   });
 }
 
-export async function bootDemo(): Promise<Hearth> {
-  const hearth = createHearth({ storage: createMemoryStorage(), mockLatencyMs: 0 });
-  live.push(hearth);
-  hearth.stores.settings.getState().update('connection', { mockLiveliness: false });
+export async function bootDemo(): Promise<Shrike> {
+  const shrike = createShrike({ storage: createMemoryStorage(), mockLatencyMs: 0 });
+  live.push(shrike);
+  shrike.stores.settings.getState().update('connection', { mockLiveliness: false });
   render(
-    <HearthProvider hearth={hearth}>
+    <ShrikeProvider shrike={shrike}>
       <App />
-    </HearthProvider>,
+    </ShrikeProvider>,
   );
   await act(async () => {
     fireEvent.click(screen.getByRole('button', { name: /Try the demo/u }));
     await Promise.resolve();
   });
   await act(async () => {
-    await hearth.start();
-    await hearth.sync.idle();
+    await shrike.start();
+    await shrike.sync.idle();
   });
-  return hearth;
+  return shrike;
 }
 
 export function key(

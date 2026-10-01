@@ -20,9 +20,9 @@ import {
 import { isTokenName } from './tokens';
 
 const base: AppearanceInput = {
-  themeId: 'ember',
+  themeId: 'dusk',
   accent: null,
-  density: 'cozy',
+  density: 'comfortable',
   fontScale: 1,
   zoom: 1,
   saturation: 1,
@@ -32,7 +32,7 @@ const base: AppearanceInput = {
 
 describe('color math', () => {
   it('round-trips hex through OKLCH', () => {
-    for (const hex of ['#ff7a59', '#000000', '#ffffff', '#3ccf91', '#4a68c4']) {
+    for (const hex of ['#d4744a', '#000000', '#ffffff', '#3ccf91', '#4a68c4']) {
       expect(toHex(oklchToRgb(rgbToOklch(parseHex(hex)!)))).toBe(hex);
     }
     expect(parseHex('#abc')).toEqual(parseHex('#aabbcc'));
@@ -40,8 +40,8 @@ describe('color math', () => {
   });
 
   it('shifts lightness while keeping hue, staying in gamut', () => {
-    const base = rgbToOklch(parseHex('#ff7a59')!);
-    const lighter = rgbToOklch(parseHex(adjustLightness('#ff7a59', 0.08))!);
+    const base = rgbToOklch(parseHex('#d4744a')!);
+    const lighter = rgbToOklch(parseHex(adjustLightness('#d4744a', 0.08))!);
     expect(lighter.l).toBeGreaterThan(base.l);
     expect(Math.abs(lighter.h - base.h)).toBeLessThan(3);
     expect(adjustLightness('#ffffff', 0.2)).toBe('#ffffff');
@@ -49,7 +49,7 @@ describe('color math', () => {
 
   it('computes contrast and alpha', () => {
     expect(contrastRatio('#000000', '#ffffff')).toBeCloseTo(21, 0);
-    expect(withAlpha('#ff7a59', 0.1)).toBe('rgba(255, 122, 89, 0.1)');
+    expect(withAlpha('#d4744a', 0.1)).toBe('rgba(212, 116, 74, 0.1)');
   });
 });
 
@@ -58,15 +58,15 @@ describe('themes', () => {
     for (const theme of BUILTIN_THEMES) {
       for (const name of Object.keys(theme.tokens)) expect(isTokenName(name)).toBe(true);
     }
-    expect(findTheme('missing').id).toBe('ember');
+    expect(findTheme('missing').id).toBe('dusk');
   });
 
   it('keep body text contrast ≥ 4.5:1 on chat surfaces', () => {
-    const emberChat = '#1b1d22';
+    const duskChat = '#1b1d22';
     for (const theme of BUILTIN_THEMES) {
-      const bg = theme.tokens['bg-chat'] ?? emberChat;
-      const text = theme.tokens.text ?? '#e9e7e4';
-      const muted = theme.tokens['text-muted'] ?? '#a4a1a0';
+      const bg = theme.tokens['bg-chat'] ?? duskChat;
+      const text = theme.tokens.text ?? '#e6e8eb';
+      const muted = theme.tokens['text-muted'] ?? '#a2a5aa';
       expect(contrastRatio(text, bg)).toBeGreaterThanOrEqual(4.5);
       expect(contrastRatio(muted, bg)).toBeGreaterThanOrEqual(4.5);
     }
@@ -85,9 +85,9 @@ describe('themes', () => {
 
   it('builds CSS with overrides, accent and scale tokens', () => {
     const css = buildThemeCss({ ...base, themeId: 'linen', accent: '#3366ff', fontScale: 1.125 });
-    expect(css).toContain(`--hearth-bg-chat: ${LINEN.tokens['bg-chat']};`);
-    expect(css).toContain('--hearth-accent: #3366ff;');
-    expect(css).toContain('--hearth-font-scale: 1.125;');
+    expect(css).toContain(`--shrike-bg-chat: ${LINEN.tokens['bg-chat']};`);
+    expect(css).toContain('--shrike-accent: #3366ff;');
+    expect(css).toContain('--shrike-font-scale: 1.125;');
     expect(buildThemeCss({ ...base, themeId: 'high-contrast' })).toContain('0 0 0 2px #ffffff');
   });
 });

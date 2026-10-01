@@ -2,12 +2,12 @@ import { RotateCw, WifiOff, LoaderCircle } from 'lucide-react';
 import { useState } from 'react';
 import { useStore } from 'zustand';
 import { sessionSelectors } from '@/core/stores';
-import { useHearth } from '@/ui/hooks';
+import { useShrike } from '@/ui/hooks';
 import styles from './ConnectionBanner.module.css';
 
 /** Slim banner at the top of the chat column when the connection degrades (PLAN §4.10). */
 export function ConnectionBanner() {
-  const { stores, sync } = useHearth();
+  const { stores, sync } = useShrike();
   const status = useStore(stores.session, sessionSelectors.status);
   const ready = useStore(stores.session, sessionSelectors.ready);
   const error = useStore(stores.session, sessionSelectors.error);
@@ -40,7 +40,7 @@ export function ConnectionBanner() {
       className={styles.banner}
       data-status={status}
       role="status"
-      data-hearth="connection-banner"
+      data-shrike="connection-banner"
     >
       {status === 'connecting' ? (
         <LoaderCircle className={styles.spin} size={16} aria-hidden />

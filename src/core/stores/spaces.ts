@@ -24,7 +24,7 @@ export interface Space {
   id: SpaceId;
   name: string;
   emoji?: string;
-  /** Avatar hue slot 1..12 (rendered via --hearth-avatar-N). */
+  /** Avatar hue slot 1..12 (rendered via --shrike-avatar-N). */
   hue: number;
   muted: boolean;
   categories: Category[];
@@ -490,7 +490,7 @@ function parseRailEntry(value: unknown, spaces: Record<SpaceId, Space>): RailEnt
 }
 
 export const spacesSchema: VersionedSchema<SpacesData> = {
-  key: 'hearth.spaces',
+  key: 'shrike.spaces',
   version: 1,
   defaults: defaultSpacesData,
   parse: (data) => {

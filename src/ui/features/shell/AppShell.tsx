@@ -50,12 +50,12 @@ export function AppShell() {
       <TooltipProvider>
         <div
           className={styles.shell}
-          data-hearth="app"
+          data-shrike="app"
           data-layout={drawer ? 'drawer' : narrow ? 'narrow' : 'wide'}
         >
           {drawer ? (
             <Drawer open={navOpen} onOpenChange={setNavOpen} label="Navigation">
-              <div className={styles.nav} data-hearth="drawer">
+              <div className={styles.nav} data-shrike="drawer">
                 <Rail />
                 <Sidebar />
               </div>

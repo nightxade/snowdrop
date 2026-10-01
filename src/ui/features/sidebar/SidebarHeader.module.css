@@ -2,28 +2,28 @@
   display: flex;
   flex: none;
   align-items: center;
-  height: var(--hearth-header-height);
-  padding: 0 var(--hearth-space-3);
-  border-bottom: 1px solid var(--hearth-border);
+  height: var(--shrike-header-height);
+  padding: 0 var(--shrike-space-3);
+  border-bottom: 1px solid var(--shrike-border);
 }
 
 .find {
   display: flex;
   align-items: center;
-  gap: var(--hearth-space-3);
+  gap: var(--shrike-space-3);
   width: 100%;
   min-height: 30px;
-  padding: 0 var(--hearth-space-3);
-  border-radius: var(--hearth-radius-sm);
-  background: var(--hearth-bg-rail);
-  color: var(--hearth-text-faint);
-  font-size: var(--hearth-font-size-sm);
+  padding: 0 var(--shrike-space-3);
+  border-radius: var(--shrike-radius-sm);
+  background: var(--shrike-bg-rail);
+  color: var(--shrike-text-faint);
+  font-size: var(--shrike-font-size-sm);
   text-align: left;
-  transition: color var(--hearth-duration-fast) var(--hearth-ease);
+  transition: color var(--shrike-duration-fast) var(--shrike-ease);
 }
 
 .find:hover {
-  color: var(--hearth-text-muted);
+  color: var(--shrike-text-muted);
 }
 
 .findIcon {
@@ -41,21 +41,21 @@
 .spaceButton {
   display: flex;
   align-items: center;
-  gap: var(--hearth-space-3);
+  gap: var(--shrike-space-3);
   width: 100%;
   height: 36px;
-  padding: 0 var(--hearth-space-3);
-  border-radius: var(--hearth-radius-sm);
-  color: var(--hearth-text-strong);
-  font-size: var(--hearth-font-size-header);
-  font-weight: var(--hearth-font-weight-semibold);
+  padding: 0 var(--shrike-space-3);
+  border-radius: var(--shrike-radius-sm);
+  color: var(--shrike-text-strong);
+  font-size: var(--shrike-font-size-header);
+  font-weight: var(--shrike-font-weight-semibold);
   text-align: left;
-  transition: background-color var(--hearth-duration-fast) var(--hearth-ease);
+  transition: background-color var(--shrike-duration-fast) var(--shrike-ease);
 }
 
 .spaceButton:hover,
 .spaceButton[data-state='open'] {
-  background: var(--hearth-bg-hover);
+  background: var(--shrike-bg-hover);
 }
 
 .spaceEmoji {
@@ -72,8 +72,8 @@
 
 .chevron {
   flex: none;
-  color: var(--hearth-text-muted);
-  transition: transform var(--hearth-duration-base) var(--hearth-ease);
+  color: var(--shrike-text-muted);
+  transition: transform var(--shrike-duration-base) var(--shrike-ease);
 }
 
 .spaceButton[data-state='open'] .chevron {

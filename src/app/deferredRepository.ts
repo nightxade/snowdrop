@@ -1,7 +1,7 @@
 /**
  * A MessageRepository usable before its IndexedDB connection is open.
  *
- * `createHearth` is synchronous (services are wired up front), but opening
+ * `createShrike` is synchronous (services are wired up front), but opening
  * IndexedDB is async. Every repository method already returns a promise, so
  * a proxy that awaits the real repository before forwarding each call is
  * transparent to callers — and keeps working as methods are added to the

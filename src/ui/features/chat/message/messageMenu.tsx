@@ -174,7 +174,7 @@ export function buildMessageMenu(
           try {
             item.onSelect(m);
           } catch (error) {
-            console.error(`[hearth] plugin "${item.owner}" menu item failed`, error);
+            console.error(`[shrike] plugin "${item.owner}" menu item failed`, error);
           }
         },
       });

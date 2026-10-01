@@ -131,9 +131,9 @@ describe('SyncService: initial sync', () => {
     expect(stores.session.getState().self?.id).toBe(backend.world.self.id);
     expect(Object.keys(stores.contacts.getState().byId)).toHaveLength(26);
     expect(Object.keys(stores.conversations.getState().byId)).toHaveLength(22);
-    expect(await repository.count(conv('kiln-eng'))).toBeGreaterThan(0);
-    expect(stores.conversations.getState().unread[conv('kiln-eng')]?.count).toBe(4);
-    expect(stores.conversations.getState().unread[conv('kiln-design')]?.count ?? 0).toBe(0);
+    expect(await repository.count(conv('orchard-eng'))).toBeGreaterThan(0);
+    expect(stores.conversations.getState().unread[conv('orchard-eng')]?.count).toBe(4);
+    expect(stores.conversations.getState().unread[conv('orchard-design')]?.count ?? 0).toBe(0);
   });
 
   it('(A) buffers events until the initial sync is done, so offline messages count as unread', async () => {
@@ -206,7 +206,7 @@ describe('SyncService: initial sync', () => {
 describe('SyncService: events', () => {
   it('counts incoming messages and mentions for background conversations', async () => {
     const { stores, backend, sync, conv, selfId, memberOf, history, list } = await setup();
-    const id = conv('kiln-design');
+    const id = conv('orchard-design');
     await history.open(id);
     backend.deliver(incoming(id, memberOf(id), NOW + 1));
     backend.deliver(
@@ -237,7 +237,7 @@ describe('SyncService: events', () => {
       conversationId: id,
       targetAuthorId: author,
       targetSentAt: NOW + 1000,
-      reaction: { emoji: '🔥', authorId: author, at: NOW },
+      reaction: { emoji: '🎯', authorId: author, at: NOW },
       remove: false,
     });
     backend.emit('message', m);
@@ -321,7 +321,7 @@ describe('SyncService: events', () => {
 
   it('auto-marks read (with receipts) when the conversation is being viewed', async () => {
     const { stores, backend, sync, conv, memberOf } = await setup();
-    const id = conv('kiln-eng');
+    const id = conv('orchard-eng');
     const markRead = vi.spyOn(backend, 'markRead');
     stores.ui.getState().selectConversation(id);
     backend.deliver(incoming(id, memberOf(id), NOW + 5));
@@ -472,7 +472,7 @@ describe('SyncService: events', () => {
 describe('SendService', () => {
   it('shows a pending message in place, then reconciles it with the server identity', async () => {
     const s = await setup({ latencyMs: 100 });
-    const id = s.conv('kiln-eng');
+    const id = s.conv('orchard-eng');
     await s.history.open(id);
     const promise = s.send.send(draft(id, 'hello **world**'));
     await flush();
@@ -551,7 +551,7 @@ describe('SendService', () => {
 
   it('marks failures, retries and discards', async () => {
     const { stores, send, backend, conv, onError, repository, history } = await setup();
-    const id = conv('kiln-eng');
+    const id = conv('orchard-eng');
     await history.open(id);
     backend.failNext();
     await send.send(draft(id, 'flaky'));
@@ -573,7 +573,7 @@ describe('SendService', () => {
   it('(10) restores the outbox after a restart as failed, retryable messages', async () => {
     const repository = new MemoryMessageRepository();
     const first = await setup({ repository });
-    const id = first.conv('kiln-eng');
+    const id = first.conv('orchard-eng');
     first.backend.failNext();
     await first.send.send(draft(id, 'written before the crash'));
 
@@ -594,7 +594,7 @@ describe('SendService', () => {
 
   it('attaches mentions after markdown parsing and skips empty drafts', async () => {
     const { send, conv, backend, list, history } = await setup();
-    const id = conv('kiln-eng');
+    const id = conv('orchard-eng');
     await history.open(id);
     const target = backend.world.conversations.get(id)!.memberIds[1]!;
     await send.send(draft(id, `**hey** ${MENTION_PLACEHOLDER} look`, { mentionIds: [target] }));
@@ -619,7 +619,7 @@ describe('SendService', () => {
       allowsTyping: () => true,
     };
     const { send, conv, list, history } = await setup({ pipeline });
-    const id = conv('kiln-eng');
+    const id = conv('orchard-eng');
     await history.open(id);
     await send.send(draft(id, 'quiet'));
     expect(list(id).at(-1)?.body).toBe('QUIET');
@@ -706,7 +706,7 @@ describe('SendService', () => {
     expect(get().reactions).toEqual([]);
 
     backend.failNext();
-    const pending = send.react(id, get(), '🔥');
+    const pending = send.react(id, get(), '🎯');
     backend.emit('reaction', {
       conversationId: id,
       targetAuthorId: selfId,
@@ -799,7 +799,7 @@ describe('HistoryService', () => {
 
   it('snapshots the unread marker on open, unaffected by later auto-read', async () => {
     const { stores, history, sync, conv } = await setup();
-    const id = conv('kiln-eng');
+    const id = conv('orchard-eng');
     const cursor = stores.conversations.getState().readCursors[id];
     await history.open(id);
     await sync.markConversationRead(id);

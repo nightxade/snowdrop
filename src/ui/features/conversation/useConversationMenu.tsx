@@ -13,7 +13,7 @@ import { useCallback } from 'react';
 import { isMuted } from '@/core/stores';
 import type { ConversationId } from '@/core/domain';
 import { spacesSelectors } from '@/core/stores';
-import { useHearth } from '@/ui/hooks';
+import { useShrike } from '@/ui/hooks';
 import type { MenuEntry } from '@/ui/primitives';
 import { archive, copyText, markRead, MUTE_OPTIONS, muteState } from './actions';
 
@@ -25,7 +25,7 @@ const ICON = 16;
  * menus nobody opened.
  */
 export function useConversationMenu(id: ConversationId): () => MenuEntry[] {
-  const app = useHearth();
+  const app = useShrike();
   return useCallback(() => {
     const { stores, registries } = app;
     const conversation = stores.conversations.getState().byId[id];
@@ -63,7 +63,7 @@ export function useConversationMenu(id: ConversationId): () => MenuEntry[] {
           try {
             item.onSelect(conversation);
           } catch (error) {
-            console.error(`[hearth] plugin "${item.owner}" menu item failed`, error);
+            console.error(`[shrike] plugin "${item.owner}" menu item failed`, error);
           }
         },
       }));

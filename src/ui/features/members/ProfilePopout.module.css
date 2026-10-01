@@ -3,104 +3,104 @@
   width: 320px;
   max-width: 100%;
   overflow: hidden;
-  border-radius: var(--hearth-radius-md);
+  border-radius: var(--shrike-radius-md);
 }
 
 .header {
   display: flex;
   align-items: center;
-  gap: var(--hearth-space-4);
-  padding: var(--hearth-space-5);
-  border-bottom: 1px solid var(--hearth-border);
+  gap: var(--shrike-space-4);
+  padding: var(--shrike-space-5);
+  border-bottom: 1px solid var(--shrike-border);
   /* A wash of the contact's colour, strong enough to identify, quiet enough to read on. */
-  background: color-mix(in oklab, var(--tint) 22%, var(--hearth-bg-floating));
+  background: color-mix(in oklab, var(--tint) 22%, var(--shrike-bg-floating));
 }
 
 .names {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: var(--hearth-space-1);
+  gap: var(--shrike-space-1);
   min-width: 0;
 }
 
 .role {
-  margin-top: var(--hearth-space-2);
-  padding: 2px var(--hearth-space-3);
-  border-radius: var(--hearth-radius-full);
-  background: var(--hearth-bg-active);
-  color: var(--hearth-text);
-  font-size: var(--hearth-font-size-xs);
-  font-weight: var(--hearth-font-weight-semibold);
+  margin-top: var(--shrike-space-2);
+  padding: 2px var(--shrike-space-3);
+  border-radius: var(--shrike-radius-full);
+  background: var(--shrike-bg-active);
+  color: var(--shrike-text);
+  font-size: var(--shrike-font-size-xs);
+  font-weight: var(--shrike-font-weight-semibold);
 }
 
 .body {
   display: flex;
   flex-direction: column;
-  gap: var(--hearth-space-5);
-  padding: var(--hearth-space-5);
+  gap: var(--shrike-space-5);
+  padding: var(--shrike-space-5);
 }
 
 .name {
-  color: var(--hearth-text-strong);
-  font-size: var(--hearth-font-size-header);
-  font-weight: var(--hearth-font-weight-bold);
+  color: var(--shrike-text-strong);
+  font-size: var(--shrike-font-size-header);
+  font-weight: var(--shrike-font-weight-bold);
   line-height: 1.3;
   overflow-wrap: anywhere;
 }
 
 .profileName {
-  color: var(--hearth-text);
-  font-size: var(--hearth-font-size-ui);
+  color: var(--shrike-text);
+  font-size: var(--shrike-font-size-ui);
 }
 
 .about {
-  padding: var(--hearth-space-4);
-  border-radius: var(--hearth-radius-sm);
-  background: var(--hearth-bg-hover);
-  color: var(--hearth-text);
-  font-size: var(--hearth-font-size-ui);
+  padding: var(--shrike-space-4);
+  border-radius: var(--shrike-radius-sm);
+  background: var(--shrike-bg-hover);
+  color: var(--shrike-text);
+  font-size: var(--shrike-font-size-ui);
   line-height: 1.45;
 }
 
 .facts {
   display: flex;
   justify-content: space-between;
-  gap: var(--hearth-space-4);
-  font-size: var(--hearth-font-size-sm);
+  gap: var(--shrike-space-4);
+  font-size: var(--shrike-font-size-sm);
 }
 
 .facts dt {
-  color: var(--hearth-text-muted);
+  color: var(--shrike-text-muted);
 }
 
 .facts dd {
   margin: 0;
-  color: var(--hearth-text);
+  color: var(--shrike-text);
   font-variant-numeric: tabular-nums;
 }
 
 .actions {
   display: flex;
   flex-direction: column;
-  gap: var(--hearth-space-3);
+  gap: var(--shrike-space-3);
 }
 
 .note {
   display: flex;
   flex-direction: column;
-  gap: var(--hearth-space-2);
+  gap: var(--shrike-space-2);
 }
 
 .noteLabel {
-  color: var(--hearth-text-muted);
-  font-size: var(--hearth-font-size-sm);
-  font-weight: var(--hearth-font-weight-semibold);
+  color: var(--shrike-text-muted);
+  font-size: var(--shrike-font-size-sm);
+  font-weight: var(--shrike-font-weight-semibold);
 }
 
 .noteHint {
-  color: var(--hearth-text-faint);
-  font-weight: var(--hearth-font-weight-regular);
+  color: var(--shrike-text-faint);
+  font-weight: var(--shrike-font-weight-regular);
   letter-spacing: normal;
   text-transform: none;
 }
@@ -108,28 +108,28 @@
 .noteInput {
   width: 100%;
   min-height: 40px;
-  padding: var(--hearth-space-3);
+  padding: var(--shrike-space-3);
   border: 1px solid transparent;
-  border-radius: var(--hearth-radius-xs);
+  border-radius: var(--shrike-radius-xs);
   background: transparent;
-  color: var(--hearth-text);
-  font-size: var(--hearth-font-size-sm);
+  color: var(--shrike-text);
+  font-size: var(--shrike-font-size-sm);
   line-height: 1.4;
   resize: vertical;
   transition:
-    background-color var(--hearth-duration-fast) var(--hearth-ease),
-    border-color var(--hearth-duration-fast) var(--hearth-ease);
+    background-color var(--shrike-duration-fast) var(--shrike-ease),
+    border-color var(--shrike-duration-fast) var(--shrike-ease);
 }
 
 .noteInput:hover {
-  background: var(--hearth-bg-hover);
+  background: var(--shrike-bg-hover);
 }
 
 .noteInput:focus {
-  border-color: var(--hearth-accent);
-  background: var(--hearth-bg-input);
+  border-color: var(--shrike-accent);
+  background: var(--shrike-bg-input);
 }
 
 .noteInput::placeholder {
-  color: var(--hearth-text-faint);
+  color: var(--shrike-text-faint);
 }

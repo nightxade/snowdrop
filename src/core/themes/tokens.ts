@@ -108,7 +108,7 @@ export type TokenName = (typeof TOKEN_NAMES)[number];
 
 export type TokenOverrides = Partial<Record<TokenName, string>>;
 
-export const cssVar = (name: TokenName): string => `--hearth-${name}`;
+export const cssVar = (name: TokenName): string => `--shrike-${name}`;
 
 const TOKEN_SET: ReadonlySet<string> = new Set(TOKEN_NAMES);
 export const isTokenName = (value: string): value is TokenName => TOKEN_SET.has(value);

@@ -30,7 +30,7 @@ export const SystemRow = memo(function SystemRow({
   const text = m.systemText ?? m.body;
   const Icon = systemIcon(text);
   return (
-    <div className={styles.system} data-hearth="system-message">
+    <div className={styles.system} data-shrike="system-message">
       <span className={styles.systemIcon}>
         <Icon size={16} aria-hidden />
       </span>

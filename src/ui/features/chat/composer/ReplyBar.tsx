@@ -33,12 +33,12 @@ export function ReplyBar({
     authorId ? s.byId[authorId]?.color : undefined,
   );
   return (
-    <div className={styles.reply} data-hearth="reply-bar">
+    <div className={styles.reply} data-shrike="reply-bar">
       <span className={styles.replyText}>
         Replying to{' '}
         <strong
           className={styles.replyName}
-          style={{ '--name-color': color ?? 'var(--hearth-text-strong)' } as CSSProperties}
+          style={{ '--name-color': color ?? 'var(--shrike-text-strong)' } as CSSProperties}
         >
           {name}
         </strong>

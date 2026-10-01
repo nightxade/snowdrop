@@ -2,19 +2,19 @@
   position: absolute;
   z-index: 3;
   top: 0;
-  right: var(--hearth-space-5);
-  left: var(--hearth-space-5);
+  right: var(--shrike-space-5);
+  left: var(--shrike-space-5);
   display: flex;
   align-items: stretch;
   height: 28px;
   overflow: hidden;
-  border-radius: 0 0 var(--hearth-radius-sm) var(--hearth-radius-sm);
-  background: var(--hearth-accent);
-  color: var(--hearth-text-on-accent);
-  font-size: var(--hearth-font-size-sm);
-  font-weight: var(--hearth-font-weight-semibold);
-  box-shadow: var(--hearth-shadow-menu);
-  animation: drop var(--hearth-duration-base) var(--hearth-ease);
+  border-radius: 0 0 var(--shrike-radius-sm) var(--shrike-radius-sm);
+  background: var(--shrike-accent);
+  color: var(--shrike-text-on-accent);
+  font-size: var(--shrike-font-size-sm);
+  font-weight: var(--shrike-font-weight-semibold);
+  box-shadow: var(--shrike-shadow-menu);
+  animation: drop var(--shrike-duration-base) var(--shrike-ease);
 }
 
 @keyframes drop {
@@ -27,8 +27,8 @@
 .barRead {
   display: flex;
   align-items: center;
-  gap: var(--hearth-space-2);
-  padding: 0 var(--hearth-space-4);
+  gap: var(--shrike-space-2);
+  padding: 0 var(--shrike-space-4);
   color: inherit;
   font-size: inherit;
   font-weight: inherit;
@@ -44,7 +44,7 @@
 
 .barJump:hover,
 .barRead:hover {
-  background: var(--hearth-accent-hover);
+  background: var(--shrike-accent-hover);
 }
 
 .barRead {
@@ -55,7 +55,7 @@
   position: absolute;
   z-index: 3;
   right: 0;
-  bottom: var(--hearth-space-4);
+  bottom: var(--shrike-space-4);
   left: 0;
   display: flex;
   justify-content: center;
@@ -65,32 +65,32 @@
 .jump {
   display: flex;
   align-items: center;
-  gap: var(--hearth-space-3);
+  gap: var(--shrike-space-3);
   height: 32px;
-  padding: 0 var(--hearth-space-4) 0 var(--hearth-space-5);
-  border-radius: var(--hearth-radius-full);
-  background: var(--hearth-bg-floating);
-  box-shadow: var(--hearth-shadow-popout);
-  color: var(--hearth-text);
-  font-size: var(--hearth-font-size-sm);
-  font-weight: var(--hearth-font-weight-semibold);
+  padding: 0 var(--shrike-space-4) 0 var(--shrike-space-5);
+  border-radius: var(--shrike-radius-full);
+  background: var(--shrike-bg-floating);
+  box-shadow: var(--shrike-shadow-popout);
+  color: var(--shrike-text);
+  font-size: var(--shrike-font-size-sm);
+  font-weight: var(--shrike-font-weight-semibold);
   pointer-events: auto;
-  animation: rise var(--hearth-duration-base) var(--hearth-ease);
-  transition: background-color var(--hearth-duration-fast) var(--hearth-ease);
+  animation: rise var(--shrike-duration-base) var(--shrike-ease);
+  transition: background-color var(--shrike-duration-fast) var(--shrike-ease);
 }
 
 .jump:hover {
-  background: var(--hearth-bg-elevated);
-  color: var(--hearth-text-strong);
+  background: var(--shrike-bg-elevated);
+  color: var(--shrike-text-strong);
 }
 
 .jump[data-new] {
-  background: var(--hearth-accent);
-  color: var(--hearth-text-on-accent);
+  background: var(--shrike-accent);
+  color: var(--shrike-text-on-accent);
 }
 
 .jump[data-new]:hover {
-  background: var(--hearth-accent-hover);
+  background: var(--shrike-accent-hover);
 }
 
 @keyframes rise {

@@ -37,7 +37,7 @@ interface SeqState {
   max: number;
 }
 
-interface HearthDB extends DBSchema {
+interface ShrikeDB extends DBSchema {
   messages: {
     key: string;
     value: StoredMessage;
@@ -52,13 +52,13 @@ interface HearthDB extends DBSchema {
   outbox: { key: string; value: OutboxEntry };
 }
 
-type RwTx = IDBPTransaction<HearthDB, ('messages' | 'meta')[], 'readwrite'>;
+type RwTx = IDBPTransaction<ShrikeDB, ('messages' | 'meta')[], 'readwrite'>;
 
 export class IdbMessageRepository implements MessageRepository {
-  private constructor(private readonly db: IDBPDatabase<HearthDB>) {}
+  private constructor(private readonly db: IDBPDatabase<ShrikeDB>) {}
 
-  static async open(name = 'hearth'): Promise<IdbMessageRepository> {
-    const db = await openDB<HearthDB>(name, DB_VERSION, {
+  static async open(name = 'shrike'): Promise<IdbMessageRepository> {
+    const db = await openDB<ShrikeDB>(name, DB_VERSION, {
       upgrade(database, oldVersion) {
         // Versioned, additive migrations: each step upgrades from the previous version.
         if (oldVersion < 1) {

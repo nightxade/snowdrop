@@ -9,7 +9,7 @@ export interface SpaceDraft {
   hue: number;
 }
 
-const EMOJI = ['', '🔥', '🏡', '🧗', '🎮', '🎧', '📚', '🌱', '⚽', '🍳', '✈️', '💼'];
+const EMOJI = ['', '🎯', '🏡', '🧗', '🎮', '🎧', '📚', '🌱', '⚽', '🍳', '✈️', '💼'];
 const HUES = Array.from({ length: 12 }, (_, i) => i + 1);
 
 /** Name, emoji and colour fields shared by the create and edit dialogs. */
@@ -36,7 +36,7 @@ export function SpaceForm({
       <div className={styles.top}>
         <span
           className={styles.preview}
-          style={{ '--tile-hue': `var(--hearth-avatar-${draft.hue})` } as CSSProperties}
+          style={{ '--tile-hue': `var(--shrike-avatar-${draft.hue})` } as CSSProperties}
           aria-hidden
         >
           {preview}
@@ -92,7 +92,7 @@ export function SpaceForm({
               aria-checked={draft.hue === hue}
               aria-label={`Colour ${hue}`}
               className={styles.swatch}
-              style={{ '--tile-hue': `var(--hearth-avatar-${hue})` } as CSSProperties}
+              style={{ '--tile-hue': `var(--shrike-avatar-${hue})` } as CSSProperties}
               onClick={() => {
                 onChange({ ...draft, hue });
               }}

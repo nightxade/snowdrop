@@ -1,22 +1,22 @@
 .time {
-  color: var(--hearth-text-faint);
-  font-size: var(--hearth-font-size-sm);
-  font-weight: var(--hearth-font-weight-medium);
+  color: var(--shrike-text-faint);
+  font-size: var(--shrike-font-size-sm);
+  font-weight: var(--shrike-font-weight-medium);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   cursor: default;
 }
 
 .time[data-variant='header'] {
-  margin-left: var(--hearth-space-3);
-  color: var(--hearth-text-muted);
+  margin-left: var(--shrike-space-3);
+  color: var(--shrike-text-muted);
 }
 
 /* Continuation rows: the time appears in the gutter only on hover/focus. */
 .time[data-variant='gutter'] {
   display: block;
-  font-size: var(--hearth-font-size-xs);
-  line-height: calc(var(--hearth-font-size-message) * var(--hearth-line-height-message));
+  font-size: var(--shrike-font-size-xs);
+  line-height: calc(var(--shrike-font-size-message) * var(--shrike-line-height-message));
   text-align: right;
   opacity: 0;
 }
@@ -27,35 +27,35 @@
 
 .time[data-variant='compact'] {
   display: block;
-  font-size: var(--hearth-font-size-xs);
-  line-height: calc(var(--hearth-font-size-message) * var(--hearth-line-height-message));
+  font-size: var(--shrike-font-size-xs);
+  line-height: calc(var(--shrike-font-size-message) * var(--shrike-line-height-message));
   text-align: right;
 }
 
 .mark {
   display: inline-grid;
   place-items: center;
-  margin-left: var(--hearth-space-2);
-  color: var(--hearth-text-faint);
+  margin-left: var(--shrike-space-2);
+  color: var(--shrike-text-faint);
   vertical-align: -1px;
 }
 
 .mark[data-pinned] {
-  color: var(--hearth-accent);
+  color: var(--shrike-accent);
 }
 
 .notes {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--hearth-space-2) var(--hearth-space-4);
+  gap: var(--shrike-space-2) var(--shrike-space-4);
 }
 
 .edited {
-  margin-left: var(--hearth-space-2);
-  color: var(--hearth-text-faint);
+  margin-left: var(--shrike-space-2);
+  color: var(--shrike-text-faint);
   white-space: nowrap;
-  font-size: var(--hearth-font-size-xs);
+  font-size: var(--shrike-font-size-xs);
   cursor: default;
 }
 
@@ -63,21 +63,21 @@
 .partial {
   display: inline-flex;
   align-items: center;
-  gap: var(--hearth-space-2);
-  color: var(--hearth-danger);
-  font-size: var(--hearth-font-size-sm);
-  font-weight: var(--hearth-font-weight-medium);
+  gap: var(--shrike-space-2);
+  color: var(--shrike-danger);
+  font-size: var(--shrike-font-size-sm);
+  font-weight: var(--shrike-font-weight-medium);
 }
 
 .partial {
-  color: var(--hearth-warning);
+  color: var(--shrike-warning);
   cursor: default;
 }
 
 .action {
-  color: var(--hearth-text-link);
+  color: var(--shrike-text-link);
   font-size: inherit;
-  font-weight: var(--hearth-font-weight-semibold);
+  font-weight: var(--shrike-font-weight-semibold);
 }
 
 .action:hover {

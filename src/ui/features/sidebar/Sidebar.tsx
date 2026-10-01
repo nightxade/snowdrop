@@ -5,7 +5,7 @@ import styles from './Sidebar.module.css';
 
 export function Sidebar() {
   return (
-    <aside className={styles.sidebar} data-hearth="sidebar">
+    <aside className={styles.sidebar} data-shrike="sidebar">
       <SidebarHeader />
       <ConversationList />
       <UserPanel />

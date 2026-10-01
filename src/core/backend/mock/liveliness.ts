@@ -24,7 +24,7 @@ export interface LivelinessOptions {
   intervalMs?: [number, number];
 }
 
-const REACTIONS = ['👍', '❤️', '😂', '🔥', '🎉', '👀'];
+const REACTIONS = ['👍', '❤️', '😂', '🎯', '🎉', '👀'];
 
 export class Liveliness {
   private timers = new Set<Cancel>();

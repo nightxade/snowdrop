@@ -23,9 +23,9 @@ export function avatarHueIndex(id: string): number {
   return (hashString(id) % AVATAR_HUE_COUNT) + 1;
 }
 
-/** CSS colour value (`var(--hearth-avatar-N)`) for an id. */
+/** CSS colour value (`var(--shrike-avatar-N)`) for an id. */
 export function colorForId(id: string): string {
-  return `var(--hearth-avatar-${avatarHueIndex(id)})`;
+  return `var(--shrike-avatar-${avatarHueIndex(id)})`;
 }
 
 /** Up to two initials for avatar fallbacks, grapheme-aware for emoji names. */

@@ -15,7 +15,7 @@ afterEach(async () => {
   await disposeAll();
 });
 
-const sidebar = () => document.querySelector<HTMLElement>('[data-hearth="sidebar"]')!;
+const sidebar = () => document.querySelector<HTMLElement>('[data-shrike="sidebar"]')!;
 
 describe('buildMemberSections', () => {
   const contact = (id: string, name: string) => ({ id, name, color: 'x' });
@@ -36,24 +36,24 @@ describe('buildMemberSections', () => {
 
 describe('quick switcher', () => {
   it('highlights matches, opens with Enter and focuses the composer', async () => {
-    const hearth = await bootDemo();
+    const shrike = await bootDemo();
     key({ key: 'k', code: 'KeyK', ctrlKey: true });
     const input = await screen.findByRole('combobox', { name: 'Search conversations' });
     expect(document.activeElement).toBe(input);
     act(() => {
-      fireEvent.change(input, { target: { value: 'kiln' } });
+      fireEvent.change(input, { target: { value: 'orchard' } });
     });
     const options = screen.getAllByRole('option');
     expect(options.length).toBeGreaterThan(0);
-    expect(options[0]!.querySelector('mark')?.textContent.toLowerCase()).toContain('kiln');
+    expect(options[0]!.querySelector('mark')?.textContent.toLowerCase()).toContain('orchard');
     key({ key: 'Enter' }, input);
     await settle();
-    const selected = uiSelectors.selectedConversation(hearth.stores.ui.getState());
+    const selected = uiSelectors.selectedConversation(shrike.stores.ui.getState());
     expect(selected).not.toBeNull();
     expect(screen.queryByRole('combobox', { name: 'Search conversations' })).toBeNull();
     // The composer registers itself as the focus target (P3), so you can type straight away.
     expect(document.activeElement).toBe(
-      document.querySelector('[data-hearth="composer"] textarea'),
+      document.querySelector('[data-shrike="composer"] textarea'),
     );
   });
 
@@ -74,8 +74,8 @@ describe('quick switcher', () => {
 
 describe('conversation menu', () => {
   it('opens from the keyboard and applies pin, mute and archive', async () => {
-    const hearth = await bootDemo();
-    const { local } = hearth.stores;
+    const shrike = await bootDemo();
+    const { local } = shrike.stores;
     const row = sidebar().querySelector<HTMLElement>(
       'section[aria-label="Direct Messages"] [data-conversation-id]',
     )!;
@@ -115,8 +115,8 @@ describe('conversation menu', () => {
 
 describe('spaces', () => {
   it('creates a space from the dialog and deletes it with confirmation', async () => {
-    const hearth = await bootDemo();
-    const { spaces, ui } = hearth.stores;
+    const shrike = await bootDemo();
+    const { spaces, ui } = shrike.stores;
     const before = spacesSelectors.orderedIds(spaces.getState()).length;
     act(() => {
       fireEvent.click(screen.getByRole('button', { name: 'Create a space' }));
@@ -152,8 +152,8 @@ describe('spaces', () => {
 describe('responsive overlays', () => {
   it('shows the member list as a modal sheet below 1100px; Esc closes it', async () => {
     setViewport(1024);
-    const hearth = await bootDemo();
-    const { stores } = hearth;
+    const shrike = await bootDemo();
+    const { stores } = shrike;
     const spaceId = spacesSelectors.orderedIds(stores.spaces.getState())[0]!;
     const group = stores.spaces.getState().spaces[spaceId]!.categories[0]!.conversationIds[0]!;
     act(() => {

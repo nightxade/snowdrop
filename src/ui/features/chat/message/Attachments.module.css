@@ -2,16 +2,16 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: var(--hearth-space-2);
-  margin-top: var(--hearth-space-2);
+  gap: var(--shrike-space-2);
+  margin-top: var(--shrike-space-2);
 }
 
 .grid {
   display: grid;
-  gap: var(--hearth-space-1);
+  gap: var(--shrike-space-1);
   width: min(400px, 100%);
   overflow: hidden;
-  border-radius: var(--hearth-radius-sm);
+  border-radius: var(--shrike-radius-sm);
 }
 
 /* One image: its own aspect ratio, sized from width/height before it loads. */
@@ -48,7 +48,7 @@
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  background: var(--hearth-bg-elevated);
+  background: var(--shrike-bg-elevated);
   cursor: zoom-in;
 }
 
@@ -61,9 +61,9 @@
 .tile[data-state='loading'] {
   background: linear-gradient(
     100deg,
-    var(--hearth-bg-elevated) 30%,
-    var(--hearth-bg-active) 50%,
-    var(--hearth-bg-elevated) 70%
+    var(--shrike-bg-elevated) 30%,
+    var(--shrike-bg-active) 50%,
+    var(--shrike-bg-elevated) 70%
   );
   background-size: 300% 100%;
   animation: shimmer 1.4s linear infinite;
@@ -92,19 +92,19 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--hearth-space-2);
-  color: var(--hearth-text-muted);
-  font-size: var(--hearth-font-size-sm);
+  gap: var(--shrike-space-2);
+  color: var(--shrike-text-muted);
+  font-size: var(--shrike-font-size-sm);
 }
 
 .retry {
   display: inline-flex;
   align-items: center;
-  gap: var(--hearth-space-2);
+  gap: var(--shrike-space-2);
   padding: 2px 8px;
-  border-radius: var(--hearth-radius-xs);
-  background: var(--hearth-bg-active);
-  color: var(--hearth-text);
+  border-radius: var(--shrike-radius-xs);
+  background: var(--shrike-bg-active);
+  color: var(--shrike-text);
 }
 
 .media {
@@ -112,7 +112,7 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transition: filter var(--hearth-duration-fast) var(--hearth-ease);
+  transition: filter var(--shrike-duration-fast) var(--shrike-ease);
 }
 
 .tile:hover .media {
@@ -132,9 +132,9 @@
   width: 44px;
   height: 44px;
   margin: -22px 0 0 -22px;
-  border-radius: var(--hearth-radius-full);
-  background: var(--hearth-bg-overlay);
-  color: var(--hearth-text-strong);
+  border-radius: var(--shrike-radius-full);
+  background: var(--shrike-bg-overlay);
+  color: var(--shrike-text-strong);
 }
 
 .more {
@@ -142,55 +142,55 @@
   inset: 0;
   display: grid;
   place-items: center;
-  background: var(--hearth-bg-overlay);
-  color: var(--hearth-text-strong);
-  font-size: var(--hearth-font-size-title);
-  font-weight: var(--hearth-font-weight-semibold);
+  background: var(--shrike-bg-overlay);
+  color: var(--shrike-text-strong);
+  font-size: var(--shrike-font-size-title);
+  font-weight: var(--shrike-font-weight-semibold);
 }
 
 .card {
   display: flex;
   align-items: center;
-  gap: var(--hearth-space-4);
+  gap: var(--shrike-space-4);
   width: min(400px, 100%);
   min-height: 60px;
-  padding: var(--hearth-space-4);
-  border: 1px solid var(--hearth-border);
-  border-radius: var(--hearth-radius-sm);
-  background: var(--hearth-bg-elevated);
+  padding: var(--shrike-space-4);
+  border: 1px solid var(--shrike-border);
+  border-radius: var(--shrike-radius-sm);
+  background: var(--shrike-bg-elevated);
 }
 
 .cardIcon {
   flex: none;
-  color: var(--hearth-accent);
+  color: var(--shrike-accent);
 }
 
 .cardText {
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: var(--hearth-space-1);
+  gap: var(--shrike-space-1);
   min-width: 0;
 }
 
 .cardName {
   overflow: hidden;
-  color: var(--hearth-text-link);
-  font-size: var(--hearth-font-size-ui);
-  font-weight: var(--hearth-font-weight-medium);
+  color: var(--shrike-text-link);
+  font-size: var(--shrike-font-size-ui);
+  font-weight: var(--shrike-font-weight-medium);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .cardMeta {
-  color: var(--hearth-text-faint);
-  font-size: var(--hearth-font-size-sm);
+  color: var(--shrike-text-faint);
+  font-size: var(--shrike-font-size-sm);
 }
 
 .audio {
   width: 100%;
   height: 32px;
-  margin-top: var(--hearth-space-2);
+  margin-top: var(--shrike-space-2);
 }
 
 .download {
@@ -199,14 +199,14 @@
   place-items: center;
   width: 32px;
   height: 32px;
-  border-radius: var(--hearth-radius-sm);
-  color: var(--hearth-text-muted);
+  border-radius: var(--shrike-radius-sm);
+  color: var(--shrike-text-muted);
   transition:
-    background-color var(--hearth-duration-fast) var(--hearth-ease),
-    color var(--hearth-duration-fast) var(--hearth-ease);
+    background-color var(--shrike-duration-fast) var(--shrike-ease),
+    color var(--shrike-duration-fast) var(--shrike-ease);
 }
 
 .download:hover {
-  background: var(--hearth-bg-hover);
-  color: var(--hearth-text-strong);
+  background: var(--shrike-bg-hover);
+  color: var(--shrike-text-strong);
 }

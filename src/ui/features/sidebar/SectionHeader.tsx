@@ -17,7 +17,7 @@ export function SectionHeader({
   trailing?: ReactNode;
 }) {
   return (
-    <div className={styles.header} data-hearth="section-header">
+    <div className={styles.header} data-shrike="section-header">
       <button
         type="button"
         className={styles.toggle}

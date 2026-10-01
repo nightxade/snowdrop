@@ -1,10 +1,10 @@
 import type { SpaceId } from '@/core/stores';
-import { useHearth } from '@/ui/hooks';
+import { useShrike } from '@/ui/hooks';
 import { Button, Modal } from '@/ui/primitives';
 import { deleteSpace } from './useSpaceMenu';
 
 export function DeleteSpaceDialog({ spaceId, onClose }: { spaceId: SpaceId; onClose: () => void }) {
-  const app = useHearth();
+  const app = useShrike();
   const space = app.stores.spaces.getState().spaces[spaceId];
   if (!space) return null;
   const count = space.categories.reduce((n, c) => n + c.conversationIds.length, 0);

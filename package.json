@@ -1,5 +1,5 @@
 {
-  "name": "hearth",
+  "name": "shrike",
   "private": true,
   "version": "0.1.0",
   "description": "A community-style chat UI for the Signal network, driven by a local signal-cli daemon.",

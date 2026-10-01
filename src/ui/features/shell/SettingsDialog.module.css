@@ -1,7 +1,7 @@
 .body {
   display: flex;
   flex-direction: column;
-  gap: var(--hearth-space-7);
+  gap: var(--shrike-space-7);
 }
 
 .fieldset {
@@ -10,23 +10,23 @@
 }
 
 .legend {
-  margin-bottom: var(--hearth-space-4);
-  color: var(--hearth-text-muted);
-  font-size: var(--hearth-font-size-sm);
-  font-weight: var(--hearth-font-weight-semibold);
+  margin-bottom: var(--shrike-space-4);
+  color: var(--shrike-text-muted);
+  font-size: var(--shrike-font-size-sm);
+  font-weight: var(--shrike-font-weight-semibold);
 }
 
 .themes {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: var(--hearth-space-4);
+  gap: var(--shrike-space-4);
 }
 
 .theme {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: var(--hearth-space-3);
+  gap: var(--shrike-space-3);
   cursor: pointer;
 }
 
@@ -41,10 +41,10 @@
   grid-template-columns: 30% 1fr;
   height: 56px;
   overflow: hidden;
-  border-radius: var(--hearth-radius-sm);
+  border-radius: var(--shrike-radius-sm);
   background: var(--p-surface);
-  box-shadow: 0 0 0 1px var(--hearth-border-strong);
-  transition: box-shadow var(--hearth-duration-fast) var(--hearth-ease);
+  box-shadow: 0 0 0 1px var(--shrike-border-strong);
+  transition: box-shadow var(--shrike-duration-fast) var(--shrike-ease);
 }
 
 .swatch > span:first-child {
@@ -55,26 +55,26 @@
   width: 40%;
   height: 8px;
   margin: 12px 0 0 10px;
-  border-radius: var(--hearth-radius-full);
+  border-radius: var(--shrike-radius-full);
   background: var(--p-accent);
   box-shadow: 0 16px 0 -1px var(--p-text);
 }
 
 .radio:checked + .swatch {
   box-shadow:
-    0 0 0 2px var(--hearth-bg-elevated),
-    0 0 0 4px var(--hearth-accent);
+    0 0 0 2px var(--shrike-bg-elevated),
+    0 0 0 4px var(--shrike-accent);
 }
 
 .radio:focus-visible + .swatch {
-  outline: 2px solid var(--hearth-focus-ring);
+  outline: 2px solid var(--shrike-focus-ring);
   outline-offset: 5px;
 }
 
 .themeName {
-  color: var(--hearth-text);
-  font-size: var(--hearth-font-size-sm);
-  font-weight: var(--hearth-font-weight-medium);
+  color: var(--shrike-text);
+  font-size: var(--shrike-font-size-sm);
+  font-weight: var(--shrike-font-weight-medium);
   text-align: center;
 }
 

@@ -6,20 +6,27 @@
   min-height: 100%;
   overflow: auto;
   place-items: center;
-  padding: var(--hearth-space-9) var(--hearth-space-5);
-  background: var(--hearth-bg-rail);
+  padding: var(--shrike-space-9) var(--shrike-space-5);
+  background: var(--shrike-bg-rail);
 }
 
-/* A low ember glow from below: the hearth, lit. The screen's single flourish. */
-.glow {
+/* Two hard-edged diagonal streaks of accent: quick and sharp. The screen's single flourish. */
+.streaks {
   position: fixed;
-  inset: auto -20% -45% -20%;
-  height: 80vh;
-  background: radial-gradient(
-    ellipse at 50% 100%,
-    color-mix(in oklab, var(--hearth-accent) 22%, transparent) 0%,
-    transparent 65%
-  );
+  inset: 0;
+  background:
+    linear-gradient(
+      112deg,
+      transparent 79%,
+      color-mix(in oklab, var(--shrike-accent) 8%, transparent) 79% 84%,
+      transparent 84%
+    ),
+    linear-gradient(
+      112deg,
+      transparent 86%,
+      color-mix(in oklab, var(--shrike-accent) 5%, transparent) 86% 87.5%,
+      transparent 87.5%
+    );
   pointer-events: none;
 }
 
@@ -28,32 +35,32 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--hearth-space-7);
+  gap: var(--shrike-space-7);
   width: min(560px, 100%);
 }
 
 .brand {
   display: flex;
   align-items: center;
-  gap: var(--hearth-space-4);
+  gap: var(--shrike-space-4);
 }
 
 .mark {
-  color: var(--hearth-accent);
+  color: var(--shrike-accent);
 }
 
 .wordmark {
-  color: var(--hearth-text-strong);
+  color: var(--shrike-text-strong);
   font-size: 40px;
-  font-weight: var(--hearth-font-weight-bold);
+  font-weight: var(--shrike-font-weight-bold);
   letter-spacing: -0.03em;
   line-height: 1;
 }
 
 .lede {
   max-width: 46ch;
-  color: var(--hearth-text-muted);
-  font-size: var(--hearth-font-size-header);
+  color: var(--shrike-text-muted);
+  font-size: var(--shrike-font-size-header);
   line-height: 1.55;
   text-align: center;
   text-wrap: pretty;
@@ -62,38 +69,38 @@
 .choices {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: var(--hearth-space-4);
+  gap: var(--shrike-space-4);
   width: 100%;
-  margin-top: var(--hearth-space-3);
+  margin-top: var(--shrike-space-3);
 }
 
 .choice {
   display: flex;
   flex-direction: column;
-  gap: var(--hearth-space-5);
-  padding: var(--hearth-space-6);
-  border: 1px solid var(--hearth-border-strong);
-  border-radius: var(--hearth-radius-lg);
-  background: var(--hearth-bg-elevated);
+  gap: var(--shrike-space-5);
+  padding: var(--shrike-space-6);
+  border: 1px solid var(--shrike-border-strong);
+  border-radius: var(--shrike-radius-lg);
+  background: var(--shrike-bg-elevated);
   text-align: left;
   transition:
-    border-color var(--hearth-duration-base) var(--hearth-ease),
-    transform var(--hearth-duration-base) var(--hearth-ease),
-    background-color var(--hearth-duration-base) var(--hearth-ease);
+    border-color var(--shrike-duration-base) var(--shrike-ease),
+    transform var(--shrike-duration-base) var(--shrike-ease),
+    background-color var(--shrike-duration-base) var(--shrike-ease);
 }
 
 .choice:hover {
-  border-color: var(--hearth-text-faint);
+  border-color: var(--shrike-text-faint);
   transform: translateY(-2px);
 }
 
 .choice[data-primary] {
-  border-color: color-mix(in oklab, var(--hearth-accent) 55%, transparent);
-  background: color-mix(in oklab, var(--hearth-accent) 8%, var(--hearth-bg-elevated));
+  border-color: color-mix(in oklab, var(--shrike-accent) 55%, transparent);
+  background: color-mix(in oklab, var(--shrike-accent) 8%, var(--shrike-bg-elevated));
 }
 
 .choice[data-primary]:hover {
-  border-color: var(--hearth-accent);
+  border-color: var(--shrike-accent);
 }
 
 .choiceIcon {
@@ -101,55 +108,55 @@
   place-items: center;
   width: 40px;
   height: 40px;
-  border-radius: var(--hearth-radius-md);
-  background: var(--hearth-bg-active);
-  color: var(--hearth-text);
+  border-radius: var(--shrike-radius-md);
+  background: var(--shrike-bg-active);
+  color: var(--shrike-text);
 }
 
 .choice[data-primary] .choiceIcon {
-  background: var(--hearth-accent);
-  color: var(--hearth-text-on-accent);
+  background: var(--shrike-accent);
+  color: var(--shrike-text-on-accent);
 }
 
 .choiceText {
   display: flex;
   flex-direction: column;
-  gap: var(--hearth-space-3);
+  gap: var(--shrike-space-3);
 }
 
 .choiceTitle {
-  color: var(--hearth-text-strong);
-  font-size: var(--hearth-font-size-header);
-  font-weight: var(--hearth-font-weight-semibold);
+  color: var(--shrike-text-strong);
+  font-size: var(--shrike-font-size-header);
+  font-weight: var(--shrike-font-weight-semibold);
 }
 
 .choiceBody {
-  color: var(--hearth-text-muted);
-  font-size: var(--hearth-font-size-ui);
+  color: var(--shrike-text-muted);
+  font-size: var(--shrike-font-size-ui);
   line-height: 1.45;
 }
 
 .back {
   display: inline-flex;
   align-items: center;
-  gap: var(--hearth-space-3);
+  gap: var(--shrike-space-3);
   align-self: flex-start;
   height: 32px;
-  padding: 0 var(--hearth-space-3);
-  border-radius: var(--hearth-radius-sm);
-  color: var(--hearth-text-muted);
-  font-weight: var(--hearth-font-weight-medium);
+  padding: 0 var(--shrike-space-3);
+  border-radius: var(--shrike-radius-sm);
+  color: var(--shrike-text-muted);
+  font-weight: var(--shrike-font-weight-medium);
 }
 
 .back:hover {
-  background: var(--hearth-bg-hover);
-  color: var(--hearth-text-strong);
+  background: var(--shrike-bg-hover);
+  color: var(--shrike-text-strong);
 }
 
 .footnote {
   max-width: 52ch;
-  color: var(--hearth-text-faint);
-  font-size: var(--hearth-font-size-sm);
+  color: var(--shrike-text-faint);
+  font-size: var(--shrike-font-size-sm);
   line-height: 1.5;
   text-align: center;
 }

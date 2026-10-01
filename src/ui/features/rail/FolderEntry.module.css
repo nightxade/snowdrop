@@ -15,9 +15,9 @@
   place-items: center;
   border-radius: 5px;
   background: var(--tile-hue);
-  color: var(--hearth-text-on-avatar);
+  color: var(--shrike-text-on-avatar);
   font-size: 9px;
-  font-weight: var(--hearth-font-weight-bold);
+  font-weight: var(--shrike-font-weight-bold);
   line-height: 1;
 }
 
@@ -25,16 +25,16 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  padding-bottom: var(--hearth-space-2);
+  padding-bottom: var(--shrike-space-2);
 }
 
 /* Tinted segment behind the folder's tiles. */
 .open::before {
   content: '';
   position: absolute;
-  inset: var(--hearth-space-2) calc((var(--hearth-rail-width) - var(--hearth-tile-size)) / 2 - 4px)
+  inset: var(--shrike-space-2) calc((var(--shrike-rail-width) - var(--shrike-tile-size)) / 2 - 4px)
     0;
-  border-radius: calc(var(--hearth-radius-lg) + 4px);
-  background: var(--hearth-bg-active);
+  border-radius: calc(var(--shrike-radius-lg) + 4px);
+  background: var(--shrike-bg-active);
   pointer-events: none;
 }

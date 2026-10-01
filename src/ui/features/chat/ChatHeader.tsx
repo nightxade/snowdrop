@@ -4,7 +4,7 @@ import { useStore } from 'zustand';
 import { CoreCommand } from '@/core/commands';
 import { formatDuration, type ConversationId } from '@/core/domain';
 import { isMuted, uiSelectors } from '@/core/stores';
-import { useHearth, useKeybindLabel, useShellLayout } from '@/ui/hooks';
+import { useShrike, useKeybindLabel, useShellLayout } from '@/ui/hooks';
 import { ConversationAvatar, useConversationView } from '@/ui/features/conversation';
 import { Divider, IconButton, Popover, Tooltip } from '@/ui/primitives';
 import { useSearchOpen } from './ChatController';
@@ -20,7 +20,7 @@ export const ChatHeader = memo(function ChatHeader({
 }: {
   conversationId: ConversationId | null;
 }) {
-  const { stores, commands, send } = useHearth();
+  const { stores, commands, send } = useShrike();
   const layout = useShellLayout();
   const searchOpen = useSearchOpen();
   const searchKey = useKeybindLabel(CoreCommand.SearchConversation);
@@ -32,7 +32,7 @@ export const ChatHeader = memo(function ChatHeader({
   return (
     <header
       className={styles.header}
-      data-hearth="chat-header"
+      data-shrike="chat-header"
       data-expanded={topicOpen ? '' : undefined}
     >
       {layout.drawer && (
@@ -104,7 +104,7 @@ export const ChatHeader = memo(function ChatHeader({
             label={membersOpen ? 'Hide member list' : 'Show member list'}
             icon={<Users />}
             active={membersOpen}
-            data-hearth="member-toggle"
+            data-shrike="member-toggle"
             {...(membersKey ? { shortcut: membersKey } : {})}
             onClick={() => {
               void commands.execute(CoreCommand.ToggleMemberList);
@@ -134,7 +134,7 @@ export const ChatHeader = memo(function ChatHeader({
  * waiting elsewhere, since the rail and sidebar are out of sight.
  */
 function NavButton({ current, onOpen }: { current: ConversationId | null; onOpen: () => void }) {
-  const { stores } = useHearth();
+  const { stores } = useShrike();
   const waiting = useStore(stores.conversations, (s) => {
     const local = stores.local.getState().conversations;
     const now = Date.now();

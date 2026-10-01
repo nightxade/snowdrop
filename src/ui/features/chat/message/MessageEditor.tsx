@@ -1,6 +1,6 @@
 import { useRef, useState, type KeyboardEvent } from 'react';
 import type { Message } from '@/core/domain';
-import { useHearth } from '@/ui/hooks';
+import { useShrike } from '@/ui/hooks';
 import { useChatController } from '../ChatController';
 import { encodeMentions } from '../composer/mentionTokens';
 import { replaceRange, useAutoGrow } from '../composer/useAutoGrow';
@@ -11,7 +11,7 @@ import styles from './MessageEditor.module.css';
 
 /** In-place editor inside a message row: Enter saves, Escape cancels. */
 export function MessageEditor({ message }: { message: Message }) {
-  const app = useHearth();
+  const app = useShrike();
   const chat = useChatController();
   const [initial] = useState(() => toMarkdown(message.body, message.ranges, nameResolver(app)));
   const [text, setText] = useState(initial.text);

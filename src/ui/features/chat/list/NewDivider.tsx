@@ -7,7 +7,7 @@ export const NewDivider = memo(function NewDivider() {
       className={styles.new}
       role="separator"
       aria-label="New messages"
-      data-hearth="new-divider"
+      data-shrike="new-divider"
     >
       <span className={styles.newTag}>New</span>
     </div>

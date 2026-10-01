@@ -10,28 +10,28 @@ body,
 }
 
 html {
-  zoom: var(--hearth-zoom);
+  zoom: var(--shrike-zoom);
 }
 
 body {
-  background: var(--hearth-bg-chat);
-  color: var(--hearth-text);
-  font-family: var(--hearth-font-sans);
-  font-size: var(--hearth-font-size-ui);
-  line-height: var(--hearth-line-height-ui);
+  background: var(--shrike-bg-chat);
+  color: var(--shrike-text);
+  font-family: var(--shrike-font-sans);
+  font-size: var(--shrike-font-size-ui);
+  line-height: var(--shrike-line-height-ui);
   font-feature-settings: 'cv11', 'ss01';
 }
 
 /* A filter creates a containing block for fixed children, so only apply it when needed. */
 :root[data-saturation-adjusted] body {
-  filter: saturate(var(--hearth-saturation));
+  filter: saturate(var(--shrike-saturation));
 }
 
 code,
 kbd,
 pre,
 samp {
-  font-family: var(--hearth-font-mono);
+  font-family: var(--shrike-font-mono);
 }
 
 :focus {
@@ -39,21 +39,21 @@ samp {
 }
 
 :focus-visible {
-  outline: 2px solid var(--hearth-focus-ring);
+  outline: 2px solid var(--shrike-focus-ring);
   outline-offset: 2px;
 }
 
 ::selection {
-  background: var(--hearth-accent-soft);
+  background: var(--shrike-accent-soft);
 }
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--hearth-scrollbar-thumb) transparent;
+  scrollbar-color: var(--shrike-scrollbar-thumb) transparent;
 }
 
 a {
-  color: var(--hearth-text-link);
+  color: var(--shrike-text-link);
   text-decoration: none;
 }
 

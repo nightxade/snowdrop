@@ -2,20 +2,20 @@
   display: flex;
   flex: none;
   flex-direction: column;
-  width: var(--hearth-rail-width);
+  width: var(--shrike-rail-width);
   height: 100%;
-  background: var(--hearth-bg-rail);
+  background: var(--shrike-bg-rail);
 }
 
 .scroller {
   flex: 1;
-  padding: var(--hearth-space-4) 0;
+  padding: var(--shrike-space-4) 0;
 }
 
 .separator {
   width: 32px;
   height: 2px;
-  margin: var(--hearth-space-2) auto;
-  border-radius: var(--hearth-radius-full);
-  background: var(--hearth-border-strong);
+  margin: var(--shrike-space-2) auto;
+  border-radius: var(--shrike-radius-full);
+  background: var(--shrike-border-strong);
 }

@@ -37,7 +37,7 @@ import { Random } from './prng';
 const MINUTE = 60_000;
 const DAY = 24 * 60 * MINUTE;
 const HISTORY_DAYS = 6;
-const REACTION_EMOJI = ['👍', '❤️', '😂', '🎉', '🔥', '👀', '🙏', '💯', '😮', '✨'];
+const REACTION_EMOJI = ['👍', '❤️', '😂', '🎉', '🎯', '👀', '🙏', '💯', '😮', '✨'];
 
 export interface MockWorld {
   self: Contact;
@@ -51,7 +51,7 @@ export interface MockWorld {
   conversationIds: Map<string, ConversationId>;
   lively: ConversationId[];
   pools: Map<ConversationId, readonly string[]>;
-  /** Demo-only local organisation (pins/mutes are device-local in Hearth). */
+  /** Demo-only local organisation (pins/mutes are device-local in Shrike). */
   defaultLocal: { pinned: ConversationId[]; muted: ConversationId[] };
   defaultSpaces: {
     name: string;
@@ -107,7 +107,7 @@ function renderText(
 }
 
 function fileAttachment(seed: FileSeed, id: string): Attachment {
-  const text = `Demo file "${seed.fileName}" from the Hearth mock world.\n`;
+  const text = `Demo file "${seed.fileName}" from the Shrike mock world.\n`;
   return {
     id,
     contentType: seed.contentType,

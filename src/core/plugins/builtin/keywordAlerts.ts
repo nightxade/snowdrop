@@ -18,7 +18,7 @@ export const keywordAlertsPlugin = definePlugin({
   id: 'keyword-alerts',
   name: 'Keyword Alerts',
   description: 'Get notified when someone says a word you care about.',
-  authors: ['hearth'],
+  authors: ['shrike'],
   tags: ['notifications'],
   settings: defineSettings({
     keywords: {

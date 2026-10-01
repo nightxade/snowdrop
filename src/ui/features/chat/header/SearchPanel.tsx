@@ -1,7 +1,7 @@
 import { SearchX, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { ConversationView, Message } from '@/core/domain';
-import { useHearth } from '@/ui/hooks';
+import { useShrike } from '@/ui/hooks';
 import { IconButton, SearchInput, Skeleton } from '@/ui/primitives';
 import { useChatController } from '../ChatController';
 import { MessageResult } from './MessageResult';
@@ -23,7 +23,7 @@ export function SearchPanel({
   conversation: ConversationView;
   onClose: () => void;
 }) {
-  const { repository } = useHearth();
+  const { repository } = useShrike();
   const chat = useChatController();
   const [query, setQuery] = useState('');
   const [state, setState] = useState<SearchState>({ status: 'idle' });
@@ -60,7 +60,7 @@ export function SearchPanel({
     <aside
       className={styles.panel}
       aria-label={`Search ${conversation.title}`}
-      data-hearth="search-panel"
+      data-shrike="search-panel"
       onKeyDown={(e) => {
         if (e.key === 'Escape') {
           e.preventDefault();

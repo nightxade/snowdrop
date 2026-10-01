@@ -1,26 +1,26 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { VirtuosoMockContext } from 'react-virtuoso';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { Hearth } from '@/app/createHearth';
+import type { Shrike } from '@/app/createShrike';
 import { mergeDuplicate, messageId, type Message } from '@/core/domain';
 import { messagesSelectors } from '@/core/stores';
-import { bootHearth, renderWithHearth, settle } from '@/test/renderWithHearth';
+import { bootShrike, renderWithShrike, settle } from '@/test/renderWithShrike';
 import { ChatController, ChatControllerProvider } from '../ChatController';
 import { MessagePane } from '../MessagePane';
 import * as act_ from '../message/actions';
 import { Reactions, reactorsLabel } from '../message/Reactions';
 import { TooltipProvider } from '@/ui/primitives';
 
-const hearths: Hearth[] = [];
+const shrikes: Shrike[] = [];
 afterEach(async () => {
   cleanup();
-  for (const h of hearths.splice(0)) await h.dispose();
+  for (const h of shrikes.splice(0)) await h.dispose();
 });
 
 /** Backfills `count` old messages so the newest page doesn't contain the oldest ones. */
-async function withHistory(hearth: Hearth, count: number) {
-  const conv = Object.values(hearth.stores.conversations.getState().byId).find(
-    (c) => c.title === 'Kiln · Engineering',
+async function withHistory(shrike: Shrike, count: number) {
+  const conv = Object.values(shrike.stores.conversations.getState().byId).find(
+    (c) => c.title === 'Orchard · Engineering',
   )!;
   const author = conv.memberIds[0]!;
   const messages: Message[] = Array.from({ length: count }, (_, i) => ({
@@ -36,38 +36,38 @@ async function withHistory(hearth: Hearth, count: number) {
     status: 'read',
     kind: 'normal',
   }));
-  await hearth.repository.upsertMany(messages, { backfill: true, merge: mergeDuplicate });
+  await shrike.repository.upsertMany(messages, { backfill: true, merge: mergeDuplicate });
   return { conv, oldest: messages[0]! };
 }
 
 describe('jump to message', () => {
   it('loads history around an old message and detaches from the present', async () => {
-    const hearth = await bootHearth();
-    hearths.push(hearth);
-    const { conv, oldest } = await withHistory(hearth, 300);
+    const shrike = await bootShrike();
+    shrikes.push(shrike);
+    const { conv, oldest } = await withHistory(shrike, 300);
     await act(async () => {
-      hearth.stores.ui.getState().selectConversation(conv.id);
-      await hearth.history.open(conv.id);
+      shrike.stores.ui.getState().selectConversation(conv.id);
+      await shrike.history.open(conv.id);
     });
     const chat = new ChatController();
-    renderWithHearth(
-      hearth,
+    renderWithShrike(
+      shrike,
       <VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 48 }}>
         <ChatControllerProvider value={chat}>
           <MessagePane conversationId={conv.id} />
         </ChatControllerProvider>
       </VirtuosoMockContext.Provider>,
     );
-    await settle(hearth);
+    await settle(shrike);
     const inWindow = () =>
-      oldest.id in messagesSelectors.window(conv.id)(hearth.stores.messages.getState()).byId;
+      oldest.id in messagesSelectors.window(conv.id)(shrike.stores.messages.getState()).byId;
     expect(inWindow()).toBe(false);
 
-    const jumpTo = vi.spyOn(hearth.history, 'jumpTo');
+    const jumpTo = vi.spyOn(shrike.history, 'jumpTo');
     await act(async () => {
       await chat.reveal(conv.id, oldest.id);
     });
-    await settle(hearth);
+    await settle(shrike);
     await act(async () => {
       await new Promise((r) => requestAnimationFrame(r));
     });
@@ -76,29 +76,29 @@ describe('jump to message', () => {
     // (happy-dom has no layout, so Virtuoso renders no rows at an initial index;
     // the scroll + flash itself is covered by the Playwright pass.)
     // Detached from the present: the jump pill offers the way back.
-    expect(document.querySelector('[data-hearth="jump-to-present"]')).not.toBeNull();
+    expect(document.querySelector('[data-shrike="jump-to-present"]')).not.toBeNull();
   });
 
   it('says so when the quoted message is not stored locally', async () => {
-    const hearth = await bootHearth();
-    hearths.push(hearth);
-    const { conv } = await withHistory(hearth, 1);
+    const shrike = await bootShrike();
+    shrikes.push(shrike);
+    const { conv } = await withHistory(shrike, 1);
     const chat = new ChatController();
-    renderWithHearth(
-      hearth,
+    renderWithShrike(
+      shrike,
       <VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 48 }}>
         <ChatControllerProvider value={chat}>
           <MessagePane conversationId={conv.id} />
         </ChatControllerProvider>
       </VirtuosoMockContext.Provider>,
     );
-    await settle(hearth);
+    await settle(shrike);
     let ok = true;
     await act(async () => {
       ok = await chat.reveal(conv.id, messageId('nobody', 42));
     });
     expect(ok).toBe(false);
-    expect(hearth.stores.ui.getState().toasts.at(-1)?.message).toMatch(/isn't available/u);
+    expect(shrike.stores.ui.getState().toasts.at(-1)?.message).toMatch(/isn't available/u);
   });
 });
 
@@ -118,8 +118,8 @@ describe('reactions', () => {
       <TooltipProvider>
         <Reactions
           reactions={[
-            { emoji: '🔥', authorId: 'me', at: 1 },
-            { emoji: '🔥', authorId: 'a', at: 2 },
+            { emoji: '🎯', authorId: 'me', at: 1 },
+            { emoji: '🎯', authorId: 'a', at: 2 },
             { emoji: '👀', authorId: 'a', at: 3 },
           ]}
           selfId="me"
@@ -129,39 +129,39 @@ describe('reactions', () => {
         />
       </TooltipProvider>,
     );
-    const fire = screen.getByRole('button', { name: /^🔥 2/u });
+    const target = screen.getByRole('button', { name: /^🎯 2/u });
     const eyes = screen.getByRole('button', { name: /^👀 1/u });
-    expect(fire.getAttribute('aria-pressed')).toBe('true');
-    expect(fire.hasAttribute('data-mine')).toBe(true);
+    expect(target.getAttribute('aria-pressed')).toBe('true');
+    expect(target.hasAttribute('data-mine')).toBe(true);
     expect(eyes.getAttribute('aria-pressed')).toBe('false');
     fireEvent.click(eyes);
     expect(onToggle).toHaveBeenCalledWith('👀');
   });
 
   it('adds and removes our reaction optimistically, tracking usage', async () => {
-    const hearth = await bootHearth();
-    hearths.push(hearth);
-    const conv = Object.values(hearth.stores.conversations.getState().byId)[0]!;
+    const shrike = await bootShrike();
+    shrikes.push(shrike);
+    const conv = Object.values(shrike.stores.conversations.getState().byId)[0]!;
     await act(async () => {
-      await hearth.history.open(conv.id);
+      await shrike.history.open(conv.id);
     });
-    const app = hearth;
+    const app = shrike;
     const target = messagesSelectors
-      .list(conv.id)(hearth.stores.messages.getState())
+      .list(conv.id)(shrike.stores.messages.getState())
       .findLast((m) => m.kind === 'normal' && !m.deleted)!;
-    const selfId = hearth.stores.session.getState().self!.id;
+    const selfId = shrike.stores.session.getState().self!.id;
     const current = () =>
-      messagesSelectors.message(conv.id, target.id)(hearth.stores.messages.getState())!;
+      messagesSelectors.message(conv.id, target.id)(shrike.stores.messages.getState())!;
     act(() => {
       act_.toggleReaction(app, current(), '🦊');
     });
     expect(current().reactions.some((r) => r.authorId === selfId && r.emoji === '🦊')).toBe(true);
-    expect(hearth.stores.local.getState().reactionUsage['🦊']).toBe(1);
-    await settle(hearth);
+    expect(shrike.stores.local.getState().reactionUsage['🦊']).toBe(1);
+    await settle(shrike);
     act(() => {
       act_.toggleReaction(app, current(), '🦊');
     });
-    await settle(hearth);
+    await settle(shrike);
     expect(current().reactions.some((r) => r.authorId === selfId && r.emoji === '🦊')).toBe(false);
   });
 });

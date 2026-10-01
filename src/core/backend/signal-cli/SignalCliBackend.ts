@@ -144,7 +144,7 @@ export class SignalCliBackend implements ChatBackend {
     this.debugLog =
       options.debug ??
       ((message, detail) => {
-        console.debug(`[hearth] signal-cli: ${message}`, detail ?? '');
+        console.debug(`[shrike] signal-cli: ${message}`, detail ?? '');
       });
     this.rpc = new JsonRpcClient({
       baseUrl: options.baseUrl,
@@ -237,7 +237,7 @@ export class SignalCliBackend implements ChatBackend {
         throw new SignalCliError(
           'account-required',
           'This signal-cli daemon serves a single account (started with -a). ' +
-            'Enter that phone number (or ACI) in Hearth to continue.',
+            'Enter that phone number (or ACI) in Shrike to continue.',
         );
       }
       return isUuid(configured)
@@ -309,7 +309,7 @@ export class SignalCliBackend implements ChatBackend {
   }
 
   private lastEventIdKey(): string {
-    return `hearth.signal-cli.lastEventId.${this.selfId}`;
+    return `shrike.signal-cli.lastEventId.${this.selfId}`;
   }
 
   private openStream(): void {

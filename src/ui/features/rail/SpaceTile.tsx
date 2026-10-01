@@ -27,7 +27,7 @@ export function SpaceTile({ spaceId, ...rest }: SpaceTileProps) {
       selected={selected}
       unread={hasUnread}
       mentions={mentions}
-      hue={`var(--hearth-avatar-${space.hue})`}
+      hue={`var(--shrike-avatar-${space.hue})`}
       menu={menu}
       onClick={() => {
         stores.ui.getState().selectSpace(spaceId);
