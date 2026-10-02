@@ -2,6 +2,7 @@ import {
   forwardRef,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -10,35 +11,46 @@ import {
 } from 'react';
 import { Virtuoso, type Components, type VirtuosoHandle } from 'react-virtuoso';
 import { useStore } from 'zustand';
-import type { ConversationId, ConversationView, MessageId, RenderItem } from '@/core/domain';
+import type { ConversationId, MessageId, RenderItem } from '@/core/domain';
 import { conversationsSelectors } from '@/core/stores';
 import { useShrike } from '@/ui/hooks';
 import { useChatController } from '../ChatController';
 import { MessageItem } from '../message/MessageItem';
+import { useRenderProbe } from '../lib/useRenderProbe';
+import { BottomPin } from './bottomPin';
 import { ConversationIntro } from './ConversationIntro';
 import { DayDivider } from './DayDivider';
 import { HistorySkeleton } from './HistorySkeleton';
 import { JumpToPresent } from './JumpToPresent';
+import { LiveAnnouncer } from './LiveAnnouncer';
 import { NewDivider } from './NewDivider';
 import { NewMessagesBar } from './NewMessagesBar';
+import { RowState, RowStateProvider } from './rowState';
 import { SystemRow } from './SystemRow';
 import { useListItems } from './useListItems';
-import { RowState, RowStateProvider } from './rowState';
 import { useReadTracking } from './useReadTracking';
 import styles from './MessageList.module.css';
 
 interface ListContext {
-  conversation: ConversationView;
+  conversationId: ConversationId;
+  title: string;
   compact: boolean;
   compactAvatars: boolean;
-  loadingOlder: boolean;
   hasMoreBefore: boolean;
   loaded: boolean;
+  loading: boolean;
 }
 
 /** Items within this many rows of the end open at the bottom instead of at the divider. */
 const DIVIDER_NEAR_END = 12;
 const FLASH_MS = 1600;
+/**
+ * Typical row heights (measured medians in the demo). A close first guess
+ * keeps prepended rows from shifting the view while they are measured.
+ */
+const ROW_HEIGHT = { comfortable: 62, compact: 28 } as const;
+/** Gap above the divider / jump target, so it isn't flush with the top edge. */
+const TOP_OFFSET = -48;
 
 function reducedMotion(): boolean {
   const attr = document.documentElement.dataset.reducedMotion;
@@ -47,6 +59,11 @@ function reducedMotion(): boolean {
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
+/**
+ * The rows' container is a feed (articles a reader moves through), not a
+ * live log: rows mounting while scrolling history must not be announced as
+ * new. Arrivals are announced by <LiveAnnouncer>.
+ */
 const ListEl = forwardRef<
   HTMLDivElement,
   HTMLAttributes<HTMLDivElement> & { context?: ListContext }
@@ -55,10 +72,9 @@ const ListEl = forwardRef<
     <div
       {...props}
       ref={ref}
-      role="log"
-      aria-live="polite"
-      aria-relevant="additions"
-      aria-label={context ? `Messages in ${context.conversation.title}` : 'Messages'}
+      role="feed"
+      aria-busy={context?.loading ?? false}
+      aria-label={context ? `Messages in ${context.title}` : 'Messages'}
       data-shrike="message-log"
     >
       {children}
@@ -70,7 +86,7 @@ const COMPONENTS: Components<RenderItem, ListContext> = {
   List: ListEl,
   Header: ({ context }) =>
     context.loaded && !context.hasMoreBefore ? (
-      <ConversationIntro conversation={context.conversation} />
+      <ConversationIntro conversationId={context.conversationId} />
     ) : (
       <HistorySkeleton rows={context.loaded ? 3 : 8} />
     ),
@@ -81,12 +97,14 @@ const COMPONENTS: Components<RenderItem, ListContext> = {
  * The virtualised, bottom-anchored message list. Older history prepends
  * without moving the view (firstItemIndex bookkeeping in useListItems);
  * jumps to old messages replace the window and remount at the target.
+ * Subscribes only to the conversation's title, never its local state (the
+ * draft changes on every keystroke).
  */
-export function MessageList({ conversation }: { conversation: ConversationView }) {
+export function MessageList({ conversationId }: { conversationId: ConversationId }) {
   const app = useShrike();
   const { stores, history } = app;
   const chat = useChatController();
-  const conversationId: ConversationId = conversation.id;
+  const title = useStore(stores.conversations, (s) => s.byId[conversationId]?.title ?? '');
   const model = useListItems(conversationId);
   const { items, firstItemIndex, epoch, loaded, loading, hasMoreBefore, anchoredToPresent } = model;
   const compact = useStore(stores.settings, (s) => s.appearance.density === 'compact');
@@ -94,12 +112,8 @@ export function MessageList({ conversation }: { conversation: ConversationView }
   const unread = useStore(stores.conversations, conversationsSelectors.unread(conversationId));
   const virtuoso = useRef<VirtuosoHandle>(null);
   const scroller = useRef<HTMLElement | null>(null);
-  /**
-   * Whether to hold the view at the bottom while row heights settle (images,
-   * fonts, first measurement). True at the bottom, and after opening at the
-   * bottom until the user scrolls themselves.
-   */
-  const stick = useRef(false);
+  const [pin] = useState(() => new BottomPin());
+  useRenderProbe(null);
   // Starts false: a list opened at the unread divider must not count as "seen to the bottom".
   const [atBottom, setAtBottom] = useState(false);
   const [bottomEpoch, setBottomEpoch] = useState(epoch);
@@ -109,7 +123,9 @@ export function MessageList({ conversation }: { conversation: ConversationView }
     setAtBottom(false);
   }
   const [farFromBottom, setFarFromBottom] = useState(false);
-  const [target, setTarget] = useState<{ id: MessageId; flash: boolean } | null>(null);
+  const [target, setTarget] = useState<{ id: MessageId; flash: boolean; focus: boolean } | null>(
+    null,
+  );
   const [rows] = useState(() => new RowState());
   /** Where the unread divider is relative to the viewport (rendered rows include overscan). */
   const [dividerPos, setDividerPos] = useState<'above' | 'visible' | 'below'>('below');
@@ -130,18 +146,31 @@ export function MessageList({ conversation }: { conversation: ConversationView }
       if (i >= 0) return { index: i, align: 'center' as const };
     }
     if (dividerIndex >= 0 && items.length - dividerIndex > DIVIDER_NEAR_END)
-      return { index: dividerIndex, align: 'start' as const, offset: -48 };
+      return { index: dividerIndex, align: 'start' as const, offset: TOP_OFFSET };
     return { index: 'LAST' as const, align: 'end' as const };
     // Only consulted when the list remounts (epoch); later item changes must not move the view.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [epoch]);
 
-  // A pending jump whose target is now loaded: scroll to it and flash it.
+  // Each (re)mount decides once whether to hold the bottom — never on later renders.
+  useLayoutEffect(() => {
+    pin.reset(initialIndex.index === 'LAST');
+  }, [pin, initialIndex]);
+
+  // The roving tab stop defaults to the newest message.
+  useEffect(() => {
+    const active = rows.activeId;
+    if (active !== null && items.some((it) => 'id' in it && it.id === active)) return;
+    const last = items.findLast((it) => it.type === 'message');
+    if (last && 'id' in last) rows.setActive(last.id);
+  }, [items, rows]);
+
+  // A pending jump whose target is now loaded: scroll to it, flash it, maybe focus it.
   useEffect(() => {
     if (!target) return;
     const index = indexOf(target.id);
     if (index < 0) return;
-    const { id, flash } = target;
+    const { id, flash, focus } = target;
     const frame = requestAnimationFrame(() => {
       virtuoso.current?.scrollToIndex({
         index,
@@ -153,6 +182,15 @@ export function MessageList({ conversation }: { conversation: ConversationView }
         setTimeout(() => {
           if (rows.isFlashing(id)) rows.flash(null);
         }, FLASH_MS);
+      }
+      if (focus) {
+        rows.setActive(id);
+        // After the (possibly smooth) scroll has rendered the row.
+        setTimeout(() => {
+          scroller.current
+            ?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(id)}"]`)
+            ?.focus({ preventScroll: true });
+        }, 350);
       }
       setTarget(null);
     });
@@ -168,27 +206,29 @@ export function MessageList({ conversation }: { conversation: ConversationView }
   const jumpToPresent = useCallback(async () => {
     const w = stores.messages.getState().windows[conversationId];
     if (w && !w.anchoredToPresent) await history.jumpToPresent(conversationId);
+    pin.onReachedBottom();
     requestAnimationFrame(scrollToBottom);
-  }, [stores, history, conversationId, scrollToBottom]);
+  }, [stores, history, conversationId, scrollToBottom, pin]);
 
   const reveal = useCallback(
-    async (id: MessageId, options?: { flash?: boolean }) => {
-      const flash = options?.flash ?? true;
+    async (id: MessageId, options?: { flash?: boolean; focus?: boolean }) => {
+      const next = { id, flash: options?.flash ?? true, focus: options?.focus ?? false };
       const w = stores.messages.getState().windows[conversationId];
       if (w && id in w.byId) {
-        setTarget({ id, flash });
+        setTarget(next);
         return true;
       }
       // Set first, so the list remounting on the new window starts at the target.
-      setTarget({ id, flash });
+      setTarget(next);
       const ok = await history.jumpTo(conversationId, id);
-      if (!ok) setTarget(null);
-      if (!ok)
+      if (!ok) {
+        setTarget(null);
         stores.ui.getState().pushToast({
           message: "The original message isn't available on this device.",
           kind: 'info',
           source: 'core',
         });
+      }
       return ok;
     },
     [stores, history, conversationId],
@@ -199,7 +239,9 @@ export function MessageList({ conversation }: { conversation: ConversationView }
     [chat, conversationId, jumpToPresent, reveal],
   );
 
+  // Latest-value refs for the stable scroller callbacks below.
   const measureRef = useRef<() => void>(() => undefined);
+  const repinRef = useRef<() => void>(() => undefined);
   const firstRendered = useRef(0);
   const measureDivider = () => {
     const el = scroller.current;
@@ -214,27 +256,78 @@ export function MessageList({ conversation }: { conversation: ConversationView }
     }
     setDividerPos(pos);
   };
+  const repin = () => {
+    if (pin.shouldRepin() && anchoredToPresent) scrollToBottom();
+  };
   useEffect(() => {
     measureRef.current = measureDivider;
+    repinRef.current = repin;
   });
 
   const onScroll = useCallback(() => {
     const el = scroller.current;
     if (!el) return;
     const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
-    // Scrolled away from the bottom (by the user or a jump): stop holding it there.
-    if (distance > 64) stick.current = false;
+    pin.onScroll(distance);
     setFarFromBottom(distance > el.clientHeight);
     measureRef.current();
-  }, []);
+  }, [pin]);
+
+  // When no rendered row holds the roving tab stop, the scroller itself takes Tab.
+  useEffect(
+    () =>
+      rows.subscribe(() => {
+        if (scroller.current) scroller.current.tabIndex = rows.activeMounted ? -1 : 0;
+      }),
+    [rows],
+  );
+
+  /**
+   * Stable: Virtuoso calls this again whenever the function identity changes,
+   * and per-render reattachment used to reset the bottom pin (yanking a
+   * reader who had scrolled up back down).
+   */
+  const resize = useRef<ResizeObserver | null>(null);
+  const scrollerRef = useCallback(
+    (el: HTMLElement | Window | null) => {
+      const node = el instanceof HTMLElement ? el : null;
+      if (scroller.current === node) return;
+      scroller.current?.removeEventListener('scroll', onScroll);
+      resize.current?.disconnect();
+      resize.current = null;
+      scroller.current = node;
+      if (!node) return;
+      node.tabIndex = rows.activeMounted ? -1 : 0;
+      node.addEventListener('scroll', onScroll, { passive: true });
+      // The viewport shrinks when the composer grows (reply bar, more lines,
+      // attachments): keep the newest message in view if we were holding it.
+      let height = node.clientHeight;
+      if (typeof ResizeObserver !== 'undefined') {
+        resize.current = new ResizeObserver(() => {
+          if (node.clientHeight === height) return;
+          height = node.clientHeight;
+          repinRef.current();
+        });
+        resize.current.observe(node);
+      }
+    },
+    [onScroll, rows],
+  );
+  useEffect(
+    () => () => {
+      resize.current?.disconnect();
+    },
+    [],
+  );
 
   const context: ListContext = {
-    conversation,
+    conversationId,
+    title,
     compact,
     compactAvatars,
-    loadingOlder: loading && loaded,
     hasMoreBefore,
     loaded,
+    loading,
   };
 
   /** ↑/↓ move between messages; from the scroller itself they step into the newest visible one. */
@@ -242,24 +335,23 @@ export function MessageList({ conversation }: { conversation: ConversationView }
     if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
     if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
     if (!(e.target instanceof HTMLElement)) return;
-    const rows = [...e.currentTarget.querySelectorAll<HTMLElement>('[data-roving-item]')];
+    const all = [...e.currentTarget.querySelectorAll<HTMLElement>('[data-roving-item]')];
+    let next: HTMLElement | undefined;
     if (e.target === scroller.current) {
-      const row = e.key === 'ArrowUp' ? rows.at(-1) : rows[0];
-      if (row) {
-        e.preventDefault();
-        row.focus();
-      }
+      next = e.key === 'ArrowUp' ? all.at(-1) : all[0];
+    } else if (e.target.hasAttribute('data-roving-item')) {
+      const i = all.indexOf(e.target);
+      next = all[e.key === 'ArrowUp' ? i - 1 : i + 1];
+      if (!next && e.key === 'ArrowUp') scroller.current?.scrollBy({ top: -200 });
+    } else {
       return;
     }
-    if (!e.target.hasAttribute('data-roving-item')) return;
-    const i = rows.indexOf(e.target);
-    const next = rows[e.key === 'ArrowUp' ? i - 1 : i + 1];
     e.preventDefault();
     if (next) {
+      const id = next.dataset.messageId as MessageId | undefined;
+      if (id) rows.setActive(id);
       next.focus();
       next.scrollIntoView({ block: 'nearest' });
-    } else if (e.key === 'ArrowUp') {
-      scroller.current?.scrollBy({ top: -200 });
     }
   };
 
@@ -282,6 +374,7 @@ export function MessageList({ conversation }: { conversation: ConversationView }
               virtuoso.current?.scrollToIndex({
                 index: dividerIndex,
                 align: 'start',
+                offset: TOP_OFFSET,
                 behavior: reducedMotion() ? 'auto' : 'smooth',
               });
             else void jumpToFirstUnread();
@@ -299,17 +392,16 @@ export function MessageList({ conversation }: { conversation: ConversationView }
           alignToBottom
           atBottomThreshold={48}
           increaseViewportBy={{ top: 800, bottom: 400 }}
-          defaultItemHeight={48}
-          followOutput={(bottom) =>
-            bottom && anchoredToPresent ? (reducedMotion() ? 'auto' : 'smooth') : false
+          defaultItemHeight={compact ? ROW_HEIGHT.compact : ROW_HEIGHT.comfortable}
+          skipAnimationFrameInResizeObserver
+          followOutput={() =>
+            pin.isStuck && anchoredToPresent ? (reducedMotion() ? 'auto' : 'smooth') : false
           }
           atBottomStateChange={(bottom) => {
-            if (bottom) stick.current = true;
+            if (bottom) pin.onReachedBottom();
             setAtBottom(bottom);
           }}
-          totalListHeightChanged={() => {
-            if (stick.current && anchoredToPresent) scrollToBottom();
-          }}
+          totalListHeightChanged={repin}
           rangeChanged={(range) => {
             firstRendered.current = range.startIndex - firstItemIndex;
             measureDivider();
@@ -320,18 +412,7 @@ export function MessageList({ conversation }: { conversation: ConversationView }
           endReached={() => {
             if (loaded && !anchoredToPresent) void history.loadNewer(conversationId);
           }}
-          scrollerRef={(el) => {
-            const node = el instanceof HTMLElement ? el : null;
-            if (scroller.current === node) return;
-            scroller.current?.removeEventListener('scroll', onScroll);
-            scroller.current = node;
-            if (node) {
-              stick.current = initialIndex.index === 'LAST';
-              node.tabIndex = 0;
-              node.setAttribute('aria-label', `${conversation.title} messages`);
-              node.addEventListener('scroll', onScroll, { passive: true });
-            }
-          }}
+          scrollerRef={scrollerRef}
           components={COMPONENTS}
           itemContent={(_, item, ctx) => <Row item={item} context={ctx} />}
         />
@@ -340,8 +421,10 @@ export function MessageList({ conversation }: { conversation: ConversationView }
           count={atPresent ? 0 : unread.count}
           onJump={() => {
             void jumpToPresent();
+            chat.focusComposer();
           }}
         />
+        <LiveAnnouncer conversationId={conversationId} />
       </div>
     </RowStateProvider>
   );
@@ -354,7 +437,7 @@ export function MessageList({ conversation }: { conversation: ConversationView }
       marker,
       stores.session.getState().self?.id ?? null,
     );
-    if (id) setTarget({ id, flash: false });
+    if (id) setTarget({ id, flash: false, focus: false });
   }
 }
 
@@ -365,7 +448,7 @@ function Row({ item, context }: { item: RenderItem; context: ListContext }) {
     case 'new-divider':
       return <NewDivider />;
     case 'system':
-      return <SystemRow conversationId={context.conversation.id} id={item.id} />;
+      return <SystemRow conversationId={context.conversationId} id={item.id} />;
     case 'message':
       return (
         <div
@@ -374,7 +457,7 @@ function Row({ item, context }: { item: RenderItem; context: ListContext }) {
           data-compact={context.compact ? '' : undefined}
         >
           <MessageItem
-            conversationId={context.conversation.id}
+            conversationId={context.conversationId}
             id={item.id}
             continuation={item.continuation}
             compact={context.compact}

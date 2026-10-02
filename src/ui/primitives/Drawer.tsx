@@ -8,8 +8,8 @@ export interface DrawerProps {
   /** Accessible name. */
   label: string;
   children: ReactNode;
-  /** Edge it slides from. Default left (navigation); right for side sheets. */
-  side?: 'left' | 'right';
+  /** Edge it slides from. Default left (navigation); right for side sheets; bottom for action sheets. */
+  side?: 'left' | 'right' | 'bottom';
 }
 
 const SWIPE_CLOSE_PX = 60;
@@ -43,6 +43,11 @@ export function Drawer({ open, onOpenChange, label, children, side = 'left' }: D
             start.current = null;
             if (!s) return;
             const dx = e.clientX - s.x;
+            const dy = e.clientY - s.y;
+            if (side === 'bottom') {
+              if (dy > SWIPE_CLOSE_PX && Math.abs(dx) < dy) onOpenChange(false);
+              return;
+            }
             const towardEdge = side === 'left' ? dx < -SWIPE_CLOSE_PX : dx > SWIPE_CLOSE_PX;
             if (towardEdge && Math.abs(e.clientY - s.y) < Math.abs(dx)) onOpenChange(false);
           }}

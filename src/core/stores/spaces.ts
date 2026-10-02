@@ -32,7 +32,15 @@ export interface Space {
 
 export type RailEntry =
   | { type: 'space'; id: SpaceId }
-  | { type: 'folder'; id: string; name: string; collapsed: boolean; spaceIds: SpaceId[] };
+  | {
+      type: 'folder';
+      id: string;
+      name: string;
+      collapsed: boolean;
+      spaceIds: SpaceId[];
+      /** Avatar hue slot 1..12 tinting the folder; absent = neutral. */
+      hue?: number;
+    };
 
 export type HomeSection = 'pinned' | 'direct' | 'groups';
 
@@ -77,6 +85,18 @@ export interface SpacesState extends SpacesData {
   createFolder(targetSpaceId: SpaceId, draggedSpaceId: SpaceId, name?: string): string | null;
   removeFromFolder(spaceId: SpaceId): void;
   toggleFolder(folderId: string): void;
+  renameFolder(folderId: string, name: string): void;
+  /** null clears the tint. */
+  setFolderHue(folderId: string, hue: number | null): void;
+  /** Replaces the folder by its spaces, in order, at the folder's position. */
+  dissolveFolder(folderId: string): void;
+  /**
+   * Moves a top-level space or folder so it sits before/after another rail
+   * entry (by entry id). Spaces inside folders are taken out first.
+   */
+  placeRailEntry(entryId: string, targetId: string, position: 'before' | 'after'): void;
+  /** Moves a category to `index` within its space. */
+  moveCategory(spaceId: SpaceId, categoryId: string, index: number): void;
   toggleHomeSection(section: HomeSection): void;
   seedDefaults(seeds: readonly SpaceSeedInput[]): void;
 }
@@ -343,6 +363,69 @@ export function createSpacesStore(
         }));
       },
 
+      renameFolder: (folderId, name) => {
+        const trimmed = name.trim();
+        if (!trimmed) return;
+        set((s) => ({
+          rail: s.rail.map((e) =>
+            e.type === 'folder' && e.id === folderId ? { ...e, name: trimmed.slice(0, 40) } : e,
+          ),
+        }));
+      },
+
+      setFolderHue: (folderId, hue) => {
+        set((s) => ({
+          rail: s.rail.map((e) => {
+            if (e.type !== 'folder' || e.id !== folderId) return e;
+            const { hue: _old, ...rest } = e;
+            return hue === null ? rest : { ...rest, hue: clampHue(hue) };
+          }),
+        }));
+      },
+
+      dissolveFolder: (folderId) => {
+        set((s) => ({
+          rail: s.rail.flatMap((e): RailEntry[] =>
+            e.type === 'folder' && e.id === folderId
+              ? e.spaceIds.map((id) => ({ type: 'space', id }))
+              : [e],
+          ),
+        }));
+      },
+
+      placeRailEntry: (entryId, targetId, position) => {
+        if (entryId === targetId) return;
+        const { rail } = get();
+        const top = rail.find((e) => e.id === entryId);
+        let moving: RailEntry;
+        let rest: RailEntry[];
+        if (top) {
+          moving = top;
+          rest = rail.filter((e) => e !== top);
+        } else if (rail.some((e) => e.type === 'folder' && e.spaceIds.includes(entryId))) {
+          moving = { type: 'space', id: entryId };
+          rest = railWithout(rail, entryId);
+        } else return;
+        // Dissolving a folder of two can turn the target into a plain space entry with the same id.
+        const index = rest.findIndex(
+          (e) => e.id === targetId || (e.type === 'folder' && e.spaceIds.includes(targetId)),
+        );
+        if (index === -1) return;
+        rest.splice(position === 'before' ? index : index + 1, 0, moving);
+        set({ rail: rest });
+      },
+
+      moveCategory: (spaceId, categoryId, index) => {
+        patchSpace(spaceId, (space) => {
+          const from = space.categories.findIndex((c) => c.id === categoryId);
+          if (from === -1) return space;
+          const categories = [...space.categories];
+          const [moved] = categories.splice(from, 1);
+          categories.splice(Math.max(0, Math.min(index, categories.length)), 0, moved as Category);
+          return { ...space, categories };
+        });
+      },
+
       toggleHomeSection: (section) => {
         set((s) => ({
           homeCollapsed: { ...s.homeCollapsed, [section]: !s.homeCollapsed[section] },
@@ -478,13 +561,15 @@ function parseRailEntry(value: unknown, spaces: Record<SpaceId, Space>): RailEnt
       (x): x is string => typeof x === 'string' && !!spaces[x],
     );
     if (spaceIds.length === 0) return null;
-    return {
+    const folder: RailEntry = {
       type: 'folder',
       id: value.id,
       name: typeof value.name === 'string' ? value.name : 'Folder',
       collapsed: value.collapsed === true,
       spaceIds,
     };
+    if (typeof value.hue === 'number') folder.hue = clampHue(value.hue);
+    return folder;
   }
   return null;
 }

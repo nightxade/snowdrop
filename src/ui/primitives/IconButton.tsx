@@ -37,6 +37,7 @@ export function IconButton({
       {...(active !== undefined ? { 'aria-pressed': active } : {})}
       className={[styles.button, className].filter(Boolean).join(' ')}
       data-size={size}
+      data-icon-button
       data-active={active ? '' : undefined}
       {...rest}
     >

@@ -60,7 +60,7 @@ export function ConfirmDelete({
           <Button variant="ghost" onClick={onCancel}>
             Cancel
           </Button>
-          <Button variant="danger" onClick={onConfirm} autoFocus>
+          <Button variant="danger" onClick={onConfirm} data-autofocus>
             {copy.action}
           </Button>
         </>

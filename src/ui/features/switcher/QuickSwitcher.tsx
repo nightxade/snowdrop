@@ -1,18 +1,43 @@
-import { AtSign, Hash } from 'lucide-react';
-import { useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { AtSign, BellOff, Hash, Search, TerminalSquare } from 'lucide-react';
+import {
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type CSSProperties,
+  type ReactNode,
+} from 'react';
 import { useStore } from 'zustand';
-import { fuzzyFilter, type ConversationId, type ConversationView } from '@/core/domain';
-import { HOME, selectConversationViews } from '@/core/stores';
-import { conversationFocusTarget, useStores } from '@/ui/hooks';
-import { Badge, Kbd, Modal, SearchInput } from '@/ui/primitives';
+import { formatKeybind, isMacPlatform, resolveKeybinds } from '@/core/commands';
+import { initialsFor, type ConversationView } from '@/core/domain';
+import {
+  HOME,
+  isMuted,
+  selectConversationViews,
+  spacesSelectors,
+  uiSelectors,
+} from '@/core/stores';
+import { conversationFocusTarget, useNow, useShrike } from '@/ui/hooks';
+import {
+  Badge,
+  CommandPalette,
+  CommandPaletteEmpty,
+  CommandPaletteGroup,
+  CommandPaletteInput,
+  CommandPaletteItem,
+  CommandPaletteList,
+  Kbd,
+  Modal,
+} from '@/ui/primitives';
+import {
+  parseQuery,
+  prefixFor,
+  PREFIXES,
+  SCOPE_LABELS,
+  searchSwitcher,
+  type SwitcherItem,
+} from './model';
 import styles from './QuickSwitcher.module.css';
-
-const LIMIT = 8;
-
-interface Result {
-  view: ConversationView;
-  indices: readonly number[];
-}
 
 /** Wraps matched characters in <mark> for the result list. */
 export function highlight(text: string, indices: readonly number[]): ReactNode[] {
@@ -38,139 +63,262 @@ export function highlight(text: string, indices: readonly number[]): ReactNode[]
   return out;
 }
 
+const PREFIX_HINTS: { prefix: string; label: string }[] = Object.entries(PREFIXES).map(
+  ([prefix, scope]) => ({ prefix, label: SCOPE_LABELS[scope as keyof typeof SCOPE_LABELS] }),
+);
+
 /**
- * Minimal quick switcher: fuzzy search over conversations, arrows + Enter.
- * P4 replaces this with the cmdk palette (spaces, commands, `>`/`@`/`#` prefixes).
+ * Quick switcher (Ctrl/Cmd+K): fuzzy search over conversations, spaces and
+ * commands, with `>` `@` `#` `*` scopes. Built on cmdk for the combobox
+ * semantics; ranking and highlighting are ours (`searchSwitcher`).
  */
 export function QuickSwitcher({ onClose }: { onClose: () => void }) {
-  const stores = useStores();
+  const app = useShrike();
+  const { stores, commands } = app;
   const byId = useStore(stores.conversations, (s) => s.byId);
   const local = useStore(stores.local, (s) => s.conversations);
   const unread = useStore(stores.conversations, (s) => s.unread);
   const spaces = useStore(stores.spaces, (s) => s.spaces);
+  const spaceOrder = useStore(stores.spaces, spacesSelectors.orderedIds);
+  const current = useStore(stores.ui, uiSelectors.selectedConversation);
+  const overrides = useStore(stores.settings, (s) => s.keybinds);
+  const allCommands = useSyncExternalStore(
+    (fn) => commands.subscribe(fn),
+    () => commands.all(),
+  );
+  const now = useNow();
   const [query, setQuery] = useState('');
-  const [active, setActive] = useState(0);
-  /** Set when a result is opened: focus goes there instead of back to the opener. */
-  const chosen = useRef<ConversationId | null>(null);
-  const baseId = useId();
-  const listId = `${baseId}-results`;
-  const optionId = (id: string) => `${baseId}-${id}`;
+  const [active, setActive] = useState('');
+  /** Where focus goes when the switcher closes: the opened conversation, else the opener. */
+  const target = useRef<(() => HTMLElement | null) | null>(null);
+  const mac = isMacPlatform();
 
-  const spaceOf = useMemo(() => {
-    const map = new Map<string, { id: string; name: string }>();
-    for (const space of Object.values(spaces))
-      for (const c of space.categories)
-        for (const id of c.conversationIds) map.set(id, { id: space.id, name: space.name });
-    return map;
-  }, [spaces]);
+  const { scope } = parseQuery(query);
+  const bindings = useMemo(() => resolveKeybinds(allCommands, overrides), [allCommands, overrides]);
 
-  const results = useMemo((): Result[] => {
-    const views = selectConversationViews(byId, local).filter((v) => !v.archived);
-    if (!query.trim()) {
-      // Empty query: unread first, then recent.
-      const withUnread = views.filter((v) => (unread[v.id]?.count ?? 0) > 0);
-      const rest = views.filter((v) => (unread[v.id]?.count ?? 0) === 0);
-      return [...withUnread, ...rest].slice(0, LIMIT).map((view) => ({ view, indices: [] }));
+  const sections = useMemo(() => {
+    const spaceList = spaceOrder.flatMap((id) => {
+      const s = spaces[id];
+      return s
+        ? [
+            {
+              id: s.id,
+              name: s.name,
+              hue: s.hue,
+              conversationIds: s.categories.flatMap((c) => c.conversationIds),
+              ...(s.emoji ? { emoji: s.emoji } : {}),
+            },
+          ]
+        : [];
+    });
+    const spaceMuted = new Map(spaceList.map((s) => [s.id, spaces[s.id]?.muted ?? false]));
+    const mutedSpaceOf = new Map<string, boolean>();
+    for (const s of spaceList)
+      for (const id of s.conversationIds) mutedSpaceOf.set(id, spaceMuted.get(s.id) ?? false);
+    return searchSwitcher(query, {
+      views: selectConversationViews(byId, local),
+      unread,
+      spaces: spaceList,
+      commands: allCommands
+        .filter((c) => !c.hidden && c.id !== 'core.quickSwitcher' && c.enabled?.() !== false)
+        .map((c) => ({
+          id: c.id,
+          title: c.title,
+          ...(c.category ? { category: c.category } : {}),
+        })),
+      isMuted: (v: ConversationView) => isMuted(v.muted, now) || (mutedSpaceOf.get(v.id) ?? false),
+      current,
+    });
+  }, [query, byId, local, unread, spaces, spaceOrder, allCommands, now, current]);
+
+  const choose = (item: SwitcherItem) => {
+    const ui = stores.ui.getState();
+    if (item.kind === 'conversation') {
+      const space = item.conversationKind === 'group' ? (item.spaceId ?? HOME) : HOME;
+      ui.selectConversation(item.id, space);
+      // The composer focus resolver (P3) lands focus in the composer.
+      target.current = () => conversationFocusTarget(item.id);
+      onClose();
+    } else if (item.kind === 'space') {
+      ui.selectSpace(item.id);
+      target.current = () =>
+        document.querySelector<HTMLElement>(`[data-shrike='rail'] [aria-current='page']`);
+      onClose();
+    } else {
+      // Close first: the command may open its own dialog (settings, shortcuts…).
+      onClose();
+      void commands.execute(item.id);
     }
-    return fuzzyFilter(query, views, (v) => v.title)
-      .slice(0, LIMIT)
-      .map((r) => ({ view: r.item, indices: r.match.indices }));
-  }, [byId, local, unread, query]);
-
-  const open = (view: ConversationView | undefined) => {
-    if (!view) return;
-    const space = view.kind === 'group' ? (spaceOf.get(view.id)?.id ?? HOME) : HOME;
-    chosen.current = view.id;
-    stores.ui.getState().selectConversation(view.id, space);
-    onClose();
   };
 
-  const onKeyDown = (e: KeyboardEvent) => {
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-      e.preventDefault();
-      const delta = e.key === 'ArrowDown' ? 1 : -1;
-      setActive((i) => (results.length === 0 ? 0 : (i + delta + results.length) % results.length));
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
-      open(results[active]?.view);
-    }
+  const insertPrefix = (prefix: string) => {
+    setQuery(`${prefix}${parseQuery(query).text}`);
   };
 
-  const activeResult = results[active];
   return (
     <Modal
       open
       onOpenChange={(o) => {
         if (!o) onClose();
       }}
-      title="Find a conversation"
+      title="Quick switcher"
       hideHeader
       placement="top"
-      size="lg"
-      returnFocus={() => (chosen.current ? conversationFocusTarget(chosen.current) : null)}
+      size="xl"
+      flush
+      className={styles.modal}
+      returnFocus={() => target.current?.() ?? null}
       footer={
-        <div className={styles.hints} aria-hidden>
+        <div className={styles.hints}>
           <span>
-            <Kbd combo="↑" /> <Kbd combo="↓" /> to move
+            <Kbd combo="↑" />
+            <Kbd combo="↓" /> move
           </span>
           <span>
-            <Kbd combo="Enter" /> to open
+            <Kbd combo="Enter" /> open
           </span>
           <span>
-            <Kbd combo="Esc" /> to close
+            <Kbd combo="Esc" /> close
+          </span>
+          <span className={styles.prefixHints} role="group" aria-label="Search scopes">
+            {PREFIX_HINTS.map((h) => (
+              <button
+                key={h.prefix}
+                type="button"
+                className={styles.prefix}
+                data-active={PREFIXES[h.prefix] === scope ? '' : undefined}
+                title={`Type ${h.prefix} to search ${h.label.toLowerCase()}`}
+                onClick={() => {
+                  insertPrefix(h.prefix);
+                  document.querySelector<HTMLInputElement>('[cmdk-input]')?.focus();
+                }}
+              >
+                <kbd>{h.prefix}</kbd>
+                {h.label}
+              </button>
+            ))}
           </span>
         </div>
       }
     >
-      <div className={styles.body}>
-        <SearchInput
-          value={query}
+      <CommandPalette label="Quick switcher" value={active} onValueChange={setActive}>
+        <CommandPaletteInput
+          data-autofocus
+          // Once a prefix becomes the scope chip, the field shows only the search text.
+          value={scope === 'all' ? query : parseQuery(query).text}
           onValueChange={(v) => {
-            setQuery(v);
-            setActive(0);
+            setQuery(scope === 'all' ? v : `${prefixFor(scope)}${v}`);
           }}
-          placeholder="Where would you like to go?"
-          aria-label="Search conversations"
-          role="combobox"
-          aria-expanded
-          aria-controls={listId}
-          aria-autocomplete="list"
-          aria-activedescendant={activeResult ? optionId(activeResult.view.id) : undefined}
-          onKeyDown={onKeyDown}
+          placeholder={
+            scope === 'all'
+              ? 'Where would you like to go?'
+              : `Search ${SCOPE_LABELS[scope].toLowerCase()}`
+          }
+          leading={
+            scope === 'all' ? (
+              <Search size={18} aria-hidden />
+            ) : (
+              <span className={styles.scope}>{SCOPE_LABELS[scope]}</span>
+            )
+          }
+          onKeyDown={(e) => {
+            // Backspace on an empty scoped query drops the scope.
+            if (e.key === 'Backspace' && scope !== 'all' && parseQuery(query).text === '') {
+              e.preventDefault();
+              setQuery('');
+            }
+          }}
         />
-        <p className={styles.caption}>{query ? 'Results' : 'Unread and recent'}</p>
-        <ul id={listId} role="listbox" className={styles.list} aria-label="Conversations">
-          {results.length === 0 && (
-            <li className={styles.none} role="presentation">
-              No conversations match “{query}”.
-            </li>
-          )}
-          {results.map(({ view, indices }, i) => {
-            const Glyph = view.kind === 'group' ? Hash : AtSign;
-            const where = spaceOf.get(view.id)?.name;
-            return (
-              <li
-                key={view.id}
-                id={optionId(view.id)}
-                role="option"
-                aria-selected={i === active}
-                className={styles.option}
-                onMouseMove={() => {
-                  setActive(i);
-                }}
-                onClick={() => {
-                  open(view);
-                }}
-              >
-                <Glyph size={16} className={styles.glyph} aria-hidden />
-                <span className={styles.title}>{highlight(view.title, indices)}</span>
-                {where && <span className={styles.where}>{where}</span>}
-                <Badge variant="mention" count={unread[view.id]?.mentions ?? 0} />
-              </li>
-            );
-          })}
-        </ul>
-      </div>
+        <CommandPaletteList label="Results">
+          <CommandPaletteEmpty>
+            {parseQuery(query).text
+              ? `Nothing matches “${parseQuery(query).text}”.`
+              : 'Nothing here yet.'}
+          </CommandPaletteEmpty>
+          {sections.map((section) => (
+            <CommandPaletteGroup key={section.id} heading={section.heading}>
+              {section.items.map((item) => (
+                <CommandPaletteItem
+                  key={item.key}
+                  value={item.key}
+                  onSelect={() => {
+                    choose(item);
+                  }}
+                  icon={<ItemIcon item={item} />}
+                  meta={
+                    <ItemMeta
+                      item={item}
+                      combo={item.kind === 'command' ? bindings.get(item.id) : undefined}
+                      mac={mac}
+                    />
+                  }
+                >
+                  {highlight(item.title, item.indices)}
+                </CommandPaletteItem>
+              ))}
+            </CommandPaletteGroup>
+          ))}
+        </CommandPaletteList>
+      </CommandPalette>
     </Modal>
+  );
+}
+
+function ItemIcon({ item }: { item: SwitcherItem }) {
+  if (item.kind === 'command') return <TerminalSquare size={18} />;
+  if (item.kind === 'space')
+    return (
+      <span
+        className={styles.spaceGlyph}
+        style={{ '--tile-hue': `var(--shrike-avatar-${item.hue})` } as CSSProperties}
+      >
+        {item.emoji ?? initialsFor(item.title).slice(0, 2)}
+      </span>
+    );
+  return item.conversationKind === 'group' ? <Hash size={18} /> : <AtSign size={18} />;
+}
+
+function ItemMeta({
+  item,
+  combo,
+  mac,
+}: {
+  item: SwitcherItem;
+  combo: Parameters<typeof formatKeybind>[0] | undefined;
+  mac: boolean;
+}) {
+  if (item.kind === 'command') {
+    return (
+      <>
+        {item.category && <span>{item.category}</span>}
+        {combo && <Kbd combo={formatKeybind(combo, mac)} />}
+      </>
+    );
+  }
+  if (item.kind === 'space') {
+    return (
+      <>
+        <span>Space</span>
+        {item.mentions > 0 ? (
+          <Badge variant="mention" count={item.mentions} label={`${item.mentions} mentions`} />
+        ) : (
+          item.unread && <span className={styles.dot} role="img" aria-label="Unread" />
+        )}
+      </>
+    );
+  }
+  return (
+    <>
+      {item.muted && <BellOff size={14} aria-label="Muted" />}
+      <span>
+        {item.conversationKind === 'direct' ? 'Direct message' : (item.spaceName ?? 'Home')}
+      </span>
+      {item.mentions > 0 ? (
+        <Badge variant="mention" count={item.mentions} label={`${item.mentions} mentions`} />
+      ) : (
+        item.unread > 0 &&
+        !item.muted && <span className={styles.dot} role="img" aria-label="Unread" />
+      )}
+    </>
   );
 }

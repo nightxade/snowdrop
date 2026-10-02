@@ -15,6 +15,7 @@
 }
 
 .root {
+  position: relative;
   display: flex;
   flex-direction: column;
   width: min(352px, calc(100vw - 24px));
@@ -101,7 +102,9 @@
 
 .row {
   padding: 0 var(--shrike-space-3);
-  scroll-margin-block: var(--shrike-space-3);
+  /* Compensates the 1-based aria-rowindex (see Row in EmojiPickerPanel). */
+  scroll-margin-top: calc(-1 * var(--frimousse-row-height));
+  scroll-margin-bottom: var(--frimousse-row-height);
 }
 
 .emoji {

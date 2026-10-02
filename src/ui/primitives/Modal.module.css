@@ -35,6 +35,10 @@
   width: min(600px, calc(100vw - 32px));
 }
 
+.content[data-size='xl'] {
+  width: min(680px, calc(100vw - 32px));
+}
+
 .content[data-placement='top'] {
   top: 14vh;
   transform: translate(-50%, 0);
@@ -84,6 +88,11 @@
 
 .header[data-hidden] + .body {
   padding: var(--shrike-space-5);
+}
+
+.body[data-flush],
+.header[data-hidden] + .body[data-flush] {
+  padding: 0;
 }
 
 .footer {

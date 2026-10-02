@@ -1,0 +1,255 @@
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  gap: var(--shrike-space-4);
+  width: 100%;
+}
+
+.cardWrap {
+  position: relative;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--shrike-space-3);
+  padding: var(--shrike-space-2);
+  border-radius: var(--shrike-radius-md);
+  cursor: pointer;
+}
+
+.card:hover {
+  background: var(--shrike-bg-hover);
+}
+
+.radio {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.card:has(.radio:focus-visible) {
+  outline: 2px solid var(--shrike-focus-ring);
+  outline-offset: 2px;
+}
+
+.card:has(.radio:checked) .preview {
+  box-shadow:
+    0 0 0 2px var(--shrike-bg-chat),
+    0 0 0 4px var(--shrike-accent);
+}
+
+.cardText {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--shrike-space-3);
+  padding: 0 var(--shrike-space-2) var(--shrike-space-1);
+}
+
+.cardName {
+  color: var(--shrike-text-strong);
+  font-weight: var(--shrike-font-weight-medium);
+}
+
+.card:has(.radio:checked) .cardName {
+  color: var(--shrike-accent);
+}
+
+.cardKind {
+  color: var(--shrike-text-faint);
+  font-size: var(--shrike-font-size-xs);
+}
+
+.cardActions {
+  position: absolute;
+  top: var(--shrike-space-3);
+  right: var(--shrike-space-3);
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--shrike-radius-sm);
+  background: var(--shrike-bg-floating);
+  box-shadow: var(--shrike-shadow-menu);
+  opacity: 0;
+  transition: opacity var(--shrike-duration-fast) var(--shrike-ease);
+}
+
+.cardWrap:hover .cardActions,
+.cardActions:focus-within {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .cardActions {
+    opacity: 1;
+  }
+}
+
+/* ── Mini preview (raw theme colours via --p-*; mixes derive the rest) ── */
+.preview {
+  --p-sidebar: color-mix(in oklab, var(--p-rail) 55%, var(--p-chat));
+  --p-faint: color-mix(in oklab, var(--p-text) 28%, var(--p-chat));
+  --p-muted: color-mix(in oklab, var(--p-text) 55%, var(--p-chat));
+
+  display: grid;
+  grid-template-columns: 14% 30% 1fr;
+  height: 104px;
+  overflow: hidden;
+  border-radius: var(--shrike-radius-sm);
+  background: var(--p-chat);
+  box-shadow: 0 0 0 1px var(--shrike-border-strong);
+  transition: box-shadow var(--shrike-duration-fast) var(--shrike-ease);
+}
+
+.pRail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding-top: 7px;
+  background: var(--p-rail);
+}
+
+.pTile {
+  width: 13px;
+  height: 13px;
+  border-radius: 4px;
+  background: var(--p-faint);
+}
+
+.pTile[data-on] {
+  background: var(--p-accent);
+  box-shadow:
+    0 0 0 1.5px var(--p-rail),
+    0 0 0 2.5px var(--p-accent);
+}
+
+.pSidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 6px;
+  background: var(--p-sidebar);
+}
+
+.pRow {
+  display: flex;
+  padding: 3px;
+  margin: -3px;
+  border-radius: 3px;
+  background: color-mix(in oklab, var(--p-text) 12%, transparent);
+}
+
+.pLine {
+  display: block;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--p-faint);
+}
+
+.pRow .pLine {
+  background: var(--p-muted);
+}
+
+.pLine[data-w='50'] {
+  width: 50%;
+}
+.pLine[data-w='60'] {
+  width: 60%;
+}
+.pLine[data-w='70'] {
+  width: 70%;
+}
+.pLine[data-w='75'] {
+  width: 75%;
+}
+.pLine[data-w='80'] {
+  width: 80%;
+}
+.pLine[data-w='90'] {
+  width: 90%;
+}
+
+.pChat {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 8px 6px;
+}
+
+.pMsg {
+  display: flex;
+  gap: 5px;
+}
+
+.pAvatar {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--shrike-avatar-7);
+}
+
+.pAvatar[data-alt] {
+  background: var(--shrike-avatar-1);
+}
+
+.pBody {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.pBody .pLine {
+  background: var(--p-muted);
+}
+
+.pName {
+  width: 34%;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--p-text);
+}
+
+.pName[data-alt] {
+  background: var(--p-accent);
+}
+
+.pComposer {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  height: 14px;
+  margin-top: auto;
+  padding: 0 3px;
+  border-radius: 4px;
+  background: color-mix(in oklab, var(--p-text) 9%, var(--p-chat));
+}
+
+.pSend {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--p-accent);
+}
+
+.file {
+  display: none;
+}
+
+.status {
+  display: flex;
+  gap: var(--shrike-space-3);
+}
+
+.status svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.statusLine {
+  display: block;
+}

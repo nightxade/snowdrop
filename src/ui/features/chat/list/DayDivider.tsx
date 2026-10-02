@@ -4,7 +4,8 @@ import styles from './Rows.module.css';
 
 export const DayDivider = memo(function DayDivider({ at }: { at: number }) {
   return (
-    <div className={styles.day} role="separator" aria-label={formatDayDivider(at)}>
+    // No separator role: the feed may only own articles. The date stays as text.
+    <div className={styles.day}>
       <span className={styles.dayLabel}>{formatDayDivider(at)}</span>
     </div>
   );

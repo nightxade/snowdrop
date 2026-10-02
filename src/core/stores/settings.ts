@@ -27,6 +27,10 @@ export interface AppearanceSettings {
   reducedMotion: ReducedMotion;
   showAvatarsInCompact: boolean;
   clock24h: boolean;
+  /** Thicker, higher-contrast keyboard focus outline. */
+  strongFocus: boolean;
+  /** Larger rows and buttons for touch / motor accessibility. */
+  largeTargets: boolean;
 }
 
 export interface NotificationSettings {
@@ -63,6 +67,15 @@ export interface ConnectionSettings {
   mockLiveliness: boolean;
 }
 
+/** A user-imported theme (Settings → Themes). Validated on import and on load. */
+export interface CustomThemeData {
+  id: string;
+  name: string;
+  kind: 'dark' | 'light';
+  tokens: Record<string, string>;
+  css: string;
+}
+
 export interface PluginEntry {
   /** Absent until the user toggles the plugin, so the plugin's own default applies. */
   enabled?: boolean;
@@ -78,6 +91,7 @@ export interface Settings {
   keybinds: Record<string, string>;
   plugins: Record<string, PluginEntry>;
   quickCss: string;
+  customThemes: CustomThemeData[];
 }
 
 /** Same-origin dev/preview proxy path to the daemon (see vite.config.ts). */
@@ -97,6 +111,8 @@ export function defaultSettings(): Settings {
       reducedMotion: 'system',
       showAvatarsInCompact: false,
       clock24h: true,
+      strongFocus: false,
+      largeTargets: false,
     },
     notifications: { enabled: true, mode: 'all', sound: true, showPreview: true },
     behaviour: {
@@ -115,6 +131,7 @@ export function defaultSettings(): Settings {
     keybinds: {},
     plugins: {},
     quickCss: '',
+    customThemes: [],
   };
 }
 
@@ -125,7 +142,14 @@ export interface SettingsState extends Settings {
   setKeybind(commandId: string, keybind: string | null): void;
   setPluginEnabled(pluginId: string, enabled: boolean): void;
   setPluginSetting(pluginId: string, key: string, value: unknown): void;
+  /** Drops every stored value of a plugin, so its schema defaults apply. */
+  resetPluginSettings(pluginId: string): void;
   setQuickCss(css: string): void;
+  /** Adds or replaces (same id) a custom theme. */
+  saveCustomTheme(theme: CustomThemeData): void;
+  removeCustomTheme(id: string): void;
+  /** Clears every keybind override. */
+  resetKeybinds(): void;
   reset(): void;
 }
 
@@ -157,8 +181,34 @@ export function createSettingsStore(initial: Settings = defaultSettings()): Sett
         },
       }));
     },
+    resetPluginSettings: (pluginId) => {
+      const entry = get().plugins[pluginId];
+      if (!entry || Object.keys(entry.settings).length === 0) return;
+      set((s) => ({ plugins: { ...s.plugins, [pluginId]: { ...entry, settings: {} } } }));
+    },
     setQuickCss: (quickCss) => {
       set({ quickCss });
+    },
+    saveCustomTheme: (theme) => {
+      set((s) => {
+        const index = s.customThemes.findIndex((t) => t.id === theme.id);
+        const customThemes = [...s.customThemes];
+        if (index === -1) customThemes.push(theme);
+        else customThemes[index] = theme;
+        return { customThemes };
+      });
+    },
+    removeCustomTheme: (id) => {
+      set((s) => {
+        const customThemes = s.customThemes.filter((t) => t.id !== id);
+        // Falling back keeps the app themed if the active theme is removed.
+        const appearance =
+          s.appearance.themeId === id ? { ...s.appearance, themeId: 'dusk' } : s.appearance;
+        return { customThemes, appearance };
+      });
+    },
+    resetKeybinds: () => {
+      set({ keybinds: {} });
     },
     reset: () => {
       set(defaultSettings());
@@ -174,6 +224,7 @@ export const settingsSelectors = {
   keybinds: (s: SettingsState) => s.keybinds,
   plugins: (s: SettingsState) => s.plugins,
   quickCss: (s: SettingsState) => s.quickCss,
+  customThemes: (s: SettingsState) => s.customThemes,
   clock24h: (s: SettingsState) => s.appearance.clock24h,
 };
 
@@ -186,6 +237,7 @@ export function selectSettingsData(s: SettingsState): Settings {
     keybinds: s.keybinds,
     plugins: s.plugins,
     quickCss: s.quickCss,
+    customThemes: s.customThemes,
   };
 }
 
@@ -234,6 +286,8 @@ export function parseSettings(data: unknown): Settings {
       reducedMotion: oneOf(a.reducedMotion, ['system', 'on', 'off'], d.appearance.reducedMotion),
       showAvatarsInCompact: bool(a.showAvatarsInCompact, d.appearance.showAvatarsInCompact),
       clock24h: bool(a.clock24h, d.appearance.clock24h),
+      strongFocus: bool(a.strongFocus, d.appearance.strongFocus),
+      largeTargets: bool(a.largeTargets, d.appearance.largeTargets),
     },
     notifications: {
       enabled: bool(n.enabled, d.notifications.enabled),
@@ -260,6 +314,27 @@ export function parseSettings(data: unknown): Settings {
     keybinds,
     plugins,
     quickCss: str(root.quickCss, d.quickCss),
+    customThemes: Array.isArray(root.customThemes)
+      ? root.customThemes.map(parseCustomTheme).filter((t): t is CustomThemeData => t !== null)
+      : [],
+  };
+}
+
+const THEME_ID = /^[a-z0-9][a-z0-9-]{0,47}$/u;
+
+/** Structural check only; token names/values are validated by the theme engine on import. */
+function parseCustomTheme(value: unknown): CustomThemeData | null {
+  if (!isRecord(value) || typeof value.id !== 'string' || !THEME_ID.test(value.id)) return null;
+  if (typeof value.name !== 'string' || !value.name.trim()) return null;
+  const tokens: Record<string, string> = {};
+  if (isRecord(value.tokens))
+    for (const [k, v] of Object.entries(value.tokens)) if (typeof v === 'string') tokens[k] = v;
+  return {
+    id: value.id,
+    name: value.name.trim().slice(0, 40),
+    kind: value.kind === 'light' ? 'light' : 'dark',
+    tokens,
+    css: typeof value.css === 'string' ? value.css : '',
   };
 }
 

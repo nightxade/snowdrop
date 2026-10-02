@@ -1,0 +1,246 @@
+/**
+ * The settings map: groups, pages and every searchable entry. Pages render
+ * their rows with the same ids, so search can show exactly the matching
+ * rows. Plugins are added at runtime (see usePluginEntries).
+ */
+import type { SettingsPageMeta } from './search';
+
+export type SettingsGroupId = 'user' | 'app' | 'shrike' | 'advanced' | 'plugin-panels';
+
+export const SETTINGS_GROUPS: { id: SettingsGroupId; title: string }[] = [
+  { id: 'user', title: 'User' },
+  { id: 'app', title: 'App' },
+  { id: 'shrike', title: 'Shrike' },
+  { id: 'advanced', title: 'Advanced' },
+  { id: 'plugin-panels', title: 'From plugins' },
+];
+
+export const SETTINGS_PAGES: SettingsPageMeta[] = [
+  {
+    id: 'profile',
+    group: 'user',
+    title: 'My profile',
+    description:
+      'How you appear to others. Your profile is managed in the Signal app on your phone.',
+    keywords: ['account', 'name', 'avatar', 'number'],
+    entries: [
+      { id: 'profile.card', label: 'Profile', keywords: ['name', 'about', 'avatar'] },
+      { id: 'profile.account', label: 'Account ID', keywords: ['aci', 'number', 'copy'] },
+    ],
+  },
+  {
+    id: 'privacy',
+    group: 'user',
+    title: 'Privacy',
+    description: 'What others can learn from you, and what Shrike keeps on this device.',
+    keywords: ['security', 'tracking'],
+    entries: [
+      {
+        id: 'privacy.receipts',
+        section: 'signals',
+        label: 'Send read receipts',
+        description: 'Let people see when you’ve read their messages.',
+      },
+      {
+        id: 'privacy.typing',
+        section: 'signals',
+        label: 'Never send typing indicators',
+        description: 'Uses the Silent Typing plugin.',
+        keywords: ['silent'],
+      },
+      {
+        id: 'privacy.clearUrls',
+        section: 'links',
+        label: 'Strip tracking parameters from links',
+        description: 'Uses the Clear URLs plugin.',
+        keywords: ['utm', 'fbclid'],
+      },
+      {
+        id: 'privacy.local',
+        section: 'local',
+        label: 'What stays on this device',
+        keywords: ['spaces', 'notes', 'history', 'local'],
+      },
+    ],
+  },
+  {
+    id: 'appearance',
+    group: 'app',
+    title: 'Appearance',
+    description: 'Theme, accent colour, density and text size. Changes apply as you make them.',
+    keywords: ['look', 'display'],
+    entries: [
+      {
+        id: 'appearance.theme',
+        section: 'theme',
+        label: 'Theme',
+        keywords: ['dark', 'light', 'dusk', 'midnight', 'linen', 'contrast'],
+      },
+      {
+        id: 'appearance.accent',
+        section: 'theme',
+        label: 'Accent colour',
+        keywords: ['color', 'highlight'],
+      },
+      {
+        id: 'appearance.density',
+        section: 'layout',
+        label: 'Message density',
+        keywords: ['compact', 'comfortable', 'spacing'],
+      },
+      { id: 'appearance.compactAvatars', section: 'layout', label: 'Show avatars in compact mode' },
+      {
+        id: 'appearance.clock',
+        section: 'layout',
+        label: 'Time format',
+        keywords: ['12', '24', 'hour', 'clock'],
+      },
+      {
+        id: 'appearance.fontScale',
+        section: 'text',
+        label: 'Text size',
+        keywords: ['font', 'scale'],
+      },
+      { id: 'appearance.zoom', section: 'text', label: 'Zoom', keywords: ['ui', 'scale'] },
+    ],
+  },
+  {
+    id: 'accessibility',
+    group: 'app',
+    title: 'Accessibility',
+    description: 'Motion, focus visibility, colour and target size.',
+    keywords: ['a11y'],
+    entries: [
+      { id: 'a11y.motion', label: 'Reduce motion', keywords: ['animation'] },
+      { id: 'a11y.focus', label: 'High-contrast focus outline', keywords: ['keyboard', 'ring'] },
+      { id: 'a11y.targets', label: 'Larger click targets', keywords: ['touch', 'size'] },
+      { id: 'a11y.saturation', label: 'Saturation', keywords: ['colour', 'color', 'grayscale'] },
+    ],
+  },
+  {
+    id: 'notifications',
+    group: 'app',
+    title: 'Notifications',
+    description: 'Desktop notifications for new messages.',
+    keywords: ['alerts', 'desktop'],
+    entries: [
+      { id: 'notifications.permission', label: 'Browser permission', keywords: ['allow', 'test'] },
+      { id: 'notifications.enabled', section: 'when', label: 'Desktop notifications' },
+      {
+        id: 'notifications.mode',
+        section: 'when',
+        label: 'Notify me about',
+        keywords: ['mentions', 'all'],
+      },
+      {
+        id: 'notifications.preview',
+        section: 'when',
+        label: 'Show message text',
+        keywords: ['preview', 'privacy'],
+      },
+      {
+        id: 'notifications.mute',
+        section: 'when',
+        label: 'Muting spaces and conversations',
+        keywords: ['mute', 'space', 'override'],
+      },
+      { id: 'notifications.sound', section: 'when', label: 'Sounds' },
+    ],
+  },
+  {
+    id: 'keybinds',
+    group: 'app',
+    title: 'Keybinds',
+    description: 'Every command and its shortcut, including ones that have none yet.',
+    keywords: ['keyboard', 'shortcuts', 'hotkeys'],
+    entries: [{ id: 'keybinds.list', label: 'Shortcuts' }],
+  },
+  {
+    id: 'behaviour',
+    group: 'app',
+    title: 'Behaviour',
+    description: 'How the composer and messages behave.',
+    keywords: ['behavior', 'composer', 'chat'],
+    entries: [
+      { id: 'behaviour.enter', label: 'Send with', keywords: ['enter', 'shift', 'newline'] },
+      { id: 'behaviour.markdown', label: 'Markdown formatting', keywords: ['bold', 'italic'] },
+      { id: 'behaviour.typing', label: 'Send typing indicators' },
+      { id: 'behaviour.previews', label: 'Link previews', keywords: ['privacy', 'embed'] },
+    ],
+  },
+  {
+    id: 'plugins',
+    group: 'shrike',
+    title: 'Plugins',
+    description: 'Turn features on and off. Everything applies immediately, no restart.',
+    keywords: ['extensions', 'addons'],
+    entries: [{ id: 'plugins.grid', label: 'Plugins' }],
+  },
+  {
+    id: 'themes',
+    group: 'shrike',
+    title: 'Themes',
+    description: 'Built-in themes, plus your own as JSON files.',
+    keywords: ['colours', 'import', 'export'],
+    entries: [
+      { id: 'themes.builtin', label: 'Themes', keywords: ['dusk', 'midnight', 'linen'] },
+      { id: 'themes.import', label: 'Import a theme', keywords: ['json', 'file', 'export'] },
+    ],
+  },
+  {
+    id: 'quickcss',
+    group: 'shrike',
+    title: 'QuickCSS',
+    description: 'Your own CSS, applied live on top of the theme.',
+    keywords: ['custom', 'style', 'stylesheet'],
+    entries: [
+      { id: 'quickcss.editor', label: 'Editor' },
+      {
+        id: 'quickcss.hooks',
+        label: 'Styling hooks',
+        keywords: ['data-shrike', 'selectors', 'tokens'],
+      },
+    ],
+  },
+  {
+    id: 'connection',
+    group: 'advanced',
+    title: 'Connection',
+    description: 'Where Shrike gets your messages from.',
+    keywords: ['signal-cli', 'daemon', 'demo', 'backend', 'server'],
+    entries: [
+      { id: 'connection.backend', label: 'Source', keywords: ['demo', 'signal-cli'] },
+      { id: 'connection.url', label: 'Daemon address', keywords: ['url', 'proxy'] },
+      { id: 'connection.account', label: 'Account', keywords: ['number', 'phone'] },
+      { id: 'connection.test', label: 'Test connection' },
+      { id: 'connection.liveliness', label: 'Simulated activity', keywords: ['demo'] },
+    ],
+  },
+  {
+    id: 'data',
+    group: 'advanced',
+    title: 'Data & storage',
+    description: 'Your message history lives only in this browser. Export it or clear it here.',
+    keywords: ['history', 'backup', 'storage'],
+    entries: [
+      { id: 'data.usage', label: 'Storage used', keywords: ['quota', 'size'] },
+      { id: 'data.export', label: 'Export history', keywords: ['download', 'json', 'backup'] },
+      { id: 'data.clear', label: 'Clear history', keywords: ['delete', 'wipe'] },
+      { id: 'data.reset', label: 'Reset all settings', keywords: ['defaults'] },
+    ],
+  },
+  {
+    id: 'about',
+    group: 'advanced',
+    title: 'About',
+    description: 'Version, licences and the fine print.',
+    keywords: ['licenses', 'licences', 'version', 'legal', 'credits'],
+    entries: [
+      { id: 'about.version', label: 'Version' },
+      { id: 'about.licences', label: 'Open-source licences', keywords: ['mit', 'dependencies'] },
+      { id: 'about.legal', label: 'Legal', keywords: ['trademark', 'signal'] },
+    ],
+  },
+];
+
+export const DEFAULT_PAGE = 'appearance';

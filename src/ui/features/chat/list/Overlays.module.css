@@ -1,25 +1,29 @@
 .bar {
   position: absolute;
   z-index: 3;
-  top: 0;
-  right: var(--shrike-space-5);
-  left: var(--shrike-space-5);
+  top: var(--shrike-space-3);
+  right: var(--shrike-space-7);
+  left: var(--shrike-space-7);
   display: flex;
   align-items: stretch;
-  height: 28px;
+  height: 30px;
   overflow: hidden;
-  border-radius: 0 0 var(--shrike-radius-sm) var(--shrike-radius-sm);
+  border-radius: var(--shrike-radius-full);
   background: var(--shrike-accent);
   color: var(--shrike-text-on-accent);
   font-size: var(--shrike-font-size-sm);
   font-weight: var(--shrike-font-weight-semibold);
-  box-shadow: var(--shrike-shadow-menu);
+  /* Floats clear of the text beneath it rather than sitting flush over a line. */
+  box-shadow:
+    var(--shrike-shadow-menu),
+    0 0 0 4px var(--shrike-bg-chat);
   animation: drop var(--shrike-duration-base) var(--shrike-ease);
 }
 
 @keyframes drop {
   from {
-    transform: translateY(-100%);
+    opacity: 0;
+    transform: translateY(-8px);
   }
 }
 
@@ -36,6 +40,7 @@
 
 .barJump {
   flex: 1;
+  padding-left: var(--shrike-space-5);
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

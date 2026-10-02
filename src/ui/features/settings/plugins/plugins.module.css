@@ -1,0 +1,210 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--shrike-space-4);
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--shrike-space-3);
+}
+
+.search {
+  flex: 1 1 200px;
+}
+
+.count {
+  color: var(--shrike-text-faint);
+  font-size: var(--shrike-font-size-sm);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--shrike-space-4);
+}
+
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--shrike-space-3);
+  min-height: 148px;
+  padding: var(--shrike-space-5) var(--shrike-space-5) var(--shrike-space-4);
+  overflow: hidden;
+  border: 1px solid var(--shrike-border);
+  border-radius: var(--shrike-radius-md);
+  background: var(--shrike-bg-elevated);
+}
+
+/* State lives on the left edge: on = accent, failed = danger. */
+.card::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: transparent;
+}
+
+.card[data-enabled]::before {
+  background: var(--shrike-accent);
+}
+
+.card[data-status='failed']::before {
+  background: var(--shrike-danger);
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--shrike-space-3);
+}
+
+.cardTitle {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--shrike-text-strong);
+  font-size: var(--shrike-font-size-ui);
+  font-weight: var(--shrike-font-weight-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.required {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 3px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: var(--shrike-radius-xs);
+  background: var(--shrike-bg-selected);
+  color: var(--shrike-text-muted);
+  font-size: var(--shrike-font-size-xs);
+  font-weight: var(--shrike-font-weight-semibold);
+}
+
+.cardControls {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--shrike-space-2);
+  margin-left: auto;
+}
+
+.cardDescription {
+  flex: 1;
+  color: var(--shrike-text-muted);
+  font-size: var(--shrike-font-size-sm);
+  line-height: 1.5;
+}
+
+.failure {
+  display: flex;
+  align-items: center;
+  gap: var(--shrike-space-3);
+  padding: var(--shrike-space-3);
+  border-radius: var(--shrike-radius-sm);
+  background: var(--shrike-danger-soft);
+  color: var(--shrike-text);
+  font-size: var(--shrike-font-size-sm);
+}
+
+.failure > svg {
+  flex: none;
+  color: var(--shrike-danger);
+}
+
+.failureText {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.cardFooter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--shrike-space-2) var(--shrike-space-3);
+}
+
+.authors,
+.starting {
+  color: var(--shrike-text-faint);
+  font-size: var(--shrike-font-size-xs);
+}
+
+.starting {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--shrike-space-2);
+  margin-left: auto;
+}
+
+.tag {
+  height: 22px;
+  padding: 0 var(--shrike-space-3);
+  border-radius: var(--shrike-radius-full);
+  background: var(--shrike-bg-hover);
+  color: var(--shrike-text-muted);
+  font-size: var(--shrike-font-size-xs);
+  font-weight: var(--shrike-font-weight-medium);
+}
+
+.tag:hover {
+  background: var(--shrike-bg-active);
+  color: var(--shrike-text-strong);
+}
+
+.tag[aria-pressed='true'] {
+  background: var(--shrike-accent-soft);
+  color: var(--shrike-text-strong);
+}
+
+/* Auto-generated settings form */
+.form {
+  display: flex;
+  flex-direction: column;
+}
+
+.noSettings {
+  color: var(--shrike-text-muted);
+}
+
+.number {
+  width: 96px;
+}
+
+.text {
+  width: 100%;
+}
+
+.textarea {
+  width: 100%;
+  min-height: 96px;
+  padding: var(--shrike-space-3) var(--shrike-space-4);
+  border: 1px solid var(--shrike-border-strong);
+  border-radius: var(--shrike-radius-sm);
+  background: var(--shrike-bg-input);
+  color: var(--shrike-text-strong);
+  font: inherit;
+  resize: vertical;
+}

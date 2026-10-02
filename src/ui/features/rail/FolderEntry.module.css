@@ -38,3 +38,18 @@
   background: var(--shrike-bg-active);
   pointer-events: none;
 }
+
+.open[data-tinted]::before {
+  background: color-mix(in oklab, var(--folder-hue) 22%, var(--shrike-bg-rail));
+}
+
+.open[data-tinted] .header {
+  color: var(--folder-hue);
+}
+
+/* A dragged space would join this folder. */
+.collapsed[data-drop],
+.header[data-drop] {
+  outline: 2px solid var(--shrike-text-strong);
+  outline-offset: 4px;
+}

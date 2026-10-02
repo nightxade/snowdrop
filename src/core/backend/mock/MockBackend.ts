@@ -168,12 +168,21 @@ export class MockBackend implements ChatBackend {
 
     const sentAt = Math.max(this.clock.now(), this.lastSentAt + 1);
     this.lastSentAt = sentAt;
-    const attachments: Attachment[] = (input.attachments ?? []).map((a, i) => ({
-      id: `${sentAt.toString(36)}-${i}`,
-      contentType: a.contentType,
-      fileName: a.fileName,
-      size: a.data.size,
-    }));
+    // Like signal-cli's adapter for small own sends: nothing echoes our bytes
+    // back, so keep them as a data: URL the UI can render after a reload.
+    const attachments: Attachment[] = await Promise.all(
+      (input.attachments ?? []).map(async (a, i) => ({
+        id: `${sentAt.toString(36)}-${i}`,
+        contentType: a.contentType,
+        fileName: a.fileName,
+        size: a.data.size,
+        ...(a.width !== undefined ? { width: a.width } : {}),
+        ...(a.height !== undefined ? { height: a.height } : {}),
+        ...(a.data.size <= INLINE_ATTACHMENT_MAX
+          ? { url: await toDataUrl(a.data, a.contentType) }
+          : {}),
+      })),
+    );
     const selfId = this.world.self.id;
     const message: Message = {
       id: messageId(selfId, sentAt),
@@ -358,4 +367,16 @@ export class MockBackend implements ChatBackend {
       2_500 + this.rnd.int(0, 3_500),
     );
   }
+}
+
+/** Own attachments up to this size are kept inline (mirrors the signal-cli adapter). */
+const INLINE_ATTACHMENT_MAX = 1_500_000;
+
+async function toDataUrl(blob: Blob, contentType: string): Promise<string> {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return `data:${contentType || 'application/octet-stream'};base64,${btoa(binary)}`;
 }

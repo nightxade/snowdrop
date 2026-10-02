@@ -84,3 +84,21 @@ a:hover {
   animation-iteration-count: 1 !important;
   scroll-behavior: auto !important;
 }
+
+/* Settings → Accessibility: high-contrast focus. */
+:root[data-focus='strong'] :focus-visible {
+  outline: 3px solid var(--shrike-text-strong);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 5px var(--shrike-bg-floating);
+}
+
+/* Settings → Accessibility: larger hit targets (≥ 44px rows, ≥ 36px icon buttons). */
+:root[data-targets='large'] [data-shrike='conversation-row'] [data-conversation-id],
+:root[data-targets='large'] [data-shrike='member-row'] {
+  min-height: 44px;
+}
+
+:root[data-targets='large'] [data-icon-button] {
+  min-width: 36px;
+  min-height: 36px;
+}

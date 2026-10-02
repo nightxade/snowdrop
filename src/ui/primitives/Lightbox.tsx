@@ -11,6 +11,8 @@ export interface LightboxItem {
   /** Accessible description, usually the file name. */
   alt: string;
   fileName?: string | undefined;
+  /** Download link; omitted when the URL isn't safe to link to. */
+  downloadHref?: string | undefined;
   width?: number | undefined;
   height?: number | undefined;
 }
@@ -83,10 +85,10 @@ export function Lightbox({
               .join(' · ') || ' '}
           </RadixDialog.Description>
           <div className={styles.bar}>
-            {item && (
+            {item?.downloadHref && (
               <a
                 className={styles.download}
-                href={item.src}
+                href={item.downloadHref}
                 download={item.fileName ?? true}
                 aria-label="Download"
                 title="Download"

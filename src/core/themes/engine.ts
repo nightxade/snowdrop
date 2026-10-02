@@ -9,6 +9,7 @@
 import type { ReducedMotion, Density } from '@/core/stores';
 import { findTheme, type Theme } from './builtin';
 import { adjustLightness, contrastRatio, parseHex, withAlpha } from './color';
+import { sanitizeUserCss } from './sanitize';
 import { cssVar, type TokenName, type TokenOverrides } from './tokens';
 
 export type ThemeDocument = Pick<
@@ -26,8 +27,12 @@ export interface AppearanceInput {
   reducedMotion: ReducedMotion;
   quickCss: string;
   pluginCss?: string;
-  /** Additional themes (e.g. from plugins). */
+  /** Additional themes (user-imported, plugins). */
   extraThemes?: readonly Theme[];
+  /** Thicker focus outline (data-focus="strong"). */
+  strongFocus?: boolean;
+  /** Larger hit targets (data-targets="large"). */
+  largeTargets?: boolean;
 }
 
 export const STYLE_IDS = {
@@ -96,7 +101,8 @@ export function applyAppearance(doc: ThemeDocument, input: AppearanceInput): voi
   const blocks: [string, string][] = [
     [STYLE_IDS.theme, buildThemeCss(input)],
     [STYLE_IDS.plugins, input.pluginCss ?? ''],
-    [STYLE_IDS.quickCss, input.quickCss],
+    // Remote @imports are stripped here, whatever the caller did (privacy).
+    [STYLE_IDS.quickCss, sanitizeUserCss(input.quickCss).css],
   ];
   for (const [id, css] of blocks) {
     const el = ensureStyle(doc, id);
@@ -114,6 +120,10 @@ export function applyAppearance(doc: ThemeDocument, input: AppearanceInput): voi
   else root.setAttribute('data-reduced-motion', input.reducedMotion);
   if (input.saturation < 1) root.setAttribute('data-saturation-adjusted', '');
   else root.removeAttribute('data-saturation-adjusted');
+  if (input.strongFocus) root.setAttribute('data-focus', 'strong');
+  else root.removeAttribute('data-focus');
+  if (input.largeTargets) root.setAttribute('data-targets', 'large');
+  else root.removeAttribute('data-targets');
 }
 
 /** Removes everything applyAppearance added (tests, theme previews). */
@@ -125,6 +135,8 @@ export function clearAppearance(doc: ThemeDocument): void {
     'data-density',
     'data-reduced-motion',
     'data-saturation-adjusted',
+    'data-focus',
+    'data-targets',
   ]) {
     doc.documentElement.removeAttribute(attr);
   }

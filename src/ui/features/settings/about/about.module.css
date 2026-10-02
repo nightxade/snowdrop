@@ -1,0 +1,66 @@
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--shrike-space-5);
+}
+
+.mark {
+  color: var(--shrike-accent);
+}
+
+.name {
+  color: var(--shrike-text-strong);
+  font-size: var(--shrike-font-size-header);
+  font-weight: var(--shrike-font-weight-semibold);
+}
+
+.muted {
+  margin-top: var(--shrike-space-1);
+  color: var(--shrike-text-muted);
+  font-size: var(--shrike-font-size-sm);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--shrike-font-size-sm);
+}
+
+.table th {
+  padding: 0 var(--shrike-space-3) var(--shrike-space-3) 0;
+  color: var(--shrike-text-faint);
+  font-weight: var(--shrike-font-weight-semibold);
+  text-align: left;
+}
+
+.table td {
+  padding: var(--shrike-space-3) var(--shrike-space-3) var(--shrike-space-3) 0;
+  border-top: 1px solid var(--shrike-border);
+  color: var(--shrike-text-muted);
+}
+
+.link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--shrike-text);
+}
+
+.link svg {
+  color: var(--shrike-text-faint);
+}
+
+.version {
+  font-family: var(--shrike-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.legal {
+  display: flex;
+  flex-direction: column;
+  gap: var(--shrike-space-3);
+  max-width: 64ch;
+  color: var(--shrike-text-muted);
+  font-size: var(--shrike-font-size-sm);
+  line-height: 1.6;
+}

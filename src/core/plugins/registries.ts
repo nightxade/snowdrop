@@ -98,6 +98,13 @@ export interface SettingsPanel {
   component: OpaqueComponent;
 }
 
+/**
+ * Marks an incoming message as important for notifications (like a mention):
+ * return a short reason ("Keyword “deploy”") or null. Boosted messages
+ * notify even in mentions-only mode and in muted conversations.
+ */
+export type NotificationBooster = (message: Message) => string | null;
+
 export interface StyleEntry {
   id: string;
   css: string;
@@ -122,6 +129,7 @@ export class Registries implements DraftPipeline {
   readonly headerButtons = new ObservableList<Owned & HeaderButton>();
   readonly settingsPanels = new ObservableList<Owned & SettingsPanel>();
   readonly styles = new ObservableList<Owned & StyleEntry>();
+  readonly notificationBoosters = new ObservableList<Owned & { boost: NotificationBooster }>();
 
   constructor(
     private readonly onError: (
@@ -171,6 +179,19 @@ export class Registries implements DraftPipeline {
         return true;
       }
     });
+  }
+
+  /** First booster reason for a message; a throwing booster is skipped. */
+  boostReason(message: Message): string | null {
+    for (const entry of this.notificationBoosters.list()) {
+      try {
+        const reason = entry.boost(message);
+        if (reason) return reason;
+      } catch (error) {
+        this.onError(error, entry.owner, 'notification booster');
+      }
+    }
+    return null;
   }
 
   findSlash(name: string): (Owned & SlashCommand) | undefined {

@@ -8,8 +8,30 @@ import type { ChatBackend } from '@/core/backend';
 import type { CommandRegistry, KeybindDispatcher } from '@/core/commands';
 import type { MessageRepository } from '@/core/persistence';
 import type { PluginRuntime, Registries } from '@/core/plugins';
-import type { HistoryService, SendService, SyncService } from '@/core/services';
+import type {
+  HistoryExport,
+  HistoryService,
+  NotificationService,
+  SendService,
+  SyncService,
+} from '@/core/services';
 import type { Stores } from '@/core/stores';
+
+/** Result of Settings → Connection → Test connection. */
+export type DaemonProbe =
+  { ok: true; accounts: number | null } | { ok: false; kind: string; message: string };
+
+/** App-level maintenance the settings and onboarding screens need. */
+export interface AppAdmin {
+  /** Checks a signal-cli daemon URL (GET /api/v1/check, then listAccounts). */
+  probeDaemon(url: string): Promise<DaemonProbe>;
+  /** Everything stored locally, as JSON-serialisable data. */
+  exportHistory(onProgress?: (done: number, total: number) => void): Promise<HistoryExport>;
+  /** Deletes all stored messages and outbox entries (settings are kept). */
+  clearHistory(): Promise<void>;
+  /** Writes debounced persisted state now (before a reload). */
+  flush(): void;
+}
 
 export interface AppServices {
   stores: Stores;
@@ -25,7 +47,10 @@ export interface AppServices {
    * lazy attachment URLs (render-only, see ChatBackend.resolveAttachmentUrl).
    * Everything else goes through the services.
    */
-  backend: Pick<ChatBackend, 'kind' | 'resolveAttachmentUrl'>;
+  backend: Pick<ChatBackend, 'kind' | 'resolveAttachmentUrl' | 'link'>;
+  /** Desktop notification permission + a test notification. */
+  notifications: Pick<NotificationService, 'permission' | 'requestPermission' | 'test'>;
+  admin: AppAdmin;
   /** Read-only history queries (search, mentions inbox, pins). */
   repository: Pick<MessageRepository, 'search' | 'mentions' | 'pinned'>;
   /** Connects and syncs; the app calls it once a backend has been chosen. */

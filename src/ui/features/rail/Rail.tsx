@@ -1,25 +1,22 @@
-import {
-  closestCenter,
-  DndContext,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from '@dnd-kit/core';
-import { restrictToVerticalAxis } from '@dnd-kit/modifiers';
-import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { lazy, Suspense } from 'react';
 import { Plus } from 'lucide-react';
 import { useStore } from 'zustand';
 import { HOME, spacesSelectors } from '@/core/stores';
-import { useRovingFocus, useStores } from '@/ui/hooks';
+import type { ConversationId } from '@/core/domain';
+import { useConversationDrop, useRovingFocus, useStores } from '@/ui/hooks';
 import { Scroller, ShrikeMark } from '@/ui/primitives';
 import { HealthDot } from './HealthDot';
 import { RailTile } from './RailTile';
-import { SortableRailEntry } from './SortableRailEntry';
+import { FolderEntry } from './FolderEntry';
+import { railEntryKey } from './railEntryKey';
+import { SpaceTile } from './SpaceTile';
 import { useHomeUnread } from './useUnread';
 import styles from './Rail.module.css';
 
-export const railEntryKey = (entry: { type: string; id: string }) => `${entry.type}:${entry.id}`;
+// dnd-kit loads after first paint; until then the same tiles render without drag.
+const SortableRailList = lazy(() =>
+  import('./SortableRailList').then((m) => ({ default: m.SortableRailList })),
+);
 
 export function Rail() {
   const stores = useStores();
@@ -27,16 +24,13 @@ export function Rail() {
   const selectedSpace = useStore(stores.ui, (s) => s.selectedSpace);
   const home = useHomeUnread();
   const onKeyDown = useRovingFocus('vertical');
-  // A small distance keeps clicks as clicks; only a deliberate drag reorders.
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
-  const keys = rail.map(railEntryKey);
-
-  const onDragEnd = ({ active, over }: DragEndEvent) => {
-    if (!over || active.id === over.id) return;
-    const from = keys.indexOf(String(active.id));
-    const to = keys.indexOf(String(over.id));
-    if (from !== -1 && to !== -1) stores.spaces.getState().moveRailEntry(from, to);
-  };
+  // Dropping a conversation on Home takes it out of its space.
+  const homeDrop = useConversationDrop((id) => {
+    stores.spaces.getState().unassign(id as ConversationId);
+    stores.ui
+      .getState()
+      .pushToast({ message: 'Moved back to Home', kind: 'success', source: 'core' });
+  });
 
   return (
     <nav className={styles.rail} aria-label="Spaces" data-shrike="rail">
@@ -47,6 +41,8 @@ export function Rail() {
           selected={selectedSpace === HOME}
           unread={home.hasUnread}
           mentions={home.mentions}
+          className={homeDrop.active ? styles.dropTarget : undefined}
+          {...homeDrop.handlers}
           onClick={() => {
             stores.ui.getState().selectSpace(HOME);
           }}
@@ -54,18 +50,17 @@ export function Rail() {
           <ShrikeMark size={26} />
         </RailTile>
         <div className={styles.separator} role="separator" />
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          modifiers={[restrictToVerticalAxis]}
-          onDragEnd={onDragEnd}
+        <Suspense
+          fallback={rail.map((entry) =>
+            entry.type === 'folder' ? (
+              <FolderEntry key={railEntryKey(entry)} folder={entry} />
+            ) : (
+              <SpaceTile key={railEntryKey(entry)} spaceId={entry.id} />
+            ),
+          )}
         >
-          <SortableContext items={keys} strategy={verticalListSortingStrategy}>
-            {rail.map((entry) => (
-              <SortableRailEntry key={railEntryKey(entry)} id={railEntryKey(entry)} entry={entry} />
-            ))}
-          </SortableContext>
-        </DndContext>
+          <SortableRailList rail={rail} />
+        </Suspense>
         <RailTile
           label="Create a space"
           tone="quiet"

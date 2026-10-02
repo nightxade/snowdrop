@@ -38,7 +38,7 @@ describe('quick switcher', () => {
   it('highlights matches, opens with Enter and focuses the composer', async () => {
     const shrike = await bootDemo();
     key({ key: 'k', code: 'KeyK', ctrlKey: true });
-    const input = await screen.findByRole('combobox', { name: 'Search conversations' });
+    const input = await screen.findByRole('combobox', { name: 'Quick switcher' });
     expect(document.activeElement).toBe(input);
     act(() => {
       fireEvent.change(input, { target: { value: 'orchard' } });
@@ -50,7 +50,7 @@ describe('quick switcher', () => {
     await settle();
     const selected = uiSelectors.selectedConversation(shrike.stores.ui.getState());
     expect(selected).not.toBeNull();
-    expect(screen.queryByRole('combobox', { name: 'Search conversations' })).toBeNull();
+    expect(screen.queryByRole('combobox', { name: 'Quick switcher' })).toBeNull();
     // The composer registers itself as the focus target (P3), so you can type straight away.
     expect(document.activeElement).toBe(
       document.querySelector('[data-shrike="composer"] textarea'),
@@ -67,7 +67,7 @@ describe('quick switcher', () => {
     await screen.findByRole('combobox');
     key({ key: 'Escape' });
     await settle();
-    expect(screen.queryByRole('combobox', { name: 'Search conversations' })).toBeNull();
+    expect(screen.queryByRole('combobox', { name: 'Quick switcher' })).toBeNull();
     expect(document.activeElement).toBe(row);
   });
 });

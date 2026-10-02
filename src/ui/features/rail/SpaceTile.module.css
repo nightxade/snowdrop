@@ -7,3 +7,11 @@
   font-size: var(--shrike-font-size-header);
   letter-spacing: 0.01em;
 }
+
+/* Drop ring: a dragged conversation (move here) or space (make a folder). */
+.target[data-drop] {
+  outline: 2px solid var(--shrike-text-strong);
+  outline-offset: 4px;
+  transform: scale(1.06);
+  transition: transform var(--shrike-duration-fast) var(--shrike-ease);
+}

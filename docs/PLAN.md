@@ -1043,3 +1043,239 @@ restored when switching back to a conversation (it opens at the bottom /
 divider). Search highlights no terms. In happy-dom Virtuoso renders no rows at
 an initial index, so the scroll + flash of a jump is verified by Playwright,
 not unit tests.
+
+### P3 review round 1
+
+Finding → fix; contract-level changes first.
+- **Core.** `OutgoingAttachment.previewUrl/width/height` (render-only, never
+  sent): the optimistic message shows the composer's object URL, and it is kept
+  after acknowledgement until the transport supplies a URL (a superseded `blob:`
+  is revoked). The mock keeps own sends ≤ 1.5 MB as `data:` URLs (like the
+  signal-cli adapter). `EditingTarget.draft/session` + `ui.setEditDraft`: the
+  inline editor's text survives virtualisation; it autofocuses once per session.
+- **Bottom pinning (B1, M2).** `list/bottomPin.ts` (pure, tested) owns
+  "stuck": un-sticks beyond 64 px, re-sticks at the bottom or on jump. The
+  scroller callback is stable (`useCallback`) — Virtuoso reattached an inline
+  one per render and that reset the pin. The pin is set once per epoch. A
+  ResizeObserver on the scroller re-pins when the composer grows.
+- **Prepend (M1).** `skipAnimationFrameInResizeObserver`, measured default
+  heights (comfortable 62 px, compact 28 px), and rows rendered as group starts
+  keep their header after a prepend (collapsing one changed a measured row above
+  the reader: the remaining ~38 px jump). Measured anchor movement: 0 px.
+- **Index tracking (minor 14).** `advanceTrack` is a pure step held as React
+  state and derived during render ("adjust state while rendering"), not a layout
+  effect: the virtualiser must see the new index in the same render as the new
+  data or it shows one frame of rows at stale indices.
+- **Semantics (M3, M4).** The rows' container is `role="feed"` (not a live
+  `log`); day/New dividers are plain text (a feed may only own articles). New
+  arrivals are announced by a throttled `LiveAnnouncer` ("Name: text"). Rows are
+  `role="article"`, labelled by a hidden "Name, time" (12/24 h setting) and
+  described by the body; one roving tab stop (default: newest message; the
+  scroller takes Tab when that row isn't rendered); inner controls are
+  `tabindex=-1` until Enter enters the row (hover bar first in DOM order),
+  Escape leaves it. `aria-keyshortcuts="Enter R E Plus Delete"`.
+- **Touch (M9).** Under `(pointer: coarse)` or < 760 px there is no hover bar;
+  a 450 ms long-press opens `MessageActionSheet` (bottom `Drawer`, same menu
+  entries) and the reaction picker opens as a sheet. `Drawer` gained
+  `side: 'bottom'`.
+- **Render scope (M10, minor 7).** `MessagePane`/`MessageList` take only the
+  id and select the title; rows subscribe to the names of the people they show
+  (`useMessageNames`), not the whole contacts map. Verified: typing in the
+  composer, typing indicators and unrelated contact updates re-render no rows.
+- **Design (M8, notes a/b).** The New divider uses the accent: a sentence-case
+  "New" pill at the start of the line (where the hover bar can't cover it) and
+  an accent hairline. The "N new messages" bar floats inset with a shadow; it
+  hides on "Mark as read", and after the divider was seen only while nothing is
+  unread. Rail unread is a 6 px pip at the rail edge, clear of the ring.
+- **Focus (M7).** Delete confirm focuses the destructive button
+  (`data-autofocus`); after a delete focus goes to the next message, else the
+  composer; the jump pill focuses the composer; quote jumps focus the target.
+- **Composer/editor.** `useAutocompleteField` is shared by both (the editor gets
+  @/: suggestions and honours `enterToSend`); IME guard includes keyCode 229;
+  same-name members get disambiguated mention labels; inserted emoji get a
+  trailing space and lose a redundant U+FE0F (kept where it selects emoji
+  presentation).
+- **Safety (minor 15).** `safeHref`: download links only for `blob:`, inert
+  `data:` types (image/video/audio, text/plain, octet-stream — the last two so
+  the demo's file cards download) and same-origin http(s).
+- **frimousse a11y.** Rows/cells get 1-based `aria-rowindex/colindex`.
+  frimousse finds the active row by that attribute to scroll it into view, so
+  row scroll margins compensate exactly one row height.
+- **Bundle.** frimousse is lazy (`EmojiPickerPanel`) and dnd-kit is lazy
+  (`SortableRailList`, static tiles until loaded). **Not done:** dynamic import
+  of the backend in `createShrike` — P4 is editing that file concurrently;
+  recommended shape: a `deferredBackend` proxy (like `deferredRepository`) with
+  per-kind capabilities known up front.
+- **Not changed:** frimousse's localStorage data cache (NIT, ~280 KB).
+
+### P4 Power UX
+
+**Structure.** New: `ui/features/settings` (overlay, page registry
+`pages.ts`, pure `search.ts`, `rows/` = `SettingsSection` + `SettingRow` +
+filter context, `pages/`, `plugins/`, `themes/`, `keybinds/`, `about/`),
+`ui/plugins` (built-ins with a UI half), `core/services/NotificationService`
++ `historyExport`, `core/themes/{sanitize,custom}.ts`,
+`core/backend/signal-cli/probe.ts`, `app/deferredBackend.ts`. Primitives:
+`CommandPalette` (cmdk wrapper; filtering always ours), `Select` (native),
+`Slider`, `Segmented` (radio pattern), `Checkbox`, `ColorField`,
+`CodeEditor`, `QrCode` (qrcode → one SVG path, no innerHTML),
+`FullScreenDialog`; `Modal` gained `flush` and `size="xl"`, `Switch` an
+external `id`, `IconButton` a `data-icon-button` hook. New deps: `cmdk`,
+`qrcode` (MIT), dev `@types/qrcode` (MIT).
+
+**Quick switcher.** `switcher/model.ts` ranks with `fuzzyMatch` (+2 mention,
++1 unread nudges; commands −6 when unscoped). Prefixes `>` `@` `#` `*`
+become a chip in the field (Backspace on an empty scoped query drops it);
+empty query = Unread (mentions first, muted only if mentioned) then Recent
+(excluding the open conversation); `>` alone browses commands by category.
+Rows: kind icon / space glyph, highlight, space name or "Direct message",
+mention badge or unread dot, command keybind. Commands run *after* the
+switcher closes (they may open a dialog). Focus: conversation → composer
+via the P3 resolver; space → its rail tile; dismiss → opener.
+
+**Settings.** `ModalHost` lazy-loads the overlay (`React.lazy`, own chunk,
+same-backdrop fallback); `openModal({ type: 'settings', props: { page } })`
+deep-links. Search: every term must match (case/accent-insensitive
+substring; fuzzy was too loose), page-title match shows the whole page,
+results render the matching rows of every page stacked; plugins and plugin
+`settingsPanels` are searchable entries ("From plugins" nav group). Phones:
+nav and page are separate screens. Rows are flex-wrap so small controls stay
+beside the label and wide ones drop below. Pages: My profile (read-only:
+Signal profile is edited on the phone), Privacy (receipts; Silent Typing /
+Clear URLs toggled as plugins), Appearance (theme cards with live mini
+previews, accent presets + custom with derived shades and a < 4.5:1
+text-on-accent warning, density preview, 12/24h, text size, zoom),
+Accessibility (reduced motion, `strongFocus` → `data-focus="strong"`,
+`largeTargets` → `data-targets="large"`, saturation), Notifications
+(permission flow incl. denied/unsupported, test notification, master
+switch, all / mentions / nothing, previews, mute hint, sounds disabled:
+we ship none), Keybinds, Behaviour (send key, markdown, typing — disabled
+when Silent Typing is on —, link previews shown disabled: not built),
+Plugins, Themes, QuickCSS, Connection (demo/signal-cli, URL, account, Test →
+`admin.probeDaemon`; changes apply via confirm + reload), Data & storage
+(`navigator.storage.estimate`, JSON export via Blob download, clear history
+/ reset settings with confirm + reload; reset keeps the connection), About
+(generated licence list).
+
+**Settings store (no version bump; per-field parse).** `appearance.strongFocus`,
+`appearance.largeTargets`, `customThemes: CustomThemeData[]`,
+`saveCustomTheme` / `removeCustomTheme` (falls back to Dusk if active),
+`resetKeybinds`, `resetPluginSettings`.
+
+**Keybinds.** `keybinds/record.ts`: `recordKey` (via `keybindFromEvent`;
+Escape/Tab cancel, Backspace/Delete unbind, bare modifiers keep listening),
+`keybindProblem` (plain printable keys refused for `allowInInputs`
+commands), `keybindConflicts` (both directions, after overrides). The
+recorder owns Escape inside the settings dialog (`data-owns-escape`).
+Per-row reset, Reset all; recording the default clears the override.
+Palette commands added (no default keys): create space, toggle compact
+mode, toggle notifications, open plugins/themes/appearance/keybinds. The
+Ctrl+/ sheet links to Settings → Keybinds. All §4.11 commands were already
+registered (P2/P3).
+
+**Plugins.** Cards: name, description, authors, tags (click = tag filter),
+"Required" chip, live switch, cog → `PluginSettingsModal` with the
+auto-generated `PluginSettingsForm` (SettingRow per field: boolean →
+Switch, string → input/textarea, number → Slider if min+max else number
+input, select → Segmented ≤ 3 options else Select; values coerced through
+the schema; Reset to defaults). Failed plugins show the error + Retry
+(`runtime.start`). State lives on the card's left edge. Built-ins:
+- Core stays React-free: `BUILTIN_PLUGINS` = Clear URLs, Silent Typing,
+  Slash Basics, Keyword Alerts (now `createKeywordAlertsPlugin(ui)`).
+  `previews.ts` removed.
+- `ui/plugins`: Relative Timestamps (decoration, shared 1-minute `useNow`,
+  absolute tooltip; "relative only" hides the header time via injected CSS
+  on the stable `time[data-variant=header]` hook), Message Tools (hover
+  actions Copy as Markdown / Word count toast + message-menu item; uses
+  `toMarkdown`, now exported from `features/chat`), **Pronoun & Notes Badge**
+  (decoration: first line of the private contact note, grapheme-safe cut,
+  full note on hover; enabled by default). `withUiPlugins()` merges them and
+  gives Keyword Alerts its highlight chip + `:has()` row tint.
+- New capability `ctx.notifications.addBooster(fn)` (Registries
+  `notificationBoosters`, `boostReason`): a reason string makes a message
+  notify like a mention. Keyword Alerts uses it; its toast became optional.
+- Known runtime quirk (unchanged): `setEnabled` reconciles twice (direct +
+  settings subscription), so a plugin that fails *transiently* on enable is
+  retried immediately.
+
+**Themes / QuickCSS.** `sanitizeUserCss` drops remote `@import` (http(s),
+`//`, any `scheme://`; every syntax, case-insensitive) and reports remote
+`url()` (kept, warned). The engine applies it to QuickCSS and theme CSS
+whatever the caller does. Import/export `{ id?, name, kind?, tokens, css? }`:
+only known token names (bare or `--shrike-` prefixed), string values that
+can't break out of a declaration (`; { } < >` and comments refused), id
+slugged from the name, built-in ids reserved, 200 kB file cap; stored themes
+are re-validated (`toTheme`). Tokens left out keep Dusk's. Exporting a
+built-in produces `<id>-copy`. QuickCSS: `CodeEditor` (gutter, Tab = two
+spaces through `execCommand` for undo, Shift+Tab outdents, Esc releases Tab),
+300 ms debounced apply (flushed on unmount), Reset, `data-shrike` hook list
+in a `<details>` block. New tokens `qr-ink` / `qr-paper` (QR stays
+black-on-white in every theme).
+
+**Spaces and DnD.** Store: folder `hue?`, `renameFolder`, `setFolderHue`,
+`dissolveFolder`, `placeRailEntry`, `moveCategory`. Create/Edit Space:
+`ConversationChecklist` (fuzzy search, groups first, "moves from <space>"
+hint, `suggestConversations`: shares the most members with the picks —
+self excluded —, groups and unorganised first; nothing picked = recent
+unorganised groups). Edit diffs membership (removed → Home). Rail
+(building on P3's lazy `SortableRailList`): dropping a space on the middle
+50% of a tile (`railDrop.isMergeDrop`) makes/joins a folder (drop ring;
+sorting shift paused while merging), edges reorder. Folder menu: mark read,
+expand/collapse, Rename and recolour (dialog), Dissolve. Space menu: Add to
+folder ▸ / New folder with ▸, Remove from folder, Create category. Sidebar
+uses **native HTML5 DnD** (`useConversationDrop`, MIME
+`application/x-shrike-conversation`) instead of dnd-kit: it crosses rail ↔
+sidebar without a shared DndContext and keeps dnd-kit lazy. Rows in a space
+drag between categories (accent insertion line; `dropIndex` maps rendered →
+store index), group rows from Home and any row in a space drop onto rail
+tiles (move to space) or Home (unassign). Category header: right-click /
+Shift+F10 / hover ⋯ → rename, create, move up/down, delete (rows move to
+the first, toast). Empty categories show a dashed "Drag conversations
+here". Keyboard alternatives: "Move to category ▸" in the conversation
+menu, folder items in the space menu (dnd-kit keyboard sensors weren't used:
+they'd fight the rail's roving tabindex). The rail tile dot/ring styling is
+untouched (drop rings are outlines on the tile button).
+
+**NotificationService (core/services).** Injected `NotificationApi`
+(`browserNotificationApi()` default: silent, tag per conversation, icon).
+Rules (`decideNotification`, pure): enabled and mode ≠ none, permission
+granted; others' normal, non-deleted messages; never for the open
+conversation when focused + visible + at the bottom; muted conversation
+(incl. `until`) or space → mentions/boosts only; mentions-only → groups need
+a mention/boost, DMs always notify. Previews hide spoilers; attachment-only
+messages get a summary. One notification per conversation (replaced).
+Click: focus window, close modals, open the conversation in its space.
+`AppServices.notifications` = permission / request / test.
+
+**Link device / account (§4.10).** `SyncService` now records
+`session.errorKind` (duck-typed `error.kind`). `App` shows
+`ConnectionSetup` for signal-cli `no-account` (lazy `LinkDevice`: QR from
+`link.start()`, phone steps, device-name field defaulting to "Shrike
+(Browser on OS)", waiting/expired/failed + new code; reducer in
+`linkFlow.ts` ignores late results of abandoned attempts) → on success
+retries `shrike.start()` (now safe to call again after a failed start), and
+`account-required` (`AccountPrompt`: E.164 or ACI → settings → reload).
+"Use the demo or another daemon" returns to the welcome screen. The welcome
+Connect form probes the daemon first (fails inline, "Connect anyway").
+
+**Composition root.** `createShrike` loads the backend with a dynamic import
+per kind behind `deferredBackend(kind, ready)` (separate `mock` and
+`signal-cli` chunks); `BACKEND_CAPABILITIES` declares each kind's optional
+methods up front (a test checks them against the real adapters); early
+`on()` subscriptions attach on load. `Shrike.backendReady` exposes the
+concrete adapter (dev tools; P3's `MessageItem.test` updated to use it).
+`AppServices` gained `backend.link`, `notifications`, `admin` (`probeDaemon`
+— lazy signal-cli import —, `exportHistory`, `clearHistory`, `flush`).
+
+**Licences.** `scripts/gen-licences.mjs` writes
+`settings/about/licences.generated.ts` (runtime deps: name, version,
+licence, URL); `about/licences.test.ts` fails when it drifts from
+package.json or a non-permissive licence appears. Re-run (then Prettier)
+after dependency changes.
+
+**Known gaps.** dnd-kit isn't lazy for the *sidebar* because the sidebar
+doesn't use it; native DnD has no touch support (menus cover it). The
+keyword highlight tints only header rows (continuation rows carry no
+decorations). My Profile is read-only. Notifications need the tab open (no
+service worker). The link flow is verified against a mocked daemon only.
+Custom light themes inherit Dusk for tokens they omit.

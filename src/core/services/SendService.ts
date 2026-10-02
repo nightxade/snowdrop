@@ -12,7 +12,7 @@
  * acknowledged. If the send never went out (it failed), an edit simply
  * rewrites what will be sent and a delete discards it.
  */
-import type { ChatBackend, SendInput } from '@/core/backend';
+import type { ChatBackend, OutgoingAttachment, SendInput } from '@/core/backend';
 import {
   advanceStatus,
   applyDelete,
@@ -24,6 +24,7 @@ import {
   messageId,
   parseMarkdownToRanges,
   pendingMessageId,
+  type Attachment,
   type BodyRange,
   type ConversationId,
   type Message,
@@ -153,12 +154,7 @@ export class SendService {
       seq: await repository.allocateSeq(),
       body,
       ranges,
-      attachments: transformed.attachments.map((a, i) => ({
-        id: `${nonce}-${i}`,
-        contentType: a.contentType,
-        fileName: a.fileName,
-        size: a.data.size,
-      })),
+      attachments: transformed.attachments.map((a, i) => localAttachment(a, `${nonce}-${i}`)),
       reactions: [],
       status: 'pending',
       kind: 'normal',
@@ -288,7 +284,7 @@ export class SendService {
       receivedAt: pendingRow?.receivedAt ?? clock.now(),
       body: out.input.body,
       ranges: out.input.ranges,
-      attachments: result.attachments ?? pendingRow?.attachments ?? [],
+      attachments: withLocalUrls(result.attachments, pendingRow?.attachments),
       reactions: [],
       // A receipt may already have arrived for this timestamp.
       status: advanceStatus('sent', this.receipts.take(result.sentAt, clock.now()) ?? 'sent'),
@@ -615,4 +611,54 @@ function sameRanges(a: readonly BodyRange[], b: readonly BodyRange[]): boolean {
       );
     })
   );
+}
+
+/** The optimistic copy of an outgoing attachment: shows the local preview until the transport has a URL. */
+function localAttachment(a: OutgoingAttachment, id: string): Attachment {
+  return {
+    id,
+    contentType: a.contentType,
+    fileName: a.fileName,
+    size: a.data.size,
+    ...(a.previewUrl !== undefined ? { url: a.previewUrl } : {}),
+    ...(a.width !== undefined ? { width: a.width } : {}),
+    ...(a.height !== undefined ? { height: a.height } : {}),
+  };
+}
+
+/**
+ * Acknowledged attachments, keeping the local preview URL (and size) for any
+ * the transport returned without one — otherwise our own photo would turn
+ * into "not available" the moment it's sent. A preview superseded by a real
+ * URL is an object URL nobody needs any more, so it is released.
+ */
+function withLocalUrls(
+  acknowledged: readonly Attachment[] | undefined,
+  pending: readonly Attachment[] | undefined,
+): Attachment[] {
+  if (!acknowledged) return [...(pending ?? [])];
+  return acknowledged.map((a, i) => {
+    const local = pending?.[i];
+    if (!local) return a;
+    if (a.url !== undefined) {
+      if (local.url?.startsWith('blob:') && local.url !== a.url) revokeLater(local.url);
+      return { ...pickSize(local), ...a };
+    }
+    return { ...pickSize(local), ...a, ...(local.url !== undefined ? { url: local.url } : {}) };
+  });
+}
+
+function pickSize(a: Attachment): Partial<Attachment> {
+  return {
+    ...(a.width !== undefined ? { width: a.width } : {}),
+    ...(a.height !== undefined ? { height: a.height } : {}),
+  };
+}
+
+/** Rows still showing the old URL re-render on the next frame; release it after that. */
+function revokeLater(url: string): void {
+  if (typeof URL.revokeObjectURL !== 'function') return;
+  setTimeout(() => {
+    URL.revokeObjectURL(url);
+  }, 5_000);
 }

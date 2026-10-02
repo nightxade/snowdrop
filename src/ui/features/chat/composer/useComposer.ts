@@ -91,16 +91,25 @@ export function useComposer(conversation: ConversationView): ComposerState {
 
   const addFiles = useCallback((files: readonly File[]) => {
     if (files.length === 0) return;
-    setAttachments((current) => [
-      ...current,
-      ...files.map((file) => ({
-        id: `att-${++attachmentSeq}`,
-        file,
-        ...(file.type.startsWith('image/') && file.type !== 'image/svg+xml'
-          ? { previewUrl: URL.createObjectURL(file) }
-          : {}),
-      })),
-    ]);
+    const added = files.map((file): PendingAttachment => ({
+      id: `att-${++attachmentSeq}`,
+      file,
+      ...(isPreviewable(file) ? { previewUrl: URL.createObjectURL(file) } : {}),
+    }));
+    setAttachments((current) => [...current, ...added]);
+    // Measure images so the sent message reserves the right box before it loads.
+    for (const a of added) {
+      if (!a.previewUrl || typeof Image === 'undefined') continue;
+      const img = new Image();
+      img.onload = () => {
+        setAttachments((current) =>
+          current.map((x) =>
+            x.id === a.id ? { ...x, width: img.naturalWidth, height: img.naturalHeight } : x,
+          ),
+        );
+      };
+      img.src = a.previewUrl;
+    }
   }, []);
 
   const removeAttachment = useCallback((id: string) => {
@@ -129,6 +138,12 @@ export function useComposer(conversation: ConversationView): ComposerState {
       fileName: a.file.name,
       contentType: a.file.type || 'application/octet-stream',
       data: a.file,
+      // A fresh URL for the sent message (the tray's own is released below);
+      // SendService releases it once the transport supplies its own.
+      ...(a.previewUrl ? { previewUrl: URL.createObjectURL(a.file) } : {}),
+      ...(a.width !== undefined && a.height !== undefined
+        ? { width: a.width, height: a.height }
+        : {}),
     }));
     clear();
     // Sent messages only appear in a window anchored to the present.
@@ -193,4 +208,9 @@ export function useComposer(conversation: ConversationView): ComposerState {
     setError,
     submit,
   };
+}
+
+/** Raster images get a tray thumbnail and an optimistic preview (never SVG). */
+function isPreviewable(file: File): boolean {
+  return file.type.startsWith('image/') && file.type !== 'image/svg+xml';
 }

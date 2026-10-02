@@ -24,7 +24,7 @@ export interface RailTileProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 /**
  * One rail tile. The language is Shrike's own: a constant-radius tile that
  * fills with its hue on hover, an accent ring (offset from the tile) for the
- * selected space, a small light dot at the top-left corner for unread, and a
+ * selected space, a small light pip at the rail's edge for unread, and a
  * mention badge at the bottom-right.
  */
 export function RailTile({

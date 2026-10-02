@@ -151,3 +151,16 @@ export const DEFAULT_THEME_ID = DUSK.id;
 export function findTheme(id: string, extra: readonly Theme[] = []): Theme {
   return [...BUILTIN_THEMES, ...extra].find((t) => t.id === id) ?? DUSK;
 }
+
+/** Accent presets offered in Settings → Appearance (custom colours are allowed too). */
+export const ACCENT_PRESETS: readonly { value: string; label: string }[] = [
+  { value: '#d4744a', label: 'Rufous' },
+  { value: '#d99a2b', label: 'Amber' },
+  { value: '#7fa33f', label: 'Moss' },
+  { value: '#2fa08f', label: 'Teal' },
+  { value: '#4a90d6', label: 'Sky' },
+  { value: '#6f74dc', label: 'Indigo' },
+  { value: '#a066d3', label: 'Violet' },
+  { value: '#d65a86', label: 'Rose' },
+  { value: '#8e98a8', label: 'Slate' },
+];

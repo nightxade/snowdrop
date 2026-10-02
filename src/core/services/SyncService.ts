@@ -111,7 +111,9 @@ export class SyncService {
       // Drop the subscriptions so a retry doesn't double-subscribe, but keep the
       // backlog: those envelopes are gone from the daemon once delivered.
       this.unsubscribeAll();
-      stores.session.getState().setError(error instanceof Error ? error.message : String(error));
+      stores.session
+        .getState()
+        .setError(error instanceof Error ? error.message : String(error), errorKindOf(error));
       stores.session.getState().setStatus('error');
       this.onError(error, 'initial sync failed');
       throw error;
@@ -597,4 +599,10 @@ export class SyncService {
     })();
     return this.refreshing;
   }
+}
+
+/** Adapters throw typed errors with a string `kind` (no import: core can't depend on adapters). */
+function errorKindOf(error: unknown): string | null {
+  if (typeof error !== 'object' || error === null || !('kind' in error)) return null;
+  return typeof error.kind === 'string' ? error.kind : null;
 }

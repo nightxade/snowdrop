@@ -15,7 +15,13 @@
 }
 
 .row:focus-visible {
+  outline: none;
   box-shadow: inset 0 0 0 2px var(--shrike-focus-ring);
+}
+
+/* The message being replied to: a quiet accent bar ties it to the reply bar. */
+.row[data-reply-target] {
+  box-shadow: inset 2px 0 0 var(--shrike-accent);
 }
 
 /* Mentions of you: tinted row with an accent bar on the left edge. */
@@ -165,9 +171,11 @@
 }
 
 .compactAvatar {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  height: 1lh;
   margin-right: var(--shrike-space-2);
-  vertical-align: -3px;
+  vertical-align: top;
 }
 
 .row[data-compact] .quote {

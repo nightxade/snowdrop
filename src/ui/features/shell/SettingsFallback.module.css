@@ -1,0 +1,10 @@
+.fallback {
+  position: fixed;
+  z-index: 32;
+  inset: 0;
+  background: linear-gradient(
+    to right,
+    var(--shrike-bg-sidebar) 0 max(232px, 25%),
+    var(--shrike-bg-chat) max(232px, 25%)
+  );
+}

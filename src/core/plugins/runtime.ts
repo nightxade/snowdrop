@@ -277,6 +277,9 @@ export class PluginRuntime {
         inject: (css, styleId) =>
           track(r.styles.add({ id: styleId ?? `style-${++styleCounter}`, css, owner: id })),
       },
+      notifications: {
+        addBooster: (boost) => track(r.notificationBoosters.add({ boost, owner: id })),
+      },
       stores: this.host.stores,
       backend: {
         kind: this.host.backend.kind,

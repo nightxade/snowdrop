@@ -7,12 +7,19 @@
 import { createContext, use, useSyncExternalStore } from 'react';
 import type { ConversationId, MessageId } from '@/core/domain';
 
+export interface RevealOptions {
+  /** Highlight it briefly (default true). */
+  flash?: boolean;
+  /** Move keyboard focus to the row (quote jumps). */
+  focus?: boolean;
+}
+
 export interface ListHandle {
   conversationId: ConversationId;
   /** Scrolls to the newest message, reloading the present first if detached. */
   jumpToPresent(): Promise<void>;
   /** Scrolls to (loading history around, if needed) and flashes a message. */
-  reveal(messageId: MessageId, options?: { flash?: boolean }): Promise<boolean>;
+  reveal(messageId: MessageId, options?: RevealOptions): Promise<boolean>;
 }
 
 export interface ComposerHandle {
@@ -25,7 +32,11 @@ export class ChatController {
   private list: ListHandle | null = null;
   private composer: ComposerHandle | null = null;
   /** A jump requested for a conversation whose list isn't mounted yet (mentions inbox). */
-  private pending: { conversationId: ConversationId; messageId: MessageId } | null = null;
+  private pending: {
+    conversationId: ConversationId;
+    messageId: MessageId;
+    options?: RevealOptions;
+  } | null = null;
   private searchOpen = false;
   private readonly listeners = new Set<() => void>();
 
@@ -50,7 +61,7 @@ export class ChatController {
     const pending = this.pending;
     if (pending?.conversationId === handle.conversationId) {
       this.pending = null;
-      void handle.reveal(pending.messageId);
+      void handle.reveal(pending.messageId, pending.options);
     }
     return () => {
       if (this.list === handle) this.list = null;
@@ -69,9 +80,13 @@ export class ChatController {
   }
 
   /** Reveals a message; if its conversation's list isn't mounted, on mount. */
-  reveal(conversationId: ConversationId, messageId: MessageId): Promise<boolean> {
-    if (this.list?.conversationId === conversationId) return this.list.reveal(messageId);
-    this.pending = { conversationId, messageId };
+  reveal(
+    conversationId: ConversationId,
+    messageId: MessageId,
+    options?: RevealOptions,
+  ): Promise<boolean> {
+    if (this.list?.conversationId === conversationId) return this.list.reveal(messageId, options);
+    this.pending = { conversationId, messageId, ...(options ? { options } : {}) };
     return Promise.resolve(true);
   }
 

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useStore } from 'zustand';
-import { fuzzyFilter, type Contact, type ConversationView } from '@/core/domain';
+import { fuzzyFilter, type Contact } from '@/core/domain';
 import { contactsSelectors, sessionSelectors } from '@/core/stores';
 import { useShrike, useObservableList } from '@/ui/hooks';
 import { loadEmojiIndex, searchEmoji, type EmojiEntry } from './emojiIndex';
@@ -36,9 +36,11 @@ export interface Autocomplete {
 export function useAutocomplete(
   text: string,
   caret: number,
-  conversation: ConversationView,
+  memberIds: readonly string[],
+  /** Offer /commands (composer only). */
+  slash = true,
 ): Autocomplete {
-  const { stores, registries } = useShrike();
+  const { stores, registries, plugins } = useShrike();
   const contacts = useStore(stores.contacts, contactsSelectors.byId);
   const selfId = useStore(stores.session, sessionSelectors.selfId);
   const commands = useObservableList(registries.slash);
@@ -46,7 +48,8 @@ export function useAutocomplete(
   const [dismissedAt, setDismissedAt] = useState<number | null>(null);
   const [activeState, setActiveState] = useState({ key: '', index: 0 });
 
-  const trigger = useMemo(() => findTrigger(text, caret), [text, caret]);
+  const found = useMemo(() => findTrigger(text, caret), [text, caret]);
+  const trigger = found?.kind === 'slash' && !slash ? null : found;
   const wantsEmoji = trigger?.kind === 'emoji';
   // A dismissal lasts until the trigger goes away (typing on keeps it closed).
   if (!trigger && dismissedAt !== null) setDismissedAt(null);
@@ -69,9 +72,17 @@ export function useAutocomplete(
   const suggestions = useMemo((): Suggestion[] => {
     if (!trigger) return [];
     if (trigger.kind === 'mention') {
-      const people = conversation.memberIds
+      const people = memberIds
         .filter((id) => id !== selfId)
         .flatMap((id) => (contacts[id] ? [contacts[id]] : []));
+      // Two members with one display name get distinguishable labels, so the
+      // mention resolves to the person who was picked.
+      const nameCounts = new Map<string, number>();
+      for (const p of people) nameCounts.set(p.name, (nameCounts.get(p.name) ?? 0) + 1);
+      const labelFor = (c: Contact) =>
+        (nameCounts.get(c.name) ?? 0) > 1
+          ? `@${c.name} (${c.profileName && c.profileName !== c.name ? c.profileName : (c.number ?? c.id).slice(-4)})`
+          : `@${c.name}`;
       const ranked =
         trigger.query === ''
           ? people
@@ -79,7 +90,7 @@ export function useAutocomplete(
               .map((contact) => ({ item: contact }))
           : fuzzyFilter(trigger.query, people, (c) => c.name);
       return ranked.slice(0, LIMIT).map(({ item: contact }) => {
-        const label = `@${contact.name}`;
+        const label = labelFor(contact);
         return {
           kind: 'mention',
           key: `m-${contact.id}`,
@@ -96,7 +107,8 @@ export function useAutocomplete(
         key: `e-${code}`,
         emoji: entry.emoji,
         code,
-        insert: entry.emoji,
+        // Without the trailing presentation selector some data adds, plus a space to keep typing.
+        insert: `${withoutExtraSelector(entry.emoji)} `,
       }));
     }
     const q = trigger.query.toLowerCase();
@@ -110,10 +122,11 @@ export function useAutocomplete(
         name: c.name,
         ...(c.usage ? { usage: c.usage } : {}),
         description: c.description,
-        owner: c.owner,
+        // Shown as attribution: the plugin's name, not its id.
+        owner: c.owner === 'core' ? 'core' : (plugins.get(c.owner)?.definition.name ?? c.owner),
         insert: `/${c.name} `,
       }));
-  }, [trigger, conversation.memberIds, selfId, contacts, emojiIndex, commands]);
+  }, [trigger, memberIds, selfId, contacts, emojiIndex, commands, plugins]);
 
   const triggerKey = trigger ? `${trigger.kind}:${trigger.start}:${trigger.query}` : '';
   const active =
@@ -139,4 +152,18 @@ export function useAutocomplete(
       if (trigger) setDismissedAt(trigger.start);
     },
   };
+}
+
+/**
+ * Drops a trailing U+FE0F after characters that are emoji by default (the
+ * data adds it to e.g. 👍, where it only makes reactions and text compare
+ * unequal); keeps it where it matters (❤️ would otherwise render as text).
+ */
+export function withoutExtraSelector(emoji: string): string {
+  if (!emoji.endsWith('\uFE0F')) return emoji;
+  const base = emoji.slice(0, -1);
+  const tail = base.charCodeAt(base.length - 1);
+  const lowSurrogate = tail >= 0xdc00 && tail <= 0xdfff;
+  const last = base.codePointAt(base.length - (lowSurrogate ? 2 : 1));
+  return last !== undefined && last >= 0x1f000 ? base : emoji;
 }

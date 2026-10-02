@@ -161,3 +161,8 @@
 .row:has(:focus-visible) .text {
   padding-right: var(--shrike-space-6);
 }
+
+/* The row being dragged stays in place, dimmed, until it lands. */
+.row[data-dragging] {
+  opacity: 0.4;
+}

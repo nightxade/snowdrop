@@ -1,0 +1,62 @@
+.intro {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--shrike-space-4);
+  margin-bottom: var(--shrike-space-7);
+  color: var(--shrike-text-muted);
+  font-size: var(--shrike-font-size-sm);
+}
+
+.intro p {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.controls {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--shrike-space-2);
+}
+
+.resetSlot {
+  display: inline-flex;
+  width: 28px;
+}
+
+.recorder {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 132px;
+  height: 34px;
+  padding: 0 var(--shrike-space-4);
+  border: 1px dashed transparent;
+  border-radius: var(--shrike-radius-sm);
+  background: var(--shrike-bg-input);
+  box-shadow: inset 0 0 0 1px var(--shrike-border-strong);
+}
+
+.recorder:hover {
+  box-shadow: inset 0 0 0 1px var(--shrike-text-faint);
+}
+
+.recorder[data-recording] {
+  border-color: var(--shrike-accent);
+  background: var(--shrike-accent-soft);
+  box-shadow: none;
+}
+
+.listening {
+  color: var(--shrike-text-strong);
+  font-size: var(--shrike-font-size-sm);
+  font-weight: var(--shrike-font-weight-medium);
+}
+
+.unset {
+  color: var(--shrike-text-faint);
+  font-size: var(--shrike-font-size-sm);
+}

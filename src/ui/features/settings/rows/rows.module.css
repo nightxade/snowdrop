@@ -1,0 +1,134 @@
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--shrike-space-3);
+}
+
+.section + .section {
+  margin-top: var(--shrike-space-8);
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--shrike-space-5);
+}
+
+.sectionTitle {
+  color: var(--shrike-text-strong);
+  font-size: var(--shrike-font-size-header);
+  font-weight: var(--shrike-font-weight-semibold);
+}
+
+.sectionDescription {
+  margin-top: var(--shrike-space-2);
+  color: var(--shrike-text-muted);
+  font-size: var(--shrike-font-size-sm);
+  line-height: 1.45;
+}
+
+.sectionActions {
+  display: flex;
+  flex: none;
+  gap: var(--shrike-space-3);
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+}
+
+.row {
+  /* Flex-wrap: small controls (switches, shortcuts) stay beside the label on
+     phones; wide ones (segmented, sliders) drop below it when they don't fit. */
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--shrike-space-3) var(--shrike-space-7);
+  padding: var(--shrike-space-5) 0;
+  border-bottom: 1px solid var(--shrike-border);
+}
+
+.row:last-child {
+  border-bottom: none;
+}
+
+.row[data-disabled] .label {
+  /* Colours, not opacity, so disabled text still meets contrast. */
+  color: var(--shrike-text-muted);
+}
+
+.row[data-disabled] .description {
+  color: var(--shrike-text-faint);
+}
+
+.text {
+  display: flex;
+  flex: 1 1 160px;
+  flex-direction: column;
+  gap: var(--shrike-space-2);
+  min-width: 0;
+}
+
+.row[data-stacked] .text {
+  flex-basis: 100%;
+}
+
+.label {
+  color: var(--shrike-text-strong);
+  font-weight: var(--shrike-font-weight-medium);
+}
+
+.description {
+  max-width: 62ch;
+  color: var(--shrike-text-muted);
+  font-size: var(--shrike-font-size-sm);
+  line-height: 1.45;
+}
+
+.control {
+  display: flex;
+  flex: 0 1 auto;
+  justify-content: flex-end;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.row[data-stacked] .control {
+  flex-basis: 100%;
+  justify-content: flex-start;
+}
+
+.extra,
+.note {
+  flex-basis: 100%;
+}
+
+.note {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--shrike-space-3);
+  padding: var(--shrike-space-3) var(--shrike-space-4);
+  border-radius: var(--shrike-radius-sm);
+  background: var(--shrike-bg-hover);
+  color: var(--shrike-text-muted);
+  font-size: var(--shrike-font-size-sm);
+  line-height: 1.45;
+}
+
+.note[data-tone='warning'] {
+  box-shadow: inset 3px 0 0 var(--shrike-warning);
+  color: var(--shrike-text);
+}
+
+.note[data-tone='danger'] {
+  background: var(--shrike-danger-soft);
+  box-shadow: inset 3px 0 0 var(--shrike-danger);
+  color: var(--shrike-text);
+}
+
+.note[data-tone='success'] {
+  box-shadow: inset 3px 0 0 var(--shrike-success);
+  color: var(--shrike-text);
+}

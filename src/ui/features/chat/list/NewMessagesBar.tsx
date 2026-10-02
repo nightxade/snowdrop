@@ -31,8 +31,15 @@ export function NewMessagesBar({
   const [count] = useState(
     () => conversationsSelectors.unread(conversationId)(stores.conversations.getState()).count,
   );
+  const unreadNow = useStore(
+    stores.conversations,
+    (s) => conversationsSelectors.unread(conversationId)(s).count,
+  );
+  // "Mark as read" hides it; having seen the divider hides it only while
+  // nothing is unread (new arrivals bring it back).
   const [dismissed, setDismissed] = useState(false);
-  if (dividerVisible && !dismissed) setDismissed(true);
+  const [seen, setSeen] = useState(false);
+  if (dividerVisible && !seen) setSeen(true);
   const since = useStore(stores.messages, (s) => {
     const w = s.windows[conversationId];
     if (!w || marker === undefined) return undefined;
@@ -44,7 +51,12 @@ export function NewMessagesBar({
     return undefined;
   });
 
-  const show = !dismissed && count > 0 && marker !== undefined && (dividerAbove || !dividerLoaded);
+  const show =
+    !dismissed &&
+    count > 0 &&
+    marker !== undefined &&
+    (dividerAbove || !dividerLoaded) &&
+    (!seen || unreadNow > 0);
   if (!show) return null;
   return (
     <div className={styles.bar} role="status" data-shrike="new-messages-bar">

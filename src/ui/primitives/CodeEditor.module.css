@@ -1,0 +1,52 @@
+.editor {
+  display: flex;
+  height: 100%;
+  min-height: 240px;
+  overflow: hidden;
+  border: 1px solid var(--shrike-border-strong);
+  border-radius: var(--shrike-radius-sm);
+  background: var(--shrike-code-bg);
+  font-family: var(--shrike-font-mono);
+  font-size: var(--shrike-font-size-sm);
+  line-height: 20px;
+}
+
+.editor:focus-within {
+  border-color: var(--shrike-accent);
+}
+
+.gutter {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  min-width: 40px;
+  padding: var(--shrike-space-4) var(--shrike-space-3) var(--shrike-space-4) 0;
+  overflow: hidden;
+  border-right: 1px solid var(--shrike-border);
+  color: var(--shrike-text-faint);
+  text-align: right;
+  user-select: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.area {
+  flex: 1;
+  min-width: 0;
+  padding: var(--shrike-space-4);
+  border: none;
+  background: transparent;
+  color: var(--shrike-text);
+  font: inherit;
+  line-height: inherit;
+  resize: none;
+  tab-size: 2;
+  white-space: pre;
+}
+
+.area:focus-visible {
+  outline: none;
+}
+
+.area::placeholder {
+  color: var(--shrike-text-faint);
+}

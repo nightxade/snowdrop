@@ -1,4 +1,11 @@
-export { ShrikeContextProvider, useShrike, useStores, type AppServices } from './ShrikeContext';
+export {
+  ShrikeContextProvider,
+  useShrike,
+  useStores,
+  type AppAdmin,
+  type AppServices,
+  type DaemonProbe,
+} from './ShrikeContext';
 export { useObservableList, type ListSource } from './useObservableList';
 export { BREAKPOINTS, useMediaQuery } from './useMediaQuery';
 export { useKeybindLabel } from './useKeybindLabel';
@@ -11,3 +18,10 @@ export {
   setConversationFocusResolver,
   type ConversationFocusResolver,
 } from './focusTargets';
+export {
+  CONVERSATION_MIME,
+  isConversationDrag,
+  startConversationDrag,
+  useConversationDrop,
+  type ConversationDropTarget,
+} from './useConversationDrop';

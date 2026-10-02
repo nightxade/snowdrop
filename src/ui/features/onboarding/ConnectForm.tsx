@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Check, Copy } from 'lucide-react';
+import { Check, Copy, LoaderCircle } from 'lucide-react';
+import type { DaemonProbe } from '@/ui/hooks';
 import { Button, IconButton, TextInput } from '@/ui/primitives';
 import styles from './ConnectForm.module.css';
 
@@ -46,20 +47,39 @@ function CommandChip({ command }: { command: string }) {
 export function ConnectForm({
   defaultUrl,
   onConnect,
+  probe,
 }: {
   defaultUrl: string;
   onConnect: (daemonUrl: string) => void;
+  /** Checks the daemon before committing (and reloading), so typos fail fast. */
+  probe?: ((url: string) => Promise<DaemonProbe>) | undefined;
 }) {
   const [url, setUrl] = useState(defaultUrl);
   const [touched, setTouched] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
   const error = validateDaemonUrl(url);
+  const submit = async (force: boolean) => {
+    setTouched(true);
+    if (error) return;
+    const target = url.trim();
+    if (!probe || force) {
+      onConnect(target);
+      return;
+    }
+    setChecking(true);
+    const result = await probe(target);
+    setChecking(false);
+    // No account yet is fine: Shrike walks you through linking next.
+    if (result.ok) onConnect(target);
+    else setFailure(result.message);
+  };
   return (
     <form
       className={styles.form}
       onSubmit={(e) => {
         e.preventDefault();
-        setTouched(true);
-        if (!error) onConnect(url.trim());
+        void submit(false);
       }}
     >
       <h2 className={styles.title}>Connect to signal-cli</h2>
@@ -85,13 +105,38 @@ export function ConnectForm({
         hint="A path on this app (the dev proxy) or a full URL to the daemon."
         onChange={(e) => {
           setUrl(e.target.value);
+          setFailure(null);
         }}
         onBlur={() => {
           setTouched(true);
         }}
       />
-      <Button type="submit" variant="primary" size="lg" fullWidth>
-        Connect
+      {failure && (
+        <div className={styles.failure} role="alert">
+          <p>
+            Couldn’t reach signal-cli at that address: {failure}. Check the daemon is running and
+            try again.
+          </p>
+          <button
+            type="button"
+            className={styles.anyway}
+            onClick={() => {
+              void submit(true);
+            }}
+          >
+            Connect anyway
+          </button>
+        </div>
+      )}
+      <Button
+        type="submit"
+        variant="primary"
+        size="lg"
+        fullWidth
+        disabled={checking}
+        icon={checking ? <LoaderCircle className={styles.spin} size={18} /> : undefined}
+      >
+        {checking ? 'Checking…' : 'Connect'}
       </Button>
     </form>
   );

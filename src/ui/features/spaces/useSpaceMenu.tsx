@@ -1,4 +1,14 @@
-import { ArrowDown, ArrowUp, BellOff, Check, Pencil, Trash2 } from 'lucide-react';
+import {
+  ArrowDown,
+  ArrowUp,
+  BellOff,
+  Check,
+  FolderMinus,
+  FolderPlus,
+  ListPlus,
+  Pencil,
+  Trash2,
+} from 'lucide-react';
 import { useCallback } from 'react';
 import { HOME, type SpaceId } from '@/core/stores';
 import { useShrike, type AppServices } from '@/ui/hooks';
@@ -80,6 +90,68 @@ export function useSpaceMenu(spaceId: SpaceId): () => MenuEntry[] {
               },
             },
           ];
+    // Folders without drag: join an existing folder, start one with another space, or leave.
+    const spaceNames = stores.spaces.getState().spaces;
+    const inFolder = rail.find((e) => e.type === 'folder' && e.spaceIds.includes(spaceId));
+    const folderTargets: MenuEntry[] = [
+      ...rail.flatMap((e): MenuEntry[] =>
+        e.type === 'folder' && e !== inFolder
+          ? [
+              {
+                kind: 'item',
+                id: `folder-${e.id}`,
+                label: e.name,
+                onSelect: () => {
+                  const first = e.spaceIds[0];
+                  if (first) stores.spaces.getState().createFolder(first, spaceId);
+                },
+              },
+            ]
+          : [],
+      ),
+      ...rail.flatMap((e): MenuEntry[] => {
+        if (e.type !== 'space' || e.id === spaceId) return [];
+        const other = spaceNames[e.id];
+        return other
+          ? [
+              {
+                kind: 'item',
+                id: `with-${e.id}`,
+                label: `New folder with ${other.name}`,
+                onSelect: () => {
+                  stores.spaces.getState().createFolder(e.id, spaceId);
+                },
+              },
+            ]
+          : [];
+      }),
+    ];
+    const folders: MenuEntry[] = [
+      ...(folderTargets.length > 0
+        ? [
+            {
+              kind: 'submenu',
+              id: 'add-folder',
+              label: 'Add to folder',
+              icon: <FolderPlus size={ICON} />,
+              items: folderTargets,
+            } as const,
+          ]
+        : []),
+      ...(inFolder
+        ? [
+            {
+              kind: 'item',
+              id: 'leave-folder',
+              label: 'Remove from folder',
+              icon: <FolderMinus size={ICON} />,
+              onSelect: () => {
+                stores.spaces.getState().removeFromFolder(spaceId);
+              },
+            } as const,
+          ]
+        : []),
+    ];
     return [
       {
         kind: 'item',
@@ -111,7 +183,17 @@ export function useSpaceMenu(spaceId: SpaceId): () => MenuEntry[] {
           stores.ui.getState().openModal({ type: 'editSpace', props: { spaceId } });
         },
       },
+      {
+        kind: 'item',
+        id: 'add-category',
+        label: 'Create category',
+        icon: <ListPlus size={ICON} />,
+        onSelect: () => {
+          stores.ui.getState().openModal({ type: 'category', props: { spaceId } });
+        },
+      },
       ...move,
+      ...folders,
       ...(plugin.length > 0 ? [{ kind: 'separator', id: 's-plugins' } as const, ...plugin] : []),
       { kind: 'separator', id: 's2' },
       {

@@ -38,3 +38,18 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.more {
+  opacity: 0;
+}
+
+.header:hover .more,
+.more[data-state='open'] {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .more {
+    opacity: 1;
+  }
+}

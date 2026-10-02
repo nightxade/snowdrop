@@ -1,0 +1,107 @@
+import { LoaderCircle, Lock, RotateCw, Settings2, TriangleAlert } from 'lucide-react';
+import { useId } from 'react';
+import type { PluginInfo } from '@/core/plugins';
+import { useShrike } from '@/ui/hooks';
+import { Button, IconButton, Switch, Tooltip } from '@/ui/primitives';
+import { errorMessage } from './usePlugins';
+import styles from './plugins.module.css';
+
+export interface PluginCardProps {
+  info: PluginInfo;
+  onOpenSettings: () => void;
+  onTag: (tag: string) => void;
+  activeTag: string | null;
+}
+
+export function PluginCard({ info, onOpenSettings, onTag, activeTag }: PluginCardProps) {
+  const { plugins } = useShrike();
+  const { definition: d, enabled, status } = info;
+  const titleId = useId();
+  const descId = useId();
+  const hasSettings = Object.keys(d.settings ?? {}).length > 0;
+  const failed = status === 'failed';
+  return (
+    <article
+      className={styles.card}
+      data-enabled={enabled ? '' : undefined}
+      data-status={status}
+      aria-labelledby={titleId}
+      data-shrike="plugin-card"
+    >
+      <header className={styles.cardHeader}>
+        <h3 id={titleId} className={styles.cardTitle}>
+          {d.name}
+        </h3>
+        {d.required && (
+          <Tooltip label="Part of Shrike’s core; can’t be turned off.">
+            <span className={styles.required} tabIndex={0}>
+              <Lock size={11} aria-hidden />
+              Required
+            </span>
+          </Tooltip>
+        )}
+        <span className={styles.cardControls}>
+          {hasSettings && (
+            <IconButton
+              size="sm"
+              label={`${d.name} settings`}
+              icon={<Settings2 />}
+              onClick={onOpenSettings}
+            />
+          )}
+          <Switch
+            checked={enabled}
+            disabled={d.required ?? false}
+            ariaLabel={`${enabled ? 'Disable' : 'Enable'} ${d.name}`}
+            aria-describedby={descId}
+            onCheckedChange={(on) => {
+              void plugins.setEnabled(d.id, on);
+            }}
+          />
+        </span>
+      </header>
+      <p id={descId} className={styles.cardDescription}>
+        {d.description}
+      </p>
+      {failed && (
+        <div className={styles.failure} role="alert">
+          <TriangleAlert size={14} aria-hidden />
+          <span className={styles.failureText}>Failed to start: {errorMessage(info.error)}</span>
+          <Button
+            size="sm"
+            variant="secondary"
+            icon={<RotateCw size={14} />}
+            onClick={() => {
+              void plugins.start(d.id);
+            }}
+          >
+            Retry
+          </Button>
+        </div>
+      )}
+      <footer className={styles.cardFooter}>
+        <span className={styles.authors}>by {d.authors.join(', ')}</span>
+        {status === 'starting' && (
+          <span className={styles.starting}>
+            <LoaderCircle size={12} aria-hidden className={styles.spin} /> Starting…
+          </span>
+        )}
+        <span className={styles.tags}>
+          {(d.tags ?? []).map((tag) => (
+            <button
+              key={tag}
+              type="button"
+              className={styles.tag}
+              aria-pressed={activeTag === tag}
+              onClick={() => {
+                onTag(tag);
+              }}
+            >
+              {tag}
+            </button>
+          ))}
+        </span>
+      </footer>
+    </article>
+  );
+}

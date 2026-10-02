@@ -23,31 +23,33 @@
 }
 
 .new {
-  position: relative;
   display: flex;
   align-items: center;
-  height: 8px;
+  gap: var(--shrike-space-3);
+  height: 18px;
   margin: 0;
   padding: var(--shrike-space-3) var(--shrike-space-5) 0;
   box-sizing: content-box;
 }
 
-.new::before {
+/* The pill sits at the start of the line, in the gutter column, where the
+   hover bar of the row below (top-right) can never cover it. */
+.new::after {
   content: '';
   flex: 1;
   height: 1px;
-  background: var(--shrike-danger);
+  background: var(--shrike-accent);
 }
 
 .newTag {
-  padding: 0 6px;
-  border-radius: var(--shrike-radius-xs);
-  background: var(--shrike-danger);
-  color: var(--shrike-text-on-danger);
+  flex: none;
+  padding: 1px 8px;
+  border-radius: var(--shrike-radius-full);
+  background: var(--shrike-accent);
+  color: var(--shrike-text-on-accent);
   font-size: var(--shrike-font-size-xs);
-  font-weight: var(--shrike-font-weight-bold);
+  font-weight: var(--shrike-font-weight-semibold);
   line-height: 16px;
-  text-transform: uppercase;
 }
 
 .system {

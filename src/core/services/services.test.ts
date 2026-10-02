@@ -625,6 +625,61 @@ describe('SendService', () => {
     expect(list(id).at(-1)?.body).toBe('QUIET');
   });
 
+  it('passes the original quote with an edit (signal-cli rebuilds the whole message)', async () => {
+    const { send, backend, conv, list, history, memberOf } = await setup();
+    const id = conv('dm-ines');
+    await history.open(id);
+    const quote = { authorId: memberOf(id), sentAt: NOW - 1000, text: 'original' };
+    await send.send({ ...draft(id, 'reply'), quote });
+    const mine = list(id).at(-1)!;
+    const edit = vi.spyOn(backend, 'edit');
+    expect(await send.edit(id, mine.id, 'reply, edited')).toBe(true);
+    expect(edit.mock.calls[0]?.[0].quote).toEqual(quote);
+  });
+
+  it('shows the local preview of a sent attachment and keeps it when the transport has no URL', async () => {
+    const { send, backend, conv, list, history } = await setup();
+    const id = conv('dm-ines');
+    await history.open(id);
+    // A transport that returns attachments without URLs (like signal-cli for large files).
+    const real = backend.send.bind(backend);
+    vi.spyOn(backend, 'send').mockImplementation(async (input) => {
+      const result = await real(input);
+      return { ...result, attachments: (result.attachments ?? []).map(({ url: _u, ...a }) => a) };
+    });
+    const file = new Blob([new Uint8Array(4)], { type: 'image/png' });
+    await send.send({
+      ...draft(id, ''),
+      attachments: [
+        {
+          fileName: 'a.png',
+          contentType: 'image/png',
+          data: file,
+          previewUrl: 'blob:local-1',
+          width: 40,
+          height: 20,
+        },
+      ],
+    });
+    expect(list(id).at(-1)?.attachments[0]).toMatchObject({
+      url: 'blob:local-1',
+      width: 40,
+      height: 20,
+    });
+  });
+
+  it('keeps own small attachments as data URLs in the demo backend', async () => {
+    const { send, conv, list, history } = await setup();
+    const id = conv('dm-ines');
+    await history.open(id);
+    const file = new Blob(['hello'], { type: 'text/plain' });
+    await send.send({
+      ...draft(id, ''),
+      attachments: [{ fileName: 'a.txt', contentType: 'text/plain', data: file }],
+    });
+    expect(list(id).at(-1)?.attachments[0]?.url).toBe('data:text/plain;base64,aGVsbG8=');
+  });
+
   it('edits optimistically and rolls back on failure', async () => {
     const { send, backend, repository, conv, list, history } = await setup();
     const id = conv('dm-ines');

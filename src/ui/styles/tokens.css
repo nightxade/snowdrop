@@ -129,6 +129,9 @@
   --shrike-duration-slow: 200ms;
 
   /* Misc */
+  /* QR codes stay black-on-white in every theme (scanners need it). */
+  --shrike-qr-ink: #000000;
+  --shrike-qr-paper: #ffffff;
   --shrike-saturation: 1;
   --shrike-zoom: 1;
 }

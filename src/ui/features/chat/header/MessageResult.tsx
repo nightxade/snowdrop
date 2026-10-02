@@ -27,7 +27,7 @@ export function MessageResult({
   const now = useMinuteClock();
   const name = author?.name ?? UNKNOWN_CONTACT_NAME;
   return (
-    <button type="button" className={styles.result} onClick={onOpen}>
+    <button type="button" className={styles.result} onClick={onOpen} data-search-result>
       {context && <span className={styles.context}>{context}</span>}
       <span className={styles.row}>
         <Avatar

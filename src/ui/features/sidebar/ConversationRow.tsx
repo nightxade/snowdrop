@@ -1,7 +1,7 @@
 import { BellOff, Hash, AtSign, Settings, X } from 'lucide-react';
-import { memo } from 'react';
+import { memo, useState } from 'react';
 import type { ConversationId } from '@/core/domain';
-import { useShrike } from '@/ui/hooks';
+import { startConversationDrag, useShrike } from '@/ui/hooks';
 import {
   archive,
   ConversationAvatar,
@@ -19,6 +19,8 @@ export interface ConversationRowProps {
   selected: boolean;
   /** The row that receives Tab focus in the list (roving tabindex). */
   tabStop: boolean;
+  /** Can be dragged onto a rail tile or another category. */
+  draggable?: boolean;
 }
 
 export const ConversationRow = memo(function ConversationRow({
@@ -26,8 +28,10 @@ export const ConversationRow = memo(function ConversationRow({
   variant,
   selected,
   tabStop,
+  draggable = false,
 }: ConversationRowProps) {
   const app = useShrike();
+  const [dragging, setDragging] = useState(false);
   const { view, unread, muted, typing, preview } = useRowState(id, variant === 'home');
   const menu = useConversationMenu(id);
   if (!view) return null;
@@ -52,6 +56,8 @@ export const ConversationRow = memo(function ConversationRow({
       data-unread={hasUnread ? '' : undefined}
       data-muted={muted ? '' : undefined}
       data-shrike="conversation-row"
+      data-row-id={id}
+      data-dragging={dragging ? '' : undefined}
     >
       <ContextMenu entries={menu} label={`${view.title} options`}>
         <button
@@ -62,6 +68,22 @@ export const ConversationRow = memo(function ConversationRow({
           tabIndex={tabStop ? 0 : -1}
           aria-current={selected ? 'page' : undefined}
           aria-label={label}
+          draggable={draggable || undefined}
+          onDragStart={
+            draggable
+              ? (e) => {
+                  startConversationDrag(e, id);
+                  setDragging(true);
+                }
+              : undefined
+          }
+          onDragEnd={
+            draggable
+              ? () => {
+                  setDragging(false);
+                }
+              : undefined
+          }
           onClick={() => {
             openConversation(app, id);
           }}

@@ -2,7 +2,7 @@ import { Download, FileText, ImageOff, Play, RotateCw } from 'lucide-react';
 import { memo, useState, type CSSProperties } from 'react';
 import type { Attachment, ConversationId } from '@/core/domain';
 import { Lightbox, Tooltip, type LightboxItem } from '@/ui/primitives';
-import { attachmentKind, fitMedia, formatBytes, isGridMedia } from '../lib/attachments';
+import { attachmentKind, fitMedia, formatBytes, isGridMedia, safeHref } from '../lib/attachments';
 import { useAttachmentUrl } from './useAttachmentUrl';
 import styles from './Attachments.module.css';
 
@@ -36,6 +36,7 @@ export const Attachments = memo(function Attachments({
         kind: attachmentKind(a) === 'video' ? ('video' as const) : ('image' as const),
         alt: a.fileName ?? 'Attachment',
         fileName: a.fileName,
+        downloadHref: safeHref(src),
         width: a.width,
         height: a.height,
       },
@@ -177,9 +178,11 @@ interface CardProps {
 }
 
 function DownloadButton({ url, fileName }: { url: string; fileName: string | undefined }) {
+  const href = safeHref(url);
+  if (!href) return null;
   return (
     <Tooltip label="Download">
-      <a className={styles.download} href={url} download={fileName ?? true} aria-label="Download">
+      <a className={styles.download} href={href} download={fileName ?? true} aria-label="Download">
         <Download size={18} aria-hidden />
       </a>
     </Tooltip>

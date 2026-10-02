@@ -71,7 +71,9 @@ export function installDevTools(shrike: Shrike): void {
     shrike,
     stress: (count = 5000) => stress(shrike, count),
     failNext: () => {
-      if (shrike.backend instanceof MockBackend) shrike.backend.failNext();
+      void shrike.backendReady.then((backend) => {
+        if (backend instanceof MockBackend) backend.failNext();
+      });
     },
   };
   Object.assign(window, { __shrike: tools });

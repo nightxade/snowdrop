@@ -4,6 +4,7 @@ import { useStore } from 'zustand';
 import { initialsFor } from '@/core/domain';
 import type { RailEntry } from '@/core/stores';
 import { useStores } from '@/ui/hooks';
+import { useFolderMenu } from '@/ui/features/spaces';
 import { RailTile } from './RailTile';
 import { SpaceTile } from './SpaceTile';
 import { useSpacesUnread } from './useUnread';
@@ -17,12 +18,15 @@ export interface FolderEntryProps {
   wrapperStyle?: CSSProperties | undefined;
   dragHandle?: HTMLAttributes<HTMLButtonElement> | undefined;
   dragging?: boolean;
+  /** A dragged space would join this folder. */
+  mergeTarget?: boolean;
 }
 
 /**
  * A folder of spaces: collapsed it previews up to four spaces in a 2×2 grid
  * and aggregates their unread state; expanded it lists them on a tinted rail
- * segment so it's clear which tiles belong together.
+ * segment so it's clear which tiles belong together. Right-click (or
+ * Shift+F10) to rename, recolour or dissolve it.
  */
 export function FolderEntry({
   folder,
@@ -30,12 +34,15 @@ export function FolderEntry({
   wrapperStyle,
   dragHandle,
   dragging,
+  mergeTarget,
 }: FolderEntryProps) {
   const stores = useStores();
   const spaces = useStore(stores.spaces, (s) => s.spaces);
   const selectedSpace = useStore(stores.ui, (s) => s.selectedSpace);
   const { hasUnread, mentions } = useSpacesUnread(folder.spaceIds);
+  const menu = useFolderMenu(folder.id);
   const containsSelected = folder.spaceIds.includes(selectedSpace);
+  const hue = folder.hue ? `var(--shrike-avatar-${folder.hue})` : undefined;
   const toggle = () => {
     stores.spaces.getState().toggleFolder(folder.id);
   };
@@ -52,6 +59,9 @@ export function FolderEntry({
         wrapperStyle={wrapperStyle}
         dragging={dragging ?? false}
         className={styles.collapsed}
+        data-drop={mergeTarget ? '' : undefined}
+        menu={menu}
+        {...(hue ? { hue } : {})}
         onClick={toggle}
         {...dragHandle}
       >
@@ -77,14 +87,20 @@ export function FolderEntry({
   return (
     <div
       ref={wrapperRef}
-      style={wrapperStyle}
+      style={{ ...wrapperStyle, ...(hue ? { '--folder-hue': hue } : {}) }}
       className={styles.open}
       data-dragging={dragging ? '' : undefined}
+      data-tinted={hue ? '' : undefined}
+      role="group"
+      aria-label={`${folder.name} folder`}
     >
       <RailTile
         label={`${folder.name} (collapse)`}
         aria-expanded
         tone="accent"
+        className={styles.header}
+        data-drop={mergeTarget ? '' : undefined}
+        menu={menu}
         onClick={toggle}
         {...dragHandle}
       >

@@ -4,7 +4,9 @@ import { useStore } from 'zustand';
 import { HOME, sessionSelectors, type HomeSection } from '@/core/stores';
 import { useRovingFocus, useStores } from '@/ui/hooks';
 import { EmptyState, Scroller, Skeleton } from '@/ui/primitives';
+import { CategoryHeader } from './CategoryHeader';
 import { ConversationRow } from './ConversationRow';
+import { useCategoryDrop } from './useCategoryDrop';
 import { visibleIds } from './model';
 import { SectionHeader } from './SectionHeader';
 import { useSidebarModel } from './useSidebarModel';
@@ -27,6 +29,8 @@ export function ConversationList() {
   const onKeyDown = useRovingFocus('vertical');
   const [showArchived, setShowArchived] = useState(false);
   const baseId = useId();
+  const drop = useCategoryDrop(space);
+  const viewsById = useStore(stores.conversations, (s) => s.byId);
 
   if (!ready) return <ListSkeleton />;
 
@@ -61,26 +65,56 @@ export function ConversationList() {
         )}
         {rows.map(({ section, ids }) => {
           const listId = `${baseId}-${section.id}`;
+          const inSpace = space !== HOME;
+          const line =
+            inSpace && drop.indicator?.categoryId === section.id ? drop.indicator.index : -1;
+          const dropLine = <li key="__drop" className={styles.dropLine} aria-hidden />;
           return (
-            <section key={section.id} className={styles.section} aria-label={section.title}>
-              <SectionHeader
-                title={section.title}
-                collapsed={section.collapsed}
-                controls={listId}
-                onToggle={() => {
-                  toggle(section.id);
-                }}
-              />
+            <section
+              key={section.id}
+              className={styles.section}
+              aria-label={section.title}
+              data-drop-active={line !== -1 ? '' : undefined}
+              {...(inSpace ? drop.handlers(section.id, ids) : {})}
+            >
+              {inSpace ? (
+                <CategoryHeader
+                  spaceId={space}
+                  categoryId={section.id}
+                  title={section.title}
+                  collapsed={section.collapsed}
+                  controls={listId}
+                  onToggle={() => {
+                    toggle(section.id);
+                  }}
+                />
+              ) : (
+                <SectionHeader
+                  title={section.title}
+                  collapsed={section.collapsed}
+                  controls={listId}
+                  onToggle={() => {
+                    toggle(section.id);
+                  }}
+                />
+              )}
               <ul id={listId} className={styles.list}>
-                {ids.map((id) => (
+                {ids.map((id, i) => [
+                  i === line ? dropLine : null,
                   <ConversationRow
                     key={id}
                     id={id}
                     variant={variant}
                     selected={id === selected}
                     tabStop={id === tabStop}
-                  />
-                ))}
+                    // Spaces: drag between categories or to another space. Home: groups to a space.
+                    draggable={inSpace || viewsById[id]?.kind === 'group'}
+                  />,
+                ])}
+                {line === ids.length && dropLine}
+                {inSpace && ids.length === 0 && !section.collapsed && line === -1 && (
+                  <li className={styles.emptyCategory}>Drag conversations here</li>
+                )}
               </ul>
             </section>
           );

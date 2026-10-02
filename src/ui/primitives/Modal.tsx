@@ -13,12 +13,14 @@ export interface ModalProps {
   children?: ReactNode;
   /** Right-aligned action row. */
   footer?: ReactNode;
-  size?: 'sm' | 'md' | 'lg';
+  size?: 'sm' | 'md' | 'lg' | 'xl';
   /** Place the dialog near the top (quick switcher) instead of centred. */
   placement?: 'center' | 'top';
   /** Hide the visual header (title stays available to screen readers). */
   hideHeader?: boolean;
   className?: string | undefined;
+  /** No padding around the body (palettes, full-bleed content). */
+  flush?: boolean;
   /**
    * Where focus goes on close. Defaults to the element focused when the modal
    * opened (if it's still in the document). Return null to use that default.
@@ -48,6 +50,7 @@ export function Modal({
   placement = 'center',
   hideHeader,
   className,
+  flush,
   returnFocus,
 }: ModalProps) {
   // Captured on first render, i.e. before Radix moves focus into the dialog.
@@ -86,7 +89,11 @@ export function Modal({
               <IconButton className={styles.close} label="Close" icon={<X />} noTooltip />
             </RadixDialog.Close>
           </header>
-          {children !== undefined && <div className={styles.body}>{children}</div>}
+          {children !== undefined && (
+            <div className={styles.body} data-flush={flush ? '' : undefined}>
+              {children}
+            </div>
+          )}
           {footer && <footer className={styles.footer}>{footer}</footer>}
         </RadixDialog.Content>
       </RadixDialog.Portal>

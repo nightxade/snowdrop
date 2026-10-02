@@ -1,0 +1,62 @@
+/* Decorations sit inline after the author name (message.decorations slot,
+   which is display: contents), so each brings its own leading space. */
+.relative,
+.note,
+.keyword {
+  margin-left: 6px;
+}
+
+.relative {
+  color: var(--shrike-text-faint);
+  font-size: var(--shrike-font-size-xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.note {
+  display: inline-flex;
+  align-items: center;
+  max-width: 22ch;
+  height: 18px;
+  padding: 0 6px;
+  overflow: hidden;
+  border: 1px solid var(--shrike-border-strong);
+  border-radius: var(--shrike-radius-xs);
+  color: var(--shrike-text-muted);
+  font-size: var(--shrike-font-size-xs);
+  font-weight: var(--shrike-font-weight-medium);
+  line-height: 1;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: default;
+}
+
+.note[data-style='text'] {
+  height: auto;
+  padding: 0;
+  border: none;
+  font-style: italic;
+}
+
+.note > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.keyword {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: var(--shrike-radius-xs);
+  background: var(--shrike-highlight-bg);
+  color: var(--shrike-warning);
+  font-size: var(--shrike-font-size-xs);
+  font-weight: var(--shrike-font-weight-semibold);
+  white-space: nowrap;
+}
+
+.noteFull {
+  white-space: pre-wrap;
+}

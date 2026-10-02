@@ -10,6 +10,8 @@ export interface MessageBodyProps {
   /** Wraps a mention pill (a button) — e.g. as a profile popout trigger. */
   renderMention?: (id: string, pill: ReactElement) => ReactNode;
   className?: string | undefined;
+  /** For aria-describedby on the row. */
+  id?: string;
   /**
    * Static rendering for previews inside other controls (search results):
    * no links, buttons or reveal toggles, which can't nest in a button.
@@ -176,6 +178,7 @@ export const MessageBody = memo(function MessageBody(props: MessageBodyProps) {
   const segments = rangesToSegments(body, ranges);
   return (
     <div
+      {...(props.id !== undefined ? { id: props.id } : {})}
       className={[styles.body, className].filter(Boolean).join(' ')}
       data-jumbo={isJumbo(body, ranges) ? '' : undefined}
     >

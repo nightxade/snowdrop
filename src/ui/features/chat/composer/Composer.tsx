@@ -1,5 +1,5 @@
 import { CirclePlus, Smile } from 'lucide-react';
-import { memo, useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
+import { memo, useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useStore } from 'zustand';
 import { CoreCommand } from '@/core/commands';
 import type { ConversationId, ConversationView } from '@/core/domain';
@@ -8,13 +8,11 @@ import { setConversationFocusResolver, useShrike } from '@/ui/hooks';
 import { useConversationView } from '@/ui/features/conversation';
 import { EmojiPickerPopover, IconButton } from '@/ui/primitives';
 import { useChatController } from '../ChatController';
-import { AutocompletePopover, optionId } from './AutocompletePopover';
 import { AttachmentTray } from './AttachmentTray';
 import { ReplyBar } from './ReplyBar';
 import { TypingLine } from './TypingLine';
-import { wrapSelection } from './formatting';
-import { useAutocomplete } from './useAutocomplete';
-import { replaceRange, useAutoGrow } from './useAutoGrow';
+import { useAutocompleteField } from './useAutocompleteField';
+import { useAutoGrow } from './useAutoGrow';
 import { useComposer } from './useComposer';
 import { useTypeToFocus } from './useTypeToFocus';
 import styles from './Composer.module.css';
@@ -43,10 +41,17 @@ function ComposerInner({ conversation }: { conversation: ConversationView }) {
   const textarea = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const [field, setField] = useState<HTMLDivElement | null>(null);
-  const [caret, setCaret] = useState(text.length);
   const [emojiOpen, setEmojiOpen] = useState(false);
-  const listId = useId();
-  const auto = useAutocomplete(text, caret, conversation);
+  const field_ = useAutocompleteField({
+    textarea,
+    anchor: field,
+    text,
+    setText,
+    memberIds: conversation.memberIds,
+    onMention: state.addMention,
+    slash: true,
+  });
+  const { replace } = field_;
   useAutoGrow(textarea, text);
   useTypeToFocus(textarea);
 
@@ -63,59 +68,8 @@ function ComposerInner({ conversation }: { conversation: ConversationView }) {
     [conversationId],
   );
 
-  const syncCaret = () => {
-    const el = textarea.current;
-    if (el) setCaret(el.selectionEnd);
-  };
-
-  const replace = (
-    start: number,
-    end: number,
-    insert: string,
-    selStart?: number,
-    selEnd?: number,
-  ) => {
-    const el = textarea.current;
-    if (!el) return;
-    const next = replaceRange(el, start, end, insert, selStart, selEnd);
-    setText(next);
-    setCaret(el.selectionEnd);
-  };
-
-  const accept = (index: number) => {
-    const s = auto.suggestions[index];
-    const t = auto.trigger;
-    if (!s || !t) return;
-    if (s.kind === 'mention') state.addMention(s.token);
-    // Slash commands keep whatever arguments were typed after the name.
-    const space = text.search(/\s/u);
-    const end = s.kind === 'slash' ? (space === -1 ? text.length : space + 1) : t.end;
-    replace(t.start, end, s.insert);
-  };
-
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.nativeEvent.isComposing) return;
-    if (auto.open) {
-      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-        e.preventDefault();
-        auto.move(e.key === 'ArrowDown' ? 1 : -1);
-        return;
-      }
-      if ((e.key === 'Tab' && !e.shiftKey) || (e.key === 'Enter' && !e.shiftKey)) {
-        e.preventDefault();
-        accept(auto.active);
-        return;
-      }
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        auto.dismiss();
-        return;
-      }
-    }
-    if (wrapSelection(e, replace)) {
-      e.preventDefault();
-      return;
-    }
+    if (field_.onKeyDown(e)) return;
     if (e.key === 'Enter') {
       const sends = enterToSend ? !e.shiftKey : e.shiftKey || e.ctrlKey || e.metaKey;
       if (sends) {
@@ -203,15 +157,13 @@ function ComposerInner({ conversation }: { conversation: ConversationView }) {
               value={text}
               placeholder={placeholder}
               aria-label={placeholder}
-              aria-autocomplete="list"
-              aria-controls={auto.open ? listId : undefined}
-              aria-activedescendant={auto.open ? optionId(listId, auto.active) : undefined}
+              {...field_.inputProps}
               spellCheck
               onChange={(e) => {
                 setText(e.target.value);
-                setCaret(e.target.selectionEnd);
+                field_.syncCaret();
               }}
-              onSelect={syncCaret}
+              onSelect={field_.syncCaret}
               onKeyDown={onKeyDown}
               onPaste={(e) => {
                 const files = [...e.clipboardData.files];
@@ -246,18 +198,7 @@ function ComposerInner({ conversation }: { conversation: ConversationView }) {
           </div>
         </div>
       </div>
-      {auto.open && auto.trigger && (
-        <AutocompletePopover
-          id={listId}
-          anchor={field}
-          kind={auto.trigger.kind}
-          query={auto.trigger.query}
-          suggestions={auto.suggestions}
-          active={auto.active}
-          onHover={auto.setActive}
-          onPick={accept}
-        />
-      )}
+      {field_.popover}
       <TypingLine conversationId={conversationId} />
     </div>
   );

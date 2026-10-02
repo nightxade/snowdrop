@@ -1,96 +1,27 @@
 import * as RadixPopover from '@radix-ui/react-popover';
-import { EmojiPicker as Picker, type EmojiPickerListCategoryHeaderProps } from 'frimousse';
-import type { EmojiPickerListEmojiProps, EmojiPickerListRowProps } from 'frimousse';
-import type { ReactElement } from 'react';
+import { lazy, Suspense, type ReactElement } from 'react';
+import { EMOJIBASE_URL, type EmojiPickerProps } from './emojiPickerTypes';
 import styles from './EmojiPicker.module.css';
 
-/**
- * Emojibase data is served from our own origin (see devserver/emojibase.ts):
- * the library's default is a public CDN, which would leak picker usage.
- */
-export const EMOJIBASE_URL = `${import.meta.env.BASE_URL}emojibase`;
+export { EMOJIBASE_URL, type EmojiPickerProps };
 
-export interface EmojiPickerProps {
-  onSelect: (emoji: string) => void;
-  /** Focus the search field on mount (default true). */
-  autoFocus?: boolean;
-  columns?: number;
-}
+// frimousse (and its data handling) is only fetched the first time a picker opens.
+const Panel = lazy(() =>
+  import('./EmojiPickerPanel').then((m) => ({ default: m.EmojiPickerPanel })),
+);
 
-function CategoryHeader({ category, ...props }: EmojiPickerListCategoryHeaderProps) {
+/** The emoji grid; a same-sized placeholder shows while the code loads. */
+export function EmojiPicker(props: EmojiPickerProps) {
   return (
-    <div className={styles.category} {...props}>
-      {category.label}
-    </div>
-  );
-}
-
-function Row({ children, ...props }: EmojiPickerListRowProps) {
-  return (
-    <div className={styles.row} {...props}>
-      {children}
-    </div>
-  );
-}
-
-function EmojiButton({ emoji, ...props }: EmojiPickerListEmojiProps) {
-  return (
-    <button
-      className={styles.emoji}
-      data-active={emoji.isActive ? '' : undefined}
-      aria-label={emoji.label}
-      {...props}
+    <Suspense
+      fallback={
+        <div className={styles.root}>
+          <div className={styles.status}>Loading emoji…</div>
+        </div>
+      }
     >
-      {emoji.emoji}
-    </button>
-  );
-}
-
-/** Searchable, keyboard-navigable emoji grid (frimousse, themed with tokens). */
-export function EmojiPicker({ onSelect, autoFocus = true, columns = 9 }: EmojiPickerProps) {
-  return (
-    <Picker.Root
-      className={styles.root}
-      columns={columns}
-      emojibaseUrl={EMOJIBASE_URL}
-      onEmojiSelect={(e) => {
-        onSelect(e.emoji);
-      }}
-    >
-      <div className={styles.header}>
-        <Picker.Search
-          className={styles.search}
-          placeholder="Find an emoji"
-          aria-label="Find an emoji"
-          autoFocus={autoFocus}
-        />
-        <Picker.SkinToneSelector className={styles.skin} aria-label="Change skin tone" />
-      </div>
-      <Picker.Viewport className={styles.viewport}>
-        <Picker.Loading className={styles.status}>Loading emoji…</Picker.Loading>
-        <Picker.Empty className={styles.status}>
-          {({ search }) => <>No emoji match “{search}”</>}
-        </Picker.Empty>
-        <Picker.List
-          className={styles.list}
-          components={{ CategoryHeader, Row, Emoji: EmojiButton }}
-        />
-      </Picker.Viewport>
-      <div className={styles.footer} aria-hidden>
-        <Picker.ActiveEmoji>
-          {({ emoji }) =>
-            emoji ? (
-              <>
-                <span className={styles.previewEmoji}>{emoji.emoji}</span>
-                <span className={styles.previewLabel}>{emoji.label}</span>
-              </>
-            ) : (
-              <span className={styles.previewHint}>Pick an emoji</span>
-            )
-          }
-        </Picker.ActiveEmoji>
-      </div>
-    </Picker.Root>
+      <Panel {...props} />
+    </Suspense>
   );
 }
 

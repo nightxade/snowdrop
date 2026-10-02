@@ -10,6 +10,9 @@ export interface SwitchProps {
   disabled?: boolean;
   /** Accessible name when there's no visible label. */
   ariaLabel?: string;
+  /** Use an external <label htmlFor> (settings rows). */
+  id?: string;
+  'aria-describedby'?: string | undefined;
 }
 
 export function Switch({
@@ -19,8 +22,11 @@ export function Switch({
   description,
   disabled,
   ariaLabel,
+  id: externalId,
+  'aria-describedby': describedBy,
 }: SwitchProps) {
-  const id = useId();
+  const autoId = useId();
+  const id = externalId ?? autoId;
   const control = (
     <RadixSwitch.Root
       id={id}
@@ -29,6 +35,7 @@ export function Switch({
       onCheckedChange={onCheckedChange}
       disabled={disabled ?? false}
       {...(ariaLabel ? { 'aria-label': ariaLabel } : {})}
+      {...(describedBy ? { 'aria-describedby': describedBy } : {})}
     >
       <RadixSwitch.Thumb className={styles.thumb} />
     </RadixSwitch.Root>

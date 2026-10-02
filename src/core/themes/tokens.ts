@@ -102,6 +102,8 @@ export const TOKEN_NAMES = [
   'duration-slow',
   'saturation',
   'zoom',
+  'qr-ink',
+  'qr-paper',
 ] as const;
 
 export type TokenName = (typeof TOKEN_NAMES)[number];

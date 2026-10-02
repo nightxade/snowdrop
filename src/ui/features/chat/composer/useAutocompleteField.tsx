@@ -1,0 +1,130 @@
+import { useId, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
+import { AutocompletePopover, optionId } from './AutocompletePopover';
+import { wrapSelection } from './formatting';
+import type { MentionToken } from './mentionTokens';
+import { useAutocomplete } from './useAutocomplete';
+import { replaceRange } from './useAutoGrow';
+
+export interface AutocompleteFieldOptions {
+  textarea: RefObject<HTMLTextAreaElement | null>;
+  /** Element the suggestions float above (usually the field's frame). */
+  anchor: HTMLElement | null;
+  text: string;
+  setText: (text: string) => void;
+  memberIds: readonly string[];
+  onMention: (token: MentionToken) => void;
+  /** Slash commands only make sense in the composer, not the inline editor. */
+  slash: boolean;
+}
+
+export interface AutocompleteField {
+  /** Handles autocomplete navigation and formatting shortcuts; true if the key was consumed. */
+  onKeyDown: (e: KeyboardEvent<HTMLTextAreaElement>) => boolean;
+  /** Keep the trigger in sync with the caret (onChange / onSelect). */
+  syncCaret: () => void;
+  /** Replace a range through the editing pipeline (keeps native undo). */
+  replace: (start: number, end: number, insert: string, selStart?: number, selEnd?: number) => void;
+  /** aria-* props for the textarea. */
+  inputProps: {
+    'aria-autocomplete': 'list';
+    'aria-controls'?: string;
+    'aria-activedescendant'?: string;
+  };
+  popover: ReactNode;
+}
+
+/** IME composition (including the keyCode 229 some browsers report instead of isComposing). */
+export function isImeKey(e: KeyboardEvent): boolean {
+  // keyCode is deprecated, but it is the only signal some IMEs give (Safari, older Chrome on Android).
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
+  return e.nativeEvent.isComposing || e.keyCode === 229;
+}
+
+/**
+ * Shared by the composer and the inline editor: @member / :emoji: (and,
+ * for the composer, /command) suggestions, arrow/Tab/Enter/Escape handling,
+ * and the Ctrl/Cmd+B/I/Shift+X formatting shortcuts.
+ */
+export function useAutocompleteField(o: AutocompleteFieldOptions): AutocompleteField {
+  const [caret, setCaret] = useState(o.text.length);
+  const listId = useId();
+  const auto = useAutocomplete(o.text, caret, o.memberIds, o.slash);
+
+  const syncCaret = () => {
+    const el = o.textarea.current;
+    if (el) setCaret(el.selectionEnd);
+  };
+  const replace = (
+    start: number,
+    end: number,
+    insert: string,
+    selStart?: number,
+    selEnd?: number,
+  ) => {
+    const el = o.textarea.current;
+    if (!el) return;
+    o.setText(replaceRange(el, start, end, insert, selStart, selEnd));
+    setCaret(el.selectionEnd);
+  };
+  const accept = (index: number) => {
+    const s = auto.suggestions[index];
+    const t = auto.trigger;
+    if (!s || !t) return;
+    if (s.kind === 'mention') o.onMention(s.token);
+    // Slash commands keep whatever arguments were typed after the name.
+    const space = o.text.search(/\s/u);
+    const end = s.kind === 'slash' ? (space === -1 ? o.text.length : space + 1) : t.end;
+    replace(t.start, end, s.insert);
+  };
+
+  const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): boolean => {
+    if (isImeKey(e)) return true;
+    if (auto.open) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        auto.move(e.key === 'ArrowDown' ? 1 : -1);
+        return true;
+      }
+      if ((e.key === 'Tab' || e.key === 'Enter') && !e.shiftKey) {
+        e.preventDefault();
+        accept(auto.active);
+        return true;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        auto.dismiss();
+        return true;
+      }
+    }
+    if (wrapSelection(e, replace)) {
+      e.preventDefault();
+      return true;
+    }
+    return false;
+  };
+
+  return {
+    onKeyDown,
+    syncCaret,
+    replace,
+    inputProps: {
+      'aria-autocomplete': 'list',
+      ...(auto.open
+        ? { 'aria-controls': listId, 'aria-activedescendant': optionId(listId, auto.active) }
+        : {}),
+    },
+    popover:
+      auto.open && auto.trigger ? (
+        <AutocompletePopover
+          id={listId}
+          anchor={o.anchor}
+          kind={auto.trigger.kind}
+          query={auto.trigger.query}
+          suggestions={auto.suggestions}
+          active={auto.active}
+          onHover={auto.setActive}
+          onPick={accept}
+        />
+      ) : null,
+  };
+}

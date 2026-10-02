@@ -19,3 +19,8 @@
   border-radius: var(--shrike-radius-full);
   background: var(--shrike-border-strong);
 }
+
+.dropTarget {
+  outline: 2px solid var(--shrike-text-strong);
+  outline-offset: 4px;
+}

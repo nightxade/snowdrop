@@ -20,6 +20,13 @@ export interface ModalState {
 export interface EditingTarget {
   conversationId: ConversationId;
   messageId: MessageId;
+  /**
+   * The editor's text, kept here (not in the row) so it survives the row
+   * being virtualised away and back. Undefined until the user types.
+   */
+  draft?: string;
+  /** Increments per edit started, so the editor autofocuses once per edit, not on remount. */
+  session?: number;
 }
 
 /** Where the list was scrolled, so switching back restores the position. */
@@ -74,6 +81,8 @@ export interface UiState {
   closeModal(): void;
   setReplyTo(conversationId: ConversationId, messageId: MessageId | null): void;
   setEditing(target: EditingTarget | null): void;
+  /** Updates the open editor's text (no-op when nothing is being edited). */
+  setEditDraft(draft: string): void;
   setScrollAnchor(conversationId: ConversationId, anchor: ScrollAnchor | null): void;
   setWindowFocused(focused: boolean): void;
   setUnreadMarker(conversationId: ConversationId, seq: number | null): void;
@@ -130,7 +139,20 @@ export function createUiStore(newId: () => string = () => createNonce('toast')):
       });
     },
     setEditing: (editing) => {
-      set({ editing });
+      // A new target starts a new session (autofocus once); same target keeps its draft.
+      set((s) =>
+        editing === null
+          ? { editing: null }
+          : {
+              editing: {
+                ...editing,
+                session: editing.session ?? (s.editing?.session ?? 0) + 1,
+              },
+            },
+      );
+    },
+    setEditDraft: (draft) => {
+      set((s) => (s.editing ? { editing: { ...s.editing, draft } } : s));
     },
     setScrollAnchor: (conversationId, anchor) => {
       set((s) => {

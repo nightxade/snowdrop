@@ -26,6 +26,15 @@ export interface OutgoingAttachment {
   contentType: string;
   /** Raw bytes (File/Blob in the browser). */
   data: Blob;
+  /**
+   * Local, render-only URL of the same bytes (e.g. an object URL from the
+   * composer). Shown on the optimistic message until the transport returns
+   * its own URL; never sent anywhere.
+   */
+  previewUrl?: string;
+  /** Pixel size, when known (images): reserves the layout before load. */
+  width?: number;
+  height?: number;
 }
 
 export interface SendInput {

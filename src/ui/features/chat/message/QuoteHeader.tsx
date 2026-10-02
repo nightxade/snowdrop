@@ -34,7 +34,7 @@ export function QuoteHeader({ quote, nameFor, onJump, compact }: QuoteHeaderProp
           e.stopPropagation();
           onJump();
         }}
-        aria-label={`Replying to ${name}: ${text || 'attachment'}. Jump to message`}
+        aria-label={`Reply to ${name}: ${clip(text || 'attachment', 80)} (jump to message)`}
       >
         <Avatar
           size={16}
@@ -65,4 +65,9 @@ export function QuoteHeader({ quote, nameFor, onJump, compact }: QuoteHeaderProp
       </button>
     </div>
   );
+}
+
+/** Keeps the accessible name short; a quote's full text is on screen in the original. */
+function clip(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
 }

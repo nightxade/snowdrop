@@ -8,7 +8,7 @@ import {
   uiSelectors,
 } from '@/core/stores';
 import { useStores } from '@/ui/hooks';
-import { createIndexTracker, type TrackedIndex } from '../lib/indexTracker';
+import { advanceTrack, initialTrack, type TrackedIndex } from '../lib/indexTracker';
 
 export interface ListItems extends TrackedIndex {
   items: RenderItem[];
@@ -50,12 +50,52 @@ export function useListItems(conversationId: ConversationId): ListItems {
   // would move to the new top on every prepend, changing a row the
   // virtualiser has already measured (a visible jump). Only show it once the
   // start of history (or the previous day) is loaded.
-  const items = useMemo(
-    () => (hasMoreBefore && grouped[0]?.type === 'day-divider' ? grouped.slice(1) : grouped),
-    [grouped, hasMoreBefore],
+  const items = hasMoreBefore && grouped[0]?.type === 'day-divider' ? grouped.slice(1) : grouped;
+  // Derived state (React's "adjust state while rendering" pattern): the
+  // index must change in the same render as the data, or the virtualiser
+  // would see one frame of new rows at old indices and jump.
+  const [derived, setDerived] = useState(() => ({
+    source: [] as readonly RenderItem[],
+    sourceHasMore: true,
+    items: [] as RenderItem[],
+    track: initialTrack(),
+  }));
+  let current = derived;
+  if (derived.source !== grouped || derived.sourceHasMore !== hasMoreBefore) {
+    const stable = keepGroupStarts(derived.items, items);
+    current = {
+      source: grouped,
+      sourceHasMore: hasMoreBefore,
+      items: stable,
+      track: advanceTrack(derived.track, stable),
+    };
+    setDerived(current);
+  }
+  const { firstItemIndex, epoch } = current.track;
+  return {
+    items: current.items,
+    firstItemIndex,
+    epoch,
+    loaded,
+    loading,
+    hasMoreBefore,
+    anchoredToPresent,
+  };
+}
+
+/**
+ * A row that was rendered as the start of an author group keeps its header
+ * when older history is prepended, even if the message before it turns out
+ * to be by the same author. Collapsing it would shrink a row the virtualiser
+ * has already measured, above the reader's position — a visible jump.
+ */
+function keepGroupStarts(previous: readonly RenderItem[], next: RenderItem[]): RenderItem[] {
+  const starts = new Set<string>();
+  for (const it of previous) if (it.type === 'message' && !it.continuation) starts.add(it.key);
+  if (starts.size === 0) return next;
+  const keep = (it: RenderItem) => it.type === 'message' && it.continuation && starts.has(it.key);
+  if (!next.some(keep)) return next;
+  return next.map((it) =>
+    it.type === 'message' && keep(it) ? { ...it, continuation: false } : it,
   );
-  // One tracker per mounted list (the pane remounts per conversation).
-  const [track] = useState(createIndexTracker);
-  const { firstItemIndex, epoch } = track(items);
-  return { items, firstItemIndex, epoch, loaded, loading, hasMoreBefore, anchoredToPresent };
 }

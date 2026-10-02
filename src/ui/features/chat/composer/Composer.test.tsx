@@ -66,6 +66,16 @@ describe('<Composer />', () => {
     expect(input.value).toBe('');
   });
 
+  it('ignores Enter while an IME is composing (isComposing or keyCode 229)', async () => {
+    const { shrike, input, typeText } = await setup();
+    const send = vi.spyOn(shrike.send, 'send');
+    typeText('にほん');
+    fireEvent.keyDown(input, { key: 'Enter', keyCode: 229 });
+    fireEvent.keyDown(input, { key: 'Enter', isComposing: true });
+    expect(send).not.toHaveBeenCalled();
+    expect(input.value).toBe('にほん');
+  });
+
   it('swaps Enter and Shift+Enter with the setting', async () => {
     const { shrike, input, typeText } = await setup();
     act(() => {
@@ -135,7 +145,7 @@ describe('<Composer />', () => {
     await settle(shrike);
     const own = lastOwn(shrike, conv.id)!;
     fireEvent.keyDown(input, { key: 'ArrowUp' });
-    expect(shrike.stores.ui.getState().editing).toEqual({
+    expect(shrike.stores.ui.getState().editing).toMatchObject({
       conversationId: conv.id,
       messageId: own.id,
     });

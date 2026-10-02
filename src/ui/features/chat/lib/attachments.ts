@@ -96,3 +96,27 @@ export function describeAttachment(a: {
   if (kind === 'audio') return 'Audio';
   return a.fileName ?? 'File';
 }
+
+const SAFE_DATA =
+  /^data:(?:image|video|audio)\/[\w.+-]+[;,]|^data:(?:text\/plain|application\/octet-stream)[;,]/iu;
+
+/**
+ * An attachment URL is only ever used as a download link if its scheme is
+ * one we produce ourselves: `blob:` (local bytes), `data:` with an inert
+ * media/plain/binary type, or a same-origin http(s) URL. Anything else
+ * (javascript:, data:text/html, other origins) gets no link at all.
+ */
+export function safeHref(url: string | undefined): string | undefined {
+  if (url === undefined) return undefined;
+  if (url.startsWith('blob:')) return url;
+  if (url.startsWith('data:')) return SAFE_DATA.test(url) ? url : undefined;
+  try {
+    const parsed = new URL(url, window.location.href);
+    return (parsed.protocol === 'http:' || parsed.protocol === 'https:') &&
+      parsed.origin === window.location.origin
+      ? parsed.href
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}

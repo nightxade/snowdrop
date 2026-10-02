@@ -60,3 +60,36 @@
   white-space: nowrap;
   scrollbar-width: none;
 }
+
+.failure {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--shrike-space-3);
+  padding: var(--shrike-space-4);
+  border-radius: var(--shrike-radius-sm);
+  background: var(--shrike-danger-soft);
+  color: var(--shrike-text);
+  font-size: var(--shrike-font-size-sm);
+  line-height: 1.5;
+}
+
+.anyway {
+  color: var(--shrike-text-link);
+  font-size: var(--shrike-font-size-sm);
+  font-weight: var(--shrike-font-weight-medium);
+}
+
+.anyway:hover {
+  text-decoration: underline;
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

@@ -8,6 +8,7 @@ import {
   FolderInput,
   Pin,
   PinOff,
+  Rows3,
 } from 'lucide-react';
 import { useCallback } from 'react';
 import { isMuted } from '@/core/stores';
@@ -40,6 +41,29 @@ export function useConversationMenu(id: ConversationId): () => MenuEntry[] {
     const muted = isMuted(local.muted, now);
     const spaces = stores.spaces.getState();
     const currentSpace = spacesSelectors.spaceOf(id)(spaces);
+    // Keyboard-friendly alternative to dragging rows between categories.
+    const categoryMove = (): MenuEntry[] => {
+      const space = currentSpace ? spaces.spaces[currentSpace] : undefined;
+      if (!space || space.categories.length < 2) return [];
+      const here = space.categories.find((c) => c.conversationIds.includes(id))?.id;
+      return [
+        {
+          kind: 'submenu',
+          id: 'move-category',
+          label: 'Move to category',
+          icon: <Rows3 size={ICON} />,
+          items: space.categories.map((c): MenuEntry => ({
+            kind: 'check',
+            id: `cat-${c.id}`,
+            label: c.name,
+            checked: c.id === here,
+            onSelect: () => {
+              if (c.id !== here) spaces.moveConversation(id, c.id, c.conversationIds.length);
+            },
+          })),
+        },
+      ];
+    };
     const orderedSpaces = spacesSelectors.orderedIds(spaces).flatMap((sid) => {
       const space = spaces.spaces[sid];
       return space ? [space] : [];
@@ -154,6 +178,7 @@ export function useConversationMenu(id: ConversationId): () => MenuEntry[] {
           },
         ],
       },
+      ...categoryMove(),
       { kind: 'separator', id: 's2' },
       {
         kind: 'item',

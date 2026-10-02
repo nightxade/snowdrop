@@ -41,6 +41,21 @@
   animation-name: slide-right-out;
 }
 
+.content[data-side='bottom'] {
+  top: auto;
+  right: 0;
+  left: 0;
+  max-width: none;
+  max-height: 85vh;
+  border-radius: var(--shrike-radius-lg) var(--shrike-radius-lg) 0 0;
+  animation-name: slide-up;
+  touch-action: pan-x;
+}
+
+.content[data-side='bottom'][data-state='closed'] {
+  animation-name: slide-down-out;
+}
+
 .title {
   position: absolute;
   width: 1px;
@@ -76,5 +91,17 @@
 @keyframes slide-right-out {
   to {
     transform: translateX(100%);
+  }
+}
+
+@keyframes slide-up {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+@keyframes slide-down-out {
+  to {
+    transform: translateY(100%);
   }
 }

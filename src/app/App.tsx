@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useStore } from 'zustand';
 import type { BackendChoice } from '@/core/stores';
-import { Welcome } from '@/ui/features/onboarding';
+import { ConnectionSetup, Welcome } from '@/ui/features/onboarding';
 import { AppShell } from '@/ui/features/shell';
 import type { Shrike } from './createShrike';
 import { useShrike } from './ShrikeProvider';
@@ -32,6 +32,8 @@ export function App({ onBackendChange }: AppProps) {
   const choice = useStore(shrike.stores.settings, (s) => s.connection.backend);
   const daemonUrl = useStore(shrike.stores.settings, (s) => s.connection.daemonUrl);
   const matches = choice !== null && choice === shrike.backend.kind;
+  const errorKind = useStore(shrike.stores.session, (s) => s.errorKind);
+  const ready = useStore(shrike.stores.session, (s) => s.ready);
 
   useEffect(() => {
     if (choice === null) return;
@@ -50,11 +52,42 @@ export function App({ onBackendChange }: AppProps) {
     return (
       <Welcome
         defaultDaemonUrl={daemonUrl}
+        probe={(url) => shrike.admin.probeDaemon(url)}
         onDemo={() => {
           choose('mock');
         }}
         onConnect={(url) => {
           choose('signal-cli', url);
+        }}
+      />
+    );
+  }
+  // signal-cli without a usable account: link this device, or name the account (PLAN §4.10).
+  if (
+    matches &&
+    !ready &&
+    shrike.backend.kind === 'signal-cli' &&
+    (errorKind === 'no-account' || errorKind === 'account-required')
+  ) {
+    return (
+      <ConnectionSetup
+        reason={errorKind}
+        link={shrike.backend.link}
+        onLinked={() => {
+          // The adapter now knows the account; retry the start that failed.
+          shrike.start().catch((error: unknown) => {
+            console.error('[shrike] failed to start after linking', error);
+          });
+        }}
+        onAccount={(account) => {
+          shrike.stores.settings.getState().update('connection', { account });
+          // The adapter reads the account once, at construction.
+          shrike.flush();
+          onBackendChange?.();
+        }}
+        onBack={() => {
+          shrike.stores.settings.getState().update('connection', { backend: null });
+          shrike.flush();
         }}
       />
     );

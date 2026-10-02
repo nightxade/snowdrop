@@ -2,7 +2,7 @@ import { useSyncExternalStore } from 'react';
 import { useStore } from 'zustand';
 import { formatKeybind, isMacPlatform, resolveKeybinds } from '@/core/commands';
 import { useShrike } from '@/ui/hooks';
-import { Kbd, Modal } from '@/ui/primitives';
+import { Button, Kbd, Modal } from '@/ui/primitives';
 import styles from './ShortcutsDialog.module.css';
 
 /** Every command with an effective keybind, grouped by category (Ctrl+/). */
@@ -40,7 +40,22 @@ export function ShortcutsDialog({ onClose }: { onClose: () => void }) {
         if (!open) onClose();
       }}
       title="Keyboard shortcuts"
-      description="Rebinding arrives with Settings → Keybinds."
+      description="Includes your own changes. Rebind any of these in Settings → Keybinds."
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Close
+          </Button>
+          <Button
+            variant="primary"
+            onClick={() => {
+              stores.ui.getState().openModal({ type: 'settings', props: { page: 'keybinds' } });
+            }}
+          >
+            Edit shortcuts
+          </Button>
+        </>
+      }
     >
       <div className={styles.groups}>
         {[...groups].map(([category, items]) => (

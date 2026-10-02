@@ -46,6 +46,7 @@
   color: var(--shrike-text-muted);
   font-size: var(--shrike-font-size-ui);
   text-align: center;
+  align-items: center;
 }
 
 .emptyTitle {

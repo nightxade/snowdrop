@@ -8,6 +8,9 @@ export interface PendingAttachment {
   file: File;
   /** Object URL for image previews; revoked when removed or sent. */
   previewUrl?: string;
+  /** Natural size of an image, once its preview has loaded. */
+  width?: number;
+  height?: number;
 }
 
 export function AttachmentTray({

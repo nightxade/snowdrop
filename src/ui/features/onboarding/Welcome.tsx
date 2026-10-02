@@ -10,10 +10,14 @@ export interface WelcomeProps {
   /** Save the daemon URL and connect to signal-cli. */
   onConnect: (daemonUrl: string) => void;
   defaultDaemonUrl: string;
+  /** Checks a daemon URL before connecting. */
+  probe?: ConnectFormProbe;
 }
 
+type ConnectFormProbe = Parameters<typeof ConnectForm>[0]['probe'];
+
 /** First run (PLAN §4.10): the one screen where the brand gets room to breathe. */
-export function Welcome({ onDemo, onConnect, defaultDaemonUrl }: WelcomeProps) {
+export function Welcome({ onDemo, onConnect, defaultDaemonUrl, probe }: WelcomeProps) {
   const [step, setStep] = useState<'choose' | 'connect'>('choose');
   return (
     <TooltipProvider>
@@ -74,7 +78,7 @@ export function Welcome({ onDemo, onConnect, defaultDaemonUrl }: WelcomeProps) {
                 <ArrowLeft size={16} aria-hidden />
                 Back
               </button>
-              <ConnectForm defaultUrl={defaultDaemonUrl} onConnect={onConnect} />
+              <ConnectForm defaultUrl={defaultDaemonUrl} onConnect={onConnect} probe={probe} />
             </>
           )}
           <p className={styles.footnote}>

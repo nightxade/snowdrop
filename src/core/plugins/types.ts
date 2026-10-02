@@ -9,6 +9,7 @@ import type {
   MenuItem,
   MenuLocation,
   MenuTargets,
+  NotificationBooster,
   OpaqueComponent,
   SendTransform,
   SettingsPanel,
@@ -76,6 +77,7 @@ export interface PluginContext<S extends SettingsSchema = SettingsSchema> {
   readonly headerBar: { addButton(button: HeaderButton): Disposer };
   readonly settingsPanels: { add(panel: SettingsPanel): Disposer };
   readonly styles: { inject(css: string, id?: string): Disposer };
+  readonly notifications: { addBooster(booster: NotificationBooster): Disposer };
   readonly stores: ReadonlyStores;
   readonly backend: PluginBackendFacade;
   toast(message: string, kind?: ToastKind): void;

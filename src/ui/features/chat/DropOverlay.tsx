@@ -50,8 +50,8 @@ export function DropOverlay({ target }: { target: string }) {
         <span className={styles.icon}>
           <Upload size={28} />
         </span>
-        <p className={styles.title}>Drop to send to {target}</p>
-        <p className={styles.hint}>Files are added to your message; press Enter to send.</p>
+        <p className={styles.title}>Drop to add to your message</p>
+        <p className={styles.hint}>For {target}. Nothing is sent until you press Enter.</p>
       </div>
     </div>
   );

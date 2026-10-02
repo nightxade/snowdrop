@@ -28,6 +28,7 @@ export function SearchPanel({
   const [query, setQuery] = useState('');
   const [state, setState] = useState<SearchState>({ status: 'idle' });
   const input = useRef<HTMLInputElement>(null);
+  const list = useRef<HTMLUListElement>(null);
   const trimmed = query.trim();
 
   useEffect(() => {
@@ -65,7 +66,19 @@ export function SearchPanel({
         if (e.key === 'Escape') {
           e.preventDefault();
           onClose();
+          return;
         }
+        // ↓ from the field into the results, ↑/↓ between them, ↑ from the first back to the field.
+        if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+        const results = [
+          ...(list.current?.querySelectorAll<HTMLElement>('[data-search-result]') ?? []),
+        ];
+        if (results.length === 0) return;
+        const i = results.indexOf(document.activeElement as HTMLElement);
+        e.preventDefault();
+        if (e.key === 'ArrowDown') results[Math.min(results.length - 1, i + 1)]?.focus();
+        else if (i <= 0) input.current?.focus();
+        else results[i - 1]?.focus();
       }}
     >
       <header className={styles.header}>
@@ -75,6 +88,13 @@ export function SearchPanel({
           onValueChange={setQuery}
           placeholder={`Search ${conversation.kind === 'group' ? '#' : '@'}${conversation.title}`}
           aria-label="Search messages"
+          onKeyDown={(e) => {
+            // Enter opens the best (newest) match.
+            if (e.key === 'Enter' && state.status === 'done' && state.results[0]) {
+              e.preventDefault();
+              void chat.reveal(conversation.id, state.results[0].id, { focus: true });
+            }
+          }}
         />
         <IconButton label="Close search (Esc)" icon={<X />} onClick={onClose} />
       </header>
@@ -104,13 +124,13 @@ export function SearchPanel({
               {view.results.length === LIMIT ? `${LIMIT}+` : view.results.length}{' '}
               {view.results.length === 1 ? 'result' : 'results'}
             </p>
-            <ul className={styles.list}>
+            <ul className={styles.list} ref={list}>
               {view.results.map((m) => (
                 <li key={m.id}>
                   <MessageResult
                     message={m}
                     onOpen={() => {
-                      void chat.reveal(conversation.id, m.id);
+                      void chat.reveal(conversation.id, m.id, { focus: true });
                     }}
                   />
                 </li>
