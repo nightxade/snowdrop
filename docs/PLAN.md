@@ -8,6 +8,12 @@ This document is the source of truth for builders and reviewers. If an
 implementation decision contradicts this plan, either follow the plan or update
 the plan in the same change with a justification.
 
+§0–§7 describe the product as built (updated after Phase 5 and the Vim-mode
+work). §8 is the historical record of each phase's decisions and deviations;
+where it is more detailed than §3–§5, §8 is right. Developer-facing guides:
+`docs/ARCHITECTURE.md`, `docs/PLUGINS.md`, `docs/THEMING.md`,
+`docs/KEYBOARD.md`, `docs/SIGNAL_CLI.md`.
+
 ---
 
 ## 0. Product principles (in priority order)
@@ -82,7 +88,8 @@ Package manager: **npm**. Node ≥ 20.
 
 ```
 shrike/src/
-  app/                 # composition root: providers, bootstrap, routing of views
+  main.tsx             # entry: safe mode, dev tools, mounts <App>
+  app/                 # composition root: createShrike, deferredBackend/Repository, providers, App
   core/                # NO React imports allowed here
     domain/            # pure types + pure helpers (ids, time grouping, body ranges)
     lib/               # leaf utilities: typed Emitter, Clock/Scheduler, disposables, observable lists
@@ -90,36 +97,43 @@ shrike/src/
       types.ts
       mock/            # rich demo world with simulated activity
       signal-cli/      # JSON-RPC over HTTP + SSE event stream
-    persistence/       # MessageRepository (IndexedDB) + settings storage
-    stores/            # zustand vanilla stores (one file per slice)
-    services/          # orchestration: sync engine, send pipeline, notifications
-    plugins/           # plugin runtime, extension registries, built-in plugins
-    themes/            # token definitions, built-in themes, theme engine
-    commands/          # command registry (keybinds, slash cmds, palette actions)
+    persistence/       # MessageRepository (memory + IndexedDB) + versioned key-value storage
+    stores/            # zustand vanilla stores (one file per slice) + view selectors
+    services/          # orchestration: sync engine, send pipeline, history paging, notifications
+    plugins/           # plugin runtime, extension registries, headless built-in plugins
+    themes/            # token definitions, built-in themes, theme engine, CSS sanitiser
+    commands/          # command registry, keybinds, key layers
   ui/
-    primitives/        # Button, Avatar, Tooltip, Popover, Menu, Modal, Input, Switch, Badge, Kbd, Scroller…
-    hooks/             # generic React hooks (useStore selectors, useHotkey, useResizeObserver)
+    primitives/        # Button, Avatar, Tooltip, Popover, Menu, Modal, Slot, CommandPalette, Lightbox…
+    hooks/             # React context (AppServices), useObservableList, layout, roving focus, text surfaces
     features/          # one folder per product area
-      rail/            # spaces rail
-      sidebar/         # conversation list, user panel
-      chat/            # header, message list, message, composer
+      rail/            # spaces rail, folders
+      sidebar/         # conversation list, categories, user panel
+      chat/            # header, message list, message, composer, search/pins/mentions
       members/         # member list, profile popout
       settings/        # full-screen settings
       switcher/        # quick switcher (Ctrl+K)
-      onboarding/      # connect / link device
-      spaces/          # create/edit space dialogs
-    styles/            # global.css, tokens.css, reset
-  test/                # test utils, fixtures
+      onboarding/      # welcome, connect, link device, account prompt
+      spaces/          # create/edit space and folder dialogs
+      conversation/    # shared conversation avatar, preview, menu + actions
+      shell/           # layout, keyboard, core commands, modal host, toasts
+    plugins/           # built-in plugins with a UI half (incl. vim/)
+    styles/            # global.css, tokens.css (the Dusk theme), reset.css
+  test/                # test utils, app-level tests
 ```
 
-**Dependency rules (enforced by ESLint `import/no-restricted-paths`):**
-- `core/**` must not import `ui/**`, `app/**`, `react`.
+**Dependency rules (enforced by ESLint `import-x/no-restricted-paths` and
+`no-restricted-imports`; details in `docs/ARCHITECTURE.md`):**
+- `core/**` must not import `ui/**`, `app/**`, `react`/`react-dom`, or zustand's
+  React entry points (stores use `zustand/vanilla`).
 - `core/domain` imports nothing else from `core`; `core/lib` likewise.
-- `ui/primitives` must not import `ui/features` or `core/**` (pure presentational).
+- `ui/primitives` must not import `ui/features`, `core/**` or `app/**` (pure presentational).
 - `ui/features/*` may import `core/**`, `ui/primitives`, `ui/hooks`, and
   another feature only through that feature's `index.ts`.
 - Adapters under `core/backend/*` are only imported by `app/` (composition root)
-  (test files may import the mock).
+  (test files may import the mock). `app/` may import `ui/`; features reach the
+  composed app through `AppServices` (`ui/hooks`), never through `app/`.
+- Named exports only; no import cycles.
 - `scripts/verify-boundaries.mjs` (run by `npm run lint`) lints fixture files
   in each layer and fails if any of these rules stops firing.
 
@@ -127,43 +141,57 @@ shrike/src/
 
 ```ts
 type ConversationId = string & { __brand: 'ConversationId' } // `dm:<aci|number>` | `group:<base64id>`
-type MessageId = string & { __brand: 'MessageId' }           // `${authorId}:${sentAt}` — Signal identifies messages by (author, timestamp)
+type MessageId = string & { __brand: 'MessageId' }           // `${authorId}:${sentAt}` (Signal identity); `pending:<nonce>` before ack
 
-interface Contact { id: string; number?: string; name: string; profileName?: string;
-  about?: string; aboutEmoji?: string; color: string /* derived, stable */; avatarUrl?: string; isSelf?: boolean; blocked?: boolean }
+interface Contact { id: string /* ACI, else number */; number?: string; name: string; profileName?: string;
+  about?: string; aboutEmoji?: string; color: string /* var(--shrike-avatar-N): a theme slot */;
+  avatarUrl?: string; isSelf?: boolean; blocked?: boolean }
 
+// Protocol state only. Local organisation lives in localStore (never sent to Signal).
 interface Conversation { id: ConversationId; kind: 'direct' | 'group'; title: string;
   description?: string; avatarUrl?: string; memberIds: string[]; adminIds: string[];
-  muted: boolean | { until: number }; archived: boolean; pinned: boolean;
-  expireTimerSec: number; lastActivityAt: number; draft?: string }
+  expireTimerSec: number; lastActivityAt: number }
+interface LocalConversationState { pinned: boolean; muted: boolean | { until: number }; archived: boolean; draft?: string }
+type ConversationView = Conversation & LocalConversationState   // what the UI renders (stores/views.ts)
 
 type TextStyle = 'bold' | 'italic' | 'strikethrough' | 'monospace' | 'spoiler'
-interface BodyRange { start: number; length: number; style?: TextStyle; mentionId?: string }
+interface BodyRange { start: number; length: number; style?: TextStyle; mentionId?: string } // UTF-16 units
+
+interface Quote { authorId: string; sentAt: number; text: string; ranges?: BodyRange[];
+  attachments?: { contentType: string; fileName?: string }[] }
 
 interface Message { id: MessageId; conversationId: ConversationId; authorId: string;
-  sentAt: number; receivedAt: number; body: string; ranges: BodyRange[];
-  quote?: { authorId: string; sentAt: number; text: string };
+  sentAt: number /* identity only: never order by it */; receivedAt: number;
+  seq?: number /* local arrival order, assigned by the repository */;
+  body: string; ranges: BodyRange[]; quote?: Quote;
   attachments: Attachment[]; reactions: Reaction[]; edits?: number /* count */;
-  editedAt?: number; deleted?: boolean; expiresAt?: number;
+  editedAt?: number; deleted?: boolean; deletedBy?: string /* admin delete */; expiresAt?: number;
   status: 'pending' | 'sent' | 'delivered' | 'read' | 'failed'; // outgoing only
-  kind: 'normal' | 'system'; systemText?: string; pinned?: boolean }
+  kind: 'normal' | 'system'; systemText?: string; pinned?: boolean;
+  failedRecipients?: string[]; nonce?: string /* client nonce, kept after ack */ }
 
 interface Reaction { emoji: string; authorId: string; at: number }
 interface Attachment { id: string; contentType: string; fileName?: string; size?: number;
-  width?: number; height?: number; url?: string /* resolved blob/http url */; blurhash?: string }
+  width?: number; height?: number; url?: string /* resolved blob:/data:/http url */; blurhash?: string }
 ```
 
 Pure helpers (all unit-tested):
-- `groupMessages(messages, { gapMs: 7*60_000 })` → render items: day dividers,
-  "new messages" divider, author groups.
+- `groupMessages(…)` → *flat* render items (`day-divider`, `new-divider`,
+  `system`, `message` with `continuation`), carrying message ids; consecutive
+  messages by one author within 7 minutes on the same day group.
 - `parseMarkdownToRanges(text)` → `{ body, ranges }` converting `**b**`,
   `*i*`/`_i_`, `~~s~~`, `` `code` ``, `||spoiler||` into Signal body ranges
   (so formatting is **native** for recipients on official apps).
 - `rangesToSegments(body, ranges)` → nested segment tree for rendering.
 - `fuzzyScore(query, candidate)`.
 - `colorForId(id)` → one of 12 theme-provided avatar hues.
+- Also: `bodyToPlainText`, `attachMentions`, `applyReaction`, `applyEdit`,
+  `applyDelete`, `advanceStatus`, `mergeDuplicate`, `summarizeReactions`,
+  `escapeMarkdown`, `fuzzyMatch`/`fuzzyFilter`, `initialsFor`.
 
 ### 3.2 Backend contract (`core/backend/types.ts`)
+
+Abridged; the file is authoritative.
 
 ```ts
 interface ChatBackend {
@@ -173,13 +201,19 @@ interface ChatBackend {
   getSelf(): Promise<Contact>
   listContacts(): Promise<Contact[]>
   listConversations(): Promise<Conversation[]>
-  send(input: SendInput): Promise<{ sentAt: number }>        // body+ranges, quote, attachments, mentions
-  edit(input: EditInput): Promise<{ sentAt: number }>
+  send(input: SendInput): Promise<SendResult>                // { sentAt, attachments?, recipientFailures? }
+  edit(input: EditInput): Promise<{ sentAt: number }>        // targets the original sentAt; re-sends the quote
   react(input: ReactInput): Promise<void>                    // add/remove
   deleteForEveryone(conv: ConversationId, sentAt: number): Promise<void>
   setTyping(conv: ConversationId, typing: boolean): Promise<void>
-  markRead(conv: ConversationId, messages: { authorId: string; sentAt: number }[]): Promise<void>
-  updateConversation?(conv: ConversationId, patch: Partial<Pick<Conversation,'muted'|'expireTimerSec'|'title'|'description'>>): Promise<void>
+  markRead(conv: ConversationId, messages: MessageRef[]): Promise<void>   // MessageRef = { authorId, sentAt }
+  // Optional; which ones exist per kind is declared in BACKEND_CAPABILITIES (app/deferredBackend.ts)
+  adminDelete?(conv: ConversationId, target: MessageRef): Promise<void>
+  pinMessage?(input: PinInput): Promise<void>
+  updateConversation?(conv: ConversationId, patch: ConversationPatch): Promise<void> // expireTimerSec | title | description
+  fetchHistory?(conv: ConversationId, q: { before?: number; limit: number }): Promise<HistoryPage> // mock only
+  resolveAttachmentUrl?(conv: ConversationId, attachment: Attachment): Promise<string>    // signal-cli: lazy blob: URLs
+  acknowledge?(cursor: string): void                         // after a `checkpoint` has been persisted
   link?: { start(): Promise<{ uri: string }>; finish(uri: string, deviceName: string): Promise<{ accountId: string }> }
   on<E extends keyof BackendEvents>(event: E, fn: (p: BackendEvents[E]) => void): Unsubscribe
 }
@@ -187,41 +221,57 @@ interface BackendEvents {
   status: ConnectionStatus
   message: Message                    // incoming or sync-sent
   messageEdited: { conversationId; authorId; targetSentAt; body; ranges; editedAt }
-  messageDeleted: { conversationId; authorId; targetSentAt }
+  messageDeleted: { conversationId; authorId; targetSentAt; deletedBy? }
+  messagePinned: { conversationId; targetAuthorId; targetSentAt; pinned; by }
   reaction: { conversationId; targetAuthorId; targetSentAt; reaction: Reaction; remove: boolean }
   receipt: { authorId; sentAts: number[]; type: 'delivered' | 'read' | 'viewed' }
   typing: { conversationId; authorId; typing: boolean }
+  readSync: { messages: MessageRef[] } // read on another linked device
   conversationUpdated: Conversation
   contactUpdated: Contact
+  checkpoint: { cursor: string }      // resumable transports: everything before is complete
 }
 ```
 Adapters translate protocol quirks into these events. The UI never sees raw
-envelopes.
+envelopes. How to add an adapter: `docs/ARCHITECTURE.md`.
 
 ### 3.3 Stores (`core/stores`, zustand/vanilla)
 
 One slice per file, each exporting `createXStore()` and a typed selector set:
 - `sessionStore` — backend kind, connection status, self contact.
 - `contactsStore` — `Record<id, Contact>`.
-- `conversationsStore` — `Record<id, Conversation>`, derived ordering,
-  unread & mention counts, read cursors.
-- `messagesStore` — per-conversation windows `{ ids, byId, hasMoreBefore, loading }`,
+- `conversationsStore` — `Record<id, Conversation>` (protocol state), derived
+  ordering, unread & mention counts, read cursors (seqs), sidebar previews
+  (`lastMessage`).
+- `localStore` (persisted) — device-local conversation state (pin, mute,
+  archive, draft), private contact notes, reaction usage (quick reactions).
+- `messagesStore` — per-conversation windows `{ ids, byId, hasMoreBefore,
+  hasMoreAfter, anchoredToPresent, loading, loaded }` (capped at 400),
   optimistic inserts keyed by client nonce.
 - `typingStore` — ephemeral `Record<conv, Record<author, expiresAt>>`.
 - `spacesStore` (persisted) — local organisation: spaces, categories,
   conversation → space/category assignment, order, collapsed state.
 - `uiStore` — selected space & conversation, panel visibility, open modal,
-  reply target, editing target, scroll anchors per conversation.
-- `settingsStore` (persisted, versioned with migrations) — appearance,
-  notifications, behaviour, keybind overrides, plugin enabled/settings.
+  reply target, editing target, unread markers, scrolled-up flags, window
+  focus, toast queue.
+- `settingsStore` (persisted, versioned with migrations; v3) — `appearance`,
+  `notifications`, `behaviour`, `connection`, `keybinds` overrides,
+  `plugins` (enabled + settings), `customCss`, `customThemes`.
 
 Services wire backend events → stores and actions → backend:
 - `SyncService`: subscribes to backend events, persists messages to the
   repository, updates stores, computes unread/mentions.
-- `SendService`: optimistic send, retries, failure state, markdown → ranges,
-  runs plugin `beforeSend` transforms.
+- `SendService`: optimistic send with a persisted outbox, manual retry /
+  discard of failed sends, markdown → ranges, plugin send transforms, queued
+  edit/react/delete on pending messages, receipts that beat the ack
+  (`ReceiptBuffer`).
+- `HistoryService`: opens, pages and jumps conversation windows; backfills
+  from `fetchHistory` when local history runs out.
 - `NotificationService`: desktop notifications (Notification API) honouring
-  mute / mention-only / focus state.
+  mute / mention-only / focus state and plugin boosters.
+
+The data flow (event queue, `seq` ordering, checkpoints, the send pipeline)
+is described in `docs/ARCHITECTURE.md`.
 
 ### 3.4 Extension system (`core/plugins`) — the "Vencord" layer
 
@@ -235,26 +285,32 @@ definePlugin({
   authors: ['shrike'], tags: ['privacy'],
   settings: defineSettings({ extraParams: { type: 'string', label: 'Extra params', default: '' } }),
   start(ctx) {  // ctx: PluginContext — scoped, auto-disposed on stop
-    ctx.send.addTransform((draft) => ({ ...draft, body: strip(draft.body, ctx.settings.get('extraParams')) }))
+    ctx.send.addTransform((draft) => ({ ...draft, text: strip(draft.text, ctx.settings.get('extraParams')) }))
   },
 })
 ```
+
+The plugin author guide is `docs/PLUGINS.md`.
 
 `PluginContext` capabilities (each returns a disposer, all tracked for stop):
 - `ctx.commands.register({ id, title, keybind?, run })` — palette + hotkeys.
   `ctx.commands.execute(id)` runs any command (plugins drive the app by id).
 - `ctx.keys.addLayer(layer)` — modal key layer with first refusal on keys (Vim mode; §8).
 - `ctx.composer.addAccessory(id, Component)` — rendered inside the composer field.
-- `ctx.slash.register({ name, description, options, execute })` — `/shrug`, `/me`…
-- `ctx.send.addTransform(fn)` — outgoing draft pipeline.
-- `ctx.messages.addAccessory(Component)` — rendered under a message.
-- `ctx.messages.addDecoration(Component)` — badge next to author name.
-- `ctx.messages.addHoverAction({ id, icon, label, onClick })`.
-- `ctx.menus.add('message' | 'conversation' | 'member' | 'space', items)`.
+- `ctx.slash.register({ name, description, usage?, execute })` — `/shrug`, `/me`…;
+  `execute` returns a `SlashResult` (`send` | `replace` | `error` | `done`).
+- `ctx.send.addTransform(fn)` — outgoing draft pipeline; `ctx.send.addTypingGuard(fn)`.
+- `ctx.messages.addAccessory(id, Component)` — rendered under a message.
+- `ctx.messages.addDecoration(id, Component)` — badge next to author name.
+- `ctx.messages.addHoverAction({ id, icon, label, onClick, visible? })`.
+- `ctx.menus.add('message' | 'conversation' | 'member' | 'space', item)`
+  (no member menu renders plugin items yet).
 - `ctx.headerBar.addButton(...)`, `ctx.settingsPanels.add(...)`.
-- `ctx.styles.inject(css)`.
-- `ctx.stores` (read + subscribe), `ctx.backend` (narrow facade), `ctx.toast`, `ctx.log`.
-- `ctx.settings.get/set/subscribe` (typed from the schema).
+- `ctx.styles.inject(css, id?)`.
+- `ctx.notifications.addBooster(fn)` — a reason string makes a message notify like a mention.
+- `ctx.stores` (read + subscribe), `ctx.backend` (`kind`, `status()`,
+  `sendText()`, `onMessage()`), `ctx.toast`, `ctx.log`, `ctx.onDispose`.
+- `ctx.settings.get/set/all/subscribe` (typed from the schema).
 
 Plugins that render UI supply React components; the runtime is React-agnostic
 (components are opaque values stored in registries; `ui/` renders them via
@@ -262,26 +318,35 @@ Plugins that render UI supply React components; the runtime is React-agnostic
 boundary: a crashing plugin shows a small inline "plugin X failed" chip and
 never takes down the app.
 
-Built-in plugins (ship at least these, prove the API):
-1. **Clear URLs** — send transform.
-2. **Silent Typing** — suppress outgoing typing indicators.
-3. **Slash Basics** — `/shrug`, `/tableflip`, `/me`, `/spoiler`.
-4. **Relative Timestamps** — "3m ago" style toggle via decoration.
-5. **Keyword Alerts** — notify & highlight on custom keywords.
-6. **Message Word Count** / *Copy as Markdown* hover action (tiny demo).
+Built-in plugins (as shipped; headless ones in `core/plugins/builtin`, UI ones
+in `ui/plugins`):
+1. **Clear URLs** — send transform (on by default).
+2. **Slash Basics** — `/shrug`, `/tableflip`, `/unflip`, `/me`, `/spoiler` (on by default).
+3. **Keyword Alerts** — notification booster, optional toast, highlight chip.
+4. **Relative Timestamps** — "3m ago" decoration.
+5. **Message Tools** — *Copy as Markdown* and word count (hover actions + menu item).
+6. **Pronoun & Notes Badge** — first line of your private note on a contact, as a decoration.
+7. **Vim Mode** — key layer + modal composer editing (off by default; see §8).
+
+*Silent Typing* was retired in the P4 review: it is the Privacy setting
+"Send typing indicators" (`behaviour.sendTypingIndicators`); typing guards
+remain a plugin API.
 
 ### 3.5 Theming (`core/themes`, `ui/styles`)
 
 - All colour/space/radius/shadow/motion values are CSS custom properties
   (`--shrike-*`) defined in `tokens.css` for the base (dark) theme.
-- A theme = `{ id, name, tokens: Partial<Record<TokenName,string>>, css?: string }`
-  applied to `:root` via a single `<style id="shrike-theme">`.
+- A theme = `{ id, name, description, kind: 'dark' | 'light', tokens:
+  Partial<Record<TokenName,string>>, css?, preview }` applied to `:root` via
+  `<style id="shrike-theme">`, followed by `#shrike-plugins` (plugin CSS) and
+  `#shrike-custom-css`. Token reference and theme file format: `docs/THEMING.md`.
 - Built-in: **Dusk (dark, default)**, **Midnight (OLED black)**, **Linen (light)**,
   **High Contrast**.
 - Appearance settings: theme, accent colour (overrides `--shrike-accent*`,
   derived shades via OKLCH computations), message density (comfortable/compact),
-  font scale (87.5–125%), UI zoom, saturation, reduced motion, show avatars
-  in compact mode, 12/24h time.
+  font scale (87.5–125%), UI zoom, show avatars in compact mode, 12/24h time.
+  Accessibility: reduced motion, saturation, stronger focus outline, larger
+  targets.
 - **Custom CSS** (formerly "QuickCSS"; settings key `customCss`): live-editing
   editor (monospace, tab-indent) injected last.
 - **Privacy:** user CSS and imported themes may not fetch anything. The
@@ -319,8 +384,9 @@ swipe/Escape to close). Min supported width 360px.
 
 ### 4.2 Spaces rail
 - **Home** at top (Shrike glyph): all DMs + unassigned groups. Unread
-  indicator = small light dot (`--shrike-text-strong`) on the tile's top-left
-  corner; mention count = red badge (`--shrike-danger-strong`) bottom-right.
+  indicator = a 6px light pip (`--shrike-text-strong`) at the rail's left
+  edge, level with the tile's centre and clear of the selection ring; mention
+  count = red badge (`--shrike-danger-strong`) bottom-right.
   No left-edge pill: that is another product's trade dress.
 - Separator, then **Spaces**: local, user-defined collections of Signal
   groups (and optionally DMs), shown as rounded-square tiles with emoji or
@@ -330,7 +396,11 @@ swipe/Escape to close). Min supported width 360px.
 - Selected space: 2px `--shrike-accent` ring at a 3px offset from the tile.
   Accent is reserved for selection; keyboard focus is a dashed outline further
   out so the two never read alike.
-- Drag to reorder; drag tile onto tile creates a **folder** (expand/collapse).
+- Drag to reorder; dropping a space on the middle of another tile creates (or
+  joins) a **folder**. A collapsed folder is one tile with a 2×2 preview of its
+  spaces; an open folder lists its tiles, grouped by a 2px bracket in the
+  rail's right gutter (in the folder's hue, if set). Folder menu: mark read,
+  expand/collapse, rename and recolour, dissolve.
 - `+` tile → Create Space dialog (name, emoji/colour, pick groups with a
   searchable checklist; suggestions based on shared members).
 - Right-click tile (or Shift+F10 / Ctrl+Enter): Mark all read, Mute space,
@@ -350,10 +420,13 @@ swipe/Escape to close). Min supported width 360px.
   Section labels are sentence case ("Direct Messages", "Archived · 3").
 - In a Space: collapsible **categories** (user-created; default "Chats") with
   channel-style rows: `#` glyph, title, badges. Drag rows between categories.
-- Row hover shows a close/archive `×` (Home) or settings cog (Spaces).
+- Row hover shows a `⋯` button (the row menu) on every row, plus an archive
+  `×` in Home.
 - Right-click row (or Shift+F10 / ContextMenu key / Ctrl+Enter on a focused
   row): Mark as read, Mute ▸ (15m/1h/8h/24h/until I turn it back on),
-  Pin/Unpin, Move to space ▸, Copy ID, Disappearing messages ▸, Archive.
+  Pin/Unpin, Move to space ▸, Move to category ▸ (in a space), Copy ID,
+  plugin items, Archive. (*Disappearing messages ▸* is not offered yet: no
+  service exposes `updateConversation`.)
 - **User panel** at the bottom: avatar + profile name + "linked device"
   subtitle (or connection state in colour when degraded); buttons: toggle
   notifications (bell), settings (cog).
@@ -400,7 +473,8 @@ results panel), toggle member list (groups), inbox (mentions across convos).
 - Rounded field, auto-grows to 50% of viewport then scrolls.
 - Left `+` button: upload file. Drag-and-drop anywhere over the chat shows a
   full-panel drop overlay ("Drop to send to #title"). Paste images.
-- Attachment tray above the input with thumbnails, remove ×, spoiler toggle.
+- Attachment tray above the input with thumbnails and remove × (no spoiler
+  toggle: `OutgoingAttachment` has no spoiler flag).
 - Right: emoji picker button.
 - Markdown shortcuts (live preview is out of scope; formatting is shown after
   sending); Ctrl+B / Ctrl+I / Ctrl+Shift+X wrap selection.
@@ -429,26 +503,34 @@ results panel), toggle member list (groups), inbox (mentions across convos).
 
 ### 4.8 Quick switcher (Ctrl/Cmd+K)
 Modal with fuzzy search over conversations, spaces and commands (prefix `>`
-for commands, `@` DMs only, `#` groups only). Empty query shows recent &
-unread. Result rows show kind icon and space name. Enter opens, Shift+Enter
-opens without closing? (no — keep simple).
+for commands, `@` DMs only, `#` groups only, `*` spaces only; the prefix
+becomes a chip). Empty query shows unread (mentions first) then recent.
+Result rows show kind icon and space name. Enter opens; no Shift+Enter
+variant.
 
 ### 4.9 Settings (full-screen overlay, Escape to close)
 Left nav grouped: **You** (My profile, Privacy), **General** (Appearance,
 Accessibility, Notifications, Keybinds, Behaviour), **Customise** (Plugins,
 Themes, Custom CSS), **System** (Connection, Data & storage — export/clear
-local history, About/licences). "← Back to chats" sits atop the nav (no round
+local history, About/licences), then **From plugins** (plugin settings
+panels). "← Back to chats" sits atop the nav (no round
 close button). Changes apply live; no Save button. Search box filters
 settings entries (plugins and command shortcuts included).
 - **Plugins page:** grid of cards (name, description, tags, toggle, cog →
   auto-generated settings form from schema). Search + filter (enabled /
   disabled / tag). Restart-free enable/disable.
-- **Themes page:** theme cards with live mini-preview swatches; accent picker.
+- **Appearance page:** theme cards with live mini-previews, accent presets +
+  custom colour with contrast warnings, density, text size, zoom, 12/24h.
+- **Themes page:** the same theme cards with export / remove, and import of
+  theme files (validated; themes with CSS apply on a 10 s probation).
+- **Custom CSS page:** code editor, live apply, list of stable hooks.
 
 ### 4.10 Onboarding / connection
 First run: welcome screen with two choices: **Try the demo** (mock backend,
-seeded world) or **Connect to signal-cli** (daemon URL, default
-`http://127.0.0.1:8080` via dev proxy). If the daemon has no account: **Link
+seeded world) or **Connect to signal-cli** (daemon URL, default `/signal-cli`:
+the same-origin dev/preview proxy to `SHRIKE_SIGNAL_CLI_URL`, default
+`http://127.0.0.1:8080`; the form probes the daemon first). A single-account
+daemon asks for the account number once. If the daemon has no account: **Link
 this device** flow — QR code from `startLink`, explains "Signal app → Settings
 → Linked devices → +", waits on `finishLink`, then syncs. Connection problems
 surface as a slim banner at the top of the chat column, with retry.
@@ -474,7 +556,9 @@ The complete keyboard reference (lists, composer, dialogs, Vim mode) is
 ### 4.12 Accessibility & motion
 - All interactive elements reachable by keyboard; visible focus ring
   (`:focus-visible`, 2px accent outline, offset 2px).
-- Message list uses `role="log"` + `aria-live="polite"` for new messages.
+- Message list rows form a `role="feed"` of `role="article"` rows with one
+  roving tab stop; new arrivals are announced by a throttled polite live region
+  (`LiveAnnouncer`).
 - Colour contrast ≥ 4.5:1 for text in all built-in themes.
 - Motion 120–200ms `cubic-bezier(.2,.8,.2,1)`; everything disabled when
   reduced motion (OS or setting).
@@ -507,8 +591,8 @@ Seeded, deterministic (seeded PRNG), ~25 contacts, ~12 groups, ~10 DMs,
 realistic multi-day histories including replies, reactions, edits,
 deletions, attachments (generated SVG/data-URL images), mentions, formatting,
 long messages, code. A "liveliness" simulator emits typing + messages +
-reactions every few seconds in a couple of conversations (toggleable in
-Advanced settings). Default spaces pre-created on first demo run ("Work",
+reactions every few seconds in a couple of conversations (toggle:
+Settings → Connection → Simulated activity). Default spaces pre-created on first demo run ("Work",
 "Climbing Club", "Family") so the Discord-like structure is visible
 immediately.
 
@@ -519,14 +603,14 @@ UX against §4 + plan conformance) → builder fixes → orchestrator verifies
 gates and commits. Quality gates for every phase:
 `npm run typecheck && npm run lint && npm test && npm run build` all green.
 
-| Phase | Scope | Acceptance |
-|---|---|---|
-| **P1 Foundation** | Scaffold, tooling, lint boundaries, tokens/themes base, domain types + pure helpers (with tests), backend contract, mock backend + seed world, IndexedDB repository, stores, services (sync/send), plugin runtime + registries (headless), command registry | Headless tests cover grouping, markdown→ranges, segments, fuzzy, stores, plugin lifecycle, mock backend events |
-| **P2 Shell** | App bootstrap, primitives, rail, sidebar, chat header, user panel, member list, profile popout, responsive layout, onboarding (demo path) | App boots into demo with seeded spaces; navigation works end-to-end by keyboard and mouse |
-| **P3 Messaging** | Message list, message rendering, reactions, replies, attachments + lightbox, hover bar, context menu, composer with autocomplete/attachments/edit/reply, typing, unread divider, jump-to-present | Send/edit/react/reply/delete all work optimistically against mock |
-| **P4 Power UX** | Quick switcher, settings overlay (all pages), plugins UI + built-in plugins, themes + accent + Custom CSS, keybinds, spaces CRUD + drag & drop, notifications | All built-in plugins toggle live; theme changes live |
-| **P5 signal-cli** | Adapter (JSON-RPC HTTP + SSE with Last-Event-ID resume), envelope normaliser (tested with fixtures), attachments, link-device flow, Vite proxy, README setup guide | Fixture-driven tests; manual run doc |
-| **P6 Polish** | Visual QA via Playwright screenshots of every surface in 3 themes & 3 widths, a11y audit (axe), perf (10k-message conversation smooth), docs (ARCHITECTURE.md, PLUGINS.md, THEMING.md) | Reviewer sign-off |
+| Phase | Scope | Acceptance | Status |
+|---|---|---|---|
+| **P1 Foundation** | Scaffold, tooling, lint boundaries, tokens/themes base, domain types + pure helpers (with tests), backend contract, mock backend + seed world, IndexedDB repository, stores, services (sync/send), plugin runtime + registries (headless), command registry | Headless tests cover grouping, markdown→ranges, segments, fuzzy, stores, plugin lifecycle, mock backend events | **Done** (4d3528c), review fixes f983ffa + de40998. Added beyond scope: `core/lib`, `HistoryService`, `seq` ordering, outbox, `localStore`. |
+| **P2 Shell** | App bootstrap, primitives, rail, sidebar, chat header, user panel, member list, profile popout, responsive layout, onboarding (demo path) | App boots into demo with seeded spaces; navigation works end-to-end by keyboard and mouse | **Done** (de40998, review fixes included). |
+| **P3 Messaging** | Message list, message rendering, reactions, replies, attachments + lightbox, hover bar, context menu, composer with autocomplete/attachments/edit/reply, typing, unread divider, jump-to-present | Send/edit/react/reply/delete all work optimistically against mock | **Done** (f16f3b4, review fixes included). Not done: attachment spoiler toggle (no protocol flag), scroll restore per conversation, search term highlighting. |
+| **P4 Power UX** | Quick switcher, settings overlay (all pages), plugins UI + built-in plugins, themes + accent + Custom CSS, keybinds, spaces CRUD + drag & drop, notifications | All built-in plugins toggle live; theme changes live | **Done** (20e5a11; review fixes in 1105001). Also: device linking, `deferredBackend`, licence list, safe mode, CSP. Then **Vim mode** + key-layer API (1105001). |
+| **P5 signal-cli** | Adapter (JSON-RPC HTTP + SSE with Last-Event-ID resume), envelope normaliser (tested with fixtures), attachments, link-device flow, Vite proxy, README setup guide | Fixture-driven tests; manual run doc | **Done** (de40998, review fixes cf9126c); setup guide is `docs/SIGNAL_CLI.md`. Verified against fixtures and a fake daemon only (see §8 "Known limits"). |
+| **P6 Polish** | Visual QA via Playwright screenshots of every surface in 3 themes & 3 widths, a11y audit (axe), perf (10k-message conversation smooth), docs (ARCHITECTURE.md, PLUGINS.md, THEMING.md) | Reviewer sign-off | **In progress.** Docs written: `README.md`, `docs/ARCHITECTURE.md`, `docs/PLUGINS.md`, `docs/THEMING.md`, `docs/KEYBOARD.md` (checked against code). Visual QA, axe audit and the 10k-message perf pass await sign-off. |
 
 ## 7. Code conventions
 - Named exports only; one component per file; file = component name.

@@ -11,25 +11,26 @@ the composer and dialogs, and the optional **Vim mode** plugin.
 ## Default shortcuts (rebindable)
 
 Change or remove any of these in **Settings → Keybinds** (click a shortcut,
-press the new keys; Esc cancels, Backspace removes it).
+press the new keys; Esc or Tab cancels, Backspace or Delete removes it).
 
-| Action | Keys |
-|---|---|
-| Quick switcher | Mod+K |
-| Previous / next conversation | Alt+↑ / Alt+↓ |
-| Previous / next unread conversation | Alt+Shift+↑ / Alt+Shift+↓ |
-| Mark conversation read | Esc (when the composer is empty) |
-| Toggle member list | Mod+Shift+M |
-| Settings | Mod+, |
-| Search in conversation | Mod+F |
-| Jump to present | Shift+PageDown |
-| Keyboard shortcuts | Mod+/ |
+| Action                              | Keys                             |
+| ----------------------------------- | -------------------------------- |
+| Quick switcher                      | Mod+K                            |
+| Previous / next conversation        | Alt+↑ / Alt+↓                    |
+| Previous / next unread conversation | Alt+Shift+↑ / Alt+Shift+↓        |
+| Mark conversation read              | Esc (when the composer is empty) |
+| Toggle member list                  | Mod+Shift+M                      |
+| Settings                            | Mod+,                            |
+| Search in conversation              | Mod+F                            |
+| Jump to present                     | Shift+PageDown                   |
+| Keyboard shortcuts                  | Mod+/                            |
 
 These have no default keys but are in the quick switcher (type `>`) and can
 be bound in Settings → Keybinds: create a space, toggle compact mode, toggle
 desktop notifications, open plugins / themes / appearance / keybinds,
 **next / previous space**, **focus the composer**, **focus the message list**,
-**open the command palette**.
+**open the command palette**, and one **Theme: …** command per built-in theme
+(type `>theme`).
 
 ## Everywhere
 
@@ -43,40 +44,40 @@ desktop notifications, open plugins / themes / appearance / keybinds,
 
 ## Lists (rail, sidebar, member list)
 
-| Keys | Action |
-|---|---|
-| ↑ / ↓ | Previous / next item |
-| Home / End | First / last item |
-| Enter / Space | Open / activate |
+| Keys                       | Action                                |
+| -------------------------- | ------------------------------------- |
+| ↑ / ↓                      | Previous / next item                  |
+| Home / End                 | First / last item                     |
+| Enter / Space              | Open / activate                       |
 | Shift+F10, Menu, Mod+Enter | Item menu (move, mute, pin, archive…) |
 
 ## Message list
 
 The list is one tab stop (the newest message by default).
 
-| Keys | Action |
-|---|---|
-| ↑ / ↓ | Previous / next message (↑ at the top loads older history) |
-| Enter | Step into the message: Tab then reaches its controls (hover bar first) |
-| Esc | Step back out of the message |
-| R | Reply |
-| E | Edit (your own message) |
-| + | Add a reaction |
-| Delete / Backspace | Delete (asks first; hold **Shift** to skip the question) |
-| Shift+F10, Menu, Mod+Enter | Message menu (copy, copy as Markdown, pin, …) |
+| Keys                       | Action                                                                                                          |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| ↑ / ↓                      | Previous / next message (↑ at the top loads older history)                                                      |
+| Enter                      | Step into the message: Tab then reaches its controls (hover bar first)                                          |
+| Esc                        | Step back out of the message                                                                                    |
+| R                          | Reply                                                                                                           |
+| E                          | Edit (your own message)                                                                                         |
+| + (or =)                   | Add a reaction                                                                                                  |
+| Delete / Backspace         | Delete: for everyone on your own messages, for you on others' (asks first; hold **Shift** to skip the question) |
+| Shift+F10, Menu, Mod+Enter | Message menu (copy, copy as Markdown, pin, …)                                                                   |
 
 Clicking a quoted message (or Enter on it) jumps to the original and focuses it.
 
 ## Composer
 
-| Keys | Action |
-|---|---|
-| Enter | Send (Shift+Enter: new line; swap them in Settings → Behaviour) |
-| ↑ in an empty composer | Edit your last message |
-| Esc | Close suggestions → cancel the reply → mark read (when empty) |
-| Mod+B / Mod+I / Mod+Shift+X | Bold / italic / strikethrough the selection |
-| `@`, `:`, `/` | Suggest members, emoji and slash commands |
-| ↑ / ↓, Tab or Enter, Esc | Move through / accept / dismiss suggestions |
+| Keys                        | Action                                                          |
+| --------------------------- | --------------------------------------------------------------- |
+| Enter                       | Send (Shift+Enter: new line; swap them in Settings → Behaviour) |
+| ↑ in an empty composer      | Edit your last message                                          |
+| Esc                         | Close suggestions → cancel the reply → mark read (when empty)   |
+| Mod+B / Mod+I / Mod+Shift+X | Bold / italic / strikethrough the selection                     |
+| `@`, `:`, `/`               | Suggest members, emoji and slash commands                       |
+| ↑ / ↓, Tab or Enter, Esc    | Move through / accept / dismiss suggestions                     |
 
 Inline message editor: Enter saves (same send-key setting), Esc cancels.
 
@@ -96,20 +97,20 @@ Enter opens the newest match; ↓ moves from the field into the results and
 
 - **Lightbox:** ← / → previous / next image, Esc closes.
 - **Settings:** Esc closes; the search box filters every page.
-- **QuickCSS editor:** Tab indents (two spaces), Shift+Tab outdents, Esc
-  releases Tab so it moves focus again.
+- **Custom CSS editor:** Tab indents (two spaces), Shift+Tab outdents, Esc
+  releases Tab so it moves focus again (the next Esc closes Settings).
 
 ---
 
 ## Vim mode
 
 A built-in plugin, **off by default**. Turn it on in **Settings → Plugins →
-Vim Mode** (or `>` in the quick switcher → *Open plugins*). A toast confirms
-it once: *"Vim mode on — Esc for Normal mode, ? for keys"*.
+Vim Mode** (or `>` in the quick switcher → _Open plugins_). A toast confirms
+it once: _"Vim mode on — Esc for Normal mode, ? for keys"_.
 
 Vim mode has two halves, each can be switched off in the plugin's settings:
 
-1. **Navigation keys** — active whenever focus is *not* in a text field
+1. **Navigation keys** — active whenever focus is _not_ in a text field
    (on the message list, a message, or nothing in particular) and from the
    composer's Normal mode for the app-level keys marked ◆ below.
 2. **Modal editing in the composer** — Normal, Insert, Visual and Visual
@@ -117,49 +118,49 @@ Vim mode has two halves, each can be switched off in the plugin's settings:
 
 Counts work everywhere they make sense: `5j`, `3J`, `d2w`, `3x`, `2u`.
 Multi-key sequences (`gg`, `]u`, `dd`, the leader) wait for the next key
-for the *sequence timeout* (default 1000 ms, adjustable); Esc clears them.
+for the _sequence timeout_ (default 1000 ms, adjustable); Esc clears them.
 The keys typed so far show in the composer's mode pill, like Vim's showcmd.
 
 ### Navigation
 
-| Keys | Action |
-|---|---|
-| `j` / `k` | Next / previous message (from outside the list, the first press lands on its tab stop: the newest message, or the last one you were on) |
-| `gg` / `G` | First loaded message (and load older) / latest message (jump to present) |
-| `Ctrl+d` / `Ctrl+u` ◆ | Half a page down / up (focus follows) |
-| `Ctrl+e` / `Ctrl+y` ◆ | Scroll one line down / up |
-| `zz` | Centre the focused message |
-| `J` / `K` | Next / previous conversation (as Alt+↓ / Alt+↑) |
-| `]u` / `[u` ◆ | Next / previous unread conversation |
-| `gt` / `gT` ◆ | Next / previous space |
-| `i` `a` `I` `A` | Focus the composer in Insert mode (`A` at the end, `I` at the start) |
-| `Esc` | Clear a pending sequence (otherwise the usual Esc: close popovers, mark read) |
+| Keys                  | Action                                                                                                                                  |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `j` / `k`             | Next / previous message (from outside the list, the first press lands on its tab stop: the newest message, or the last one you were on) |
+| `gg` / `G`            | First loaded message (and load older) / latest message (jump to present)                                                                |
+| `Ctrl+d` / `Ctrl+u` ◆ | Half a page down / up (focus follows)                                                                                                   |
+| `Ctrl+e` / `Ctrl+y` ◆ | Scroll one line down / up                                                                                                               |
+| `zz`                  | Centre the focused message                                                                                                              |
+| `J` / `K`             | Next / previous conversation (as Alt+↓ / Alt+↑)                                                                                         |
+| `]u` / `[u` ◆         | Next / previous unread conversation                                                                                                     |
+| `gt` / `gT` ◆         | Next / previous space                                                                                                                   |
+| `i` `a` `I` `A`       | Focus the composer in Insert mode (`A` at the end, `I` at the start)                                                                    |
+| `Esc`                 | Clear a pending sequence (otherwise the usual Esc: close popovers, mark read)                                                           |
 
 ### Focused message
 
-| Keys | Action |
-|---|---|
-| `r` | Reply (the composer opens in Insert mode) |
-| `e` | Edit (your own) |
-| `+` | React |
-| `o` | Open the first image/video in the lightbox, or jump to the quoted message |
-| `yy` | Copy text |
-| `Y` | Copy as Markdown |
-| `dd` | Delete (always through the confirm dialog) |
-| `p` | Pin / unpin (when the connection supports pins) |
+| Keys | Action                                                                    |
+| ---- | ------------------------------------------------------------------------- |
+| `r`  | Reply (the composer opens in Insert mode)                                 |
+| `e`  | Edit (your own)                                                           |
+| `+`  | React                                                                     |
+| `o`  | Open the first image/video in the lightbox, or jump to the quoted message |
+| `yy` | Copy text                                                                 |
+| `Y`  | Copy as Markdown                                                          |
+| `dd` | Delete (always through the confirm dialog)                                |
+| `p`  | Pin / unpin (when the connection supports pins)                           |
 
 ### App
 
-| Keys | Action |
-|---|---|
-| `/` ◆ | Search in conversation |
-| `:` ◆ | Command palette (the quick switcher in `>` scope) |
-| `?` ◆ | Keyboard shortcut sheet |
-| `m` | Toggle member list |
-| `<leader>s` ◆ | Settings |
-| `<leader>k` ◆ | Quick switcher |
-| `<leader>n` ◆ | Toggle desktop notifications |
-| `<leader>p` ◆ | Plugins |
+| Keys          | Action                                            |
+| ------------- | ------------------------------------------------- |
+| `/` ◆         | Search in conversation                            |
+| `:` ◆         | Command palette (the quick switcher in `>` scope) |
+| `?` ◆         | Keyboard shortcut sheet                           |
+| `m`           | Toggle member list                                |
+| `<leader>s` ◆ | Settings                                          |
+| `<leader>k` ◆ | Quick switcher                                    |
+| `<leader>n` ◆ | Toggle desktop notifications                      |
+| `<leader>p` ◆ | Plugins                                           |
 
 The **leader** is Space by default (Comma, Backslash or Semicolon in the
 plugin settings). Space stays native (scrolling) when it isn't the leader.
@@ -167,8 +168,8 @@ Other unmapped letters do nothing while Vim mode is on.
 
 ### Composer
 
-The composer starts in **Insert mode** (setting: *Start the composer in
-Insert mode*, on by default), so typing works as usual: suggestions, IME,
+The composer starts in **Insert mode** (setting: _Start the composer in
+Insert mode_, on by default), so typing works as usual: suggestions, IME,
 spellcheck and native undo are untouched. **Esc** or **Ctrl+[** switches to
 Normal mode.
 
@@ -187,25 +188,25 @@ Normal mode.
   native selection. Clicking moves the cursor; dragging a selection in
   Normal mode enters Visual mode.
 
-| Keys | Action |
-|---|---|
-| `i` `a` `I` `A` `o` `O` | Insert before / after / at line start / line end / new line below / above |
-| `h` `j` `k` `l`, arrows | Left / down / up / right (`j`/`k` over logical lines; they stop at the first/last line) |
-| `w` `b` `e` `W` `B` `E` | Word motions (`W`… = whitespace-separated words) |
-| `0` `^` `$` | Line start / first non-blank / line end |
-| `gg` `G` | First / last line (`3G`: line 3) |
-| `f` `F` `t` `T` + char, `;` `,` | Find a character on the line, repeat / reverse |
-| `%` | Matching bracket |
-| `d` `c` `y` `>` `<` + motion | Delete / change / yank / indent / outdent |
-| text objects | `iw aw iW aW i" a" i' a' i\` a\` i( a( ib i[ a[ i{ a{ iB i< a<` |
-| `dd` `cc` `yy` `>>` `<<` | Whole line(s) |
-| `D` `C` `Y` | Delete to end / change to end / yank line |
-| `x` `X` `s` `S` `r`char | Delete char / char before, substitute char / line, replace |
-| `~` `J` | Toggle case / join lines |
-| `p` `P` | Put after / before |
-| `u` `Ctrl+r` `.` | Undo / redo / repeat last change |
-| `"+y`, `"*y` | Yank to the system clipboard too |
-| `v` `V` | Visual / Visual Line mode |
+| Keys                            | Action                                                                                  |
+| ------------------------------- | --------------------------------------------------------------------------------------- |
+| `i` `a` `I` `A` `o` `O`         | Insert before / after / at line start / line end / new line below / above               |
+| `h` `j` `k` `l`, arrows         | Left / down / up / right (`j`/`k` over logical lines; they stop at the first/last line) |
+| `w` `b` `e` `W` `B` `E`         | Word motions (`W`… = whitespace-separated words)                                        |
+| `0` `^` `$`                     | Line start / first non-blank / line end                                                 |
+| `gg` `G`                        | First / last line (`3G`: line 3)                                                        |
+| `f` `F` `t` `T` + char, `;` `,` | Find a character on the line, repeat / reverse                                          |
+| `%`                             | Matching bracket                                                                        |
+| `d` `c` `y` `>` `<` + motion    | Delete / change / yank / indent / outdent                                               |
+| text objects                    | `iw aw iW aW i" a" i' a' i\` a\` i( a( ib i[ a[ i{ a{ iB i< a<`                         |
+| `dd` `cc` `yy` `>>` `<<`        | Whole line(s)                                                                           |
+| `D` `C` `Y`                     | Delete to end / change to end / yank line                                               |
+| `x` `X` `s` `S` `r`char         | Delete char / char before, substitute char / line, replace                              |
+| `~` `J`                         | Toggle case / join lines                                                                |
+| `p` `P`                         | Put after / before                                                                      |
+| `u` `Ctrl+r` `.`                | Undo / redo / repeat last change                                                        |
+| `"+y`, `"*y`                    | Yank to the system clipboard too                                                        |
+| `v` `V`                         | Visual / Visual Line mode                                                               |
 
 **Visual mode:** motions and text objects extend the selection; `d` `x`
 `c` `s` `y` delete / change / yank it, `>` `<` indent, `~` `u` `U` change
