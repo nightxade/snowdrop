@@ -1,54 +1,33 @@
+import { ArrowLeft, Puzzle, X, type LucideIcon } from 'lucide-react';
+import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react';
 import {
-  Accessibility,
-  ArrowLeft,
-  Bell,
-  Braces,
-  HardDrive,
-  Info,
-  Keyboard,
-  Paintbrush,
-  Palette,
-  PlugZap,
-  Puzzle,
-  Shield,
-  SlidersHorizontal,
-  UserRound,
-  X,
-  type LucideIcon,
-} from 'lucide-react';
-import { useMemo, useState, type ReactNode } from 'react';
-import { BREAKPOINTS, useMediaQuery, useObservableList, useShrike } from '@/ui/hooks';
+  BREAKPOINTS,
+  useMediaQuery,
+  useObservableList,
+  useRovingFocus,
+  useShrike,
+} from '@/ui/hooks';
 import {
   FullScreenDialog,
-  Kbd,
   PluginBoundary,
   Scroller,
   SearchInput,
   TooltipProvider,
   isRenderableComponent,
 } from '@/ui/primitives';
-import { DEFAULT_PAGE, SETTINGS_GROUPS, SETTINGS_PAGES } from './pages';
+import {
+  DEFAULT_PAGE,
+  PAGE_IDS,
+  SETTINGS_GROUPS,
+  SETTINGS_PAGES,
+  type SettingsGroupId,
+  type SettingsPageId,
+} from './pages';
 import { usePlugins } from './plugins/usePlugins';
 import { SettingsFilterProvider, type SettingsFilter } from './rows/SettingsFilter';
 import { searchSettings, type SettingsPageMeta } from './search';
 import { SettingsPage } from './SettingsPage';
 import styles from './SettingsOverlay.module.css';
-
-const ICONS: Record<string, LucideIcon> = {
-  profile: UserRound,
-  privacy: Shield,
-  appearance: Palette,
-  accessibility: Accessibility,
-  notifications: Bell,
-  keybinds: Keyboard,
-  behaviour: SlidersHorizontal,
-  plugins: Puzzle,
-  themes: Paintbrush,
-  quickcss: Braces,
-  connection: PlugZap,
-  data: HardDrive,
-  about: Info,
-};
 
 export interface SettingsOverlayProps {
   onClose: () => void;
@@ -56,49 +35,85 @@ export interface SettingsOverlayProps {
   initialPage?: string;
 }
 
+/** A nav entry: a built-in page, or a panel contributed by a plugin. */
+interface NavPage extends SettingsPageMeta {
+  group: SettingsGroupId;
+  icon: LucideIcon;
+  panel?: { id: string; owner: string; component: unknown };
+}
+
+const isPageId = (id: string): id is SettingsPageId => (PAGE_IDS as readonly string[]).includes(id);
+
 /**
  * Full-screen settings (PLAN §4.9): grouped nav, search across every page,
  * and live changes (no Save button). Lazy-loaded from the modal host.
  */
 export function SettingsOverlay({ onClose, initialPage }: SettingsOverlayProps) {
-  const { registries } = useShrike();
+  const { registries, commands } = useShrike();
   const plugins = usePlugins();
   const panels = useObservableList(registries.settingsPanels);
+  const allCommands = useSyncExternalStore(
+    (fn) => commands.subscribe(fn),
+    () => commands.all(),
+  );
   const narrow = useMediaQuery(BREAKPOINTS.drawer);
-  const [page, setPage] = useState(() =>
-    initialPage && SETTINGS_PAGES.some((p) => p.id === initialPage) ? initialPage : DEFAULT_PAGE,
+  const [page, setPage] = useState<string>(() =>
+    initialPage && isPageId(initialPage) ? initialPage : DEFAULT_PAGE,
   );
   // On phones the nav is its own screen; picking a page slides to it.
   const [showNav, setShowNav] = useState(initialPage === undefined);
   const [query, setQuery] = useState('');
+  // Where focus should go after the next render (phone navigation).
+  // A fresh object per request, so the same target can be asked for twice.
+  const [focusTo, setFocusTo] = useState<{ to: 'heading' | 'nav' } | null>(null);
+  const onNavKeyDown = useRovingFocus('vertical');
 
-  // Plugins (and plugin panels) are searchable entries too.
-  const pages = useMemo((): SettingsPageMeta[] => {
-    const withPlugins = SETTINGS_PAGES.map((p) =>
-      p.id === 'plugins'
-        ? {
-            ...p,
-            entries: [
-              ...p.entries,
-              ...plugins.map(({ definition: d }) => ({
-                id: `plugin.${d.id}`,
-                label: d.name,
-                description: d.description,
-                keywords: d.tags ?? [],
+  // Plugins, commands (for their shortcuts) and plugin panels are searchable too.
+  const pages = useMemo((): NavPage[] => {
+    const builtIn = SETTINGS_PAGES.map((p): NavPage => {
+      if (p.id === 'plugins')
+        return {
+          ...p,
+          entries: [
+            ...p.entries,
+            ...plugins.map(({ definition: d }) => ({
+              id: `plugin.${d.id}`,
+              label: d.name,
+              description: d.description,
+              keywords: d.tags ?? [],
+            })),
+          ],
+        };
+      if (p.id === 'keybinds')
+        return {
+          ...p,
+          entries: [
+            ...p.entries,
+            ...allCommands
+              .filter((c) => !c.hidden)
+              .map((c) => ({
+                id: `keybind.${c.id}`,
+                label: c.title,
+                keywords: [c.category ?? '', 'shortcut', 'keybind'],
               })),
-            ],
-          }
-        : p,
-    );
-    const panelPages = panels.map((panel) => ({
+          ],
+        };
+      return p;
+    });
+    const panelPages = panels.map((panel): NavPage => ({
       id: `panel:${panel.owner}:${panel.id}`,
       group: 'plugin-panels',
+      icon: Puzzle,
       title: panel.title,
-      description: `Added by the ${panel.owner} plugin.`,
+      description: `Added by the ${pluginName(panel.owner)} plugin.`,
       entries: [],
+      panel,
     }));
-    return [...withPlugins, ...panelPages];
-  }, [plugins, panels]);
+    function pluginName(owner: string): string {
+      return plugins.find((p) => p.definition.id === owner)?.definition.name ?? owner;
+    }
+    return [...builtIn, ...panelPages];
+  }, [plugins, panels, allCommands]);
 
   const matches = useMemo(() => searchSettings(query, pages), [query, pages]);
   const filter = useMemo((): SettingsFilter | null => {
@@ -113,7 +128,6 @@ export function SettingsOverlay({ onClose, initialPage }: SettingsOverlayProps) 
         if (e.section) sections.add(e.section);
       }
     }
-    // Pages without declared entries (plugin panels) are shown whole.
     return {
       query,
       isVisible: (id) => visible.has(id),
@@ -121,16 +135,33 @@ export function SettingsOverlay({ onClose, initialPage }: SettingsOverlayProps) 
     };
   }, [matches, pages, query]);
 
+  useEffect(() => {
+    if (!focusTo) return;
+    const target =
+      focusTo.to === 'heading'
+        ? document.querySelector<HTMLElement>('#shrike-settings-main [data-page-heading]')
+        : document.querySelector<HTMLElement>(`[data-shrike="settings"] [data-page-id="${page}"]`);
+    target?.focus();
+  }, [focusTo, page]);
+
   const go = (id: string) => {
     setPage(id);
     setQuery('');
     setShowNav(false);
     document.getElementById('shrike-settings-main')?.scrollTo({ top: 0 });
+    // Phones swap screens: announce the page by landing on its heading.
+    if (narrow) setFocusTo({ to: 'heading' });
   };
 
-  const renderPage = (meta: SettingsPageMeta, heading: 'h2' | 'h3'): ReactNode => {
-    const panel = panels.find((p) => `panel:${p.owner}:${p.id}` === meta.id);
-    if (panel) {
+  const backToNav = () => {
+    setShowNav(true);
+    setQuery('');
+    setFocusTo({ to: 'nav' });
+  };
+
+  const renderPage = (meta: NavPage, heading: 'h2' | 'h3'): ReactNode => {
+    if (meta.panel) {
+      const { panel } = meta;
       const Panel = isRenderableComponent<object>(panel.component) ? panel.component : null;
       return (
         <PageFrame key={meta.id} meta={meta} heading={heading}>
@@ -140,15 +171,25 @@ export function SettingsOverlay({ onClose, initialPage }: SettingsOverlayProps) 
         </PageFrame>
       );
     }
-    return (
+    return isPageId(meta.id) ? (
       <PageFrame key={meta.id} meta={meta} heading={heading}>
         <SettingsPage id={meta.id} onNavigate={go} />
       </PageFrame>
-    );
+    ) : null;
   };
 
   const current = pages.find((p) => p.id === page) ?? pages[0];
   const matchedIds = new Set(matches?.map((m) => m.pageId) ?? []);
+
+  const backToChats = (
+    <button type="button" className={styles.backToChats} onClick={onClose}>
+      <ArrowLeft size={16} aria-hidden />
+      <span>Back to chats</span>
+      <kbd className={styles.escHint} aria-hidden>
+        Esc
+      </kbd>
+    </button>
+  );
 
   return (
     <FullScreenDialog
@@ -157,7 +198,7 @@ export function SettingsOverlay({ onClose, initialPage }: SettingsOverlayProps) 
         if (!open) onClose();
       }}
       title="Settings"
-      initialFocus={narrow && !showNav ? undefined : 'input[type=search]'}
+      initialFocus={narrow && !showNav ? '[data-page-heading]' : 'input[type=search]'}
       className={styles.dialog}
     >
       <TooltipProvider>
@@ -168,19 +209,8 @@ export function SettingsOverlay({ onClose, initialPage }: SettingsOverlayProps) 
         >
           <div className={styles.navColumn}>
             <nav className={styles.nav} aria-label="Settings sections">
-              <div className={styles.navHeader}>
-                <p className={styles.navTitle}>Settings</p>
-                {narrow && (
-                  <button
-                    type="button"
-                    className={styles.close}
-                    onClick={onClose}
-                    aria-label="Close settings"
-                  >
-                    <X size={20} aria-hidden />
-                  </button>
-                )}
-              </div>
+              {backToChats}
+              <p className={styles.navTitle}>Settings</p>
               <SearchInput
                 size="sm"
                 value={query}
@@ -191,7 +221,7 @@ export function SettingsOverlay({ onClose, initialPage }: SettingsOverlayProps) 
                 placeholder="Search settings"
                 aria-label="Search settings"
               />
-              <Scroller className={styles.navScroller}>
+              <Scroller className={styles.navScroller} onKeyDown={onNavKeyDown}>
                 {SETTINGS_GROUPS.map((group) => {
                   const items = pages.filter((p) => p.group === group.id);
                   if (items.length === 0) return null;
@@ -207,13 +237,17 @@ export function SettingsOverlay({ onClose, initialPage }: SettingsOverlayProps) 
                       </p>
                       <ul className={styles.items}>
                         {items.map((item) => {
-                          const Icon = ICONS[item.id] ?? Puzzle;
+                          const Icon = item.icon;
                           const dim = matches !== null && !matchedIds.has(item.id);
                           return (
                             <li key={item.id}>
                               <button
                                 type="button"
                                 className={styles.item}
+                                data-roving-item
+                                data-page-id={item.id}
+                                // One tab stop in the nav: the current page; ↑/↓ move.
+                                tabIndex={item.id === current?.id ? 0 : -1}
                                 aria-current={!matches && item.id === page ? 'page' : undefined}
                                 data-dim={dim ? '' : undefined}
                                 onClick={() => {
@@ -233,21 +267,29 @@ export function SettingsOverlay({ onClose, initialPage }: SettingsOverlayProps) 
               </Scroller>
             </nav>
           </div>
-          <main id="shrike-settings-main" className={styles.main} aria-label="Settings content">
-            <div className={styles.mainInner}>
-              {narrow && (
-                <button
-                  type="button"
-                  className={styles.back}
-                  onClick={() => {
-                    setShowNav(true);
-                    setQuery('');
-                  }}
-                >
+          <div
+            id="shrike-settings-main"
+            className={styles.main}
+            role="region"
+            aria-label="Settings content"
+          >
+            {narrow && (
+              <div className={styles.pageBar}>
+                <button type="button" className={styles.back} onClick={backToNav}>
                   <ArrowLeft size={16} aria-hidden />
                   All settings
                 </button>
-              )}
+                <button
+                  type="button"
+                  className={styles.close}
+                  onClick={onClose}
+                  aria-label="Close settings"
+                >
+                  <X size={20} aria-hidden />
+                </button>
+              </div>
+            )}
+            <div className={styles.mainInner}>
               <SettingsFilterProvider value={filter}>
                 {matches === null ? (
                   current && renderPage(current, 'h2')
@@ -273,20 +315,7 @@ export function SettingsOverlay({ onClose, initialPage }: SettingsOverlayProps) 
                 )}
               </SettingsFilterProvider>
             </div>
-            {!narrow && (
-              <div className={styles.closeColumn}>
-                <button
-                  type="button"
-                  className={styles.close}
-                  onClick={onClose}
-                  aria-label="Close settings"
-                >
-                  <X size={20} aria-hidden />
-                </button>
-                <Kbd combo="Esc" className={styles.closeHint} />
-              </div>
-            )}
-          </main>
+          </div>
         </div>
       </TooltipProvider>
     </FullScreenDialog>
@@ -305,10 +334,16 @@ function PageFrame({
   const H = heading;
   return (
     <div className={styles.page} data-settings-page={meta.id}>
-      <header className={styles.pageHeader}>
-        <H className={styles.pageTitle}>{meta.title}</H>
+      {/* Not <header>: inside the settings region it would read as a stray banner. */}
+      <div className={styles.pageHeader}>
+        <H
+          className={styles.pageTitle}
+          {...(heading === 'h2' ? { tabIndex: -1, 'data-page-heading': '' } : {})}
+        >
+          {meta.title}
+        </H>
         <p className={styles.pageDescription}>{meta.description}</p>
-      </header>
+      </div>
       {children}
     </div>
   );

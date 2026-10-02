@@ -46,7 +46,7 @@
 }
 
 .mark {
-  color: var(--shrike-accent);
+  color: var(--shrike-accent-text);
 }
 
 .wordmark {

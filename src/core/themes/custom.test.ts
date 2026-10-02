@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildThemeCss } from './engine';
 import { exportTheme, parseThemeJson, toTheme, validateTheme } from './custom';
-import { sanitizeUserCss } from './sanitize';
 import { LINEN } from './builtin';
 
 describe('theme import', () => {
@@ -65,7 +64,7 @@ describe('theme import', () => {
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.theme.css).not.toMatch(/@import/u);
-    expect(r.warnings[0]).toMatch(/remote @import/u);
+    expect(r.warnings[0]).toMatch(/Removed 1 remote reference/u);
   });
 
   it('round-trips through export and applies through the engine', () => {
@@ -83,7 +82,7 @@ describe('theme import', () => {
       zoom: 1,
       saturation: 1,
       reducedMotion: 'system',
-      quickCss: '',
+      customCss: '',
       extraThemes: [theme],
     });
     expect(css).toContain('--shrike-bg-chat: #faf8f4;');
@@ -98,35 +97,5 @@ describe('theme import', () => {
       css: '',
     });
     expect(theme.tokens).toEqual({ accent: '#fff' });
-  });
-});
-
-describe('QuickCSS sanitiser', () => {
-  it('removes remote @import rules in every syntax and keeps local ones', () => {
-    const input = [
-      "@import url('https://evil.example/a.css');",
-      '@import "http://evil.example/b.css" screen;',
-      '@import url(//cdn.example/c.css);',
-      "@import 'local.css';",
-      ':root { --shrike-accent: #fff; }',
-    ].join('\n');
-    const out = sanitizeUserCss(input);
-    expect(out.removedImports).toEqual([
-      'https://evil.example/a.css',
-      'http://evil.example/b.css',
-      '//cdn.example/c.css',
-    ]);
-    expect(out.css).not.toMatch(/evil|cdn\.example/u);
-    expect(out.css).toContain("@import 'local.css';");
-    expect(out.css).toContain('--shrike-accent');
-  });
-
-  it('is case-insensitive and reports (but keeps) remote url() references', () => {
-    const out = sanitizeUserCss(
-      "@IMPORT URL(HTTPS://x.example/y.css);\nbody { background: url('https://img.example/bg.png') }\n/* url(https://ignored.example) */",
-    );
-    expect(out.removedImports).toHaveLength(1);
-    expect(out.remoteUrls).toEqual(['https://img.example/bg.png']);
-    expect(out.css).toContain('img.example');
   });
 });

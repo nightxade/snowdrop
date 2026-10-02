@@ -2,6 +2,7 @@ import * as RadixDialog from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { IconButton } from './IconButton';
+import { focusQuietly } from './focusQuietly';
 import styles from './Modal.module.css';
 
 export interface ModalProps {
@@ -75,7 +76,7 @@ export function Modal({
           onCloseAutoFocus={(e) => {
             e.preventDefault();
             const target = returnFocus?.() ?? (opener && document.contains(opener) ? opener : null);
-            target?.focus();
+            focusQuietly(target);
           }}
         >
           <header className={styles.header} data-hidden={hideHeader ? '' : undefined}>

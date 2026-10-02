@@ -3,12 +3,13 @@
  *
  * Imported files are untrusted. Only known token names with plain string
  * values are accepted, values can't break out of their declaration, and the
- * CSS goes through the same remote-import guard as QuickCSS.
+ * CSS goes through the same remote-reference guard as Custom CSS.
  */
 import type { CustomThemeData } from '@/core/stores';
 import type { Theme } from './builtin';
 import { BUILTIN_THEMES } from './builtin';
-import { sanitizeUserCss } from './sanitize';
+import { removedSummary, sanitizeUserCss } from './sanitize';
+import { isValidTokenValue } from './tokenValues';
 import { isTokenName, type TokenOverrides } from './tokens';
 
 export type ThemeImportResult =
@@ -16,8 +17,6 @@ export type ThemeImportResult =
 
 const ID = /^[a-z0-9][a-z0-9-]{0,47}$/u;
 const MAX_CSS = 100_000;
-/** A value may not end its declaration or open/close a block. */
-const UNSAFE_VALUE = /[;{}<>]|\/\*|\*\//u;
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -48,12 +47,13 @@ export function validateTheme(data: unknown): ThemeImportResult {
   if (!isObject(data)) return { ok: false, errors: ['A theme must be a JSON object.'] };
 
   const name = typeof data.name === 'string' ? data.name.trim() : '';
-  if (!name) errors.push('"name" must be a non-empty string.');
+  if (!name) errors.push('The theme needs a "name".');
   if (name.length > 40) errors.push('"name" must be at most 40 characters.');
 
   let id = typeof data.id === 'string' ? data.id.trim() : '';
   if (!id) id = slug(name);
-  if (!ID.test(id)) errors.push('"id" may only use lowercase letters, digits and dashes.');
+  // A missing name already explains a missing id.
+  if (name && !ID.test(id)) errors.push('"id" may only use lowercase letters, digits and dashes.');
   if (BUILTIN_THEMES.some((t) => t.id === id))
     errors.push(`"${id}" is a built-in theme id; pick another id.`);
 
@@ -75,7 +75,7 @@ export function validateTheme(data: unknown): ThemeImportResult {
         errors.push(`Token "${key}" must be a string.`);
         continue;
       }
-      if (!value.trim() || UNSAFE_VALUE.test(value)) {
+      if (!isValidTokenValue(nameOnly, value)) {
         errors.push(`Token "${key}" has an invalid value.`);
         continue;
       }
@@ -90,12 +90,8 @@ export function validateTheme(data: unknown): ThemeImportResult {
     else {
       const clean = sanitizeUserCss(data.css);
       css = clean.css;
-      if (clean.removedImports.length > 0)
-        warnings.push(
-          `Removed ${clean.removedImports.length} remote @import${clean.removedImports.length === 1 ? '' : 's'} (privacy).`,
-        );
-      if (clean.remoteUrls.length > 0)
-        warnings.push('The theme CSS loads files from the internet (url(...)).');
+      const summary = removedSummary(clean.removed);
+      if (summary) warnings.push(`${summary} from the theme CSS (privacy).`);
     }
   }
 
@@ -111,7 +107,7 @@ export function validateTheme(data: unknown): ThemeImportResult {
 export function toTheme(data: CustomThemeData): Theme {
   const tokens: TokenOverrides = {};
   for (const [key, value] of Object.entries(data.tokens)) {
-    if (isTokenName(key) && !UNSAFE_VALUE.test(value)) tokens[key] = value;
+    if (isTokenName(key) && isValidTokenValue(key, value)) tokens[key] = value;
   }
   const pick = (k: keyof TokenOverrides, fallback: string) => tokens[k] ?? fallback;
   const light = data.kind === 'light';

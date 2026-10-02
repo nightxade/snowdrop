@@ -33,7 +33,7 @@
   margin-bottom: var(--shrike-space-2);
   border-radius: var(--shrike-radius-full);
   background: var(--shrike-accent-soft);
-  color: var(--shrike-accent);
+  color: var(--shrike-accent-text);
 }
 
 .title {

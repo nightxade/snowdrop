@@ -1,14 +1,21 @@
 import { RotateCcw, TriangleAlert } from 'lucide-react';
 import { useMemo, useSyncExternalStore } from 'react';
 import { useStore } from 'zustand';
+import { formatKeybind, isMacPlatform, parseKeybind } from '@/core/commands';
 import { useShrike } from '@/ui/hooks';
 import { Button, IconButton, Kbd } from '@/ui/primitives';
 import { SettingRow } from '../rows/SettingRow';
 import { SettingsSection } from '../rows/SettingsSection';
 import { KeybindRecorder } from './KeybindRecorder';
-import { keybindConflicts, keybindProblem } from './record';
+import { boundTo, browserReserved, keybindConflicts, keybindProblem, planReassign } from './record';
 import styles from './keybinds.module.css';
 import { useState } from 'react';
+
+interface PendingReassign {
+  commandId: string;
+  keybind: string;
+  owners: string[];
+}
 
 export function KeybindsPage() {
   const { commands, stores, plugins } = useShrike();
@@ -22,6 +29,15 @@ export function KeybindsPage() {
   );
   const overrides = useStore(stores.settings, (s) => s.keybinds);
   const [problems, setProblems] = useState<Record<string, string>>({});
+  const [pending, setPending] = useState<PendingReassign | null>(null);
+  const mac = isMacPlatform();
+  const display = (kb: string) => {
+    const parsed = parseKeybind(kb);
+    return parsed ? formatKeybind(parsed, mac) : kb;
+  };
+  const write = (updates: [string, string | null][]) => {
+    for (const [id, kb] of updates) stores.settings.getState().setKeybind(id, kb);
+  };
   const conflicts = useMemo(() => keybindConflicts(all, overrides), [all, overrides]);
   const titleOf = (id: string) => all.find((c) => c.id === id)?.title ?? id;
   const pluginName = (owner: string) =>
@@ -67,7 +83,7 @@ export function KeybindsPage() {
             return (
               <SettingRow
                 key={command.id}
-                id="keybinds.list"
+                id={`keybind.${command.id}`}
                 label={command.title}
                 description={
                   [
@@ -89,10 +105,15 @@ export function KeybindsPage() {
                         setProblems(({ [command.id]: _old, ...rest }) =>
                           issue ? { ...rest, [command.id]: issue } : rest,
                         );
-                        if (!issue)
-                          stores.settings
-                            .getState()
-                            .setKeybind(command.id, kb === (command.keybind ?? '') ? null : kb);
+                        setPending(null);
+                        if (issue) return;
+                        // Taken by another command: ask before stealing it.
+                        const owners = kb ? boundTo(all, overrides, kb, command.id) : [];
+                        if (owners.length > 0) {
+                          setPending({ commandId: command.id, keybind: kb, owners });
+                          return;
+                        }
+                        write(planReassign(command, kb, []));
                       }}
                     />
                     <span className={styles.resetSlot}>
@@ -111,7 +132,39 @@ export function KeybindsPage() {
                 )}
                 noteTone="warning"
                 note={
-                  problem ? (
+                  pending?.commandId === command.id ? (
+                    <span
+                      className={styles.prompt}
+                      role="group"
+                      aria-label="Shortcut already in use"
+                    >
+                      <TriangleAlert size={14} aria-hidden />
+                      <span className={styles.promptText}>
+                        <Kbd combo={display(pending.keybind)} /> is used by{' '}
+                        {pending.owners.map(titleOf).join(', ')}. Move it here?
+                      </span>
+                      <Button
+                        size="sm"
+                        variant="primary"
+                        data-autofocus
+                        onClick={() => {
+                          write(planReassign(command, pending.keybind, pending.owners));
+                          setPending(null);
+                        }}
+                      >
+                        Reassign
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          setPending(null);
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                    </span>
+                  ) : problem ? (
                     <>
                       <TriangleAlert size={14} aria-hidden />
                       {problem}
@@ -120,6 +173,11 @@ export function KeybindsPage() {
                     <>
                       <TriangleAlert size={14} aria-hidden />
                       Also used by {clash.map(titleOf).join(', ')}. Only the first one listed runs.
+                    </>
+                  ) : effective && browserReserved(effective) ? (
+                    <>
+                      <TriangleAlert size={14} aria-hidden />
+                      {browserReserved(effective)}
                     </>
                   ) : undefined
                 }

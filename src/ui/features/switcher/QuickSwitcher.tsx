@@ -1,4 +1,4 @@
-import { AtSign, BellOff, Hash, Search, TerminalSquare } from 'lucide-react';
+import { BellOff, Hash, Search, TerminalSquare, UserRound } from 'lucide-react';
 import {
   useMemo,
   useRef,
@@ -18,17 +18,15 @@ import {
   uiSelectors,
 } from '@/core/stores';
 import { conversationFocusTarget, useNow, useShrike } from '@/ui/hooks';
+import { Badge, Kbd, Modal } from '@/ui/primitives';
 import {
-  Badge,
   CommandPalette,
   CommandPaletteEmpty,
   CommandPaletteGroup,
   CommandPaletteInput,
   CommandPaletteItem,
   CommandPaletteList,
-  Kbd,
-  Modal,
-} from '@/ui/primitives';
+} from '@/ui/primitives/CommandPalette';
 import {
   parseQuery,
   prefixFor,
@@ -72,7 +70,14 @@ const PREFIX_HINTS: { prefix: string; label: string }[] = Object.entries(PREFIXE
  * commands, with `>` `@` `#` `*` scopes. Built on cmdk for the combobox
  * semantics; ranking and highlighting are ours (`searchSwitcher`).
  */
-export function QuickSwitcher({ onClose }: { onClose: () => void }) {
+export function QuickSwitcher({
+  onClose,
+  initialQuery = '',
+}: {
+  onClose: () => void;
+  /** Starts in a scope, e.g. ">" for commands (the command palette). */
+  initialQuery?: string | undefined;
+}) {
   const app = useShrike();
   const { stores, commands } = app;
   const byId = useStore(stores.conversations, (s) => s.byId);
@@ -87,7 +92,7 @@ export function QuickSwitcher({ onClose }: { onClose: () => void }) {
     () => commands.all(),
   );
   const now = useNow();
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(initialQuery);
   const [active, setActive] = useState('');
   /** Where focus goes when the switcher closes: the opened conversation, else the opener. */
   const target = useRef<(() => HTMLElement | null) | null>(null);
@@ -275,7 +280,7 @@ function ItemIcon({ item }: { item: SwitcherItem }) {
         {item.emoji ?? initialsFor(item.title).slice(0, 2)}
       </span>
     );
-  return item.conversationKind === 'group' ? <Hash size={18} /> : <AtSign size={18} />;
+  return item.conversationKind === 'group' ? <Hash size={18} /> : <UserRound size={18} />;
 }
 
 function ItemMeta({

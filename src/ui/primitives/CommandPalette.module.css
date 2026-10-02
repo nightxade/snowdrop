@@ -127,7 +127,8 @@
 }
 
 .item[data-selected='true'] .meta {
-  color: var(--shrike-text-muted);
+  /* Muted text dips below 4.5:1 on the selected fill in Dusk. */
+  color: var(--shrike-text);
 }
 
 .empty {

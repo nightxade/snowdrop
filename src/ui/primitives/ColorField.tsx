@@ -1,4 +1,4 @@
-import { useId, useState, type CSSProperties } from 'react';
+import { useId, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import styles from './FormControls.module.css';
 
 export interface ColorFieldProps {
@@ -25,12 +25,39 @@ export function ColorField({ value, presets, onValueChange, label }: ColorFieldP
     setHex(current ?? '');
   }
   const isPreset = presets.some((p) => p.value.toLowerCase() === current);
+  const refs = useRef<(HTMLButtonElement | null)[]>([]);
+  // Radio-group keyboard: one tab stop (the checked swatch, else the first); arrows move and pick.
+  const checkedIndex = presets.findIndex((p) => p.value.toLowerCase() === current);
+  const tabStop = checkedIndex === -1 ? 0 : checkedIndex;
+  const onKeyDown = (e: KeyboardEvent, index: number) => {
+    const delta =
+      e.key === 'ArrowRight' || e.key === 'ArrowDown'
+        ? 1
+        : e.key === 'ArrowLeft' || e.key === 'ArrowUp'
+          ? -1
+          : 0;
+    if (!delta) return;
+    e.preventDefault();
+    const next = (index + delta + presets.length) % presets.length;
+    const preset = presets[next];
+    if (!preset) return;
+    onValueChange(preset.value.toLowerCase());
+    refs.current[next]?.focus();
+  };
+  const invalid = hex !== '' && hex !== '#' && !HEX.test(hex);
   return (
     <div className={styles.color}>
       <div role="radiogroup" aria-label={label} className={styles.swatches}>
-        {presets.map((p) => (
+        {presets.map((p, i) => (
           <button
             key={p.value}
+            ref={(el) => {
+              refs.current[i] = el;
+            }}
+            tabIndex={i === tabStop ? 0 : -1}
+            onKeyDown={(e) => {
+              onKeyDown(e, i);
+            }}
             type="button"
             role="radio"
             aria-checked={p.value.toLowerCase() === current}
@@ -63,6 +90,7 @@ export function ColorField({ value, presets, onValueChange, label }: ColorFieldP
           value={hex}
           placeholder="#d4744a"
           maxLength={7}
+          aria-invalid={invalid || undefined}
           spellCheck={false}
           autoComplete="off"
           onChange={(e) => {

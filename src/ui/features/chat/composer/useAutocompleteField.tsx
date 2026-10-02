@@ -15,6 +15,8 @@ export interface AutocompleteFieldOptions {
   onMention: (token: MentionToken) => void;
   /** Slash commands only make sense in the composer, not the inline editor. */
   slash: boolean;
+  /** False suspends suggestions (Vim mode outside Insert mode); default true. */
+  suggestions?: boolean;
 }
 
 export interface AutocompleteField {
@@ -48,7 +50,7 @@ export function isImeKey(e: KeyboardEvent): boolean {
 export function useAutocompleteField(o: AutocompleteFieldOptions): AutocompleteField {
   const [caret, setCaret] = useState(o.text.length);
   const listId = useId();
-  const auto = useAutocomplete(o.text, caret, o.memberIds, o.slash);
+  const auto = useAutocomplete(o.text, caret, o.memberIds, o.slash, o.suggestions ?? true);
 
   const syncCaret = () => {
     const el = o.textarea.current;

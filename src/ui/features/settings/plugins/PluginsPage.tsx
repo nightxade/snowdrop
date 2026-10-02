@@ -13,7 +13,12 @@ const FILTERS: { value: PluginFilter; label: string }[] = [
   { value: 'disabled', label: 'Off' },
 ];
 
-export function PluginsPage({ initialTag = null }: { initialTag?: string | null }) {
+export function PluginsPage({
+  initialTag = null,
+}: {
+  initialTag?: string | null;
+  onNavigate?: unknown;
+}) {
   const all = usePlugins();
   const settingsSearch = useSettingsFilter();
   const [query, setQuery] = useState('');
@@ -33,25 +38,30 @@ export function PluginsPage({ initialTag = null }: { initialTag?: string | null 
 
   return (
     <div className={styles.page}>
-      <div className={styles.toolbar}>
-        <SearchInput
-          className={styles.search}
-          size="sm"
-          value={query}
-          onValueChange={setQuery}
-          placeholder="Search plugins"
-          aria-label="Search plugins"
-        />
-        <Segmented label="Show" value={filter} options={FILTERS} onValueChange={setFilter} />
-        <Select
-          aria-label="Filter by tag"
-          value={tag ?? ''}
-          options={[{ value: '', label: 'All tags' }, ...tags.map((t) => ({ value: t, label: t }))]}
-          onValueChange={(v) => {
-            setTag(v || null);
-          }}
-        />
-      </div>
+      {/* Inside settings search results the overlay's query already filters: keep it compact. */}
+      {!settingsSearch.query && (
+        <div className={styles.toolbar}>
+          <SearchInput
+            className={styles.search}
+            value={query}
+            onValueChange={setQuery}
+            placeholder="Search plugins"
+            aria-label="Search plugins"
+          />
+          <Segmented label="Show" value={filter} options={FILTERS} onValueChange={setFilter} />
+          <Select
+            aria-label="Filter by tag"
+            value={tag ?? ''}
+            options={[
+              { value: '', label: 'All tags' },
+              ...tags.map((t) => ({ value: t, label: t })),
+            ]}
+            onValueChange={(v) => {
+              setTag(v || null);
+            }}
+          />
+        </div>
+      )}
       <p className={styles.count} aria-live="polite">
         {enabledCount} of {all.length} on
         {shown.length !== all.length ? ` · showing ${shown.length}` : ''}

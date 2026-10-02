@@ -49,9 +49,9 @@
   gap: 3px;
   height: 18px;
   padding: 0 6px;
-  border-radius: var(--shrike-radius-xs);
-  background: var(--shrike-highlight-bg);
-  color: var(--shrike-warning);
+  border: 1px solid var(--shrike-accent-text);
+  border-radius: var(--shrike-radius-full);
+  color: var(--shrike-accent-text);
   font-size: var(--shrike-font-size-xs);
   font-weight: var(--shrike-font-weight-semibold);
   white-space: nowrap;

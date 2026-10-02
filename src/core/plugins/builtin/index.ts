@@ -1,7 +1,6 @@
 import type { PluginDefinition } from '../types';
 import { clearUrlsPlugin } from './clearUrls';
 import { keywordAlertsPlugin } from './keywordAlerts';
-import { silentTypingPlugin } from './silentTyping';
 import { slashBasicsPlugin } from './slashBasics';
 
 export { clearUrlsPlugin, cleanUrl, stripTrackingParams } from './clearUrls';
@@ -11,7 +10,6 @@ export {
   matchKeyword,
   type KeywordAlertsUi,
 } from './keywordAlerts';
-export { silentTypingPlugin } from './silentTyping';
 export { slashBasicsPlugin } from './slashBasics';
 export { charCount, wordCount } from './messageText';
 
@@ -22,7 +20,6 @@ export { charCount, wordCount } from './messageText';
  */
 export const BUILTIN_PLUGINS: readonly PluginDefinition[] = [
   clearUrlsPlugin,
-  silentTypingPlugin,
   slashBasicsPlugin,
   keywordAlertsPlugin,
 ];

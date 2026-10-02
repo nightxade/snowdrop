@@ -79,8 +79,9 @@ export function ConnectionPage() {
               </span>
             </>
           }
-          control={
+          control={(ids) => (
             <Segmented
+              labelledBy={ids.labelId}
               label="Source"
               value={backend}
               options={[
@@ -92,7 +93,7 @@ export function ConnectionPage() {
                 setProbe(null);
               }}
             />
-          }
+          )}
         />
         {backend === 'signal-cli' && (
           <>

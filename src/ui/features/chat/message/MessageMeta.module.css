@@ -41,7 +41,7 @@
 }
 
 .mark[data-pinned] {
-  color: var(--shrike-accent);
+  color: var(--shrike-accent-text);
 }
 
 .notes {

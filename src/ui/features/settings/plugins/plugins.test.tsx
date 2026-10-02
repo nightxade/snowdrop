@@ -65,29 +65,32 @@ describe('Plugins page', () => {
     );
   });
 
-  it('shows a failed plugin with its error and retries', async () => {
+  it('shows a failed plugin with its error, retries, and keeps focus on the card', async () => {
     shrike = await bootShrike();
     renderWithShrike(shrike, <PluginsPage />);
-    // Silent Typing registers a typing guard; make that blow up once.
-    const original = shrike.registries.typingGuards.add.bind(shrike.registries.typingGuards);
+    // Message Tools registers hover actions; make that blow up until we say so.
+    const list = shrike.registries.hoverActions;
+    const original = list.add.bind(list);
     let fail = true;
-    shrike.registries.typingGuards.add = (entry) => {
-      if (fail) throw new Error('guard exploded');
+    list.add = (entry) => {
+      if (fail) throw new Error('hover bar exploded');
       return original(entry);
     };
     act(() => {
-      fireEvent.click(within(card('Silent Typing')).getByRole('switch'));
+      fireEvent.click(within(card('Message Tools')).getByRole('switch'));
     });
     await settle(shrike);
-    const alert = within(card('Silent Typing')).getByRole('alert');
-    expect(alert.textContent).toContain('guard exploded');
+    const alert = within(card('Message Tools')).getByRole('alert');
+    expect(alert.textContent).toContain('hover bar exploded');
     fail = false;
     act(() => {
       fireEvent.click(within(alert).getByRole('button', { name: 'Retry' }));
     });
     await settle(shrike);
-    expect(shrike.plugins.get('silent-typing')?.status).toBe('running');
-    expect(within(card('Silent Typing')).queryByRole('alert')).toBeNull();
+    expect(shrike.plugins.get('message-tools')?.status).toBe('running');
+    expect(within(card('Message Tools')).queryByRole('alert')).toBeNull();
+    // S5: the Retry button is gone; focus lands on the card's switch.
+    expect(document.activeElement).toBe(within(card('Message Tools')).getByRole('switch'));
   });
 
   it('filters by text, state and tag', async () => {
@@ -96,10 +99,7 @@ describe('Plugins page', () => {
     const names = (q: Parameters<typeof filterPlugins>[1]) =>
       filterPlugins(list, q).map((p) => p.definition.id);
     expect(names({ query: 'tracking', filter: 'all', tag: null })).toEqual(['clear-urls']);
-    expect(names({ query: '', filter: 'all', tag: 'privacy' })).toEqual([
-      'clear-urls',
-      'silent-typing',
-    ]);
+    expect(names({ query: '', filter: 'all', tag: 'privacy' })).toEqual(['clear-urls']);
     expect(names({ query: '', filter: 'enabled', tag: null })).toContain('clear-urls');
     expect(names({ query: '', filter: 'disabled', tag: null })).not.toContain('clear-urls');
   });

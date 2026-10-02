@@ -136,8 +136,8 @@ export function DataPage() {
           description={
             exporting ??
             (demo
-              ? 'Downloads the demo’s messages as JSON (the demo regenerates its history each launch).'
-              : 'Downloads every message stored in this browser as a JSON file. signal-cli keeps no history, so this is your backup.')
+              ? 'Downloads the demo’s messages as JSON (the demo regenerates its history each launch). Disappearing messages and attachment files are left out.'
+              : 'Downloads the messages stored in this browser as a JSON file; signal-cli keeps no history, so this is your backup. Disappearing messages are left out, and attachments are listed by name and type only.')
           }
           control={
             <Button
@@ -178,7 +178,7 @@ export function DataPage() {
         <SettingRow
           id="data.reset"
           label="Reset all settings"
-          description="Theme, keybinds, plugins and QuickCSS go back to their defaults. Messages, spaces and the connection are kept."
+          description="Theme, keybinds, plugins and Custom CSS go back to their defaults. Messages, spaces and the connection are kept."
           control={
             <Button
               variant="danger"
@@ -202,7 +202,7 @@ export function DataPage() {
           description={
             danger === 'clear'
               ? 'Messages stored in this browser are deleted for good, unless you exported them. Shrike reloads afterwards.'
-              : 'Your theme, keybinds, plugin choices and QuickCSS are reset. Shrike reloads afterwards.'
+              : 'Your theme, keybinds, plugin choices and Custom CSS are reset. Shrike reloads afterwards.'
           }
           footer={
             <>

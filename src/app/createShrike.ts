@@ -13,6 +13,7 @@ import {
   DEFAULT_KEYBINDS,
   isMacPlatform,
   KeybindDispatcher,
+  NavCommand,
 } from '@/core/commands';
 import {
   systemClock,
@@ -25,7 +26,6 @@ import {
   bindPersistence,
   defaultStorage,
   type PersistenceBinding,
-  IdbMessageRepository,
   loadVersioned,
   MemoryMessageRepository,
   type KeyValueStorage,
@@ -44,17 +44,19 @@ import {
 } from '@/core/services';
 import {
   createStores,
+  HOME,
   localSchema,
   selectLocalData,
   selectSettingsData,
   selectSpacesData,
   settingsSchema,
   spacesSchema,
+  spacesSelectors,
   uiSelectors,
   type Stores,
 } from '@/core/stores';
-import { applyAppearance, toTheme, type ThemeDocument } from '@/core/themes';
-import type { AppAdmin } from '@/ui/hooks';
+import { applyAppearance, BUILTIN_THEMES, toTheme, type ThemeDocument } from '@/core/themes';
+import { focusConversation, type AppAdmin } from '@/ui/hooks';
 import { withUiPlugins } from '@/ui/plugins';
 import { deferredBackend } from './deferredBackend';
 import { deferredRepository } from './deferredRepository';
@@ -73,6 +75,11 @@ export interface ShrikeOptions {
   repository?: MessageRepository;
   /** Desktop notifications (tests inject a fake); defaults to the browser's. */
   notificationApi?: NotificationApi;
+  /**
+   * Safe mode (`?safe=1`, or Shift held while loading): imported themes and
+   * Custom CSS are not applied, so a broken one can always be removed.
+   */
+  safeMode?: boolean;
 }
 
 export interface Shrike {
@@ -90,6 +97,8 @@ export interface Shrike {
   backendReady: Promise<ChatBackend>;
   notifications: NotificationService;
   admin: AppAdmin;
+  /** True when started in safe mode (custom themes and Custom CSS off). */
+  readonly safeMode: boolean;
   /** Connects, syncs and starts plugins. Safe to call again after a failed start (retry). */
   start(): Promise<void>;
   /** Writes debounced persisted state now (call on page hide). */
@@ -143,7 +152,12 @@ function createBackend(
       options.repository ??
       (typeof indexedDB === 'undefined'
         ? new MemoryMessageRepository()
-        : deferredRepository(IdbMessageRepository.open('shrike-signal-cli')));
+        : // Its own chunk (with idb): the demo never needs it.
+          deferredRepository(
+            import('@/core/persistence/IdbMessageRepository').then((m) =>
+              m.IdbMessageRepository.open('shrike-signal-cli'),
+            ),
+          ));
     return { backend: deferredBackend('signal-cli', ready), ready, repository, mock: null };
   }
   const mock = import('@/core/backend/mock').then(
@@ -253,6 +267,13 @@ export function createShrike(options: ShrikeOptions = {}): Shrike {
     focusWindow: () => {
       if (typeof window !== 'undefined') window.focus();
     },
+    // Land in the composer of the conversation the notification opened.
+    onOpened: (id) => {
+      if (typeof requestAnimationFrame !== 'undefined')
+        requestAnimationFrame(() => {
+          focusConversation(id);
+        });
+    },
   });
   const keybinds = new KeybindDispatcher(
     commands,
@@ -269,9 +290,9 @@ export function createShrike(options: ShrikeOptions = {}): Shrike {
       const s = stores.settings.getState();
       applyAppearance(doc, {
         ...s.appearance,
-        quickCss: s.quickCss,
+        customCss: options.safeMode ? '' : s.customCss,
         pluginCss: registries.combinedCss(),
-        extraThemes: s.customThemes.map(toTheme),
+        extraThemes: options.safeMode ? [] : s.customThemes.map(toTheme),
       });
     };
     apply();
@@ -279,7 +300,7 @@ export function createShrike(options: ShrikeOptions = {}): Shrike {
       stores.settings.subscribe((s, prev) => {
         if (
           s.appearance !== prev.appearance ||
-          s.quickCss !== prev.quickCss ||
+          s.customCss !== prev.customCss ||
           s.customThemes !== prev.customThemes
         )
           apply();
@@ -320,6 +341,7 @@ export function createShrike(options: ShrikeOptions = {}): Shrike {
     send,
     history,
     backendReady: ready,
+    safeMode: options.safeMode ?? false,
     notifications,
     admin,
 
@@ -412,6 +434,38 @@ function registerCoreCommands(commands: CommandRegistry, stores: Stores, sync: S
   // Palette-only actions (no default keys; bindable in Settings → Keybinds).
   const settings = () => stores.settings.getState();
   commands.register({
+    id: NavCommand.CommandPalette,
+    title: 'Open command palette',
+    category: 'Navigation',
+    allowInInputs: true,
+    run: () => {
+      ui().openModal({ type: 'switcher', props: { query: '>' } });
+    },
+  });
+  /** Home, then every space in rail order, wrapping. */
+  const stepSpace = (delta: 1 | -1) => {
+    const order = [HOME, ...spacesSelectors.orderedIds(stores.spaces.getState())];
+    const i = order.indexOf(ui().selectedSpace);
+    const next = order[(Math.max(0, i) + delta + order.length) % order.length];
+    if (next !== undefined) ui().selectSpace(next);
+  };
+  commands.register({
+    id: NavCommand.NextSpace,
+    title: 'Next space',
+    category: 'Spaces',
+    run: () => {
+      stepSpace(1);
+    },
+  });
+  commands.register({
+    id: NavCommand.PrevSpace,
+    title: 'Previous space',
+    category: 'Spaces',
+    run: () => {
+      stepSpace(-1);
+    },
+  });
+  commands.register({
     id: 'core.createSpace',
     title: 'Create a space',
     category: 'Spaces',
@@ -448,6 +502,18 @@ function registerCoreCommands(commands: CommandRegistry, stores: Stores, sync: S
       category: 'App',
       run: () => {
         ui().openModal({ type: 'settings', props: { page } });
+      },
+    });
+  }
+  // ">dark" in the switcher: one command per built-in theme.
+  for (const theme of BUILTIN_THEMES) {
+    commands.register({
+      id: `core.theme.${theme.id}`,
+      title: `Theme: ${theme.name}, ${theme.kind}`,
+      category: 'Theme',
+      enabled: () => settings().appearance.themeId !== theme.id,
+      run: () => {
+        settings().update('appearance', { themeId: theme.id });
       },
     });
   }

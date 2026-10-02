@@ -2,9 +2,15 @@
  * Settings → Data & Storage: a JSON dump of everything stored locally, so
  * people can keep their history (signal-cli itself keeps none).
  */
-import type { ConversationId, Message } from '@/core/domain';
+import type { Attachment, ConversationId, Message } from '@/core/domain';
 import type { MessageRepository } from '@/core/persistence';
 import type { Stores } from '@/core/stores';
+
+/** Attachments are listed, never embedded (no bytes, no URLs). */
+export type ExportedAttachment = Pick<Attachment, 'contentType'> &
+  Partial<Pick<Attachment, 'fileName' | 'size'>>;
+
+export type ExportedMessage = Omit<Message, 'attachments'> & { attachments: ExportedAttachment[] };
 
 export interface HistoryExport {
   format: 'shrike-history';
@@ -15,12 +21,28 @@ export interface HistoryExport {
     id: ConversationId;
     kind: 'direct' | 'group';
     title: string;
-    messages: Message[];
+    messages: ExportedMessage[];
   }[];
   contacts: { id: string; name: string; number?: string }[];
 }
 
 const PAGE = 500;
+
+/**
+ * Disappearing messages are left out: the sender chose for them not to last,
+ * and a backup file would outlive the timer.
+ */
+export function toExportedMessage(message: Message): ExportedMessage | null {
+  if (message.expiresAt !== undefined) return null;
+  return {
+    ...message,
+    attachments: message.attachments.map((a) => ({
+      contentType: a.contentType,
+      ...(a.fileName !== undefined ? { fileName: a.fileName } : {}),
+      ...(a.size !== undefined ? { size: a.size } : {}),
+    })),
+  };
+}
 
 /** Pages each conversation's stored history from oldest to newest. */
 export async function exportHistory(
@@ -33,7 +55,7 @@ export async function exportHistory(
   const out: HistoryExport['conversations'] = [];
   let done = 0;
   for (const c of conversations) {
-    const messages: Message[] = [];
+    const messages: ExportedMessage[] = [];
     let before: number | undefined;
     for (;;) {
       const page = await repository.page(c.id, {
@@ -41,7 +63,9 @@ export async function exportHistory(
         ...(before === undefined ? {} : { before }),
       });
       if (page.length === 0) break;
-      messages.unshift(...page);
+      messages.unshift(
+        ...page.map(toExportedMessage).filter((m): m is ExportedMessage => m !== null),
+      );
       const first = page[0]?.seq;
       if (page.length < PAGE || first === undefined) break;
       before = first;

@@ -1,12 +1,13 @@
-import { ChevronRight, RotateCcw, TriangleAlert } from 'lucide-react';
+import { ChevronRight, RotateCcw, ShieldAlert, TriangleAlert } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from 'zustand';
-import { sanitizeUserCss, TOKEN_NAMES } from '@/core/themes';
-import { useStores } from '@/ui/hooks';
-import { Button, CodeEditor } from '@/ui/primitives';
+import { removedSummary, sanitizeUserCss, TOKEN_NAMES } from '@/core/themes';
+import { useShrike } from '@/ui/hooks';
+import { Button } from '@/ui/primitives';
+import { CodeEditor } from '@/ui/primitives/CodeEditor';
 import { SettingRow } from '../rows/SettingRow';
 import { SettingsSection } from '../rows/SettingsSection';
-import styles from './quickcss.module.css';
+import styles from './customcss.module.css';
 
 const APPLY_DELAY_MS = 300;
 
@@ -25,6 +26,7 @@ export const STYLE_HOOKS: { hook: string; what: string }[] = [
   { hook: 'message-pane', what: 'Message area' },
   { hook: 'message-log', what: 'The message list' },
   { hook: 'message', what: 'One message (has data-compact, data-mention, data-continuation)' },
+  { hook: 'message-body', what: 'The text of a message' },
   { hook: 'hover-bar', what: 'Message hover actions' },
   { hook: 'system-message', what: 'Joined / renamed / timer lines' },
   { hook: 'new-divider', what: 'The “new messages” line' },
@@ -45,9 +47,9 @@ const PLACEHOLDER = `/* Example: roomier messages and a softer mention tint */
   --shrike-mention-bg: rgba(212, 116, 74, 0.06);
 }`;
 
-export function QuickCssPage() {
-  const stores = useStores();
-  const saved = useStore(stores.settings, (s) => s.quickCss);
+export function CustomCssPage() {
+  const { stores, safeMode } = useShrike();
+  const saved = useStore(stores.settings, (s) => s.customCss);
   const [draft, setDraft] = useState(saved);
   const [pending, setPending] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -61,7 +63,7 @@ export function QuickCssPage() {
     () => () => {
       if (timer.current) {
         clearTimeout(timer.current);
-        stores.settings.getState().setQuickCss(latest.current);
+        stores.settings.getState().setCustomCss(latest.current);
       }
     },
     [stores],
@@ -73,27 +75,33 @@ export function QuickCssPage() {
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => {
       timer.current = null;
-      stores.settings.getState().setQuickCss(css);
+      stores.settings.getState().setCustomCss(css);
       setPending(false);
     }, APPLY_DELAY_MS);
   };
 
-  const { removedImports, remoteUrls } = sanitizeUserCss(draft);
+  const summary = removedSummary(sanitizeUserCss(draft).removed);
   const lines = draft ? draft.split('\n').length : 0;
 
   return (
     <>
+      {safeMode && (
+        <p className={styles.safe} role="status">
+          <ShieldAlert size={16} aria-hidden />
+          Safe mode is on: this CSS isn’t applied until you reload Shrike normally.
+        </p>
+      )}
       <SettingsSection>
         <SettingRow
-          id="quickcss.editor"
+          id="custom-css.editor"
           label="Editor"
-          description="Applied live, a moment after you stop typing. Tab indents; press Esc first to Tab out."
+          description="Applied live, a moment after you stop typing. Tab indents; press Esc to Tab out. If something makes Shrike unusable, reload with Shift held (or add ?safe=1 to the address) to start without your CSS and themes."
           stacked
           control={
             <div className={styles.editorWrap}>
               <CodeEditor
                 className={styles.editor}
-                label="QuickCSS"
+                label="Custom CSS"
                 value={draft}
                 placeholder={PLACEHOLDER}
                 onValueChange={change}
@@ -116,9 +124,9 @@ export function QuickCssPage() {
                     timer.current = null;
                     setPending(false);
                     setDraft('');
-                    stores.settings.getState().setQuickCss('');
+                    stores.settings.getState().setCustomCss('');
                     stores.ui.getState().pushToast({
-                      message: 'QuickCSS cleared',
+                      message: 'Custom CSS cleared',
                       kind: 'info',
                       source: 'core',
                     });
@@ -131,23 +139,17 @@ export function QuickCssPage() {
           }
           noteTone="warning"
           note={
-            removedImports.length > 0 ? (
+            summary ? (
               <>
                 <TriangleAlert size={14} aria-hidden />
-                Remote @import removed for privacy ({removedImports.join(', ')}): fetching it would
-                tell that server when you use Shrike. Paste the CSS in directly instead.
-              </>
-            ) : remoteUrls.length > 0 ? (
-              <>
-                <TriangleAlert size={14} aria-hidden />
-                This CSS loads files from the internet ({remoteUrls.slice(0, 2).join(', ')}
-                {remoteUrls.length > 2 ? '…' : ''}). Those servers will see your IP address each
-                time Shrike starts.
+                {summary} (@import, url(), image-set()). Custom CSS can’t load anything from the
+                internet: that would tell other servers when you use Shrike. Paste styles in
+                directly; images can be data: URLs.
               </>
             ) : undefined
           }
         />
-        <SettingRow id="quickcss.hooks" label="Styling hooks" stacked>
+        <SettingRow id="custom-css.hooks" label="Styling hooks" stacked>
           <details className={styles.help}>
             <summary className={styles.summary}>
               <ChevronRight size={16} aria-hidden className={styles.chevron} />

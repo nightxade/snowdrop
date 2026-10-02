@@ -3,22 +3,69 @@
  * their rows with the same ids, so search can show exactly the matching
  * rows. Plugins are added at runtime (see usePluginEntries).
  */
+import {
+  Accessibility,
+  Bell,
+  Braces,
+  HardDrive,
+  Info,
+  Keyboard,
+  Paintbrush,
+  Palette,
+  PlugZap,
+  Puzzle,
+  Shield,
+  SlidersHorizontal,
+  UserRound,
+  type LucideIcon,
+} from 'lucide-react';
 import type { SettingsPageMeta } from './search';
 
-export type SettingsGroupId = 'user' | 'app' | 'shrike' | 'advanced' | 'plugin-panels';
+export type SettingsGroupId = 'you' | 'general' | 'customise' | 'system' | 'plugin-panels';
 
 export const SETTINGS_GROUPS: { id: SettingsGroupId; title: string }[] = [
-  { id: 'user', title: 'User' },
-  { id: 'app', title: 'App' },
-  { id: 'shrike', title: 'Shrike' },
-  { id: 'advanced', title: 'Advanced' },
+  { id: 'you', title: 'You' },
+  { id: 'general', title: 'General' },
+  { id: 'customise', title: 'Customise' },
+  { id: 'system', title: 'System' },
   { id: 'plugin-panels', title: 'From plugins' },
 ];
 
-export const SETTINGS_PAGES: SettingsPageMeta[] = [
+export const PAGE_IDS = [
+  'profile',
+  'privacy',
+  'appearance',
+  'accessibility',
+  'notifications',
+  'keybinds',
+  'behaviour',
+  'plugins',
+  'themes',
+  'custom-css',
+  'connection',
+  'data',
+  'about',
+] as const;
+
+export type SettingsPageId = (typeof PAGE_IDS)[number];
+
+/** Props every page view receives. */
+export interface PageProps {
+  onNavigate: (page: SettingsPageId) => void;
+}
+
+/** One settings page: the single source of its id, group, title, icon and searchable rows. */
+export interface SettingsPageDef extends SettingsPageMeta {
+  id: SettingsPageId;
+  group: SettingsGroupId;
+  icon: LucideIcon;
+}
+
+export const SETTINGS_PAGES: SettingsPageDef[] = [
   {
     id: 'profile',
-    group: 'user',
+    group: 'you',
+    icon: UserRound,
     title: 'My profile',
     description:
       'How you appear to others. Your profile is managed in the Signal app on your phone.',
@@ -30,7 +77,8 @@ export const SETTINGS_PAGES: SettingsPageMeta[] = [
   },
   {
     id: 'privacy',
-    group: 'user',
+    group: 'you',
+    icon: Shield,
     title: 'Privacy',
     description: 'What others can learn from you, and what Shrike keeps on this device.',
     keywords: ['security', 'tracking'],
@@ -39,14 +87,14 @@ export const SETTINGS_PAGES: SettingsPageMeta[] = [
         id: 'privacy.receipts',
         section: 'signals',
         label: 'Send read receipts',
-        description: 'Let people see when you’ve read their messages.',
+        description: 'Tell people when you’ve read their messages.',
       },
       {
         id: 'privacy.typing',
         section: 'signals',
-        label: 'Never send typing indicators',
-        description: 'Uses the Silent Typing plugin.',
-        keywords: ['silent'],
+        label: 'Send typing indicators',
+        description: 'Show people when you’re writing to them.',
+        keywords: ['silent', 'typing'],
       },
       {
         id: 'privacy.clearUrls',
@@ -65,7 +113,8 @@ export const SETTINGS_PAGES: SettingsPageMeta[] = [
   },
   {
     id: 'appearance',
-    group: 'app',
+    group: 'general',
+    icon: Palette,
     title: 'Appearance',
     description: 'Theme, accent colour, density and text size. Changes apply as you make them.',
     keywords: ['look', 'display'],
@@ -106,7 +155,8 @@ export const SETTINGS_PAGES: SettingsPageMeta[] = [
   },
   {
     id: 'accessibility',
-    group: 'app',
+    group: 'general',
+    icon: Accessibility,
     title: 'Accessibility',
     description: 'Motion, focus visibility, colour and target size.',
     keywords: ['a11y'],
@@ -119,7 +169,8 @@ export const SETTINGS_PAGES: SettingsPageMeta[] = [
   },
   {
     id: 'notifications',
-    group: 'app',
+    group: 'general',
+    icon: Bell,
     title: 'Notifications',
     description: 'Desktop notifications for new messages.',
     keywords: ['alerts', 'desktop'],
@@ -149,7 +200,8 @@ export const SETTINGS_PAGES: SettingsPageMeta[] = [
   },
   {
     id: 'keybinds',
-    group: 'app',
+    group: 'general',
+    icon: Keyboard,
     title: 'Keybinds',
     description: 'Every command and its shortcut, including ones that have none yet.',
     keywords: ['keyboard', 'shortcuts', 'hotkeys'],
@@ -157,20 +209,20 @@ export const SETTINGS_PAGES: SettingsPageMeta[] = [
   },
   {
     id: 'behaviour',
-    group: 'app',
+    group: 'general',
+    icon: SlidersHorizontal,
     title: 'Behaviour',
     description: 'How the composer and messages behave.',
     keywords: ['behavior', 'composer', 'chat'],
     entries: [
       { id: 'behaviour.enter', label: 'Send with', keywords: ['enter', 'shift', 'newline'] },
       { id: 'behaviour.markdown', label: 'Markdown formatting', keywords: ['bold', 'italic'] },
-      { id: 'behaviour.typing', label: 'Send typing indicators' },
-      { id: 'behaviour.previews', label: 'Link previews', keywords: ['privacy', 'embed'] },
     ],
   },
   {
     id: 'plugins',
-    group: 'shrike',
+    group: 'customise',
+    icon: Puzzle,
     title: 'Plugins',
     description: 'Turn features on and off. Everything applies immediately, no restart.',
     keywords: ['extensions', 'addons'],
@@ -178,7 +230,8 @@ export const SETTINGS_PAGES: SettingsPageMeta[] = [
   },
   {
     id: 'themes',
-    group: 'shrike',
+    group: 'customise',
+    icon: Paintbrush,
     title: 'Themes',
     description: 'Built-in themes, plus your own as JSON files.',
     keywords: ['colours', 'import', 'export'],
@@ -188,15 +241,16 @@ export const SETTINGS_PAGES: SettingsPageMeta[] = [
     ],
   },
   {
-    id: 'quickcss',
-    group: 'shrike',
-    title: 'QuickCSS',
+    id: 'custom-css',
+    group: 'customise',
+    icon: Braces,
+    title: 'Custom CSS',
     description: 'Your own CSS, applied live on top of the theme.',
-    keywords: ['custom', 'style', 'stylesheet'],
+    keywords: ['quickcss', 'style', 'stylesheet', 'safe mode'],
     entries: [
-      { id: 'quickcss.editor', label: 'Editor' },
+      { id: 'custom-css.editor', label: 'Editor' },
       {
-        id: 'quickcss.hooks',
+        id: 'custom-css.hooks',
         label: 'Styling hooks',
         keywords: ['data-shrike', 'selectors', 'tokens'],
       },
@@ -204,7 +258,8 @@ export const SETTINGS_PAGES: SettingsPageMeta[] = [
   },
   {
     id: 'connection',
-    group: 'advanced',
+    group: 'system',
+    icon: PlugZap,
     title: 'Connection',
     description: 'Where Shrike gets your messages from.',
     keywords: ['signal-cli', 'daemon', 'demo', 'backend', 'server'],
@@ -218,7 +273,8 @@ export const SETTINGS_PAGES: SettingsPageMeta[] = [
   },
   {
     id: 'data',
-    group: 'advanced',
+    group: 'system',
+    icon: HardDrive,
     title: 'Data & storage',
     description: 'Your message history lives only in this browser. Export it or clear it here.',
     keywords: ['history', 'backup', 'storage'],
@@ -231,7 +287,8 @@ export const SETTINGS_PAGES: SettingsPageMeta[] = [
   },
   {
     id: 'about',
-    group: 'advanced',
+    group: 'system',
+    icon: Info,
     title: 'About',
     description: 'Version, licences and the fine print.',
     keywords: ['licenses', 'licences', 'version', 'legal', 'credits'],
@@ -243,4 +300,4 @@ export const SETTINGS_PAGES: SettingsPageMeta[] = [
   },
 ];
 
-export const DEFAULT_PAGE = 'appearance';
+export const DEFAULT_PAGE: SettingsPageId = 'appearance';

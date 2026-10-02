@@ -1,6 +1,6 @@
 /**
  * Applies appearance to a document: theme tokens, accent override, plugin CSS
- * and QuickCSS, each in its own <style> tag, in that cascade order.
+ * and Custom CSS, each in its own <style> tag, in that cascade order.
  *
  * Takes a Document-like parameter (not the global) so it's testable and could
  * target an iframe preview. Tags are moved to the end of <head> on each apply
@@ -9,6 +9,7 @@
 import type { ReducedMotion, Density } from '@/core/stores';
 import { findTheme, type Theme } from './builtin';
 import { adjustLightness, contrastRatio, parseHex, withAlpha } from './color';
+import { DUSK_BASE } from './builtin';
 import { sanitizeUserCss } from './sanitize';
 import { cssVar, type TokenName, type TokenOverrides } from './tokens';
 
@@ -25,7 +26,7 @@ export interface AppearanceInput {
   zoom: number;
   saturation: number;
   reducedMotion: ReducedMotion;
-  quickCss: string;
+  customCss: string;
   pluginCss?: string;
   /** Additional themes (user-imported, plugins). */
   extraThemes?: readonly Theme[];
@@ -38,7 +39,7 @@ export interface AppearanceInput {
 export const STYLE_IDS = {
   theme: 'shrike-theme',
   plugins: 'shrike-plugins',
-  quickCss: 'shrike-quickcss',
+  customCss: 'shrike-custom-css',
 } as const;
 
 /**
@@ -66,6 +67,30 @@ export function deriveAccentTokens(accent: string, kind: Theme['kind']): TokenOv
   };
 }
 
+/**
+ * The accent as a text colour: moves OKLCH lightness away from the
+ * background (lighter on dark, darker on light) until it reaches `min`
+ * contrast on it. Returns the accent unchanged when it already does, or when
+ * either colour isn't hex (custom themes using rgb()).
+ */
+export function deriveAccentText(accent: string, background: string, min = 4.5): string {
+  if (!parseHex(accent) || !parseHex(background)) return accent;
+  if (contrastRatio(accent, background) >= min) return accent;
+  const lighter = contrastRatio('#ffffff', background) >= contrastRatio('#000000', background);
+  for (let step = 1; step <= 60; step++) {
+    const best = adjustLightness(accent, (lighter ? 0.01 : -0.01) * step);
+    if (contrastRatio(best, background) >= min) return best;
+  }
+  return lighter ? '#ffffff' : '#000000';
+}
+
+/** The effective accent and chat background of a theme (+ override). */
+export function accentContext(theme: Theme, accentOverride: string | null) {
+  const accent = accentOverride ?? theme.tokens.accent ?? DUSK_BASE.accent;
+  const background = theme.tokens['bg-chat'] ?? DUSK_BASE['bg-chat'];
+  return { accent, background };
+}
+
 function tokenBlock(tokens: TokenOverrides): string {
   const lines = (Object.entries(tokens) as [TokenName, string][])
     .map(([name, value]) => `  ${cssVar(name)}: ${value};`)
@@ -76,9 +101,11 @@ function tokenBlock(tokens: TokenOverrides): string {
 /** Pure: the CSS text for the theme <style> tag. */
 export function buildThemeCss(input: AppearanceInput): string {
   const theme = findTheme(input.themeId, input.extraThemes);
+  const { accent, background } = accentContext(theme, input.accent);
   const tokens: TokenOverrides = {
     ...theme.tokens,
     ...(input.accent ? deriveAccentTokens(input.accent, theme.kind) : {}),
+    'accent-text': deriveAccentText(accent, background),
     'font-scale': String(input.fontScale),
     zoom: String(input.zoom),
     saturation: String(input.saturation),
@@ -102,7 +129,7 @@ export function applyAppearance(doc: ThemeDocument, input: AppearanceInput): voi
     [STYLE_IDS.theme, buildThemeCss(input)],
     [STYLE_IDS.plugins, input.pluginCss ?? ''],
     // Remote @imports are stripped here, whatever the caller did (privacy).
-    [STYLE_IDS.quickCss, sanitizeUserCss(input.quickCss).css],
+    [STYLE_IDS.customCss, sanitizeUserCss(input.customCss).css],
   ];
   for (const [id, css] of blocks) {
     const el = ensureStyle(doc, id);

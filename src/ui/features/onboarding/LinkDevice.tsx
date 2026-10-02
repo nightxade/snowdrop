@@ -1,6 +1,8 @@
 import { CircleCheck, LoaderCircle, QrCode as QrIcon, RotateCw, TriangleAlert } from 'lucide-react';
+import { useEffect, useRef } from 'react';
 import type { LinkFlow } from '@/core/backend';
-import { Button, QrCode, TextInput } from '@/ui/primitives';
+import { Button, TextInput } from '@/ui/primitives';
+import { QrCode } from '@/ui/primitives/QrCode';
 import { MAX_DEVICE_NAME } from './linkFlow';
 import { useLinkFlow } from './useLinkFlow';
 import styles from './Setup.module.css';
@@ -19,6 +21,11 @@ export function LinkDevice({ link, onLinked }: LinkDeviceProps) {
   const flow = useLinkFlow(link, onLinked);
   const { state } = flow;
   const busy = state.step === 'starting' || state.step === 'waiting';
+  const retryRef = useRef<HTMLButtonElement>(null);
+  // A failure moves focus to "Get a new code", the one thing to do next.
+  useEffect(() => {
+    if (state.step === 'failed') retryRef.current?.focus();
+  }, [state.step]);
 
   return (
     <section className={styles.card} aria-labelledby="link-title" data-shrike="link-device">
@@ -63,7 +70,7 @@ export function LinkDevice({ link, onLinked }: LinkDeviceProps) {
           <ol className={styles.steps}>
             <li>Open Signal on your phone.</li>
             <li>
-              Go to <strong>Settings → Linked devices</strong> and tap <strong>+</strong>.
+              Go to <strong>Settings → Linked devices → Link new device</strong>.
             </li>
             <li>Point your phone at the code. Keep this tab open until it finishes.</li>
           </ol>
@@ -76,6 +83,7 @@ export function LinkDevice({ link, onLinked }: LinkDeviceProps) {
               }}
             >
               <TextInput
+                autoFocus={state.step === 'naming'}
                 label="Device name"
                 hint="Shown in Signal’s list of linked devices."
                 value={state.deviceName}
@@ -85,6 +93,7 @@ export function LinkDevice({ link, onLinked }: LinkDeviceProps) {
                 }}
               />
               <Button
+                ref={retryRef}
                 type="submit"
                 variant="primary"
                 disabled={!flow.supported || !state.deviceName.trim()}

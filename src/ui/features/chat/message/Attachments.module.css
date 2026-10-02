@@ -162,7 +162,7 @@
 
 .cardIcon {
   flex: none;
-  color: var(--shrike-accent);
+  color: var(--shrike-accent-text);
 }
 
 .cardText {

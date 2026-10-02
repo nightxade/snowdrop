@@ -23,7 +23,16 @@ export function AboutPage() {
       </SettingsSection>
       <SettingsSection
         title="Open-source licences"
-        description={`Shrike ships with these ${LICENCES.length} packages. Thank you to their authors.`}
+        description={
+          <>
+            Shrike is built on these {LICENCES.length} packages (and the packages they use). Thank
+            you to their authors. The full licence texts of everything in the app are in{' '}
+            <a href="/THIRD_PARTY_NOTICES.txt" target="_blank" rel="noopener noreferrer">
+              THIRD_PARTY_NOTICES.txt
+            </a>{' '}
+            (generated with each build).
+          </>
+        }
       >
         <SettingRow id="about.licences" label="Packages" stacked>
           <table className={styles.table}>

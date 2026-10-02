@@ -5,11 +5,12 @@ import { Button, Segmented, Switch } from '@/ui/primitives';
 import { SettingRow } from '../rows/SettingRow';
 import { SettingsSection } from '../rows/SettingsSection';
 import { useSettingsSection } from '../useSettingsSection';
+import type { PageProps } from '../pages';
 import styles from './pages.module.css';
 
 type Permission = ReturnType<ReturnType<typeof useShrike>['notifications']['permission']>;
 
-export function NotificationsPage({ onNavigate }: { onNavigate: (page: string) => void }) {
+export function NotificationsPage({ onNavigate }: PageProps) {
   const { notifications } = useShrike();
   const [n, set] = useSettingsSection('notifications');
   // Permission changes come from a browser prompt, not a store: re-read after acting.
@@ -92,8 +93,9 @@ export function NotificationsPage({ onNavigate }: { onNavigate: (page: string) =
                 : 'Every new message, except in muted conversations and spaces.'
           }
           disabled={off}
-          control={
+          control={(ids) => (
             <Segmented
+              labelledBy={ids.labelId}
               label="Notify me about"
               value={n.mode}
               options={[
@@ -105,7 +107,7 @@ export function NotificationsPage({ onNavigate }: { onNavigate: (page: string) =
                 set({ mode });
               }}
             />
-          }
+          )}
         />
         <SettingRow
           id="notifications.preview"
@@ -142,7 +144,7 @@ export function NotificationsPage({ onNavigate }: { onNavigate: (page: string) =
         <SettingRow
           id="notifications.sound"
           label="Sounds"
-          description="Shrike plays no sounds of its own. Your system may play its usual notification sound."
+          description="No sound is played by Shrike. Desktop notifications are sent silently; your system decides whether to make a sound for them."
           disabled
         />
       </SettingsSection>

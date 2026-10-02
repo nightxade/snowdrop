@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useShrike } from '@/ui/hooks';
+import { describeFocus, useShrike } from '@/ui/hooks';
 
 export function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
@@ -14,14 +14,29 @@ export function isEditableTarget(target: EventTarget | null): boolean {
 }
 
 /**
- * The single global keydown listener feeding the keybind dispatcher. It runs
- * in the bubble phase and ignores events something else already handled
- * (Radix layers preventDefault the Escape that closes them), so Escape closes
- * a menu first and only marks the conversation read when nothing's open.
+ * The global keyboard listeners.
+ *
+ * Capture phase: plugin key layers (Vim mode) get first refusal, before the
+ * focused widget's own handlers; a consumed key is prevented and stopped.
+ * With no layer installed this does nothing.
+ *
+ * Bubble phase: the keybind dispatcher. It ignores events something else
+ * already handled (Radix layers preventDefault the Escape that closes them),
+ * so Escape closes a menu first and only marks the conversation read when
+ * nothing's open.
  */
 export function useKeyboard(): void {
-  const { keybinds, stores } = useShrike();
+  const { keybinds, stores, registries } = useShrike();
   useEffect(() => {
+    const layers = registries.keyLayers;
+    const onCapture = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || layers.layers().length === 0) return;
+      const ctx = describeFocus(document, stores.ui.getState().modal !== null);
+      if (layers.handle(event, ctx)) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing) return;
       // Dialogs own the keyboard while open.
@@ -29,9 +44,11 @@ export function useKeyboard(): void {
       const handled = keybinds.handle(event, { inEditable: isEditableTarget(event.target) });
       if (handled) event.preventDefault();
     };
+    window.addEventListener('keydown', onCapture, true);
     window.addEventListener('keydown', onKeyDown);
     return () => {
+      window.removeEventListener('keydown', onCapture, true);
       window.removeEventListener('keydown', onKeyDown);
     };
-  }, [keybinds, stores]);
+  }, [keybinds, stores, registries]);
 }

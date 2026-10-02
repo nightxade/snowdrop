@@ -12,8 +12,10 @@ export interface SegmentedProps<V extends string> {
   value: V;
   options: readonly SegmentedOption<V>[];
   onValueChange: (value: V) => void;
-  /** Accessible name of the group. */
+  /** Accessible name of the group (used when there's no visible label). */
   label: string;
+  /** Id of a visible label naming the group (settings rows); wins over `label`. */
+  labelledBy?: string | undefined;
   className?: string | undefined;
 }
 
@@ -23,6 +25,7 @@ export function Segmented<V extends string>({
   options,
   onValueChange,
   label,
+  labelledBy,
   className,
 }: SegmentedProps<V>) {
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -44,7 +47,7 @@ export function Segmented<V extends string>({
   return (
     <div
       role="radiogroup"
-      aria-label={label}
+      {...(labelledBy ? { 'aria-labelledby': labelledBy } : { 'aria-label': label })}
       className={[styles.segmented, className].filter(Boolean).join(' ')}
     >
       {options.map((o, i) => {

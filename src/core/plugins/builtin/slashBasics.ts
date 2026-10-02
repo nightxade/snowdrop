@@ -41,8 +41,12 @@ export const slashBasicsPlugin = definePlugin({
       name: 'me',
       description: 'Sends an action in italics.',
       usage: '<action>',
-      execute: (args) =>
-        args ? send(`_${args}_`) : { type: 'error', message: 'Usage: /me <action>' },
+      // "/me waves" → "_Juniper waves_": the action reads as yours in any client.
+      execute: (args) => {
+        if (!args) return { type: 'error', message: 'Usage: /me <action>' };
+        const name = ctx.stores.session.getState().self?.name;
+        return send(`_${name ? `${escapeMarkdown(name)} ` : ''}${args}_`);
+      },
     });
     ctx.slash.register({
       name: 'spoiler',

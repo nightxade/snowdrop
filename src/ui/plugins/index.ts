@@ -8,6 +8,7 @@ import { contactNotesBadgePlugin } from './ContactNotesBadge';
 import { KEYWORD_HIGHLIGHT_CSS, makeKeywordChip } from './KeywordHighlight';
 import { messageToolsPlugin } from './MessageTools';
 import { relativeTimestampsPlugin } from './RelativeTimestamps';
+import { vimPlugin } from './vim';
 
 export { noteBadgeText } from './ContactNotesBadge';
 
@@ -15,6 +16,7 @@ export const UI_PLUGINS: readonly PluginDefinition[] = [
   relativeTimestampsPlugin,
   messageToolsPlugin,
   contactNotesBadgePlugin,
+  vimPlugin,
 ];
 
 /** Headless built-ins with their UI attached, plus the UI-only built-ins. */

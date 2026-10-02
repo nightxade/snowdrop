@@ -57,13 +57,13 @@
 
 .item[data-tone='accent'] .tile {
   background: var(--shrike-bg-elevated);
-  color: var(--shrike-accent);
+  color: var(--shrike-accent-text);
 }
 
 .item[data-tone='accent']:hover .tile,
 .item[data-tone='accent'][data-selected] .tile {
   background: var(--shrike-bg-active);
-  color: var(--shrike-accent);
+  color: var(--shrike-accent-text);
 }
 
 /* The add tile is an outline: it's an action, not a place. */

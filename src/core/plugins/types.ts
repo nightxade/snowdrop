@@ -1,4 +1,4 @@
-import type { Command } from '@/core/commands';
+import type { Command, KeyLayer } from '@/core/commands';
 import type { BackendKind } from '@/core/backend';
 import type { ConnectionStatus, ConversationId, Message } from '@/core/domain';
 import type { Disposer } from '@/core/lib';
@@ -60,7 +60,15 @@ export interface PluginSettingsApi<S extends SettingsSchema> {
 export interface PluginContext<S extends SettingsSchema = SettingsSchema> {
   readonly pluginId: string;
   readonly settings: PluginSettingsApi<S>;
-  readonly commands: { register(command: Command): Disposer };
+  readonly commands: {
+    register(command: Command): Disposer;
+    /** Runs any registered command by id (core ones included); false if missing or disabled. */
+    execute(id: string): Promise<boolean>;
+  };
+  /** Modal key layers that see keys before keybinds and the focused widget. */
+  readonly keys: { addLayer(layer: KeyLayer): Disposer };
+  /** Components rendered inside the composer field (props: { conversationId }). */
+  readonly composer: { addAccessory(id: string, component: OpaqueComponent): Disposer };
   readonly slash: { register(command: SlashCommand): Disposer };
   readonly send: {
     addTransform(transform: SendTransform): Disposer;

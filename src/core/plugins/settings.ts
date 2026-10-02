@@ -10,6 +10,8 @@
 interface BaseSetting {
   label: string;
   description?: string;
+  /** Internal state kept with the plugin's settings; not shown in the settings form. */
+  hidden?: boolean;
 }
 
 export interface BooleanSetting extends BaseSetting {

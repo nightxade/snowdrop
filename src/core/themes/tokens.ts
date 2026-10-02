@@ -28,6 +28,7 @@ export const TOKEN_NAMES = [
   'accent-hover',
   'accent-active',
   'accent-soft',
+  'accent-text',
   'danger',
   'danger-strong',
   'danger-soft',

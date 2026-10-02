@@ -10,11 +10,22 @@ import {
   stripTrackingParams,
 } from './builtin';
 import { clearUrlsPlugin } from './builtin/clearUrls';
-import { silentTypingPlugin } from './builtin/silentTyping';
 import { parseSlash, Registries } from './registries';
 import { PluginRuntime } from './runtime';
 import { coerceSetting, defineSettings, resolveSettings } from './settings';
 import { definePlugin, type PluginDefinition, type PluginHost } from './types';
+
+// Typing guards are still a plugin capability; Silent Typing itself became a
+// Privacy setting (behaviour.sendTypingIndicators) in the P4 review.
+const silentTypingPlugin = definePlugin({
+  id: 'silent-typing',
+  name: 'Silent Typing',
+  description: 'Test plugin: suppresses typing indicators.',
+  authors: ['test'],
+  start(ctx) {
+    ctx.send.addTypingGuard(() => false);
+  },
+});
 
 const conv = conversationIdFor('c');
 const draft = (text: string): OutgoingDraft => ({
@@ -458,7 +469,7 @@ describe('built-in plugins', () => {
   });
 
   it('Slash Basics produces markdown-safe output', async () => {
-    const { runtime, registries } = setup([slashBasicsPlugin]);
+    const { runtime, registries, stores } = setup([slashBasicsPlugin]);
     await runtime.startAll();
     const run = async (name: string, args: string) =>
       registries.findSlash(name)!.execute(args, { conversationId: conv });
@@ -467,7 +478,14 @@ describe('built-in plugins', () => {
       text: 'oh well ¯\\\\\\_(ツ)\\_/¯',
       format: 'markdown',
     });
+    // No profile yet: just the action.
     expect(await run('me', 'waves')).toEqual({ type: 'send', text: '_waves_', format: 'markdown' });
+    stores.session.getState().setSelf({ id: 'me', name: 'Juniper_H', color: '' });
+    expect(await run('me', 'waves')).toEqual({
+      type: 'send',
+      text: '_Juniper\\_H waves_',
+      format: 'markdown',
+    });
     expect(await run('spoiler', 'it was him')).toEqual({
       type: 'send',
       text: '||it was him||',

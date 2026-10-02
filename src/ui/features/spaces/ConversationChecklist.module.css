@@ -45,7 +45,7 @@
 }
 
 .section svg {
-  color: var(--shrike-accent);
+  color: var(--shrike-accent-text);
 }
 
 .row {
@@ -83,4 +83,52 @@
 .none {
   padding: var(--shrike-space-5) 0;
   color: var(--shrike-text-muted);
+}
+
+/* S11: meta stays readable on the hover background. */
+.row:hover .meta {
+  color: var(--shrike-text-muted);
+}
+
+/* Picks, pinned under the search so they stay visible while you scroll. */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--shrike-space-2);
+  max-height: 64px;
+  overflow-y: auto;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 200px;
+  height: 26px;
+  padding: 0 2px 0 var(--shrike-space-3);
+  border-radius: var(--shrike-radius-full);
+  background: var(--shrike-accent-soft);
+  color: var(--shrike-text-strong);
+  font-size: var(--shrike-font-size-sm);
+}
+
+.chipText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chipRemove {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--shrike-radius-full);
+  color: var(--shrike-text-muted);
+}
+
+.chipRemove:hover {
+  background: var(--shrike-bg-active);
+  color: var(--shrike-text-strong);
 }

@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { KeyEventLike } from '@/core/commands';
-import { keybindConflicts, keybindProblem, recordKey } from './record';
+import {
+  boundTo,
+  browserReserved,
+  keybindConflicts,
+  keybindProblem,
+  planReassign,
+  recordKey,
+} from './record';
 
 const ev = (key: string, mods: Partial<KeyEventLike> = {}): KeyEventLike => ({
   key,
@@ -59,5 +66,28 @@ describe('keybind recorder', () => {
     expect(clash.get('c')).toEqual(['a', 'b']);
     // Unbinding resolves it.
     expect(keybindConflicts(commands, { b: '' }).size).toBe(0);
+  });
+
+  it('finds who holds a shortcut and plans a reassign (S3)', () => {
+    const commands = [
+      { id: 'a', title: 'A', keybind: 'Mod+K', run: () => undefined },
+      { id: 'b', title: 'B', keybind: 'Mod+J', run: () => undefined },
+    ];
+    expect(boundTo(commands, {}, 'Mod+K', 'b')).toEqual(['a']);
+    expect(boundTo(commands, { a: '' }, 'Mod+K', 'b')).toEqual([]);
+    expect(planReassign(commands[1]!, 'Mod+K', ['a'])).toEqual([
+      ['b', 'Mod+K'],
+      ['a', ''],
+    ]);
+    // Taking back its own default clears the override.
+    expect(planReassign(commands[1]!, 'Mod+J', [])).toEqual([['b', null]]);
+  });
+
+  it('warns about shortcuts browsers keep (S3)', () => {
+    expect(browserReserved('Mod+W')).toMatch(/browser/u);
+    expect(browserReserved('Ctrl+T')).toMatch(/browser/u);
+    expect(browserReserved('Mod+Shift+N')).toMatch(/browser/u);
+    expect(browserReserved('Mod+K')).toBeNull();
+    expect(browserReserved('Alt+W')).toBeNull();
   });
 });

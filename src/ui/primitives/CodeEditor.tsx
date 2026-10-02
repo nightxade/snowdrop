@@ -28,8 +28,9 @@ function insert(el: HTMLTextAreaElement, text: string): void {
 
 /**
  * Monospace textarea with a line-number gutter. Tab indents (two spaces),
- * Shift+Tab outdents the current line. Escape releases Tab for one press so
- * keyboard users can always leave the field.
+ * Shift+Tab outdents the current line. The first Escape releases Tab for one
+ * press (so keyboard users can always leave the field) without closing the
+ * dialog around it; a second Escape does.
  */
 export function CodeEditor({ value, onValueChange, label, className, ...rest }: CodeEditorProps) {
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -75,6 +76,9 @@ export function CodeEditor({ value, onValueChange, label, className, ...rest }: 
         className={styles.area}
         value={value}
         aria-label={label}
+        // The first Escape releases Tab (and must not close a surrounding
+        // dialog); once released, Escape behaves normally.
+        data-owns-escape={released ? undefined : ''}
         spellCheck={false}
         autoCapitalize="off"
         autoComplete="off"

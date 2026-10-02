@@ -1,5 +1,5 @@
-import { Sparkles } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { Sparkles, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, type FocusEvent } from 'react';
 import { useStore } from 'zustand';
 import { fuzzyFilter, type ConversationId } from '@/core/domain';
 import {
@@ -114,7 +114,55 @@ export function ConversationChecklist({ selected, onChange, spaceId }: Conversat
     );
   };
 
-  const showSuggestions = !query.trim() && suggestions.length > 0;
+  // Suggestions re-rank as you pick. While the pointer is over the list (or
+  // focus is in it) they're frozen, and they refresh after 300 ms of pointer
+  // stillness, so rows never jump out from under a click or a key press.
+  const [frozen, setFrozen] = useState<typeof suggestions | null>(null);
+  const holds = useRef({ pointer: false, focus: false });
+  const idle = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const display = frozen ?? suggestions;
+  const freeze = () => {
+    setFrozen((f) => f ?? display);
+  };
+  const release = () => {
+    if (!holds.current.pointer && !holds.current.focus) setFrozen(null);
+  };
+  useEffect(
+    () => () => {
+      if (idle.current) clearTimeout(idle.current);
+    },
+    [],
+  );
+  const listHandlers = {
+    onPointerMove: () => {
+      holds.current.pointer = true;
+      freeze();
+      if (idle.current) clearTimeout(idle.current);
+      idle.current = setTimeout(() => {
+        holds.current.pointer = false;
+        release();
+      }, 300);
+    },
+    onPointerLeave: () => {
+      holds.current.pointer = false;
+      if (idle.current) clearTimeout(idle.current);
+      release();
+    },
+    onFocus: (e: FocusEvent<HTMLDivElement>) => {
+      // Keyboard focus holds the list still; a mouse click is covered by the pointer rule.
+      if (!(e.target instanceof HTMLElement) || !e.target.matches(':focus-visible')) return;
+      holds.current.focus = true;
+      freeze();
+    },
+    onBlur: (e: FocusEvent<HTMLDivElement>) => {
+      if (e.currentTarget.contains(e.relatedTarget)) return;
+      holds.current.focus = false;
+      release();
+    },
+  };
+
+  const picked = [...selected].filter((id) => byId[id]);
+  const showSuggestions = !query.trim() && display.length > 0;
 
   return (
     <div className={styles.root}>
@@ -131,7 +179,26 @@ export function ConversationChecklist({ selected, onChange, spaceId }: Conversat
         placeholder="Search groups and people"
         aria-label="Search conversations to add"
       />
-      <div className={styles.list}>
+      {picked.length > 0 && (
+        <ul className={styles.chips} aria-label="Picked conversations">
+          {picked.map((id) => (
+            <li key={id} className={styles.chip}>
+              <span className={styles.chipText}>{byId[id]?.title}</span>
+              <button
+                type="button"
+                className={styles.chipRemove}
+                aria-label={`Remove ${byId[id]?.title ?? 'conversation'}`}
+                onClick={() => {
+                  toggle(id, false);
+                }}
+              >
+                <X size={12} aria-hidden />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className={styles.list} {...listHandlers}>
         {showSuggestions && (
           <section aria-label="Suggested">
             <p className={styles.section}>
@@ -139,9 +206,7 @@ export function ConversationChecklist({ selected, onChange, spaceId }: Conversat
               {selected.size > 0 ? 'Shares people with your picks' : 'Recent groups'}
             </p>
             <ul>
-              {suggestions.map((s) =>
-                row(s.id, s.shared > 0 ? `${s.shared} in common` : undefined),
-              )}
+              {display.map((s) => row(s.id, s.shared > 0 ? `${s.shared} in common` : undefined))}
             </ul>
           </section>
         )}

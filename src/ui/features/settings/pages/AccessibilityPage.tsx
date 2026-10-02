@@ -13,8 +13,9 @@ export function AccessibilityPage() {
         id="a11y.motion"
         label="Reduce motion"
         description={`Turns off animations and transitions. Your system currently ${systemReduced ? 'asks for reduced motion' : 'allows motion'}.`}
-        control={
+        control={(ids) => (
           <Segmented
+            labelledBy={ids.labelId}
             label="Reduce motion"
             value={a.reducedMotion}
             options={[
@@ -26,7 +27,7 @@ export function AccessibilityPage() {
               set({ reducedMotion: v });
             }}
           />
-        }
+        )}
       />
       <SettingRow
         id="a11y.focus"
@@ -62,9 +63,10 @@ export function AccessibilityPage() {
         id="a11y.saturation"
         label="Saturation"
         description="Tones down colour across the app, avatars and accent included."
-        control={
+        control={(ids) => (
           <Slider
-            aria-label="Saturation"
+            id={ids.id}
+            aria-describedby={ids.descriptionId}
             value={Math.round(a.saturation * 100)}
             min={0}
             max={100}
@@ -74,7 +76,7 @@ export function AccessibilityPage() {
               set({ saturation: v / 100 });
             }}
           />
-        }
+        )}
       />
     </SettingsSection>
   );

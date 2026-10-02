@@ -27,5 +27,18 @@
 
 .keys {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: var(--shrike-space-3);
+}
+
+.sequence {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--shrike-space-1);
+}
+
+.or {
+  margin-right: var(--shrike-space-2);
+  color: var(--shrike-text-faint);
 }

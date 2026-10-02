@@ -101,7 +101,20 @@ export interface SwitcherSection {
   items: SwitcherItem[];
 }
 
+/** Commands rank a little below places when unscoped; less so when they match a word start. */
 const COMMAND_PENALTY = 6;
+const COMMAND_PENALTY_WORD_START = 2;
+/** Unread/mention nudges can only reorder results whose text scores are this close. */
+const MAX_UNREAD_BONUS = 2;
+/** Weak tail matches below this fraction of the best score are dropped. */
+const RELATIVE_FLOOR = 0.4;
+
+/** Does the match start at the beginning of a word (or of the title)? */
+function startsAtWord(title: string, indices: readonly number[]): boolean {
+  const first = indices[0];
+  if (first === undefined) return false;
+  return first === 0 || /[\s\-_./#@:·]/u.test(title.charAt(first - 1));
+}
 const DEFAULT_LIMIT = 30;
 
 function conversationItem(
@@ -194,7 +207,7 @@ export function searchSwitcher(raw: string, input: SwitcherInput): SwitcherSecti
       if (!m) continue;
       const u = input.unread[view.id];
       // Small nudges only: a better text match always wins over unread state.
-      const bonus = (u?.mentions ? 2 : 0) + (u?.count ? 1 : 0);
+      const bonus = Math.min(MAX_UNREAD_BONUS, (u?.mentions ? 2 : 0) + (u?.count ? 1 : 0));
       scored.push({
         item: conversationItem(view, input, spaceOf, m.indices),
         score: m.score + bonus,
@@ -215,13 +228,23 @@ export function searchSwitcher(raw: string, input: SwitcherInput): SwitcherSecti
       if (!m) continue;
       scored.push({
         item: commandItem(command, m.indices),
-        score: m.score - (scope === 'all' ? COMMAND_PENALTY : 0),
+        score:
+          m.score -
+          (scope !== 'all'
+            ? 0
+            : startsAtWord(command.title, m.indices)
+              ? COMMAND_PENALTY_WORD_START
+              : COMMAND_PENALTY),
         order: order++,
       });
     }
   }
   scored.sort((a, b) => b.score - a.score || a.order - b.order);
-  const items = scored.slice(0, limit).map((s) => s.item);
+  const best = scored[0]?.score ?? 0;
+  const items = scored
+    .filter((s) => best <= 0 || s.score >= best * RELATIVE_FLOOR)
+    .slice(0, limit)
+    .map((s) => s.item);
   return items.length > 0 ? [{ id: 'results', heading: 'Best matches', items }] : [];
 }
 

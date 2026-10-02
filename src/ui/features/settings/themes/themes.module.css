@@ -54,7 +54,7 @@
 }
 
 .card:has(.radio:checked) .cardName {
-  color: var(--shrike-accent);
+  color: var(--shrike-accent-text);
 }
 
 .cardKind {
@@ -252,4 +252,35 @@
 
 .statusLine {
   display: block;
+}
+
+/* Probation bar for a theme with CSS: pinned to the window, on top of everything. */
+.trial {
+  position: fixed;
+  z-index: 70;
+  top: var(--shrike-space-5);
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: var(--shrike-space-4);
+  padding: var(--shrike-space-3) var(--shrike-space-3) var(--shrike-space-3) var(--shrike-space-5);
+  border-radius: var(--shrike-radius-md);
+  background: var(--shrike-bg-floating);
+  box-shadow: var(--shrike-shadow-popout);
+  color: var(--shrike-text-strong);
+  font-weight: var(--shrike-font-weight-medium);
+  transform: translateX(-50%);
+}
+
+.safe {
+  display: flex;
+  align-items: center;
+  gap: var(--shrike-space-3);
+  margin-top: var(--shrike-space-5);
+  padding: var(--shrike-space-3) var(--shrike-space-4);
+  border-radius: var(--shrike-radius-sm);
+  background: var(--shrike-bg-hover);
+  box-shadow: inset 3px 0 0 var(--shrike-warning);
+  color: var(--shrike-text);
+  font-size: var(--shrike-font-size-sm);
 }

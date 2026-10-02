@@ -1,0 +1,87 @@
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: var(--shrike-radius-xs);
+  box-shadow: inset 0 0 0 1px var(--shrike-border-strong);
+  color: var(--shrike-text-muted);
+  font-family: var(--shrike-font-mono);
+  font-size: var(--shrike-font-size-xs);
+  font-weight: var(--shrike-font-weight-semibold);
+  letter-spacing: 0.04em;
+  line-height: 1;
+  white-space: nowrap;
+  user-select: none;
+  transition:
+    background-color var(--shrike-duration-fast) var(--shrike-ease),
+    color var(--shrike-duration-fast) var(--shrike-ease);
+}
+
+.pill[data-vim-mode='normal'] {
+  background: var(--shrike-accent-soft);
+  box-shadow: inset 0 0 0 1px var(--shrike-accent);
+  color: var(--shrike-text-strong);
+}
+
+.pill[data-vim-mode='visual'],
+.pill[data-vim-mode='visual-line'] {
+  background: var(--shrike-highlight-bg);
+  box-shadow: inset 0 0 0 1px var(--shrike-warning);
+  color: var(--shrike-text-strong);
+}
+
+.pending {
+  color: var(--shrike-text-muted);
+  font-weight: var(--shrike-font-weight-regular);
+  letter-spacing: 0;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--shrike-space-6);
+}
+
+.intro {
+  color: var(--shrike-text-muted);
+  font-size: var(--shrike-font-size-sm);
+}
+
+.group h3 {
+  margin-bottom: var(--shrike-space-3);
+  color: var(--shrike-text-faint);
+  font-size: var(--shrike-font-size-sm);
+  font-weight: var(--shrike-font-weight-semibold);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--shrike-space-5);
+  min-height: 32px;
+  border-bottom: 1px solid var(--shrike-border);
+  color: var(--shrike-text);
+  font-size: var(--shrike-font-size-sm);
+}
+
+.row dd {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--shrike-space-2);
+  margin: 0;
+}
+
+.sequence {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--shrike-space-1);
+}
+
+.or {
+  margin-right: var(--shrike-space-2);
+  color: var(--shrike-text-faint);
+}

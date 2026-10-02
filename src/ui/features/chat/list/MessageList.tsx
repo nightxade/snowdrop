@@ -28,6 +28,7 @@ import { NewMessagesBar } from './NewMessagesBar';
 import { RowState, RowStateProvider } from './rowState';
 import { SystemRow } from './SystemRow';
 import { useListItems } from './useListItems';
+import { useListNavigation } from './useListNavigation';
 import { useReadTracking } from './useReadTracking';
 import styles from './MessageList.module.css';
 
@@ -234,9 +235,20 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
     [stores, history, conversationId],
   );
 
+  const navigation = useListNavigation({
+    scroller,
+    virtuoso,
+    rows,
+    jumpToPresent,
+    loadOlder: () => {
+      if (loaded && hasMoreBefore) void history.loadOlder(conversationId);
+    },
+    reducedMotion,
+  });
+
   useEffect(
-    () => chat.registerList({ conversationId, jumpToPresent, reveal }),
-    [chat, conversationId, jumpToPresent, reveal],
+    () => chat.registerList({ ...navigation, conversationId, jumpToPresent, reveal }),
+    [chat, conversationId, jumpToPresent, reveal, navigation],
   );
 
   // Latest-value refs for the stable scroller callbacks below.
@@ -298,6 +310,8 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
       scroller.current = node;
       if (!node) return;
       node.tabIndex = rows.activeMounted ? -1 : 0;
+      // Stable hook for keyboard layers ("focus is on the message list").
+      node.setAttribute('data-message-scroller', '');
       node.addEventListener('scroll', onScroll, { passive: true });
       // The viewport shrinks when the composer grows (reply bar, more lines,
       // attachments): keep the newest message in view if we were holding it.

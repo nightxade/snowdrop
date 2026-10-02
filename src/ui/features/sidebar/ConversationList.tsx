@@ -113,7 +113,9 @@ export function ConversationList() {
                 ])}
                 {line === ids.length && dropLine}
                 {inSpace && ids.length === 0 && !section.collapsed && line === -1 && (
-                  <li className={styles.emptyCategory}>Drag conversations here</li>
+                  <li className={styles.emptyCategory}>
+                    Drag conversations here, or use ⋯ → Move to category
+                  </li>
                 )}
               </ul>
             </section>

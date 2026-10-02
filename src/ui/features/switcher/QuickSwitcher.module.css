@@ -59,7 +59,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 26px;
+  min-height: 32px;
   padding: 0 var(--shrike-space-3) 0 4px;
   border-radius: var(--shrike-radius-xs);
   color: var(--shrike-text-muted);
@@ -92,5 +92,13 @@
   .prefixHints {
     margin-left: 0;
     flex-wrap: wrap;
+  }
+}
+
+/* Touch: scope hints are real buttons, so give them a finger-sized target. */
+@media (pointer: coarse) {
+  .prefix {
+    min-height: 40px;
+    padding-inline: var(--shrike-space-3);
   }
 }

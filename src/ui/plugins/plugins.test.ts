@@ -8,12 +8,12 @@ describe('UI built-in plugins', () => {
     const ids = all.map((p) => p.id);
     expect(ids).toEqual([
       'clear-urls',
-      'silent-typing',
       'slash-basics',
       'keyword-alerts',
       'relative-timestamps',
       'message-tools',
       'note-badge',
+      'vim-mode',
     ]);
     expect(new Set(ids).size).toBe(ids.length);
     expect(all.every((p) => !p.preview)).toBe(true);

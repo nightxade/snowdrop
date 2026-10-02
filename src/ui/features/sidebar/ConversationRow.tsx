@@ -1,4 +1,4 @@
-import { BellOff, Hash, AtSign, Settings, X } from 'lucide-react';
+import { BellOff, Ellipsis, Hash, AtSign, X } from 'lucide-react';
 import { memo, useState } from 'react';
 import type { ConversationId } from '@/core/domain';
 import { startConversationDrag, useShrike } from '@/ui/hooks';
@@ -109,7 +109,11 @@ export const ConversationRow = memo(function ConversationRow({
         </button>
       </ContextMenu>
       <span className={styles.actions}>
-        {variant === 'home' ? (
+        {/* ⋯ makes the row menu (Move to space / category, mute…) discoverable without right-click. */}
+        <DropdownMenu entries={menu} align="start" side="right" label={`${view.title} options`}>
+          <IconButton size="sm" label="More options" icon={<Ellipsis />} tabIndex={-1} />
+        </DropdownMenu>
+        {variant === 'home' && (
           <IconButton
             size="sm"
             label="Archive"
@@ -119,10 +123,6 @@ export const ConversationRow = memo(function ConversationRow({
               archive(app, id, true);
             }}
           />
-        ) : (
-          <DropdownMenu entries={menu} align="start" side="right" label={`${view.title} options`}>
-            <IconButton size="sm" label="Options" icon={<Settings />} tabIndex={-1} />
-          </DropdownMenu>
         )}
       </span>
     </li>

@@ -1,18 +1,10 @@
+// CommandPalette (cmdk), QrCode (qrcode) and CodeEditor are imported by path
+// (e.g. '@/ui/primitives/QrCode'), not from this barrel: their CSS side
+// effects would otherwise pull them into every chunk that uses the barrel.
 export { Avatar, type AvatarProps, type AvatarSize } from './Avatar';
 export { Badge, formatBadgeCount, type BadgeProps } from './Badge';
 export { Checkbox, type CheckboxProps } from './Checkbox';
-export { CodeEditor, type CodeEditorProps } from './CodeEditor';
 export { ColorField, type ColorFieldProps } from './ColorField';
-export {
-  CommandPalette,
-  CommandPaletteEmpty,
-  CommandPaletteGroup,
-  CommandPaletteInput,
-  CommandPaletteItem,
-  CommandPaletteList,
-  type CommandPaletteItemProps,
-  type CommandPaletteProps,
-} from './CommandPalette';
 export { Button, type ButtonProps, type ButtonSize, type ButtonVariant } from './Button';
 export { Divider } from './Divider';
 export { Drawer, type DrawerProps } from './Drawer';
@@ -24,6 +16,7 @@ export {
   type EmojiPickerProps,
 } from './EmojiPicker';
 export { EmptyState, type EmptyStateProps } from './EmptyState';
+export { focusQuietly } from './focusQuietly';
 export { FullScreenDialog, type FullScreenDialogProps } from './FullScreenDialog';
 export { IconButton, type IconButtonProps } from './IconButton';
 export { Kbd, splitCombo } from './Kbd';
@@ -38,7 +31,6 @@ export {
 export { tidyMenu, type MenuEntry } from './menuModel';
 export { Modal, ModalClose, type ModalProps } from './Modal';
 export { Popover, PopoverClose, type PopoverProps } from './Popover';
-export { QrCode, type QrCodeProps } from './QrCode';
 export { Scroller, type ScrollerProps } from './Scroller';
 export { SearchInput, type SearchInputProps } from './SearchInput';
 export { Segmented, type SegmentedOption, type SegmentedProps } from './Segmented';
@@ -48,6 +40,7 @@ export { Skeleton, type SkeletonProps } from './Skeleton';
 export {
   isRenderableComponent,
   PluginBoundary,
+  PluginNamesContext,
   Slot,
   type SlotEntry,
   type SlotProps,

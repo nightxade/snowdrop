@@ -1,5 +1,6 @@
-import { createContext, use, type ReactNode } from 'react';
+import { createContext, use, useCallback, type ReactNode } from 'react';
 import { ShrikeContextProvider } from '@/ui/hooks';
+import { PluginNamesContext } from '@/ui/primitives';
 import type { Shrike } from './createShrike';
 
 const ShrikeContext = createContext<Shrike | null>(null);
@@ -9,9 +10,16 @@ const ShrikeContext = createContext<Shrike | null>(null);
  * app/ code, and the `AppServices` view of it for ui/ features.
  */
 export function ShrikeProvider({ shrike, children }: { shrike: Shrike; children: ReactNode }) {
+  // Crash chips name the plugin ("Message Tools failed"), not its id.
+  const nameFor = useCallback(
+    (owner: string) => shrike.plugins.get(owner)?.definition.name ?? owner,
+    [shrike],
+  );
   return (
     <ShrikeContext value={shrike}>
-      <ShrikeContextProvider value={shrike}>{children}</ShrikeContextProvider>
+      <ShrikeContextProvider value={shrike}>
+        <PluginNamesContext value={nameFor}>{children}</PluginNamesContext>
+      </ShrikeContextProvider>
     </ShrikeContext>
   );
 }

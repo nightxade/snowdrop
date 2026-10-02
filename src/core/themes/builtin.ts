@@ -18,6 +18,12 @@ export interface Theme {
   preview: [string, string, string, string];
 }
 
+/**
+ * The base (Dusk) values the engine needs to reason about colour; tokens.css
+ * holds the full set (a test keeps these two in sync with it).
+ */
+export const DUSK_BASE = { accent: '#d4744a', 'bg-chat': '#1b1d22' } as const;
+
 export const DUSK: Theme = {
   id: 'dusk',
   name: 'Dusk',

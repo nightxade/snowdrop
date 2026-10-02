@@ -9,7 +9,7 @@
  * declared here, and a test keeps them in line with the real adapters.
  *
  * Async methods await the adapter; `on()` subscriptions made early are
- * attached once it arrives; `getStatus()` is "offline" until then.
+ * attached once it arrives; `getStatus()` is "connecting" until then.
  */
 import type { BackendEvents, BackendKind, ChatBackend } from '@/core/backend';
 import type { Unsubscribe } from '@/core/lib';
@@ -75,7 +75,8 @@ export function deferredBackend(kind: BackendKind, ready: Promise<ChatBackend>):
     kind,
     connect: () => call((b) => b.connect()),
     disconnect: () => call((b) => b.disconnect()),
-    getStatus: () => real?.getStatus() ?? 'offline',
+    // Loading the adapter is the first step of connecting.
+    getStatus: () => real?.getStatus() ?? 'connecting',
     getSelf: () => call((b) => b.getSelf()),
     listContacts: () => call((b) => b.listContacts()),
     listConversations: () => call((b) => b.listConversations()),

@@ -1,7 +1,13 @@
-import { useEffect } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { useStore } from 'zustand';
 import type { BackendChoice } from '@/core/stores';
-import { ConnectionSetup, Welcome } from '@/ui/features/onboarding';
+// Onboarding is seen once (or on connection trouble): keep it out of the main chunk.
+const Welcome = lazy(() =>
+  import('@/ui/features/onboarding').then((m) => ({ default: m.Welcome })),
+);
+const ConnectionSetup = lazy(() =>
+  import('@/ui/features/onboarding').then((m) => ({ default: m.ConnectionSetup })),
+);
 import { AppShell } from '@/ui/features/shell';
 import type { Shrike } from './createShrike';
 import { useShrike } from './ShrikeProvider';
@@ -50,16 +56,18 @@ export function App({ onBackendChange }: AppProps) {
       shrike.flush();
     };
     return (
-      <Welcome
-        defaultDaemonUrl={daemonUrl}
-        probe={(url) => shrike.admin.probeDaemon(url)}
-        onDemo={() => {
-          choose('mock');
-        }}
-        onConnect={(url) => {
-          choose('signal-cli', url);
-        }}
-      />
+      <Suspense fallback={null}>
+        <Welcome
+          defaultDaemonUrl={daemonUrl}
+          probe={(url) => shrike.admin.probeDaemon(url)}
+          onDemo={() => {
+            choose('mock');
+          }}
+          onConnect={(url) => {
+            choose('signal-cli', url);
+          }}
+        />
+      </Suspense>
     );
   }
   // signal-cli without a usable account: link this device, or name the account (PLAN §4.10).
@@ -70,26 +78,28 @@ export function App({ onBackendChange }: AppProps) {
     (errorKind === 'no-account' || errorKind === 'account-required')
   ) {
     return (
-      <ConnectionSetup
-        reason={errorKind}
-        link={shrike.backend.link}
-        onLinked={() => {
-          // The adapter now knows the account; retry the start that failed.
-          shrike.start().catch((error: unknown) => {
-            console.error('[shrike] failed to start after linking', error);
-          });
-        }}
-        onAccount={(account) => {
-          shrike.stores.settings.getState().update('connection', { account });
-          // The adapter reads the account once, at construction.
-          shrike.flush();
-          onBackendChange?.();
-        }}
-        onBack={() => {
-          shrike.stores.settings.getState().update('connection', { backend: null });
-          shrike.flush();
-        }}
-      />
+      <Suspense fallback={null}>
+        <ConnectionSetup
+          reason={errorKind}
+          link={shrike.backend.link}
+          onLinked={() => {
+            // The adapter now knows the account; retry the start that failed.
+            shrike.start().catch((error: unknown) => {
+              console.error('[shrike] failed to start after linking', error);
+            });
+          }}
+          onAccount={(account) => {
+            shrike.stores.settings.getState().update('connection', { account });
+            // The adapter reads the account once, at construction.
+            shrike.flush();
+            onBackendChange?.();
+          }}
+          onBack={() => {
+            shrike.stores.settings.getState().update('connection', { backend: null });
+            shrike.flush();
+          }}
+        />
+      </Suspense>
     );
   }
   return <AppShell />;

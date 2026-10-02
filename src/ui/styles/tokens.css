@@ -37,6 +37,8 @@
   --shrike-accent-hover: #e58359;
   --shrike-accent-active: #c06238;
   --shrike-accent-soft: rgba(212, 116, 74, 0.16);
+  /* The accent as *text* on chat surfaces: lightness-shifted to ≥ 4.5:1 (engine-derived). */
+  --shrike-accent-text: #d4744a;
 
   /* Status */
   --shrike-danger: #f0506e;

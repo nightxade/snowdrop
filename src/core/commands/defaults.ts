@@ -33,3 +33,44 @@ export const DEFAULT_KEYBINDS: Readonly<Record<CoreCommandId, string>> = {
   [CoreCommand.JumpToPresent]: 'Shift+PageDown',
   [CoreCommand.ShortcutHelp]: 'Mod+/',
 };
+
+/**
+ * Navigation commands with no default keys: in the palette and bindable in
+ * Settings → Keybinds, and driven by keyboard layers such as Vim mode.
+ */
+export const NavCommand = {
+  FocusComposer: 'core.focusComposer',
+  FocusMessages: 'core.focusMessages',
+  NextSpace: 'core.nextSpace',
+  PrevSpace: 'core.prevSpace',
+  CommandPalette: 'core.commandPalette',
+  /** Opens (never closes) the in-conversation search panel; hidden. */
+  OpenSearch: 'core.openSearch',
+} as const;
+
+/**
+ * Actions on the message list and its focused message (the roving tab stop).
+ * Hidden from the palette (they need a focused message) and unbound; Vim
+ * mode and other key layers run them through the command registry.
+ */
+export const MessageCommand = {
+  Next: 'chat.message.next',
+  Prev: 'chat.message.prev',
+  First: 'chat.message.first',
+  Last: 'chat.message.last',
+  HalfPageDown: 'chat.list.halfPageDown',
+  HalfPageUp: 'chat.list.halfPageUp',
+  LineDown: 'chat.list.lineDown',
+  LineUp: 'chat.list.lineUp',
+  Center: 'chat.message.center',
+  Reply: 'chat.message.reply',
+  Edit: 'chat.message.edit',
+  React: 'chat.message.react',
+  CopyText: 'chat.message.copyText',
+  CopyMarkdown: 'chat.message.copyMarkdown',
+  Delete: 'chat.message.delete',
+  Pin: 'chat.message.pin',
+  Open: 'chat.message.open',
+} as const;
+
+export type MessageCommandId = (typeof MessageCommand)[keyof typeof MessageCommand];

@@ -2,20 +2,30 @@ import { useSyncExternalStore } from 'react';
 import { useStore } from 'zustand';
 import { formatKeybind, isMacPlatform, resolveKeybinds } from '@/core/commands';
 import { useShrike } from '@/ui/hooks';
-import { Button, Kbd, Modal } from '@/ui/primitives';
+import { Button, Kbd, Modal, VisuallyHidden } from '@/ui/primitives';
 import styles from './ShortcutsDialog.module.css';
 
-/** Every command with an effective keybind, grouped by category (Ctrl+/). */
+/**
+ * Every command with an effective keybind, grouped by category (Ctrl+/),
+ * plus the help of installed key layers (Vim mode).
+ */
 export function ShortcutsDialog({ onClose }: { onClose: () => void }) {
-  const { commands, stores } = useShrike();
+  const { commands, stores, registries } = useShrike();
   const all = useSyncExternalStore(
     (fn) => commands.subscribe(fn),
     () => commands.all(),
   );
+  const layers = useSyncExternalStore(
+    (fn) => registries.keyLayers.subscribe(fn),
+    () => registries.keyLayers.layers(),
+  );
   const overrides = useStore(stores.settings, (s) => s.keybinds);
   const bindings = resolveKeybinds(all, overrides);
   const mac = isMacPlatform();
-  const groups = new Map<string, { id: string; title: string; combo: string }[]>();
+  const groups = new Map<
+    string,
+    { id: string; title: string; combo: string; sequence?: boolean }[]
+  >();
   for (const command of all) {
     const kb = bindings.get(command.id);
     if (!kb) continue;
@@ -32,6 +42,18 @@ export function ShortcutsDialog({ onClose }: { onClose: () => void }) {
     { id: 'list-menu', title: 'Open item menu', combo: 'Shift+F10' },
     { id: 'list-menu-2', title: 'Open item menu (alternative)', combo: mac ? '⌘↩' : 'Ctrl+Enter' },
   ]);
+  // Layer help: keys are sequences ("g g", "Space s"); spaces separate keycaps.
+  for (const { layer } of layers)
+    for (const group of layer.help ?? [])
+      groups.set(
+        group.title,
+        group.items.map((item, i) => ({
+          id: `${layer.id}-${group.title}-${i}`,
+          title: item.title,
+          combo: item.keys,
+          sequence: true,
+        })),
+      );
   return (
     <Modal
       open
@@ -57,7 +79,8 @@ export function ShortcutsDialog({ onClose }: { onClose: () => void }) {
         </>
       }
     >
-      <div className={styles.groups}>
+      {/* Focusable so the scrolling sheet can be read with the keyboard alone. */}
+      <div className={styles.groups} tabIndex={0} role="region" aria-label="Shortcuts">
         {[...groups].map(([category, items]) => (
           <section key={category} className={styles.group}>
             <h3 className={styles.heading}>{category}</h3>
@@ -67,9 +90,24 @@ export function ShortcutsDialog({ onClose }: { onClose: () => void }) {
                   <dt>{item.title}</dt>
                   <dd className={styles.keys}>
                     {/* "|" separates alternative keys shown side by side. */}
-                    {item.combo.split('|').map((combo) => (
-                      <Kbd key={combo} combo={combo} />
-                    ))}
+                    {item.combo.split('|').map((combo, n) =>
+                      item.sequence ? (
+                        <span key={combo} className={styles.sequence}>
+                          {/* Alternatives get a slash so "g g / G" can't read as one sequence. */}
+                          {n > 0 && (
+                            <span className={styles.or}>
+                              <span aria-hidden>/</span>
+                              <VisuallyHidden>or</VisuallyHidden>
+                            </span>
+                          )}
+                          {combo.split(' ').map((k, i) => (
+                            <Kbd key={`${k}-${i}`} combo={k} />
+                          ))}
+                        </span>
+                      ) : (
+                        <Kbd key={combo} combo={combo} />
+                      ),
+                    )}
                   </dd>
                 </div>
               ))}

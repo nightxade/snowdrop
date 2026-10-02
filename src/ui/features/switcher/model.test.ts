@@ -116,4 +116,43 @@ describe('switcher model', () => {
     );
     expect(sections.find((s) => s.id === 'unread')).toBeUndefined();
   });
+
+  it('unread can only reorder near-equal matches (S2)', () => {
+    const views = [
+      view('group:a', 'Garden', 'group', 1),
+      view('group:b', 'Gardening club', 'group', 2),
+    ];
+    const order = (unread: SwitcherInput['unread']) =>
+      keys(searchSwitcher('garden', input({ views, unread })));
+    // An exact title beats a mentioned, longer one.
+    expect(order({ 'group:b': { count: 9, mentions: 3 } })[0]).toBe('conversation:group:a');
+  });
+
+  it('a word-start command match is only lightly penalised (S2)', () => {
+    const result = keys(
+      searchSwitcher(
+        'dark',
+        input({
+          views: [view('group:d', 'Darts kids', 'group', 1)],
+          commands: [{ id: 'core.theme.dusk', title: 'Theme: Dusk, dark', category: 'Theme' }],
+        }),
+      ),
+    );
+    expect(result).toContain('command:core.theme.dusk');
+  });
+
+  it('drops weak tail matches below 40% of the best (S2)', () => {
+    const result = keys(
+      searchSwitcher(
+        'climbing',
+        input({
+          views: [
+            view('group:c', 'Climbing', 'group', 1),
+            view('group:x', 'Cool lime inbox brainstorming', 'group', 2),
+          ],
+        }),
+      ),
+    );
+    expect(result).toEqual(['conversation:group:c']);
+  });
 });

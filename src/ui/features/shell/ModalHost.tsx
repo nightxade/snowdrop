@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { useStore } from 'zustand';
 import type { ConversationId } from '@/core/domain';
 import { uiSelectors } from '@/core/stores';
@@ -10,9 +10,13 @@ import {
   EditFolderDialog,
   EditSpaceDialog,
 } from '@/ui/features/spaces';
-import { QuickSwitcher } from '@/ui/features/switcher';
 import { SettingsFallback } from './SettingsFallback';
 import { ShortcutsDialog } from './ShortcutsDialog';
+
+// The switcher (with cmdk) is its own chunk, prefetched once the app is idle so
+// Ctrl+K never waits on the network.
+const loadSwitcher = () => import('@/ui/features/switcher');
+const QuickSwitcher = lazy(() => loadSwitcher().then((m) => ({ default: m.QuickSwitcher })));
 
 // Kept out of the main chunk: settings are opened rarely and are the largest UI.
 const SettingsOverlay = lazy(() =>
@@ -33,13 +37,24 @@ function pageProp(props: Record<string, unknown> | undefined): { initialPage?: s
 export function ModalHost() {
   const stores = useStores();
   const modal = useStore(stores.ui, uiSelectors.modal);
+  useEffect(() => {
+    const prefetch = () => {
+      void loadSwitcher();
+    };
+    if ('requestIdleCallback' in window) window.requestIdleCallback(prefetch);
+    else setTimeout(prefetch, 1500);
+  }, []);
   if (!modal) return null;
   const close = () => {
     stores.ui.getState().closeModal();
   };
   switch (modal.type) {
     case 'switcher':
-      return <QuickSwitcher onClose={close} />;
+      return (
+        <Suspense fallback={null}>
+          <QuickSwitcher onClose={close} initialQuery={stringProp(modal.props, 'query')} />
+        </Suspense>
+      );
     case 'settings':
       return (
         <Suspense fallback={<SettingsFallback />}>

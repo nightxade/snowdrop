@@ -27,6 +27,7 @@ import {
   useRowFlashing,
   useRowHovered,
   useRowState,
+  type RowActionHandler,
 } from '../list/rowState';
 import * as act from './actions';
 import { ConfirmDelete } from './ConfirmDelete';
@@ -96,6 +97,58 @@ export const MessageItem = memo(function MessageItem({
   useInertUntilEntered(row, entered);
   useRenderProbe(id);
   useLayoutEffect(() => rows.mount(id), [rows, id]);
+
+  // Row actions for keyboard layers (Vim mode). Reads the message fresh, so
+  // the registration itself stays stable across renders.
+  const actions = useRef<RowActionHandler>(() => false);
+  useEffect(() => {
+    actions.current = (action) => {
+      const msg = messagesSelectors.message(conversationId, id)(stores.messages.getState());
+      if (!msg) return false;
+      const p = act.permissionsFor(app, msg);
+      const hasText = msg.kind === 'normal' && !msg.deleted;
+      switch (action) {
+        case 'reply':
+          if (p.canReact) act.reply(app, chat, msg);
+          return p.canReact;
+        case 'edit':
+          if (p.canEdit) act.startEdit(app, msg);
+          return p.canEdit;
+        case 'react':
+          if (!p.canReact) return false;
+          setFocused(true);
+          setPickerOpen(true);
+          return true;
+        case 'copyText':
+          if (hasText) act.copyMessageText(app, msg);
+          return hasText;
+        case 'copyMarkdown':
+          if (hasText) act.copyMarkdown(app, msg);
+          return hasText;
+        case 'delete':
+          // Always through the confirm dialog (like the Delete key without Shift).
+          if (!p.failed) setConfirm(p.own && !msg.deleted ? 'everyone' : 'me');
+          return !p.failed;
+        case 'pin':
+          if (p.canPin) act.setPinned(app, msg, !msg.pinned);
+          return p.canPin;
+        case 'open': {
+          const media = row.current?.querySelector<HTMLElement>('[data-open-attachment]');
+          if (media) {
+            media.click();
+            return true;
+          }
+          const quoted = msg.quote;
+          if (!quoted || msg.deleted) return false;
+          void chat.reveal(conversationId, messageId(quoted.authorId, quoted.sentAt), {
+            focus: true,
+          });
+          return true;
+        }
+      }
+    };
+  });
+  useLayoutEffect(() => rows.registerActions(id, (action) => actions.current(action)), [rows, id]);
   // Entering moves focus to the first control (the hover bar once it has mounted).
   useEffect(() => {
     if (!entered || !row.current) return;

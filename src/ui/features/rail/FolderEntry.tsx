@@ -50,7 +50,7 @@ export function FolderEntry({
   if (folder.collapsed) {
     return (
       <RailTile
-        label={folder.name}
+        label={`${folder.name} folder, ${folder.spaceIds.length} spaces`}
         selected={containsSelected}
         unread={hasUnread}
         mentions={mentions}
@@ -95,7 +95,7 @@ export function FolderEntry({
       aria-label={`${folder.name} folder`}
     >
       <RailTile
-        label={`${folder.name} (collapse)`}
+        label={`Collapse ${folder.name} folder`}
         aria-expanded
         tone="accent"
         className={styles.header}

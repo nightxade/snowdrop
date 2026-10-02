@@ -94,10 +94,11 @@ export class PluginRuntime {
       // Only enablement changes matter here: changing a plugin's *settings*
       // must not restart it (or retry one that failed to start).
       if (state.plugins === prev.plugins) return;
-      const toggled = [...this.slots.keys()].some(
-        (id) => state.plugins[id]?.enabled !== prev.plugins[id]?.enabled,
-      );
-      if (toggled) void this.reconcile();
+      // Apply exactly the plugins whose flag changed: toggling A must never
+      // restart B (or retry B if it failed).
+      for (const id of this.slots.keys()) {
+        if (state.plugins[id]?.enabled !== prev.plugins[id]?.enabled) void this.apply(id);
+      }
     });
   }
 
@@ -107,17 +108,36 @@ export class PluginRuntime {
     await Promise.all([...this.slots.keys()].map((id) => this.stop(id)));
   }
 
-  /** Persists the choice; the settings subscription (or this call) applies it. */
+  /**
+   * Persists the choice. Once running, the settings subscription applies it
+   * (once); before startAll there's no subscription, so it's applied here.
+   * Resolves when the plugin has started/stopped.
+   */
   async setEnabled(id: string, enabled: boolean): Promise<void> {
     const slot = this.slots.get(id);
     if (!slot || (slot.definition.required && !enabled)) return;
     this.host.stores.settings.getState().setPluginEnabled(id, enabled);
-    await this.reconcile();
+    if (!this.settingsUnsub) await this.apply(id);
+    else await slot.chain;
   }
 
+  /** Starts a failed (enabled) plugin again: the card's Retry button. */
+  async retry(id: string): Promise<void> {
+    if (this.isEnabled(id)) await this.start(id);
+  }
+
+  private apply(id: string): Promise<void> {
+    return this.isEnabled(id) ? this.start(id) : this.stop(id);
+  }
+
+  /** Brings every plugin in line with its flag; failed ones wait for retry(). */
   private async reconcile(): Promise<void> {
     await Promise.all(
-      [...this.slots.keys()].map((id) => (this.isEnabled(id) ? this.start(id) : this.stop(id))),
+      [...this.slots.values()].map((slot) => {
+        const id = slot.definition.id;
+        if (!this.isEnabled(id)) return this.stop(id);
+        return slot.status === 'failed' ? Promise.resolve() : this.start(id);
+      }),
     );
   }
 
@@ -249,7 +269,15 @@ export class PluginRuntime {
             }),
           ),
       },
-      commands: { register: (command) => track(r.commands.register(command, id)) },
+      commands: {
+        register: (command) => track(r.commands.register(command, id)),
+        execute: (commandId) => r.commands.execute(commandId),
+      },
+      keys: { addLayer: (layer) => track(r.keyLayers.add(layer, id)) },
+      composer: {
+        addAccessory: (entryId, component) =>
+          track(r.composerAccessories.add({ id: entryId, component, owner: id })),
+      },
       slash: {
         register: (command) => {
           if (r.findSlash(command.name))

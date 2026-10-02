@@ -39,7 +39,7 @@
 
 .mark {
   margin-bottom: var(--shrike-space-4);
-  color: var(--shrike-accent);
+  color: var(--shrike-accent-text);
   opacity: 0.9;
 }
 

@@ -141,6 +141,7 @@ function MediaTile({ conversationId, attachment, pending, more, onOpen }: TilePr
     <button
       type="button"
       className={styles.tile}
+      data-open-attachment
       aria-label={`Open ${name}${more > 0 ? `, and ${more} more` : ''}`}
       onClick={() => {
         onOpen(attachment, state.url);

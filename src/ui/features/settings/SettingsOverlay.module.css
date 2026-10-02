@@ -26,14 +26,36 @@
   padding: var(--shrike-space-8) var(--shrike-space-4) 0 var(--shrike-space-5);
 }
 
-.navHeader {
+.backToChats {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: var(--shrike-space-3);
+  height: 36px;
+  margin: 0 0 var(--shrike-space-2);
   padding: 0 var(--shrike-space-3);
+  border-radius: var(--shrike-radius-sm);
+  color: var(--shrike-text-muted);
+  font-weight: var(--shrike-font-weight-medium);
+}
+
+.backToChats:hover {
+  background: var(--shrike-bg-hover);
+  color: var(--shrike-text-strong);
+}
+
+.escHint {
+  margin-left: auto;
+  padding: 1px 6px;
+  border-radius: var(--shrike-radius-xs);
+  background: var(--shrike-bg-selected);
+  color: var(--shrike-text-muted);
+  font-family: var(--shrike-font-sans);
+  font-size: var(--shrike-font-size-xs);
+  font-weight: var(--shrike-font-weight-semibold);
 }
 
 .navTitle {
+  padding: 0 var(--shrike-space-3);
   color: var(--shrike-text-strong);
   font-size: var(--shrike-font-size-title);
   font-weight: var(--shrike-font-weight-bold);
@@ -92,7 +114,7 @@
 }
 
 .item[aria-current='page'] svg {
-  color: var(--shrike-accent);
+  color: var(--shrike-accent-text);
 }
 
 .item[data-dim] {
@@ -104,6 +126,7 @@
 /* Content column */
 .main {
   display: flex;
+  flex-direction: column;
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
@@ -117,35 +140,35 @@
   padding: var(--shrike-space-8) var(--shrike-space-8) var(--shrike-space-9) var(--shrike-space-9);
 }
 
-.closeColumn {
-  position: sticky;
-  top: 0;
-  display: flex;
-  flex: none;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--shrike-space-2);
-  padding: var(--shrike-space-8) var(--shrike-space-7);
-}
-
 .close {
   display: grid;
   place-items: center;
   width: 36px;
   height: 36px;
-  border: 2px solid var(--shrike-border-strong);
-  border-radius: var(--shrike-radius-full);
+  border-radius: var(--shrike-radius-sm);
   color: var(--shrike-text-muted);
 }
 
 .close:hover {
-  border-color: var(--shrike-text-muted);
   background: var(--shrike-bg-hover);
   color: var(--shrike-text-strong);
 }
 
-.closeHint {
-  opacity: 0.8;
+/* Phones: the bar above a page (back to the list, close settings). */
+.pageBar {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--shrike-space-3) var(--shrike-space-4) var(--shrike-space-3) var(--shrike-space-3);
+  background: var(--shrike-bg-chat);
+  border-bottom: 1px solid var(--shrike-border);
+}
+
+.pageTitle:focus-visible {
+  outline-offset: 4px;
 }
 
 .page + .page {
@@ -198,8 +221,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--shrike-space-2);
-  height: 32px;
-  margin-bottom: var(--shrike-space-5);
+  height: 36px;
   padding: 0 var(--shrike-space-3) 0 var(--shrike-space-2);
   border-radius: var(--shrike-radius-sm);
   color: var(--shrike-text-muted);

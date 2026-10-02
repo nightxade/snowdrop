@@ -1,6 +1,7 @@
 import { Slot as RadixSlot } from '@radix-ui/react-slot';
 import * as RadixTooltip from '@radix-ui/react-tooltip';
 import type { HTMLAttributes, ReactElement, ReactNode, Ref } from 'react';
+import { QUIET_FOCUS } from './focusQuietly';
 import styles from './Tooltip.module.css';
 
 export interface TooltipProps extends Omit<HTMLAttributes<HTMLElement>, 'children'> {
@@ -41,7 +42,15 @@ export function Tooltip({
   if (disabled) return <RadixSlot {...trigger}>{children}</RadixSlot>;
   return (
     <RadixTooltip.Root {...(delayMs !== undefined ? { delayDuration: delayMs } : {})}>
-      <RadixTooltip.Trigger asChild {...trigger}>
+      <RadixTooltip.Trigger
+        asChild
+        {...trigger}
+        onFocus={(e) => {
+          // Restored focus (dialog closed) isn't the user arriving here: stay closed.
+          if (e.currentTarget.hasAttribute(QUIET_FOCUS)) e.preventDefault();
+          trigger.onFocus?.(e);
+        }}
+      >
         {children}
       </RadixTooltip.Trigger>
       <RadixTooltip.Portal>

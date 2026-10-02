@@ -1,5 +1,6 @@
 import * as RadixDialog from '@radix-ui/react-dialog';
 import { useState, type ReactNode } from 'react';
+import { focusQuietly } from './focusQuietly';
 import styles from './FullScreenDialog.module.css';
 
 export interface FullScreenDialogProps {
@@ -48,7 +49,7 @@ export function FullScreenDialog({
           }}
           onCloseAutoFocus={(e) => {
             e.preventDefault();
-            if (opener && document.contains(opener)) opener.focus();
+            if (opener && document.contains(opener)) focusQuietly(opener);
           }}
         >
           <RadixDialog.Title className={styles.title}>{title}</RadixDialog.Title>

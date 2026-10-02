@@ -26,9 +26,11 @@ async function bootDemo(): Promise<Shrike> {
     </ShrikeProvider>,
   );
   // First run: the welcome screen, then the demo.
-  expect(screen.getByRole('heading', { name: 'Shrike' })).toBeTruthy();
+  expect(await screen.findByRole('heading', { name: 'Shrike' }, { timeout: 5000 })).toBeTruthy();
+  // The welcome screen is a lazy chunk: wait for it (outside act, so it can render).
+  const demo = await screen.findByRole('button', { name: /Try the demo/u }, { timeout: 5000 });
   await act(async () => {
-    fireEvent.click(screen.getByRole('button', { name: /Try the demo/u }));
+    fireEvent.click(demo);
     await Promise.resolve();
   });
   await act(async () => {

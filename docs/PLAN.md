@@ -242,6 +242,9 @@ definePlugin({
 
 `PluginContext` capabilities (each returns a disposer, all tracked for stop):
 - `ctx.commands.register({ id, title, keybind?, run })` — palette + hotkeys.
+  `ctx.commands.execute(id)` runs any command (plugins drive the app by id).
+- `ctx.keys.addLayer(layer)` — modal key layer with first refusal on keys (Vim mode; §8).
+- `ctx.composer.addAccessory(id, Component)` — rendered inside the composer field.
 - `ctx.slash.register({ name, description, options, execute })` — `/shrug`, `/me`…
 - `ctx.send.addTransform(fn)` — outgoing draft pipeline.
 - `ctx.messages.addAccessory(Component)` — rendered under a message.
@@ -279,7 +282,18 @@ Built-in plugins (ship at least these, prove the API):
   derived shades via OKLCH computations), message density (comfortable/compact),
   font scale (87.5–125%), UI zoom, saturation, reduced motion, show avatars
   in compact mode, 12/24h time.
-- **QuickCSS**: live-editing textarea (monospace, tab-indent) injected last.
+- **Custom CSS** (formerly "QuickCSS"; settings key `customCss`): live-editing
+  editor (monospace, tab-indent) injected last.
+- **Privacy:** user CSS and imported themes may not fetch anything. The
+  sanitiser removes every statement/declaration referencing a non-inline
+  resource (`@import`, `url(`, `image-set(`… decided on an unescaped,
+  comment-free copy); theme tokens are allowlisted per kind (colour, length,
+  number…); the production build ships a CSP (`default-src 'self'`,
+  `img/media data: blob:`, `connect-src 'self'`). Imported themes with CSS
+  apply on a 10 s "Keep this theme?" probation; **safe mode** (`?safe=1`, or
+  Shift held while loading) skips imported themes and Custom CSS.
+- `accent-text` is derived from the accent (OKLCH lightness shifted to ≥ 4.5:1
+  on `bg-chat`) and used wherever the accent is a text colour.
 - Stable styling hooks: every major region carries a `data-shrike="region-name"`
   attribute so user CSS/themes don't depend on hashed CSS-module class names.
 
@@ -420,11 +434,12 @@ unread. Result rows show kind icon and space name. Enter opens, Shift+Enter
 opens without closing? (no — keep simple).
 
 ### 4.9 Settings (full-screen overlay, Escape to close)
-Left nav grouped: **User** (My Profile, Privacy), **App** (Appearance,
-Accessibility, Notifications, Keybinds, Behaviour), **Shrike** (Plugins,
-Themes, QuickCSS), **Advanced** (Connection, Data & Storage — export/clear
-local history, About/licences). Changes apply live; no Save button. Search
-box filters settings entries.
+Left nav grouped: **You** (My profile, Privacy), **General** (Appearance,
+Accessibility, Notifications, Keybinds, Behaviour), **Customise** (Plugins,
+Themes, Custom CSS), **System** (Connection, Data & storage — export/clear
+local history, About/licences). "← Back to chats" sits atop the nav (no round
+close button). Changes apply live; no Save button. Search box filters
+settings entries (plugins and command shortcuts included).
 - **Plugins page:** grid of cards (name, description, tags, toggle, cog →
   auto-generated settings form from schema). Search + filter (enabled /
   disabled / tag). Restart-free enable/disable.
@@ -452,6 +467,9 @@ surface as a slim banner at the top of the chat column, with retry.
 | Search in conversation | Ctrl+F |
 | Jump to present | Shift+PageDown |
 | Keyboard shortcut help | Ctrl+/ |
+
+The complete keyboard reference (lists, composer, dialogs, Vim mode) is
+`docs/KEYBOARD.md`.
 
 ### 4.12 Accessibility & motion
 - All interactive elements reachable by keyboard; visible focus ring
@@ -506,7 +524,7 @@ gates and commits. Quality gates for every phase:
 | **P1 Foundation** | Scaffold, tooling, lint boundaries, tokens/themes base, domain types + pure helpers (with tests), backend contract, mock backend + seed world, IndexedDB repository, stores, services (sync/send), plugin runtime + registries (headless), command registry | Headless tests cover grouping, markdown→ranges, segments, fuzzy, stores, plugin lifecycle, mock backend events |
 | **P2 Shell** | App bootstrap, primitives, rail, sidebar, chat header, user panel, member list, profile popout, responsive layout, onboarding (demo path) | App boots into demo with seeded spaces; navigation works end-to-end by keyboard and mouse |
 | **P3 Messaging** | Message list, message rendering, reactions, replies, attachments + lightbox, hover bar, context menu, composer with autocomplete/attachments/edit/reply, typing, unread divider, jump-to-present | Send/edit/react/reply/delete all work optimistically against mock |
-| **P4 Power UX** | Quick switcher, settings overlay (all pages), plugins UI + built-in plugins, themes + accent + QuickCSS, keybinds, spaces CRUD + drag & drop, notifications | All built-in plugins toggle live; theme changes live |
+| **P4 Power UX** | Quick switcher, settings overlay (all pages), plugins UI + built-in plugins, themes + accent + Custom CSS, keybinds, spaces CRUD + drag & drop, notifications | All built-in plugins toggle live; theme changes live |
 | **P5 signal-cli** | Adapter (JSON-RPC HTTP + SSE with Last-Event-ID resume), envelope normaliser (tested with fixtures), attachments, link-device flow, Vite proxy, README setup guide | Fixture-driven tests; manual run doc |
 | **P6 Polish** | Visual QA via Playwright screenshots of every surface in 3 themes & 3 widths, a11y audit (axe), perf (10k-message conversation smooth), docs (ARCHITECTURE.md, PLUGINS.md, THEMING.md) | Reviewer sign-off |
 
@@ -1151,7 +1169,7 @@ Accessibility (reduced motion, `strongFocus` → `data-focus="strong"`,
 switch, all / mentions / nothing, previews, mute hint, sounds disabled:
 we ship none), Keybinds, Behaviour (send key, markdown, typing — disabled
 when Silent Typing is on —, link previews shown disabled: not built),
-Plugins, Themes, QuickCSS, Connection (demo/signal-cli, URL, account, Test →
+Plugins, Themes, Custom CSS, Connection (demo/signal-cli, URL, account, Test →
 `admin.probeDaemon`; changes apply via confirm + reload), Data & storage
 (`navigator.storage.estimate`, JSON export via Blob download, clear history
 / reset settings with confirm + reload; reset keeps the connection), About
@@ -1198,15 +1216,15 @@ the schema; Reset to defaults). Failed plugins show the error + Retry
   settings subscription), so a plugin that fails *transiently* on enable is
   retried immediately.
 
-**Themes / QuickCSS.** `sanitizeUserCss` drops remote `@import` (http(s),
+**Themes / Custom CSS.** (Sanitiser and privacy rules superseded by review round 1, below.) `sanitizeUserCss` drops remote `@import` (http(s),
 `//`, any `scheme://`; every syntax, case-insensitive) and reports remote
-`url()` (kept, warned). The engine applies it to QuickCSS and theme CSS
+`url()` (kept, warned). The engine applies it to Custom CSS and theme CSS
 whatever the caller does. Import/export `{ id?, name, kind?, tokens, css? }`:
 only known token names (bare or `--shrike-` prefixed), string values that
 can't break out of a declaration (`; { } < >` and comments refused), id
 slugged from the name, built-in ids reserved, 200 kB file cap; stored themes
 are re-validated (`toTheme`). Tokens left out keep Dusk's. Exporting a
-built-in produces `<id>-copy`. QuickCSS: `CodeEditor` (gutter, Tab = two
+built-in produces `<id>-copy`. Custom CSS: `CodeEditor` (gutter, Tab = two
 spaces through `execCommand` for undo, Shift+Tab outdents, Esc releases Tab),
 300 ms debounced apply (flushed on unmount), Reset, `data-shrike` hook list
 in a `<details>` block. New tokens `qr-ink` / `qr-paper` (QR stays
@@ -1279,3 +1297,158 @@ keyword highlight tints only header rows (continuation rows carry no
 decorations). My Profile is read-only. Notifications need the tab open (no
 service worker). The link flow is verified against a mocked daemon only.
 Custom light themes inherit Dusk for tokens they omit.
+
+### Vim mode
+
+A built-in plugin (`ui/plugins/vim`, id `vim-mode`), **off by default**.
+User-facing reference: `docs/KEYBOARD.md`.
+
+**Core: key layers (`core/commands/keyLayer.ts`, React-free).**
+`KeyLayerStack` (owned by `Registries.keyLayers`) holds modal layers, newest
+first; `onKey(stroke, ctx) → handled`. `ctx` = `{ target: 'none' | 'list' |
+'message' | 'composer' | 'input' | 'other', overlay, surface }`. The stack
+drops IME composition (`isComposing` / keyCode 229) and bare modifiers.
+`keyToken` turns events into Vim notation (`j`, `G`, `<C-d>`, `<Esc>`) with
+the keybind convention: the produced character when it's printable ASCII,
+else the physical key (a Cyrillic layout's J key is `j`). `KeySequencer`
+does counts + prefix sequences + a timeout (`ManualScheduler`-testable);
+`parseKeySequence` reads `"<leader>s"`-style bindings. `TextSurface` is the
+DOM-free contract for an editable field (`read`, `write` — through the
+editing pipeline —, `submit`, `escape` → `'reply' | 'read' | 'none'`,
+`setSuggestionsEnabled`). New `PluginContext` capabilities (all tracked):
+`ctx.keys.addLayer(layer)`, `ctx.commands.execute(id)` (plugins drive the app
+through command ids, core ones included) and `ctx.composer.addAccessory(id,
+component)` (slot `composer.accessories`, props `{ conversationId }`).
+Settings schema fields may be `hidden` (internal state, not in the form).
+
+**Dispatch.** `useKeyboard` adds a **capture-phase** window listener that
+runs the layers before any widget (so Normal mode sees `j` before the
+textarea or a message row does); a consumed key is `preventDefault` +
+`stopPropagation`. With no layer installed it returns immediately and the
+bubble-phase `KeybindDispatcher` path is unchanged. `describeFocus`
+(ui/hooks) computes the context: registered text surfaces
+(`registerTextSurface`, WeakMap by element) are `composer`, the scroller is
+marked `data-message-scroller`, rows are `message`; any open dialog / menu /
+listbox (including the composer's suggestion list) sets `overlay`, and Vim
+then stays out of the way, so Esc closes popovers and the suggestion list's
+keys keep working.
+
+**Commands added (dogfooded by the plugin).** `NavCommand`: focus composer,
+focus message list, next / previous space, command palette (switcher with
+`props.query = '>'`; `QuickSwitcher` gained `initialQuery`) — all in the
+palette, no default keys; `OpenSearch` (hidden). `MessageCommand` (hidden):
+next / previous / first / last message, half page and line scrolling,
+centre, and reply / edit / react / copy text / copy Markdown / delete / pin /
+open on the focused message. The list implements them in
+`list/useListNavigation.ts` (exposed as `ChatController.navigation`), over
+the rendered rows like ↑/↓; per-row actions go through
+`RowState.registerActions`, so row-local UI (reaction picker, delete
+confirm) stays in `MessageItem`. `o` clicks the first `[data-open-attachment]`
+tile, else reveals the quote.
+
+**Engine (`ui/plugins/vim/engine`, pure TS).** `feed(state, token) →
+{ state, effects, handled, rejected }` over `{ text, cursor, … }`; `sync`
+adopts the field (typing, clicks; a mouse selection in Normal → Visual);
+`selectionFor` gives the selection to render. Text is a `TextModel` of
+grapheme clusters (`Intl.Segmenter`), so ZWJ emoji are one character.
+Insert-mode keys are *not handled* and stay native (IME, suggestions,
+spellcheck, native undo); the engine learns what was typed on Esc (diff
+against the text at entry) for undo and `.`. Undo is the engine's own stack
+(one step per change; a change plus its typed text is one step); writes go
+through `execCommand('insertText')` on the minimal changed span, so native
+undo still sees them. `.` replays the change's keys (count replaced when
+given) plus typed text. Keys the engine rejects in Normal mode are offered to
+an app-only sequencer (`gt`, `]u`, `:`, `/`, `?`, Ctrl+D/U/E/Y, the leader),
+so those work from the composer without leaving it.
+
+**Decisions.**
+- *Block cursor*: a one-grapheme native selection in Normal mode, coloured
+  by injected CSS on stable hooks (`:has([data-vim-mode=normal])
+  [data-shrike=composer-input]::selection`). No overlay: it would have to
+  track wrapping, scrolling and font metrics; the selection is exact for
+  free. On an empty line the thin caret shows.
+- *Esc / mark read*: Insert-mode Esc only switches mode. Normal-mode Esc
+  with nothing pending runs the composer's own chain (cancel reply → mark
+  read on an empty draft) and, when it marked read, focuses the list.
+- *Navigation targets*: `none`, `list`, `message` only — not other buttons
+  (Space/Enter must keep activating them) or text fields. Unmapped letters
+  are swallowed there (they'd otherwise type-to-focus into the composer);
+  Space stays native unless it is the leader.
+- *Y* is `yy` (classic Vim), not Neovim's `y$`.
+- *Timeouts* apply to app sequences only; an operator (`d…`) waits like Vim.
+- *Settings*: navigation keys, composer modal editing, start in Insert (on),
+  leader (Space / , / \ / ;), sequence timeout (300–3000 ms, default 1000);
+  hidden `introShown` makes the intro toast one-time (reset with the
+  plugin's settings). Individual Vim keys are not rebindable; the key map is
+  read-only in Ctrl+/ (groups "Vim · …", from the layer's `help`) and in a
+  plugin settings panel ("Vim keys").
+- Per-conversation engine state (mode, undo, register) lives for the session.
+
+**Known gaps.** Not supported: Ex commands, in-draft search, marks, macros,
+named registers, Visual Block, `"+p`, Vim keys in the inline message editor
+(it could register a `TextSurface` later). `.` after a count inside an
+operator (`d3w` then `2.`) multiplies instead of replacing. Scrolling and
+`gg`/`G` focus are verified with Playwright (happy-dom has no layout).
+
+
+### P4 review round 1
+
+Finding → fix (the full changelog is in the phase report).
+
+- **B1 user CSS beacons.** `core/themes/sanitize.ts` rewritten: statements are
+  split at `{ ; }` outside strings/comments/parentheses, each is judged on a
+  normalised copy (`cssUnescape` + comments stripped + lower-cased), and any
+  that references `@import` / `url(` / `image-set(` / `image(` /
+  `cross-fade(` / `element(` with a non-`data:`/`blob:` target is dropped (a
+  fetching block prelude drops its whole block). Output keeps surviving
+  statements as written; the UI shows "Removed N remote references". Theme
+  tokens: `tokenValues.ts` (kind per token, `CSS.supports` with a regex
+  fallback, hard ban on `\`, `@`, resource functions, `; { } < >`, comments).
+  Production CSP via `devserver/csp.ts` (`transformIndexHtml`, build only).
+  Privacy copy updated.
+- **M1** CodeEditor marks itself `data-owns-escape` until Tab is released, so
+  the first Esc stays in the editor.
+- **M2** Silent Typing retired: Privacy has one "Send typing indicators"
+  switch (`behaviour.sendTypingIndicators`). Settings v3 migrates an enabled
+  plugin into `false` and drops its entry. Typing guards remain a plugin API.
+- **M3** Safe mode (`ShrikeOptions.safeMode`, `Shrike.safeMode`,
+  `AppServices.safeMode`; main.tsx reads `?safe=1` or a held Shift during the
+  first 1.5 s and reloads into `?safe=1`). Themes with CSS: 10 s Keep/Revert
+  bar (reverting needs no click); same-id imports ask before replacing.
+- **M4** Token `accent-text` (+ `DUSK_BASE`, `deriveAccentText`,
+  `accentContext`) used for every accent-coloured text; Appearance warns when
+  accent vs `bg-chat` < 3:1; tests cover every preset on every theme.
+- **M5** Runtime applies only the plugins whose flag changed, `setEnabled`
+  applies once (directly before `startAll`, via the subscription after),
+  reconcile skips failed slots, `retry(id)` serves the Retry button.
+- **M6** Groups You · General · Customise · System; "Custom CSS" everywhere
+  (page id `custom-css`, store `customCss`, style tag `shrike-custom-css`);
+  "← Back to chats" atop the nav; keyword highlight = accent chip + dotted
+  accent underline via the CSS Custom Highlight API on
+  `[data-shrike="message-body"]` (new stable hook), no row tint; open folders
+  use a 2px folder-hue bracket.
+- **M7** Phones: entering a page focuses its h2, "All settings" returns focus
+  to the nav item, the page bar has a 36 px close.
+- **M8** Export skips messages with `expiresAt` and lists attachments as
+  `{ contentType, fileName?, size? }` only.
+- **M9** Create Space: chips of the picks under the search; suggestions freeze
+  while the pointer/focus is in the list and refresh after 300 ms of stillness.
+- **Minors:** quiet focus restore (no tooltip, `focusQuietly`); switcher
+  ranking (unread bonus capped at 2, command penalty 2 on word starts, 40 %
+  floor, `Theme: X, kind` commands, tappable scope hints, person icon for
+  DMs); keybinds (Reassign/Cancel prompt, browser-reserved warning, per-command
+  search rows, 36 px recorder); roving nav and accent swatches; focus after
+  Retry / link failure / notification click (composer, via
+  `NotificationService.onOpened`); crash chip named by `PluginNamesContext`,
+  once per plugin; keyword toasts follow the viewing rule; toasts sit above
+  the composer; notification clicks only close dialogs without input;
+  link copy; `dist/THIRD_PARTY_NOTICES.txt` from the bundle graph
+  (`devserver/notices.ts`, transitive deps, linked from About); checklist meta
+  contrast; lazy switcher (prefetched when idle), onboarding screens and
+  `IdbMessageRepository`; Notes badge off by default; deferred backend reports
+  `connecting`; honest receipts copy; typed page registry (`PAGE_IDS`,
+  exhaustive view map); compact plugins bar inside search results.
+- **NITs:** "Built in" byline, one-decimal slider, Link previews row removed,
+  single empty-name error, hex `aria-invalid`, row labels wired to Segmented /
+  Slider, folder names, ⋯ on rows and a menu hint in empty categories, `/me`
+  keeps your name.

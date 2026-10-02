@@ -98,7 +98,7 @@
 }
 
 .steps li::marker {
-  color: var(--shrike-accent);
+  color: var(--shrike-accent-text);
   font-weight: var(--shrike-font-weight-bold);
 }
 

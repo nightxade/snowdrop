@@ -4,7 +4,7 @@
  * components supplied by plugins are stored as opaque values and rendered by
  * the ui/ layer inside error boundaries.
  */
-import { CommandRegistry } from '@/core/commands';
+import { CommandRegistry, KeyLayerStack } from '@/core/commands';
 import type { Contact, Conversation, ConversationId, Message } from '@/core/domain';
 import { ObservableList } from '@/core/lib';
 import { isValidDraft, type DraftPipeline, type OutgoingDraft } from '@/core/services';
@@ -130,6 +130,10 @@ export class Registries implements DraftPipeline {
   readonly settingsPanels = new ObservableList<Owned & SettingsPanel>();
   readonly styles = new ObservableList<Owned & StyleEntry>();
   readonly notificationBoosters = new ObservableList<Owned & { boost: NotificationBooster }>();
+  /** Components rendered inside the composer field (Vim mode's mode pill). */
+  readonly composerAccessories = new ObservableList<Owned & ComponentEntry>();
+  /** Modal key layers (see core/commands/keyLayer); consulted before keybinds. */
+  readonly keyLayers: KeyLayerStack;
 
   constructor(
     private readonly onError: (
@@ -139,6 +143,9 @@ export class Registries implements DraftPipeline {
     ) => void = defaultOnError,
     commands?: CommandRegistry,
   ) {
+    this.keyLayers = new KeyLayerStack((error, entry) => {
+      this.onError(error, entry.owner, `key layer "${entry.layer.id}"`);
+    });
     this.commands =
       commands ??
       new CommandRegistry((error, command) => {

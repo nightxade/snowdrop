@@ -1,5 +1,11 @@
 import { RotateCcw, TriangleAlert } from 'lucide-react';
-import { ACCENT_PRESETS, contrastRatio, deriveAccentTokens, findTheme } from '@/core/themes';
+import {
+  accentContext,
+  ACCENT_PRESETS,
+  contrastRatio,
+  deriveAccentTokens,
+  findTheme,
+} from '@/core/themes';
 import { Button, ColorField, Segmented, Slider, Switch } from '@/ui/primitives';
 import { SettingRow } from '../rows/SettingRow';
 import { SettingsSection } from '../rows/SettingsSection';
@@ -18,6 +24,9 @@ export function AppearancePage() {
   const { custom } = useAllThemes();
   const theme = findTheme(a.themeId, custom);
   const ratio = a.accent ? accentContrast(a.accent, theme.kind) : null;
+  // Against the chat background (buttons, rings, the mention bar): 3:1 for non-text UI.
+  const { accent, background } = accentContext(theme, a.accent);
+  const surface = a.accent ? contrastRatio(accent, background) : null;
   return (
     <>
       <SettingsSection id="theme">
@@ -45,11 +54,25 @@ export function AppearancePage() {
             </div>
           }
           note={
-            ratio !== null && ratio < 4.5 ? (
+            (ratio !== null && ratio < 4.5) || (surface !== null && surface < 3) ? (
               <>
                 <TriangleAlert size={14} aria-hidden />
-                Text on this colour has a contrast of {ratio.toFixed(1)}:1 (4.5:1 is the minimum for
-                readable text). Pick a deeper or brighter shade.
+                <span>
+                  {ratio !== null && ratio < 4.5 && (
+                    <>
+                      Text on this colour has a contrast of {ratio.toFixed(1)}:1 (readable text
+                      needs 4.5:1).{' '}
+                    </>
+                  )}
+                  {surface !== null && surface < 3 && (
+                    <>
+                      It stands out only {surface.toFixed(1)}:1 from the {theme.name} background
+                      (buttons and rings need 3:1).{' '}
+                    </>
+                  )}
+                  Pick a deeper or brighter shade. Accent-coloured text is adjusted automatically to
+                  stay readable.
+                </span>
               </>
             ) : undefined
           }
@@ -110,8 +133,9 @@ export function AppearancePage() {
         <SettingRow
           id="appearance.clock"
           label="Time format"
-          control={
+          control={(ids) => (
             <Segmented
+              labelledBy={ids.labelId}
               label="Time format"
               value={a.clock24h ? '24' : '12'}
               options={[
@@ -122,7 +146,7 @@ export function AppearancePage() {
                 set({ clock24h: v === '24' });
               }}
             />
-          }
+          )}
         />
       </SettingsSection>
       <SettingsSection id="text" title="Size">
@@ -130,27 +154,29 @@ export function AppearancePage() {
           id="appearance.fontScale"
           label="Text size"
           description="Scales message and interface text."
-          control={
+          control={(ids) => (
             <Slider
-              aria-label="Text size"
+              id={ids.id}
+              aria-describedby={ids.descriptionId}
               value={Math.round(a.fontScale * 1000) / 10}
               min={87.5}
               max={125}
               step={2.5}
-              format={(v) => `${Math.round(v)}%`}
+              format={(v) => `${Number.isInteger(v) ? v : v.toFixed(1)}%`}
               onValueChange={(v) => {
                 set({ fontScale: v / 100 });
               }}
             />
-          }
+          )}
         />
         <SettingRow
           id="appearance.zoom"
           label="Zoom"
           description="Scales everything, like browser zoom."
-          control={
+          control={(ids) => (
             <Slider
-              aria-label="Zoom"
+              id={ids.id}
+              aria-describedby={ids.descriptionId}
               value={Math.round(a.zoom * 100)}
               min={80}
               max={150}
@@ -160,7 +186,7 @@ export function AppearancePage() {
                 set({ zoom: v / 100 });
               }}
             />
-          }
+          )}
         />
       </SettingsSection>
     </>

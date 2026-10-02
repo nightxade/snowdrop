@@ -66,7 +66,12 @@ export interface NotificationServiceDeps {
   isVisible?: () => boolean;
   /** Brings the app window to the front (window.focus). */
   focusWindow?: () => void;
+  /** After a click opened a conversation (the app focuses its composer). */
+  onOpened?: (id: ConversationId) => void;
 }
+
+/** Modals a notification click may close: none of them hold unsaved input. */
+const DISMISSIBLE_MODALS = new Set(['switcher', 'shortcuts', 'settings']);
 
 const MAX_BODY = 140;
 
@@ -219,10 +224,12 @@ export class NotificationService {
     this.deps.focusWindow?.();
     const kind = stores.conversations.getState().byId[id]?.kind;
     const space = kind === 'group' ? (spaceOf(stores, id) ?? HOME) : HOME;
-    stores.ui.getState().closeModal();
+    const modal = stores.ui.getState().modal;
+    if (modal && DISMISSIBLE_MODALS.has(modal.type)) stores.ui.getState().closeModal();
     stores.ui.getState().selectConversation(id, space);
     this.shown.get(id)?.close();
     this.shown.delete(id);
+    this.deps.onOpened?.(id);
   }
 }
 

@@ -71,10 +71,19 @@ export function createKeywordAlertsPlugin(ui: KeywordAlertsUi = {}) {
         const hit = matcher(message);
         return hit ? `Keyword “${hit}”` : null;
       });
+      // Same rule as desktop notifications: nothing for what you're looking at.
+      const viewing = (id: string) => {
+        const ui = ctx.stores.ui.getState();
+        return (
+          ui.windowFocused &&
+          ui.selectedConversationBySpace[ui.selectedSpace] === id &&
+          ui.scrolledUp[id as keyof typeof ui.scrolledUp] !== true
+        );
+      };
       ctx.backend.onMessage((message) => {
         if (!ctx.settings.get('toast')) return;
         const hit = matcher(message);
-        if (!hit) return;
+        if (!hit || viewing(message.conversationId)) return;
         const conv = ctx.stores.conversations.getState().byId[message.conversationId];
         ctx.toast(`“${hit}” mentioned in ${conv?.title ?? 'a conversation'}`, 'info');
       });

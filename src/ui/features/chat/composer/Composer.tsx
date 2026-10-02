@@ -4,9 +4,9 @@ import { useStore } from 'zustand';
 import { CoreCommand } from '@/core/commands';
 import type { ConversationId, ConversationView } from '@/core/domain';
 import { messagesSelectors, sessionSelectors, uiSelectors } from '@/core/stores';
-import { setConversationFocusResolver, useShrike } from '@/ui/hooks';
+import { setConversationFocusResolver, useObservableList, useShrike } from '@/ui/hooks';
 import { useConversationView } from '@/ui/features/conversation';
-import { EmojiPickerPopover, IconButton } from '@/ui/primitives';
+import { EmojiPickerPopover, IconButton, Slot } from '@/ui/primitives';
 import { useChatController } from '../ChatController';
 import { AttachmentTray } from './AttachmentTray';
 import { ReplyBar } from './ReplyBar';
@@ -14,6 +14,7 @@ import { TypingLine } from './TypingLine';
 import { useAutocompleteField } from './useAutocompleteField';
 import { useAutoGrow } from './useAutoGrow';
 import { useComposer } from './useComposer';
+import { useComposerSurface } from './useComposerSurface';
 import { useTypeToFocus } from './useTypeToFocus';
 import styles from './Composer.module.css';
 
@@ -42,6 +43,35 @@ function ComposerInner({ conversation }: { conversation: ConversationView }) {
   const fileInput = useRef<HTMLInputElement>(null);
   const [field, setField] = useState<HTMLDivElement | null>(null);
   const [emojiOpen, setEmojiOpen] = useState(false);
+  const accessories = useObservableList(app.registries.composerAccessories);
+  const syncCaret = useRef<() => void>(() => undefined);
+  const suggestions = useComposerSurface({
+    textarea,
+    id: conversationId,
+    setText,
+    syncCaret: () => {
+      syncCaret.current();
+    },
+    submit: () => {
+      void state.submit();
+    },
+    escape: () => escape(),
+  });
+
+  /** Escape: cancel the reply, else mark read when the draft is empty (PLAN §4.6). */
+  const escape = (): 'reply' | 'read' | 'none' => {
+    const ui = stores.ui.getState();
+    if (ui.replyTo[conversationId]) {
+      ui.setReplyTo(conversationId, null);
+      return 'reply';
+    }
+    // The field, not `text`: a key layer may have just edited it in this tick.
+    const empty = (textarea.current?.value ?? text) === '' && state.attachments.length === 0;
+    if (!empty) return 'none';
+    void commands.execute(CoreCommand.MarkRead);
+    return 'read';
+  };
+
   const field_ = useAutocompleteField({
     textarea,
     anchor: field,
@@ -50,8 +80,12 @@ function ComposerInner({ conversation }: { conversation: ConversationView }) {
     memberIds: conversation.memberIds,
     onMention: state.addMention,
     slash: true,
+    suggestions,
   });
   const { replace } = field_;
+  useEffect(() => {
+    syncCaret.current = field_.syncCaret;
+  });
   useAutoGrow(textarea, text);
   useTypeToFocus(textarea);
 
@@ -95,15 +129,7 @@ function ComposerInner({ conversation }: { conversation: ConversationView }) {
       }
       return;
     }
-    if (e.key === 'Escape') {
-      if (replyTo) {
-        e.preventDefault();
-        stores.ui.getState().setReplyTo(conversationId, null);
-      } else if (text === '' && state.attachments.length === 0) {
-        e.preventDefault();
-        void commands.execute(CoreCommand.MarkRead);
-      }
-    }
+    if (e.key === 'Escape' && escape() !== 'none') e.preventDefault();
   };
 
   const placeholder =
@@ -165,6 +191,7 @@ function ComposerInner({ conversation }: { conversation: ConversationView }) {
               }}
               onSelect={field_.syncCaret}
               onKeyDown={onKeyDown}
+              data-shrike="composer-input"
               onPaste={(e) => {
                 const files = [...e.clipboardData.files];
                 if (files.length > 0) {
@@ -172,6 +199,12 @@ function ComposerInner({ conversation }: { conversation: ConversationView }) {
                   state.addFiles(files);
                 }
               }}
+            />
+            <Slot
+              name="composer.accessories"
+              entries={accessories}
+              props={{ conversationId }}
+              className={styles.accessories}
             />
             <EmojiPickerPopover
               open={emojiOpen}

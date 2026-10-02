@@ -8,6 +8,12 @@ import type { MessageId } from '@/core/domain';
  * flashes after a jump. Rows subscribe by id and re-render only when their
  * own flag flips — the virtualiser's rows needn't re-render at all.
  */
+/** Actions a row performs on itself (keyboard layers reach them through the list). */
+export type MessageAction =
+  'reply' | 'edit' | 'react' | 'copyText' | 'copyMarkdown' | 'delete' | 'pin' | 'open';
+
+export type RowActionHandler = (action: MessageAction) => boolean;
+
 export class RowState {
   private hovered: MessageId | null = null;
   private flashing: MessageId | null = null;
@@ -92,6 +98,21 @@ export class RowState {
 
   isEntered(id: MessageId): boolean {
     return this.entered === id;
+  }
+
+  private readonly actions = new Map<MessageId, RowActionHandler>();
+
+  /** A mounted row exposes its actions (reply, react, delete…), which own row-local UI. */
+  registerActions(id: MessageId, handler: RowActionHandler): () => void {
+    this.actions.set(id, handler);
+    return () => {
+      if (this.actions.get(id) === handler) this.actions.delete(id);
+    };
+  }
+
+  /** Runs an action on a mounted row; false if it isn't mounted or the action doesn't apply. */
+  runAction(id: MessageId, action: MessageAction): boolean {
+    return this.actions.get(id)?.(action) ?? false;
   }
 }
 

@@ -15,6 +15,11 @@
   flex: 1 1 200px;
 }
 
+/* Settings controls share a 36px height (selects, segmented, buttons, recorder). */
+.search > div:first-child {
+  height: 36px;
+}
+
 .count {
   color: var(--shrike-text-faint);
   font-size: var(--shrike-font-size-sm);
@@ -207,4 +212,8 @@
   color: var(--shrike-text-strong);
   font: inherit;
   resize: vertical;
+}
+
+.switchWrap {
+  display: inline-flex;
 }

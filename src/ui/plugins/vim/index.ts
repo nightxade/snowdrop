@@ -1,0 +1,1 @@
+export { vimPlugin } from './vimPlugin';

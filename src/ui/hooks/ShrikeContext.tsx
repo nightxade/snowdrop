@@ -51,6 +51,8 @@ export interface AppServices {
   /** Desktop notification permission + a test notification. */
   notifications: Pick<NotificationService, 'permission' | 'requestPermission' | 'test'>;
   admin: AppAdmin;
+  /** Started in safe mode: imported themes and Custom CSS are not applied. */
+  readonly safeMode: boolean;
   /** Read-only history queries (search, mentions inbox, pins). */
   repository: Pick<MessageRepository, 'search' | 'mentions' | 'pinned'>;
   /** Connects and syncs; the app calls it once a backend has been chosen. */

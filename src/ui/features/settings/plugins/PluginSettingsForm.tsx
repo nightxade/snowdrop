@@ -24,7 +24,7 @@ export function PluginSettingsForm({ plugin }: { plugin: PluginDefinition }) {
   const set = (key: string, def: SettingDefinition, value: unknown) => {
     stores.settings.getState().setPluginSetting(plugin.id, key, coerceSetting(def, value));
   };
-  const entries = Object.entries(schema);
+  const entries = Object.entries(schema).filter(([, def]) => !def.hidden);
   if (entries.length === 0)
     return <p className={styles.noSettings}>This plugin has no settings.</p>;
   return (

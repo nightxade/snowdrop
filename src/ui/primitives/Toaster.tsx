@@ -17,7 +17,9 @@ export function Toaster() {
   return (
     <Sonner
       position="bottom-right"
-      offset={16}
+      // Clear of the composer (and its typing line) at the bottom of the chat.
+      offset={{ bottom: 104, right: 16 }}
+      mobileOffset={{ bottom: 96, left: 12, right: 12 }}
       gap={8}
       visibleToasts={4}
       toastOptions={{

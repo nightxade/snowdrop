@@ -180,6 +180,7 @@ export const MessageBody = memo(function MessageBody(props: MessageBodyProps) {
     <div
       {...(props.id !== undefined ? { id: props.id } : {})}
       className={[styles.body, className].filter(Boolean).join(' ')}
+      data-shrike="message-body"
       data-jumbo={isJumbo(body, ranges) ? '' : undefined}
     >
       {render(segments, props, 'b')}

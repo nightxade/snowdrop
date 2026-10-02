@@ -90,7 +90,8 @@ export interface Settings {
   /** commandId → keybind string (e.g. "Mod+K"); empty string = unbound. */
   keybinds: Record<string, string>;
   plugins: Record<string, PluginEntry>;
-  quickCss: string;
+  /** Custom CSS (Settings → Custom CSS), applied last. */
+  customCss: string;
   customThemes: CustomThemeData[];
 }
 
@@ -130,7 +131,7 @@ export function defaultSettings(): Settings {
     },
     keybinds: {},
     plugins: {},
-    quickCss: '',
+    customCss: '',
     customThemes: [],
   };
 }
@@ -144,7 +145,7 @@ export interface SettingsState extends Settings {
   setPluginSetting(pluginId: string, key: string, value: unknown): void;
   /** Drops every stored value of a plugin, so its schema defaults apply. */
   resetPluginSettings(pluginId: string): void;
-  setQuickCss(css: string): void;
+  setCustomCss(css: string): void;
   /** Adds or replaces (same id) a custom theme. */
   saveCustomTheme(theme: CustomThemeData): void;
   removeCustomTheme(id: string): void;
@@ -186,8 +187,8 @@ export function createSettingsStore(initial: Settings = defaultSettings()): Sett
       if (!entry || Object.keys(entry.settings).length === 0) return;
       set((s) => ({ plugins: { ...s.plugins, [pluginId]: { ...entry, settings: {} } } }));
     },
-    setQuickCss: (quickCss) => {
-      set({ quickCss });
+    setCustomCss: (customCss) => {
+      set({ customCss });
     },
     saveCustomTheme: (theme) => {
       set((s) => {
@@ -223,7 +224,7 @@ export const settingsSelectors = {
   connection: (s: SettingsState) => s.connection,
   keybinds: (s: SettingsState) => s.keybinds,
   plugins: (s: SettingsState) => s.plugins,
-  quickCss: (s: SettingsState) => s.quickCss,
+  customCss: (s: SettingsState) => s.customCss,
   customThemes: (s: SettingsState) => s.customThemes,
   clock24h: (s: SettingsState) => s.appearance.clock24h,
 };
@@ -236,7 +237,7 @@ export function selectSettingsData(s: SettingsState): Settings {
     connection: s.connection,
     keybinds: s.keybinds,
     plugins: s.plugins,
-    quickCss: s.quickCss,
+    customCss: s.customCss,
     customThemes: s.customThemes,
   };
 }
@@ -313,7 +314,7 @@ export function parseSettings(data: unknown): Settings {
     },
     keybinds,
     plugins,
-    quickCss: str(root.quickCss, d.quickCss),
+    customCss: str(root.customCss, d.customCss),
     customThemes: Array.isArray(root.customThemes)
       ? root.customThemes.map(parseCustomTheme).filter((t): t is CustomThemeData => t !== null)
       : [],
@@ -340,7 +341,7 @@ function parseCustomTheme(value: unknown): CustomThemeData | null {
 
 export const settingsSchema: VersionedSchema<Settings> = {
   key: 'shrike.settings',
-  version: 2,
+  version: 3,
   migrations: {
     // v2 (P5): `connection.account`; the untouched v1 default daemon URL moves
     // to the same-origin proxy path (a custom URL is kept as the user set it).
@@ -349,6 +350,26 @@ export const settingsSchema: VersionedSchema<Settings> = {
       const connection: Record<string, unknown> = { ...data.connection, account: null };
       if (connection.daemonUrl === LEGACY_DAEMON_URL) connection.daemonUrl = DEFAULT_DAEMON_URL;
       return { ...data, connection };
+    },
+    // v3 (P4 review): QuickCSS is now "Custom CSS" (`customCss`), and the
+    // Silent Typing plugin became the Privacy switch: an enabled plugin turns
+    // `behaviour.sendTypingIndicators` off.
+    3: (data) => {
+      if (!isRecord(data)) return data;
+      const out: Record<string, unknown> = { ...data };
+      if ('quickCss' in out) {
+        out.customCss = out.quickCss;
+        delete out.quickCss;
+      }
+      if (isRecord(out.plugins) && isRecord(out.plugins['silent-typing'])) {
+        const { 'silent-typing': silent, ...plugins } = out.plugins;
+        if (isRecord(silent) && silent.enabled === true) {
+          const behaviour = isRecord(out.behaviour) ? out.behaviour : {};
+          out.behaviour = { ...behaviour, sendTypingIndicators: false };
+        }
+        out.plugins = plugins;
+      }
+      return out;
     },
   },
   defaults: defaultSettings,

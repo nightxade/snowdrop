@@ -1,5 +1,5 @@
 import { LoaderCircle, Lock, RotateCw, Settings2, TriangleAlert } from 'lucide-react';
-import { useId } from 'react';
+import { useId, useRef } from 'react';
 import type { PluginInfo } from '@/core/plugins';
 import { useShrike } from '@/ui/hooks';
 import { Button, IconButton, Switch, Tooltip } from '@/ui/primitives';
@@ -17,8 +17,9 @@ export function PluginCard({ info, onOpenSettings, onTag, activeTag }: PluginCar
   const { plugins } = useShrike();
   const { definition: d, enabled, status } = info;
   const titleId = useId();
+  const switchRef = useRef<HTMLDivElement>(null);
   const descId = useId();
-  const hasSettings = Object.keys(d.settings ?? {}).length > 0;
+  const hasSettings = Object.values(d.settings ?? {}).some((def) => !def.hidden);
   const failed = status === 'failed';
   return (
     <article
@@ -49,15 +50,17 @@ export function PluginCard({ info, onOpenSettings, onTag, activeTag }: PluginCar
               onClick={onOpenSettings}
             />
           )}
-          <Switch
-            checked={enabled}
-            disabled={d.required ?? false}
-            ariaLabel={`${enabled ? 'Disable' : 'Enable'} ${d.name}`}
-            aria-describedby={descId}
-            onCheckedChange={(on) => {
-              void plugins.setEnabled(d.id, on);
-            }}
-          />
+          <span ref={switchRef} className={styles.switchWrap}>
+            <Switch
+              checked={enabled}
+              disabled={d.required ?? false}
+              ariaLabel={`${enabled ? 'Disable' : 'Enable'} ${d.name}`}
+              aria-describedby={descId}
+              onCheckedChange={(on) => {
+                void plugins.setEnabled(d.id, on);
+              }}
+            />
+          </span>
         </span>
       </header>
       <p id={descId} className={styles.cardDescription}>
@@ -72,7 +75,9 @@ export function PluginCard({ info, onOpenSettings, onTag, activeTag }: PluginCar
             variant="secondary"
             icon={<RotateCw size={14} />}
             onClick={() => {
-              void plugins.start(d.id);
+              // The Retry button disappears on success: keep focus on the card.
+              switchRef.current?.querySelector<HTMLElement>('[role=switch]')?.focus();
+              void plugins.retry(d.id);
             }}
           >
             Retry
@@ -80,7 +85,11 @@ export function PluginCard({ info, onOpenSettings, onTag, activeTag }: PluginCar
         </div>
       )}
       <footer className={styles.cardFooter}>
-        <span className={styles.authors}>by {d.authors.join(', ')}</span>
+        <span className={styles.authors}>
+          {d.authors.length === 1 && d.authors[0] === 'shrike'
+            ? 'Built in'
+            : `by ${d.authors.join(', ')}`}
+        </span>
         {status === 'starting' && (
           <span className={styles.starting}>
             <LoaderCircle size={12} aria-hidden className={styles.spin} /> Starting…

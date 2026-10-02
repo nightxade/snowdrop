@@ -17,7 +17,6 @@ function usePluginEnabled(id: string): [boolean, (on: boolean) => void] {
 
 export function PrivacyPage() {
   const [behaviour, setBehaviour] = useSettingsSection('behaviour');
-  const [silent, setSilent] = usePluginEnabled('silent-typing');
   const [clearUrls, setClearUrls] = usePluginEnabled('clear-urls');
   return (
     <>
@@ -25,7 +24,7 @@ export function PrivacyPage() {
         <SettingRow
           id="privacy.receipts"
           label="Send read receipts"
-          description="Lets people see when you’ve read their messages."
+          description="When on, people see when you’ve read their messages. Turning it off only stops Shrike sending them: you still see other people’s receipts here (Signal’s own apps hide both)."
           control={(ids) => (
             <Switch
               id={ids.id}
@@ -39,14 +38,16 @@ export function PrivacyPage() {
         />
         <SettingRow
           id="privacy.typing"
-          label="Never send typing indicators"
-          description="Turns on the Silent Typing plugin: nobody sees “typing…” from you, in any conversation."
+          label="Send typing indicators"
+          description="When on, people see “typing…” while you write to them. Off applies to every conversation."
           control={(ids) => (
             <Switch
               id={ids.id}
               aria-describedby={ids.descriptionId}
-              checked={silent}
-              onCheckedChange={setSilent}
+              checked={behaviour.sendTypingIndicators}
+              onCheckedChange={(v) => {
+                setBehaviour({ sendTypingIndicators: v });
+              }}
             />
           )}
         />
@@ -78,7 +79,15 @@ export function PrivacyPage() {
               Message history is stored in this browser (signal-cli keeps none). Export or clear it
               under Data &amp; storage.
             </li>
-            <li>Shrike has no telemetry and loads no fonts or scripts from the internet.</li>
+            <li>
+              Shrike has no telemetry. Its fonts and code ship with it, and custom themes and Custom
+              CSS can’t load anything from the internet: such references are removed, and the
+              installed app blocks third-party requests outright.
+            </li>
+            <li>
+              Shrike talks only to your signal-cli daemon, and that goes through this app’s own
+              address.
+            </li>
           </ul>
         </SettingRow>
       </SettingsSection>

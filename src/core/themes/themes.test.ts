@@ -27,7 +27,7 @@ const base: AppearanceInput = {
   zoom: 1,
   saturation: 1,
   reducedMotion: 'system',
-  quickCss: '',
+  customCss: '',
 };
 
 describe('color math', () => {
@@ -100,20 +100,20 @@ describe('applyAppearance', () => {
   it('writes ordered style tags and root attributes', () => {
     const late = document.createElement('style');
     late.id = 'late';
-    applyAppearance(document, { ...base, quickCss: 'body{color:red}', pluginCss: '.x{}' });
+    applyAppearance(document, { ...base, customCss: 'body{color:red}', pluginCss: '.x{}' });
     document.head.appendChild(late);
     applyAppearance(document, {
       ...base,
       themeId: 'linen',
-      quickCss: 'body{color:blue}',
+      customCss: 'body{color:blue}',
       reducedMotion: 'on',
       saturation: 0.5,
       density: 'compact',
     });
 
     const ids = [...document.head.querySelectorAll('style')].map((s) => s.id);
-    expect(ids.slice(-3)).toEqual([STYLE_IDS.theme, STYLE_IDS.plugins, STYLE_IDS.quickCss]);
-    expect(document.getElementById(STYLE_IDS.quickCss)?.textContent).toBe('body{color:blue}');
+    expect(ids.slice(-3)).toEqual([STYLE_IDS.theme, STYLE_IDS.plugins, STYLE_IDS.customCss]);
+    expect(document.getElementById(STYLE_IDS.customCss)?.textContent).toBe('body{color:blue}');
     const root = document.documentElement;
     expect(root.getAttribute('data-theme')).toBe('linen');
     expect(root.getAttribute('data-theme-kind')).toBe('light');

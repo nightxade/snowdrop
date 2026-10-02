@@ -25,3 +25,4 @@ export {
   useConversationDrop,
   type ConversationDropTarget,
 } from './useConversationDrop';
+export { describeFocus, registerTextSurface, textSurfaceFor } from './textSurfaces';

@@ -79,7 +79,6 @@ export const contactNotesBadgePlugin = definePlugin({
     'Shows the first line of your private note about someone (pronouns, a nickname, how you know them) next to their name.',
   authors: ['shrike'],
   tags: ['appearance', 'messages'],
-  enabledByDefault: true,
   settings,
   start(ctx) {
     ctx.messages.addDecoration('note-badge', makeBadge(ctx));

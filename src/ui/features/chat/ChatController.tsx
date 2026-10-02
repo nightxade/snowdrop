@@ -6,6 +6,7 @@
  */
 import { createContext, use, useSyncExternalStore } from 'react';
 import type { ConversationId, MessageId } from '@/core/domain';
+import type { MessageAction } from './list/rowState';
 
 export interface RevealOptions {
   /** Highlight it briefly (default true). */
@@ -14,7 +15,21 @@ export interface RevealOptions {
   focus?: boolean;
 }
 
-export interface ListHandle {
+/** Keyboard navigation of the message list (commands, Vim mode). */
+export interface ListNavigation {
+  /** Moves focus between messages; from outside the list the first press lands on its tab stop. */
+  navigate(to: 'next' | 'prev' | 'first' | 'last', count: number): boolean;
+  /** Scrolls by half a page or a line; focus follows like Vim's Ctrl+D / Ctrl+E. */
+  scroll(by: 'halfPage' | 'line', direction: 1 | -1, count: number): void;
+  /** Centres the focused message. */
+  center(): void;
+  /** Runs an action on the focused message (else the tab stop); false if it doesn't apply. */
+  act(action: MessageAction): boolean;
+  /** Focuses the list's tab stop. */
+  focus(): void;
+}
+
+export interface ListHandle extends ListNavigation {
   conversationId: ConversationId;
   /** Scrolls to the newest message, reloading the present first if detached. */
   jumpToPresent(): Promise<void>;
@@ -96,6 +111,11 @@ export class ChatController {
 
   focusComposer(): void {
     this.composer?.focus();
+  }
+
+  /** The open list's keyboard navigation, or null when no conversation is open. */
+  get navigation(): ListNavigation | null {
+    return this.list;
   }
 }
 

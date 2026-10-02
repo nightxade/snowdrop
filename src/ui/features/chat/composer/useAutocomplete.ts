@@ -39,6 +39,8 @@ export function useAutocomplete(
   memberIds: readonly string[],
   /** Offer /commands (composer only). */
   slash = true,
+  /** False suspends suggestions (Vim mode outside Insert mode). */
+  enabled = true,
 ): Autocomplete {
   const { stores, registries, plugins } = useShrike();
   const contacts = useStore(stores.contacts, contactsSelectors.byId);
@@ -49,7 +51,7 @@ export function useAutocomplete(
   const [activeState, setActiveState] = useState({ key: '', index: 0 });
 
   const found = useMemo(() => findTrigger(text, caret), [text, caret]);
-  const trigger = found?.kind === 'slash' && !slash ? null : found;
+  const trigger = !enabled || (found?.kind === 'slash' && !slash) ? null : found;
   const wantsEmoji = trigger?.kind === 'emoji';
   // A dismissal lasts until the trigger goes away (typing on keeps it closed).
   if (!trigger && dismissedAt !== null) setDismissedAt(null);

@@ -32,7 +32,7 @@
   align-items: center;
   justify-content: center;
   min-width: 132px;
-  height: 34px;
+  height: 36px;
   padding: 0 var(--shrike-space-4);
   border: 1px dashed transparent;
   border-radius: var(--shrike-radius-sm);
@@ -59,4 +59,20 @@
 .unset {
   color: var(--shrike-text-faint);
   font-size: var(--shrike-font-size-sm);
+}
+
+.prompt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--shrike-space-3);
+  width: 100%;
+}
+
+.promptText {
+  display: inline-flex;
+  flex: 1 1 200px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
 }

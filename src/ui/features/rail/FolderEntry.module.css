@@ -28,19 +28,19 @@
   padding-bottom: var(--shrike-space-2);
 }
 
-/* Tinted segment behind the folder's tiles. */
+/* A 2px bracket down the rail's right gutter (the left one holds unread dots) groups the folder's tiles (our
+   own mark; no filled capsule). It takes the folder's hue when it has one. */
 .open::before {
   content: '';
   position: absolute;
-  inset: var(--shrike-space-2) calc((var(--shrike-rail-width) - var(--shrike-tile-size)) / 2 - 4px)
-    0;
-  border-radius: calc(var(--shrike-radius-lg) + 4px);
-  background: var(--shrike-bg-active);
+  top: calc(var(--shrike-space-2) + 6px);
+  bottom: 6px;
+  right: 4px;
+  width: 6px;
+  border: 2px solid var(--folder-hue, var(--shrike-border-strong));
+  border-left: none;
+  border-radius: 0 6px 6px 0;
   pointer-events: none;
-}
-
-.open[data-tinted]::before {
-  background: color-mix(in oklab, var(--folder-hue) 22%, var(--shrike-bg-rail));
 }
 
 .open[data-tinted] .header {

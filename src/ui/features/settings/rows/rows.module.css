@@ -132,3 +132,10 @@
   box-shadow: inset 3px 0 0 var(--shrike-success);
   color: var(--shrike-text);
 }
+
+/* Links inside descriptions sit in running text: underline, not colour alone. */
+.description a,
+.sectionDescription a {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}

@@ -25,7 +25,7 @@ describe('deferredBackend', () => {
     expect(deferred.kind).toBe('mock');
     expect('fetchHistory' in deferred).toBe(true);
     expect('resolveAttachmentUrl' in deferred).toBe(false);
-    expect(deferred.getStatus()).toBe('offline');
+    expect(deferred.getStatus()).toBe('connecting');
 
     // Subscriptions made early are attached on load; unsubscribing early works too.
     const early = vi.fn();
