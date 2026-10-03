@@ -144,6 +144,22 @@ describe('Vim mode: navigation', () => {
     expect(focused()?.getAttribute('tabindex')).toBe('0');
   });
 
+  it('marks the current row with a stable data-current attribute, not the previous one', async () => {
+    await bootVim();
+    blur();
+    press('j');
+    const afterFirst = rows();
+    const firstIndex = afterFirst.indexOf(focused()!);
+    expect(afterFirst[firstIndex]?.hasAttribute('data-current')).toBe(true);
+    expect(afterFirst.filter((r) => r.hasAttribute('data-current'))).toHaveLength(1);
+    press('k');
+    const afterSecond = rows();
+    const secondIndex = afterSecond.indexOf(focused()!);
+    expect(secondIndex).toBe(firstIndex - 1);
+    expect(afterSecond[secondIndex]?.hasAttribute('data-current')).toBe(true);
+    expect(afterSecond[firstIndex]?.hasAttribute('data-current')).toBe(false);
+  });
+
   it('jumps to the first loaded message with gg and back to the latest with G', async () => {
     await bootVim();
     blur();

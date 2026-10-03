@@ -19,6 +19,43 @@
   box-shadow: inset 0 0 0 2px var(--snowdrop-focus-ring);
 }
 
+/*
+ * Selected-message marker: the roving "current" row (data-current, the one
+ * holding tabIndex=0 — see MessageItem.tsx and useListNavigation.ts).
+ *
+ * This deliberately does NOT key off `:focus-visible`. Browsers decide
+ * whether a *programmatic* `.focus()` call (what j/k, gg/G and zz all use)
+ * counts as "visible" focus, and WebKitGTK (the webview Tauri's desktop
+ * build runs on) routinely says no — so a script-focused row got real DOM
+ * focus but no visible indication at all. `:focus-within`/`:focus` reflect
+ * actual focus containment with no such heuristic, in every engine, so the
+ * marker is built on those instead.
+ *
+ * Two tiers, both token-based:
+ *  - Base (shown while the list itself is in keyboard-navigation mode —
+ *    focus is anywhere inside it, including an "entered" row's hover-bar
+ *    controls): a 2px inset accent bar *combined with* a bg-hover wash.
+ *    That pairing is what keeps it from being confused with the two other
+ *    inset-bar treatments below — reply-target is a bar alone (no fill),
+ *    and the mention row is a fill + bar in the mention colour, not the
+ *    accent colour. Hidden the instant focus leaves the list (a click
+ *    elsewhere, or into the composer) since only background/box-shadow
+ *    change — no layout shift.
+ *  - Ring (focus-within on the row itself): the same inset accent bar plus
+ *    a 2px focus-ring outline, once focus is on this row (or one of its
+ *    own controls) specifically, not just somewhere else in the list.
+ */
+[data-snowdrop='message-log']:focus-within .row[data-current] {
+  background: var(--snowdrop-bg-hover);
+  box-shadow: inset 2px 0 0 var(--snowdrop-accent);
+}
+
+.row[data-current]:focus-within {
+  box-shadow:
+    inset 2px 0 0 var(--snowdrop-accent),
+    inset 0 0 0 2px var(--snowdrop-focus-ring);
+}
+
 /* The message being replied to: a quiet accent bar ties it to the reply bar. */
 .row[data-reply-target] {
   box-shadow: inset 2px 0 0 var(--snowdrop-accent);
@@ -35,6 +72,20 @@
 }
 
 .row[data-mention]:focus-visible {
+  box-shadow:
+    inset 2px 0 0 var(--snowdrop-mention-bar),
+    inset 0 0 0 2px var(--snowdrop-focus-ring);
+}
+
+/* Current row that's also a mention: keep the mention's own bar colour (so
+   it still reads as "mentions you", not as a plain selected row) and only
+   strengthen the background to show it's also the keyboard's current row. */
+[data-snowdrop='message-log']:focus-within .row[data-mention][data-current] {
+  background: color-mix(in srgb, var(--snowdrop-mention-bg), var(--snowdrop-accent) 10%);
+  box-shadow: inset 2px 0 0 var(--snowdrop-mention-bar);
+}
+
+.row[data-mention][data-current]:focus-within {
   box-shadow:
     inset 2px 0 0 var(--snowdrop-mention-bar),
     inset 0 0 0 2px var(--snowdrop-focus-ring);

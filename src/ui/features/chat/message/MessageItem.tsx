@@ -258,6 +258,9 @@ export const MessageItem = memo(function MessageItem({
       data-failed={perms.failed ? '' : undefined}
       data-flash={flash ? '' : undefined}
       data-message-active={active ? '' : undefined}
+      // The roving tab stop (j/k, gg/G land here): a stable marker that
+      // doesn't depend on `:focus-visible` (see MessageItem.module.css).
+      data-current={tabStop ? '' : undefined}
       data-roving-item
       data-message-id={m.id}
       tabIndex={tabStop ? 0 : -1}
