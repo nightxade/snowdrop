@@ -5,6 +5,7 @@
  */
 import type { PluginContext } from '@/core/plugins';
 import { textSurfaceFor } from '@/ui/hooks';
+import { makeBlockCaret } from './caret/BlockCaret';
 import type { Mode } from './engine/engine';
 import { makeModePill } from './ModePill';
 import { ModeStore } from './modeStore';
@@ -13,13 +14,20 @@ import { VimController, type VimOptions } from './VimController';
 import { makeVimKeysPanel } from './VimKeysPanel';
 
 /**
- * The Normal-mode block cursor is the textarea's own selection, one
- * character wide (a textarea can't draw a block caret). Stable hooks only.
+ * The block cursor is drawn over the field (caret/BlockCaret.tsx), so in
+ * Normal and Visual modes the native caret is hidden. Normal mode keeps a
+ * one-character selection under the block (that's what the engine syncs
+ * with); it's painted invisibly. Visual mode keeps its selection highlight.
+ * Stable hooks only.
  */
 const CARET_CSS = `
+[data-shrike='composer']:has([data-vim-mode='normal']) [data-shrike='composer-input'],
+[data-shrike='composer']:has([data-vim-mode^='visual']) [data-shrike='composer-input'] {
+  caret-color: transparent;
+}
 [data-shrike='composer']:has([data-vim-mode='normal']) [data-shrike='composer-input']::selection {
-  background: var(--shrike-accent);
-  color: var(--shrike-text-on-accent);
+  background: transparent;
+  color: inherit;
 }
 [data-shrike='composer']:has([data-vim-mode^='visual']) [data-shrike='composer-input']::selection {
   background: color-mix(in srgb, var(--shrike-accent) 40%, transparent);
@@ -73,6 +81,21 @@ export function startVim(ctx: PluginContext<typeof settings>): void {
       subscribeOptions,
       composerEnabled: () => ctx.settings.get('composer'),
       startMode: (): Mode => (ctx.settings.get('startInInsert') ? 'insert' : 'normal'),
+    }),
+  );
+  ctx.composer.addAccessory(
+    'block-caret',
+    makeBlockCaret({
+      modes,
+      // The draft (a send clears it) and the font scale move the text without a key.
+      subscribe: (fn) => {
+        const offLocal = ctx.stores.local.subscribe(fn);
+        const offSettings = ctx.stores.settings.subscribe(fn);
+        return () => {
+          offLocal();
+          offSettings();
+        };
+      },
     }),
   );
   ctx.settingsPanels.add({

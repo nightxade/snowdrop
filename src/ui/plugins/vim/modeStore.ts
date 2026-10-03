@@ -5,12 +5,14 @@ export interface ModeSnapshot {
   mode: Mode | null;
   /** Keys typed so far ("d2", "g", "Space"), like Vim's showcmd. */
   pending: string;
+  /** The engine's cursor (UTF-16 offset): where the block cursor sits, the moving end in Visual mode. */
+  cursor: number;
 }
 
-const EMPTY: ModeSnapshot = { mode: null, pending: '' };
+const EMPTY: ModeSnapshot = { mode: null, pending: '', cursor: 0 };
 
 /**
- * What the mode pill shows, per composer (surface id = conversation id),
+ * What the mode pill and block cursor show, per composer (surface id = conversation id),
  * plus the navigation layer's pending keys. Tiny observable so the pill can
  * use useSyncExternalStore; snapshots are stable until they change.
  */
@@ -34,10 +36,10 @@ export class ModeStore {
     return this.navPending;
   }
 
-  set(id: string, mode: Mode, pending: string): void {
+  set(id: string, mode: Mode, pending: string, cursor = 0): void {
     const current = this.byId.get(id);
-    if (current?.mode === mode && current.pending === pending) return;
-    this.byId.set(id, { mode, pending });
+    if (current?.mode === mode && current.pending === pending && current.cursor === cursor) return;
+    this.byId.set(id, { mode, pending, cursor });
     this.emit();
   }
 

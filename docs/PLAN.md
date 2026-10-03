@@ -1459,11 +1459,21 @@ an app-only sequencer (`gt`, `]u`, `:`, `/`, `?`, Ctrl+D/U/E/Y, the leader),
 so those work from the composer without leaving it.
 
 **Decisions.**
-- *Block cursor*: a one-grapheme native selection in Normal mode, coloured
-  by injected CSS on stable hooks (`:has([data-vim-mode=normal])
-  [data-shrike=composer-input]::selection`). No overlay: it would have to
-  track wrapping, scrolling and font metrics; the selection is exact for
-  free. On an empty line the thin caret shows.
+- *Block cursor*: an overlay (`vim/caret/`), revised after a user report.
+  The first version painted the one-grapheme Normal-mode selection, which
+  vanished (or fell back to a thin caret) wherever there was no character:
+  an empty composer, a blank line, a line end. Now a block is drawn over
+  the field: `caretCell` (pure; tested with a fake measurer) snaps the
+  cursor to its grapheme and to the line grid and picks the cell width (the
+  glyph's, at least 0.6ch; 1ch for an empty cell); `mirror.ts` measures with
+  a hidden copy of the textarea (font, padding, width, pre-wrap). The block
+  is a composer accessory that portals into the composer root, clipped to the
+  field's padding box, and recomputes on mode/cursor changes, scroll, input,
+  resize, the draft, the font scale and web-font loads. Normal mode still
+  keeps its one-character selection (the engine syncs with it) but paints it
+  transparent; the native caret is `caret-color: transparent` outside
+  Insert mode. Colours: `--shrike-vim-caret` / `--shrike-vim-caret-text`
+  (default accent / text-on-accent), overridable from a theme or Custom CSS.
 - *Esc / mark read*: Insert-mode Esc only switches mode. Normal-mode Esc
   with nothing pending runs the composer's own chain (cancel reply → mark
   read on an empty draft) and, when it marked read, focuses the list.

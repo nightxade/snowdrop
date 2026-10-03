@@ -406,6 +406,128 @@ describe('Vim mode: composer', () => {
   });
 });
 
+describe('Vim mode: block cursor', () => {
+  const caret = () => document.querySelector<HTMLElement>('[data-shrike="vim-caret"]');
+  const selected = () => {
+    const el = composer();
+    return el.value.slice(el.selectionStart, el.selectionEnd);
+  };
+
+  it('shows a block in an empty composer, and again after a send clears it', async () => {
+    await bootVim();
+    blur();
+    press('i');
+    expect(caret()).toBeNull();
+    press('Escape');
+    await settle();
+    expect(caret()).not.toBeNull();
+    expect(caret()?.dataset.focused).toBe('true');
+    expect(caret()?.dataset.vimMode).toBe('normal');
+    expect(caret()?.textContent).toBe('');
+    // Drawn over the field, not in the accessory slot.
+    expect(caret()?.closest('[data-slot]')).toBeNull();
+    expect(caret()?.closest('[data-shrike="composer"]')).not.toBeNull();
+
+    press('i');
+    typeIn('sent');
+    press('Escape');
+    await settle();
+    expect(caret()?.textContent).toBe('t');
+    press('Enter');
+    await settle();
+    expect(composer().value).toBe('');
+    expect(caret()?.textContent).toBe('');
+  });
+
+  it('covers the last character with $, and a line end in Visual mode', async () => {
+    await bootVim();
+    blur();
+    press('i');
+    typeIn('one two\n\nthree');
+    press('Escape');
+    keys('gg$');
+    await settle();
+    expect(selected()).toBe('o');
+    expect(caret()?.textContent).toBe('o');
+    keys('vj');
+    await settle();
+    expect(caret()?.dataset.vimMode).toBe('visual');
+    // The cursor end is the blank line's break: an empty cell, not a vanished caret.
+    expect(selected()).toBe('o\n\n');
+    expect(caret()?.textContent).toBe('');
+  });
+
+  it('shows on a blank line between lines', async () => {
+    await bootVim();
+    blur();
+    press('i');
+    typeIn('one\n\ntwo');
+    press('Escape');
+    keys('k');
+    await settle();
+    const el = composer();
+    expect(el.selectionStart).toBe(4);
+    expect(el.selectionEnd).toBe(4);
+    expect(caret()).not.toBeNull();
+    expect(caret()?.textContent).toBe('');
+    keys('k');
+    await settle();
+    // Back up with the goal column ("two" → col 2).
+    expect(caret()?.textContent).toBe('e');
+  });
+
+  it('hides in Insert mode (the native caret is back) and returns on Esc', async () => {
+    await bootVim();
+    blur();
+    press('i');
+    typeIn('abc');
+    press('Escape');
+    await settle();
+    expect(caret()?.textContent).toBe('c');
+    press('i');
+    await settle();
+    expect(caret()).toBeNull();
+    press('Escape');
+    await settle();
+    expect(caret()?.textContent).toBe('b');
+  });
+
+  it('keeps the selection in Visual mode and puts the block on its moving end', async () => {
+    await bootVim();
+    blur();
+    press('i');
+    typeIn('hello world');
+    press('Escape');
+    keys('0ve');
+    await settle();
+    expect(selected()).toBe('hello');
+    expect(caret()?.dataset.vimMode).toBe('visual');
+    expect(caret()?.textContent).toBe('o');
+    keys('o');
+    await settle();
+    // "o" swaps ends: the cursor is now at the start of the selection.
+    expect(selected()).toBe('hello');
+    expect(caret()?.textContent).toBe('h');
+    press('Escape');
+    await settle();
+    expect(caret()?.dataset.vimMode).toBe('normal');
+  });
+
+  it('turns hollow while the composer is unfocused', async () => {
+    await bootVim();
+    blur();
+    press('i');
+    typeIn('abc');
+    press('Escape');
+    await settle();
+    expect(caret()?.dataset.focused).toBe('true');
+    blur();
+    await settle();
+    expect(caret()?.dataset.focused).toBe('false');
+    expect(caret()?.textContent).toBe('');
+  });
+});
+
 describe('Vim mode: lifecycle', () => {
   it('is off by default and the app keeps its default keys', async () => {
     const { shrike } = await bootVim(false);
@@ -440,6 +562,7 @@ describe('Vim mode: lifecycle', () => {
     expect(shrike.registries.keyLayers.layers()).toHaveLength(0);
     expect(shrike.registries.composerAccessories.list()).toHaveLength(0);
     expect(pill()).toBeNull();
+    expect(document.querySelector('[data-shrike="vim-caret"]')).toBeNull();
     // Type-to-focus is back…
     blur();
     press('q');

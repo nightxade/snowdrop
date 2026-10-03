@@ -85,3 +85,51 @@
   margin-right: var(--shrike-space-2);
   color: var(--shrike-text-faint);
 }
+
+/*
+ * Block cursor (caret/BlockCaret.tsx). Override the colours with
+ * --shrike-vim-caret / --shrike-vim-caret-text (theme or Custom CSS).
+ */
+.caretLayer {
+  position: absolute;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.caret {
+  position: absolute;
+  overflow: hidden;
+  border-radius: 1px;
+  background: var(--shrike-vim-caret, var(--shrike-accent));
+  color: var(--shrike-vim-caret-text, var(--shrike-text-on-accent));
+  text-align: center;
+  white-space: pre;
+  animation: vim-caret-blink 1.1s steps(1, end) 0.5s infinite;
+}
+
+/* Unfocused: a hollow cell, so you can see where you'll land without it shouting. */
+.caret[data-focused='false'] {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--shrike-vim-caret, var(--shrike-accent));
+  animation: none;
+}
+
+@keyframes vim-caret-blink {
+  0% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Reduced motion (OS or Settings): a solid block. */
+@media (prefers-reduced-motion: reduce) {
+  :global(:root:not([data-reduced-motion='off'])) .caret {
+    animation: none;
+  }
+}
+
+:global(:root[data-reduced-motion='on']) .caret {
+  animation: none;
+}

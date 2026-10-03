@@ -245,7 +245,7 @@ export class VimController {
       surface.write({ text: next.text, selectionStart: next.cursor, selectionEnd: next.cursor });
     }
     surface.setSuggestionsEnabled(next.mode === 'insert');
-    this.modes.set(surface.id, next.mode, next.pending.join(''));
+    this.modes.set(surface.id, next.mode, next.pending.join(''), next.cursor);
   }
 
   private runEffects(surface: TextSurface, result: FeedResult): void {

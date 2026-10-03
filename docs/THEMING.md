@@ -437,6 +437,8 @@ instead.
 | `link-device`          | Device-linking screen                       |
 | `note-badge`           | Pronoun & Notes Badge plugin's badge        |
 | `vim-mode`             | Vim Mode plugin's mode pill                 |
+| `vim-caret`            | Vim Mode plugin's block cursor              |
+| `vim-caret-layer`      | Clipping layer that holds the block cursor  |
 
 **Attributes on those elements:**
 
@@ -444,7 +446,11 @@ instead.
   grouped follow-up row) and `data-mention` (mentions you).
 - Message times are `<time data-variant='header' | 'gutter' | 'compact'>`.
 - The Vim mode pill carries `data-vim-mode='normal' | 'insert' | 'visual' |
-'visual-line'`.
+'visual-line'`; the block cursor carries `data-vim-mode` and
+  `data-focused='true' | 'false'` (hollow while the composer is unfocused).
+  Its colours are `--shrike-vim-caret` (default: the accent) and
+  `--shrike-vim-caret-text` (default: text-on-accent); set them on `:root`
+  in Custom CSS to restyle it.
 - Sidebar rows carry `data-conversation-id`.
 - Icon buttons carry `data-icon-button`.
 

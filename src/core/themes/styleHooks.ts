@@ -46,6 +46,11 @@ export const STYLE_HOOKS = [
   { hook: 'link-device', what: 'Device-linking screen' },
   { hook: 'note-badge', what: 'Pronoun & Notes Badge plugin’s badge' },
   { hook: 'vim-mode', what: 'Vim Mode plugin’s mode pill' },
+  { hook: 'vim-caret', what: 'Vim Mode plugin’s block cursor (has data-vim-mode, data-focused)' },
+  {
+    hook: 'vim-caret-layer',
+    what: 'The clipping layer over the composer field that holds the block cursor',
+  },
 ] as const satisfies readonly { hook: string; what: string }[];
 
 export type StyleHook = (typeof STYLE_HOOKS)[number]['hook'];

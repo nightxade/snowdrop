@@ -189,11 +189,15 @@ Normal mode.
   cursor, and it is one undo step (repeatable with `.`).
 - **Counts on app keys** (`5J`, `3]u`) run one after another, each waiting
   for the previous one to finish.
-- **Block cursor:** a textarea can't draw one, so Normal mode shows the
-  character under the cursor as a one-character, accent-coloured selection.
-  On an empty line the normal thin caret shows instead. Visual modes use the
-  native selection. Clicking moves the cursor; dragging a selection in
-  Normal mode enters Visual mode.
+- **Block cursor:** Normal and Visual modes always show an accent block one
+  character cell wide, with the character drawn in the on-accent colour. It
+  stays a block where there's no character under it (an empty composer, a
+  blank line, the end of a line in Visual mode): an empty cell is 1ch wide.
+  Visual modes keep the selection highlight and put the block on the moving
+  end. Insert mode gets the native thin caret back. While the composer is
+  unfocused the block turns hollow. It blinks (solid while moving) unless
+  reduced motion is on, then it stays solid. Clicking moves the cursor;
+  dragging a selection in Normal mode enters Visual mode.
 
 | Keys                            | Action                                                                                  |
 | ------------------------------- | --------------------------------------------------------------------------------------- |
