@@ -1,34 +1,34 @@
 .preview {
   display: flex;
   flex-direction: column;
-  gap: var(--shrike-space-1);
+  gap: var(--snowdrop-space-1);
   max-height: 160px;
   margin: 0;
-  padding: var(--shrike-space-4);
+  padding: var(--snowdrop-space-4);
   overflow: hidden;
-  border-radius: var(--shrike-radius-sm);
-  background: var(--shrike-bg-chat);
-  box-shadow: inset 0 0 0 1px var(--shrike-border);
+  border-radius: var(--snowdrop-radius-sm);
+  background: var(--snowdrop-bg-chat);
+  box-shadow: inset 0 0 0 1px var(--snowdrop-border);
 }
 
 .author {
-  color: var(--shrike-text-strong);
-  font-weight: var(--shrike-font-weight-semibold);
+  color: var(--snowdrop-text-strong);
+  font-weight: var(--snowdrop-font-weight-semibold);
 }
 
 .text {
   display: -webkit-box;
   overflow: hidden;
-  color: var(--shrike-text);
-  font-size: var(--shrike-font-size-message);
-  line-height: var(--shrike-line-height-message);
+  color: var(--snowdrop-text);
+  font-size: var(--snowdrop-font-size-message);
+  line-height: var(--snowdrop-line-height-message);
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 4;
   white-space: pre-wrap;
 }
 
 .tip {
-  margin-top: var(--shrike-space-4);
-  color: var(--shrike-text-faint);
-  font-size: var(--shrike-font-size-sm);
+  margin-top: var(--snowdrop-space-4);
+  color: var(--snowdrop-text-faint);
+  font-size: var(--snowdrop-font-size-sm);
 }

@@ -32,7 +32,7 @@ export function AccountPrompt({ onSubmit }: { onSubmit: (account: string) => voi
       </h2>
       <p className={styles.lede}>
         This signal-cli daemon was started for a single account (with <code>-a</code>) and can’t
-        tell Shrike which one. Enter the same phone number.
+        tell Snowdrop which one. Enter the same phone number.
       </p>
       <form
         className={styles.nameForm}

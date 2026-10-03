@@ -8,8 +8,8 @@ import { caretCell, sameCell, type CaretCell } from './caretCell';
 import { createMirror, type Mirror } from './mirror';
 
 /** Stable style hooks: the composer root (positioned) and its field. */
-const ROOT = '[data-shrike="composer"]';
-const FIELD = 'textarea[data-shrike="composer-input"]';
+const ROOT = '[data-snowdrop="composer"]';
+const FIELD = 'textarea[data-snowdrop="composer-input"]';
 
 /** Font properties the drawn character copies from the field, so it sits exactly on the glyph. */
 const FONT = [
@@ -84,13 +84,13 @@ function CaretLayer({ view }: { view: CaretView }) {
     lineHeight: `${cell.height}px`,
   };
   return (
-    <div className={styles.caretLayer} style={style} aria-hidden data-shrike="vim-caret-layer">
+    <div className={styles.caretLayer} style={style} aria-hidden data-snowdrop="vim-caret-layer">
       <span
         // A new element per position restarts the blink: the block stays solid while it moves.
         key={`${cell.start}:${cell.left}:${cell.top}`}
         className={styles.caret}
         style={block}
-        data-shrike="vim-caret"
+        data-snowdrop="vim-caret"
         data-vim-mode={view.mode}
         data-focused={view.focused ? 'true' : 'false'}
       >

@@ -58,13 +58,13 @@ export function keybindConflicts(
   return out;
 }
 
-/** Shortcuts browsers keep for themselves (close/new tab/window): they may never reach Shrike. */
+/** Shortcuts browsers keep for themselves (close/new tab/window): they may never reach Snowdrop. */
 const RESERVED = new Set(['w', 't', 'n']);
 
 export function browserReserved(keybind: string): string | null {
   const kb = parseKeybind(keybind);
   if (!kb || !(kb.mod || kb.ctrl || kb.meta) || kb.alt || !RESERVED.has(kb.key)) return null;
-  return 'Your browser probably keeps this shortcut for itself (tabs and windows), so it may never reach Shrike. Shrike installed as an app usually gets it.';
+  return 'Your browser probably keeps this shortcut for itself (tabs and windows), so it may never reach Snowdrop. Snowdrop installed as an app usually gets it.';
 }
 
 /** Other commands currently bound to `keybind` (after overrides). */

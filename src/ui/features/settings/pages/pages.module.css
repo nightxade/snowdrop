@@ -1,16 +1,16 @@
 .muted {
-  color: var(--shrike-text-muted);
-  font-size: var(--shrike-font-size-sm);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
 }
 
 .strong {
-  color: var(--shrike-text-strong);
-  font-weight: var(--shrike-font-weight-semibold);
+  color: var(--snowdrop-text-strong);
+  font-weight: var(--snowdrop-font-weight-semibold);
 }
 
 .code {
-  font-family: var(--shrike-font-mono);
-  font-size: var(--shrike-font-size-xs);
+  font-family: var(--snowdrop-font-mono);
+  font-size: var(--snowdrop-font-size-xs);
   overflow-wrap: anywhere;
 }
 
@@ -32,36 +32,36 @@
 .profile {
   display: flex;
   align-items: center;
-  gap: var(--shrike-space-6);
-  padding: var(--shrike-space-5);
-  border-radius: var(--shrike-radius-md);
-  background: var(--shrike-bg-sidebar);
+  gap: var(--snowdrop-space-6);
+  padding: var(--snowdrop-space-5);
+  border-radius: var(--snowdrop-radius-md);
+  background: var(--snowdrop-bg-sidebar);
 }
 
 .profileText {
   display: flex;
   flex-direction: column;
-  gap: var(--shrike-space-2);
+  gap: var(--snowdrop-space-2);
   min-width: 0;
 }
 
 .profileName {
-  color: var(--shrike-text-strong);
-  font-size: var(--shrike-font-size-title);
-  font-weight: var(--shrike-font-weight-bold);
+  color: var(--snowdrop-text-strong);
+  font-size: var(--snowdrop-font-size-title);
+  font-weight: var(--snowdrop-font-weight-bold);
 }
 
 .profileAbout {
-  color: var(--shrike-text);
+  color: var(--snowdrop-text);
 }
 
 .hint {
   display: flex;
   align-items: center;
-  gap: var(--shrike-space-3);
-  margin-top: var(--shrike-space-4);
-  color: var(--shrike-text-muted);
-  font-size: var(--shrike-font-size-sm);
+  gap: var(--snowdrop-space-3);
+  margin-top: var(--snowdrop-space-4);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
 }
 
 .hint svg {
@@ -72,17 +72,17 @@
 .facts {
   display: flex;
   flex-direction: column;
-  gap: var(--shrike-space-3);
+  gap: var(--snowdrop-space-3);
   max-width: 64ch;
-  padding-left: var(--shrike-space-5);
-  color: var(--shrike-text-muted);
-  font-size: var(--shrike-font-size-sm);
+  padding-left: var(--snowdrop-space-5);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
   line-height: 1.5;
   list-style: disc;
 }
 
 .facts li::marker {
-  color: var(--shrike-accent-text);
+  color: var(--snowdrop-accent-text);
 }
 
 /* Connection */
@@ -91,87 +91,88 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  color: var(--shrike-text-strong);
+  color: var(--snowdrop-text-strong);
 }
 
 .status::before {
   content: '';
   width: 8px;
   height: 8px;
-  border-radius: var(--shrike-radius-full);
-  background: var(--shrike-text-faint);
+  border-radius: var(--snowdrop-radius-full);
+  background: var(--snowdrop-text-faint);
 }
 
 .status[data-status='online']::before {
-  background: var(--shrike-success);
+  background: var(--snowdrop-success);
 }
 
 .status[data-status='connecting']::before {
-  background: var(--shrike-warning);
+  background: var(--snowdrop-warning);
 }
 
 .status[data-status='error']::before,
 .status[data-status='offline']::before {
-  background: var(--shrike-danger);
+  background: var(--snowdrop-danger);
 }
 
 .applyBar {
   position: sticky;
-  bottom: var(--shrike-space-5);
+  bottom: var(--snowdrop-space-5);
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: var(--shrike-space-4);
-  margin-top: var(--shrike-space-7);
-  padding: var(--shrike-space-4) var(--shrike-space-4) var(--shrike-space-4) var(--shrike-space-5);
-  border-radius: var(--shrike-radius-md);
-  background: var(--shrike-bg-floating);
-  box-shadow: var(--shrike-shadow-popout);
-  color: var(--shrike-text);
+  gap: var(--snowdrop-space-4);
+  margin-top: var(--snowdrop-space-7);
+  padding: var(--snowdrop-space-4) var(--snowdrop-space-4) var(--snowdrop-space-4)
+    var(--snowdrop-space-5);
+  border-radius: var(--snowdrop-radius-md);
+  background: var(--snowdrop-bg-floating);
+  box-shadow: var(--snowdrop-shadow-popout);
+  color: var(--snowdrop-text);
 }
 
 /* Data */
 .meter {
   height: 8px;
   overflow: hidden;
-  border-radius: var(--shrike-radius-full);
-  background: var(--shrike-bg-selected);
+  border-radius: var(--snowdrop-radius-full);
+  background: var(--snowdrop-bg-selected);
 }
 
 .meter > span {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: var(--shrike-accent);
+  background: var(--snowdrop-accent);
 }
 
 /* Appearance preview */
 .preview {
   display: flex;
   flex-direction: column;
-  gap: var(--shrike-space-4);
+  gap: var(--snowdrop-space-4);
   width: 100%;
-  padding: var(--shrike-space-5);
-  border-radius: var(--shrike-radius-md);
-  background: var(--shrike-bg-sidebar);
-  box-shadow: inset 0 0 0 1px var(--shrike-border);
+  padding: var(--snowdrop-space-5);
+  border-radius: var(--snowdrop-radius-md);
+  background: var(--snowdrop-bg-sidebar);
+  box-shadow: inset 0 0 0 1px var(--snowdrop-border);
 }
 
 .preview[data-density='compact'] {
-  gap: var(--shrike-space-2);
-  padding-block: var(--shrike-space-4);
+  gap: var(--snowdrop-space-2);
+  padding-block: var(--snowdrop-space-4);
 }
 
 .previewMsg {
   display: flex;
   align-items: flex-start;
-  gap: var(--shrike-space-4);
+  gap: var(--snowdrop-space-4);
 }
 
 .preview[data-density='compact'] .previewMsg {
   align-items: baseline;
-  gap: var(--shrike-space-3);
+  gap: var(--snowdrop-space-3);
 }
 
 .previewBody {
@@ -182,18 +183,18 @@
 }
 
 .previewName {
-  color: var(--shrike-text-strong);
-  font-weight: var(--shrike-font-weight-semibold);
+  color: var(--snowdrop-text-strong);
+  font-weight: var(--snowdrop-font-weight-semibold);
 }
 
 .previewTime {
-  color: var(--shrike-text-faint);
-  font-size: var(--shrike-font-size-xs);
+  color: var(--snowdrop-text-faint);
+  font-size: var(--snowdrop-font-size-xs);
   font-variant-numeric: tabular-nums;
 }
 
 .previewText {
-  color: var(--shrike-text);
-  font-size: var(--shrike-font-size-message);
-  line-height: var(--shrike-line-height-message);
+  color: var(--snowdrop-text);
+  font-size: var(--snowdrop-font-size-message);
+  line-height: var(--snowdrop-line-height-message);
 }

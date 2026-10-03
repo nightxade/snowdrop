@@ -1,7 +1,7 @@
 import { BellOff, Ellipsis, Hash, AtSign, X } from 'lucide-react';
 import { memo, useState } from 'react';
 import type { ConversationId } from '@/core/domain';
-import { startConversationDrag, useShrike } from '@/ui/hooks';
+import { startConversationDrag, useSnowdrop } from '@/ui/hooks';
 import {
   archive,
   ConversationAvatar,
@@ -30,7 +30,7 @@ export const ConversationRow = memo(function ConversationRow({
   tabStop,
   draggable = false,
 }: ConversationRowProps) {
-  const app = useShrike();
+  const app = useSnowdrop();
   const [dragging, setDragging] = useState(false);
   const { view, unread, muted, typing, preview } = useRowState(id, variant === 'home');
   const menu = useConversationMenu(id);
@@ -55,7 +55,7 @@ export const ConversationRow = memo(function ConversationRow({
       data-selected={selected ? '' : undefined}
       data-unread={hasUnread ? '' : undefined}
       data-muted={muted ? '' : undefined}
-      data-shrike="conversation-row"
+      data-snowdrop="conversation-row"
       data-row-id={id}
       data-dragging={dragging ? '' : undefined}
     >

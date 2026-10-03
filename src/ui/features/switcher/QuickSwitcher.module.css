@@ -6,12 +6,12 @@
   display: inline-flex;
   align-items: center;
   height: 24px;
-  padding: 0 var(--shrike-space-3);
-  border-radius: var(--shrike-radius-xs);
-  background: var(--shrike-accent-soft);
-  color: var(--shrike-text-strong);
-  font-size: var(--shrike-font-size-sm);
-  font-weight: var(--shrike-font-weight-semibold);
+  padding: 0 var(--snowdrop-space-3);
+  border-radius: var(--snowdrop-radius-xs);
+  background: var(--snowdrop-accent-soft);
+  color: var(--snowdrop-text-strong);
+  font-size: var(--snowdrop-font-size-sm);
+  font-weight: var(--snowdrop-font-weight-semibold);
   white-space: nowrap;
 }
 
@@ -20,19 +20,19 @@
   place-items: center;
   width: 24px;
   height: 24px;
-  border-radius: calc(var(--shrike-radius-tile) / 2);
+  border-radius: calc(var(--snowdrop-radius-tile) / 2);
   background: var(--tile-hue);
-  color: var(--shrike-text-on-avatar);
-  font-size: var(--shrike-font-size-xs);
-  font-weight: var(--shrike-font-weight-bold);
+  color: var(--snowdrop-text-on-avatar);
+  font-size: var(--snowdrop-font-size-xs);
+  font-weight: var(--snowdrop-font-weight-bold);
   line-height: 1;
 }
 
 .dot {
   width: 8px;
   height: 8px;
-  border-radius: var(--shrike-radius-full);
-  background: var(--shrike-text-strong);
+  border-radius: var(--snowdrop-radius-full);
+  background: var(--snowdrop-text-strong);
 }
 
 .hints {
@@ -40,15 +40,15 @@
   flex: 1;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--shrike-space-3) var(--shrike-space-5);
-  color: var(--shrike-text-muted);
-  font-size: var(--shrike-font-size-sm);
+  gap: var(--snowdrop-space-3) var(--snowdrop-space-5);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
 }
 
 .hints > span {
   display: inline-flex;
   align-items: center;
-  gap: var(--shrike-space-2);
+  gap: var(--snowdrop-space-2);
 }
 
 .prefixHints {
@@ -60,16 +60,16 @@
   align-items: center;
   gap: 6px;
   min-height: 32px;
-  padding: 0 var(--shrike-space-3) 0 4px;
-  border-radius: var(--shrike-radius-xs);
-  color: var(--shrike-text-muted);
-  font-size: var(--shrike-font-size-sm);
+  padding: 0 var(--snowdrop-space-3) 0 4px;
+  border-radius: var(--snowdrop-radius-xs);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
 }
 
 .prefix:hover,
 .prefix[data-active] {
-  background: var(--shrike-bg-hover);
-  color: var(--shrike-text-strong);
+  background: var(--snowdrop-bg-hover);
+  color: var(--snowdrop-text-strong);
 }
 
 .prefix kbd {
@@ -77,11 +77,11 @@
   place-items: center;
   min-width: 18px;
   height: 18px;
-  border-radius: var(--shrike-radius-xs);
-  background: var(--shrike-bg-selected);
-  color: var(--shrike-text-strong);
-  font-size: var(--shrike-font-size-xs);
-  font-weight: var(--shrike-font-weight-bold);
+  border-radius: var(--snowdrop-radius-xs);
+  background: var(--snowdrop-bg-selected);
+  color: var(--snowdrop-text-strong);
+  font-size: var(--snowdrop-font-size-xs);
+  font-weight: var(--snowdrop-font-weight-bold);
 }
 
 @media (width < 640px) {
@@ -99,6 +99,6 @@
 @media (pointer: coarse) {
   .prefix {
     min-height: 40px;
-    padding-inline: var(--shrike-space-3);
+    padding-inline: var(--snowdrop-space-3);
   }
 }

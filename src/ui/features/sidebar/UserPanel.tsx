@@ -3,7 +3,7 @@ import { useStore } from 'zustand';
 import { CoreCommand } from '@/core/commands';
 import { initialsFor, type ConnectionStatus } from '@/core/domain';
 import { sessionSelectors } from '@/core/stores';
-import { useShrike, useKeybindLabel } from '@/ui/hooks';
+import { useSnowdrop, useKeybindLabel } from '@/ui/hooks';
 import { Avatar, IconButton } from '@/ui/primitives';
 import styles from './UserPanel.module.css';
 
@@ -15,7 +15,7 @@ const STATUS_TEXT: Record<ConnectionStatus, string> = {
 };
 
 export function UserPanel() {
-  const { stores, commands } = useShrike();
+  const { stores, commands } = useSnowdrop();
   const self = useStore(stores.session, sessionSelectors.self);
   const status = useStore(stores.session, sessionSelectors.status);
   const backend = useStore(stores.session, (s) => s.backendKind);
@@ -31,11 +31,11 @@ export function UserPanel() {
       : STATUS_TEXT[status];
 
   return (
-    <section className={styles.panel} aria-label="Your account" data-shrike="user-panel">
+    <section className={styles.panel} aria-label="Your account" data-snowdrop="user-panel">
       <div className={styles.identity}>
         <Avatar
           fallback={initialsFor(name)}
-          color={self?.color ?? 'var(--shrike-avatar-1)'}
+          color={self?.color ?? 'var(--snowdrop-avatar-1)'}
           src={self?.avatarUrl}
           size={32}
         />

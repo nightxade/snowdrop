@@ -1,25 +1,25 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { VirtuosoMockContext } from 'react-virtuoso';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { Shrike } from '@/app/createShrike';
+import type { Snowdrop } from '@/app/createSnowdrop';
 import { mergeDuplicate, messageId, type Message } from '@/core/domain';
 import { messagesSelectors } from '@/core/stores';
-import { bootShrike, renderWithShrike, settle } from '@/test/renderWithShrike';
+import { bootSnowdrop, renderWithSnowdrop, settle } from '@/test/renderWithSnowdrop';
 import { ChatController, ChatControllerProvider } from '../ChatController';
 import { MessagePane } from '../MessagePane';
 import * as act_ from '../message/actions';
 import { Reactions, reactorsLabel } from '../message/Reactions';
 import { TooltipProvider } from '@/ui/primitives';
 
-const shrikes: Shrike[] = [];
+const snowdrops: Snowdrop[] = [];
 afterEach(async () => {
   cleanup();
-  for (const h of shrikes.splice(0)) await h.dispose();
+  for (const h of snowdrops.splice(0)) await h.dispose();
 });
 
 /** Backfills `count` old messages so the newest page doesn't contain the oldest ones. */
-async function withHistory(shrike: Shrike, count: number) {
-  const conv = Object.values(shrike.stores.conversations.getState().byId).find(
+async function withHistory(snowdrop: Snowdrop, count: number) {
+  const conv = Object.values(snowdrop.stores.conversations.getState().byId).find(
     (c) => c.title === 'Orchard · Engineering',
   )!;
   const author = conv.memberIds[0]!;
@@ -36,38 +36,38 @@ async function withHistory(shrike: Shrike, count: number) {
     status: 'read',
     kind: 'normal',
   }));
-  await shrike.repository.upsertMany(messages, { backfill: true, merge: mergeDuplicate });
+  await snowdrop.repository.upsertMany(messages, { backfill: true, merge: mergeDuplicate });
   return { conv, oldest: messages[0]! };
 }
 
 describe('jump to message', () => {
   it('loads history around an old message and detaches from the present', async () => {
-    const shrike = await bootShrike();
-    shrikes.push(shrike);
-    const { conv, oldest } = await withHistory(shrike, 300);
+    const snowdrop = await bootSnowdrop();
+    snowdrops.push(snowdrop);
+    const { conv, oldest } = await withHistory(snowdrop, 300);
     await act(async () => {
-      shrike.stores.ui.getState().selectConversation(conv.id);
-      await shrike.history.open(conv.id);
+      snowdrop.stores.ui.getState().selectConversation(conv.id);
+      await snowdrop.history.open(conv.id);
     });
     const chat = new ChatController();
-    renderWithShrike(
-      shrike,
+    renderWithSnowdrop(
+      snowdrop,
       <VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 48 }}>
         <ChatControllerProvider value={chat}>
           <MessagePane conversationId={conv.id} />
         </ChatControllerProvider>
       </VirtuosoMockContext.Provider>,
     );
-    await settle(shrike);
+    await settle(snowdrop);
     const inWindow = () =>
-      oldest.id in messagesSelectors.window(conv.id)(shrike.stores.messages.getState()).byId;
+      oldest.id in messagesSelectors.window(conv.id)(snowdrop.stores.messages.getState()).byId;
     expect(inWindow()).toBe(false);
 
-    const jumpTo = vi.spyOn(shrike.history, 'jumpTo');
+    const jumpTo = vi.spyOn(snowdrop.history, 'jumpTo');
     await act(async () => {
       await chat.reveal(conv.id, oldest.id);
     });
-    await settle(shrike);
+    await settle(snowdrop);
     await act(async () => {
       await new Promise((r) => requestAnimationFrame(r));
     });
@@ -76,29 +76,29 @@ describe('jump to message', () => {
     // (happy-dom has no layout, so Virtuoso renders no rows at an initial index;
     // the scroll + flash itself is covered by the Playwright pass.)
     // Detached from the present: the jump pill offers the way back.
-    expect(document.querySelector('[data-shrike="jump-to-present"]')).not.toBeNull();
+    expect(document.querySelector('[data-snowdrop="jump-to-present"]')).not.toBeNull();
   });
 
   it('says so when the quoted message is not stored locally', async () => {
-    const shrike = await bootShrike();
-    shrikes.push(shrike);
-    const { conv } = await withHistory(shrike, 1);
+    const snowdrop = await bootSnowdrop();
+    snowdrops.push(snowdrop);
+    const { conv } = await withHistory(snowdrop, 1);
     const chat = new ChatController();
-    renderWithShrike(
-      shrike,
+    renderWithSnowdrop(
+      snowdrop,
       <VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 48 }}>
         <ChatControllerProvider value={chat}>
           <MessagePane conversationId={conv.id} />
         </ChatControllerProvider>
       </VirtuosoMockContext.Provider>,
     );
-    await settle(shrike);
+    await settle(snowdrop);
     let ok = true;
     await act(async () => {
       ok = await chat.reveal(conv.id, messageId('nobody', 42));
     });
     expect(ok).toBe(false);
-    expect(shrike.stores.ui.getState().toasts.at(-1)?.message).toMatch(/isn't available/u);
+    expect(snowdrop.stores.ui.getState().toasts.at(-1)?.message).toMatch(/isn't available/u);
   });
 });
 
@@ -139,29 +139,29 @@ describe('reactions', () => {
   });
 
   it('adds and removes our reaction optimistically, tracking usage', async () => {
-    const shrike = await bootShrike();
-    shrikes.push(shrike);
-    const conv = Object.values(shrike.stores.conversations.getState().byId)[0]!;
+    const snowdrop = await bootSnowdrop();
+    snowdrops.push(snowdrop);
+    const conv = Object.values(snowdrop.stores.conversations.getState().byId)[0]!;
     await act(async () => {
-      await shrike.history.open(conv.id);
+      await snowdrop.history.open(conv.id);
     });
-    const app = shrike;
+    const app = snowdrop;
     const target = messagesSelectors
-      .list(conv.id)(shrike.stores.messages.getState())
+      .list(conv.id)(snowdrop.stores.messages.getState())
       .findLast((m) => m.kind === 'normal' && !m.deleted)!;
-    const selfId = shrike.stores.session.getState().self!.id;
+    const selfId = snowdrop.stores.session.getState().self!.id;
     const current = () =>
-      messagesSelectors.message(conv.id, target.id)(shrike.stores.messages.getState())!;
+      messagesSelectors.message(conv.id, target.id)(snowdrop.stores.messages.getState())!;
     act(() => {
       act_.toggleReaction(app, current(), '🦊');
     });
     expect(current().reactions.some((r) => r.authorId === selfId && r.emoji === '🦊')).toBe(true);
-    expect(shrike.stores.local.getState().reactionUsage['🦊']).toBe(1);
-    await settle(shrike);
+    expect(snowdrop.stores.local.getState().reactionUsage['🦊']).toBe(1);
+    await settle(snowdrop);
     act(() => {
       act_.toggleReaction(app, current(), '🦊');
     });
-    await settle(shrike);
+    await settle(snowdrop);
     expect(current().reactions.some((r) => r.authorId === selfId && r.emoji === '🦊')).toBe(false);
   });
 });

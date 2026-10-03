@@ -8,7 +8,7 @@ import {
   DuplicateBackendError,
   type BackendRegistration,
 } from './backends';
-import { createShrike } from './createShrike';
+import { createSnowdrop } from './createSnowdrop';
 
 const fake = (kind: string): BackendRegistration => ({
   kind,
@@ -52,7 +52,7 @@ describe('backend registry', () => {
     expect(loadVersioned(storageWith('<script>'), settingsSchema).connection.backend).toBeNull();
   });
 
-  it('runs createShrike on a newly registered adapter with no other changes', async () => {
+  it('runs createSnowdrop on a newly registered adapter with no other changes', async () => {
     const { MockBackend } = await import('@/core/backend/mock');
     let created: ChatBackend | null = null;
     const registry = new BackendRegistry([
@@ -71,12 +71,12 @@ describe('backend registry', () => {
         capabilities: new Set(['fetchHistory', 'adminDelete', 'pinMessage', 'updateConversation']),
       },
     ]);
-    const shrike = createShrike({ storage: storageWith('matrix-bridge'), backends: registry });
-    expect(shrike.backend.kind).toBe('matrix-bridge');
-    await shrike.start();
+    const snowdrop = createSnowdrop({ storage: storageWith('matrix-bridge'), backends: registry });
+    expect(snowdrop.backend.kind).toBe('matrix-bridge');
+    await snowdrop.start();
     expect(created).not.toBeNull();
-    expect(shrike.stores.session.getState().backendKind).toBe('matrix-bridge');
-    expect(shrike.stores.session.getState().ready).toBe(true);
-    await shrike.dispose();
+    expect(snowdrop.stores.session.getState().backendKind).toBe('matrix-bridge');
+    expect(snowdrop.stores.session.getState().ready).toBe(true);
+    await snowdrop.dispose();
   });
 });

@@ -3,8 +3,8 @@
   /* Same layer as the panel: DOM order then stacks a nested sheet (and its scrim) above its parent drawer. */
   z-index: 31;
   inset: 0;
-  background: var(--shrike-bg-overlay);
-  animation: fade var(--shrike-duration-slow) var(--shrike-ease);
+  background: var(--snowdrop-bg-overlay);
+  animation: fade var(--snowdrop-duration-slow) var(--snowdrop-ease);
 }
 
 .content {
@@ -15,8 +15,8 @@
   left: 0;
   display: flex;
   max-width: calc(100vw - 48px);
-  box-shadow: var(--shrike-shadow-modal);
-  animation: slide var(--shrike-duration-slow) var(--shrike-ease);
+  box-shadow: var(--snowdrop-shadow-modal);
+  animation: slide var(--snowdrop-duration-slow) var(--snowdrop-ease);
   touch-action: pan-y;
 }
 
@@ -25,11 +25,11 @@
 }
 
 .content[data-state='closed'] {
-  animation: slide-out var(--shrike-duration-base) var(--shrike-ease) forwards;
+  animation: slide-out var(--snowdrop-duration-base) var(--snowdrop-ease) forwards;
 }
 
 .overlay[data-state='closed'] {
-  animation: fade var(--shrike-duration-base) var(--shrike-ease) reverse forwards;
+  animation: fade var(--snowdrop-duration-base) var(--snowdrop-ease) reverse forwards;
 }
 
 .content[data-side='right'] {
@@ -48,7 +48,7 @@
   left: 0;
   max-width: none;
   max-height: 85vh;
-  border-radius: var(--shrike-radius-lg) var(--shrike-radius-lg) 0 0;
+  border-radius: var(--snowdrop-radius-lg) var(--snowdrop-radius-lg) 0 0;
   animation-name: slide-up;
   touch-action: pan-x;
 }

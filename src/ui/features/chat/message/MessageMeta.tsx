@@ -9,7 +9,7 @@ import {
   DAY,
   type Message,
 } from '@/core/domain';
-import { useShrike } from '@/ui/hooks';
+import { useSnowdrop } from '@/ui/hooks';
 import { Tooltip } from '@/ui/primitives';
 import { useMinuteClock } from '../lib/useMinuteClock';
 import styles from './MessageMeta.module.css';
@@ -35,7 +35,7 @@ export function MessageMeta({
   /** Suppress the full-date tooltip (the row's context menu is open). */
   quiet?: boolean;
 }) {
-  const { stores } = useShrike();
+  const { stores } = useSnowdrop();
   const clock24h = useStore(stores.settings, (s) => s.appearance.clock24h);
   const now = useMinuteClock();
   const opts = { clock24h };

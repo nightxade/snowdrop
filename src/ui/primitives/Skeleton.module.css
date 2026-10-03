@@ -1,20 +1,20 @@
 .skeleton {
   display: block;
   flex: none;
-  border-radius: var(--shrike-radius-xs);
+  border-radius: var(--snowdrop-radius-xs);
   background:
-    linear-gradient(90deg, transparent 0%, var(--shrike-bg-hover) 50%, transparent 100%) 0 0 / 200%
-      100% no-repeat,
-    var(--shrike-bg-active);
+    linear-gradient(90deg, transparent 0%, var(--snowdrop-bg-hover) 50%, transparent 100%) 0 0 /
+      200% 100% no-repeat,
+    var(--snowdrop-bg-active);
   animation: shimmer 1.4s linear infinite;
 }
 
 .skeleton[data-radius='sm'] {
-  border-radius: var(--shrike-radius-sm);
+  border-radius: var(--snowdrop-radius-sm);
 }
 
 .skeleton[data-radius='full'] {
-  border-radius: var(--shrike-radius-full);
+  border-radius: var(--snowdrop-radius-full);
 }
 
 @keyframes shimmer {

@@ -4,7 +4,7 @@ import type { Message, Quote } from '@/core/domain';
 import type { ConversationView } from '@/core/domain';
 import { parseSlash } from '@/core/plugins';
 import { contactsSelectors, localSelectors } from '@/core/stores';
-import { useShrike } from '@/ui/hooks';
+import { useSnowdrop } from '@/ui/hooks';
 import { useChatController } from '../ChatController';
 import type { PendingAttachment } from './AttachmentTray';
 import { addToken, encodeMentions, tokensInText, type MentionToken } from './mentionTokens';
@@ -42,7 +42,7 @@ export interface ComposerState {
  * sending (jumping back to the present first when the list is detached).
  */
 export function useComposer(conversation: ConversationView): ComposerState {
-  const app = useShrike();
+  const app = useSnowdrop();
   const { stores, send, history, registries } = app;
   const chat = useChatController();
   const conversationId = conversation.id;

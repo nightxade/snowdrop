@@ -2,13 +2,13 @@
   z-index: 50;
   max-width: calc(100vw - 24px);
   max-height: var(--radix-popover-content-available-height);
-  padding: var(--shrike-space-5);
+  padding: var(--snowdrop-space-5);
   overflow: auto;
-  border-radius: var(--shrike-radius-md);
-  background: var(--shrike-bg-floating);
-  box-shadow: var(--shrike-shadow-popout);
+  border-radius: var(--snowdrop-radius-md);
+  background: var(--snowdrop-bg-floating);
+  box-shadow: var(--snowdrop-shadow-popout);
   transform-origin: var(--radix-popover-content-transform-origin);
-  animation: pop-in var(--shrike-duration-base) var(--shrike-ease);
+  animation: pop-in var(--snowdrop-duration-base) var(--snowdrop-ease);
 }
 
 .content[data-flush] {

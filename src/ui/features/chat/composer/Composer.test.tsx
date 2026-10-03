@@ -1,31 +1,31 @@
 import { act, cleanup, fireEvent, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { Shrike } from '@/app/createShrike';
+import type { Snowdrop } from '@/app/createSnowdrop';
 import { MENTION_PLACEHOLDER, type ConversationId } from '@/core/domain';
 import { messagesSelectors } from '@/core/stores';
-import { bootShrike, renderWithShrike, settle } from '@/test/renderWithShrike';
+import { bootSnowdrop, renderWithSnowdrop, settle } from '@/test/renderWithSnowdrop';
 import { ChatController, ChatControllerProvider } from '../ChatController';
 import { Composer } from './Composer';
 
-const shrikes: Shrike[] = [];
+const snowdrops: Snowdrop[] = [];
 afterEach(async () => {
   cleanup();
-  for (const h of shrikes.splice(0)) await h.dispose();
+  for (const h of snowdrops.splice(0)) await h.dispose();
 });
 
 async function setup() {
-  const shrike = await bootShrike();
-  shrikes.push(shrike);
-  const conv = Object.values(shrike.stores.conversations.getState().byId).find(
+  const snowdrop = await bootSnowdrop();
+  snowdrops.push(snowdrop);
+  const conv = Object.values(snowdrop.stores.conversations.getState().byId).find(
     (c) => c.title === 'Orchard · Engineering',
   )!;
   await act(async () => {
-    shrike.stores.ui.getState().selectConversation(conv.id);
-    await shrike.history.open(conv.id);
+    snowdrop.stores.ui.getState().selectConversation(conv.id);
+    await snowdrop.history.open(conv.id);
   });
   const chat = new ChatController();
-  renderWithShrike(
-    shrike,
+  renderWithSnowdrop(
+    snowdrop,
     <ChatControllerProvider value={chat}>
       <Composer conversationId={conv.id} />
     </ChatControllerProvider>,
@@ -36,13 +36,13 @@ async function setup() {
     input.setSelectionRange(value.length, value.length);
     fireEvent.select(input);
   };
-  return { shrike, conv, input, typeText, chat };
+  return { snowdrop, conv, input, typeText, chat };
 }
 
-function lastOwn(shrike: Shrike, id: ConversationId) {
-  const selfId = shrike.stores.session.getState().self!.id;
+function lastOwn(snowdrop: Snowdrop, id: ConversationId) {
+  const selfId = snowdrop.stores.session.getState().self!.id;
   return messagesSelectors
-    .list(id)(shrike.stores.messages.getState())
+    .list(id)(snowdrop.stores.messages.getState())
     .findLast((m) => m.authorId === selfId);
 }
 
@@ -53,22 +53,22 @@ describe('<Composer />', () => {
   });
 
   it('sends on Enter and inserts a newline on Shift+Enter', async () => {
-    const { shrike, input, typeText } = await setup();
-    const send = vi.spyOn(shrike.send, 'send');
+    const { snowdrop, input, typeText } = await setup();
+    const send = vi.spyOn(snowdrop.send, 'send');
     typeText('first line');
     const shiftEnter = fireEvent.keyDown(input, { key: 'Enter', shiftKey: true });
     expect(shiftEnter).toBe(true); // not prevented: the browser inserts the newline
     expect(send).not.toHaveBeenCalled();
     fireEvent.keyDown(input, { key: 'Enter' });
-    await settle(shrike);
+    await settle(snowdrop);
     expect(send).toHaveBeenCalledTimes(1);
     expect(send.mock.calls[0]?.[0].text).toBe('first line');
     expect(input.value).toBe('');
   });
 
   it('ignores Enter while an IME is composing (isComposing or keyCode 229)', async () => {
-    const { shrike, input, typeText } = await setup();
-    const send = vi.spyOn(shrike.send, 'send');
+    const { snowdrop, input, typeText } = await setup();
+    const send = vi.spyOn(snowdrop.send, 'send');
     typeText('にほん');
     fireEvent.keyDown(input, { key: 'Enter', keyCode: 229 });
     fireEvent.keyDown(input, { key: 'Enter', isComposing: true });
@@ -77,21 +77,21 @@ describe('<Composer />', () => {
   });
 
   it('swaps Enter and Shift+Enter with the setting', async () => {
-    const { shrike, input, typeText } = await setup();
+    const { snowdrop, input, typeText } = await setup();
     act(() => {
-      shrike.stores.settings.getState().update('behaviour', { enterToSend: false });
+      snowdrop.stores.settings.getState().update('behaviour', { enterToSend: false });
     });
-    const send = vi.spyOn(shrike.send, 'send');
+    const send = vi.spyOn(snowdrop.send, 'send');
     typeText('hello');
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(send).not.toHaveBeenCalled();
     fireEvent.keyDown(input, { key: 'Enter', shiftKey: true });
-    await settle(shrike);
+    await settle(snowdrop);
     expect(send).toHaveBeenCalledTimes(1);
   });
 
   it('accepts a member mention with Tab and sends it as a mention range', async () => {
-    const { shrike, conv, input, typeText } = await setup();
+    const { snowdrop, conv, input, typeText } = await setup();
     typeText('hey @');
     // The suggestion popover is a lazy chunk: the first one waits for it.
     const list = await screen.findByRole('listbox');
@@ -106,14 +106,14 @@ describe('<Composer />', () => {
     expect(input.value).toMatch(/^hey @\S.* $/u);
     expect(picked, input.value).toContain(input.value.slice(5, -1));
 
-    const send = vi.spyOn(shrike.send, 'send');
+    const send = vi.spyOn(snowdrop.send, 'send');
     typeText(`${input.value}see this`);
     fireEvent.keyDown(input, { key: 'Enter' });
-    await settle(shrike);
+    await settle(snowdrop);
     const draft = send.mock.calls[0]?.[0];
     expect(draft?.text).toContain(MENTION_PLACEHOLDER);
     expect(draft?.mentionIds).toHaveLength(1);
-    const sent = lastOwn(shrike, conv.id);
+    const sent = lastOwn(snowdrop, conv.id);
     expect(sent?.ranges.some((r) => r.mentionId === draft?.mentionIds[0])).toBe(true);
   });
 
@@ -140,23 +140,23 @@ describe('<Composer />', () => {
   });
 
   it('edits the last own message with Up in an empty composer', async () => {
-    const { shrike, conv, input, typeText } = await setup();
+    const { snowdrop, conv, input, typeText } = await setup();
     typeText('to be edited');
     fireEvent.keyDown(input, { key: 'Enter' });
-    await settle(shrike);
-    const own = lastOwn(shrike, conv.id)!;
+    await settle(snowdrop);
+    const own = lastOwn(snowdrop, conv.id)!;
     fireEvent.keyDown(input, { key: 'ArrowUp' });
-    expect(shrike.stores.ui.getState().editing).toMatchObject({
+    expect(snowdrop.stores.ui.getState().editing).toMatchObject({
       conversationId: conv.id,
       messageId: own.id,
     });
   });
 
   it('does not start editing when there is text', async () => {
-    const { shrike, input, typeText } = await setup();
+    const { snowdrop, input, typeText } = await setup();
     typeText('draft');
     fireEvent.keyDown(input, { key: 'ArrowUp' });
-    expect(shrike.stores.ui.getState().editing).toBeNull();
+    expect(snowdrop.stores.ui.getState().editing).toBeNull();
   });
 
   it('wraps the selection with Ctrl+B', async () => {
@@ -168,8 +168,10 @@ describe('<Composer />', () => {
   });
 
   it('persists the draft per conversation', async () => {
-    const { shrike, conv, typeText } = await setup();
+    const { snowdrop, conv, typeText } = await setup();
     typeText('unfinished thought');
-    expect(shrike.stores.local.getState().conversations[conv.id]?.draft).toBe('unfinished thought');
+    expect(snowdrop.stores.local.getState().conversations[conv.id]?.draft).toBe(
+      'unfinished thought',
+    );
   });
 });

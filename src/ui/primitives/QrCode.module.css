@@ -1,13 +1,13 @@
 .qr {
   display: block;
-  border-radius: var(--shrike-radius-md);
+  border-radius: var(--snowdrop-radius-md);
 }
 
 /* Fixed paper/ink: a QR must stay dark-on-light in every theme. */
 .paper {
-  fill: var(--shrike-qr-paper);
+  fill: var(--snowdrop-qr-paper);
 }
 
 .ink {
-  fill: var(--shrike-qr-ink);
+  fill: var(--snowdrop-qr-ink);
 }

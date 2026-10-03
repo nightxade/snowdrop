@@ -1,4 +1,4 @@
-# Shrike — Build Plan
+# Snowdrop — Build Plan
 
 > A community-style desktop-class chat UI for the Signal network, driven by a
 > local `signal-cli` daemon. Server-rail / channel-list / chat / member-list
@@ -34,15 +34,18 @@ where it is more detailed than §3–§5, §8 is right. Developer-facing guides:
 
 ## 1. Legal / ethical guardrails
 
-- Original name ("Shrike", after the small, sharp, quick songbird), original
-  logo (a geometric shrike head drawn by us: straight cuts, hooked beak, the
-  bird's black eye mask; no speech bubble, nothing like the Signal, Discord or
-  Twitter/X marks), original palette (default accent: rufous `#d4744a`, the
-  red-backed shrike's chestnut, *not* Discord blurple or Signal blue),
-  original iconography (lucide-react, ISC).
-- Name collisions are checked before adopting a name or logo: "Shrike" was
-  checked against existing chat products. An earlier name collided with one
-  and was dropped (see §8).
+- Original name ("Snowdrop", after the small white flower that comes up
+  through the snow: quiet, fresh, early), original logo (a single nodding
+  snowdrop drawn by us from simple geometric curves: three outer tepals, the
+  side ones flared, hanging from a short arched stem with a small green ovary
+  cap; no speech bubble, no notification-bell cliché, nothing like the Signal,
+  Discord, WhatsApp or Twitter/X marks), original palette (default accent:
+  snowdrop green `#5fbf9f`, a cool sage-teal after the green marks on the
+  flower's inner tepals; *not* Discord blurple, Signal blue or WhatsApp
+  green), original iconography (lucide-react, ISC).
+- Name collisions are checked before adopting a name or logo: "Snowdrop" was
+  checked against existing chat and messaging products (none found). Earlier
+  names were dropped (see §8).
 - No Discord or Signal assets, fonts (gg sans / Signal's Inter build), sounds,
   logos, copy, or trademarks in UI chrome. Text may say "works with Signal
   via signal-cli" descriptively, never implying endorsement.
@@ -53,7 +56,7 @@ where it is more detailed than §3–§5, §8 is right. Developer-facing guides:
 - Every dependency must be MIT / ISC / Apache-2.0 / BSD / OFL. Reviewer
   checks `package.json` additions.
 - `scratch/` (outside the repo) holds reference clones; never copy code from
-  them into `shrike/`.
+  them into `snowdrop/`.
 
 ## 2. Tech stack
 
@@ -87,9 +90,9 @@ Package manager: **npm**. Node ≥ 20.
 ## 3. Architecture
 
 ```
-shrike/src/
+snowdrop/src/
   main.tsx             # entry: safe mode, dev tools, mounts <App>
-  app/                 # composition root: createShrike, deferredBackend/Repository, providers, App
+  app/                 # composition root: createSnowdrop, deferredBackend/Repository, providers, App
   core/                # NO React imports allowed here
     domain/            # pure types + pure helpers (ids, time grouping, body ranges)
     lib/               # leaf utilities: typed Emitter, Clock/Scheduler, disposables, observable lists
@@ -144,7 +147,7 @@ type ConversationId = string & { __brand: 'ConversationId' } // `dm:<aci|number>
 type MessageId = string & { __brand: 'MessageId' }           // `${authorId}:${sentAt}` (Signal identity); `pending:<nonce>` before ack
 
 interface Contact { id: string /* ACI, else number */; number?: string; name: string; profileName?: string;
-  about?: string; aboutEmoji?: string; color: string /* var(--shrike-avatar-N): a theme slot */;
+  about?: string; aboutEmoji?: string; color: string /* var(--snowdrop-avatar-N): a theme slot */;
   avatarUrl?: string; isSelf?: boolean; blocked?: boolean }
 
 // Protocol state only. Local organisation lives in localStore (never sent to Signal).
@@ -286,7 +289,7 @@ reasonable (dogfooding keeps them honest).
 ```ts
 definePlugin({
   id: 'clear-urls', name: 'Clear URLs', description: 'Strips tracking params from links you send.',
-  authors: ['shrike'], tags: ['privacy'],
+  authors: ['snowdrop'], tags: ['privacy'],
   settings: defineSettings({ extraParams: { type: 'string', label: 'Extra params', default: '' } }),
   start(ctx) {  // ctx: PluginContext — scoped, auto-disposed on stop
     ctx.send.addTransform((draft) => ({ ...draft, text: strip(draft.text, ctx.settings.get('extraParams')) }))
@@ -347,14 +350,14 @@ remain a plugin API.
 ### 3.5 Theming (`core/themes`, `ui/styles`)
 
 - All colour/space/radius/shadow/motion values are CSS custom properties
-  (`--shrike-*`) defined in `tokens.css` for the base (dark) theme.
+  (`--snowdrop-*`) defined in `tokens.css` for the base (dark) theme.
 - A theme = `{ id, name, description, kind: 'dark' | 'light', tokens:
   Partial<Record<TokenName,string>>, css?, preview }` applied to `:root` via
-  `<style id="shrike-theme">`, followed by `#shrike-plugins` (plugin CSS) and
-  `#shrike-custom-css`. Token reference and theme file format: `docs/THEMING.md`.
+  `<style id="snowdrop-theme">`, followed by `#snowdrop-plugins` (plugin CSS) and
+  `#snowdrop-custom-css`. Token reference and theme file format: `docs/THEMING.md`.
 - Built-in: **Dusk (dark, default)**, **Midnight (OLED black)**, **Linen (light)**,
   **High Contrast**.
-- Appearance settings: theme, accent colour (overrides `--shrike-accent*`,
+- Appearance settings: theme, accent colour (overrides `--snowdrop-accent*`,
   derived shades via OKLCH computations), message density (comfortable/compact),
   font scale (87.5–125%), UI zoom, show avatars in compact mode, 12/24h time.
   Accessibility: reduced motion, saturation, stronger focus outline, larger
@@ -371,7 +374,7 @@ remain a plugin API.
   Shift held while loading) skips imported themes and Custom CSS.
 - `accent-text` is derived from the accent (OKLCH lightness shifted to ≥ 4.5:1
   on `bg-chat`) and used wherever the accent is a text colour.
-- Stable styling hooks: every major region carries a `data-shrike="region-name"`
+- Stable styling hooks: every major region carries a `data-snowdrop="region-name"`
   attribute so user CSS/themes don't depend on hashed CSS-module class names.
 
 ## 4. UX specification (TOP PRIORITY)
@@ -395,17 +398,17 @@ Responsive: < 1100px hides member list (toggle overlays it as a sheet);
 swipe/Escape to close). Min supported width 360px.
 
 ### 4.2 Spaces rail
-- **Home** at top (Shrike glyph): all DMs + unassigned groups. Unread
-  indicator = a 6px light pip (`--shrike-text-strong`) at the rail's left
+- **Home** at top (Snowdrop glyph): all DMs + unassigned groups. Unread
+  indicator = a 6px light pip (`--snowdrop-text-strong`) at the rail's left
   edge, level with the tile's centre and clear of the selection ring; mention
-  count = red badge (`--shrike-danger-strong`) bottom-right.
+  count = red badge (`--snowdrop-danger-strong`) bottom-right.
   No left-edge pill: that is another product's trade dress.
 - Separator, then **Spaces**: local, user-defined collections of Signal
   groups (and optionally DMs), shown as rounded-square tiles with emoji or
   initials, tinted with the space colour and filled with it on hover.
-  Constant 14px radius (`--shrike-radius-tile`, no shape morph). Tooltip with
+  Constant 14px radius (`--snowdrop-radius-tile`, no shape morph). Tooltip with
   name on hover (right side).
-- Selected space: 2px `--shrike-accent` ring at a 3px offset from the tile.
+- Selected space: 2px `--snowdrop-accent` ring at a 3px offset from the tile.
   Accent is reserved for selection; keyboard focus is a dashed outline further
   out so the two never read alike.
 - Drag to reorder; dropping a space on the middle of another tile creates (or
@@ -427,7 +430,7 @@ swipe/Escape to close). Min supported width 360px.
   title, one-line preview (DMs only when hovered? → no: show a muted last-message
   preview for DMs and groups in Home; hidden in Spaces for a cleaner channel feel),
   unread = bold title + strong text and a flat-sided 4×12 tab
-  (`border-radius: 0 2px 2px 0`, `--shrike-text-strong`) on the sidebar edge,
+  (`border-radius: 0 2px 2px 0`, `--snowdrop-text-strong`) on the sidebar edge,
   mention badge, muted = 50% opacity, typing = animated dots replacing preview.
   Section labels are sentence case ("Direct Messages", "Archived · 3").
 - In a Space: collapsible **categories** (user-created; default "Chats") with
@@ -540,7 +543,7 @@ settings entries (plugins and command shortcuts included).
 ### 4.10 Onboarding / connection
 First run: welcome screen with two choices: **Try the demo** (mock backend,
 seeded world) or **Connect to signal-cli** (daemon URL, default `/signal-cli`:
-the same-origin dev/preview proxy to `SHRIKE_SIGNAL_CLI_URL`, default
+the same-origin dev/preview proxy to `SNOWDROP_SIGNAL_CLI_URL`, default
 `http://127.0.0.1:8080`; the form probes the daemon first). A single-account
 daemon asks for the account number once. If the daemon has no account: **Link
 this device** flow — QR code from `startLink`, explains "Signal app → Settings
@@ -577,19 +580,22 @@ The complete keyboard reference (lists, composer, dialogs, Vim mode) is
 - Hit targets ≥ 32px in rail/sidebar.
 
 ### 4.13 Visual language
-- Logo: `ShrikeMark` / `public/shrike.svg`, a shrike's head in profile built
-  from straight cuts, with a short hooked beak and a bold mask stripe through
-  the eye. In the app it is one colour (currentColor, mask knocked out); the
-  favicon puts a pale head and black mask on a rufous tile. Reads at 16px.
-- Default theme **Dusk**: graphite neutrals (cool grey, like the bird's
-  plumage): rail `#101114`, sidebar `#15171b`, chat `#1b1d22`, elevated
-  `#22252b`, floating `#0c0d10`, border `rgba(255,255,255,.06)`, text
-  `#e6e8eb`, muted `#aaadb2`, faint `#9b9ea4`. Accent rufous `#d4744a`
-  (hover `#e58359`, active `#c06238`, dark `#1a0f0b` text on it), danger
-  `#f26781` (badge/button fills use `danger-strong` `#c93553` so white text
-  passes 4.5:1), success `#3ccf91`, warning `#f5b44a`, mention bg
-  `rgba(212,116,74,.10)`. Linen uses a deeper rufous `#a84f2c` (white text on
-  it), High Contrast a lighter `#ef8d62`.
+- Logo: `SnowdropMark` / `public/snowdrop.svg`, a single nodding snowdrop:
+  three outer tepals (a narrow centre one, two flared side ones) hanging from
+  a short arched stem, with a small ovary cap where stem meets flower. In the
+  app it is one colour (currentColor), with thin gaps knocked out between the
+  tepals and around the cap; the favicon draws a white flower with a
+  snowdrop-green stem and cap on a deep winter-evening tile (`#1b2c3e`).
+  Reads at 16px (renders in `scratch/shots/snowdrop/`).
+- Default theme **Dusk**: cool winter-dusk neutrals (a faint blue in the
+  greys): rail `#0f1115`, sidebar `#14171c`, chat `#1a1d23`, elevated
+  `#21252c`, floating `#0b0d10`, border `rgba(255,255,255,.06)`, text
+  `#e6e8eb`, muted `#aaadb2`, faint `#9b9ea4`. Accent snowdrop green
+  `#5fbf9f` (hover `#70cfaf`, active `#4bac8d`, ink `#08130e` text on it,
+  links `#79cfae`), danger `#f26781` (badge/button fills use `danger-strong`
+  `#c93553` so white text passes 4.5:1), success `#3ccf91`, warning
+  `#f5b44a`, mention bg `rgba(95,191,159,.10)`. Linen uses a deep evergreen
+  `#2e7a5e` (white text on it), High Contrast a lighter mint `#7fd6b0`.
 - 12 avatar hues; white initials ≥ 4.5:1 on each (tested, all themes).
 - All text tokens ≥ 4.5:1 on every surface in every built-in theme
   (`src/test/contrast.test.ts`).
@@ -638,7 +644,7 @@ gates and commits. Quality gates for every phase:
 
 Recorded by the builder of each phase. Where these refine §3, they win.
 
-Renamed from Hearth on 2026-09-30 due to a name collision.
+Renamed Hearth → Shrike (2026-09-30, name collision) → Snowdrop (2026-10-02, user preference).
 
 ### P1 Foundation
 
@@ -654,7 +660,7 @@ Renamed from Hearth on 2026-09-30 due to a name collision.
 - `Message.nonce?` — client nonce of outgoing messages; kept after
   acknowledgement (in memory and storage) so render keys stay stable across
   the `pending:<nonce>` → `author:sentAt` id swap.
-- `Contact.color` holds `var(--shrike-avatar-N)` (a slot, not a colour) so each
+- `Contact.color` holds `var(--snowdrop-avatar-N)` (a slot, not a colour) so each
   theme can retune hues.
 - `groupMessages` returns *flat* render items (`day-divider`, `new-divider`,
   `system`, `message` with `continuation: boolean`) because the virtualised list
@@ -732,7 +738,7 @@ Renamed from Hearth on 2026-09-30 due to a name collision.
   it in sync with `core/themes/tokens.ts`. The theme engine sets
   `data-theme`, `data-theme-kind`, `data-density`, `data-reduced-motion`,
   `data-saturation-adjusted` on `<html>` and keeps its three `<style>` tags last
-  in `<head>`. Linen uses a deeper accent for contrast on paper (now rufous `#a84f2c`).
+  in `<head>`. Linen uses a deeper accent for contrast on paper (now evergreen `#2e7a5e`).
 
 **Tooling**
 - Current majors at time of writing: TypeScript 6, Vite 8, Vitest 5, ESLint 10.
@@ -872,13 +878,13 @@ is persisted per account so a page reload resumes the stream.
 `connection.daemonUrl` is the *browser-side* base URL, default `/signal-cli`:
 the daemon sends no CORS headers and pins the Host header, so the browser goes
 through the Vite dev/preview proxy (`changeOrigin`, no timeouts; target
-`SHRIKE_SIGNAL_CLI_URL`, default `http://127.0.0.1:8080`). The v1 default
+`SNOWDROP_SIGNAL_CLI_URL`, default `http://127.0.0.1:8080`). The v1 default
 `http://127.0.0.1:8080` is migrated to `/signal-cli`; custom values are kept.
 
-**Composition root.** `createShrike` picks the backend from
+**Composition root.** `createSnowdrop` picks the backend from
 `settings.connection.backend` once per instance (switching = new instance).
-signal-cli uses IndexedDB (`shrike-signal-cli`) through `deferredRepository`
-(a proxy that awaits `IdbMessageRepository.open()`, keeping `createShrike`
+signal-cli uses IndexedDB (`snowdrop-signal-cli`) through `deferredRepository`
+(a proxy that awaits `IdbMessageRepository.open()`, keeping `createSnowdrop`
 synchronous); falls back to memory without IndexedDB. `onAccountSelected`
 writes the account into settings. Demo seeding/liveliness only for the mock.
 
@@ -887,7 +893,7 @@ and a fake daemon. Unverified: exact `send`/`sendReaction` param coercion for
 arrays (`recipient`, `textStyle`, `mention`, `targetTimestamp`), `updateContact`
 result shape, mention placeholder handling in bodies from official clients,
 attachment ids for not-yet-downloaded files, behaviour of numberless accounts.
-Several accounts on one daemon share the `shrike-signal-cli` database. Avatars
+Several accounts on one daemon share the `snowdrop-signal-cli` database. Avatars
 (`getAvatar`) are not fetched yet.
 
 ### P5 review round 1
@@ -940,16 +946,16 @@ when present, must be the app's origin. `server.cors` / `preview.cors` = false.
 
 **Structure**
 - `ui/hooks` holds the React-side context: `AppServices` (the structural
-  subset of `Shrike` features need), `useShrike/useStores`, `ShellLayout`
+  subset of `Snowdrop` features need), `useSnowdrop/useStores`, `ShellLayout`
   (narrow/drawer/nav state), `useObservableList`, `useMediaQuery`,
-  `useRovingFocus`, `useKeybindLabel`, `useNow`. `app/ShrikeProvider` provides
-  both the full `Shrike` (for app/) and `AppServices` (for ui/), so features
+  `useRovingFocus`, `useKeybindLabel`, `useNow`. `app/SnowdropProvider` provides
+  both the full `Snowdrop` (for app/) and `AppServices` (for ui/), so features
   never import the composition root.
 - Extra feature folders: `conversation` (avatar look, row/preview helpers,
   shared conversation menu + actions), `shell` (layout, keyboard, commands,
   modal host, toast bridge, interim settings/shortcuts dialogs).
 - Primitives added beyond §3: `Drawer` (left slide-over, swipe/Esc/scrim),
-  `ShrikeMark` (logo glyph, same drawing as `public/shrike.svg`),
+  `SnowdropMark` (logo glyph, same drawing as `public/snowdrop.svg`),
   `TypingDots`, `VisuallyHidden`. Menus take a declarative `MenuEntry[]`
   (built lazily when opened) rendered by both `ContextMenu` and `DropdownMenu`;
   `tidyMenu` drops stray separators. Wrappers pass extra trigger props through
@@ -974,7 +980,7 @@ when present, must be the app's origin. `server.cors` / `preview.cors` = false.
 **Behaviour decisions**
 - Onboarding: `settings.connection.backend === null` shows the welcome
   screen. "Try the demo" sets `mock` and starts the running instance. The
-  signal-cli form saves `backend`/`daemonUrl` and, because `createShrike` picks
+  signal-cli form saves `backend`/`daemonUrl` and, because `createSnowdrop` picks
   the transport once, `main.tsx` reloads into a fresh instance
   (`App.onBackendChange`). Device linking (`no-account`) is still P4/P5.
 - Opening a conversation calls `HistoryService.open` and marks it read while
@@ -1149,7 +1155,7 @@ registered by `useChatCommands`. Header: pinned messages (only if the backend
 pins), search toggle, mentions inbox.
 
 **Dev only.** `app/devTools.ts` (dynamic import under `import.meta.env.DEV`):
-`window.__shrike`, `__shrike.stress(n)` / `?stress=5000`, `__shrike.failNext()`.
+`window.__snowdrop`, `__snowdrop.stress(n)` / `?stress=5000`, `__snowdrop.failNext()`.
 
 **Known gaps.** Interactive pieces inside messages (avatar, name, images) are
 still separate tab stops; ↑/↓ move between messages. Scroll position isn't
@@ -1217,7 +1223,7 @@ Finding → fix; contract-level changes first.
   row scroll margins compensate exactly one row height.
 - **Bundle.** frimousse is lazy (`EmojiPickerPanel`) and dnd-kit is lazy
   (`SortableRailList`, static tiles until loaded). **Not done:** dynamic import
-  of the backend in `createShrike` — P4 is editing that file concurrently;
+  of the backend in `createSnowdrop` — P4 is editing that file concurrently;
   recommended shape: a `deferredBackend` proxy (like `deferredRepository`) with
   per-kind capabilities known up front.
 - **Not changed:** frimousse's localStorage data cache (NIT, ~280 KB).
@@ -1316,13 +1322,13 @@ the schema; Reset to defaults). Failed plugins show the error + Retry
 `//`, any `scheme://`; every syntax, case-insensitive) and reports remote
 `url()` (kept, warned). The engine applies it to Custom CSS and theme CSS
 whatever the caller does. Import/export `{ id?, name, kind?, tokens, css? }`:
-only known token names (bare or `--shrike-` prefixed), string values that
+only known token names (bare or `--snowdrop-` prefixed), string values that
 can't break out of a declaration (`; { } < >` and comments refused), id
 slugged from the name, built-in ids reserved, 200 kB file cap; stored themes
 are re-validated (`toTheme`). Tokens left out keep Dusk's. Exporting a
 built-in produces `<id>-copy`. Custom CSS: `CodeEditor` (gutter, Tab = two
 spaces through `execCommand` for undo, Shift+Tab outdents, Esc releases Tab),
-300 ms debounced apply (flushed on unmount), Reset, `data-shrike` hook list
+300 ms debounced apply (flushed on unmount), Reset, `data-snowdrop` hook list
 in a `<details>` block. New tokens `qr-ink` / `qr-paper` (QR stays
 black-on-white in every theme).
 
@@ -1338,7 +1344,7 @@ sorting shift paused while merging), edges reorder. Folder menu: mark read,
 expand/collapse, Rename and recolour (dialog), Dissolve. Space menu: Add to
 folder ▸ / New folder with ▸, Remove from folder, Create category. Sidebar
 uses **native HTML5 DnD** (`useConversationDrop`, MIME
-`application/x-shrike-conversation`) instead of dnd-kit: it crosses rail ↔
+`application/x-snowdrop-conversation`) instead of dnd-kit: it crosses rail ↔
 sidebar without a shared DndContext and keeps dnd-kit lazy. Rows in a space
 drag between categories (accent insertion line; `dropIndex` maps rendered →
 store index), group rows from Home and any row in a space drop onto rail
@@ -1364,19 +1370,19 @@ Click: focus window, close modals, open the conversation in its space.
 **Link device / account (§4.10).** `SyncService` now records
 `session.errorKind` (duck-typed `error.kind`). `App` shows
 `ConnectionSetup` for signal-cli `no-account` (lazy `LinkDevice`: QR from
-`link.start()`, phone steps, device-name field defaulting to "Shrike
+`link.start()`, phone steps, device-name field defaulting to "Snowdrop
 (Browser on OS)", waiting/expired/failed + new code; reducer in
 `linkFlow.ts` ignores late results of abandoned attempts) → on success
-retries `shrike.start()` (now safe to call again after a failed start), and
+retries `snowdrop.start()` (now safe to call again after a failed start), and
 `account-required` (`AccountPrompt`: E.164 or ACI → settings → reload).
 "Use the demo or another daemon" returns to the welcome screen. The welcome
 Connect form probes the daemon first (fails inline, "Connect anyway").
 
-**Composition root.** `createShrike` loads the backend with a dynamic import
+**Composition root.** `createSnowdrop` loads the backend with a dynamic import
 per kind behind `deferredBackend(kind, ready)` (separate `mock` and
 `signal-cli` chunks); `BACKEND_CAPABILITIES` declares each kind's optional
 methods up front (a test checks them against the real adapters); early
-`on()` subscriptions attach on load. `Shrike.backendReady` exposes the
+`on()` subscriptions attach on load. `Snowdrop.backendReady` exposes the
 concrete adapter (dev tools; P3's `MessageItem.test` updated to use it).
 `AppServices` gained `backend.link`, `notifications`, `admin` (`probeDaemon`
 — lazy signal-cli import —, `exportHistory`, `clearHistory`, `flush`).
@@ -1472,7 +1478,7 @@ so those work from the composer without leaving it.
   resize, the draft, the font scale and web-font loads. Normal mode still
   keeps its one-character selection (the engine syncs with it) but paints it
   transparent; the native caret is `caret-color: transparent` outside
-  Insert mode. Colours: `--shrike-vim-caret` / `--shrike-vim-caret-text`
+  Insert mode. Colours: `--snowdrop-vim-caret` / `--snowdrop-vim-caret-text`
   (default accent / text-on-accent), overridable from a theme or Custom CSS.
 - *Esc / mark read*: Insert-mode Esc only switches mode. Normal-mode Esc
   with nothing pending runs the composer's own chain (cancel reply → mark
@@ -1518,7 +1524,7 @@ Finding → fix (the full changelog is in the phase report).
 - **M2** Silent Typing retired: Privacy has one "Send typing indicators"
   switch (`behaviour.sendTypingIndicators`). Settings v3 migrates an enabled
   plugin into `false` and drops its entry. Typing guards remain a plugin API.
-- **M3** Safe mode (`ShrikeOptions.safeMode`, `Shrike.safeMode`,
+- **M3** Safe mode (`SnowdropOptions.safeMode`, `Snowdrop.safeMode`,
   `AppServices.safeMode`; main.tsx reads `?safe=1` or a held Shift during the
   first 1.5 s and reloads into `?safe=1`). Themes with CSS: 10 s Keep/Revert
   bar (reverting needs no click); same-id imports ask before replacing.
@@ -1529,10 +1535,10 @@ Finding → fix (the full changelog is in the phase report).
   applies once (directly before `startAll`, via the subscription after),
   reconcile skips failed slots, `retry(id)` serves the Retry button.
 - **M6** Groups You · General · Customise · System; "Custom CSS" everywhere
-  (page id `custom-css`, store `customCss`, style tag `shrike-custom-css`);
+  (page id `custom-css`, store `customCss`, style tag `snowdrop-custom-css`);
   "← Back to chats" atop the nav; keyword highlight = accent chip + dotted
   accent underline via the CSS Custom Highlight API on
-  `[data-shrike="message-body"]` (new stable hook), no row tint; open folders
+  `[data-snowdrop="message-body"]` (new stable hook), no row tint; open folders
   use a 2px folder-hue bracket.
 - **M7** Phones: entering a page focuses its h2, "All settings" returns focus
   to the nav item, the page bar has a 36 px close.
@@ -1619,7 +1625,7 @@ Code quality, extensibility and correctness fixes from the final review.
   `verify-boundaries.mjs`; dead exports un-exported (`UI_PLUGINS`,
   `displayKeys`, `keywordRanges`, `fieldFor`, `probeAdvice`,
   `accentContrast`, `shortDuration`) or removed (`enterNormal`).
-  `createShrike.ts` 531 → ~315 lines (`backends.ts`, `pluginHost.ts`,
+  `createSnowdrop.ts` 531 → ~315 lines (`backends.ts`, `pluginHost.ts`,
   `coreCommands.ts`); `SendService`'s attachment-preview helpers moved to
   `localAttachments.ts`. `SignalCliBackend` was left whole: send params and
   normalisation are already separate modules, and the group handling is tied
@@ -1656,7 +1662,7 @@ Finding → fix (the reviewer's numbering).
   as it animated out.
 - **8 Contrast.** `textSurfaces(theme)` lists the opaque colours text sits on
   (four surfaces, hover over each, selected over chat/sidebar; `compositeOver`).
-  `accent-text` is derived against the hardest one (Dusk → `#e58359`).
+  `accent-text` is derived against the hardest one (Dusk → `#5fbf9f`, the accent itself).
   Dusk muted/faint `#aaadb2`/`#9b9ea4`, danger `#f26781`; Midnight faint
   `#8a8d92`; Linen muted/faint/link/warning `#534e4a`/`#605a55`/`#98431d`/`#855400`.
   `contrast.test.ts` checks text, muted, faint and link on every composite,
@@ -1685,7 +1691,7 @@ Finding → fix (the reviewer's numbering).
   conversation, space and member menus. The member row has a context menu
   (Profile, Message, Copy phone number, plugin items), and the profile shows
   plugin member actions. `STYLE_HOOKS` lives in `core/themes/styleHooks.ts`; a
-  test checks it against every `data-shrike` value in `src` and the THEMING
+  test checks it against every `data-snowdrop` value in `src` and the THEMING
   table. Imports drop engine tokens with a warning; exporting a built-in writes
   resolved tokens (`resolvedThemeTokens`). The conversation menu has a
   "Disappearing messages" submenu, and the group details popover offers

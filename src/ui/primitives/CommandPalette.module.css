@@ -7,18 +7,18 @@
 .field {
   display: flex;
   align-items: center;
-  gap: var(--shrike-space-3);
+  gap: var(--snowdrop-space-3);
   height: 48px;
-  padding: 0 var(--shrike-space-5);
-  border-bottom: 1px solid var(--shrike-border);
+  padding: 0 var(--snowdrop-space-5);
+  border-bottom: 1px solid var(--snowdrop-border);
 }
 
 .leading {
   display: inline-flex;
   flex: none;
   align-items: center;
-  gap: var(--shrike-space-2);
-  color: var(--shrike-text-faint);
+  gap: var(--snowdrop-space-2);
+  color: var(--snowdrop-text-faint);
 }
 
 .input {
@@ -28,8 +28,8 @@
   padding: 0;
   border: none;
   background: transparent;
-  color: var(--shrike-text-strong);
-  font-size: var(--shrike-font-size-header);
+  color: var(--snowdrop-text-strong);
+  font-size: var(--snowdrop-font-size-header);
   outline: none;
 }
 
@@ -39,7 +39,7 @@
 }
 
 .input::placeholder {
-  color: var(--shrike-text-faint);
+  color: var(--snowdrop-text-faint);
 }
 
 .list {
@@ -47,37 +47,37 @@
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: var(--shrike-space-3);
-  transition: height var(--shrike-duration-base) var(--shrike-ease);
-  scroll-padding-block: var(--shrike-space-7) var(--shrike-space-3);
+  padding: var(--snowdrop-space-3);
+  transition: height var(--snowdrop-duration-base) var(--snowdrop-ease);
+  scroll-padding-block: var(--snowdrop-space-7) var(--snowdrop-space-3);
 }
 
 .group + .group {
-  margin-top: var(--shrike-space-3);
+  margin-top: var(--snowdrop-space-3);
 }
 
 .group [cmdk-group-heading] {
-  padding: var(--shrike-space-3) var(--shrike-space-3) var(--shrike-space-2);
-  color: var(--shrike-text-faint);
-  font-size: var(--shrike-font-size-sm);
-  font-weight: var(--shrike-font-weight-semibold);
+  padding: var(--snowdrop-space-3) var(--snowdrop-space-3) var(--snowdrop-space-2);
+  color: var(--snowdrop-text-faint);
+  font-size: var(--snowdrop-font-size-sm);
+  font-weight: var(--snowdrop-font-weight-semibold);
 }
 
 .item {
   display: flex;
   align-items: center;
-  gap: var(--shrike-space-4);
+  gap: var(--snowdrop-space-4);
   min-height: 40px;
-  padding: 0 var(--shrike-space-3);
-  border-radius: var(--shrike-radius-sm);
-  color: var(--shrike-text-muted);
+  padding: 0 var(--snowdrop-space-3);
+  border-radius: var(--snowdrop-radius-sm);
+  color: var(--snowdrop-text-muted);
   cursor: pointer;
   user-select: none;
 }
 
 .item[data-selected='true'] {
-  background: var(--shrike-bg-selected);
-  color: var(--shrike-text-strong);
+  background: var(--snowdrop-bg-selected);
+  color: var(--snowdrop-text-strong);
 }
 
 .item[data-disabled='true'] {
@@ -91,28 +91,28 @@
   place-items: center;
   width: 24px;
   height: 24px;
-  color: var(--shrike-text-faint);
+  color: var(--snowdrop-text-faint);
 }
 
 .item[data-selected='true'] .icon {
-  color: var(--shrike-text-muted);
+  color: var(--snowdrop-text-muted);
 }
 
 .label {
   flex: 1;
   min-width: 0;
   overflow: hidden;
-  font-weight: var(--shrike-font-weight-medium);
+  font-weight: var(--snowdrop-font-weight-medium);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .label mark {
   background: none;
-  color: var(--shrike-text-strong);
-  font-weight: var(--shrike-font-weight-bold);
+  color: var(--snowdrop-text-strong);
+  font-weight: var(--snowdrop-font-weight-bold);
   text-decoration: underline;
-  text-decoration-color: var(--shrike-accent);
+  text-decoration-color: var(--snowdrop-accent);
   text-decoration-thickness: 2px;
   text-underline-offset: 3px;
 }
@@ -121,18 +121,18 @@
   display: inline-flex;
   flex: none;
   align-items: center;
-  gap: var(--shrike-space-3);
-  color: var(--shrike-text-faint);
-  font-size: var(--shrike-font-size-sm);
+  gap: var(--snowdrop-space-3);
+  color: var(--snowdrop-text-faint);
+  font-size: var(--snowdrop-font-size-sm);
 }
 
 .item[data-selected='true'] .meta {
   /* Muted text dips below 4.5:1 on the selected fill in Dusk. */
-  color: var(--shrike-text);
+  color: var(--snowdrop-text);
 }
 
 .empty {
-  padding: var(--shrike-space-8) var(--shrike-space-5);
-  color: var(--shrike-text-muted);
+  padding: var(--snowdrop-space-8) var(--snowdrop-space-5);
+  color: var(--snowdrop-text-muted);
   text-align: center;
 }

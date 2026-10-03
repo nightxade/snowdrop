@@ -1,9 +1,9 @@
 import { useSyncExternalStore } from 'react';
 import type { PluginInfo } from '@/core/plugins';
-import { useShrike } from '@/ui/hooks';
+import { useSnowdrop } from '@/ui/hooks';
 
 export function usePlugins(): readonly PluginInfo[] {
-  const { plugins } = useShrike();
+  const { plugins } = useSnowdrop();
   return useSyncExternalStore(
     (fn) => plugins.subscribe(fn),
     () => plugins.list(),

@@ -8,16 +8,16 @@
 .dot {
   width: 12px;
   height: 12px;
-  border-radius: var(--shrike-radius-full);
-  background: var(--shrike-danger);
-  box-shadow: 0 0 0 4px var(--shrike-danger-soft);
+  border-radius: var(--snowdrop-radius-full);
+  background: var(--snowdrop-danger);
+  box-shadow: 0 0 0 4px var(--snowdrop-danger-soft);
 }
 
 .dot[data-status='connecting'] {
-  background: var(--shrike-warning);
-  box-shadow: 0 0 0 4px var(--shrike-highlight-bg);
+  background: var(--snowdrop-warning);
+  box-shadow: 0 0 0 4px var(--snowdrop-highlight-bg);
   cursor: default;
-  animation: breathe 1.6s var(--shrike-ease) infinite;
+  animation: breathe 1.6s var(--snowdrop-ease) infinite;
 }
 
 @keyframes breathe {

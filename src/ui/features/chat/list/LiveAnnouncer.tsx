@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { bodyToPlainText, type ConversationId, type Message } from '@/core/domain';
 import { UNKNOWN_CONTACT_NAME } from '@/core/stores';
-import { useShrike } from '@/ui/hooks';
+import { useSnowdrop } from '@/ui/hooks';
 import styles from './LiveAnnouncer.module.css';
 
 const THROTTLE_MS = 1500;
@@ -14,7 +14,7 @@ const MAX_TEXT = 140;
  * Bursts are batched so a busy group doesn't flood the speech queue.
  */
 export function LiveAnnouncer({ conversationId }: { conversationId: ConversationId }) {
-  const { sync, stores } = useShrike();
+  const { sync, stores } = useSnowdrop();
   const [text, setText] = useState('');
 
   useEffect(() => {

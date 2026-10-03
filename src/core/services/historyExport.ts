@@ -13,7 +13,7 @@ export type ExportedAttachment = Pick<Attachment, 'contentType'> &
 export type ExportedMessage = Omit<Message, 'attachments'> & { attachments: ExportedAttachment[] };
 
 export interface HistoryExport {
-  format: 'shrike-history';
+  format: 'snowdrop-history';
   version: 1;
   exportedAt: string;
   account: { id: string; name: string } | null;
@@ -75,7 +75,7 @@ export async function exportHistory(
   }
   const self = stores.session.getState().self;
   return {
-    format: 'shrike-history',
+    format: 'snowdrop-history',
     version: 1,
     exportedAt: now.toISOString(),
     account: self ? { id: self.id, name: self.name } : null,

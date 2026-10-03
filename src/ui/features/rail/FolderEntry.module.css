@@ -13,11 +13,11 @@
 .mini {
   display: grid;
   place-items: center;
-  border-radius: var(--shrike-radius-xs);
+  border-radius: var(--snowdrop-radius-xs);
   background: var(--tile-hue);
-  color: var(--shrike-text-on-avatar);
-  font-size: calc(var(--shrike-font-size-emoji) * 0.4);
-  font-weight: var(--shrike-font-weight-bold);
+  color: var(--snowdrop-text-on-avatar);
+  font-size: calc(var(--snowdrop-font-size-emoji) * 0.4);
+  font-weight: var(--snowdrop-font-weight-bold);
   line-height: 1;
 }
 
@@ -25,7 +25,7 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  padding-bottom: var(--shrike-space-2);
+  padding-bottom: var(--snowdrop-space-2);
 }
 
 /* A 2px bracket down the rail's right gutter (the left one holds unread dots) groups the folder's tiles (our
@@ -33,13 +33,13 @@
 .open::before {
   content: '';
   position: absolute;
-  top: calc(var(--shrike-space-2) + 6px);
+  top: calc(var(--snowdrop-space-2) + 6px);
   bottom: 6px;
   right: 4px;
   width: 6px;
-  border: 2px solid var(--folder-hue, var(--shrike-border-strong));
+  border: 2px solid var(--folder-hue, var(--snowdrop-border-strong));
   border-left: none;
-  border-radius: 0 var(--shrike-radius-xs) var(--shrike-radius-xs) 0;
+  border-radius: 0 var(--snowdrop-radius-xs) var(--snowdrop-radius-xs) 0;
   pointer-events: none;
 }
 
@@ -50,6 +50,6 @@
 /* A dragged space would join this folder. */
 .collapsed[data-drop],
 .header[data-drop] {
-  outline: 2px solid var(--shrike-text-strong);
+  outline: 2px solid var(--snowdrop-text-strong);
   outline-offset: 4px;
 }

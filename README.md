@@ -1,6 +1,6 @@
-# Shrike
+# Snowdrop
 
-Shrike is a desktop-class chat client for the Signal network that runs in your
+Snowdrop is a desktop-class chat client for the Signal network that runs in your
 browser and talks to a local [signal-cli](https://github.com/AsamK/signal-cli)
 daemon. It organises conversations the way community chat apps do (a rail of
 spaces, a channel-style sidebar, the chat, a member list), with deep theming,
@@ -9,7 +9,11 @@ spaces, categories and folders are local organisation only, and it never
 invents what the protocol can't back, such as online presence. Everything
 stays on your machine.
 
-![Shrike in the Dusk theme: a group conversation inside a space](docs/images/group-dusk.png)
+It is named after the snowdrop, the small white flower that comes up through
+the snow: quiet, fresh and early. The logo is a single nodding snowdrop, and
+the default accent is the soft green on its inner petals.
+
+![Snowdrop in the Dusk theme: a group conversation inside a space](docs/images/group-dusk.png)
 
 ## Highlights
 
@@ -79,10 +83,10 @@ signal-cli daemon --http 127.0.0.1:8080 --receive-mode on-connection
 npm run dev        # proxies /signal-cli → http://127.0.0.1:8080
 ```
 
-Shrike can link itself as a new device (scan a QR code with the Signal app).
+Snowdrop can link itself as a new device (scan a QR code with the Signal app).
 Read **[docs/SIGNAL_CLI.md](docs/SIGNAL_CLI.md)** first: it covers installation,
 single- and multi-account daemons, linking, what to expect (history starts
-when Shrike first connects) and troubleshooting. Keep the daemon on
+when Snowdrop first connects) and troubleshooting. Keep the daemon on
 `127.0.0.1`: it has no authentication.
 
 ## Scripts
@@ -103,7 +107,7 @@ when Shrike first connects) and troubleshooting. Keep the daemon on
 The full quality gate is
 `npm run typecheck && npm run lint && npm test && npm run build`.
 
-Environment: `SHRIKE_SIGNAL_CLI_URL` (shell or `.env.local`) points the dev
+Environment: `SNOWDROP_SIGNAL_CLI_URL` (shell or `.env.local`) points the dev
 and preview proxy at a daemon other than `http://127.0.0.1:8080`.
 
 ## Project structure
@@ -111,7 +115,7 @@ and preview proxy at a daemon other than `http://127.0.0.1:8080`.
 ```text
 src/
   main.tsx            entry: safe mode, dev tools, mounts <App>
-  app/                composition root: createShrike, lazy backend/repository, providers
+  app/                composition root: createSnowdrop, lazy backend/repository, providers
   core/               no React allowed
     domain/           pure types and helpers (markdown → Signal ranges, grouping, fuzzy)
     lib/              leaf utilities (emitter, clock/scheduler, disposables, observable lists)
@@ -143,41 +147,28 @@ docs/                 documentation
 - [THEMING.md](docs/THEMING.md) — tokens, theme files, Custom CSS, the CSS
   security policy, safe mode.
 - [KEYBOARD.md](docs/KEYBOARD.md) — every shortcut, and Vim mode.
-- [SIGNAL_CLI.md](docs/SIGNAL_CLI.md) — running Shrike against signal-cli.
+- [SIGNAL_CLI.md](docs/SIGNAL_CLI.md) — running Snowdrop against signal-cli.
 - [PLAN.md](docs/PLAN.md) — the product plan, delivery status and the
   as-built record of decisions (§8).
 
 ## Privacy
 
-- **Local only.** Shrike has no server of its own and no telemetry. It talks
+- **Local only.** Snowdrop has no server of its own and no telemetry. It talks
   to nothing but your signal-cli daemon, through a same-origin proxy that only
   answers the app itself on a loopback address.
 - **No CDNs.** Fonts (Inter, JetBrains Mono) and emoji data are bundled and
-  served from Shrike's own origin. Link previews are off.
+  served from Snowdrop's own origin. Link previews are off.
 - **Content-Security-Policy.** Production builds forbid every third-party
   request (`default-src 'self'`, `connect-src 'self'`).
 - **User CSS can't phone home.** Custom CSS and imported themes are stripped
   of any remote reference before they apply ([THEMING.md](docs/THEMING.md)).
 - **Your data stays in your browser.** Message history is stored in IndexedDB
-  and settings in local storage for the Shrike origin; export or clear them in
+  and settings in local storage for the Snowdrop origin; export or clear them in
   Settings → Data & storage.
 
 ## Legal
 
-Shrike is an independent project. It is **not affiliated with, endorsed by or
-sponsored by Signal Messenger LLC, the Signal Foundation or Discord Inc.**
-"Signal" and "Discord" are trademarks of their respective owners and are used
-here only to describe compatibility and inspiration.
-
-Shrike contains no code from Signal or signal-cli. signal-cli (GPL-3.0) runs as
-a separate program that you install yourself; Shrike only uses its documented
-HTTP JSON-RPC API. The name, logo, palette and UI copy are original. The name
-"Shrike" was checked for collisions with existing chat products; that check
-was not a trademark search.
-
-Runtime dependencies are permissively licensed (MIT, ISC, Apache-2.0, BSD,
-OFL); the full list is in Settings → About, and production builds include
-`THIRD_PARTY_NOTICES.txt`.
+Inspired by Discord's layout. Not affiliated with or endorsed by Signal or Discord.
 
 ## Licence
 

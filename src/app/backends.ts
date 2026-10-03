@@ -1,5 +1,5 @@
 /**
- * The backend registry: every transport Shrike can run on, registered here in
+ * The backend registry: every transport Snowdrop can run on, registered here in
  * the composition root. A registration says how to load the adapter (its own
  * chunk), which optional `ChatBackend` methods it implements (so services can
  * be wired before it loads), where history is kept, and any adapter-specific
@@ -45,7 +45,7 @@ export type ChatBackendFactory = (env: BackendEnvironment) => ChatBackend;
 export type HistoryStore =
   /** In memory: the transport serves history itself, or it's regenerated each launch (demo). */
   | { kind: 'memory' }
-  /** IndexedDB database `name`: the transport keeps no history, so Shrike persists what it sees. */
+  /** IndexedDB database `name`: the transport keeps no history, so Snowdrop persists what it sees. */
   | { kind: 'indexeddb'; name: string };
 
 /** App-side hooks for a running adapter. */
@@ -193,7 +193,7 @@ const signalCliBackend: BackendRegistration = {
     'link',
   ]),
   // The daemon keeps no history.
-  history: { kind: 'indexeddb', name: 'shrike-signal-cli' },
+  history: { kind: 'indexeddb', name: 'snowdrop-signal-cli' },
 };
 
 /** Every transport this build knows, in the order the UI lists them. */

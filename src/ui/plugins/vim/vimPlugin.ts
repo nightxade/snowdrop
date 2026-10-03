@@ -17,7 +17,7 @@ export const vimPlugin = definePlugin({
   name: 'Vim Mode',
   description:
     'Modal keyboard control: j/k through messages, J/K through conversations, and Normal/Insert/Visual modes in the composer.',
-  authors: ['shrike'],
+  authors: ['snowdrop'],
   tags: ['keyboard', 'accessibility'],
   settings,
   async start(ctx) {

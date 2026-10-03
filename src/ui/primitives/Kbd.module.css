@@ -1,6 +1,6 @@
 .combo {
   display: inline-flex;
-  gap: var(--shrike-space-2);
+  gap: var(--snowdrop-space-2);
   vertical-align: middle;
 }
 
@@ -10,12 +10,12 @@
   min-width: 2em;
   height: 2em;
   padding: 0 6px;
-  border-radius: var(--shrike-radius-xs);
-  background: var(--shrike-bg-active);
-  box-shadow: inset 0 -1px 0 var(--shrike-border-strong);
-  color: var(--shrike-text);
-  font-family: var(--shrike-font-sans);
-  font-size: var(--shrike-font-size-sm);
-  font-weight: var(--shrike-font-weight-semibold);
+  border-radius: var(--snowdrop-radius-xs);
+  background: var(--snowdrop-bg-active);
+  box-shadow: inset 0 -1px 0 var(--snowdrop-border-strong);
+  color: var(--snowdrop-text);
+  font-family: var(--snowdrop-font-sans);
+  font-size: var(--snowdrop-font-size-sm);
+  font-weight: var(--snowdrop-font-weight-semibold);
   line-height: 1;
 }

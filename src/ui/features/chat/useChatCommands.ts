@@ -7,7 +7,7 @@ import {
   NavCommand,
 } from '@/core/commands';
 import { uiSelectors } from '@/core/stores';
-import { useShrike } from '@/ui/hooks';
+import { useSnowdrop } from '@/ui/hooks';
 import { useChatController } from './ChatController';
 import type { MessageAction } from './list/rowState';
 
@@ -28,7 +28,7 @@ const MESSAGE_ACTIONS: readonly [id: string, title: string, action: MessageActio
  * (Vim mode) drive through the registry.
  */
 export function useChatCommands(): void {
-  const { commands, stores } = useShrike();
+  const { commands, stores } = useSnowdrop();
   const chat = useChatController();
   useEffect(() => {
     const hasConversation = () => uiSelectors.selectedConversation(stores.ui.getState()) !== null;

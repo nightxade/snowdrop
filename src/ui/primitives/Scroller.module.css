@@ -6,13 +6,13 @@
   scrollbar-gutter: stable;
   scrollbar-width: thin;
   scrollbar-color: transparent transparent;
-  transition: scrollbar-color var(--shrike-duration-base) var(--shrike-ease);
+  transition: scrollbar-color var(--snowdrop-duration-base) var(--snowdrop-ease);
 }
 
 /* Bars appear while the pointer is over the list, like a desktop app. */
 .scroller:hover,
 .scroller:focus-within {
-  scrollbar-color: var(--shrike-scrollbar-thumb) transparent;
+  scrollbar-color: var(--snowdrop-scrollbar-thumb) transparent;
 }
 
 .scroller[data-scrollbar='none'] {

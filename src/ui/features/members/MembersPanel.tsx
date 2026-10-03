@@ -22,7 +22,7 @@ export const MembersPanel = memo(function MembersPanel({
       className={styles.panel}
       data-sheet={onClose ? '' : undefined}
       aria-label="Members"
-      data-shrike="members"
+      data-snowdrop="members"
     >
       {onClose && (
         <header className={styles.header}>

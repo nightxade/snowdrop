@@ -1,6 +1,6 @@
 # Writing plugins
 
-Shrike's features are extended through typed **extension points**, never by
+Snowdrop's features are extended through typed **extension points**, never by
 monkey-patching. A plugin is a plain object with a `start(ctx)` function; the
 `ctx` it receives is the whole API. Everything a plugin registers is tracked
 and undone when it stops, and a plugin that throws can't take the app down.
@@ -28,7 +28,7 @@ export const clearUrlsPlugin = definePlugin({
   id: 'clear-urls', // stable, kebab-case: the settings key
   name: 'Clear URLs',
   description: 'Strips tracking parameters (utm_*, fbclid, …) from links you send.',
-  authors: ['shrike'],
+  authors: ['snowdrop'],
   tags: ['privacy', 'messages'], // shown on the card, clickable as a filter
   enabledByDefault: true, // on until the user first toggles it
   settings: defineSettings({
@@ -57,7 +57,7 @@ elided. `PluginDefinition` fields:
 | `id`                | Stable kebab-case id. Used as the key in `settings.plugins` and to attribute registrations. |
 | `name`              | Card title.                                                                                 |
 | `description`       | One sentence for the card.                                                                  |
-| `authors`           | Byline (built-ins say `['shrike']`, shown as "Built in").                                   |
+| `authors`           | Byline (built-ins say `['snowdrop']`, shown as "Built in").                                 |
 | `tags?`             | Lower-case tags for filtering.                                                              |
 | `settings?`         | A schema from `defineSettings` (see below).                                                 |
 | `enabledByDefault?` | Initial state before the user ever toggles the plugin (default `false`).                    |
@@ -118,7 +118,7 @@ ctx.settings.subscribe((values) => {
 ## Lifecycle and auto-disposal
 
 - The `PluginRuntime` starts every enabled plugin after the initial sync
-  (`shrike.start()`), then follows the settings store: toggling a plugin
+  (`snowdrop.start()`), then follows the settings store: toggling a plugin
   anywhere (its card, a settings reset, an import) starts or stops exactly
   that plugin, with no reload.
 - Each start gets a fresh `PluginContext`. **Every registration returns a
@@ -420,15 +420,15 @@ schema.
 
 ```ts
 const unstyle = ctx.styles.inject(
-  `[data-shrike='message'][data-mention] { outline: 1px dashed var(--shrike-accent); }`,
+  `[data-snowdrop='message'][data-mention] { outline: 1px dashed var(--snowdrop-accent); }`,
   'mentions', // optional id, shown in a comment in the generated CSS
 );
 ```
 
 All plugin CSS is concatenated in registration order into one
-`<style id="shrike-plugins">`, after the theme and before the user's Custom
-CSS (so users can override plugins). Target the stable `data-shrike` hooks and
-`--shrike-*` tokens listed in [THEMING.md](THEMING.md), never hashed CSS-module
+`<style id="snowdrop-plugins">`, after the theme and before the user's Custom
+CSS (so users can override plugins). Target the stable `data-snowdrop` hooks and
+`--snowdrop-*` tokens listed in [THEMING.md](THEMING.md), never hashed CSS-module
 class names.
 
 ### Notification boosters
@@ -594,7 +594,7 @@ name makes the second plugin's `start` fail.
   internals or `@/app` (lint enforces it). A large plugin can keep its
   definition small and `import()` the rest in `start` so it stays out of the
   main bundle while disabled (Vim Mode does: `vimPlugin.ts` → `startVim.ts`). `withUiPlugins(BUILTIN_PLUGINS)` merges both
-  lists (and gives Keyword Alerts its highlight UI); `createShrike` passes the
+  lists (and gives Keyword Alerts its highlight UI); `createSnowdrop` passes the
   result to the `PluginRuntime`.
 - `src/ui/plugins/plugins.test.ts` asserts the full list of built-in ids, so
   update it when you add one, and add tests for your plugin next to it. The
@@ -656,14 +656,14 @@ export function isShouting(text: string, min: number): boolean {
 const shouted = (ctx: Ctx, m: Message) =>
   m.kind === 'normal' && !m.deleted && isShouting(m.body, ctx.settings.get('minLetters'));
 
-/** Stable hooks only: the chip is ours, the message row is `[data-shrike='message']`. */
+/** Stable hooks only: the chip is ours, the message row is `[data-snowdrop='message']`. */
 const CSS = `
 [data-caps-guard] {
-  font-size: var(--shrike-font-size-xs);
-  color: var(--shrike-warning);
+  font-size: var(--snowdrop-font-size-xs);
+  color: var(--snowdrop-warning);
   border: 1px solid currentColor;
-  border-radius: var(--shrike-radius-full);
-  padding: 0 var(--shrike-space-1);
+  border-radius: var(--snowdrop-radius-full);
+  padding: 0 var(--snowdrop-space-1);
 }`;
 
 function makeBadge(ctx: Ctx) {
@@ -785,7 +785,7 @@ left alone, and that the command flips the stored setting.
 - **Read settings at use time** (or subscribe); don't capture them once in
   `start`, or changes won't apply until a restart.
 - **Return new objects** from transforms; never mutate the draft or messages.
-- **Styling:** tokens (`var(--shrike-…)`) and stable hooks (`data-shrike`,
+- **Styling:** tokens (`var(--snowdrop-…)`) and stable hooks (`data-snowdrop`,
   `data-slot`, your own `data-*` attributes) only. No raw colours where a token
   exists, no hashed class names, no remote resources (the production CSP blocks
   them anyway).
@@ -793,7 +793,7 @@ left alone, and that the command flips the stored setting.
   should also be in a menu; key layers stay out of the way when
   `keyCtx.overlay` is true.
 - **Privacy:** plugins run with the app's privileges. Don't send data anywhere
-  except through `ctx.backend`; Shrike makes no third-party requests and the
+  except through `ctx.backend`; Snowdrop makes no third-party requests and the
   CSP's `connect-src 'self'` enforces it in production builds.
 - **Keep core React-free:** a headless plugin in `core/` must not import React;
   put the UI half in `ui/plugins` and pass it in.

@@ -1,7 +1,7 @@
 import { LoaderCircle, Lock, RotateCw, Settings2, TriangleAlert } from 'lucide-react';
 import { useId, useRef } from 'react';
 import type { PluginInfo } from '@/core/plugins';
-import { useShrike } from '@/ui/hooks';
+import { useSnowdrop } from '@/ui/hooks';
 import { Button, IconButton, Switch, Tooltip } from '@/ui/primitives';
 import { errorMessage } from './usePlugins';
 import styles from './plugins.module.css';
@@ -14,7 +14,7 @@ export interface PluginCardProps {
 }
 
 export function PluginCard({ info, onOpenSettings, onTag, activeTag }: PluginCardProps) {
-  const { plugins } = useShrike();
+  const { plugins } = useSnowdrop();
   const { definition: d, enabled, status } = info;
   const titleId = useId();
   const switchRef = useRef<HTMLDivElement>(null);
@@ -29,14 +29,14 @@ export function PluginCard({ info, onOpenSettings, onTag, activeTag }: PluginCar
       data-enabled={enabled ? '' : undefined}
       data-status={status}
       aria-labelledby={titleId}
-      data-shrike="plugin-card"
+      data-snowdrop="plugin-card"
     >
       <header className={styles.cardHeader}>
         <h3 id={titleId} className={styles.cardTitle}>
           {d.name}
         </h3>
         {d.required && (
-          <Tooltip label="Part of Shrike’s core; can’t be turned off.">
+          <Tooltip label="Part of Snowdrop’s core; can’t be turned off.">
             <span className={styles.required} tabIndex={0}>
               <Lock size={11} aria-hidden />
               Required
@@ -92,7 +92,7 @@ export function PluginCard({ info, onOpenSettings, onTag, activeTag }: PluginCar
       )}
       <footer className={styles.cardFooter}>
         <span className={styles.authors}>
-          {d.authors.length === 1 && d.authors[0] === 'shrike'
+          {d.authors.length === 1 && d.authors[0] === 'snowdrop'
             ? 'Built in'
             : `by ${d.authors.join(', ')}`}
         </span>

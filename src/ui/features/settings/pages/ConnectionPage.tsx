@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { useStore } from 'zustand';
 import type { BackendKind } from '@/core/backend';
 import { validateDaemonUrl } from '@/ui/features/onboarding';
-import { useShrike, type DaemonProbe } from '@/ui/hooks';
+import { useSnowdrop, type DaemonProbe } from '@/ui/hooks';
 import { Button, Modal, Segmented, Switch, TextInput } from '@/ui/primitives';
 import { SettingRow } from '../rows/SettingRow';
 import { SettingsSection } from '../rows/SettingsSection';
@@ -34,7 +34,7 @@ function probeAdvice(result: Extract<DaemonProbe, { ok: false }>): string {
 }
 
 export function ConnectionPage() {
-  const app = useShrike();
+  const app = useSnowdrop();
   const [saved, set] = useSettingsSection('connection');
   const status = useStore(app.stores.session, (s) => s.status);
   const running = app.backend.kind;
@@ -175,7 +175,7 @@ export function ConnectionPage() {
                       {probe.accounts === null
                         ? 'The daemon is running (single-account mode: enter the account above).'
                         : probe.accounts === 0
-                          ? 'The daemon is running but has no account yet. After switching, Shrike will help you link this device.'
+                          ? 'The daemon is running but has no account yet. After switching, Snowdrop will help you link this device.'
                           : `The daemon is running with ${probe.accounts} account${probe.accounts === 1 ? '' : 's'}.`}
                     </>
                   ) : (
@@ -209,7 +209,7 @@ export function ConnectionPage() {
       </SettingsSection>
       {changed && (
         <div className={styles.applyBar} role="region" aria-label="Unapplied connection changes">
-          <p>Connection changes take effect after Shrike reloads.</p>
+          <p>Connection changes take effect after Snowdrop reloads.</p>
           <Button
             variant="primary"
             icon={<RefreshCw size={16} />}
@@ -229,11 +229,11 @@ export function ConnectionPage() {
           onOpenChange={(open) => {
             if (!open) setConfirm(false);
           }}
-          title="Reload Shrike?"
+          title="Reload Snowdrop?"
           description={
             backend === 'mock'
-              ? 'Shrike will reload into the demo. Your signal-cli history stays stored in this browser.'
-              : 'Shrike will reload and connect to signal-cli. Unsent drafts are kept.'
+              ? 'Snowdrop will reload into the demo. Your signal-cli history stays stored in this browser.'
+              : 'Snowdrop will reload and connect to signal-cli. Unsent drafts are kept.'
           }
           footer={
             <>

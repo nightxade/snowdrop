@@ -97,7 +97,7 @@ export function defaultDeviceName(userAgent: string): string {
           ? 'Linux'
           : null;
   const where = [browser, os].filter(Boolean).join(' on ');
-  return where ? `Shrike (${where})` : 'Shrike';
+  return where ? `Snowdrop (${where})` : 'Snowdrop';
 }
 
 /** Is this failure the code timing out (worth a fresh code) rather than a hard error? */

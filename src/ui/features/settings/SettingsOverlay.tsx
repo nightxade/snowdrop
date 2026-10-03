@@ -5,7 +5,7 @@ import {
   useMediaQuery,
   useObservableList,
   useRovingFocus,
-  useShrike,
+  useSnowdrop,
 } from '@/ui/hooks';
 import {
   FullScreenDialog,
@@ -49,7 +49,7 @@ const isPageId = (id: string): id is SettingsPageId => (PAGE_IDS as readonly str
  * and live changes (no Save button). Lazy-loaded from the modal host.
  */
 export function SettingsOverlay({ onClose, initialPage }: SettingsOverlayProps) {
-  const { registries, commands } = useShrike();
+  const { registries, commands } = useSnowdrop();
   const plugins = usePlugins();
   const panels = useObservableList(registries.settingsPanels);
   const allCommands = useSyncExternalStore(
@@ -139,8 +139,10 @@ export function SettingsOverlay({ onClose, initialPage }: SettingsOverlayProps) 
     if (!focusTo) return;
     const target =
       focusTo.to === 'heading'
-        ? document.querySelector<HTMLElement>('#shrike-settings-main [data-page-heading]')
-        : document.querySelector<HTMLElement>(`[data-shrike="settings"] [data-page-id="${page}"]`);
+        ? document.querySelector<HTMLElement>('#snowdrop-settings-main [data-page-heading]')
+        : document.querySelector<HTMLElement>(
+            `[data-snowdrop="settings"] [data-page-id="${page}"]`,
+          );
     target?.focus();
   }, [focusTo, page]);
 
@@ -148,7 +150,7 @@ export function SettingsOverlay({ onClose, initialPage }: SettingsOverlayProps) 
     setPage(id);
     setQuery('');
     setShowNav(false);
-    document.getElementById('shrike-settings-main')?.scrollTo({ top: 0 });
+    document.getElementById('snowdrop-settings-main')?.scrollTo({ top: 0 });
     // Phones swap screens: announce the page by landing on its heading.
     if (narrow) setFocusTo({ to: 'heading' });
   };
@@ -205,7 +207,7 @@ export function SettingsOverlay({ onClose, initialPage }: SettingsOverlayProps) 
         <div
           className={styles.layout}
           data-view={narrow ? (showNav ? 'nav' : 'page') : 'both'}
-          data-shrike="settings"
+          data-snowdrop="settings"
         >
           <div className={styles.navColumn}>
             <nav className={styles.nav} aria-label="Settings sections">
@@ -268,7 +270,7 @@ export function SettingsOverlay({ onClose, initialPage }: SettingsOverlayProps) 
             </nav>
           </div>
           <div
-            id="shrike-settings-main"
+            id="snowdrop-settings-main"
             className={styles.main}
             role="region"
             aria-label="Settings content"

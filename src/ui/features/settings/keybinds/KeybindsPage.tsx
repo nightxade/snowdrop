@@ -2,7 +2,7 @@ import { RotateCcw, TriangleAlert } from 'lucide-react';
 import { useMemo, useSyncExternalStore } from 'react';
 import { useStore } from 'zustand';
 import { formatKeybind, isMacPlatform, parseKeybind } from '@/core/commands';
-import { useShrike } from '@/ui/hooks';
+import { useSnowdrop } from '@/ui/hooks';
 import { Button, IconButton, Kbd } from '@/ui/primitives';
 import { SettingRow } from '../rows/SettingRow';
 import { SettingsSection } from '../rows/SettingsSection';
@@ -18,7 +18,7 @@ interface PendingReassign {
 }
 
 export function KeybindsPage() {
-  const { commands, stores, plugins } = useShrike();
+  const { commands, stores, plugins } = useSnowdrop();
   const all = useSyncExternalStore(
     (fn) => commands.subscribe(fn),
     () => commands.all(),

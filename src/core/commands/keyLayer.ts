@@ -113,7 +113,7 @@ export class KeyLayerStack {
 
   constructor(
     private readonly onError: (error: unknown, layer: RegisteredKeyLayer) => void = (e, l) => {
-      console.error(`[shrike] key layer "${l.layer.id}" (${l.owner}) failed`, e);
+      console.error(`[snowdrop] key layer "${l.layer.id}" (${l.owner}) failed`, e);
     },
   ) {}
 

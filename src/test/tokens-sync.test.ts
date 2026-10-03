@@ -5,7 +5,7 @@ import tokensCss from '@/ui/styles/tokens.css?raw';
 describe('design tokens', () => {
   it('tokens.css and core/themes/tokens.ts declare the same names', () => {
     const declared = new Set(
-      [...tokensCss.matchAll(/--shrike-([a-z0-9-]+)\s*:/gu)].map((m) => m[1] as string),
+      [...tokensCss.matchAll(/--snowdrop-([a-z0-9-]+)\s*:/gu)].map((m) => m[1] as string),
     );
     expect([...declared].sort()).toEqual([...TOKEN_NAMES].sort());
   });

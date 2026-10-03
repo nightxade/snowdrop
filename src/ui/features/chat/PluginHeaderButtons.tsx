@@ -1,11 +1,11 @@
 import { Puzzle } from 'lucide-react';
 import type { ConversationView } from '@/core/domain';
-import { useShrike, useObservableList } from '@/ui/hooks';
+import { useSnowdrop, useObservableList } from '@/ui/hooks';
 import { IconButton, isRenderableComponent, PluginBoundary } from '@/ui/primitives';
 
 /** Header buttons contributed by plugins (ctx.headerBar.addButton), each isolated. */
 export function PluginHeaderButtons({ conversation }: { conversation: ConversationView }) {
-  const { registries } = useShrike();
+  const { registries } = useSnowdrop();
   const buttons = useObservableList(registries.headerButtons);
   const visible = buttons.filter((b) => registries.isVisible(b, conversation, 'header button'));
   if (visible.length === 0) return null;

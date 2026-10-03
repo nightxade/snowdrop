@@ -39,7 +39,7 @@ export function SpaceTile({ spaceId, mergeTarget, className, ...rest }: SpaceTil
       selected={selected}
       unread={hasUnread}
       mentions={mentions}
-      hue={`var(--shrike-avatar-${space.hue})`}
+      hue={`var(--snowdrop-avatar-${space.hue})`}
       menu={menu}
       onClick={() => {
         stores.ui.getState().selectSpace(spaceId);

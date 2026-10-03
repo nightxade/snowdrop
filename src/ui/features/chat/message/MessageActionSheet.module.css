@@ -3,27 +3,27 @@
   flex-direction: column;
   width: 100%;
   max-height: 85vh;
-  padding: var(--shrike-space-3) var(--shrike-space-3)
-    calc(var(--shrike-space-5) + env(safe-area-inset-bottom));
+  padding: var(--snowdrop-space-3) var(--snowdrop-space-3)
+    calc(var(--snowdrop-space-5) + env(safe-area-inset-bottom));
   overflow-y: auto;
-  border-radius: var(--shrike-radius-lg) var(--shrike-radius-lg) 0 0;
-  background: var(--shrike-bg-floating);
+  border-radius: var(--snowdrop-radius-lg) var(--snowdrop-radius-lg) 0 0;
+  background: var(--snowdrop-bg-floating);
 }
 
 .grip {
   align-self: center;
   width: 36px;
   height: 4px;
-  margin-bottom: var(--shrike-space-4);
-  border-radius: var(--shrike-radius-full);
-  background: var(--shrike-border-strong);
+  margin-bottom: var(--snowdrop-space-4);
+  border-radius: var(--snowdrop-radius-full);
+  background: var(--snowdrop-border-strong);
 }
 
 .chips {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--shrike-space-3);
-  padding: 0 var(--shrike-space-2) var(--shrike-space-3);
+  gap: var(--snowdrop-space-3);
+  padding: 0 var(--snowdrop-space-2) var(--snowdrop-space-3);
 }
 
 .chip {
@@ -31,45 +31,45 @@
   place-items: center;
   min-width: 48px;
   height: 48px;
-  padding: 0 var(--shrike-space-3);
-  border-radius: var(--shrike-radius-full);
-  background: var(--shrike-bg-elevated);
-  color: var(--shrike-text);
-  font-size: var(--shrike-font-size-emoji);
+  padding: 0 var(--snowdrop-space-3);
+  border-radius: var(--snowdrop-radius-full);
+  background: var(--snowdrop-bg-elevated);
+  color: var(--snowdrop-text);
+  font-size: var(--snowdrop-font-size-emoji);
   line-height: 1;
 }
 
 .chip:last-child {
-  font-size: var(--shrike-font-size-ui);
-  font-weight: var(--shrike-font-weight-medium);
+  font-size: var(--snowdrop-font-size-ui);
+  font-weight: var(--snowdrop-font-weight-medium);
 }
 
 .item {
   display: flex;
   align-items: center;
-  gap: var(--shrike-space-4);
+  gap: var(--snowdrop-space-4);
   min-height: 48px;
-  padding: 0 var(--shrike-space-4);
-  border-radius: var(--shrike-radius-sm);
-  color: var(--shrike-text);
-  font-size: var(--shrike-font-size-message);
-  font-weight: var(--shrike-font-weight-medium);
+  padding: 0 var(--snowdrop-space-4);
+  border-radius: var(--snowdrop-radius-sm);
+  color: var(--snowdrop-text);
+  font-size: var(--snowdrop-font-size-message);
+  font-weight: var(--snowdrop-font-weight-medium);
   text-align: left;
 }
 
 .item:active {
-  background: var(--shrike-bg-active);
+  background: var(--snowdrop-bg-active);
 }
 
 .item[data-danger] {
-  color: var(--shrike-danger);
+  color: var(--snowdrop-danger);
 }
 
 .icon {
   display: grid;
   place-items: center;
   width: 20px;
-  color: var(--shrike-text-muted);
+  color: var(--snowdrop-text-muted);
 }
 
 .item[data-danger] .icon {
@@ -78,13 +78,13 @@
 
 .separator {
   height: 1px;
-  margin: var(--shrike-space-2) var(--shrike-space-4);
+  margin: var(--snowdrop-space-2) var(--snowdrop-space-4);
   border: 0;
-  background: var(--shrike-border);
+  background: var(--snowdrop-border);
 }
 
 .label {
-  padding: var(--shrike-space-3) var(--shrike-space-4) var(--shrike-space-2);
-  color: var(--shrike-text-faint);
-  font-size: var(--shrike-font-size-sm);
+  padding: var(--snowdrop-space-3) var(--snowdrop-space-4) var(--snowdrop-space-2);
+  color: var(--snowdrop-text-faint);
+  font-size: var(--snowdrop-font-size-sm);
 }

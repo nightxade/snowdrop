@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import { useShrike } from '@/ui/hooks';
+import { useSnowdrop } from '@/ui/hooks';
 import { Switch } from '@/ui/primitives';
 import { SettingRow } from '../rows/SettingRow';
 import { SettingsSection } from '../rows/SettingsSection';
@@ -7,7 +7,7 @@ import { useSettingsSection } from '../useSettingsSection';
 import styles from './pages.module.css';
 
 function usePluginEnabled(id: string): [boolean, (on: boolean) => void] {
-  const { plugins } = useShrike();
+  const { plugins } = useSnowdrop();
   const enabled = useSyncExternalStore(
     (fn) => plugins.subscribe(fn),
     () => plugins.get(id)?.enabled ?? false,
@@ -24,7 +24,7 @@ export function PrivacyPage() {
         <SettingRow
           id="privacy.receipts"
           label="Send read receipts"
-          description="When on, people see when you’ve read their messages. Turning it off only stops Shrike sending them: you still see other people’s receipts here (Signal’s own apps hide both)."
+          description="When on, people see when you’ve read their messages. Turning it off only stops Snowdrop sending them: you still see other people’s receipts here (Signal’s own apps hide both)."
           control={(ids) => (
             <Switch
               id={ids.id}
@@ -80,12 +80,12 @@ export function PrivacyPage() {
               under Data &amp; storage.
             </li>
             <li>
-              Shrike has no telemetry. Its fonts and code ship with it, and custom themes and Custom
-              CSS can’t load anything from the internet: such references are removed, and the
+              Snowdrop has no telemetry. Its fonts and code ship with it, and custom themes and
+              Custom CSS can’t load anything from the internet: such references are removed, and the
               installed app blocks third-party requests outright.
             </li>
             <li>
-              Shrike talks only to your signal-cli daemon, and that goes through this app’s own
+              Snowdrop talks only to your signal-cli daemon, and that goes through this app’s own
               address.
             </li>
           </ul>

@@ -1,6 +1,6 @@
 import { Check, ChevronsDownUp, ChevronsUpDown, FolderMinus, Pencil } from 'lucide-react';
 import { useCallback } from 'react';
-import { useShrike } from '@/ui/hooks';
+import { useSnowdrop } from '@/ui/hooks';
 import type { MenuEntry } from '@/ui/primitives';
 import { markSpaceRead } from './useSpaceMenu';
 
@@ -8,7 +8,7 @@ const ICON = 16;
 
 /** Folder tile menu: mark read, expand/collapse, edit (name + colour), dissolve. */
 export function useFolderMenu(folderId: string): () => MenuEntry[] {
-  const app = useShrike();
+  const app = useSnowdrop();
   return useCallback(() => {
     const { stores } = app;
     const folder = stores.spaces

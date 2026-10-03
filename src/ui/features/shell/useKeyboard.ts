@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { describeFocus, useShrike } from '@/ui/hooks';
+import { describeFocus, useSnowdrop } from '@/ui/hooks';
 
 export function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
@@ -26,7 +26,7 @@ export function isEditableTarget(target: EventTarget | null): boolean {
  * nothing's open.
  */
 export function useKeyboard(): void {
-  const { keybinds, stores, registries } = useShrike();
+  const { keybinds, stores, registries } = useSnowdrop();
   useEffect(() => {
     const layers = registries.keyLayers;
     const onCapture = (event: KeyboardEvent) => {

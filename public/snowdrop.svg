@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <path id="c" d="M0 1C7 6 9 21 5.5 29.5 4 33 1.5 34.5 0 36-1.5 34.5-4 33-5.5 29.5-9 21-7 6 0 1Z"/>
+    <path id="s" d="M1 0C12 0 20 12 21 25 21.4 29.5 18.5 31.5 15.5 30 10 26.5 5 16 1 3Z"/>
+    <mask id="gap"><rect x="-32" y="-32" width="64" height="72" fill="#fff"/><use href="#c" fill="#000" stroke="#000" stroke-width="3"/></mask>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="#1b2c3e"/>
+  <path d="M21 14C25 7 32 7 33 15" fill="none" stroke="#5fbf9f" stroke-width="4.5" stroke-linecap="round"/>
+  <g transform="translate(33 19)">
+    <g fill="#fff" mask="url(#gap)"><use href="#s"/><use href="#s" transform="scale(-1 1)"/></g>
+    <use href="#c" fill="#fff"/>
+    <circle cx="0" cy="-0.5" r="4.25" fill="#5fbf9f"/>
+  </g>
+</svg>

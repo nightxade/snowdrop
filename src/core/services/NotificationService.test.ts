@@ -85,7 +85,7 @@ describe('NotificationService', () => {
     expect(shown[0]).toMatchObject({
       title: 'Climbing',
       body: 'Ana Lima: hello',
-      tag: `shrike:${group}`,
+      tag: `snowdrop:${group}`,
     });
   });
 

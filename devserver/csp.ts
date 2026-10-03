@@ -20,7 +20,7 @@ export const CSP = [
 
 export function contentSecurityPolicy(): Plugin {
   return {
-    name: 'shrike:csp',
+    name: 'snowdrop:csp',
     apply: 'build',
     transformIndexHtml: () => [
       {

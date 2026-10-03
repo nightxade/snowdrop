@@ -1,5 +1,5 @@
 /**
- * Every `data-shrike` value in the source is a documented style hook, and
+ * Every `data-snowdrop` value in the source is a documented style hook, and
  * every documented hook exists: Settings → Custom CSS and THEMING.md both
  * come from (or are checked against) `STYLE_HOOKS`.
  */
@@ -20,9 +20,9 @@ const listed = new Set<string>(STYLE_HOOKS.map((h) => h.hook));
 const used = new Map<string, string>();
 for (const file of sources('src')) {
   const text = readFileSync(file, 'utf8');
-  // JSX attributes (data-shrike="x") and prop objects ({ 'data-shrike': 'x' }); not
-  // CSS selectors ([data-shrike='…']), which only look hooks up.
-  for (const m of text.matchAll(/(?<!\[)data-shrike(?:=|['"]\s*:\s*)["']([a-z0-9-]+)["']/gu))
+  // JSX attributes (data-snowdrop="x") and prop objects ({ 'data-snowdrop': 'x' }); not
+  // CSS selectors ([data-snowdrop='…']), which only look hooks up.
+  for (const m of text.matchAll(/(?<!\[)data-snowdrop(?:=|['"]\s*:\s*)["']([a-z0-9-]+)["']/gu))
     used.set(m[1] as string, file);
 }
 
@@ -31,7 +31,7 @@ describe('style hooks', () => {
     expect(used.size).toBeGreaterThan(30);
   });
 
-  it('lists every data-shrike value used in src', () => {
+  it('lists every data-snowdrop value used in src', () => {
     const missing = [...used].filter(([hook]) => !listed.has(hook)).map(([h, f]) => `${h} (${f})`);
     expect(missing).toEqual([]);
   });
@@ -43,7 +43,7 @@ describe('style hooks', () => {
   it('matches the table in THEMING.md', () => {
     const doc = readFileSync('docs/THEMING.md', 'utf8');
     const table = doc.slice(
-      doc.indexOf("**Regions: `[data-shrike='…']`.**"),
+      doc.indexOf("**Regions: `[data-snowdrop='…']`.**"),
       doc.indexOf('**Attributes on those elements:**'),
     );
     const documented = [...table.matchAll(/^\| `([a-z0-9-]+)`/gmu)].map((m) => m[1]);

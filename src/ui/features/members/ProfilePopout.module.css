@@ -3,14 +3,14 @@
   width: 320px;
   max-width: 100%;
   overflow: hidden;
-  border-radius: var(--shrike-radius-md);
+  border-radius: var(--snowdrop-radius-md);
 }
 
 .card[data-variant='sheet'] {
   width: 100%;
   overflow-y: auto;
-  border-radius: var(--shrike-radius-lg) var(--shrike-radius-lg) 0 0;
-  background: var(--shrike-bg-floating);
+  border-radius: var(--snowdrop-radius-lg) var(--snowdrop-radius-lg) 0 0;
+  background: var(--snowdrop-bg-floating);
   /* Clear the home indicator on phones. */
   padding-bottom: env(safe-area-inset-bottom);
 }
@@ -18,98 +18,98 @@
 .header {
   display: flex;
   align-items: center;
-  gap: var(--shrike-space-4);
-  padding: var(--shrike-space-5);
-  border-bottom: 1px solid var(--shrike-border);
+  gap: var(--snowdrop-space-4);
+  padding: var(--snowdrop-space-5);
+  border-bottom: 1px solid var(--snowdrop-border);
   /* A wash of the contact's colour, strong enough to identify, quiet enough to read on. */
-  background: color-mix(in oklab, var(--tint) 22%, var(--shrike-bg-floating));
+  background: color-mix(in oklab, var(--tint) 22%, var(--snowdrop-bg-floating));
 }
 
 .names {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: var(--shrike-space-1);
+  gap: var(--snowdrop-space-1);
   min-width: 0;
 }
 
 .role {
-  margin-top: var(--shrike-space-2);
-  padding: 2px var(--shrike-space-3);
-  border-radius: var(--shrike-radius-full);
-  background: var(--shrike-bg-active);
-  color: var(--shrike-text);
-  font-size: var(--shrike-font-size-xs);
-  font-weight: var(--shrike-font-weight-semibold);
+  margin-top: var(--snowdrop-space-2);
+  padding: 2px var(--snowdrop-space-3);
+  border-radius: var(--snowdrop-radius-full);
+  background: var(--snowdrop-bg-active);
+  color: var(--snowdrop-text);
+  font-size: var(--snowdrop-font-size-xs);
+  font-weight: var(--snowdrop-font-weight-semibold);
 }
 
 .body {
   display: flex;
   flex-direction: column;
-  gap: var(--shrike-space-5);
-  padding: var(--shrike-space-5);
+  gap: var(--snowdrop-space-5);
+  padding: var(--snowdrop-space-5);
 }
 
 .name {
-  color: var(--shrike-text-strong);
-  font-size: var(--shrike-font-size-header);
-  font-weight: var(--shrike-font-weight-bold);
+  color: var(--snowdrop-text-strong);
+  font-size: var(--snowdrop-font-size-header);
+  font-weight: var(--snowdrop-font-weight-bold);
   line-height: 1.3;
   overflow-wrap: anywhere;
 }
 
 .profileName {
-  color: var(--shrike-text);
-  font-size: var(--shrike-font-size-ui);
+  color: var(--snowdrop-text);
+  font-size: var(--snowdrop-font-size-ui);
 }
 
 .about {
-  padding: var(--shrike-space-4);
-  border-radius: var(--shrike-radius-sm);
-  background: var(--shrike-bg-hover);
-  color: var(--shrike-text);
-  font-size: var(--shrike-font-size-ui);
+  padding: var(--snowdrop-space-4);
+  border-radius: var(--snowdrop-radius-sm);
+  background: var(--snowdrop-bg-hover);
+  color: var(--snowdrop-text);
+  font-size: var(--snowdrop-font-size-ui);
   line-height: 1.45;
 }
 
 .facts {
   display: flex;
   justify-content: space-between;
-  gap: var(--shrike-space-4);
-  font-size: var(--shrike-font-size-sm);
+  gap: var(--snowdrop-space-4);
+  font-size: var(--snowdrop-font-size-sm);
 }
 
 .facts dt {
-  color: var(--shrike-text-muted);
+  color: var(--snowdrop-text-muted);
 }
 
 .facts dd {
   margin: 0;
-  color: var(--shrike-text);
+  color: var(--snowdrop-text);
   font-variant-numeric: tabular-nums;
 }
 
 .actions {
   display: flex;
   flex-direction: column;
-  gap: var(--shrike-space-3);
+  gap: var(--snowdrop-space-3);
 }
 
 .note {
   display: flex;
   flex-direction: column;
-  gap: var(--shrike-space-2);
+  gap: var(--snowdrop-space-2);
 }
 
 .noteLabel {
-  color: var(--shrike-text-muted);
-  font-size: var(--shrike-font-size-sm);
-  font-weight: var(--shrike-font-weight-semibold);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
+  font-weight: var(--snowdrop-font-weight-semibold);
 }
 
 .noteHint {
-  color: var(--shrike-text-faint);
-  font-weight: var(--shrike-font-weight-regular);
+  color: var(--snowdrop-text-faint);
+  font-weight: var(--snowdrop-font-weight-regular);
   letter-spacing: normal;
   text-transform: none;
 }
@@ -117,39 +117,39 @@
 .noteInput {
   width: 100%;
   min-height: 40px;
-  padding: var(--shrike-space-3);
+  padding: var(--snowdrop-space-3);
   border: 1px solid transparent;
-  border-radius: var(--shrike-radius-xs);
+  border-radius: var(--snowdrop-radius-xs);
   background: transparent;
-  color: var(--shrike-text);
-  font-size: var(--shrike-font-size-sm);
+  color: var(--snowdrop-text);
+  font-size: var(--snowdrop-font-size-sm);
   line-height: 1.4;
   resize: vertical;
   transition:
-    background-color var(--shrike-duration-fast) var(--shrike-ease),
-    border-color var(--shrike-duration-fast) var(--shrike-ease);
+    background-color var(--snowdrop-duration-fast) var(--snowdrop-ease),
+    border-color var(--snowdrop-duration-fast) var(--snowdrop-ease);
 }
 
 .noteInput:hover {
-  background: var(--shrike-bg-hover);
+  background: var(--snowdrop-bg-hover);
 }
 
 .noteInput:focus {
-  border-color: var(--shrike-accent);
-  background: var(--shrike-bg-input);
+  border-color: var(--snowdrop-accent);
+  background: var(--snowdrop-bg-input);
 }
 
 .noteInput::placeholder {
-  color: var(--shrike-text-faint);
+  color: var(--snowdrop-text-faint);
 }
 
 .pluginActions {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--shrike-space-2);
-  margin-top: calc(-1 * var(--shrike-space-2));
+  gap: var(--snowdrop-space-2);
+  margin-top: calc(-1 * var(--snowdrop-space-2));
 }
 
 .dangerAction {
-  color: var(--shrike-danger);
+  color: var(--snowdrop-danger);
 }

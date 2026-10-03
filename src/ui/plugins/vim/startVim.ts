@@ -21,17 +21,17 @@ import { makeVimKeysPanel } from './VimKeysPanel';
  * Stable hooks only.
  */
 const CARET_CSS = `
-[data-shrike='composer']:has([data-vim-mode='normal']) [data-shrike='composer-input'],
-[data-shrike='composer']:has([data-vim-mode^='visual']) [data-shrike='composer-input'] {
+[data-snowdrop='composer']:has([data-vim-mode='normal']) [data-snowdrop='composer-input'],
+[data-snowdrop='composer']:has([data-vim-mode^='visual']) [data-snowdrop='composer-input'] {
   caret-color: transparent;
 }
-[data-shrike='composer']:has([data-vim-mode='normal']) [data-shrike='composer-input']::selection {
+[data-snowdrop='composer']:has([data-vim-mode='normal']) [data-snowdrop='composer-input']::selection {
   background: transparent;
   color: inherit;
 }
-[data-shrike='composer']:has([data-vim-mode^='visual']) [data-shrike='composer-input']::selection {
-  background: color-mix(in srgb, var(--shrike-accent) 40%, transparent);
-  color: var(--shrike-text-strong);
+[data-snowdrop='composer']:has([data-vim-mode^='visual']) [data-snowdrop='composer-input']::selection {
+  background: color-mix(in srgb, var(--snowdrop-accent) 40%, transparent);
+  color: var(--snowdrop-text-strong);
 }`;
 
 export function startVim(ctx: PluginContext<typeof settings>): void {

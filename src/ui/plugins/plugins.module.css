@@ -7,8 +7,8 @@
 }
 
 .relative {
-  color: var(--shrike-text-faint);
-  font-size: var(--shrike-font-size-xs);
+  color: var(--snowdrop-text-faint);
+  font-size: var(--snowdrop-font-size-xs);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -20,11 +20,11 @@
   height: 18px;
   padding: 0 6px;
   overflow: hidden;
-  border: 1px solid var(--shrike-border-strong);
-  border-radius: var(--shrike-radius-xs);
-  color: var(--shrike-text-muted);
-  font-size: var(--shrike-font-size-xs);
-  font-weight: var(--shrike-font-weight-medium);
+  border: 1px solid var(--snowdrop-border-strong);
+  border-radius: var(--snowdrop-radius-xs);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-xs);
+  font-weight: var(--snowdrop-font-weight-medium);
   line-height: 1;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -49,11 +49,11 @@
   gap: 3px;
   height: 18px;
   padding: 0 6px;
-  border: 1px solid var(--shrike-accent-text);
-  border-radius: var(--shrike-radius-full);
-  color: var(--shrike-accent-text);
-  font-size: var(--shrike-font-size-xs);
-  font-weight: var(--shrike-font-weight-semibold);
+  border: 1px solid var(--snowdrop-accent-text);
+  border-radius: var(--snowdrop-radius-full);
+  color: var(--snowdrop-accent-text);
+  font-size: var(--snowdrop-font-size-xs);
+  font-weight: var(--snowdrop-font-weight-semibold);
   white-space: nowrap;
 }
 

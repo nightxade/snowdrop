@@ -2,23 +2,23 @@ import { ChevronDown, Search } from 'lucide-react';
 import { useStore } from 'zustand';
 import { CoreCommand } from '@/core/commands';
 import { HOME, uiSelectors } from '@/core/stores';
-import { useShrike, useKeybindLabel } from '@/ui/hooks';
+import { useSnowdrop, useKeybindLabel } from '@/ui/hooks';
 import { useSpaceMenu } from '@/ui/features/spaces';
 import { DropdownMenu, Tooltip } from '@/ui/primitives';
 import styles from './SidebarHeader.module.css';
 
 export function SidebarHeader() {
-  const { stores } = useShrike();
+  const { stores } = useSnowdrop();
   const space = useStore(stores.ui, uiSelectors.selectedSpace);
   return (
-    <header className={styles.header} data-shrike="sidebar-header">
+    <header className={styles.header} data-snowdrop="sidebar-header">
       {space === HOME ? <FindButton /> : <SpaceTitle spaceId={space} />}
     </header>
   );
 }
 
 function FindButton() {
-  const { commands } = useShrike();
+  const { commands } = useSnowdrop();
   const shortcut = useKeybindLabel(CoreCommand.QuickSwitcher);
   // The label needs the full width at 248px, so the shortcut lives in the tooltip.
   return (
@@ -38,7 +38,7 @@ function FindButton() {
 }
 
 function SpaceTitle({ spaceId }: { spaceId: string }) {
-  const { stores } = useShrike();
+  const { stores } = useSnowdrop();
   const space = useStore(stores.spaces, (s) => s.spaces[spaceId]);
   const menu = useSpaceMenu(spaceId);
   if (!space) return null;

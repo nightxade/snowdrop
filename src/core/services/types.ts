@@ -53,5 +53,5 @@ export const PASSTHROUGH_PIPELINE: DraftPipeline = {
 export type ErrorReporter = (error: unknown, context: string) => void;
 
 export const consoleReporter: ErrorReporter = (error, context) => {
-  console.error(`[shrike] ${context}`, error);
+  console.error(`[snowdrop] ${context}`, error);
 };

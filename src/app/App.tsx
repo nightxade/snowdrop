@@ -9,57 +9,57 @@ const ConnectionSetup = lazy(() =>
   import('@/ui/features/onboarding').then((m) => ({ default: m.ConnectionSetup })),
 );
 import { AppShell } from '@/ui/features/shell';
-import type { Shrike } from './createShrike';
-import { useShrike } from './ShrikeProvider';
+import type { Snowdrop } from './createSnowdrop';
+import { useSnowdrop } from './SnowdropProvider';
 
-const started = new WeakSet<Shrike>();
+const started = new WeakSet<Snowdrop>();
 
-/** Starts a Shrike instance once, whatever StrictMode does to effects. */
-export function startOnce(shrike: Shrike): void {
-  if (started.has(shrike)) return;
-  started.add(shrike);
-  shrike.start().catch((error: unknown) => {
+/** Starts a Snowdrop instance once, whatever StrictMode does to effects. */
+export function startOnce(snowdrop: Snowdrop): void {
+  if (started.has(snowdrop)) return;
+  started.add(snowdrop);
+  snowdrop.start().catch((error: unknown) => {
     // The session store carries the error; the shell shows it with a retry.
-    console.error('[shrike] failed to start', error);
+    console.error('[snowdrop] failed to start', error);
   });
 }
 
 export interface AppProps {
   /**
    * Called when the chosen backend differs from the running instance's
-   * (createShrike picks the transport once). The browser entry reloads.
+   * (createSnowdrop picks the transport once). The browser entry reloads.
    */
   onBackendChange?: () => void;
 }
 
 /** First run shows the welcome screen; afterwards the shell boots straight into the chosen backend. */
 export function App({ onBackendChange }: AppProps) {
-  const shrike = useShrike();
-  const choice = useStore(shrike.stores.settings, (s) => s.connection.backend);
-  const daemonUrl = useStore(shrike.stores.settings, (s) => s.connection.daemonUrl);
-  const matches = choice !== null && choice === shrike.backend.kind;
-  const errorKind = useStore(shrike.stores.session, (s) => s.errorKind);
-  const ready = useStore(shrike.stores.session, (s) => s.ready);
+  const snowdrop = useSnowdrop();
+  const choice = useStore(snowdrop.stores.settings, (s) => s.connection.backend);
+  const daemonUrl = useStore(snowdrop.stores.settings, (s) => s.connection.daemonUrl);
+  const matches = choice !== null && choice === snowdrop.backend.kind;
+  const errorKind = useStore(snowdrop.stores.session, (s) => s.errorKind);
+  const ready = useStore(snowdrop.stores.session, (s) => s.ready);
 
   useEffect(() => {
     if (choice === null) return;
-    if (matches) startOnce(shrike);
+    if (matches) startOnce(snowdrop);
     else onBackendChange?.();
-  }, [choice, matches, shrike, onBackendChange]);
+  }, [choice, matches, snowdrop, onBackendChange]);
 
   if (choice === null) {
     const choose = (backend: BackendKind, url?: string) => {
-      shrike.stores.settings
+      snowdrop.stores.settings
         .getState()
         .update('connection', { backend, ...(url !== undefined ? { daemonUrl: url } : {}) });
       // Persist before a possible reload.
-      shrike.flush();
+      snowdrop.flush();
     };
     return (
       <Suspense fallback={null}>
         <Welcome
           defaultDaemonUrl={daemonUrl}
-          probe={(url) => shrike.admin.probeDaemon(url)}
+          probe={(url) => snowdrop.admin.probeDaemon(url)}
           onDemo={() => {
             choose('mock');
           }}
@@ -74,29 +74,29 @@ export function App({ onBackendChange }: AppProps) {
   if (
     matches &&
     !ready &&
-    shrike.backend.kind === 'signal-cli' &&
+    snowdrop.backend.kind === 'signal-cli' &&
     (errorKind === 'no-account' || errorKind === 'account-required')
   ) {
     return (
       <Suspense fallback={null}>
         <ConnectionSetup
           reason={errorKind}
-          link={shrike.backend.link}
+          link={snowdrop.backend.link}
           onLinked={() => {
             // The adapter now knows the account; retry the start that failed.
-            shrike.start().catch((error: unknown) => {
-              console.error('[shrike] failed to start after linking', error);
+            snowdrop.start().catch((error: unknown) => {
+              console.error('[snowdrop] failed to start after linking', error);
             });
           }}
           onAccount={(account) => {
-            shrike.stores.settings.getState().update('connection', { account });
+            snowdrop.stores.settings.getState().update('connection', { account });
             // The adapter reads the account once, at construction.
-            shrike.flush();
+            snowdrop.flush();
             onBackendChange?.();
           }}
           onBack={() => {
-            shrike.stores.settings.getState().update('connection', { backend: null });
-            shrike.flush();
+            snowdrop.stores.settings.getState().update('connection', { backend: null });
+            snowdrop.flush();
           }}
         />
       </Suspense>

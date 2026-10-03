@@ -2,25 +2,25 @@
   display: flex;
   flex: none;
   flex-direction: column;
-  width: var(--shrike-rail-width);
+  width: var(--snowdrop-rail-width);
   height: 100%;
-  background: var(--shrike-bg-rail);
+  background: var(--snowdrop-bg-rail);
 }
 
 .scroller {
   flex: 1;
-  padding: var(--shrike-space-4) 0;
+  padding: var(--snowdrop-space-4) 0;
 }
 
 .separator {
   width: 32px;
   height: 2px;
-  margin: var(--shrike-space-2) auto;
-  border-radius: var(--shrike-radius-full);
-  background: var(--shrike-border-strong);
+  margin: var(--snowdrop-space-2) auto;
+  border-radius: var(--snowdrop-radius-full);
+  background: var(--snowdrop-border-strong);
 }
 
 .dropTarget {
-  outline: 2px solid var(--shrike-text-strong);
+  outline: 2px solid var(--snowdrop-text-strong);
   outline-offset: 4px;
 }

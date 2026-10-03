@@ -17,7 +17,7 @@ import {
   spacesSelectors,
   uiSelectors,
 } from '@/core/stores';
-import { conversationFocusTarget, useNow, useShrike } from '@/ui/hooks';
+import { conversationFocusTarget, useNow, useSnowdrop } from '@/ui/hooks';
 import { Badge, Kbd, Modal } from '@/ui/primitives';
 import {
   CommandPalette,
@@ -77,7 +77,7 @@ export function QuickSwitcher({
   /** Starts in a scope, e.g. ">" for commands (the command palette). */
   initialQuery?: string | undefined;
 }) {
-  const app = useShrike();
+  const app = useSnowdrop();
   const { stores, commands } = app;
   const byId = useStore(stores.conversations, (s) => s.byId);
   const local = useStore(stores.local, (s) => s.conversations);
@@ -146,7 +146,7 @@ export function QuickSwitcher({
     } else if (item.kind === 'space') {
       ui.selectSpace(item.id);
       target.current = () =>
-        document.querySelector<HTMLElement>(`[data-shrike='rail'] [aria-current='page']`);
+        document.querySelector<HTMLElement>(`[data-snowdrop='rail'] [aria-current='page']`);
       onClose();
     } else {
       // Close first: the command may open its own dialog (settings, shortcuts…).
@@ -278,7 +278,7 @@ function ItemIcon({ item }: { item: SwitcherItem }) {
     return (
       <span
         className={styles.spaceGlyph}
-        style={{ '--tile-hue': `var(--shrike-avatar-${item.hue})` } as CSSProperties}
+        style={{ '--tile-hue': `var(--snowdrop-avatar-${item.hue})` } as CSSProperties}
       >
         {item.emoji ?? initialsFor(item.title).slice(0, 2)}
       </span>

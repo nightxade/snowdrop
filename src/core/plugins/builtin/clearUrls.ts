@@ -91,7 +91,7 @@ export const clearUrlsPlugin = definePlugin({
   id: 'clear-urls',
   name: 'Clear URLs',
   description: 'Strips tracking parameters (utm_*, fbclid, …) from links you send.',
-  authors: ['shrike'],
+  authors: ['snowdrop'],
   tags: ['privacy', 'messages'],
   enabledByDefault: true,
   settings: defineSettings({

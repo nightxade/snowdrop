@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import type { SpaceId } from '@/core/stores';
-import { useShrike } from '@/ui/hooks';
+import { useSnowdrop } from '@/ui/hooks';
 import { Button, Modal } from '@/ui/primitives';
 import type { ConversationId } from '@/core/domain';
 import { ConversationChecklist } from './ConversationChecklist';
 import { SpaceForm, type SpaceDraft } from './SpaceForm';
 
 export function EditSpaceDialog({ spaceId, onClose }: { spaceId: SpaceId; onClose: () => void }) {
-  const app = useShrike();
+  const app = useSnowdrop();
   const space = app.stores.spaces.getState().spaces[spaceId];
   const [draft, setDraft] = useState<SpaceDraft>(() => ({
     name: space?.name ?? '',

@@ -19,7 +19,7 @@ const settings = defineSettings({
 });
 
 /** Hides the core header time (stable hook: <time data-variant="header"> in a message). */
-const HIDE_ABSOLUTE = `[data-shrike='message'] time[data-variant='header'] { display: none; }`;
+const HIDE_ABSOLUTE = `[data-snowdrop='message'] time[data-variant='header'] { display: none; }`;
 
 function makeDecoration(ctx: PluginContext<typeof settings>) {
   const subscribe = (fn: () => void) => ctx.stores.settings.subscribe(fn);
@@ -44,7 +44,7 @@ export const relativeTimestampsPlugin = definePlugin({
   id: 'relative-timestamps',
   name: 'Relative Timestamps',
   description: 'Shows “3m ago” next to names, with the exact time on hover. Updates every minute.',
-  authors: ['shrike'],
+  authors: ['snowdrop'],
   tags: ['appearance', 'messages'],
   settings,
   start(ctx) {

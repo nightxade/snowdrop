@@ -1,9 +1,9 @@
 /**
  * Development-only helpers (never installed in production builds):
- * - `window.__shrike` — the running instance, for poking at state.
- * - `__shrike.stress(n)` / `?stress=5000` — backfills n synthetic messages
+ * - `window.__snowdrop` — the running instance, for poking at state.
+ * - `__snowdrop.stress(n)` / `?stress=5000` — backfills n synthetic messages
  *   into the open (or first group) conversation, to profile scrolling.
- * - `__shrike.failNext()` — the demo backend rejects its next command, to
+ * - `__snowdrop.failNext()` — the demo backend rejects its next command, to
  *   see failure states (e.g. a failed send with Retry).
  */
 import { MockBackend } from '@/core/backend/mock';
@@ -15,7 +15,7 @@ import {
   type Message,
 } from '@/core/domain';
 import { uiSelectors } from '@/core/stores';
-import type { Shrike } from './createShrike';
+import type { Snowdrop } from './createSnowdrop';
 
 const LINES = [
   'Pushed the fix, can someone **review**?',
@@ -30,8 +30,8 @@ const LINES = [
   '~~Friday~~ Saturday then',
 ];
 
-async function stress(shrike: Shrike, count: number): Promise<ConversationId | null> {
-  const { stores, repository, history } = shrike;
+async function stress(snowdrop: Snowdrop, count: number): Promise<ConversationId | null> {
+  const { stores, repository, history } = snowdrop;
   const ui = stores.ui.getState();
   const conversations = Object.values(stores.conversations.getState().byId);
   const target =
@@ -66,24 +66,24 @@ async function stress(shrike: Shrike, count: number): Promise<ConversationId | n
   return target.id;
 }
 
-export function installDevTools(shrike: Shrike): void {
+export function installDevTools(snowdrop: Snowdrop): void {
   const tools = {
-    shrike,
-    stress: (count = 5000) => stress(shrike, count),
+    snowdrop,
+    stress: (count = 5000) => stress(snowdrop, count),
     failNext: () => {
-      void shrike.backendReady.then((backend) => {
+      void snowdrop.backendReady.then((backend) => {
         if (backend instanceof MockBackend) backend.failNext();
       });
     },
   };
-  Object.assign(window, { __shrike: tools });
+  Object.assign(window, { __snowdrop: tools });
   const count = Number(new URLSearchParams(window.location.search).get('stress'));
   if (count > 0) {
-    const unsubscribe = shrike.stores.session.subscribe((s) => {
+    const unsubscribe = snowdrop.stores.session.subscribe((s) => {
       if (!s.ready) return;
       unsubscribe();
-      void stress(shrike, count).then((id) => {
-        if (id) shrike.stores.ui.getState().selectConversation(id);
+      void stress(snowdrop, count).then((id) => {
+        if (id) snowdrop.stores.ui.getState().selectConversation(id);
       });
     });
   }

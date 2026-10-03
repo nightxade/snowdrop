@@ -5,13 +5,13 @@ import { FakeDaemon, flush } from '@/core/backend/signal-cli/testing';
 import { ManualScheduler } from '@/core/lib';
 import { createMemoryStorage, loadVersioned, MemoryMessageRepository } from '@/core/persistence';
 import { settingsSchema, spacesSelectors } from '@/core/stores';
-import { createShrike } from './createShrike';
+import { createSnowdrop } from './createSnowdrop';
 import { deferredRepository } from './deferredRepository';
 
-describe('createShrike with signal-cli', () => {
+describe('createSnowdrop with signal-cli', () => {
   it('picks the signal-cli backend from settings and remembers the account', async () => {
     const storage = createMemoryStorage({
-      'shrike.settings': JSON.stringify({
+      'snowdrop.settings': JSON.stringify({
         v: 2,
         data: { connection: { backend: 'signal-cli', daemonUrl: '/signal-cli', account: null } },
       }),
@@ -21,24 +21,24 @@ describe('createShrike with signal-cli', () => {
       .reply('listContacts', [])
       .reply('listGroups', []);
     const scheduler = new ManualScheduler(Date.now());
-    const shrike = createShrike({
+    const snowdrop = createSnowdrop({
       storage,
       fetch: daemon.fetch,
       repository: new MemoryMessageRepository(),
       clock: scheduler,
       scheduler,
     });
-    expect(shrike.backend.kind).toBe('signal-cli');
-    await shrike.start();
+    expect(snowdrop.backend.kind).toBe('signal-cli');
+    await snowdrop.start();
     await flush();
-    expect(shrike.stores.session.getState().self?.id).toBe(SELF_ACI);
-    expect(shrike.stores.settings.getState().connection.account).toBe(SELF_ACI);
-    shrike.flush();
+    expect(snowdrop.stores.session.getState().self?.id).toBe(SELF_ACI);
+    expect(snowdrop.stores.settings.getState().connection.account).toBe(SELF_ACI);
+    snowdrop.flush();
     expect(loadVersioned(storage, settingsSchema).connection.account).toBe(SELF_ACI);
     // No demo spaces on a real account.
-    expect(spacesSelectors.orderedIds(shrike.stores.spaces.getState())).toHaveLength(0);
-    await shrike.dispose();
-    expect(shrike.stores.session.getState().status).toBe('offline');
+    expect(spacesSelectors.orderedIds(snowdrop.stores.spaces.getState())).toHaveLength(0);
+    await snowdrop.dispose();
+    expect(snowdrop.stores.session.getState().status).toBe('offline');
   });
 });
 

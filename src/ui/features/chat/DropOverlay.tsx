@@ -54,7 +54,7 @@ export function useFileDrop(onFiles: (files: File[]) => void) {
 
 export function DropOverlay({ target }: { target: string }) {
   return (
-    <div className={styles.overlay} aria-hidden data-shrike="drop-overlay">
+    <div className={styles.overlay} aria-hidden data-snowdrop="drop-overlay">
       <div className={styles.card}>
         <span className={styles.icon}>
           <Upload size={28} />

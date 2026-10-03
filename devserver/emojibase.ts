@@ -34,7 +34,7 @@ export function emojibaseAssets(): Plugin {
     res.end(read(file));
   };
   return {
-    name: 'shrike:emojibase-assets',
+    name: 'snowdrop:emojibase-assets',
     configureServer(server) {
       server.middlewares.use(`/${EMOJIBASE_PATH}`, serve);
     },

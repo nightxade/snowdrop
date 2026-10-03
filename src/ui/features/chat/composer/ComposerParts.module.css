@@ -1,12 +1,12 @@
 .tray {
   display: flex;
-  gap: var(--shrike-space-4);
+  gap: var(--snowdrop-space-4);
   margin: 0;
-  padding: var(--shrike-space-4) var(--shrike-space-4) var(--shrike-space-3);
+  padding: var(--snowdrop-space-4) var(--snowdrop-space-4) var(--snowdrop-space-3);
   overflow-x: auto;
-  border-bottom: 1px solid var(--shrike-border);
+  border-bottom: 1px solid var(--snowdrop-border);
   list-style: none;
-  scrollbar-color: var(--shrike-scrollbar-thumb) transparent;
+  scrollbar-color: var(--snowdrop-scrollbar-thumb) transparent;
   scrollbar-width: thin;
 }
 
@@ -15,11 +15,11 @@
   display: flex;
   flex: none;
   flex-direction: column;
-  gap: var(--shrike-space-1);
+  gap: var(--snowdrop-space-1);
   width: 136px;
-  padding: var(--shrike-space-3);
-  border-radius: var(--shrike-radius-sm);
-  background: var(--shrike-bg-elevated);
+  padding: var(--snowdrop-space-3);
+  border-radius: var(--snowdrop-radius-sm);
+  background: var(--snowdrop-bg-elevated);
 }
 
 .preview {
@@ -27,8 +27,8 @@
   place-items: center;
   height: 96px;
   overflow: hidden;
-  border-radius: var(--shrike-radius-xs);
-  background: var(--shrike-bg-chat);
+  border-radius: var(--snowdrop-radius-xs);
+  background: var(--snowdrop-bg-chat);
 }
 
 .thumb {
@@ -38,48 +38,48 @@
 }
 
 .fileIcon {
-  color: var(--shrike-accent-text);
+  color: var(--snowdrop-accent-text);
 }
 
 .fileName {
   overflow: hidden;
-  margin-top: var(--shrike-space-2);
-  color: var(--shrike-text);
-  font-size: var(--shrike-font-size-sm);
-  font-weight: var(--shrike-font-weight-medium);
+  margin-top: var(--snowdrop-space-2);
+  color: var(--snowdrop-text);
+  font-size: var(--snowdrop-font-size-sm);
+  font-weight: var(--snowdrop-font-weight-medium);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .fileSize {
-  color: var(--shrike-text-faint);
-  font-size: var(--shrike-font-size-xs);
+  color: var(--snowdrop-text-faint);
+  font-size: var(--snowdrop-font-size-xs);
 }
 
 .tile .remove {
   position: absolute;
   top: -6px;
   right: -6px;
-  background: var(--shrike-bg-floating);
-  box-shadow: var(--shrike-shadow-menu);
+  background: var(--snowdrop-bg-floating);
+  box-shadow: var(--snowdrop-shadow-menu);
 }
 
 .tile .remove:hover:not(:disabled) {
-  background: var(--shrike-danger);
-  color: var(--shrike-text-on-danger);
+  background: var(--snowdrop-danger);
+  color: var(--snowdrop-text-on-danger);
 }
 
 .reply {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--shrike-space-3);
+  gap: var(--snowdrop-space-3);
   height: 36px;
-  padding: 0 var(--shrike-space-3) 0 var(--shrike-space-4);
-  border-radius: var(--shrike-radius-md) var(--shrike-radius-md) 0 0;
-  background: var(--shrike-bg-elevated);
-  color: var(--shrike-text-muted);
-  font-size: var(--shrike-font-size-sm);
+  padding: 0 var(--snowdrop-space-3) 0 var(--snowdrop-space-4);
+  border-radius: var(--snowdrop-radius-md) var(--snowdrop-radius-md) 0 0;
+  background: var(--snowdrop-bg-elevated);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
 }
 
 .replyText {
@@ -89,20 +89,20 @@
 }
 
 .replyName {
-  color: color-mix(in oklab, var(--name-color) 55%, var(--shrike-text-strong));
-  font-weight: var(--shrike-font-weight-semibold);
+  color: color-mix(in oklab, var(--name-color) 55%, var(--snowdrop-text-strong));
+  font-weight: var(--snowdrop-font-weight-semibold);
 }
 
 .typing {
   display: flex;
   align-items: center;
-  gap: var(--shrike-space-3);
+  gap: var(--snowdrop-space-3);
   height: 24px;
-  padding: 0 var(--shrike-space-2);
+  padding: 0 var(--snowdrop-space-2);
   overflow: hidden;
-  color: var(--shrike-text-muted);
-  font-size: var(--shrike-font-size-sm);
-  font-weight: var(--shrike-font-weight-medium);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
+  font-weight: var(--snowdrop-font-weight-medium);
 }
 
 .typingText {

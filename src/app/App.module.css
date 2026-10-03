@@ -1,19 +1,19 @@
 .root {
   display: grid;
   place-content: center;
-  gap: var(--shrike-space-3);
+  gap: var(--snowdrop-space-3);
   min-height: 100%;
   text-align: center;
-  background: var(--shrike-bg-chat);
+  background: var(--snowdrop-bg-chat);
 }
 
 .title {
-  font-size: var(--shrike-font-size-display);
-  font-weight: var(--shrike-font-weight-semibold);
-  color: var(--shrike-text-strong);
+  font-size: var(--snowdrop-font-size-display);
+  font-weight: var(--snowdrop-font-weight-semibold);
+  color: var(--snowdrop-text-strong);
 }
 
 .meta {
-  color: var(--shrike-text-muted);
-  font-size: var(--shrike-font-size-ui);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-ui);
 }

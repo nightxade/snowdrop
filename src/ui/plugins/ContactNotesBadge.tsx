@@ -61,7 +61,7 @@ function makeBadge(ctx: PluginContext<typeof settings>) {
         <span
           className={styles.note}
           data-style={ctx.settings.get('style')}
-          data-shrike="note-badge"
+          data-snowdrop="note-badge"
           tabIndex={0}
           aria-label={`Your note: ${note.trim()}`}
         >
@@ -77,7 +77,7 @@ export const contactNotesBadgePlugin = definePlugin({
   name: 'Pronoun & Notes Badge',
   description:
     'Shows the first line of your private note about someone (pronouns, a nickname, how you know them) next to their name.',
-  authors: ['shrike'],
+  authors: ['snowdrop'],
   tags: ['appearance', 'messages'],
   settings,
   start(ctx) {

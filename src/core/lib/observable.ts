@@ -40,7 +40,7 @@ export class ObservableList<T> {
       try {
         fn();
       } catch (error) {
-        console.error('[shrike] registry subscriber failed', error);
+        console.error('[snowdrop] registry subscriber failed', error);
       }
     }
   }

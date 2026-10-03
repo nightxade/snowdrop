@@ -2,7 +2,7 @@ import { ChevronRight, RotateCcw, ShieldAlert, TriangleAlert } from 'lucide-reac
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import { removedSummary, sanitizeUserCss, STYLE_HOOKS, TOKEN_NAMES } from '@/core/themes';
-import { useShrike } from '@/ui/hooks';
+import { useSnowdrop } from '@/ui/hooks';
 import { Button } from '@/ui/primitives';
 import { CodeEditor } from '@/ui/primitives/CodeEditor';
 import { SettingRow } from '../rows/SettingRow';
@@ -12,16 +12,16 @@ import styles from './customcss.module.css';
 const APPLY_DELAY_MS = 300;
 
 const PLACEHOLDER = `/* Example: roomier messages and a softer mention tint */
-[data-shrike='message'] {
+[data-snowdrop='message'] {
   padding-block: 4px;
 }
 
 :root {
-  --shrike-mention-bg: rgba(212, 116, 74, 0.06);
+  --snowdrop-mention-bg: rgba(95, 191, 159, 0.06);
 }`;
 
 export function CustomCssPage() {
-  const { stores, safeMode } = useShrike();
+  const { stores, safeMode } = useSnowdrop();
   const saved = useStore(stores.settings, (s) => s.customCss);
   const [draft, setDraft] = useState(saved);
   const [pending, setPending] = useState(false);
@@ -61,14 +61,14 @@ export function CustomCssPage() {
       {safeMode && (
         <p className={styles.safe} role="status">
           <ShieldAlert size={16} aria-hidden />
-          Safe mode is on: this CSS isn’t applied until you reload Shrike normally.
+          Safe mode is on: this CSS isn’t applied until you reload Snowdrop normally.
         </p>
       )}
       <SettingsSection>
         <SettingRow
           id="custom-css.editor"
           label="Editor"
-          description="Applied live, a moment after you stop typing. Tab indents; press Esc to Tab out. If something makes Shrike unusable, reload with Shift held (or add ?safe=1 to the address) to start without your CSS and themes."
+          description="Applied live, a moment after you stop typing. Tab indents; press Esc to Tab out. If something makes Snowdrop unusable, reload with Shift held (or add ?safe=1 to the address) to start without your CSS and themes."
           stacked
           control={
             <div className={styles.editorWrap}>
@@ -116,7 +116,7 @@ export function CustomCssPage() {
               <>
                 <TriangleAlert size={14} aria-hidden />
                 {summary} (@import, url(), image-set()). Custom CSS can’t load anything from the
-                internet: that would tell other servers when you use Shrike. Paste styles in
+                internet: that would tell other servers when you use Snowdrop. Paste styles in
                 directly; images can be data: URLs.
               </>
             ) : undefined
@@ -131,7 +131,7 @@ export function CustomCssPage() {
             <div className={styles.helpBody}>
               <p>
                 Class names change between versions; these don’t. Target regions with{' '}
-                <code>[data-shrike='name']</code>:
+                <code>[data-snowdrop='name']</code>:
               </p>
               <dl className={styles.hooks}>
                 {STYLE_HOOKS.map((h) => (
@@ -144,11 +144,12 @@ export function CustomCssPage() {
                 ))}
               </dl>
               <p>
-                Colours, spacing and type are custom properties named <code>--shrike-*</code>, e.g.{' '}
+                Colours, spacing and type are custom properties named <code>--snowdrop-*</code>,
+                e.g.{' '}
                 {TOKEN_NAMES.slice(0, 6).map((t, i) => (
                   <span key={t}>
                     {i > 0 && ', '}
-                    <code>--shrike-{t}</code>
+                    <code>--snowdrop-{t}</code>
                   </span>
                 ))}{' '}
                 ({TOKEN_NAMES.length} in all). The root element also carries <code>data-theme</code>

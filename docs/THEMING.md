@@ -1,7 +1,7 @@
 # Theming
 
-Every colour, size, radius, shadow and duration in Shrike is a CSS custom
-property named `--shrike-<token>`. A theme is a set of token overrides (plus
+Every colour, size, radius, shadow and duration in Snowdrop is a CSS custom
+property named `--snowdrop-<token>`. A theme is a set of token overrides (plus
 optional CSS); Custom CSS is your own stylesheet on top. Both can be shared as
 files, and both are filtered so they can never make the browser fetch anything.
 
@@ -16,11 +16,11 @@ the default theme, Dusk. The theme engine (`applyAppearance` in
 `src/core/themes/engine.ts`) then keeps three `<style>` tags at the end of
 `<head>`, in this cascade order:
 
-| Tag                  | Contents                                                                                                       |
-| -------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `#shrike-theme`      | `:root { … }` with the active theme's tokens, accent overrides and derived tokens, then the theme's own `css`. |
-| `#shrike-plugins`    | CSS injected by enabled plugins (`ctx.styles.inject`).                                                         |
-| `#shrike-custom-css` | Your Custom CSS, sanitised.                                                                                    |
+| Tag                    | Contents                                                                                                       |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `#snowdrop-theme`      | `:root { … }` with the active theme's tokens, accent overrides and derived tokens, then the theme's own `css`. |
+| `#snowdrop-plugins`    | CSS injected by enabled plugins (`ctx.styles.inject`).                                                         |
+| `#snowdrop-custom-css` | Your Custom CSS, sanitised.                                                                                    |
 
 So Custom CSS beats plugins, which beat the theme. Tokens a theme leaves out
 keep their `tokens.css` (Dusk) values, also in light themes.
@@ -36,7 +36,7 @@ follow the OS), `data-saturation-adjusted`, `data-focus="strong"` and
 <!-- Generated from TOKEN_NAMES (src/core/themes/tokens.ts), the values in
      src/ui/styles/tokens.css, tokenKind() and the built-in themes. -->
 
-101 tokens. **Kind** decides which values an imported theme may use for the
+105 tokens. **Kind** decides which values an imported theme may use for the
 token (see [validation](#validation-rules)). **Overridden by** lists the
 built-in themes that change the token (M = Midnight, L = Linen, HC = High
 Contrast); _accent override_ marks tokens recomputed when you pick an accent
@@ -47,16 +47,16 @@ derived), so a theme's value for them is ignored.
 
 | Token           | Kind  | Dusk (base) value           | Overridden by |
 | --------------- | ----- | --------------------------- | ------------- |
-| `bg-rail`       | color | `#101114`                   | M, L, HC      |
-| `bg-sidebar`    | color | `#15171b`                   | M, L, HC      |
-| `bg-chat`       | color | `#1b1d22`                   | M, L, HC      |
-| `bg-elevated`   | color | `#22252b`                   | M, L, HC      |
-| `bg-floating`   | color | `#0c0d10`                   | M, L, HC      |
-| `bg-input`      | color | `#22252b`                   | M, L, HC      |
+| `bg-rail`       | color | `#0f1115`                   | M, L, HC      |
+| `bg-sidebar`    | color | `#14171c`                   | M, L, HC      |
+| `bg-chat`       | color | `#1a1d23`                   | M, L, HC      |
+| `bg-elevated`   | color | `#21252c`                   | M, L, HC      |
+| `bg-floating`   | color | `#0b0d10`                   | M, L, HC      |
+| `bg-input`      | color | `#21252c`                   | M, L, HC      |
 | `bg-hover`      | color | `rgba(255, 255, 255, 0.04)` | M, L, HC      |
 | `bg-active`     | color | `rgba(255, 255, 255, 0.08)` | M, L, HC      |
 | `bg-selected`   | color | `rgba(255, 255, 255, 0.1)`  | M, L, HC      |
-| `bg-overlay`    | color | `rgba(6, 7, 9, 0.72)`       | L             |
+| `bg-overlay`    | color | `rgba(5, 7, 10, 0.72)`      | L             |
 | `border`        | color | `rgba(255, 255, 255, 0.06)` | M, L, HC      |
 | `border-strong` | color | `rgba(255, 255, 255, 0.12)` | M, L, HC      |
 
@@ -68,20 +68,20 @@ derived), so a theme's value for them is ignored.
 | `text-strong`    | color | `#ffffff`         | L, HC                |
 | `text-muted`     | color | `#aaadb2`         | L, HC                |
 | `text-faint`     | color | `#9b9ea4`         | M, L, HC             |
-| `text-on-accent` | color | `#1a0f0b`         | L, _accent override_ |
+| `text-on-accent` | color | `#08130e`         | L, _accent override_ |
 | `text-on-avatar` | color | `#ffffff`         | —                    |
 | `text-on-danger` | color | `#ffffff`         | HC                   |
-| `text-link`      | color | `#f69369`         | L, HC                |
+| `text-link`      | color | `#79cfae`         | L, HC                |
 
 #### Accent
 
 | Token           | Kind  | Dusk (base) value          | Overridden by            |
 | --------------- | ----- | -------------------------- | ------------------------ |
-| `accent`        | color | `#d4744a`                  | L, HC, _accent override_ |
-| `accent-hover`  | color | `#e58359`                  | L, HC, _accent override_ |
-| `accent-active` | color | `#c06238`                  | L, HC, _accent override_ |
-| `accent-soft`   | color | `rgba(212, 116, 74, 0.16)` | L, HC, _accent override_ |
-| `accent-text`   | color | `#e58359`                  | _engine_                 |
+| `accent`        | color | `#5fbf9f`                  | L, HC, _accent override_ |
+| `accent-hover`  | color | `#70cfaf`                  | L, HC, _accent override_ |
+| `accent-active` | color | `#4bac8d`                  | L, HC, _accent override_ |
+| `accent-soft`   | color | `rgba(95, 191, 159, 0.16)` | L, HC, _accent override_ |
+| `accent-text`   | color | `#5fbf9f`                  | _engine_                 |
 
 #### Status
 
@@ -98,14 +98,14 @@ derived), so a theme's value for them is ignored.
 
 | Token               | Kind  | Dusk (base) value           | Overridden by            |
 | ------------------- | ----- | --------------------------- | ------------------------ |
-| `mention-bg`        | color | `rgba(212, 116, 74, 0.1)`   | L, HC, _accent override_ |
-| `mention-bar`       | color | `#d4744a`                   | L, HC, _accent override_ |
-| `mention-pill-bg`   | color | `rgba(212, 116, 74, 0.22)`  | L, _accent override_     |
-| `mention-pill-text` | color | `#f9d4c3`                   | L, HC                    |
-| `code-bg`           | color | `#121317`                   | M, L, HC                 |
-| `spoiler-bg`        | color | `#3a3d45`                   | M, L, HC                 |
+| `mention-bg`        | color | `rgba(95, 191, 159, 0.1)`   | L, HC, _accent override_ |
+| `mention-bar`       | color | `#5fbf9f`                   | L, HC, _accent override_ |
+| `mention-pill-bg`   | color | `rgba(95, 191, 159, 0.22)`  | L, _accent override_     |
+| `mention-pill-text` | color | `#c9f0e0`                   | L, HC                    |
+| `code-bg`           | color | `#11141a`                   | M, L, HC                 |
+| `spoiler-bg`        | color | `#393e47`                   | M, L, HC                 |
 | `highlight-bg`      | color | `rgba(245, 180, 74, 0.14)`  | L                        |
-| `focus-ring`        | color | `#d4744a`                   | L, HC, _accent override_ |
+| `focus-ring`        | color | `#5fbf9f`                   | L, HC, _accent override_ |
 | `scrollbar-thumb`   | color | `rgba(255, 255, 255, 0.14)` | L, HC                    |
 
 #### Avatar hues
@@ -169,16 +169,16 @@ derived), so a theme's value for them is ignored.
 | `font-sans`            | font-family | `'Inter Variable', system-ui, -apple-system, 'Segoe UI', sans-serif`   | —             |
 | `font-mono`            | font-family | `'JetBrains Mono Variable', ui-monospace, 'SFMono-Regular', monospace` | —             |
 | `font-scale`           | number      | `1`                                                                    | _engine_      |
-| `font-size-xs`         | length      | `calc(11px * var(--shrike-font-scale))`                                | —             |
-| `font-size-sm`         | length      | `calc(12px * var(--shrike-font-scale))`                                | —             |
-| `font-size-ui`         | length      | `calc(14px * var(--shrike-font-scale))`                                | —             |
-| `font-size-message`    | length      | `calc(15px * var(--shrike-font-scale))`                                | —             |
-| `font-size-header`     | length      | `calc(16px * var(--shrike-font-scale))`                                | —             |
-| `font-size-title`      | length      | `calc(20px * var(--shrike-font-scale))`                                | —             |
-| `font-size-display`    | length      | `calc(28px * var(--shrike-font-scale))`                                | —             |
-| `font-size-hero`       | length      | `calc(40px * var(--shrike-font-scale))`                                | —             |
-| `font-size-emoji-sm`   | length      | `calc(18px * var(--shrike-font-scale))`                                | —             |
-| `font-size-emoji`      | length      | `calc(22px * var(--shrike-font-scale))`                                | —             |
+| `font-size-xs`         | length      | `calc(11px * var(--snowdrop-font-scale))`                              | —             |
+| `font-size-sm`         | length      | `calc(12px * var(--snowdrop-font-scale))`                              | —             |
+| `font-size-ui`         | length      | `calc(14px * var(--snowdrop-font-scale))`                              | —             |
+| `font-size-message`    | length      | `calc(15px * var(--snowdrop-font-scale))`                              | —             |
+| `font-size-header`     | length      | `calc(16px * var(--snowdrop-font-scale))`                              | —             |
+| `font-size-title`      | length      | `calc(20px * var(--snowdrop-font-scale))`                              | —             |
+| `font-size-display`    | length      | `calc(28px * var(--snowdrop-font-scale))`                              | —             |
+| `font-size-hero`       | length      | `calc(40px * var(--snowdrop-font-scale))`                              | —             |
+| `font-size-emoji-sm`   | length      | `calc(18px * var(--snowdrop-font-scale))`                              | —             |
+| `font-size-emoji`      | length      | `calc(22px * var(--snowdrop-font-scale))`                              | —             |
 | `line-height-message`  | number      | `1.375`                                                                | —             |
 | `line-height-ui`       | number      | `1.3`                                                                  | —             |
 | `font-weight-regular`  | number      | `400`                                                                  | —             |
@@ -222,17 +222,17 @@ reach 4.5:1 on every surface in every built-in theme, and white initials reach
 
 | Id              | Name          | Kind  | Description                                                                                        | Accent    |
 | --------------- | ------------- | ----- | -------------------------------------------------------------------------------------------------- | --------- |
-| `dusk`          | Dusk          | dark  | Graphite neutrals with a rufous accent. The default (`tokens.css`).                                | `#d4744a` |
-| `midnight`      | Midnight      | dark  | True black surfaces for OLED screens and late nights.                                              | `#d4744a` |
-| `linen`         | Linen         | light | A warm paper-toned light theme.                                                                    | `#a84f2c` |
-| `high-contrast` | High Contrast | dark  | Black surfaces, bright text, strong outlines (its `css` replaces shadows with 2px white outlines). | `#ef8d62` |
+| `dusk`          | Dusk          | dark  | Cool winter-dusk neutrals with a snowdrop-green accent. The default (`tokens.css`).                | `#5fbf9f` |
+| `midnight`      | Midnight      | dark  | True black surfaces for OLED screens and late nights.                                              | `#5fbf9f` |
+| `linen`         | Linen         | light | A warm paper-toned light theme (deep evergreen accent).                                            | `#2e7a5e` |
+| `high-contrast` | High Contrast | dark  | Black surfaces, bright text, strong outlines (its `css` replaces shadows with 2px white outlines). | `#7fd6b0` |
 
 Every built-in theme is also a command: type `>theme` in the quick switcher.
 
 ## Accent colour
 
-**Settings → Appearance → Accent** offers presets (`ACCENT_PRESETS`: Rufous,
-Amber, Moss, Teal, Sky, Indigo, Violet, Rose, Slate) or any hex colour. An
+**Settings → Appearance → Accent** offers presets (`ACCENT_PRESETS`: Snowdrop,
+Copper, Amber, Moss, Sky, Indigo, Violet, Rose, Slate) or any hex colour. An
 accent override replaces the theme's accent family with tokens derived from
 that one colour (`deriveAccentTokens`):
 
@@ -243,7 +243,7 @@ that one colour (`deriveAccentTokens`):
 | `accent-active`                       | the opposite direction, 0.06                                     |
 | `accent-soft`                         | 16 % alpha                                                       |
 | `mention-bg`, `mention-pill-bg`       | 10 % and 22 % alpha                                              |
-| `text-on-accent`                      | `#1a0f0b` or `#ffffff`, whichever contrasts more with the accent |
+| `text-on-accent`                      | `#08130e` or `#ffffff`, whichever contrasts more with the accent |
 
 **`accent-text`** is the accent used _as text_ (links in the UI, selected
 labels). It is always computed by the engine, with or without an override
@@ -254,7 +254,7 @@ text sits on (`textSurfaces`: `bg-chat`, `bg-sidebar`, `bg-elevated` and
 lightness is moved away from the backgrounds (lighter on dark themes, darker
 on light ones) in 0.01 steps until the hardest surface reaches 4.5:1, falling
 back to white or black. Components use
-`--shrike-accent-text`, never `--shrike-accent`, for accent-coloured text. If
+`--snowdrop-accent-text`, never `--snowdrop-accent`, for accent-coloured text. If
 either colour isn't hex (e.g. a custom theme using `rgb()`), the accent is used
 unchanged, so give custom themes hex `accent` and surface values.
 
@@ -279,9 +279,9 @@ and the mention bar are non-text UI, which needs 3:1).
   "tokens": {
     "bg-rail": "#0b1416",
     "accent": "#3fb8a6",
-    "--shrike-radius-md": "10px"
+    "--snowdrop-radius-md": "10px"
   },
-  "css": "[data-shrike='message'][data-mention] { box-shadow: inset 2px 0 0 var(--shrike-accent); }"
+  "css": "[data-snowdrop='message'][data-mention] { box-shadow: inset 2px 0 0 var(--snowdrop-accent); }"
 }
 ```
 
@@ -290,10 +290,10 @@ and the mention bar are non-text UI, which needs 3:1).
 | `name`   | yes      | 1–40 characters.                                                                                                                                    |
 | `id`     | no       | Lower-case letters, digits and dashes, starting with a letter or digit, ≤ 48 characters. Defaults to a slug of the name. Built-in ids are reserved. |
 | `kind`   | no       | `"dark"` (default) or `"light"`; sets `color-scheme` and the direction of accent shading.                                                           |
-| `tokens` | yes      | Object of token name → CSS value. Names may be bare (`accent`) or prefixed (`--shrike-accent`). May be empty.                                       |
+| `tokens` | yes      | Object of token name → CSS value. Names may be bare (`accent`) or prefixed (`--snowdrop-accent`). May be empty.                                     |
 | `css`    | no       | Extra CSS appended after the token block, ≤ 100 kB. Sanitised like Custom CSS.                                                                      |
 
-Export writes the same shape (`exportTheme`) to `<id>.shrike-theme.json`.
+Export writes the same shape (`exportTheme`) to `<id>.snowdrop-theme.json`.
 Exporting a built-in produces `<id>-copy` / "<Name> copy", since built-in ids
 can't be imported. Dusk's export has no tokens: its values live in
 `tokens.css`, which every theme inherits.
@@ -360,12 +360,12 @@ its surfaces:
     "accent-hover": "#52c9b7",
     "accent-active": "#2fa392",
     "text-on-accent": "#06201c",
-    "--shrike-radius-md": "10px",
+    "--snowdrop-radius-md": "10px",
     "line-height-message": "1.4",
     "shadow-menu": "0 8px 24px rgba(0, 0, 0, 0.5)",
     "duration-base": "160ms"
   },
-  "css": "[data-shrike='message'][data-mention] { box-shadow: inset 2px 0 0 var(--shrike-accent); }"
+  "css": "[data-snowdrop='message'][data-mention] { box-shadow: inset 2px 0 0 var(--snowdrop-accent); }"
 }
 ```
 
@@ -373,17 +373,17 @@ its surfaces:
 
 **Settings → Custom CSS** is a code editor (Tab indents two spaces,
 Shift+Tab outdents, Esc releases Tab so it moves focus again). Changes apply
-300 ms after you stop typing, in the last `<style>` tag (`#shrike-custom-css`),
+300 ms after you stop typing, in the last `<style>` tag (`#snowdrop-custom-css`),
 after the theme and plugins. It is stored in `settings.customCss` and goes
 through the same sanitiser as theme CSS.
 
 ```css
 /* Roomier messages and a softer mention tint */
-[data-shrike='message'] {
+[data-snowdrop='message'] {
   padding-block: 4px;
 }
 :root {
-  --shrike-mention-bg: rgba(212, 116, 74, 0.06);
+  --snowdrop-mention-bg: rgba(95, 191, 159, 0.06);
 }
 ```
 
@@ -392,7 +392,7 @@ through the same sanitiser as theme CSS.
 CSS-module class names are hashed and change between builds. Target these
 instead.
 
-**Regions: `[data-shrike='…']`.** Every value used in the app:
+**Regions: `[data-snowdrop='…']`.** Every value used in the app:
 
 | Hook                   | Element                                     |
 | ---------------------- | ------------------------------------------- |
@@ -442,14 +442,14 @@ instead.
 
 **Attributes on those elements:**
 
-- `[data-shrike='message']` carries `data-compact`, `data-continuation` (a
+- `[data-snowdrop='message']` carries `data-compact`, `data-continuation` (a
   grouped follow-up row) and `data-mention` (mentions you).
 - Message times are `<time data-variant='header' | 'gutter' | 'compact'>`.
 - The Vim mode pill carries `data-vim-mode='normal' | 'insert' | 'visual' |
 'visual-line'`; the block cursor carries `data-vim-mode` and
   `data-focused='true' | 'false'` (hollow while the composer is unfocused).
-  Its colours are `--shrike-vim-caret` (default: the accent) and
-  `--shrike-vim-caret-text` (default: text-on-accent); set them on `:root`
+  Its colours are `--snowdrop-vim-caret` (default: the accent) and
+  `--snowdrop-vim-caret-text` (default: text-on-accent); set them on `:root`
   in Custom CSS to restyle it.
 - Sidebar rows carry `data-conversation-id`.
 - Icon buttons carry `data-icon-button`.
@@ -462,8 +462,8 @@ instead.
 ## Security policy
 
 Any request your CSS makes to a third party is a beacon: it tells that server
-when you use Shrike, and attribute selectors or `unicode-range` can even leak
-what's on screen. Shrike therefore guarantees that user-supplied CSS and
+when you use Snowdrop, and attribute selectors or `unicode-range` can even leak
+what's on screen. Snowdrop therefore guarantees that user-supplied CSS and
 themes can't fetch anything, with two independent layers.
 
 ### 1. The sanitiser
@@ -519,7 +519,7 @@ font-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self';
 object-src 'none'; base-uri 'none'
 ```
 
-Everything Shrike needs is same-origin, including signal-cli through the
+Everything Snowdrop needs is same-origin, including signal-cli through the
 `/signal-cli` proxy path, so even CSS that slipped past the sanitiser couldn't
 load a remote font or image. `style-src 'unsafe-inline'` is required because
 themes, plugin CSS and Custom CSS are inline `<style>` tags.
@@ -531,9 +531,9 @@ previews are off.
 
 ## Safe mode
 
-If a theme or Custom CSS makes Shrike unusable, start in **safe mode**: open
+If a theme or Custom CSS makes Snowdrop unusable, start in **safe mode**: open
 the app with `?safe=1` in the URL, or hold **Shift** while it loads (within
-the first 1.5 s; Shrike reloads into `?safe=1`). Imported themes and Custom
+the first 1.5 s; Snowdrop reloads into `?safe=1`). Imported themes and Custom
 CSS are then not applied (a built-in theme is used instead) and a toast says
 so; your settings are untouched, so you can switch theme or fix the CSS in
 Settings, then reload normally.

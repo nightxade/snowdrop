@@ -1,7 +1,7 @@
 .editorWrap {
   display: flex;
   flex-direction: column;
-  gap: var(--shrike-space-3);
+  gap: var(--snowdrop-space-3);
   width: 100%;
 }
 
@@ -16,23 +16,23 @@
 }
 
 .state {
-  color: var(--shrike-text-faint);
-  font-size: var(--shrike-font-size-sm);
+  color: var(--snowdrop-text-faint);
+  font-size: var(--snowdrop-font-size-sm);
 }
 
 .help {
   width: 100%;
-  border: 1px solid var(--shrike-border);
-  border-radius: var(--shrike-radius-sm);
+  border: 1px solid var(--snowdrop-border);
+  border-radius: var(--snowdrop-radius-sm);
 }
 
 .summary {
   display: flex;
   align-items: center;
-  gap: var(--shrike-space-2);
-  padding: var(--shrike-space-4);
-  color: var(--shrike-text-strong);
-  font-weight: var(--shrike-font-weight-medium);
+  gap: var(--snowdrop-space-2);
+  padding: var(--snowdrop-space-4);
+  color: var(--snowdrop-text-strong);
+  font-weight: var(--snowdrop-font-weight-medium);
   list-style: none;
   cursor: pointer;
 }
@@ -42,8 +42,8 @@
 }
 
 .chevron {
-  color: var(--shrike-text-muted);
-  transition: transform var(--shrike-duration-fast) var(--shrike-ease);
+  color: var(--snowdrop-text-muted);
+  transition: transform var(--snowdrop-duration-fast) var(--snowdrop-ease);
 }
 
 .help[open] .chevron {
@@ -53,30 +53,30 @@
 .helpBody {
   display: flex;
   flex-direction: column;
-  gap: var(--shrike-space-4);
-  padding: 0 var(--shrike-space-5) var(--shrike-space-5);
-  color: var(--shrike-text-muted);
-  font-size: var(--shrike-font-size-sm);
+  gap: var(--snowdrop-space-4);
+  padding: 0 var(--snowdrop-space-5) var(--snowdrop-space-5);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
   line-height: 1.55;
 }
 
 .helpBody code {
   padding: 1px 4px;
-  border-radius: var(--shrike-radius-xs);
-  background: var(--shrike-code-bg);
-  color: var(--shrike-text);
+  border-radius: var(--snowdrop-radius-xs);
+  background: var(--snowdrop-code-bg);
+  color: var(--snowdrop-text);
   font-size: 0.95em;
 }
 
 .hooks {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: var(--shrike-space-2) var(--shrike-space-5);
+  gap: var(--snowdrop-space-2) var(--snowdrop-space-5);
 }
 
 .hookRow {
   display: flex;
-  gap: var(--shrike-space-3);
+  gap: var(--snowdrop-space-3);
 }
 
 .hookRow dt {
@@ -86,12 +86,12 @@
 .safe {
   display: flex;
   align-items: center;
-  gap: var(--shrike-space-3);
-  margin-bottom: var(--shrike-space-5);
-  padding: var(--shrike-space-3) var(--shrike-space-4);
-  border-radius: var(--shrike-radius-sm);
-  background: var(--shrike-bg-hover);
-  box-shadow: inset 3px 0 0 var(--shrike-warning);
-  color: var(--shrike-text);
-  font-size: var(--shrike-font-size-sm);
+  gap: var(--snowdrop-space-3);
+  margin-bottom: var(--snowdrop-space-5);
+  padding: var(--snowdrop-space-3) var(--snowdrop-space-4);
+  border-radius: var(--snowdrop-radius-sm);
+  background: var(--snowdrop-bg-hover);
+  box-shadow: inset 3px 0 0 var(--snowdrop-warning);
+  color: var(--snowdrop-text);
+  font-size: var(--snowdrop-font-size-sm);
 }

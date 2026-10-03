@@ -1,66 +1,66 @@
 .brand {
   display: flex;
   align-items: center;
-  gap: var(--shrike-space-5);
+  gap: var(--snowdrop-space-5);
 }
 
 .mark {
-  color: var(--shrike-accent-text);
+  color: var(--snowdrop-accent-text);
 }
 
 .name {
-  color: var(--shrike-text-strong);
-  font-size: var(--shrike-font-size-header);
-  font-weight: var(--shrike-font-weight-semibold);
+  color: var(--snowdrop-text-strong);
+  font-size: var(--snowdrop-font-size-header);
+  font-weight: var(--snowdrop-font-weight-semibold);
 }
 
 .muted {
-  margin-top: var(--shrike-space-1);
-  color: var(--shrike-text-muted);
-  font-size: var(--shrike-font-size-sm);
+  margin-top: var(--snowdrop-space-1);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
 }
 
 .table {
   width: 100%;
   border-collapse: collapse;
-  font-size: var(--shrike-font-size-sm);
+  font-size: var(--snowdrop-font-size-sm);
 }
 
 .table th {
-  padding: 0 var(--shrike-space-3) var(--shrike-space-3) 0;
-  color: var(--shrike-text-faint);
-  font-weight: var(--shrike-font-weight-semibold);
+  padding: 0 var(--snowdrop-space-3) var(--snowdrop-space-3) 0;
+  color: var(--snowdrop-text-faint);
+  font-weight: var(--snowdrop-font-weight-semibold);
   text-align: left;
 }
 
 .table td {
-  padding: var(--shrike-space-3) var(--shrike-space-3) var(--shrike-space-3) 0;
-  border-top: 1px solid var(--shrike-border);
-  color: var(--shrike-text-muted);
+  padding: var(--snowdrop-space-3) var(--snowdrop-space-3) var(--snowdrop-space-3) 0;
+  border-top: 1px solid var(--snowdrop-border);
+  color: var(--snowdrop-text-muted);
 }
 
 .link {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  color: var(--shrike-text);
+  color: var(--snowdrop-text);
 }
 
 .link svg {
-  color: var(--shrike-text-faint);
+  color: var(--snowdrop-text-faint);
 }
 
 .version {
-  font-family: var(--shrike-font-mono);
+  font-family: var(--snowdrop-font-mono);
   font-variant-numeric: tabular-nums;
 }
 
 .legal {
   display: flex;
   flex-direction: column;
-  gap: var(--shrike-space-3);
+  gap: var(--snowdrop-space-3);
   max-width: 64ch;
-  color: var(--shrike-text-muted);
-  font-size: var(--shrike-font-size-sm);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
   line-height: 1.6;
 }

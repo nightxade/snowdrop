@@ -5,76 +5,76 @@
     '. quote'
     'gutter content';
   grid-template-columns: 72px minmax(0, 1fr);
-  padding: 2px var(--shrike-space-9) 2px 0;
+  padding: 2px var(--snowdrop-space-9) 2px 0;
   outline: none;
-  transition: background-color var(--shrike-duration-fast) var(--shrike-ease);
+  transition: background-color var(--snowdrop-duration-fast) var(--snowdrop-ease);
 }
 
 .row[data-message-active] {
-  background: var(--shrike-bg-hover);
+  background: var(--snowdrop-bg-hover);
 }
 
 .row:focus-visible {
   outline: none;
-  box-shadow: inset 0 0 0 2px var(--shrike-focus-ring);
+  box-shadow: inset 0 0 0 2px var(--snowdrop-focus-ring);
 }
 
 /* The message being replied to: a quiet accent bar ties it to the reply bar. */
 .row[data-reply-target] {
-  box-shadow: inset 2px 0 0 var(--shrike-accent);
+  box-shadow: inset 2px 0 0 var(--snowdrop-accent);
 }
 
 /* Mentions of you: tinted row with an accent bar on the left edge. */
 .row[data-mention] {
-  background: var(--shrike-mention-bg);
-  box-shadow: inset 2px 0 0 var(--shrike-mention-bar);
+  background: var(--snowdrop-mention-bg);
+  box-shadow: inset 2px 0 0 var(--snowdrop-mention-bar);
 }
 
 .row[data-mention][data-message-active] {
-  background: color-mix(in srgb, var(--shrike-mention-bg), var(--shrike-accent) 6%);
+  background: color-mix(in srgb, var(--snowdrop-mention-bg), var(--snowdrop-accent) 6%);
 }
 
 .row[data-mention]:focus-visible {
   box-shadow:
-    inset 2px 0 0 var(--shrike-mention-bar),
-    inset 0 0 0 2px var(--shrike-focus-ring);
+    inset 2px 0 0 var(--snowdrop-mention-bar),
+    inset 0 0 0 2px var(--snowdrop-focus-ring);
 }
 
 .row[data-flash] {
-  animation: flash 1.6s var(--shrike-ease);
+  animation: flash 1.6s var(--snowdrop-ease);
 }
 
 @keyframes flash {
   0%,
   35% {
-    background-color: var(--shrike-highlight-bg);
-    box-shadow: inset 2px 0 0 var(--shrike-warning);
+    background-color: var(--snowdrop-highlight-bg);
+    box-shadow: inset 2px 0 0 var(--snowdrop-warning);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .row[data-flash] {
     animation: none;
-    background: var(--shrike-highlight-bg);
+    background: var(--snowdrop-highlight-bg);
   }
 }
 
 :root[data-reduced-motion='on'] .row[data-flash] {
   animation: none;
-  background: var(--shrike-highlight-bg);
+  background: var(--snowdrop-highlight-bg);
 }
 
 /* Not sent yet: quieter body text (still ≥ 4.5:1), author colour unchanged, plus a clock. */
 .row[data-pending] .body,
 .row[data-pending] .body strong {
-  color: var(--shrike-text-muted);
+  color: var(--snowdrop-text-muted);
 }
 
 .pendingMark {
   display: inline-grid;
   place-items: center;
-  margin-left: var(--shrike-space-2);
-  color: var(--shrike-text-muted);
+  margin-left: var(--snowdrop-space-2);
+  color: var(--snowdrop-text-muted);
   vertical-align: -1px;
 }
 
@@ -87,15 +87,15 @@
   grid-area: gutter;
   display: flex;
   justify-content: center;
-  padding-right: var(--shrike-space-2);
-  padding-left: var(--shrike-space-2);
+  padding-right: var(--snowdrop-space-2);
+  padding-left: var(--snowdrop-space-2);
 }
 
 .avatarButton {
   display: block;
   height: 40px;
   margin-top: 2px;
-  border-radius: var(--shrike-radius-full);
+  border-radius: var(--snowdrop-radius-full);
   cursor: pointer;
 }
 
@@ -112,15 +112,15 @@
   display: flex;
   align-items: baseline;
   min-width: 0;
-  line-height: calc(var(--shrike-font-size-message) * var(--shrike-line-height-message));
+  line-height: calc(var(--snowdrop-font-size-message) * var(--snowdrop-line-height-message));
 }
 
 .name {
   overflow: hidden;
   /* Same legibility recipe as the member list: the hue, pulled toward strong text. */
-  color: color-mix(in oklab, var(--name-color) 55%, var(--shrike-text-strong));
-  font-size: var(--shrike-font-size-message);
-  font-weight: var(--shrike-font-weight-semibold);
+  color: color-mix(in oklab, var(--name-color) 55%, var(--snowdrop-text-strong));
+  font-size: var(--snowdrop-font-size-message);
+  font-weight: var(--snowdrop-font-weight-semibold);
   text-overflow: ellipsis;
   white-space: nowrap;
   cursor: pointer;
@@ -132,7 +132,7 @@
 
 .decorations {
   align-self: center;
-  margin-left: var(--shrike-space-2);
+  margin-left: var(--snowdrop-space-2);
 }
 
 .body {
@@ -140,10 +140,10 @@
 }
 
 .deleted {
-  color: var(--shrike-text-faint);
-  font-size: var(--shrike-font-size-message);
+  color: var(--snowdrop-text-faint);
+  font-size: var(--snowdrop-font-size-message);
   font-style: italic;
-  line-height: var(--shrike-line-height-message);
+  line-height: var(--snowdrop-line-height-message);
 }
 
 /* ─── Compact: one line, "[time] Author body" ───────────────────────── */
@@ -156,7 +156,7 @@
 
 .row[data-compact] .gutter {
   justify-content: flex-end;
-  padding-right: var(--shrike-space-3);
+  padding-right: var(--snowdrop-space-3);
 }
 
 .row[data-compact] .content {
@@ -165,7 +165,7 @@
 
 .row[data-compact] .header {
   display: inline;
-  margin-right: var(--shrike-space-2);
+  margin-right: var(--snowdrop-space-2);
 }
 
 .row[data-compact] .name::after {
@@ -184,7 +184,7 @@
   display: inline-flex;
   align-items: center;
   height: 1lh;
-  margin-right: var(--shrike-space-2);
+  margin-right: var(--snowdrop-space-2);
   vertical-align: top;
 }
 
@@ -195,7 +195,7 @@
 @media (max-width: 759.98px) {
   .row {
     grid-template-columns: 60px minmax(0, 1fr);
-    padding-right: var(--shrike-space-4);
+    padding-right: var(--snowdrop-space-4);
   }
 
   .row[data-compact] {

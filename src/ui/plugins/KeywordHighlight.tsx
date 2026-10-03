@@ -4,13 +4,13 @@ import type { Message } from '@/core/domain';
 import { Tooltip } from '@/ui/primitives';
 import styles from './plugins.module.css';
 
-const HIGHLIGHT = 'shrike-keyword';
+const HIGHLIGHT = 'snowdrop-keyword';
 
 /**
  * The matched words get a dotted accent underline through the CSS Custom
  * Highlight API (no DOM changes, no row tint): our own look, not a mention.
  */
-export const KEYWORD_HIGHLIGHT_CSS = `::highlight(${HIGHLIGHT}) { text-decoration: underline dotted var(--shrike-accent-text); text-decoration-thickness: 2px; text-underline-offset: 3px; }`;
+export const KEYWORD_HIGHLIGHT_CSS = `::highlight(${HIGHLIGHT}) { text-decoration: underline dotted var(--snowdrop-accent-text); text-decoration-thickness: 2px; text-underline-offset: 3px; }`;
 
 interface HighlightRegistry {
   get(name: string): { add(range: Range): void; delete(range: Range): void } | undefined;
@@ -52,8 +52,8 @@ export function makeKeywordChip(matcher: (message: Message) => string | null) {
     const ref = useRef<HTMLSpanElement>(null);
     useEffect(() => {
       const reg = registry();
-      const row = ref.current?.closest('[data-shrike="message"]');
-      const body = row?.querySelector('[data-shrike="message-body"]');
+      const row = ref.current?.closest('[data-snowdrop="message"]');
+      const body = row?.querySelector('[data-snowdrop="message-body"]');
       if (!reg || !hit || !body) return;
       let highlight = reg.highlights.get(HIGHLIGHT);
       if (!highlight) {

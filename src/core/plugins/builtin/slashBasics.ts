@@ -15,7 +15,7 @@ export const slashBasicsPlugin = definePlugin({
   id: 'slash-basics',
   name: 'Slash Basics',
   description: 'Adds /shrug, /tableflip, /unflip, /me and /spoiler.',
-  authors: ['shrike'],
+  authors: ['snowdrop'],
   tags: ['fun', 'composer'],
   enabledByDefault: true,
   start(ctx) {

@@ -22,7 +22,7 @@ export function AttachmentTray({
 }) {
   if (attachments.length === 0) return null;
   return (
-    <ul className={styles.tray} aria-label="Attachments to send" data-shrike="attachment-tray">
+    <ul className={styles.tray} aria-label="Attachments to send" data-snowdrop="attachment-tray">
       {attachments.map((a) => (
         <li key={a.id} className={styles.tile}>
           <div className={styles.preview}>

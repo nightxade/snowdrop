@@ -42,7 +42,7 @@ export function FolderEntry({
   const { hasUnread, mentions } = useSpacesUnread(folder.spaceIds);
   const menu = useFolderMenu(folder.id);
   const containsSelected = folder.spaceIds.includes(selectedSpace);
-  const hue = folder.hue ? `var(--shrike-avatar-${folder.hue})` : undefined;
+  const hue = folder.hue ? `var(--snowdrop-avatar-${folder.hue})` : undefined;
   const toggle = () => {
     stores.spaces.getState().toggleFolder(folder.id);
   };
@@ -73,7 +73,7 @@ export function FolderEntry({
               <span
                 key={id}
                 className={styles.mini}
-                style={{ '--tile-hue': `var(--shrike-avatar-${space.hue})` } as CSSProperties}
+                style={{ '--tile-hue': `var(--snowdrop-avatar-${space.hue})` } as CSSProperties}
               >
                 {space.emoji ?? initialsFor(space.name).slice(0, 1)}
               </span>

@@ -1,6 +1,6 @@
 import { ArrowLeft, PlugZap, Sparkles } from 'lucide-react';
 import { useState } from 'react';
-import { ShrikeMark, TooltipProvider } from '@/ui/primitives';
+import { SnowdropMark, TooltipProvider } from '@/ui/primitives';
 import { ConnectForm } from './ConnectForm';
 import styles from './Welcome.module.css';
 
@@ -21,18 +21,19 @@ export function Welcome({ onDemo, onConnect, defaultDaemonUrl, probe }: WelcomeP
   const [step, setStep] = useState<'choose' | 'connect'>('choose');
   return (
     <TooltipProvider>
-      <main className={styles.screen} data-shrike="welcome">
-        <div className={styles.streaks} aria-hidden />
+      <main className={styles.screen} data-snowdrop="welcome">
+        <div className={styles.glow} aria-hidden />
         <div className={styles.column}>
           <div className={styles.brand}>
-            <ShrikeMark size={48} className={styles.mark} />
-            <h1 className={styles.wordmark}>Shrike</h1>
+            <SnowdropMark size={48} className={styles.mark} />
+            <h1 className={styles.wordmark}>Snowdrop</h1>
           </div>
           {step === 'choose' ? (
             <>
               <p className={styles.lede}>
-                Your Signal conversations, sorted and quick to reach: spaces for your groups, a
-                sidebar for everything else, and a shortcut for all of it.
+                A quiet, private home for your Signal conversations: spaces for your groups, a
+                sidebar for everything else, and a shortcut to all of it. Nothing leaves this
+                computer.
               </p>
               <div className={styles.choices}>
                 <button type="button" className={styles.choice} data-primary onClick={onDemo}>
@@ -82,8 +83,8 @@ export function Welcome({ onDemo, onConnect, defaultDaemonUrl, probe }: WelcomeP
             </>
           )}
           <p className={styles.footnote}>
-            Works with Signal through signal-cli. Shrike is an independent project, not made by or
-            affiliated with Signal. Everything stays on this device.
+            Works with Signal through signal-cli. Snowdrop is an independent project, not made by or
+            affiliated with Signal.
           </p>
         </div>
       </main>

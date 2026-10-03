@@ -21,7 +21,7 @@ export function SectionHeader({
   entries?: () => readonly MenuEntry[];
 }) {
   return (
-    <div className={styles.header} data-shrike="section-header">
+    <div className={styles.header} data-snowdrop="section-header">
       {entries ? (
         <ContextMenu entries={entries} label={`${title} options`}>
           <button

@@ -19,7 +19,7 @@ export const MessagePane = memo(function MessagePane({
   const exists = useStore(stores.conversations, (s) => conversationId in s.byId);
   if (!exists) return null;
   return (
-    <div className={styles.pane} data-shrike="message-pane">
+    <div className={styles.pane} data-snowdrop="message-pane">
       <MessageList conversationId={conversationId} />
     </div>
   );

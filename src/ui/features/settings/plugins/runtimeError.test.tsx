@@ -1,14 +1,14 @@
 import { act, cleanup, fireEvent, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { Shrike } from '@/app/createShrike';
-import { bootShrike, renderWithShrike, settle } from '@/test/renderWithShrike';
+import type { Snowdrop } from '@/app/createSnowdrop';
+import { bootSnowdrop, renderWithSnowdrop, settle } from '@/test/renderWithSnowdrop';
 import { PluginsPage } from './PluginsPage';
 
-let shrike: Shrike | null = null;
+let snowdrop: Snowdrop | null = null;
 afterEach(async () => {
   cleanup();
-  await shrike?.dispose();
-  shrike = null;
+  await snowdrop?.dispose();
+  snowdrop = null;
 });
 
 const card = (name: string) =>
@@ -16,15 +16,17 @@ const card = (name: string) =>
 
 describe('Plugin card: runtime errors', () => {
   it('shows a failing hover action on the card, and Retry restarts the plugin', async () => {
-    shrike = await bootShrike();
+    snowdrop = await bootSnowdrop();
     await act(async () => {
-      await shrike!.plugins.setEnabled('message-tools', true);
+      await snowdrop!.plugins.setEnabled('message-tools', true);
     });
-    renderWithShrike(shrike, <PluginsPage />);
-    const action = shrike.registries.hoverActions.list().find((a) => a.owner === 'message-tools')!;
+    renderWithSnowdrop(snowdrop, <PluginsPage />);
+    const action = snowdrop.registries.hoverActions
+      .list()
+      .find((a) => a.owner === 'message-tools')!;
     // What HoverBar does when the button is clicked.
     act(() => {
-      shrike!.registries.invoke(action, 'hover action', () => {
+      snowdrop!.registries.invoke(action, 'hover action', () => {
         throw new Error('copy exploded');
       });
     });
@@ -34,8 +36,8 @@ describe('Plugin card: runtime errors', () => {
     act(() => {
       fireEvent.click(within(alert).getByRole('button', { name: 'Retry' }));
     });
-    await settle(shrike);
-    expect(shrike.plugins.get('message-tools')?.status).toBe('running');
+    await settle(snowdrop);
+    expect(snowdrop.plugins.get('message-tools')?.status).toBe('running');
     expect(within(card('Message Tools')).queryByRole('alert')).toBeNull();
   });
 });

@@ -15,12 +15,12 @@ describe('engine-owned tokens and built-in export (P6)', () => {
   it('drops engine tokens on import with a warning', () => {
     const r = validateTheme({
       name: 'Overreach',
-      tokens: { 'bg-chat': '#101010', 'font-scale': '2', '--shrike-accent-text': '#ff0000' },
+      tokens: { 'bg-chat': '#101010', 'font-scale': '2', '--snowdrop-accent-text': '#ff0000' },
     });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.theme.tokens).toEqual({ 'bg-chat': '#101010' });
-    expect(r.warnings.join(' ')).toMatch(/Ignored "font-scale", "--shrike-accent-text"/u);
+    expect(r.warnings.join(' ')).toMatch(/Ignored "font-scale", "--snowdrop-accent-text"/u);
   });
 
   it.each(BUILTIN_THEMES.map((t) => [t.name, t] as const))(

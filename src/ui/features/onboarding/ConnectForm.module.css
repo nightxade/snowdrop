@@ -1,41 +1,41 @@
 .form {
   display: flex;
   flex-direction: column;
-  gap: var(--shrike-space-6);
+  gap: var(--snowdrop-space-6);
   width: 100%;
-  padding: var(--shrike-space-7);
-  border-radius: var(--shrike-radius-lg);
-  background: var(--shrike-bg-elevated);
-  box-shadow: var(--shrike-shadow-popout);
+  padding: var(--snowdrop-space-7);
+  border-radius: var(--snowdrop-radius-lg);
+  background: var(--snowdrop-bg-elevated);
+  box-shadow: var(--snowdrop-shadow-popout);
 }
 
 .title {
-  color: var(--shrike-text-strong);
-  font-size: var(--shrike-font-size-title);
-  font-weight: var(--shrike-font-weight-bold);
+  color: var(--snowdrop-text-strong);
+  font-size: var(--snowdrop-font-size-title);
+  font-weight: var(--snowdrop-font-weight-bold);
 }
 
 .steps {
   display: flex;
   flex-direction: column;
-  gap: var(--shrike-space-4);
-  padding-left: var(--shrike-space-6);
-  color: var(--shrike-text-muted);
-  font-size: var(--shrike-font-size-ui);
+  gap: var(--snowdrop-space-4);
+  padding-left: var(--snowdrop-space-6);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-ui);
   line-height: 1.5;
   list-style: decimal;
 }
 
 .steps li::marker {
-  color: var(--shrike-text-faint);
-  font-weight: var(--shrike-font-weight-semibold);
+  color: var(--snowdrop-text-faint);
+  font-weight: var(--snowdrop-font-weight-semibold);
 }
 
 .code {
   padding: 1px 6px;
-  border-radius: var(--shrike-radius-xs);
-  background: var(--shrike-code-bg);
-  color: var(--shrike-text);
+  border-radius: var(--snowdrop-radius-xs);
+  background: var(--snowdrop-code-bg);
+  color: var(--snowdrop-text);
   font-size: 0.9em;
   overflow-wrap: anywhere;
 }
@@ -44,26 +44,27 @@
   display: flex;
   max-width: 100%;
   align-items: center;
-  gap: var(--shrike-space-2);
-  margin-top: var(--shrike-space-3);
-  padding: var(--shrike-space-2) var(--shrike-space-2) var(--shrike-space-2) var(--shrike-space-4);
-  border-radius: var(--shrike-radius-sm);
-  background: var(--shrike-code-bg);
+  gap: var(--snowdrop-space-2);
+  margin-top: var(--snowdrop-space-3);
+  padding: var(--snowdrop-space-2) var(--snowdrop-space-2) var(--snowdrop-space-2)
+    var(--snowdrop-space-4);
+  border-radius: var(--snowdrop-radius-sm);
+  background: var(--snowdrop-code-bg);
 }
 
 .commandText {
   flex: 1;
   min-width: 0;
   overflow-x: auto;
-  color: var(--shrike-text);
+  color: var(--snowdrop-text);
   font-size: 0.9em;
   white-space: nowrap;
   scrollbar-width: none;
 }
 
 .commandText:focus-visible {
-  border-radius: var(--shrike-radius-xs);
-  outline: 2px solid var(--shrike-focus-ring);
+  border-radius: var(--snowdrop-radius-xs);
+  outline: 2px solid var(--snowdrop-focus-ring);
   outline-offset: 2px;
 }
 
@@ -71,19 +72,19 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: var(--shrike-space-3);
-  padding: var(--shrike-space-4);
-  border-radius: var(--shrike-radius-sm);
-  background: var(--shrike-danger-soft);
-  color: var(--shrike-text);
-  font-size: var(--shrike-font-size-sm);
+  gap: var(--snowdrop-space-3);
+  padding: var(--snowdrop-space-4);
+  border-radius: var(--snowdrop-radius-sm);
+  background: var(--snowdrop-danger-soft);
+  color: var(--snowdrop-text);
+  font-size: var(--snowdrop-font-size-sm);
   line-height: 1.5;
 }
 
 .anyway {
-  color: var(--shrike-text-link);
-  font-size: var(--shrike-font-size-sm);
-  font-weight: var(--shrike-font-weight-medium);
+  color: var(--snowdrop-text-link);
+  font-size: var(--snowdrop-font-size-sm);
+  font-weight: var(--snowdrop-font-weight-medium);
 }
 
 .anyway:hover {

@@ -13,7 +13,7 @@ import { Virtuoso, type Components, type VirtuosoHandle } from 'react-virtuoso';
 import { useStore } from 'zustand';
 import type { ConversationId, MessageId, RenderItem } from '@/core/domain';
 import { conversationsSelectors } from '@/core/stores';
-import { useShrike } from '@/ui/hooks';
+import { useSnowdrop } from '@/ui/hooks';
 import { useChatController } from '../ChatController';
 import { MessageItem } from '../message/MessageItem';
 import { useRenderProbe } from '../lib/useRenderProbe';
@@ -76,7 +76,7 @@ const ListEl = forwardRef<
       role="feed"
       aria-busy={context?.loading ?? false}
       aria-label={context ? `Messages in ${context.title}` : 'Messages'}
-      data-shrike="message-log"
+      data-snowdrop="message-log"
     >
       {children}
     </div>
@@ -102,7 +102,7 @@ const COMPONENTS: Components<RenderItem, ListContext> = {
  * draft changes on every keystroke).
  */
 export function MessageList({ conversationId }: { conversationId: ConversationId }) {
-  const app = useShrike();
+  const app = useSnowdrop();
   const { stores, history } = app;
   const chat = useChatController();
   const title = useStore(stores.conversations, (s) => s.byId[conversationId]?.title ?? '');
@@ -257,7 +257,7 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
   const firstRendered = useRef(0);
   const measureDivider = () => {
     const el = scroller.current;
-    const divider = el?.querySelector('[data-shrike="new-divider"]');
+    const divider = el?.querySelector('[data-snowdrop="new-divider"]');
     let pos: 'above' | 'visible' | 'below';
     if (el && divider) {
       const view = el.getBoundingClientRect();

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { Attachment, ConversationId } from '@/core/domain';
-import { useShrike } from '@/ui/hooks';
+import { useSnowdrop } from '@/ui/hooks';
 
 export type AttachmentUrlState =
   | { status: 'ready'; url: string }
@@ -31,7 +31,7 @@ export function useAttachmentUrl(
   conversationId: ConversationId,
   attachment: Attachment,
 ): AttachmentUrlState & { retry: () => void } {
-  const { backend } = useShrike();
+  const { backend } = useSnowdrop();
   const key = `${conversationId}\u0000${attachment.id}`;
   const [attempt, setAttempt] = useState(0);
   const [result, setResult] = useState<{

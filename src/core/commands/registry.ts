@@ -78,7 +78,7 @@ export class CommandRegistry {
 }
 
 function defaultOnError(error: unknown, command: Command): void {
-  console.error(`[shrike] command "${command.id}" failed`, error);
+  console.error(`[snowdrop] command "${command.id}" failed`, error);
 }
 
 /**

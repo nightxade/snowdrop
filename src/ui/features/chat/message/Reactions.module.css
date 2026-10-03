@@ -2,8 +2,8 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--shrike-space-2);
-  margin-top: var(--shrike-space-2);
+  gap: var(--snowdrop-space-2);
+  margin-top: var(--snowdrop-space-2);
 }
 
 .pill {
@@ -13,33 +13,33 @@
   height: 26px;
   padding: 0 8px;
   border: 1px solid transparent;
-  border-radius: var(--shrike-radius-sm);
-  background: var(--shrike-bg-elevated);
-  color: var(--shrike-text-muted);
-  font-size: var(--shrike-font-size-ui);
+  border-radius: var(--snowdrop-radius-sm);
+  background: var(--snowdrop-bg-elevated);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-ui);
   transition:
-    border-color var(--shrike-duration-fast) var(--shrike-ease),
-    background-color var(--shrike-duration-fast) var(--shrike-ease);
+    border-color var(--snowdrop-duration-fast) var(--snowdrop-ease),
+    background-color var(--snowdrop-duration-fast) var(--snowdrop-ease);
 }
 
 .pill:hover {
-  border-color: var(--shrike-border-strong);
+  border-color: var(--snowdrop-border-strong);
 }
 
 .pill[data-mine] {
-  border-color: var(--shrike-accent);
-  background: var(--shrike-accent-soft);
-  color: var(--shrike-text-strong);
+  border-color: var(--snowdrop-accent);
+  background: var(--snowdrop-accent-soft);
+  color: var(--snowdrop-text-strong);
 }
 
 .emoji {
-  font-size: var(--shrike-font-size-header);
+  font-size: var(--snowdrop-font-size-header);
   line-height: 1;
 }
 
 .count {
   min-width: 8px;
-  font-weight: var(--shrike-font-weight-semibold);
+  font-weight: var(--snowdrop-font-weight-semibold);
   font-variant-numeric: tabular-nums;
 }
 
@@ -48,11 +48,11 @@
   place-items: center;
   width: 30px;
   height: 26px;
-  border-radius: var(--shrike-radius-sm);
-  background: var(--shrike-bg-elevated);
-  color: var(--shrike-text-muted);
+  border-radius: var(--snowdrop-radius-sm);
+  background: var(--snowdrop-bg-elevated);
+  color: var(--snowdrop-text-muted);
   opacity: 0;
-  transition: opacity var(--shrike-duration-fast) var(--shrike-ease);
+  transition: opacity var(--snowdrop-duration-fast) var(--snowdrop-ease);
 }
 
 /* Only offered while the message is hovered/focused, like the hover bar. */
@@ -63,17 +63,17 @@
 }
 
 .add:hover {
-  color: var(--shrike-text-strong);
+  color: var(--snowdrop-text-strong);
 }
 
 .tip {
   display: inline-flex;
   align-items: center;
-  gap: var(--shrike-space-3);
-  font-weight: var(--shrike-font-weight-medium);
+  gap: var(--snowdrop-space-3);
+  font-weight: var(--snowdrop-font-weight-medium);
 }
 
 .tipEmoji {
-  font-size: var(--shrike-font-size-emoji);
+  font-size: var(--snowdrop-font-size-emoji);
   line-height: 1;
 }

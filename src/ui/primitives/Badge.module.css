@@ -2,24 +2,24 @@
   display: inline-grid;
   flex: none;
   place-items: center;
-  min-width: calc(16px * var(--shrike-font-scale));
-  height: calc(16px * var(--shrike-font-scale));
+  min-width: calc(16px * var(--snowdrop-font-scale));
+  height: calc(16px * var(--snowdrop-font-scale));
   padding: 0 5px;
-  border-radius: var(--shrike-radius-full);
-  font-size: var(--shrike-font-size-xs);
-  font-weight: var(--shrike-font-weight-bold);
+  border-radius: var(--snowdrop-radius-full);
+  font-size: var(--snowdrop-font-size-xs);
+  font-weight: var(--snowdrop-font-weight-bold);
   font-variant-numeric: tabular-nums;
   line-height: 1;
 }
 
 .badge[data-variant='mention'] {
-  background: var(--shrike-danger-strong);
-  color: var(--shrike-text-on-danger);
+  background: var(--snowdrop-danger-strong);
+  color: var(--snowdrop-text-on-danger);
 }
 
 .badge[data-variant='count'] {
-  background: var(--shrike-bg-active);
-  color: var(--shrike-text);
+  background: var(--snowdrop-bg-active);
+  color: var(--snowdrop-text);
 }
 
 .badge[data-variant='dot'] {
@@ -27,5 +27,5 @@
   width: 8px;
   height: 8px;
   padding: 0;
-  background: var(--shrike-text-strong);
+  background: var(--snowdrop-text-strong);
 }

@@ -79,8 +79,8 @@ export function validateTheme(data: unknown): ThemeImportResult {
     errors.push('"tokens" must be an object of token names to CSS values.');
   } else {
     for (const [key, value] of Object.entries(data.tokens)) {
-      // Accept both "accent" and "--shrike-accent".
-      const nameOnly = key.startsWith('--shrike-') ? key.slice('--shrike-'.length) : key;
+      // Accept both "accent" and "--snowdrop-accent".
+      const nameOnly = key.startsWith('--snowdrop-') ? key.slice('--snowdrop-'.length) : key;
       if (!isTokenName(nameOnly)) {
         errors.push(`Unknown token "${key}".`);
         continue;
@@ -102,7 +102,7 @@ export function validateTheme(data: unknown): ThemeImportResult {
   }
   if (ignored.length > 0)
     warnings.push(
-      `Ignored ${ignored.join(', ')}: Shrike sets ${ignored.length === 1 ? 'this' : 'these'} itself (text size, zoom and saturation come from your settings; accent text is derived for contrast).`,
+      `Ignored ${ignored.join(', ')}: Snowdrop sets ${ignored.length === 1 ? 'this' : 'these'} itself (text size, zoom and saturation come from your settings; accent text is derived for contrast).`,
     );
 
   let css = '';
@@ -144,16 +144,16 @@ export function toTheme(data: CustomThemeData): Theme {
       pick('bg-rail', light ? '#e4ded5' : '#101114'),
       pick('bg-chat', light ? '#faf8f4' : '#1b1d22'),
       pick('text', light ? '#26221f' : '#e6e8eb'),
-      pick('accent', light ? '#a84f2c' : '#d4744a'),
+      pick('accent', light ? '#2e7a5e' : '#5fbf9f'),
     ],
   };
 }
 
-/** Reads `--shrike-*: value;` declarations from the first rule of a stylesheet (tokens.css). */
+/** Reads `--snowdrop-*: value;` declarations from the first rule of a stylesheet (tokens.css). */
 export function parseTokenBlock(css: string): Partial<Record<TokenName, string>> {
   const block = css.slice(0, css.indexOf('}'));
   const out: Partial<Record<TokenName, string>> = {};
-  for (const m of block.matchAll(/--shrike-([a-z0-9-]+)\s*:\s*([^;]+);/gu)) {
+  for (const m of block.matchAll(/--snowdrop-([a-z0-9-]+)\s*:\s*([^;]+);/gu)) {
     const name = m[1] as string;
     if (isTokenName(name)) out[name] = (m[2] as string).trim();
   }

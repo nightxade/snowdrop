@@ -61,5 +61,5 @@ export class DisposableStore {
 }
 
 function defaultOnError(error: unknown): void {
-  console.error('[shrike] disposer failed', error);
+  console.error('[snowdrop] disposer failed', error);
 }

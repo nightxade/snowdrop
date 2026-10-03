@@ -82,7 +82,7 @@ export function AutocompletePopover({
         }}
         style={floatingStyles}
         className={styles.popover}
-        data-shrike="autocomplete"
+        data-snowdrop="autocomplete"
         // Portalled to <body>: a labelled region keeps it inside a landmark.
         role="region"
         aria-label="Suggestions"

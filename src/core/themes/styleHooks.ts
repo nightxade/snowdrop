@@ -1,7 +1,7 @@
 /**
- * The stable `[data-shrike='…']` hooks Custom CSS and themes can target
+ * The stable `[data-snowdrop='…']` hooks Custom CSS and themes can target
  * (CSS-module class names are hashed). One list for Settings → Custom CSS,
- * THEMING.md and the test that checks every `data-shrike` value in the
+ * THEMING.md and the test that checks every `data-snowdrop` value in the
  * source is listed here.
  */
 export const STYLE_HOOKS = [

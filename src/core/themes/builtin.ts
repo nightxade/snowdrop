@@ -23,11 +23,11 @@ export interface Theme {
  * holds the full set (a test keeps these two in sync with it).
  */
 export const DUSK_BASE = {
-  accent: '#d4744a',
-  'bg-chat': '#1b1d22',
-  'bg-sidebar': '#15171b',
-  'bg-elevated': '#22252b',
-  'bg-floating': '#0c0d10',
+  accent: '#5fbf9f',
+  'bg-chat': '#1a1d23',
+  'bg-sidebar': '#14171c',
+  'bg-elevated': '#21252c',
+  'bg-floating': '#0b0d10',
   'bg-hover': 'rgba(255, 255, 255, 0.04)',
   'bg-selected': 'rgba(255, 255, 255, 0.1)',
 } as const;
@@ -35,10 +35,10 @@ export const DUSK_BASE = {
 export const DUSK: Theme = {
   id: 'dusk',
   name: 'Dusk',
-  description: 'Graphite neutrals with a rufous accent. The default.',
+  description: 'Cool winter-dusk neutrals with a snowdrop-green accent. The default.',
   kind: 'dark',
   tokens: {},
-  preview: ['#101114', '#1b1d22', '#e6e8eb', '#d4744a'],
+  preview: ['#0f1115', '#1a1d23', '#e6e8eb', '#5fbf9f'],
 };
 
 export const MIDNIGHT: Theme = {
@@ -62,7 +62,7 @@ export const MIDNIGHT: Theme = {
     'spoiler-bg': '#2c2e33',
     'text-faint': '#8a8d92',
   },
-  preview: ['#000000', '#0e0f11', '#e6e8eb', '#d4744a'],
+  preview: ['#000000', '#0e0f11', '#e6e8eb', '#5fbf9f'],
 };
 
 export const LINEN: Theme = {
@@ -88,31 +88,31 @@ export const LINEN: Theme = {
     'text-muted': '#534e4a',
     'text-faint': '#605a55',
     'text-on-accent': '#ffffff',
-    'text-link': '#98431d',
-    accent: '#a84f2c',
-    'accent-hover': '#98401c',
-    'accent-active': '#873108',
-    'accent-soft': 'rgba(168, 79, 44, 0.14)',
+    'text-link': '#21634a',
+    accent: '#2e7a5e',
+    'accent-hover': '#1c6b50',
+    'accent-active': '#155a42',
+    'accent-soft': 'rgba(46, 122, 94, 0.14)',
     danger: '#b3203f',
     'danger-strong': '#b3203f',
     'danger-soft': 'rgba(196, 47, 76, 0.12)',
     success: '#1c8456',
     warning: '#855400',
     info: '#1f6fb2',
-    'mention-bg': 'rgba(168, 79, 44, 0.1)',
-    'mention-bar': '#a84f2c',
-    'mention-pill-bg': 'rgba(168, 79, 44, 0.16)',
-    'mention-pill-text': '#913a15',
+    'mention-bg': 'rgba(46, 122, 94, 0.1)',
+    'mention-bar': '#2e7a5e',
+    'mention-pill-bg': 'rgba(46, 122, 94, 0.16)',
+    'mention-pill-text': '#215f47',
     'code-bg': '#efeae2',
     'spoiler-bg': '#cfc7bd',
     'highlight-bg': 'rgba(245, 180, 74, 0.25)',
-    'focus-ring': '#a84f2c',
+    'focus-ring': '#2e7a5e',
     'scrollbar-thumb': 'rgba(40, 30, 20, 0.22)',
     'shadow-menu': '0 8px 24px rgba(40, 30, 20, 0.14), 0 0 0 1px rgba(40, 30, 20, 0.08)',
     'shadow-popout': '0 12px 32px rgba(40, 30, 20, 0.16), 0 0 0 1px rgba(40, 30, 20, 0.08)',
     'shadow-modal': '0 24px 64px rgba(40, 30, 20, 0.22), 0 0 0 1px rgba(40, 30, 20, 0.08)',
   },
-  preview: ['#e4ded5', '#faf8f4', '#26221f', '#a84f2c'],
+  preview: ['#e4ded5', '#faf8f4', '#26221f', '#2e7a5e'],
 };
 
 export const HIGH_CONTRAST: Theme = {
@@ -136,26 +136,26 @@ export const HIGH_CONTRAST: Theme = {
     'text-strong': '#ffffff',
     'text-muted': '#d6d6d6',
     'text-faint': '#b5b5b5',
-    'text-link': '#ffc9b3',
-    accent: '#ef8d62',
-    'accent-hover': '#ff9e74',
-    'accent-active': '#d4744a',
-    'accent-soft': 'rgba(239, 141, 98, 0.28)',
+    'text-link': '#b8f0d8',
+    accent: '#7fd6b0',
+    'accent-hover': '#94e5c2',
+    'accent-active': '#5fbf9f',
+    'accent-soft': 'rgba(127, 214, 176, 0.28)',
     danger: '#ff6b87',
     'danger-strong': '#ff6b87',
     'text-on-danger': '#000000',
     success: '#4df0a8',
     warning: '#ffcc66',
-    'mention-bg': 'rgba(239, 141, 98, 0.2)',
-    'mention-bar': '#ef8d62',
+    'mention-bg': 'rgba(127, 214, 176, 0.2)',
+    'mention-bar': '#7fd6b0',
     'mention-pill-text': '#ffffff',
     'code-bg': '#1a1a1a',
     'spoiler-bg': '#5a5a5a',
     'focus-ring': '#ffffff',
     'scrollbar-thumb': 'rgba(255, 255, 255, 0.5)',
   },
-  css: ':root { --shrike-shadow-menu: 0 0 0 2px #ffffff; --shrike-shadow-popout: 0 0 0 2px #ffffff; --shrike-shadow-modal: 0 0 0 2px #ffffff; }',
-  preview: ['#000000', '#111111', '#ffffff', '#ef8d62'],
+  css: ':root { --snowdrop-shadow-menu: 0 0 0 2px #ffffff; --snowdrop-shadow-popout: 0 0 0 2px #ffffff; --snowdrop-shadow-modal: 0 0 0 2px #ffffff; }',
+  preview: ['#000000', '#111111', '#ffffff', '#7fd6b0'],
 };
 
 export const BUILTIN_THEMES: readonly Theme[] = [DUSK, MIDNIGHT, LINEN, HIGH_CONTRAST];
@@ -168,10 +168,10 @@ export function findTheme(id: string, extra: readonly Theme[] = []): Theme {
 
 /** Accent presets offered in Settings → Appearance (custom colours are allowed too). */
 export const ACCENT_PRESETS: readonly { value: string; label: string }[] = [
-  { value: '#d4744a', label: 'Rufous' },
+  { value: '#5fbf9f', label: 'Snowdrop' },
+  { value: '#d4744a', label: 'Copper' },
   { value: '#d99a2b', label: 'Amber' },
   { value: '#7fa33f', label: 'Moss' },
-  { value: '#2fa08f', label: 'Teal' },
   { value: '#4a90d6', label: 'Sky' },
   { value: '#6f74dc', label: 'Indigo' },
   { value: '#a066d3', label: 'Violet' },

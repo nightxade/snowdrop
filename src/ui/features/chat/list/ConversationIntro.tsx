@@ -20,7 +20,7 @@ export function ConversationIntro({ conversationId }: { conversationId: Conversa
   if (!conversation) return null;
   const isGroup = conversation.kind === 'group';
   return (
-    <div className={styles.intro} data-shrike="conversation-intro">
+    <div className={styles.intro} data-snowdrop="conversation-intro">
       <ConversationAvatar conversation={conversation} size={80} />
       <h2 className={styles.title}>{conversation.title}</h2>
       <p className={styles.lede}>

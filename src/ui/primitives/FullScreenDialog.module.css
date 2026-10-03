@@ -3,8 +3,8 @@
   z-index: 32;
   inset: 0;
   display: flex;
-  background: var(--shrike-bg-chat);
-  animation: enter var(--shrike-duration-slow) var(--shrike-ease);
+  background: var(--snowdrop-bg-chat);
+  animation: enter var(--snowdrop-duration-slow) var(--snowdrop-ease);
 }
 
 .content:focus {

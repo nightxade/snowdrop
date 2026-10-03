@@ -289,7 +289,7 @@ export class Registries implements DraftPipeline {
 }
 
 function defaultOnError(error: unknown, owner: string, where: string): void {
-  console.error(`[shrike] plugin "${owner}" failed in ${where}`, error);
+  console.error(`[snowdrop] plugin "${owner}" failed in ${where}`, error);
 }
 
 /** Parses composer text into a slash invocation, or null if it isn't one. */

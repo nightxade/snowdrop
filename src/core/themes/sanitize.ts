@@ -2,7 +2,7 @@
  * Privacy guard for user-supplied CSS (Custom CSS, imported themes).
  *
  * Any CSS fetch to a third party is a beacon: it tells that server when you
- * use Shrike, and attribute selectors or `unicode-range` can even leak what
+ * use Snowdrop, and attribute selectors or `unicode-range` can even leak what
  * is on screen. So every statement or declaration that references a resource
  * (`@import`, `url(`, `src(`, `image-set(`, `image(`, `cross-fade(`,
  * `element(`) is removed unless all its targets are inline (`data:` /

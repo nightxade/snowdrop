@@ -80,7 +80,7 @@ export const SETTINGS_PAGES: SettingsPageDef[] = [
     group: 'you',
     icon: Shield,
     title: 'Privacy',
-    description: 'What others can learn from you, and what Shrike keeps on this device.',
+    description: 'What others can learn from you, and what Snowdrop keeps on this device.',
     keywords: ['security', 'tracking'],
     entries: [
       {
@@ -252,7 +252,7 @@ export const SETTINGS_PAGES: SettingsPageDef[] = [
       {
         id: 'custom-css.hooks',
         label: 'Styling hooks',
-        keywords: ['data-shrike', 'selectors', 'tokens'],
+        keywords: ['data-snowdrop', 'selectors', 'tokens'],
       },
     ],
   },
@@ -261,7 +261,7 @@ export const SETTINGS_PAGES: SettingsPageDef[] = [
     group: 'system',
     icon: PlugZap,
     title: 'Connection',
-    description: 'Where Shrike gets your messages from.',
+    description: 'Where Snowdrop gets your messages from.',
     keywords: ['signal-cli', 'daemon', 'demo', 'backend', 'server'],
     entries: [
       { id: 'connection.backend', label: 'Source', keywords: ['demo', 'signal-cli'] },

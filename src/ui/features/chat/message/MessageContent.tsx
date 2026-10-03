@@ -3,7 +3,7 @@ import type { CSSProperties } from 'react';
 import { useStore } from 'zustand';
 import { initialsFor, type ConversationId, type Message } from '@/core/domain';
 import { contactsSelectors } from '@/core/stores';
-import { useObservableList, useShrike } from '@/ui/hooks';
+import { useObservableList, useSnowdrop } from '@/ui/hooks';
 import { Avatar, Slot, VisuallyHidden } from '@/ui/primitives';
 import * as act from './actions';
 import { Attachments } from './Attachments';
@@ -48,12 +48,12 @@ export function MessageContent({
   bodyId,
   onEditDone,
 }: MessageContentProps) {
-  const app = useShrike();
+  const app = useSnowdrop();
   const author = useStore(app.stores.contacts, contactsSelectors.contact(m.authorId));
   const accessories = useObservableList(app.registries.messageAccessories);
   const decorations = useObservableList(app.registries.messageDecorations);
   const name = nameFor(m.authorId);
-  const color = author?.color ?? 'var(--shrike-avatar-1)';
+  const color = author?.color ?? 'var(--snowdrop-avatar-1)';
   const showHeader = compact || !continuation;
 
   const avatar = (

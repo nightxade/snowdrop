@@ -1,7 +1,7 @@
 .divider {
   display: block;
   flex: none;
-  background: var(--shrike-border-strong);
+  background: var(--snowdrop-border-strong);
 }
 
 .divider[data-orientation='horizontal'] {

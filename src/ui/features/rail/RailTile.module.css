@@ -2,8 +2,8 @@
   position: relative;
   display: flex;
   justify-content: center;
-  width: var(--shrike-rail-width);
-  padding: var(--shrike-space-2) 0;
+  width: var(--snowdrop-rail-width);
+  padding: var(--snowdrop-space-2) 0;
 }
 
 .item[data-dragging] {
@@ -15,68 +15,68 @@
   display: grid;
   flex: none;
   place-items: center;
-  width: var(--shrike-tile-size);
-  height: var(--shrike-tile-size);
+  width: var(--snowdrop-tile-size);
+  height: var(--snowdrop-tile-size);
   overflow: hidden;
-  border-radius: var(--shrike-radius-tile);
+  border-radius: var(--snowdrop-radius-tile);
   background: color-mix(
     in oklab,
-    var(--tile-hue, var(--shrike-bg-elevated)) 18%,
-    var(--shrike-bg-elevated)
+    var(--tile-hue, var(--snowdrop-bg-elevated)) 18%,
+    var(--snowdrop-bg-elevated)
   );
-  color: var(--shrike-text);
-  font-size: var(--shrike-font-size-header);
-  font-weight: var(--shrike-font-weight-semibold);
+  color: var(--snowdrop-text);
+  font-size: var(--snowdrop-font-size-header);
+  font-weight: var(--snowdrop-font-weight-semibold);
   line-height: 1;
   transition:
-    background-color var(--shrike-duration-base) var(--shrike-ease),
-    box-shadow var(--shrike-duration-base) var(--shrike-ease),
-    color var(--shrike-duration-fast) var(--shrike-ease);
+    background-color var(--snowdrop-duration-base) var(--snowdrop-ease),
+    box-shadow var(--snowdrop-duration-base) var(--snowdrop-ease),
+    color var(--snowdrop-duration-fast) var(--snowdrop-ease);
   user-select: none;
 }
 
 /* Keyboard focus sits outside the selection ring so the two never read alike. */
 .tile:focus-visible {
-  outline: 2px dashed var(--shrike-text-strong);
+  outline: 2px dashed var(--snowdrop-text-strong);
   outline-offset: 7px;
 }
 
 .item:hover .tile,
 .item[data-selected] .tile,
 .tile[data-state='open'] {
-  background: var(--tile-hue, var(--shrike-bg-active));
-  color: var(--shrike-text-on-avatar);
+  background: var(--tile-hue, var(--snowdrop-bg-active));
+  color: var(--snowdrop-text-on-avatar);
 }
 
 /* Selected: a 2px accent ring, 3px away from the tile. */
 .item[data-selected] .tile {
   box-shadow:
-    0 0 0 3px var(--shrike-bg-rail),
-    0 0 0 5px var(--shrike-accent);
+    0 0 0 3px var(--snowdrop-bg-rail),
+    0 0 0 5px var(--snowdrop-accent);
 }
 
 .item[data-tone='accent'] .tile {
-  background: var(--shrike-bg-elevated);
-  color: var(--shrike-accent-text);
+  background: var(--snowdrop-bg-elevated);
+  color: var(--snowdrop-accent-text);
 }
 
 .item[data-tone='accent']:hover .tile,
 .item[data-tone='accent'][data-selected] .tile {
-  background: var(--shrike-bg-active);
-  color: var(--shrike-accent-text);
+  background: var(--snowdrop-bg-active);
+  color: var(--snowdrop-accent-text);
 }
 
 /* The add tile is an outline: it's an action, not a place. */
 .item[data-tone='quiet'] .tile {
-  border: 1.5px dashed var(--shrike-border-strong);
+  border: 1.5px dashed var(--snowdrop-border-strong);
   background: transparent;
-  color: var(--shrike-text-muted);
+  color: var(--snowdrop-text-muted);
 }
 
 .item[data-tone='quiet']:hover .tile {
-  border-color: var(--shrike-text-muted);
-  background: var(--shrike-bg-hover);
-  color: var(--shrike-text-strong);
+  border-color: var(--snowdrop-text-muted);
+  background: var(--snowdrop-bg-hover);
+  color: var(--snowdrop-text-strong);
 }
 
 /* Unread: a small light pip at the rail's edge, level with the tile's centre,
@@ -88,8 +88,8 @@
   width: 6px;
   height: 6px;
   margin-top: -3px;
-  border-radius: var(--shrike-radius-full);
-  background: var(--shrike-text-strong);
+  border-radius: var(--snowdrop-radius-full);
+  background: var(--snowdrop-text-strong);
   pointer-events: none;
 }
 
@@ -97,6 +97,6 @@
   position: absolute;
   right: 8px;
   bottom: 0;
-  box-shadow: 0 0 0 3px var(--shrike-bg-rail);
+  box-shadow: 0 0 0 3px var(--snowdrop-bg-rail);
   pointer-events: none;
 }

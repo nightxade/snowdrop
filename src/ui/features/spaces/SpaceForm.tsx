@@ -38,7 +38,7 @@ export function SpaceForm({
       <div className={styles.top}>
         <span
           className={styles.preview}
-          style={{ '--tile-hue': `var(--shrike-avatar-${draft.hue})` } as CSSProperties}
+          style={{ '--tile-hue': `var(--snowdrop-avatar-${draft.hue})` } as CSSProperties}
           aria-hidden
         >
           {preview}

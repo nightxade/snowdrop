@@ -27,7 +27,7 @@ export function pluginMenuEntries<T>(
     .map((item): MenuEntry => {
       const Icon = isRenderableComponent<{ size?: number }>(item.icon) ? item.icon : null;
       const report = (error: unknown) => {
-        console.error(`[shrike] plugin "${item.owner}" menu item failed`, error);
+        console.error(`[snowdrop] plugin "${item.owner}" menu item failed`, error);
       };
       return {
         kind: 'item',

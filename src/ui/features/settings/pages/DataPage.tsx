@@ -1,6 +1,6 @@
 import { Download, LoaderCircle, RotateCcw, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { useShrike } from '@/ui/hooks';
+import { useSnowdrop } from '@/ui/hooks';
 import { Button, Modal } from '@/ui/primitives';
 import { downloadText } from '../download';
 import { SettingRow } from '../rows/SettingRow';
@@ -52,7 +52,7 @@ function useStorageEstimate(): { usage: number; quota: number } | 'unavailable' 
 type Danger = 'clear' | 'reset' | null;
 
 export function DataPage() {
-  const app = useShrike();
+  const app = useSnowdrop();
   const estimate = useStorageEstimate();
   const [exporting, setExporting] = useState<string | null>(null);
   const [danger, setDanger] = useState<Danger>(null);
@@ -67,7 +67,7 @@ export function DataPage() {
       });
       const count = data.conversations.reduce((n, c) => n + c.messages.length, 0);
       const date = data.exportedAt.slice(0, 10);
-      downloadText(`shrike-history-${date}.json`, JSON.stringify(data, null, 2));
+      downloadText(`snowdrop-history-${date}.json`, JSON.stringify(data, null, 2));
       app.stores.ui.getState().pushToast({
         message: `Exported ${count.toLocaleString()} messages`,
         kind: 'success',
@@ -113,7 +113,7 @@ export function DataPage() {
               ? 'Measuring…'
               : estimate === 'unavailable'
                 ? 'This browser doesn’t report storage use.'
-                : `${formatBytes(estimate.usage)} of about ${formatBytes(estimate.quota)} available to Shrike in this browser.`
+                : `${formatBytes(estimate.usage)} of about ${formatBytes(estimate.quota)} available to Snowdrop in this browser.`
           }
           stacked
         >
@@ -202,8 +202,8 @@ export function DataPage() {
           title={danger === 'clear' ? 'Clear all message history?' : 'Reset all settings?'}
           description={
             danger === 'clear'
-              ? 'Messages stored in this browser are deleted for good, unless you exported them. Shrike reloads afterwards.'
-              : 'Your theme, keybinds, plugin choices and Custom CSS are reset. Shrike reloads afterwards.'
+              ? 'Messages stored in this browser are deleted for good, unless you exported them. Snowdrop reloads afterwards.'
+              : 'Your theme, keybinds, plugin choices and Custom CSS are reset. Snowdrop reloads afterwards.'
           }
           footer={
             <>

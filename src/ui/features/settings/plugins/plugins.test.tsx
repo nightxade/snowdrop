@@ -1,17 +1,17 @@
 import { act, cleanup, fireEvent, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { definePlugin, defineSettings } from '@/core/plugins';
-import { bootShrike, renderWithShrike, settle } from '@/test/renderWithShrike';
-import type { Shrike } from '@/app/createShrike';
+import { bootSnowdrop, renderWithSnowdrop, settle } from '@/test/renderWithSnowdrop';
+import type { Snowdrop } from '@/app/createSnowdrop';
 import { PluginSettingsForm } from './PluginSettingsForm';
 import { PluginsPage } from './PluginsPage';
 import { filterPlugins } from './usePlugins';
 
-let shrike: Shrike | null = null;
+let snowdrop: Snowdrop | null = null;
 afterEach(async () => {
   cleanup();
-  await shrike?.dispose();
-  shrike = null;
+  await snowdrop?.dispose();
+  snowdrop = null;
 });
 
 const card = (name: string) =>
@@ -19,9 +19,9 @@ const card = (name: string) =>
 
 describe('Plugins page', () => {
   it('starts and stops a plugin live from its card', async () => {
-    shrike = await bootShrike();
-    renderWithShrike(shrike, <PluginsPage />);
-    const decorations = () => shrike!.registries.messageDecorations.list().map((d) => d.id);
+    snowdrop = await bootSnowdrop();
+    renderWithSnowdrop(snowdrop, <PluginsPage />);
+    const decorations = () => snowdrop!.registries.messageDecorations.list().map((d) => d.id);
     expect(decorations()).not.toContain('relative-time');
 
     const toggle = within(card('Relative Timestamps')).getByRole('switch');
@@ -29,8 +29,8 @@ describe('Plugins page', () => {
     act(() => {
       fireEvent.click(toggle);
     });
-    await settle(shrike);
-    expect(shrike.plugins.get('relative-timestamps')).toMatchObject({
+    await settle(snowdrop);
+    expect(snowdrop.plugins.get('relative-timestamps')).toMatchObject({
       enabled: true,
       status: 'running',
     });
@@ -42,14 +42,14 @@ describe('Plugins page', () => {
     act(() => {
       fireEvent.click(within(card('Relative Timestamps')).getByRole('switch'));
     });
-    await settle(shrike);
-    expect(shrike.plugins.get('relative-timestamps')?.status).toBe('stopped');
+    await settle(snowdrop);
+    expect(snowdrop.plugins.get('relative-timestamps')?.status).toBe('stopped');
     expect(decorations()).not.toContain('relative-time');
   });
 
   it('opens the generated settings form from the cog', async () => {
-    shrike = await bootShrike();
-    renderWithShrike(shrike, <PluginsPage />);
+    snowdrop = await bootSnowdrop();
+    renderWithSnowdrop(snowdrop, <PluginsPage />);
     act(() => {
       fireEvent.click(
         within(card('Keyword Alerts')).getByRole('button', { name: 'Keyword Alerts settings' }),
@@ -60,16 +60,16 @@ describe('Plugins page', () => {
     act(() => {
       fireEvent.change(keywords, { target: { value: 'deploy, lunch' } });
     });
-    expect(shrike.stores.settings.getState().plugins['keyword-alerts']?.settings.keywords).toBe(
+    expect(snowdrop.stores.settings.getState().plugins['keyword-alerts']?.settings.keywords).toBe(
       'deploy, lunch',
     );
   });
 
   it('shows a failed plugin with its error, retries, and keeps focus on the card', async () => {
-    shrike = await bootShrike();
-    renderWithShrike(shrike, <PluginsPage />);
+    snowdrop = await bootSnowdrop();
+    renderWithSnowdrop(snowdrop, <PluginsPage />);
     // Message Tools registers hover actions; make that blow up until we say so.
-    const list = shrike.registries.hoverActions;
+    const list = snowdrop.registries.hoverActions;
     const original = list.add.bind(list);
     let fail = true;
     list.add = (entry) => {
@@ -79,23 +79,23 @@ describe('Plugins page', () => {
     act(() => {
       fireEvent.click(within(card('Message Tools')).getByRole('switch'));
     });
-    await settle(shrike);
+    await settle(snowdrop);
     const alert = within(card('Message Tools')).getByRole('alert');
     expect(alert.textContent).toContain('hover bar exploded');
     fail = false;
     act(() => {
       fireEvent.click(within(alert).getByRole('button', { name: 'Retry' }));
     });
-    await settle(shrike);
-    expect(shrike.plugins.get('message-tools')?.status).toBe('running');
+    await settle(snowdrop);
+    expect(snowdrop.plugins.get('message-tools')?.status).toBe('running');
     expect(within(card('Message Tools')).queryByRole('alert')).toBeNull();
     // S5: the Retry button is gone; focus lands on the card's switch.
     expect(document.activeElement).toBe(within(card('Message Tools')).getByRole('switch'));
   });
 
   it('filters by text, state and tag', async () => {
-    shrike = await bootShrike();
-    const list = shrike.plugins.list();
+    snowdrop = await bootSnowdrop();
+    const list = snowdrop.plugins.list();
     const names = (q: Parameters<typeof filterPlugins>[1]) =>
       filterPlugins(list, q).map((p) => p.definition.id);
     expect(names({ query: 'tracking', filter: 'all', tag: null })).toEqual(['clear-urls']);
@@ -136,9 +136,9 @@ const everything = definePlugin({
 
 describe('auto-generated plugin settings form', () => {
   it('renders the right control per type and saves coerced values', async () => {
-    shrike = await bootShrike();
-    renderWithShrike(shrike, <PluginSettingsForm plugin={everything} />);
-    const stored = () => shrike!.stores.settings.getState().plugins['form-demo']?.settings ?? {};
+    snowdrop = await bootSnowdrop();
+    renderWithSnowdrop(snowdrop, <PluginSettingsForm plugin={everything} />);
+    const stored = () => snowdrop!.stores.settings.getState().plugins['form-demo']?.settings ?? {};
 
     const flag = screen.getByRole('switch', { name: 'Flag' });
     expect(flag.getAttribute('aria-checked')).toBe('true');
@@ -172,6 +172,6 @@ describe('auto-generated plugin settings form', () => {
       fireEvent.change(select, { target: { value: 'z' } });
     });
     expect(stored().pick).toBe('z');
-    await settle(shrike);
+    await settle(snowdrop);
   });
 });

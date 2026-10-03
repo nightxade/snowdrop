@@ -51,5 +51,5 @@ export class Emitter<Events extends object> {
 }
 
 function reportError(error: unknown): void {
-  console.error('[shrike] event listener failed', error);
+  console.error('[snowdrop] event listener failed', error);
 }

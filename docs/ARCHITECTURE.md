@@ -1,10 +1,10 @@
 # Architecture
 
-Shrike is a single-page React app over a React-free core. The core owns the
+Snowdrop is a single-page React app over a React-free core. The core owns the
 domain model, the transport contract, state, persistence and every rule about
 messages (ordering, read state, optimistic sends, plugins). The UI only reads
-stores and calls services. One function, `createShrike` in
-`src/app/createShrike.ts`, wires everything together and is the only place
+stores and calls services. One function, `createSnowdrop` in
+`src/app/createSnowdrop.ts`, wires everything together and is the only place
 that knows which transport is in use.
 
 This page explains the layers, how data moves through them, and how to extend
@@ -48,25 +48,25 @@ An arrow means "may import". Arrows are transitive downwards (a feature may
 also import `core/domain`, `core/stores`, `core/themes`…); the diagram shows
 the main edges, not every one.
 
-| Layer                     | Responsibility                                                                                                                                 |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `core/lib`                | Typed `Emitter`, `Clock`/`Scheduler` (+ `ManualScheduler` for tests), `DisposableStore`, `ObservableList`, nonces.                             |
-| `core/domain`             | Pure types (`Message`, `Conversation`, `Contact`…) and pure helpers (markdown → ranges, grouping, fuzzy, ids).                                 |
-| `core/backend/types.ts`   | The `ChatBackend` contract, `BackendEvents`, and `BackendKind` (an open set of registered kinds).                                              |
-| `core/backend/mock`       | Seeded demo world with simulated activity.                                                                                                     |
-| `core/backend/signal-cli` | JSON-RPC over HTTP + SSE adapter for a local signal-cli daemon ([SIGNAL_CLI.md](SIGNAL_CLI.md)).                                               |
-| `core/persistence`        | `MessageRepository` (memory and IndexedDB), versioned key-value settings storage.                                                              |
-| `core/stores`             | zustand vanilla stores, one slice per file, plus memoised selectors.                                                                           |
-| `core/services`           | `SyncService`, `SendService`, `HistoryService`, `NotificationService`, `ReceiptBuffer`, history export.                                        |
-| `core/commands`           | `CommandRegistry`, keybind parsing/matching (`KeybindDispatcher`), key layers (`KeyLayerStack`), core command ids.                             |
-| `core/plugins`            | `PluginRuntime`, `Registries` (extension points), settings schemas, headless built-in plugins.                                                 |
-| `core/themes`             | Token names, built-in themes, the theme engine, the CSS sanitiser, theme import/export.                                                        |
-| `ui/primitives`           | Buttons, menus, dialogs, `Slot`/`PluginBoundary`… Thin wrappers over Radix, cmdk, frimousse, dnd-kit, sonner.                                  |
-| `ui/hooks`                | `useShrike()` (`AppServices`), `useObservableList`, layout state, roving focus, focus targets, text surfaces.                                  |
-| `ui/features/*`           | One folder per product area: `rail`, `sidebar`, `chat`, `members`, `settings`, `switcher`, `onboarding`, `spaces`, `conversation`, `shell`.    |
-| `ui/plugins`              | Built-in plugins that render UI (Relative Timestamps, Message Tools, Pronoun & Notes Badge, Vim Mode, Keyword Alerts' UI half).                |
-| `ui/styles`               | `tokens.css` (the Dusk base theme), `global.css`, `reset.css`.                                                                                 |
-| `app`                     | `createShrike`, the backend registry (`backends.ts`), the plugin host (`pluginHost.ts`), core commands, `deferredBackend`/`Repository`, `App`. |
+| Layer                     | Responsibility                                                                                                                                   |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `core/lib`                | Typed `Emitter`, `Clock`/`Scheduler` (+ `ManualScheduler` for tests), `DisposableStore`, `ObservableList`, nonces.                               |
+| `core/domain`             | Pure types (`Message`, `Conversation`, `Contact`…) and pure helpers (markdown → ranges, grouping, fuzzy, ids).                                   |
+| `core/backend/types.ts`   | The `ChatBackend` contract, `BackendEvents`, and `BackendKind` (an open set of registered kinds).                                                |
+| `core/backend/mock`       | Seeded demo world with simulated activity.                                                                                                       |
+| `core/backend/signal-cli` | JSON-RPC over HTTP + SSE adapter for a local signal-cli daemon ([SIGNAL_CLI.md](SIGNAL_CLI.md)).                                                 |
+| `core/persistence`        | `MessageRepository` (memory and IndexedDB), versioned key-value settings storage.                                                                |
+| `core/stores`             | zustand vanilla stores, one slice per file, plus memoised selectors.                                                                             |
+| `core/services`           | `SyncService`, `SendService`, `HistoryService`, `NotificationService`, `ReceiptBuffer`, history export.                                          |
+| `core/commands`           | `CommandRegistry`, keybind parsing/matching (`KeybindDispatcher`), key layers (`KeyLayerStack`), core command ids.                               |
+| `core/plugins`            | `PluginRuntime`, `Registries` (extension points), settings schemas, headless built-in plugins.                                                   |
+| `core/themes`             | Token names, built-in themes, the theme engine, the CSS sanitiser, theme import/export.                                                          |
+| `ui/primitives`           | Buttons, menus, dialogs, `Slot`/`PluginBoundary`… Thin wrappers over Radix, cmdk, frimousse, dnd-kit, sonner.                                    |
+| `ui/hooks`                | `useSnowdrop()` (`AppServices`), `useObservableList`, layout state, roving focus, focus targets, text surfaces.                                  |
+| `ui/features/*`           | One folder per product area: `rail`, `sidebar`, `chat`, `members`, `settings`, `switcher`, `onboarding`, `spaces`, `conversation`, `shell`.      |
+| `ui/plugins`              | Built-in plugins that render UI (Relative Timestamps, Message Tools, Pronoun & Notes Badge, Vim Mode, Keyword Alerts' UI half).                  |
+| `ui/styles`               | `tokens.css` (the Dusk base theme), `global.css`, `reset.css`.                                                                                   |
+| `app`                     | `createSnowdrop`, the backend registry (`backends.ts`), the plugin host (`pluginHost.ts`), core commands, `deferredBackend`/`Repository`, `App`. |
 
 ### The rules
 
@@ -93,8 +93,8 @@ These are enforced on every source file by `eslint.config.js`
    import cycles (`import-x/no-cycle`).
 
 `ui/features` and `ui/plugins` reach the composed app through
-`AppServices` (declared in `ui/hooks/ShrikeContext.tsx`), which the concrete
-`Shrike` satisfies structurally. That keeps features from importing `app/`.
+`AppServices` (declared in `ui/hooks/SnowdropContext.tsx`), which the concrete
+`Snowdrop` satisfies structurally. That keeps features from importing `app/`.
 
 ### How lint proves the rules still fire
 
@@ -112,7 +112,7 @@ layer or a rule, add a case to the `cases` table in that script.
 
 ## The composition root
 
-`createShrike(options)` (synchronous) builds one instance:
+`createSnowdrop(options)` (synchronous) builds one instance:
 
 1. Loads persisted state with `loadVersioned` and creates the stores
    (`createStores`), then binds them back to storage with `bindPersistence`
@@ -124,7 +124,7 @@ layer or a rule, add a case to the `cases` table in that script.
    `onBackendChange`). The registration says where history lives:
    - `mock`: in memory, because the demo world is regenerated relative to
      "now" on each launch.
-   - `signal-cli`: IndexedDB (`shrike-signal-cli`), because the daemon keeps
+   - `signal-cli`: IndexedDB (`snowdrop-signal-cli`), because the daemon keeps
      no history. Falls back to memory when IndexedDB is missing.
 
    The settings are parsed against the registry too
@@ -149,7 +149,7 @@ layer or a rule, add a case to the `cases` table in that script.
    re-applies it when appearance settings, Custom CSS, custom themes or plugin
    styles change. Safe mode passes empty Custom CSS and no imported themes.
 
-`shrike.start()` then connects and runs the initial sync, restores the outbox,
+`snowdrop.start()` then connects and runs the initial sync, restores the outbox,
 runs the registration's `onStarted` (the demo seeds its spaces, once), starts
 plugins and notifications, and wires the registration's `attach` (the demo's
 liveliness switch). A
@@ -261,7 +261,7 @@ work (signal-cli: after the events produced by each SSE event). `SyncService` qu
 checkpoint like any other event, so it runs only after every preceding
 repository write, and then calls `backend.acknowledge(cursor)`. Only then does
 the signal-cli adapter persist the SSE `Last-Event-ID`
-(`shrike.signal-cli.lastEventId.<account>`). A crash or reload therefore
+(`snowdrop.signal-cli.lastEventId.<account>`). A crash or reload therefore
 re-delivers rather than skips; re-delivery is deduplicated by the merge. Events
 dropped by `stop()` are never acknowledged. `deferredBackend` buffers
 acknowledgements made before the adapter has loaded.
@@ -333,13 +333,13 @@ when deciding whether a new message is unread.
 
 ## Persistence
 
-| What                                                                          | Where                                                                                  |
-| ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| Settings (`shrike.settings`, v3)                                              | `localStorage` via `loadVersioned` / `bindPersistence`                                 |
-| Spaces, folders, categories (`shrike.spaces`)                                 | same                                                                                   |
-| Pin / mute / archive / drafts, contact notes, reaction usage (`shrike.local`) | same, debounced                                                                        |
-| Messages, read cursors, outbox                                                | `MessageRepository`: memory for the demo, IndexedDB `shrike-signal-cli` for signal-cli |
-| signal-cli resume position and DM peers                                       | `shrike.signal-cli.lastEventId.<account>`, `shrike.signal-cli.peers.<account>`         |
+| What                                                                            | Where                                                                                    |
+| ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Settings (`snowdrop.settings`, v3)                                              | `localStorage` via `loadVersioned` / `bindPersistence`                                   |
+| Spaces, folders, categories (`snowdrop.spaces`)                                 | same                                                                                     |
+| Pin / mute / archive / drafts, contact notes, reaction usage (`snowdrop.local`) | same, debounced                                                                          |
+| Messages, read cursors, outbox                                                  | `MessageRepository`: memory for the demo, IndexedDB `snowdrop-signal-cli` for signal-cli |
+| signal-cli resume position and DM peers                                         | `snowdrop.signal-cli.lastEventId.<account>`, `snowdrop.signal-cli.peers.<account>`       |
 
 Versioned data is stored as `{ v, data }`. Loading runs step-wise migrations,
 then parses **field by field** against defaults, so one corrupt field falls back
@@ -378,7 +378,7 @@ and plugins' `ctx.backend.kind` all read the registry.
              }),
        ),
      capabilities: new Set(['fetchHistory']), // exactly the optional methods it implements
-     history: { kind: 'memory' }, // or { kind: 'indexeddb', name: 'shrike-matrix' } if the transport keeps none
+     history: { kind: 'memory' }, // or { kind: 'indexeddb', name: 'snowdrop-matrix' } if the transport keeps none
    };
    ```
 
@@ -394,8 +394,8 @@ and plugins' `ctx.backend.kind` all read the registry.
    `app/` may import it.
 4. **Test it** headless: drive it with a fake transport (see
    `core/backend/signal-cli/testing.ts` for a scriptable fake daemon) and boot
-   it through `createShrike` with injected fakes (see
-   `src/app/createShrike.signalCli.test.ts`, and `src/app/backends.test.ts`,
+   it through `createSnowdrop` with injected fakes (see
+   `src/app/createSnowdrop.signalCli.test.ts`, and `src/app/backends.test.ts`,
    which boots a newly registered kind). `deferredBackend.test.ts` checks the
    declared `capabilities` against the loaded adapter automatically.
 
@@ -509,8 +509,8 @@ with `ManualScheduler` instead of real timers.
 | Services          | Sync/send/history against the mock backend, including races and checkpoints (`core/services/*.test.ts`).                                                                                          |
 | Adapters          | Mock world and events; signal-cli normaliser against hand-written envelope fixtures (`signal-cli/fixtures/envelopes.ts`), RPC/SSE/backend against the fake daemon (`testing.ts`).                 |
 | Plugins           | Lifecycle, isolation, settings coercion, built-ins (`core/plugins/*.test.ts`, `ui/plugins/*.test.ts`, `ui/plugins/vim/**`).                                                                       |
-| Composition       | `createShrike` on both transports, `deferredBackend` capabilities (`src/app/*.test.ts`).                                                                                                          |
-| UI                | Testing Library on a real demo instance (`src/test/renderWithShrike.tsx`, `src/test/bootDemo.tsx`); an axe smoke test (`vitest-axe`) in `src/test/shell.test.tsx`.                                |
+| Composition       | `createSnowdrop` on both transports, `deferredBackend` capabilities (`src/app/*.test.ts`).                                                                                                        |
+| UI                | Testing Library on a real demo instance (`src/test/renderWithSnowdrop.tsx`, `src/test/bootDemo.tsx`); an axe smoke test (`vitest-axe`) in `src/test/shell.test.tsx`.                              |
 | Design invariants | Text contrast ≥ 4.5:1 on every surface of every built-in theme (`src/test/contrast.test.ts`); `tokens.css` ↔ `tokens.ts` in sync (`src/test/tokens-sync.test.ts`); licence list ↔ `package.json`. |
 
 Running them:

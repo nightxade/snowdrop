@@ -78,16 +78,16 @@ describe('themes', () => {
     const L = (hex: string | undefined) => rgbToOklch(parseHex(hex!)!).l;
     expect(L(dark['accent-hover'])).toBeGreaterThan(L('#3ccf91'));
     expect(L(light['accent-hover'])).toBeLessThan(L('#3ccf91'));
-    expect(dark['text-on-accent']).toBe('#1a0f0b');
+    expect(dark['text-on-accent']).toBe('#08130e');
     expect(deriveAccentTokens('#1a237e', 'dark')['text-on-accent']).toBe('#ffffff');
     expect(deriveAccentTokens('bogus', 'dark')).toEqual({});
   });
 
   it('builds CSS with overrides, accent and scale tokens', () => {
     const css = buildThemeCss({ ...base, themeId: 'linen', accent: '#3366ff', fontScale: 1.125 });
-    expect(css).toContain(`--shrike-bg-chat: ${LINEN.tokens['bg-chat']};`);
-    expect(css).toContain('--shrike-accent: #3366ff;');
-    expect(css).toContain('--shrike-font-scale: 1.125;');
+    expect(css).toContain(`--snowdrop-bg-chat: ${LINEN.tokens['bg-chat']};`);
+    expect(css).toContain('--snowdrop-accent: #3366ff;');
+    expect(css).toContain('--snowdrop-font-scale: 1.125;');
     expect(buildThemeCss({ ...base, themeId: 'high-contrast' })).toContain('0 0 0 2px #ffffff');
   });
 });

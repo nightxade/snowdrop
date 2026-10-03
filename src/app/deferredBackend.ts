@@ -2,7 +2,7 @@
  * A ChatBackend usable before its adapter module has loaded.
  *
  * Each adapter is a separate chunk (the demo world and the signal-cli client
- * are both large, and a session only ever needs one), so `createShrike`
+ * are both large, and a session only ever needs one), so `createSnowdrop`
  * imports it dynamically. Services are wired synchronously, though, and some
  * read *which optional methods exist* up front (`SendService.capabilities`,
  * the UI's `resolveAttachmentUrl` check). So each backend registration

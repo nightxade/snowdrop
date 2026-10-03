@@ -6,7 +6,7 @@
  */
 import { useState, type DragEvent } from 'react';
 
-export const CONVERSATION_MIME = 'application/x-shrike-conversation';
+export const CONVERSATION_MIME = 'application/x-snowdrop-conversation';
 
 export function startConversationDrag(e: DragEvent, conversationId: string): void {
   e.dataTransfer.setData(CONVERSATION_MIME, conversationId);

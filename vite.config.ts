@@ -13,7 +13,7 @@ const PROXY_PATH = '/signal-cli';
  * Same-origin path to the signal-cli HTTP daemon. The browser can't call the
  * daemon directly: it sends no CORS headers and only accepts requests whose
  * Host header matches its bind address (hence `changeOrigin`). The target is
- * SHRIKE_SIGNAL_CLI_URL (shell or .env*), default http://127.0.0.1:8080.
+ * SNOWDROP_SIGNAL_CLI_URL (shell or .env*), default http://127.0.0.1:8080.
  */
 function signalCliProxy(target: string): Record<string, ProxyOptions> {
   return {
@@ -45,7 +45,7 @@ function signalCliGuard(): Plugin {
     res.end(`Forbidden: ${verdict.reason}\n`);
   };
   return {
-    name: 'shrike:signal-cli-guard',
+    name: 'snowdrop:signal-cli-guard',
     configureServer(server) {
       server.middlewares.use(PROXY_PATH, guard);
     },
@@ -56,8 +56,8 @@ function signalCliGuard(): Plugin {
 }
 
 export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, process.cwd(), 'SHRIKE_');
-  const proxy = signalCliProxy(env.SHRIKE_SIGNAL_CLI_URL ?? 'http://127.0.0.1:8080');
+  const env = loadEnv(mode, process.cwd(), 'SNOWDROP_');
+  const proxy = signalCliProxy(env.SNOWDROP_SIGNAL_CLI_URL ?? 'http://127.0.0.1:8080');
   return {
     plugins: [
       signalCliGuard(),

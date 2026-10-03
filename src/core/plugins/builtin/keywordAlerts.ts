@@ -37,7 +37,7 @@ export function createKeywordAlertsPlugin(ui: KeywordAlertsUi = {}) {
     name: 'Keyword Alerts',
     description:
       'Get notified when someone says a word you care about, even in muted or mentions-only conversations.',
-    authors: ['shrike'],
+    authors: ['snowdrop'],
     tags: ['notifications', 'messages'],
     settings: defineSettings({
       keywords: {
@@ -56,7 +56,7 @@ export function createKeywordAlertsPlugin(ui: KeywordAlertsUi = {}) {
       toast: {
         type: 'boolean',
         label: 'In-app toast',
-        description: 'Also show a toast inside Shrike when a keyword comes up.',
+        description: 'Also show a toast inside Snowdrop when a keyword comes up.',
         default: true,
       },
     }),

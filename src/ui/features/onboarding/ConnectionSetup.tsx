@@ -1,7 +1,7 @@
 import { ArrowLeft } from 'lucide-react';
 import { lazy, Suspense } from 'react';
 import type { LinkFlow } from '@/core/backend';
-import { ShrikeMark, TooltipProvider } from '@/ui/primitives';
+import { SnowdropMark, TooltipProvider } from '@/ui/primitives';
 import { AccountPrompt } from './AccountPrompt';
 import styles from './Welcome.module.css';
 import setup from './Setup.module.css';
@@ -28,12 +28,12 @@ export function ConnectionSetup({
 }: ConnectionSetupProps) {
   return (
     <TooltipProvider>
-      <main className={styles.screen} data-shrike="welcome">
-        <div className={styles.streaks} aria-hidden />
+      <main className={styles.screen} data-snowdrop="welcome">
+        <div className={styles.glow} aria-hidden />
         <div className={[styles.column, setup.wide].join(' ')}>
           <div className={styles.brand}>
-            <ShrikeMark size={40} className={styles.mark} />
-            <h1 className={setup.wordmark}>Shrike</h1>
+            <SnowdropMark size={40} className={styles.mark} />
+            <h1 className={setup.wordmark}>Snowdrop</h1>
           </div>
           {reason === 'no-account' ? (
             <Suspense fallback={<div className={setup.card} aria-busy="true" />}>

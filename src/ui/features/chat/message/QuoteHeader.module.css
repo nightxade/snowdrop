@@ -4,7 +4,7 @@
   align-items: center;
   min-width: 0;
   height: 20px;
-  margin-bottom: var(--shrike-space-1);
+  margin-bottom: var(--snowdrop-space-1);
 }
 
 /* Curved connector from the reply's avatar up to the quoted line. */
@@ -14,8 +14,8 @@
   left: -38px;
   width: 30px;
   height: 12px;
-  border-top: 2px solid var(--shrike-border-strong);
-  border-left: 2px solid var(--shrike-border-strong);
+  border-top: 2px solid var(--snowdrop-border-strong);
+  border-left: 2px solid var(--snowdrop-border-strong);
   border-top-left-radius: 6px;
 }
 
@@ -27,11 +27,11 @@
 .button {
   display: flex;
   align-items: center;
-  gap: var(--shrike-space-2);
+  gap: var(--snowdrop-space-2);
   min-width: 0;
   max-width: 100%;
-  color: var(--shrike-text-muted);
-  font-size: var(--shrike-font-size-sm);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
   line-height: 20px;
   text-align: left;
 }
@@ -42,8 +42,8 @@
 
 .name {
   flex: none;
-  color: color-mix(in oklab, var(--name-color) 55%, var(--shrike-text-strong));
-  font-weight: var(--shrike-font-weight-semibold);
+  color: color-mix(in oklab, var(--name-color) 55%, var(--snowdrop-text-strong));
+  font-weight: var(--snowdrop-font-weight-semibold);
   opacity: 0.9;
 }
 
@@ -62,10 +62,10 @@
 .text[data-italic] {
   display: inline-flex;
   align-items: center;
-  gap: var(--shrike-space-2);
+  gap: var(--snowdrop-space-2);
   font-style: italic;
 }
 
 .button:hover .text {
-  color: var(--shrike-text);
+  color: var(--snowdrop-text);
 }

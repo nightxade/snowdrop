@@ -41,11 +41,13 @@ export function QuoteHeader({ quote, nameFor, onJump, compact }: QuoteHeaderProp
           {...(author?.avatarUrl ? { src: author.avatarUrl } : {})}
           // Too small for legible initials: a plain colour dot.
           fallback=""
-          color={author?.color ?? 'var(--shrike-avatar-1)'}
+          color={author?.color ?? 'var(--snowdrop-avatar-1)'}
         />
         <span
           className={styles.name}
-          style={{ '--name-color': author?.color ?? 'var(--shrike-text-strong)' } as CSSProperties}
+          style={
+            { '--name-color': author?.color ?? 'var(--snowdrop-text-strong)' } as CSSProperties
+          }
         >
           {name}
         </span>

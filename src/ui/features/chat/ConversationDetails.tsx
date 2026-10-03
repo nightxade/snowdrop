@@ -3,7 +3,7 @@ import { useState, type SyntheticEvent } from 'react';
 import { useStore } from 'zustand';
 import { formatDuration, type ConversationView } from '@/core/domain';
 import { sessionSelectors } from '@/core/stores';
-import { useShrike } from '@/ui/hooks';
+import { useSnowdrop } from '@/ui/hooks';
 import {
   ConversationAvatar,
   copyText,
@@ -17,7 +17,7 @@ const MAX_GROUP_NAME = 32;
 
 /** The "about this conversation" popover opened from the header title. */
 export function ConversationDetails({ conversation }: { conversation: ConversationView }) {
-  const app = useShrike();
+  const app = useSnowdrop();
   const peer = usePeer(conversation);
   const selfId = useStore(app.stores.session, sessionSelectors.selfId);
   const isGroup = conversation.kind === 'group';

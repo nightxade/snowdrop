@@ -1,32 +1,32 @@
 .result {
   display: flex;
   flex-direction: column;
-  gap: var(--shrike-space-2);
+  gap: var(--snowdrop-space-2);
   width: 100%;
-  padding: var(--shrike-space-3) var(--shrike-space-4);
-  border: 1px solid var(--shrike-border);
-  border-radius: var(--shrike-radius-sm);
-  background: var(--shrike-bg-chat);
+  padding: var(--snowdrop-space-3) var(--snowdrop-space-4);
+  border: 1px solid var(--snowdrop-border);
+  border-radius: var(--snowdrop-radius-sm);
+  background: var(--snowdrop-bg-chat);
   text-align: left;
   transition:
-    border-color var(--shrike-duration-fast) var(--shrike-ease),
-    background-color var(--shrike-duration-fast) var(--shrike-ease);
+    border-color var(--snowdrop-duration-fast) var(--snowdrop-ease),
+    background-color var(--snowdrop-duration-fast) var(--snowdrop-ease);
 }
 
 .result:hover {
-  border-color: var(--shrike-border-strong);
-  background: var(--shrike-bg-elevated);
+  border-color: var(--snowdrop-border-strong);
+  background: var(--snowdrop-bg-elevated);
 }
 
 .context {
-  color: var(--shrike-text-muted);
-  font-size: var(--shrike-font-size-xs);
-  font-weight: var(--shrike-font-weight-semibold);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-xs);
+  font-weight: var(--snowdrop-font-weight-semibold);
 }
 
 .row {
   display: flex;
-  gap: var(--shrike-space-3);
+  gap: var(--snowdrop-space-3);
   min-width: 0;
 }
 
@@ -40,29 +40,29 @@
 .head {
   display: flex;
   align-items: baseline;
-  gap: var(--shrike-space-3);
+  gap: var(--snowdrop-space-3);
   min-width: 0;
 }
 
 .name {
   overflow: hidden;
-  color: color-mix(in oklab, var(--name-color) 55%, var(--shrike-text-strong));
-  font-size: var(--shrike-font-size-ui);
-  font-weight: var(--shrike-font-weight-semibold);
+  color: color-mix(in oklab, var(--name-color) 55%, var(--snowdrop-text-strong));
+  font-size: var(--snowdrop-font-size-ui);
+  font-weight: var(--snowdrop-font-weight-semibold);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .time {
   flex: none;
-  color: var(--shrike-text-faint);
-  font-size: var(--shrike-font-size-xs);
+  color: var(--snowdrop-text-faint);
+  font-size: var(--snowdrop-font-size-xs);
 }
 
 .body {
   display: -webkit-box;
   overflow: hidden;
-  font-size: var(--shrike-font-size-ui);
+  font-size: var(--snowdrop-font-size-ui);
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
 }

@@ -35,7 +35,7 @@ export function focusConversation(id: ConversationId): void {
 
 const sidebarRow = (id: ConversationId): HTMLElement | null =>
   document.querySelector<HTMLElement>(
-    `[data-shrike="sidebar"] [data-conversation-id="${CSS.escape(id)}"][data-roving-item]`,
+    `[data-snowdrop="sidebar"] [data-conversation-id="${CSS.escape(id)}"][data-roving-item]`,
   );
 
 /**
@@ -50,8 +50,8 @@ export function followConversationFocus(): (id: ConversationId) => void {
   const before = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   const fromRow =
     before?.matches('[data-roving-item][data-conversation-id]') === true &&
-    before.closest('[data-shrike="sidebar"]') !== null;
-  const fromChat = !before || before === document.body || before.closest('[data-shrike="chat"]');
+    before.closest('[data-snowdrop="sidebar"]') !== null;
+  const fromChat = !before || before === document.body || before.closest('[data-snowdrop="chat"]');
   return (id) => {
     requestAnimationFrame(() => {
       if (fromRow) {

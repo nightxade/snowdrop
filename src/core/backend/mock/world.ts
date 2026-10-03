@@ -51,7 +51,7 @@ export interface MockWorld {
   conversationIds: Map<string, ConversationId>;
   lively: ConversationId[];
   pools: Map<ConversationId, readonly string[]>;
-  /** Demo-only local organisation (pins/mutes are device-local in Shrike). */
+  /** Demo-only local organisation (pins/mutes are device-local in Snowdrop). */
   defaultLocal: { pinned: ConversationId[]; muted: ConversationId[] };
   defaultSpaces: {
     name: string;
@@ -107,7 +107,7 @@ function renderText(
 }
 
 function fileAttachment(seed: FileSeed, id: string): Attachment {
-  const text = `Demo file "${seed.fileName}" from the Shrike mock world.\n`;
+  const text = `Demo file "${seed.fileName}" from the Snowdrop mock world.\n`;
   return {
     id,
     contentType: seed.contentType,

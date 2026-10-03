@@ -4,25 +4,25 @@
   inset: 0;
   display: grid;
   place-items: center;
-  padding: var(--shrike-space-5);
-  background: var(--shrike-bg-overlay);
+  padding: var(--snowdrop-space-5);
+  background: var(--snowdrop-bg-overlay);
   pointer-events: none;
-  animation: fade var(--shrike-duration-base) var(--shrike-ease);
+  animation: fade var(--snowdrop-duration-base) var(--snowdrop-ease);
 }
 
 .card {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--shrike-space-3);
+  gap: var(--snowdrop-space-3);
   width: min(420px, 100%);
-  padding: var(--shrike-space-8) var(--shrike-space-7);
-  border: 2px dashed var(--shrike-accent);
-  border-radius: var(--shrike-radius-lg);
-  background: var(--shrike-bg-floating);
-  box-shadow: var(--shrike-shadow-modal);
+  padding: var(--snowdrop-space-8) var(--snowdrop-space-7);
+  border: 2px dashed var(--snowdrop-accent);
+  border-radius: var(--snowdrop-radius-lg);
+  background: var(--snowdrop-bg-floating);
+  box-shadow: var(--snowdrop-shadow-modal);
   text-align: center;
-  animation: lift var(--shrike-duration-slow) var(--shrike-ease);
+  animation: lift var(--snowdrop-duration-slow) var(--snowdrop-ease);
 }
 
 .icon {
@@ -30,22 +30,22 @@
   place-items: center;
   width: 56px;
   height: 56px;
-  margin-bottom: var(--shrike-space-2);
-  border-radius: var(--shrike-radius-full);
-  background: var(--shrike-accent-soft);
-  color: var(--shrike-accent-text);
+  margin-bottom: var(--snowdrop-space-2);
+  border-radius: var(--snowdrop-radius-full);
+  background: var(--snowdrop-accent-soft);
+  color: var(--snowdrop-accent-text);
 }
 
 .title {
-  color: var(--shrike-text-strong);
-  font-size: var(--shrike-font-size-title);
-  font-weight: var(--shrike-font-weight-semibold);
+  color: var(--snowdrop-text-strong);
+  font-size: var(--snowdrop-font-size-title);
+  font-weight: var(--snowdrop-font-weight-semibold);
   overflow-wrap: anywhere;
 }
 
 .hint {
-  color: var(--shrike-text-muted);
-  font-size: var(--shrike-font-size-ui);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-ui);
 }
 
 @keyframes fade {

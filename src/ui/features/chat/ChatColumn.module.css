@@ -4,7 +4,7 @@
   flex-direction: column;
   min-width: 0;
   height: 100%;
-  background: var(--shrike-bg-chat);
+  background: var(--snowdrop-bg-chat);
 }
 
 .body {
@@ -32,42 +32,42 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: var(--shrike-space-3);
-  padding: var(--shrike-space-8) var(--shrike-space-5);
+  gap: var(--snowdrop-space-3);
+  padding: var(--snowdrop-space-8) var(--snowdrop-space-5);
   text-align: center;
 }
 
 .mark {
-  margin-bottom: var(--shrike-space-4);
-  color: var(--shrike-accent-text);
+  margin-bottom: var(--snowdrop-space-4);
+  color: var(--snowdrop-accent-text);
   opacity: 0.9;
 }
 
 .emptyTitle {
-  color: var(--shrike-text-strong);
-  font-size: var(--shrike-font-size-title);
-  font-weight: var(--shrike-font-weight-semibold);
+  color: var(--snowdrop-text-strong);
+  font-size: var(--snowdrop-font-size-title);
+  font-weight: var(--snowdrop-font-weight-semibold);
 }
 
 .emptyBody {
-  color: var(--shrike-text-muted);
+  color: var(--snowdrop-text-muted);
 }
 
 .shortcuts {
   display: flex;
   flex-direction: column;
-  gap: var(--shrike-space-3);
+  gap: var(--snowdrop-space-3);
   min-width: 240px;
-  margin-top: var(--shrike-space-6);
+  margin-top: var(--snowdrop-space-6);
 }
 
 .shortcuts > div {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--shrike-space-6);
-  color: var(--shrike-text-muted);
-  font-size: var(--shrike-font-size-sm);
+  gap: var(--snowdrop-space-6);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
 }
 
 .shortcuts dd {

@@ -3,7 +3,7 @@
   align-items: center;
   height: 24px;
   /* Padding, not margin: the virtualiser doesn't measure margins. */
-  padding: var(--shrike-space-6) var(--shrike-space-5) var(--shrike-space-1);
+  padding: var(--snowdrop-space-6) var(--snowdrop-space-5) var(--snowdrop-space-1);
   box-sizing: content-box;
 }
 
@@ -12,23 +12,23 @@
   content: '';
   flex: 1;
   height: 1px;
-  background: var(--shrike-border-strong);
+  background: var(--snowdrop-border-strong);
 }
 
 .dayLabel {
-  padding: 0 var(--shrike-space-3);
-  color: var(--shrike-text-muted);
-  font-size: var(--shrike-font-size-sm);
-  font-weight: var(--shrike-font-weight-semibold);
+  padding: 0 var(--snowdrop-space-3);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
+  font-weight: var(--snowdrop-font-weight-semibold);
 }
 
 .new {
   display: flex;
   align-items: center;
-  gap: var(--shrike-space-3);
+  gap: var(--snowdrop-space-3);
   height: 18px;
   margin: 0;
-  padding: var(--shrike-space-3) var(--shrike-space-5) 0;
+  padding: var(--snowdrop-space-3) var(--snowdrop-space-5) 0;
   box-sizing: content-box;
 }
 
@@ -38,17 +38,17 @@
   content: '';
   flex: 1;
   height: 1px;
-  background: var(--shrike-accent);
+  background: var(--snowdrop-accent);
 }
 
 .newTag {
   flex: none;
   padding: 1px 8px;
-  border-radius: var(--shrike-radius-full);
-  background: var(--shrike-accent);
-  color: var(--shrike-text-on-accent);
-  font-size: var(--shrike-font-size-xs);
-  font-weight: var(--shrike-font-weight-semibold);
+  border-radius: var(--snowdrop-radius-full);
+  background: var(--snowdrop-accent);
+  color: var(--snowdrop-text-on-accent);
+  font-size: var(--snowdrop-font-size-xs);
+  font-weight: var(--snowdrop-font-weight-semibold);
   line-height: 16px;
 }
 
@@ -56,15 +56,15 @@
   display: grid;
   grid-template-columns: 72px minmax(0, 1fr) auto;
   align-items: center;
-  padding: var(--shrike-space-3) var(--shrike-space-9) var(--shrike-space-3) 0;
-  color: var(--shrike-text-muted);
-  font-size: var(--shrike-font-size-ui);
+  padding: var(--snowdrop-space-3) var(--snowdrop-space-9) var(--snowdrop-space-3) 0;
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-ui);
 }
 
 .systemIcon {
   display: grid;
   place-items: center;
-  color: var(--shrike-text-faint);
+  color: var(--snowdrop-text-faint);
 }
 
 .systemText {
@@ -72,15 +72,15 @@
 }
 
 .systemTime {
-  margin-left: var(--shrike-space-3);
-  color: var(--shrike-text-faint);
-  font-size: var(--shrike-font-size-xs);
+  margin-left: var(--snowdrop-space-3);
+  color: var(--snowdrop-text-faint);
+  font-size: var(--snowdrop-font-size-xs);
   font-variant-numeric: tabular-nums;
 }
 
 @media (max-width: 759.98px) {
   .system {
     grid-template-columns: 60px minmax(0, 1fr) auto;
-    padding-right: var(--shrike-space-4);
+    padding-right: var(--snowdrop-space-4);
   }
 }

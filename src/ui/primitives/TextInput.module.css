@@ -1,40 +1,40 @@
 .root {
   display: flex;
   flex-direction: column;
-  gap: var(--shrike-space-3);
+  gap: var(--snowdrop-space-3);
   min-width: 0;
 }
 
 .label {
-  color: var(--shrike-text-muted);
-  font-size: var(--shrike-font-size-sm);
-  font-weight: var(--shrike-font-weight-semibold);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
+  font-weight: var(--snowdrop-font-weight-semibold);
 }
 
 .field {
   display: flex;
   align-items: center;
-  gap: var(--shrike-space-3);
+  gap: var(--snowdrop-space-3);
   height: 40px;
-  padding: 0 var(--shrike-space-4);
-  border: 1px solid var(--shrike-border-strong);
-  border-radius: var(--shrike-radius-sm);
-  background: var(--shrike-bg-input);
-  transition: border-color var(--shrike-duration-fast) var(--shrike-ease);
+  padding: 0 var(--snowdrop-space-4);
+  border: 1px solid var(--snowdrop-border-strong);
+  border-radius: var(--snowdrop-radius-sm);
+  background: var(--snowdrop-bg-input);
+  transition: border-color var(--snowdrop-duration-fast) var(--snowdrop-ease);
 }
 
 .field[data-size='sm'] {
   height: 28px;
-  padding: 0 var(--shrike-space-3);
-  border-radius: var(--shrike-radius-xs);
+  padding: 0 var(--snowdrop-space-3);
+  border-radius: var(--snowdrop-radius-xs);
 }
 
 .field:focus-within {
-  border-color: var(--shrike-accent);
+  border-color: var(--snowdrop-accent);
 }
 
 .field[data-invalid] {
-  border-color: var(--shrike-danger);
+  border-color: var(--snowdrop-danger);
 }
 
 .input {
@@ -44,13 +44,13 @@
   padding: 0;
   border: none;
   background: transparent;
-  color: var(--shrike-text-strong);
-  font-size: var(--shrike-font-size-ui);
+  color: var(--snowdrop-text-strong);
+  font-size: var(--snowdrop-font-size-ui);
   outline: none;
 }
 
 .field[data-size='sm'] .input {
-  font-size: var(--shrike-font-size-sm);
+  font-size: var(--snowdrop-font-size-sm);
 }
 
 .input::-webkit-search-cancel-button,
@@ -59,7 +59,7 @@
 }
 
 .input::placeholder {
-  color: var(--shrike-text-faint);
+  color: var(--snowdrop-text-faint);
 }
 
 .input:focus-visible {
@@ -70,7 +70,7 @@
   display: grid;
   flex: none;
   place-items: center;
-  color: var(--shrike-text-faint);
+  color: var(--snowdrop-text-faint);
 }
 
 .adornment svg {
@@ -79,11 +79,11 @@
 }
 
 .hint {
-  color: var(--shrike-text-muted);
-  font-size: var(--shrike-font-size-sm);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
   line-height: 1.4;
 }
 
 .hint[data-error] {
-  color: var(--shrike-danger);
+  color: var(--snowdrop-danger);
 }

@@ -37,9 +37,9 @@ export interface AppearanceInput {
 }
 
 export const STYLE_IDS = {
-  theme: 'shrike-theme',
-  plugins: 'shrike-plugins',
-  customCss: 'shrike-custom-css',
+  theme: 'snowdrop-theme',
+  plugins: 'snowdrop-plugins',
+  customCss: 'snowdrop-custom-css',
 } as const;
 
 /**
@@ -50,7 +50,7 @@ export const STYLE_IDS = {
 export function deriveAccentTokens(accent: string, kind: Theme['kind']): TokenOverrides {
   if (!parseHex(accent)) return {};
   const dir = kind === 'dark' ? 1 : -1;
-  const onDark = '#1a0f0b';
+  const onDark = '#08130e';
   const onLight = '#ffffff';
   const textOnAccent =
     contrastRatio(accent, onDark) >= contrastRatio(accent, onLight) ? onDark : onLight;

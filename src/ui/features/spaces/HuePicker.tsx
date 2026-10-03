@@ -53,7 +53,7 @@ export function HuePicker({
             />
             <span
               className={styles.swatch}
-              style={{ '--tile-hue': `var(--shrike-avatar-${hue})` } as CSSProperties}
+              style={{ '--tile-hue': `var(--snowdrop-avatar-${hue})` } as CSSProperties}
             />
           </label>
         ))}

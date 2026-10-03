@@ -2,25 +2,25 @@
   z-index: 60;
   display: inline-flex;
   align-items: center;
-  gap: var(--shrike-space-3);
+  gap: var(--snowdrop-space-3);
   max-width: 280px;
   padding: 6px 10px;
-  border-radius: var(--shrike-radius-sm);
-  background: var(--shrike-bg-floating);
-  box-shadow: var(--shrike-shadow-menu);
-  color: var(--shrike-text-strong);
-  font-size: var(--shrike-font-size-ui);
-  font-weight: var(--shrike-font-weight-semibold);
-  line-height: var(--shrike-line-height-ui);
+  border-radius: var(--snowdrop-radius-sm);
+  background: var(--snowdrop-bg-floating);
+  box-shadow: var(--snowdrop-shadow-menu);
+  color: var(--snowdrop-text-strong);
+  font-size: var(--snowdrop-font-size-ui);
+  font-weight: var(--snowdrop-font-weight-semibold);
+  line-height: var(--snowdrop-line-height-ui);
   transform-origin: var(--radix-tooltip-content-transform-origin);
-  animation: pop var(--shrike-duration-fast) var(--shrike-ease);
+  animation: pop var(--snowdrop-duration-fast) var(--snowdrop-ease);
   user-select: none;
 }
 
 .shortcut {
-  color: var(--shrike-text-muted);
-  font-size: var(--shrike-font-size-sm);
-  font-weight: var(--shrike-font-weight-medium);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
+  font-weight: var(--snowdrop-font-weight-medium);
 }
 
 @keyframes pop {

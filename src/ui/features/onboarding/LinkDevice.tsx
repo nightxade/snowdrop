@@ -28,9 +28,9 @@ export function LinkDevice({ link, onLinked }: LinkDeviceProps) {
   }, [state.step]);
 
   return (
-    <section className={styles.card} aria-labelledby="link-title" data-shrike="link-device">
+    <section className={styles.card} aria-labelledby="link-title" data-snowdrop="link-device">
       <h2 id="link-title" className={styles.title}>
-        Link Shrike to your phone
+        Link Snowdrop to your phone
       </h2>
       <p className={styles.lede}>
         signal-cli is running but has no account yet. Link it to the Signal account on your phone,

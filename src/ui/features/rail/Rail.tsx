@@ -4,7 +4,7 @@ import { useStore } from 'zustand';
 import { HOME, spacesSelectors } from '@/core/stores';
 import type { ConversationId } from '@/core/domain';
 import { useConversationDrop, useRovingFocus, useStores } from '@/ui/hooks';
-import { Scroller, ShrikeMark } from '@/ui/primitives';
+import { Scroller, SnowdropMark } from '@/ui/primitives';
 import { HealthDot } from './HealthDot';
 import { RailTile } from './RailTile';
 import { FolderEntry } from './FolderEntry';
@@ -33,7 +33,7 @@ export function Rail() {
   });
 
   return (
-    <nav className={styles.rail} aria-label="Spaces" data-shrike="rail">
+    <nav className={styles.rail} aria-label="Spaces" data-snowdrop="rail">
       <Scroller scrollbar="none" className={styles.scroller} onKeyDown={onKeyDown}>
         <RailTile
           label="Home"
@@ -47,7 +47,7 @@ export function Rail() {
             stores.ui.getState().selectSpace(HOME);
           }}
         >
-          <ShrikeMark size={26} />
+          <SnowdropMark size={26} />
         </RailTile>
         <div className={styles.separator} role="separator" />
         <Suspense

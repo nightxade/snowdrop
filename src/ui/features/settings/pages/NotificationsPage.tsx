@@ -1,6 +1,6 @@
 import { BellRing, CircleCheck, CircleSlash, Send } from 'lucide-react';
 import { useState } from 'react';
-import { useShrike } from '@/ui/hooks';
+import { useSnowdrop } from '@/ui/hooks';
 import { Button, Segmented, Switch } from '@/ui/primitives';
 import { SettingRow } from '../rows/SettingRow';
 import { SettingsSection } from '../rows/SettingsSection';
@@ -8,10 +8,10 @@ import { useSettingsSection } from '../useSettingsSection';
 import type { PageProps } from '../pages';
 import styles from './pages.module.css';
 
-type Permission = ReturnType<ReturnType<typeof useShrike>['notifications']['permission']>;
+type Permission = ReturnType<ReturnType<typeof useSnowdrop>['notifications']['permission']>;
 
 export function NotificationsPage({ onNavigate }: PageProps) {
-  const { notifications } = useShrike();
+  const { notifications } = useSnowdrop();
   const [n, set] = useSettingsSection('notifications');
   // Permission changes come from a browser prompt, not a store: re-read after acting.
   const [permission, setPermission] = useState<Permission>(() => notifications.permission());
@@ -52,7 +52,7 @@ export function NotificationsPage({ onNavigate }: PageProps) {
               <>
                 <CircleSlash size={14} aria-hidden />
                 Notifications are blocked for this site. Allow them in your browser’s site settings
-                (the icon left of the address bar), then reload Shrike.
+                (the icon left of the address bar), then reload Snowdrop.
               </>
             ) : tested === false ? (
               'Your browser didn’t show the test notification. Check your system’s notification settings.'
@@ -144,20 +144,20 @@ export function NotificationsPage({ onNavigate }: PageProps) {
         <SettingRow
           id="notifications.sound"
           label="Sounds"
-          description="No sound is played by Shrike. Desktop notifications are sent silently; your system decides whether to make a sound for them."
+          description="No sound is played by Snowdrop. Desktop notifications are sent silently; your system decides whether to make a sound for them."
           disabled
         />
       </SettingsSection>
       <p className={styles.muted}>
-        Notifications are shown by your browser while Shrike is open in a tab.
+        Notifications are shown by your browser while Snowdrop is open in a tab.
       </p>
     </>
   );
 }
 
 const PERMISSION_TEXT: Record<Permission, string> = {
-  default: 'Shrike needs your browser’s permission before it can show desktop notifications.',
-  granted: 'Allowed. Shrike can show desktop notifications.',
+  default: 'Snowdrop needs your browser’s permission before it can show desktop notifications.',
+  granted: 'Allowed. Snowdrop can show desktop notifications.',
   denied: 'Blocked by your browser.',
   unsupported: 'This browser doesn’t support desktop notifications.',
 };

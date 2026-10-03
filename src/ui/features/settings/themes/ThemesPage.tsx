@@ -8,7 +8,7 @@ import {
   resolvedThemeTokens,
   type Theme,
 } from '@/core/themes';
-import { useShrike } from '@/ui/hooks';
+import { useSnowdrop } from '@/ui/hooks';
 import { Button, Modal } from '@/ui/primitives';
 import { downloadText } from '../download';
 import { SettingRow } from '../rows/SettingRow';
@@ -32,7 +32,7 @@ interface Trial {
 type Status = { tone: 'danger' | 'warning' | 'success'; lines: string[] } | null;
 
 export function ThemesPage() {
-  const { stores, safeMode } = useShrike();
+  const { stores, safeMode } = useSnowdrop();
   const input = useRef<HTMLInputElement>(null);
   const [status, setStatus] = useState<Status>(null);
   const [confirmReplace, setConfirmReplace] = useState<{
@@ -95,7 +95,7 @@ export function ThemesPage() {
         tokens: resolvedThemeTokens(theme, parseTokenBlock(base)),
       };
     }
-    downloadText(`${data.id}.shrike-theme.json`, exportTheme(data));
+    downloadText(`${data.id}.snowdrop-theme.json`, exportTheme(data));
   };
 
   const onFile = async (file: File) => {
@@ -142,7 +142,7 @@ export function ThemesPage() {
               A JSON file with <code>name</code>, <code>tokens</code> (design token names such as{' '}
               <code>accent</code> or <code>bg-chat</code>, with CSS values) and optional{' '}
               <code>css</code>. Tokens you leave out keep Dusk’s values. A theme with CSS applies
-              for {TRIAL_SECONDS} seconds first, so you can back out. If one ever makes Shrike
+              for {TRIAL_SECONDS} seconds first, so you can back out. If one ever makes Snowdrop
               unusable, reload with Shift held (or add <code>?safe=1</code>) to start without it.
             </>
           }
@@ -186,7 +186,7 @@ export function ThemesPage() {
       {safeMode && (
         <p className={styles.safe} role="status">
           <ShieldAlert size={16} aria-hidden />
-          Safe mode is on: imported themes and Custom CSS aren’t applied until you reload Shrike.
+          Safe mode is on: imported themes and Custom CSS aren’t applied until you reload Snowdrop.
         </p>
       )}
       {trial && (

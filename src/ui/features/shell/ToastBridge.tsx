@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useStore } from 'zustand';
 import { uiSelectors } from '@/core/stores';
-import { useShrike } from '@/ui/hooks';
+import { useSnowdrop } from '@/ui/hooks';
 import { dismissToast, showToast, Toaster } from '@/ui/primitives';
 
 /**
@@ -9,7 +9,7 @@ import { dismissToast, showToast, Toaster } from '@/ui/primitives';
  * renders it. New entries are shown once; dismissing either side removes both.
  */
 export function ToastBridge() {
-  const { stores, plugins } = useShrike();
+  const { stores, plugins } = useSnowdrop();
   const toasts = useStore(stores.ui, uiSelectors.toasts);
   const shown = useRef(new Set<string>());
 

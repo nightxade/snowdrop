@@ -13,7 +13,7 @@ export function useAllThemes(): { builtin: readonly Theme[]; custom: Theme[] } {
 }
 
 /**
- * A miniature Shrike painted with a theme's own colours: rail, sidebar,
+ * A miniature Snowdrop painted with a theme's own colours: rail, sidebar,
  * two messages and the composer. Built from `theme.preview`, so it shows the
  * theme whatever theme is active.
  */

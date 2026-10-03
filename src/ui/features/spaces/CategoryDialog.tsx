@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { SpaceId } from '@/core/stores';
-import { useShrike } from '@/ui/hooks';
+import { useSnowdrop } from '@/ui/hooks';
 import { Button, Modal, TextInput } from '@/ui/primitives';
 
 /** Create a category in a space, or rename one (when `categoryId` is given). */
@@ -13,7 +13,7 @@ export function CategoryDialog({
   categoryId?: string | undefined;
   onClose: () => void;
 }) {
-  const { stores } = useShrike();
+  const { stores } = useSnowdrop();
   const existing = categoryId
     ? stores.spaces.getState().spaces[spaceId]?.categories.find((c) => c.id === categoryId)
     : undefined;

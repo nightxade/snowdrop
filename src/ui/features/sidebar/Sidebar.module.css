@@ -1,8 +1,8 @@
 .sidebar {
   display: flex;
   flex-direction: column;
-  width: var(--shrike-sidebar-width);
+  width: var(--snowdrop-sidebar-width);
   min-width: 0;
   height: 100%;
-  background: var(--shrike-bg-sidebar);
+  background: var(--snowdrop-bg-sidebar);
 }

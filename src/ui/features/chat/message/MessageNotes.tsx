@@ -1,6 +1,6 @@
 import { AlertCircle } from 'lucide-react';
 import type { Message } from '@/core/domain';
-import { useShrike } from '@/ui/hooks';
+import { useSnowdrop } from '@/ui/hooks';
 import { Tooltip } from '@/ui/primitives';
 import { EditedTag } from './EditedTag';
 import * as act from './actions';
@@ -14,7 +14,7 @@ export function MessageNotes({
   message: Message;
   nameFor: (id: string) => string;
 }) {
-  const app = useShrike();
+  const app = useSnowdrop();
   const failed = m.status === 'failed';
   const failedTo = m.failedRecipients ?? [];
   if ((m.editedAt === undefined || m.body !== '') && !failed && failedTo.length === 0) return null;

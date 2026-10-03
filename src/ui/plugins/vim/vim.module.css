@@ -4,91 +4,91 @@
   gap: 6px;
   height: 20px;
   padding: 0 7px;
-  border-radius: var(--shrike-radius-xs);
-  box-shadow: inset 0 0 0 1px var(--shrike-border-strong);
-  color: var(--shrike-text-muted);
-  font-family: var(--shrike-font-mono);
-  font-size: var(--shrike-font-size-xs);
-  font-weight: var(--shrike-font-weight-semibold);
+  border-radius: var(--snowdrop-radius-xs);
+  box-shadow: inset 0 0 0 1px var(--snowdrop-border-strong);
+  color: var(--snowdrop-text-muted);
+  font-family: var(--snowdrop-font-mono);
+  font-size: var(--snowdrop-font-size-xs);
+  font-weight: var(--snowdrop-font-weight-semibold);
   letter-spacing: 0.04em;
   line-height: 1;
   white-space: nowrap;
   user-select: none;
   transition:
-    background-color var(--shrike-duration-fast) var(--shrike-ease),
-    color var(--shrike-duration-fast) var(--shrike-ease);
+    background-color var(--snowdrop-duration-fast) var(--snowdrop-ease),
+    color var(--snowdrop-duration-fast) var(--snowdrop-ease);
 }
 
 .pill[data-vim-mode='normal'] {
-  background: var(--shrike-accent-soft);
-  box-shadow: inset 0 0 0 1px var(--shrike-accent);
-  color: var(--shrike-text-strong);
+  background: var(--snowdrop-accent-soft);
+  box-shadow: inset 0 0 0 1px var(--snowdrop-accent);
+  color: var(--snowdrop-text-strong);
 }
 
 .pill[data-vim-mode='visual'],
 .pill[data-vim-mode='visual-line'] {
-  background: var(--shrike-highlight-bg);
-  box-shadow: inset 0 0 0 1px var(--shrike-warning);
-  color: var(--shrike-text-strong);
+  background: var(--snowdrop-highlight-bg);
+  box-shadow: inset 0 0 0 1px var(--snowdrop-warning);
+  color: var(--snowdrop-text-strong);
 }
 
 .pending {
-  color: var(--shrike-text-muted);
-  font-weight: var(--shrike-font-weight-regular);
+  color: var(--snowdrop-text-muted);
+  font-weight: var(--snowdrop-font-weight-regular);
   letter-spacing: 0;
 }
 
 .panel {
   display: flex;
   flex-direction: column;
-  gap: var(--shrike-space-6);
+  gap: var(--snowdrop-space-6);
 }
 
 .intro {
-  color: var(--shrike-text-muted);
-  font-size: var(--shrike-font-size-sm);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
 }
 
 .group h3 {
-  margin-bottom: var(--shrike-space-3);
-  color: var(--shrike-text-faint);
-  font-size: var(--shrike-font-size-sm);
-  font-weight: var(--shrike-font-weight-semibold);
+  margin-bottom: var(--snowdrop-space-3);
+  color: var(--snowdrop-text-faint);
+  font-size: var(--snowdrop-font-size-sm);
+  font-weight: var(--snowdrop-font-weight-semibold);
 }
 
 .row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--shrike-space-5);
+  gap: var(--snowdrop-space-5);
   min-height: 32px;
-  border-bottom: 1px solid var(--shrike-border);
-  color: var(--shrike-text);
-  font-size: var(--shrike-font-size-sm);
+  border-bottom: 1px solid var(--snowdrop-border);
+  color: var(--snowdrop-text);
+  font-size: var(--snowdrop-font-size-sm);
 }
 
 .row dd {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: var(--shrike-space-2);
+  gap: var(--snowdrop-space-2);
   margin: 0;
 }
 
 .sequence {
   display: inline-flex;
   align-items: center;
-  gap: var(--shrike-space-1);
+  gap: var(--snowdrop-space-1);
 }
 
 .or {
-  margin-right: var(--shrike-space-2);
-  color: var(--shrike-text-faint);
+  margin-right: var(--snowdrop-space-2);
+  color: var(--snowdrop-text-faint);
 }
 
 /*
  * Block cursor (caret/BlockCaret.tsx). Override the colours with
- * --shrike-vim-caret / --shrike-vim-caret-text (theme or Custom CSS).
+ * --snowdrop-vim-caret / --snowdrop-vim-caret-text (theme or Custom CSS).
  */
 .caretLayer {
   position: absolute;
@@ -100,8 +100,8 @@
   position: absolute;
   overflow: hidden;
   border-radius: 1px;
-  background: var(--shrike-vim-caret, var(--shrike-accent));
-  color: var(--shrike-vim-caret-text, var(--shrike-text-on-accent));
+  background: var(--snowdrop-vim-caret, var(--snowdrop-accent));
+  color: var(--snowdrop-vim-caret-text, var(--snowdrop-text-on-accent));
   text-align: center;
   white-space: pre;
   animation: vim-caret-blink 1.1s steps(1, end) 0.5s infinite;
@@ -110,7 +110,7 @@
 /* Unfocused: a hollow cell, so you can see where you'll land without it shouting. */
 .caret[data-focused='false'] {
   background: transparent;
-  box-shadow: inset 0 0 0 1px var(--shrike-vim-caret, var(--shrike-accent));
+  box-shadow: inset 0 0 0 1px var(--snowdrop-vim-caret, var(--snowdrop-accent));
   animation: none;
 }
 

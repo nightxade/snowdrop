@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useStore } from 'zustand';
 import { fuzzyFilter, type Contact } from '@/core/domain';
 import { contactsSelectors, sessionSelectors } from '@/core/stores';
-import { useShrike, useObservableList } from '@/ui/hooks';
+import { useSnowdrop, useObservableList } from '@/ui/hooks';
 import { loadEmojiIndex, searchEmoji, type EmojiEntry } from './emojiIndex';
 import type { MentionToken } from './mentionTokens';
 import { findTrigger, type Trigger } from './triggers';
@@ -42,7 +42,7 @@ export function useAutocomplete(
   /** False suspends suggestions (Vim mode outside Insert mode). */
   enabled = true,
 ): Autocomplete {
-  const { stores, registries, plugins } = useShrike();
+  const { stores, registries, plugins } = useSnowdrop();
   const contacts = useStore(stores.contacts, contactsSelectors.byId);
   const selfId = useStore(stores.session, sessionSelectors.selfId);
   const commands = useObservableList(registries.slash);
@@ -64,7 +64,7 @@ export function useAutocomplete(
         if (!cancelled) setEmojiIndex(index);
       })
       .catch((error: unknown) => {
-        console.warn('[shrike] emoji shortcodes unavailable', error);
+        console.warn('[snowdrop] emoji shortcodes unavailable', error);
       });
     return () => {
       cancelled = true;

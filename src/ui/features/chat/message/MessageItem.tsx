@@ -18,7 +18,7 @@ import {
   type MessageId,
 } from '@/core/domain';
 import { messagesSelectors, sessionSelectors } from '@/core/stores';
-import { BREAKPOINTS, overlayOwnsKeys, useMediaQuery, useShrike } from '@/ui/hooks';
+import { BREAKPOINTS, overlayOwnsKeys, useMediaQuery, useSnowdrop } from '@/ui/hooks';
 import { ContextMenu, Drawer, EmojiPicker, VisuallyHidden } from '@/ui/primitives';
 import { useChatController } from '../ChatController';
 import {
@@ -67,7 +67,7 @@ export const MessageItem = memo(function MessageItem({
   compact,
   compactAvatars,
 }: MessageItemProps) {
-  const app = useShrike();
+  const app = useSnowdrop();
   const { stores } = app;
   const chat = useChatController();
   const m = useStore(stores.messages, messagesSelectors.message(conversationId, id));
@@ -176,7 +176,7 @@ export const MessageItem = memo(function MessageItem({
   const focusAfterDelete = () => {
     const all = [
       ...(row.current
-        ?.closest('[data-shrike="message-log"]')
+        ?.closest('[data-snowdrop="message-log"]')
         ?.querySelectorAll<HTMLElement>('[data-roving-item]') ?? []),
     ];
     const next = all[all.indexOf(row.current as HTMLElement) + 1];
@@ -249,7 +249,7 @@ export const MessageItem = memo(function MessageItem({
       aria-labelledby={labelId}
       aria-describedby={bodyId}
       aria-keyshortcuts="Enter R E Plus Delete"
-      data-shrike="message"
+      data-snowdrop="message"
       data-compact={compact ? '' : undefined}
       data-continuation={continuation && !compact ? '' : undefined}
       data-mention={mentionsMe ? '' : undefined}

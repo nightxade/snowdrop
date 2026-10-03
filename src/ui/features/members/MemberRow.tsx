@@ -1,6 +1,6 @@
 import { memo, useCallback, useRef, type CSSProperties } from 'react';
 import { initialsFor, type Contact, type ConversationId } from '@/core/domain';
-import { useShrike } from '@/ui/hooks';
+import { useSnowdrop } from '@/ui/hooks';
 import { Avatar, ContextMenu } from '@/ui/primitives';
 import { memberMenu } from './memberMenu';
 import { ProfileTrigger } from './ProfileTrigger';
@@ -15,7 +15,7 @@ export const MemberRow = memo(function MemberRow({
   conversationId: ConversationId;
   tabStop: boolean;
 }) {
-  const app = useShrike();
+  const app = useSnowdrop();
   const button = useRef<HTMLButtonElement | null>(null);
   const menu = useCallback(
     () =>
@@ -40,7 +40,7 @@ export const MemberRow = memo(function MemberRow({
               className={styles.row}
               data-roving-item
               tabIndex={tabStop ? 0 : -1}
-              data-shrike="member-row"
+              data-snowdrop="member-row"
             >
               <Avatar
                 src={contact.avatarUrl}

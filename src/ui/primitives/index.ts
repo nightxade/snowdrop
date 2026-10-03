@@ -36,7 +36,7 @@ export { Scroller, type ScrollerProps } from './Scroller';
 export { SearchInput, type SearchInputProps } from './SearchInput';
 export { Segmented, type SegmentedOption, type SegmentedProps } from './Segmented';
 export { Select, type SelectOption, type SelectProps } from './Select';
-export { ShrikeMark } from './ShrikeMark';
+export { SnowdropMark } from './SnowdropMark';
 export { Skeleton, type SkeletonProps } from './Skeleton';
 export {
   isRenderableComponent,

@@ -41,7 +41,7 @@ export function makeModePill(deps: ModePillDeps) {
     return (
       <>
         <Tooltip label="Vim mode · Esc for Normal mode, ? for keys" delayMs={500}>
-          <span className={styles.pill} data-vim-mode={mode} data-shrike="vim-mode">
+          <span className={styles.pill} data-vim-mode={mode} data-snowdrop="vim-mode">
             {modeLabel(mode)}
             {pending && (
               <span className={styles.pending} aria-hidden>

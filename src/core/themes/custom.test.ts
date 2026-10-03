@@ -4,12 +4,12 @@ import { exportTheme, parseThemeJson, toTheme, validateTheme } from './custom';
 import { LINEN } from './builtin';
 
 describe('theme import', () => {
-  it('accepts known tokens (bare or --shrike- prefixed) and derives an id', () => {
+  it('accepts known tokens (bare or --snowdrop- prefixed) and derives an id', () => {
     const result = parseThemeJson(
       JSON.stringify({
         name: 'Sea Glass',
         kind: 'light',
-        tokens: { accent: '#2fa08f', '--shrike-bg-chat': '#f4fbfa' },
+        tokens: { accent: '#2fa08f', '--snowdrop-bg-chat': '#f4fbfa' },
       }),
     );
     expect(result.ok).toBe(true);
@@ -85,7 +85,7 @@ describe('theme import', () => {
       customCss: '',
       extraThemes: [theme],
     });
-    expect(css).toContain('--shrike-bg-chat: #faf8f4;');
+    expect(css).toContain('--snowdrop-bg-chat: #faf8f4;');
   });
 
   it('re-validates stored themes (storage is untrusted too)', () => {

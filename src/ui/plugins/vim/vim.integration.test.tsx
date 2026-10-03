@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { VirtuosoMockContext } from 'react-virtuoso';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { App, createShrike, ShrikeProvider, type Shrike } from '@/app';
+import { App, createSnowdrop, SnowdropProvider, type Snowdrop } from '@/app';
 import { CoreCommand } from '@/core/commands';
 import type { ConversationId } from '@/core/domain';
 import { createMemoryStorage } from '@/core/persistence';
@@ -10,7 +10,7 @@ import { setViewport } from '@/test/bootDemo';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
-const live: Shrike[] = [];
+const live: Snowdrop[] = [];
 
 beforeEach(() => {
   setViewport(1440);
@@ -22,15 +22,15 @@ afterEach(async () => {
 });
 
 /** Boots the whole app on the demo, with Virtuoso rendering rows despite happy-dom's missing layout. */
-async function boot(): Promise<Shrike> {
-  const shrike = createShrike({ storage: createMemoryStorage(), mockLatencyMs: 0 });
-  live.push(shrike);
-  shrike.stores.settings.getState().update('connection', { mockLiveliness: false });
+async function boot(): Promise<Snowdrop> {
+  const snowdrop = createSnowdrop({ storage: createMemoryStorage(), mockLatencyMs: 0 });
+  live.push(snowdrop);
+  snowdrop.stores.settings.getState().update('connection', { mockLiveliness: false });
   render(
     <VirtuosoMockContext.Provider value={{ viewportHeight: 900, itemHeight: 60 }}>
-      <ShrikeProvider shrike={shrike}>
+      <SnowdropProvider snowdrop={snowdrop}>
         <App />
-      </ShrikeProvider>
+      </SnowdropProvider>
     </VirtuosoMockContext.Provider>,
   );
   // The welcome screen is a lazy chunk: wait for it (outside act, so it can render).
@@ -40,10 +40,10 @@ async function boot(): Promise<Shrike> {
     await Promise.resolve();
   });
   await act(async () => {
-    await shrike.start();
-    await shrike.sync.idle();
+    await snowdrop.start();
+    await snowdrop.sync.idle();
   });
-  return shrike;
+  return snowdrop;
 }
 
 async function settle(): Promise<void> {
@@ -53,21 +53,21 @@ async function settle(): Promise<void> {
 }
 
 /** Opens a conversation in its own space, as the sidebar would. */
-async function open(shrike: Shrike, title?: string): Promise<ConversationId> {
-  const conv = Object.values(shrike.stores.conversations.getState().byId).find((c) =>
+async function open(snowdrop: Snowdrop, title?: string): Promise<ConversationId> {
+  const conv = Object.values(snowdrop.stores.conversations.getState().byId).find((c) =>
     title === undefined ? c.kind === 'direct' : c.title === title,
   )!;
-  const space = spacesSelectors.spaceOf(conv.id)(shrike.stores.spaces.getState()) ?? HOME;
+  const space = spacesSelectors.spaceOf(conv.id)(snowdrop.stores.spaces.getState()) ?? HOME;
   await act(async () => {
-    shrike.stores.ui.getState().selectConversation(conv.id, space);
-    await shrike.history.open(conv.id);
+    snowdrop.stores.ui.getState().selectConversation(conv.id, space);
+    await snowdrop.history.open(conv.id);
   });
   await settle();
   return conv.id;
 }
 
 const rows = () => [
-  ...document.querySelectorAll<HTMLElement>('[data-shrike="message"][data-roving-item]'),
+  ...document.querySelectorAll<HTMLElement>('[data-snowdrop="message"][data-roving-item]'),
 ];
 
 /** Virtuoso renders rows in happy-dom once its scroller sees a scroll event. */
@@ -80,21 +80,21 @@ async function showRows(): Promise<void> {
 }
 
 async function bootVim(enable = true) {
-  const shrike = await boot();
-  const id = await open(shrike, 'Orchard · Engineering');
+  const snowdrop = await boot();
+  const id = await open(snowdrop, 'Orchard · Engineering');
   await showRows();
   if (enable) {
     await act(async () => {
-      await shrike.plugins.setEnabled('vim-mode', true);
+      await snowdrop.plugins.setEnabled('vim-mode', true);
     });
     await settle();
   }
-  return { shrike, id };
+  return { snowdrop, id };
 }
 
 const composer = () =>
-  document.querySelector<HTMLTextAreaElement>('[data-shrike="composer"] textarea')!;
-const pill = () => document.querySelector('[data-shrike="vim-mode"]')?.textContent ?? null;
+  document.querySelector<HTMLTextAreaElement>('[data-snowdrop="composer"] textarea')!;
+const pill = () => document.querySelector('[data-snowdrop="vim-mode"]')?.textContent ?? null;
 const focused = () => document.activeElement as HTMLElement | null;
 
 /** Dispatches a keydown at the focused element; returns whether it was prevented. */
@@ -156,8 +156,8 @@ describe('Vim mode: navigation', () => {
   });
 
   it('steps through conversations with J/K (and counts)', async () => {
-    const { shrike, id } = await bootVim();
-    const selected = () => uiSelectors.selectedConversation(shrike.stores.ui.getState());
+    const { snowdrop, id } = await bootVim();
+    const selected = () => uiSelectors.selectedConversation(snowdrop.stores.ui.getState());
     blur();
     press('J', { shiftKey: true });
     const next = selected();
@@ -177,8 +177,8 @@ describe('Vim mode: navigation', () => {
   });
 
   it('runs app commands: ]u, gt, :, ? and the leader', async () => {
-    const { shrike } = await bootVim();
-    const execute = vi.spyOn(shrike.commands, 'execute');
+    const { snowdrop } = await bootVim();
+    const execute = vi.spyOn(snowdrop.commands, 'execute');
     blur();
     keys(']u');
     keys('gt');
@@ -188,11 +188,14 @@ describe('Vim mode: navigation', () => {
     press('s');
     expect(execute).toHaveBeenCalledWith(CoreCommand.OpenSettings);
     act(() => {
-      shrike.stores.ui.getState().closeModal();
+      snowdrop.stores.ui.getState().closeModal();
     });
     blur();
     press(':');
-    expect(shrike.stores.ui.getState().modal).toEqual({ type: 'switcher', props: { query: '>' } });
+    expect(snowdrop.stores.ui.getState().modal).toEqual({
+      type: 'switcher',
+      props: { query: '>' },
+    });
   });
 
   it('lists its keys in the shortcut sheet while enabled', async () => {
@@ -205,8 +208,8 @@ describe('Vim mode: navigation', () => {
   });
 
   it('clears a pending sequence with Esc and drops it after the timeout', async () => {
-    const { shrike } = await bootVim();
-    const execute = vi.spyOn(shrike.commands, 'execute');
+    const { snowdrop } = await bootVim();
+    const execute = vi.spyOn(snowdrop.commands, 'execute');
     blur();
     press('g');
     expect(press('Escape')).toBe(true);
@@ -215,18 +218,18 @@ describe('Vim mode: navigation', () => {
   });
 
   it('acts on the focused message: r replies into Insert mode, dd asks first', async () => {
-    const { shrike, id } = await bootVim();
+    const { snowdrop, id } = await bootVim();
     blur();
     press('j');
     const messageId = focused()?.dataset.messageId;
     press('r');
     await settle();
-    expect(shrike.stores.ui.getState().replyTo[id]).toBe(messageId);
+    expect(snowdrop.stores.ui.getState().replyTo[id]).toBe(messageId);
     expect(focused()).toBe(composer());
     expect(pill()).toBe('INSERT');
     press('Escape');
     press('Escape'); // Normal-mode Esc: cancels the reply first
-    expect(shrike.stores.ui.getState().replyTo[id]).toBeUndefined();
+    expect(snowdrop.stores.ui.getState().replyTo[id]).toBeUndefined();
     blur();
     press('j');
     keys('dd');
@@ -237,8 +240,8 @@ describe('Vim mode: navigation', () => {
 
 describe('Vim mode: composer', () => {
   it('starts in Insert mode, Esc gives Normal with a block cursor, Enter sends', async () => {
-    const { shrike } = await bootVim();
-    const send = vi.spyOn(shrike.send, 'send');
+    const { snowdrop } = await bootVim();
+    const send = vi.spyOn(snowdrop.send, 'send');
     blur();
     press('i');
     expect(focused()).toBe(composer());
@@ -273,8 +276,8 @@ describe('Vim mode: composer', () => {
   });
 
   it('keeps Escape-marks-read for Normal mode on an empty draft, and returns to the messages', async () => {
-    const { shrike } = await bootVim();
-    const markRead = vi.spyOn(shrike.sync, 'markConversationRead');
+    const { snowdrop } = await bootVim();
+    const markRead = vi.spyOn(snowdrop.sync, 'markConversationRead');
     blur();
     press('i');
     press('Escape');
@@ -381,23 +384,23 @@ describe('Vim mode: composer', () => {
   });
 
   it('runs app keys from Normal mode (gt) without editing text', async () => {
-    const { shrike, id } = await bootVim();
-    const execute = vi.spyOn(shrike.commands, 'execute');
+    const { snowdrop, id } = await bootVim();
+    const execute = vi.spyOn(snowdrop.commands, 'execute');
     blur();
     press('i');
     typeIn('draft');
     press('Escape');
     keys('gt');
     expect(execute).toHaveBeenCalledWith('core.nextSpace');
-    expect(shrike.stores.local.getState().conversations[id]?.draft).toBe('draft');
+    expect(snowdrop.stores.local.getState().conversations[id]?.draft).toBe('draft');
   });
 
   it('can start in Normal mode', async () => {
-    const { shrike } = await bootVim();
+    const { snowdrop } = await bootVim();
     act(() => {
-      shrike.stores.settings.getState().setPluginSetting('vim-mode', 'startInInsert', false);
+      snowdrop.stores.settings.getState().setPluginSetting('vim-mode', 'startInInsert', false);
     });
-    await open(shrike);
+    await open(snowdrop);
     act(() => {
       composer().focus();
     });
@@ -407,7 +410,7 @@ describe('Vim mode: composer', () => {
 });
 
 describe('Vim mode: block cursor', () => {
-  const caret = () => document.querySelector<HTMLElement>('[data-shrike="vim-caret"]');
+  const caret = () => document.querySelector<HTMLElement>('[data-snowdrop="vim-caret"]');
   const selected = () => {
     const el = composer();
     return el.value.slice(el.selectionStart, el.selectionEnd);
@@ -426,7 +429,7 @@ describe('Vim mode: block cursor', () => {
     expect(caret()?.textContent).toBe('');
     // Drawn over the field, not in the accessory slot.
     expect(caret()?.closest('[data-slot]')).toBeNull();
-    expect(caret()?.closest('[data-shrike="composer"]')).not.toBeNull();
+    expect(caret()?.closest('[data-snowdrop="composer"]')).not.toBeNull();
 
     press('i');
     typeIn('sent');
@@ -530,45 +533,45 @@ describe('Vim mode: block cursor', () => {
 
 describe('Vim mode: lifecycle', () => {
   it('is off by default and the app keeps its default keys', async () => {
-    const { shrike } = await bootVim(false);
-    expect(shrike.plugins.isEnabled('vim-mode')).toBe(false);
-    expect(shrike.registries.keyLayers.layers()).toHaveLength(0);
+    const { snowdrop } = await bootVim(false);
+    expect(snowdrop.plugins.isEnabled('vim-mode')).toBe(false);
+    expect(snowdrop.registries.keyLayers.layers()).toHaveLength(0);
     expect(pill()).toBeNull();
   });
 
   it('shows a one-time intro toast', async () => {
-    const { shrike } = await bootVim();
+    const { snowdrop } = await bootVim();
     const intro = () =>
-      shrike.stores.ui.getState().toasts.filter((t) => t.message.startsWith('Vim mode on'));
+      snowdrop.stores.ui.getState().toasts.filter((t) => t.message.startsWith('Vim mode on'));
     expect(intro()).toHaveLength(1);
     await act(async () => {
-      await shrike.plugins.setEnabled('vim-mode', false);
-      await shrike.plugins.setEnabled('vim-mode', true);
+      await snowdrop.plugins.setEnabled('vim-mode', false);
+      await snowdrop.plugins.setEnabled('vim-mode', true);
     });
     expect(intro()).toHaveLength(1);
   });
 
   it('restores default behaviour completely when disabled', async () => {
-    const { shrike } = await bootVim();
+    const { snowdrop } = await bootVim();
     // While on, a stray letter does nothing instead of jumping into the composer.
     blur();
     press('q');
     expect(focused()).not.toBe(composer());
 
     await act(async () => {
-      await shrike.plugins.setEnabled('vim-mode', false);
+      await snowdrop.plugins.setEnabled('vim-mode', false);
     });
     await settle();
-    expect(shrike.registries.keyLayers.layers()).toHaveLength(0);
-    expect(shrike.registries.composerAccessories.list()).toHaveLength(0);
+    expect(snowdrop.registries.keyLayers.layers()).toHaveLength(0);
+    expect(snowdrop.registries.composerAccessories.list()).toHaveLength(0);
     expect(pill()).toBeNull();
-    expect(document.querySelector('[data-shrike="vim-caret"]')).toBeNull();
+    expect(document.querySelector('[data-snowdrop="vim-caret"]')).toBeNull();
     // Type-to-focus is back…
     blur();
     press('q');
     expect(focused()).toBe(composer());
     // …and Escape in an empty composer marks the conversation read again.
-    const markRead = vi.spyOn(shrike.sync, 'markConversationRead');
+    const markRead = vi.spyOn(snowdrop.sync, 'markConversationRead');
     press('Escape');
     await settle();
     expect(markRead).toHaveBeenCalledTimes(1);

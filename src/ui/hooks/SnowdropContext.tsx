@@ -1,7 +1,7 @@
 /**
  * The composed app as the React tree sees it. Declared here (not in app/) so
  * features can depend on it without importing the composition root; the
- * concrete `Shrike` from app/createShrike satisfies this structurally.
+ * concrete `Snowdrop` from app/createSnowdrop satisfies this structurally.
  */
 import { createContext, use, type ReactNode } from 'react';
 import type { BackendOption, ChatBackend } from '@/core/backend';
@@ -61,24 +61,24 @@ export interface AppServices {
   start(): Promise<void>;
 }
 
-const ShrikeContext = createContext<AppServices | null>(null);
+const SnowdropContext = createContext<AppServices | null>(null);
 
-export function ShrikeContextProvider({
+export function SnowdropContextProvider({
   value,
   children,
 }: {
   value: AppServices;
   children: ReactNode;
 }) {
-  return <ShrikeContext value={value}>{children}</ShrikeContext>;
+  return <SnowdropContext value={value}>{children}</SnowdropContext>;
 }
 
-export function useShrike(): AppServices {
-  const shrike = use(ShrikeContext);
-  if (!shrike) throw new Error('useShrike must be used inside <ShrikeProvider>');
-  return shrike;
+export function useSnowdrop(): AppServices {
+  const snowdrop = use(SnowdropContext);
+  if (!snowdrop) throw new Error('useSnowdrop must be used inside <SnowdropProvider>');
+  return snowdrop;
 }
 
 export function useStores(): Stores {
-  return useShrike().stores;
+  return useSnowdrop().stores;
 }

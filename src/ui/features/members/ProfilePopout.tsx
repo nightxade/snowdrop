@@ -3,7 +3,7 @@ import { useId, type CSSProperties } from 'react';
 import { useStore } from 'zustand';
 import { initialsFor, type Contact, type ConversationId } from '@/core/domain';
 import { localSelectors } from '@/core/stores';
-import { useObservableList, useShrike } from '@/ui/hooks';
+import { useObservableList, useSnowdrop } from '@/ui/hooks';
 import {
   copyText,
   formatPhone,
@@ -35,7 +35,7 @@ export function ProfilePopout({
   /** `sheet`: full width inside a bottom drawer (phones). */
   variant?: 'popout' | 'sheet';
 }) {
-  const app = useShrike();
+  const app = useSnowdrop();
   const pluginItems = useObservableList(app.registries.menus.member);
   const plugin = conversationId
     ? pluginMenuEntries(pluginItems, { contact, conversationId }, app.registries).flatMap((e) =>

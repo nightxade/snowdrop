@@ -1,12 +1,12 @@
 /** Boots the real app on the demo backend for integration tests. */
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { App, createShrike, ShrikeProvider, type Shrike } from '@/app';
+import { App, createSnowdrop, SnowdropProvider, type Snowdrop } from '@/app';
 import { createMemoryStorage } from '@/core/persistence';
 
 // Tell React this environment supports act().
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
-export const live: Shrike[] = [];
+export const live: Snowdrop[] = [];
 
 export async function disposeAll(): Promise<void> {
   for (const h of live.splice(0)) await h.dispose();
@@ -33,14 +33,14 @@ export function setViewport(width: number): void {
   });
 }
 
-export async function bootDemo(): Promise<Shrike> {
-  const shrike = createShrike({ storage: createMemoryStorage(), mockLatencyMs: 0 });
-  live.push(shrike);
-  shrike.stores.settings.getState().update('connection', { mockLiveliness: false });
+export async function bootDemo(): Promise<Snowdrop> {
+  const snowdrop = createSnowdrop({ storage: createMemoryStorage(), mockLatencyMs: 0 });
+  live.push(snowdrop);
+  snowdrop.stores.settings.getState().update('connection', { mockLiveliness: false });
   render(
-    <ShrikeProvider shrike={shrike}>
+    <SnowdropProvider snowdrop={snowdrop}>
       <App />
-    </ShrikeProvider>,
+    </SnowdropProvider>,
   );
   // The welcome screen is a lazy chunk: wait for it (outside act, so it can render).
   const demo = await screen.findByRole('button', { name: /Try the demo/u }, { timeout: 5000 });
@@ -49,10 +49,10 @@ export async function bootDemo(): Promise<Shrike> {
     await Promise.resolve();
   });
   await act(async () => {
-    await shrike.start();
-    await shrike.sync.idle();
+    await snowdrop.start();
+    await snowdrop.sync.idle();
   });
-  return shrike;
+  return snowdrop;
 }
 
 export function key(

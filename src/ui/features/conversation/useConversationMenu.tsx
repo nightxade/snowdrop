@@ -15,7 +15,7 @@ import { useCallback } from 'react';
 import { isMuted } from '@/core/stores';
 import type { ConversationId } from '@/core/domain';
 import { spacesSelectors } from '@/core/stores';
-import { useShrike } from '@/ui/hooks';
+import { useSnowdrop } from '@/ui/hooks';
 import type { MenuEntry } from '@/ui/primitives';
 import {
   archive,
@@ -36,7 +36,7 @@ const ICON = 16;
  * menus nobody opened.
  */
 export function useConversationMenu(id: ConversationId): () => MenuEntry[] {
-  const app = useShrike();
+  const app = useSnowdrop();
   return useCallback(() => {
     const { stores, registries } = app;
     const conversation = stores.conversations.getState().byId[id];

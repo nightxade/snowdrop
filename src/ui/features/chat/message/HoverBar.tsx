@@ -2,7 +2,7 @@ import { Ellipsis, Pencil, Puzzle, Reply, RotateCw, SmilePlus, Trash2 } from 'lu
 import { useStore } from 'zustand';
 import type { Message } from '@/core/domain';
 import { localSelectors } from '@/core/stores';
-import { useShrike, useObservableList } from '@/ui/hooks';
+import { useSnowdrop, useObservableList } from '@/ui/hooks';
 import {
   DropdownMenu,
   EmojiPickerPopover,
@@ -35,7 +35,7 @@ export interface HoverBarProps {
 /** Floating quick actions at a message's top-right (hover or keyboard focus). */
 export function HoverBar(props: HoverBarProps) {
   const { message: m, permissions: p } = props;
-  const { stores, registries } = useShrike();
+  const { stores, registries } = useSnowdrop();
   const quick = useStore(stores.local, localSelectors.quickReactions);
   const shift = useShiftHeld();
   const plugins = useObservableList(registries.hoverActions).filter((a) =>
@@ -43,7 +43,12 @@ export function HoverBar(props: HoverBarProps) {
   );
 
   return (
-    <div className={styles.bar} role="toolbar" aria-label="Message actions" data-shrike="hover-bar">
+    <div
+      className={styles.bar}
+      role="toolbar"
+      aria-label="Message actions"
+      data-snowdrop="hover-bar"
+    >
       {p.failed ? (
         <IconButton label="Retry sending" icon={<RotateCw />} onClick={props.onRetry} />
       ) : (

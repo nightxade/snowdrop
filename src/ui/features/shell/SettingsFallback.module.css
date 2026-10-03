@@ -4,7 +4,7 @@
   inset: 0;
   background: linear-gradient(
     to right,
-    var(--shrike-bg-sidebar) 0 max(232px, 25%),
-    var(--shrike-bg-chat) max(232px, 25%)
+    var(--snowdrop-bg-sidebar) 0 max(232px, 25%),
+    var(--snowdrop-bg-chat) max(232px, 25%)
   );
 }

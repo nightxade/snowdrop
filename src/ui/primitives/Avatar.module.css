@@ -12,7 +12,7 @@
   width: 100%;
   height: 100%;
   overflow: hidden;
-  border-radius: var(--shrike-radius-full);
+  border-radius: var(--snowdrop-radius-full);
   background: var(--avatar-color);
 }
 
@@ -27,9 +27,9 @@
 }
 
 .fallback {
-  color: var(--shrike-text-on-avatar);
+  color: var(--snowdrop-text-on-avatar);
   font-size: calc(var(--avatar-size) * 0.4);
-  font-weight: var(--shrike-font-weight-semibold);
+  font-weight: var(--snowdrop-font-weight-semibold);
   line-height: 1;
   letter-spacing: 0.01em;
   user-select: none;
@@ -44,6 +44,6 @@
   min-width: 14px;
   height: 14px;
   padding: 0 2px;
-  border-radius: var(--shrike-radius-full);
-  background: var(--status-ring, var(--shrike-bg-sidebar));
+  border-radius: var(--snowdrop-radius-full);
+  background: var(--status-ring, var(--snowdrop-bg-sidebar));
 }

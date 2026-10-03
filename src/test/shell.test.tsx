@@ -15,7 +15,7 @@ afterEach(async () => {
   await disposeAll();
 });
 
-const sidebar = () => document.querySelector<HTMLElement>('[data-shrike="sidebar"]')!;
+const sidebar = () => document.querySelector<HTMLElement>('[data-snowdrop="sidebar"]')!;
 
 describe('buildMemberSections', () => {
   const contact = (id: string, name: string) => ({ id, name, color: 'x' });
@@ -36,7 +36,7 @@ describe('buildMemberSections', () => {
 
 describe('quick switcher', () => {
   it('highlights matches, opens with Enter and focuses the composer', async () => {
-    const shrike = await bootDemo();
+    const snowdrop = await bootDemo();
     key({ key: 'k', code: 'KeyK', ctrlKey: true });
     const input = await screen.findByRole('combobox', { name: 'Quick switcher' });
     expect(document.activeElement).toBe(input);
@@ -48,12 +48,12 @@ describe('quick switcher', () => {
     expect(options[0]!.querySelector('mark')?.textContent.toLowerCase()).toContain('orchard');
     key({ key: 'Enter' }, input);
     await settle();
-    const selected = uiSelectors.selectedConversation(shrike.stores.ui.getState());
+    const selected = uiSelectors.selectedConversation(snowdrop.stores.ui.getState());
     expect(selected).not.toBeNull();
     expect(screen.queryByRole('combobox', { name: 'Quick switcher' })).toBeNull();
     // The composer registers itself as the focus target (P3), so you can type straight away.
     expect(document.activeElement).toBe(
-      document.querySelector('[data-shrike="composer"] textarea'),
+      document.querySelector('[data-snowdrop="composer"] textarea'),
     );
   });
 
@@ -91,8 +91,8 @@ describe('quick switcher', () => {
 
 describe('conversation menu', () => {
   it('opens from the keyboard and applies pin, mute and archive', async () => {
-    const shrike = await bootDemo();
-    const { local } = shrike.stores;
+    const snowdrop = await bootDemo();
+    const { local } = snowdrop.stores;
     const row = sidebar().querySelector<HTMLElement>(
       'section[aria-label="Direct Messages"] [data-conversation-id]',
     )!;
@@ -132,8 +132,8 @@ describe('conversation menu', () => {
 
 describe('spaces', () => {
   it('creates a space from the dialog and deletes it with confirmation', async () => {
-    const shrike = await bootDemo();
-    const { spaces, ui } = shrike.stores;
+    const snowdrop = await bootDemo();
+    const { spaces, ui } = snowdrop.stores;
     const before = spacesSelectors.orderedIds(spaces.getState()).length;
     act(() => {
       fireEvent.click(screen.getByRole('button', { name: 'Create a space' }));
@@ -169,8 +169,8 @@ describe('spaces', () => {
 describe('responsive overlays', () => {
   it('shows the member list as a modal sheet below 1100px; Esc closes it', async () => {
     setViewport(1024);
-    const shrike = await bootDemo();
-    const { stores } = shrike;
+    const snowdrop = await bootDemo();
+    const { stores } = snowdrop;
     const spaceId = spacesSelectors.orderedIds(stores.spaces.getState())[0]!;
     const group = stores.spaces.getState().spaces[spaceId]!.categories[0]!.conversationIds[0]!;
     act(() => {
@@ -213,8 +213,8 @@ describe('drawer focus and Escape', () => {
 
   it('member sheet: one Esc from a descendant closes it; focus returns to the toggle', async () => {
     setViewport(1024);
-    const shrike = await bootDemo();
-    const { stores } = shrike;
+    const snowdrop = await bootDemo();
+    const { stores } = snowdrop;
     const spaceId = spacesSelectors.orderedIds(stores.spaces.getState())[0]!;
     const group = stores.spaces.getState().spaces[spaceId]!.categories[0]!.conversationIds[0]!;
     act(() => {
@@ -227,7 +227,7 @@ describe('drawer focus and Escape', () => {
     });
     const sheet = await screen.findByRole('dialog', { name: 'Members' });
     await settle();
-    const row = sheet.querySelector<HTMLElement>('[data-shrike="member-row"]')!;
+    const row = sheet.querySelector<HTMLElement>('[data-snowdrop="member-row"]')!;
     act(() => {
       row.focus();
     });
@@ -278,14 +278,14 @@ describe('accessibility smoke test', () => {
 });
 
 describe('conversation navigation keeps focus', () => {
-  const composer = () => document.querySelector<HTMLElement>('[data-shrike="composer"] textarea');
+  const composer = () => document.querySelector<HTMLElement>('[data-snowdrop="composer"] textarea');
   const settleFrame = () =>
     act(async () => {
       await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
     });
 
   it('Alt+↓ and Alt+Shift+↓ from the composer land in the new composer', async () => {
-    const shrike = await bootDemo();
+    const snowdrop = await bootDemo();
     const first = sidebar().querySelector<HTMLElement>('[data-conversation-id]')!;
     act(() => {
       fireEvent.click(first);
@@ -294,10 +294,10 @@ describe('conversation navigation keeps focus', () => {
     act(() => {
       composer()!.focus();
     });
-    const start = uiSelectors.selectedConversation(shrike.stores.ui.getState());
+    const start = uiSelectors.selectedConversation(snowdrop.stores.ui.getState());
     key({ key: 'ArrowDown', code: 'ArrowDown', altKey: true });
     await settleFrame();
-    const second = uiSelectors.selectedConversation(shrike.stores.ui.getState());
+    const second = uiSelectors.selectedConversation(snowdrop.stores.ui.getState());
     expect(second).not.toBe(start);
     expect(document.activeElement).toBe(composer());
 
@@ -309,7 +309,7 @@ describe('conversation navigation keeps focus', () => {
   });
 
   it('Alt+↓ from a sidebar row moves focus to the next row', async () => {
-    const shrike = await bootDemo();
+    const snowdrop = await bootDemo();
     const rows = () => [
       ...sidebar().querySelectorAll<HTMLElement>('[data-conversation-id][data-roving-item]'),
     ];
@@ -318,14 +318,14 @@ describe('conversation navigation keeps focus', () => {
     });
     await settleFrame();
     const row = sidebar().querySelector<HTMLElement>(
-      `[data-conversation-id="${uiSelectors.selectedConversation(shrike.stores.ui.getState())}"][data-roving-item]`,
+      `[data-conversation-id="${uiSelectors.selectedConversation(snowdrop.stores.ui.getState())}"][data-roving-item]`,
     )!;
     act(() => {
       row.focus();
     });
     key({ key: 'ArrowDown', code: 'ArrowDown', altKey: true });
     await settleFrame();
-    const next = uiSelectors.selectedConversation(shrike.stores.ui.getState())!;
+    const next = uiSelectors.selectedConversation(snowdrop.stores.ui.getState())!;
     expect(document.activeElement?.getAttribute('data-conversation-id')).toBe(next);
     expect(sidebar().contains(document.activeElement)).toBe(true);
   });

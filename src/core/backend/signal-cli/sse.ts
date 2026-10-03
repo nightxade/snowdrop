@@ -238,7 +238,7 @@ export class EventStream {
     try {
       this.options.onState?.(state);
     } catch (error) {
-      console.error('[shrike] signal-cli stream state listener failed', error);
+      console.error('[snowdrop] signal-cli stream state listener failed', error);
     }
   }
 

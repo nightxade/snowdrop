@@ -186,9 +186,9 @@ export class NotificationService {
     return (
       this.deps.api.show(
         {
-          title: 'Shrike',
+          title: 'Snowdrop',
           body: 'Notifications are working. This is how new messages will appear.',
-          tag: 'shrike-test',
+          tag: 'snowdrop-test',
         },
         () => this.deps.focusWindow?.(),
       ) !== null
@@ -208,7 +208,7 @@ export class NotificationService {
     // One notification per conversation: a newer message replaces the older one.
     this.shown.get(id)?.close();
     const shown = this.deps.api.show(
-      { title: decision.title, body: decision.body, tag: `shrike:${id}` },
+      { title: decision.title, body: decision.body, tag: `snowdrop:${id}` },
       () => {
         this.open(id);
       },
@@ -242,7 +242,7 @@ export function browserNotificationApi(): NotificationApi {
     show: ({ title, body, tag }, onClick) => {
       if (N?.permission !== 'granted') return null;
       try {
-        const n = new N(title, { body, tag, icon: '/shrike.svg', silent: true });
+        const n = new N(title, { body, tag, icon: '/snowdrop.svg', silent: true });
         n.onclick = () => {
           onClick();
           n.close();

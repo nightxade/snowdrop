@@ -1,6 +1,6 @@
 # Keyboard
 
-Shrike is meant to be driven entirely from the keyboard. This page lists
+Snowdrop is meant to be driven entirely from the keyboard. This page lists
 everything: the default shortcuts (rebindable), the keys built into lists,
 the composer and dialogs, and the optional **Vim mode** plugin.
 

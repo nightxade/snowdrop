@@ -2,16 +2,16 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: var(--shrike-space-5);
+  gap: var(--snowdrop-space-5);
   width: 320px;
   max-width: 100%;
-  padding: var(--shrike-space-5);
+  padding: var(--snowdrop-space-5);
 }
 
 .top {
   display: flex;
   align-items: center;
-  gap: var(--shrike-space-4);
+  gap: var(--snowdrop-space-4);
   min-width: 0;
 }
 
@@ -21,21 +21,21 @@
 
 .title {
   overflow: hidden;
-  color: var(--shrike-text-strong);
-  font-size: var(--shrike-font-size-header);
-  font-weight: var(--shrike-font-weight-semibold);
+  color: var(--snowdrop-text-strong);
+  font-size: var(--snowdrop-font-size-header);
+  font-weight: var(--snowdrop-font-weight-semibold);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .meta {
-  color: var(--shrike-text-muted);
-  font-size: var(--shrike-font-size-sm);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
 }
 
 .about {
-  color: var(--shrike-text);
-  font-size: var(--shrike-font-size-ui);
+  color: var(--snowdrop-text);
+  font-size: var(--snowdrop-font-size-ui);
   line-height: 1.45;
   white-space: pre-wrap;
 }
@@ -47,38 +47,38 @@
 .fact {
   display: flex;
   justify-content: space-between;
-  gap: var(--shrike-space-4);
-  font-size: var(--shrike-font-size-sm);
+  gap: var(--snowdrop-space-4);
+  font-size: var(--snowdrop-font-size-sm);
 }
 
 .fact dt {
   display: inline-flex;
   align-items: center;
-  gap: var(--shrike-space-2);
-  color: var(--shrike-text-muted);
+  gap: var(--snowdrop-space-2);
+  color: var(--snowdrop-text-muted);
 }
 
 .fact dd {
   margin: 0;
-  color: var(--shrike-text);
-  font-weight: var(--shrike-font-weight-medium);
+  color: var(--snowdrop-text);
+  font-weight: var(--snowdrop-font-weight-medium);
 }
 
 .rename {
   display: flex;
   flex-direction: column;
-  gap: var(--shrike-space-3);
+  gap: var(--snowdrop-space-3);
   width: 100%;
 }
 
 .renameActions {
   display: flex;
   justify-content: flex-end;
-  gap: var(--shrike-space-3);
+  gap: var(--snowdrop-space-3);
 }
 
 .actions {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--shrike-space-3);
+  gap: var(--snowdrop-space-3);
 }

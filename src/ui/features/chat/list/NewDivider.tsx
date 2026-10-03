@@ -4,7 +4,7 @@ import styles from './Rows.module.css';
 
 export const NewDivider = memo(function NewDivider() {
   return (
-    <div className={styles.new} data-shrike="new-divider">
+    <div className={styles.new} data-snowdrop="new-divider">
       <span className={styles.newTag}>
         New<VisuallyHidden> messages below</VisuallyHidden>
       </span>

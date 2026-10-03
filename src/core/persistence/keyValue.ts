@@ -30,7 +30,7 @@ export function createMemoryStorage(initial: Record<string, string> = {}): KeyVa
 /** localStorage when usable, otherwise an in-memory fallback (private mode, SSR, tests). */
 export function defaultStorage(): KeyValueStorage {
   try {
-    const probe = '__shrike_probe__';
+    const probe = '__snowdrop_probe__';
     globalThis.localStorage.setItem(probe, '1');
     globalThis.localStorage.removeItem(probe);
     return globalThis.localStorage;
@@ -75,7 +75,7 @@ export const backupKey = (key: string): string => `${key}.backup`;
  * recover it instead of the user silently losing their settings.
  */
 function backup(storage: KeyValueStorage, key: string, raw: string, reason: string): void {
-  console.warn(`[shrike] could not load "${key}" (${reason}); backed up to "${backupKey(key)}"`);
+  console.warn(`[snowdrop] could not load "${key}" (${reason}); backed up to "${backupKey(key)}"`);
   try {
     storage.setItem(backupKey(key), raw);
   } catch {
@@ -128,7 +128,7 @@ export function saveVersioned<T>(
     storage.setItem(schema.key, JSON.stringify({ v: schema.version, data: value }));
   } catch (error) {
     // Quota exceeded or storage disabled: keep running with in-memory state.
-    console.warn(`[shrike] could not save "${schema.key}"`, error);
+    console.warn(`[snowdrop] could not save "${schema.key}"`, error);
   }
 }
 

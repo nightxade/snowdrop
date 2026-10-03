@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import { useStore } from 'zustand';
 import { formatKeybind, isMacPlatform, resolveKeybinds } from '@/core/commands';
-import { useShrike } from '@/ui/hooks';
+import { useSnowdrop } from '@/ui/hooks';
 import { Button, Kbd, Modal, VisuallyHidden } from '@/ui/primitives';
 import styles from './ShortcutsDialog.module.css';
 
@@ -10,7 +10,7 @@ import styles from './ShortcutsDialog.module.css';
  * plus the help of installed key layers (Vim mode).
  */
 export function ShortcutsDialog({ onClose }: { onClose: () => void }) {
-  const { commands, stores, registries } = useShrike();
+  const { commands, stores, registries } = useSnowdrop();
   const all = useSyncExternalStore(
     (fn) => commands.subscribe(fn),
     () => commands.all(),

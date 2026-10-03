@@ -6,26 +6,27 @@
   min-height: 100%;
   overflow: auto;
   place-items: center;
-  padding: var(--shrike-space-9) var(--shrike-space-5);
-  background: var(--shrike-bg-rail);
+  padding: var(--snowdrop-space-9) var(--snowdrop-space-5);
+  background: var(--snowdrop-bg-rail);
 }
 
-/* Two hard-edged diagonal streaks of accent: quick and sharp. The screen's single flourish. */
-.streaks {
+/*
+ * The screen's single flourish: early light on snow. A faint cool glow from
+ * the top and a breath of accent rising from the bottom edge, nothing more.
+ */
+.glow {
   position: fixed;
   inset: 0;
   background:
-    linear-gradient(
-      112deg,
-      transparent 79%,
-      color-mix(in oklab, var(--shrike-accent) 8%, transparent) 79% 84%,
-      transparent 84%
+    radial-gradient(
+      70% 45% at 50% -8%,
+      color-mix(in oklab, var(--snowdrop-text-strong) 5%, transparent),
+      transparent 70%
     ),
-    linear-gradient(
-      112deg,
-      transparent 86%,
-      color-mix(in oklab, var(--shrike-accent) 5%, transparent) 86% 87.5%,
-      transparent 87.5%
+    radial-gradient(
+      120% 55% at 50% 112%,
+      color-mix(in oklab, var(--snowdrop-accent) 9%, transparent),
+      transparent 65%
     );
   pointer-events: none;
 }
@@ -35,32 +36,32 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--shrike-space-7);
+  gap: var(--snowdrop-space-7);
   width: min(560px, 100%);
 }
 
 .brand {
   display: flex;
   align-items: center;
-  gap: var(--shrike-space-4);
+  gap: var(--snowdrop-space-4);
 }
 
 .mark {
-  color: var(--shrike-accent-text);
+  color: var(--snowdrop-accent-text);
 }
 
 .wordmark {
-  color: var(--shrike-text-strong);
-  font-size: var(--shrike-font-size-hero);
-  font-weight: var(--shrike-font-weight-bold);
+  color: var(--snowdrop-text-strong);
+  font-size: var(--snowdrop-font-size-hero);
+  font-weight: var(--snowdrop-font-weight-bold);
   letter-spacing: -0.03em;
   line-height: 1;
 }
 
 .lede {
   max-width: 46ch;
-  color: var(--shrike-text-muted);
-  font-size: var(--shrike-font-size-header);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-header);
   line-height: 1.55;
   text-align: center;
   text-wrap: pretty;
@@ -69,38 +70,38 @@
 .choices {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: var(--shrike-space-4);
+  gap: var(--snowdrop-space-4);
   width: 100%;
-  margin-top: var(--shrike-space-3);
+  margin-top: var(--snowdrop-space-3);
 }
 
 .choice {
   display: flex;
   flex-direction: column;
-  gap: var(--shrike-space-5);
-  padding: var(--shrike-space-6);
-  border: 1px solid var(--shrike-border-strong);
-  border-radius: var(--shrike-radius-lg);
-  background: var(--shrike-bg-elevated);
+  gap: var(--snowdrop-space-5);
+  padding: var(--snowdrop-space-6);
+  border: 1px solid var(--snowdrop-border-strong);
+  border-radius: var(--snowdrop-radius-lg);
+  background: var(--snowdrop-bg-elevated);
   text-align: left;
   transition:
-    border-color var(--shrike-duration-base) var(--shrike-ease),
-    transform var(--shrike-duration-base) var(--shrike-ease),
-    background-color var(--shrike-duration-base) var(--shrike-ease);
+    border-color var(--snowdrop-duration-base) var(--snowdrop-ease),
+    transform var(--snowdrop-duration-base) var(--snowdrop-ease),
+    background-color var(--snowdrop-duration-base) var(--snowdrop-ease);
 }
 
 .choice:hover {
-  border-color: var(--shrike-text-faint);
+  border-color: var(--snowdrop-text-faint);
   transform: translateY(-2px);
 }
 
 .choice[data-primary] {
-  border-color: color-mix(in oklab, var(--shrike-accent) 55%, transparent);
-  background: color-mix(in oklab, var(--shrike-accent) 8%, var(--shrike-bg-elevated));
+  border-color: color-mix(in oklab, var(--snowdrop-accent) 55%, transparent);
+  background: color-mix(in oklab, var(--snowdrop-accent) 8%, var(--snowdrop-bg-elevated));
 }
 
 .choice[data-primary]:hover {
-  border-color: var(--shrike-accent);
+  border-color: var(--snowdrop-accent);
 }
 
 .choiceIcon {
@@ -108,55 +109,55 @@
   place-items: center;
   width: 40px;
   height: 40px;
-  border-radius: var(--shrike-radius-md);
-  background: var(--shrike-bg-active);
-  color: var(--shrike-text);
+  border-radius: var(--snowdrop-radius-md);
+  background: var(--snowdrop-bg-active);
+  color: var(--snowdrop-text);
 }
 
 .choice[data-primary] .choiceIcon {
-  background: var(--shrike-accent);
-  color: var(--shrike-text-on-accent);
+  background: var(--snowdrop-accent);
+  color: var(--snowdrop-text-on-accent);
 }
 
 .choiceText {
   display: flex;
   flex-direction: column;
-  gap: var(--shrike-space-3);
+  gap: var(--snowdrop-space-3);
 }
 
 .choiceTitle {
-  color: var(--shrike-text-strong);
-  font-size: var(--shrike-font-size-header);
-  font-weight: var(--shrike-font-weight-semibold);
+  color: var(--snowdrop-text-strong);
+  font-size: var(--snowdrop-font-size-header);
+  font-weight: var(--snowdrop-font-weight-semibold);
 }
 
 .choiceBody {
-  color: var(--shrike-text-muted);
-  font-size: var(--shrike-font-size-ui);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-ui);
   line-height: 1.45;
 }
 
 .back {
   display: inline-flex;
   align-items: center;
-  gap: var(--shrike-space-3);
+  gap: var(--snowdrop-space-3);
   align-self: flex-start;
   height: 32px;
-  padding: 0 var(--shrike-space-3);
-  border-radius: var(--shrike-radius-sm);
-  color: var(--shrike-text-muted);
-  font-weight: var(--shrike-font-weight-medium);
+  padding: 0 var(--snowdrop-space-3);
+  border-radius: var(--snowdrop-radius-sm);
+  color: var(--snowdrop-text-muted);
+  font-weight: var(--snowdrop-font-weight-medium);
 }
 
 .back:hover {
-  background: var(--shrike-bg-hover);
-  color: var(--shrike-text-strong);
+  background: var(--snowdrop-bg-hover);
+  color: var(--snowdrop-text-strong);
 }
 
 .footnote {
   max-width: 52ch;
-  color: var(--shrike-text-faint);
-  font-size: var(--shrike-font-size-sm);
+  color: var(--snowdrop-text-faint);
+  font-size: var(--snowdrop-font-size-sm);
   line-height: 1.5;
   text-align: center;
 }
@@ -167,6 +168,6 @@
   }
 
   .wordmark {
-    font-size: calc(var(--shrike-font-size-hero) * 0.8);
+    font-size: calc(var(--snowdrop-font-size-hero) * 0.8);
   }
 }

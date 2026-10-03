@@ -1,5 +1,5 @@
 import { ExternalLink } from 'lucide-react';
-import { ShrikeMark } from '@/ui/primitives';
+import { SnowdropMark } from '@/ui/primitives';
 import { SettingRow } from '../rows/SettingRow';
 import { SettingsSection } from '../rows/SettingsSection';
 import { APP_VERSION, LICENCES } from './licences.generated';
@@ -11,9 +11,9 @@ export function AboutPage() {
       <SettingsSection>
         <SettingRow id="about.version" label="Version" stacked>
           <div className={styles.brand}>
-            <ShrikeMark size={40} className={styles.mark} />
+            <SnowdropMark size={40} className={styles.mark} />
             <div>
-              <p className={styles.name}>Shrike {APP_VERSION}</p>
+              <p className={styles.name}>Snowdrop {APP_VERSION}</p>
               <p className={styles.muted}>
                 A community-style client for Signal, through signal-cli. MIT licence.
               </p>
@@ -25,7 +25,7 @@ export function AboutPage() {
         title="Open-source licences"
         description={
           <>
-            Shrike is built on these {LICENCES.length} packages (and the packages they use). Thank
+            Snowdrop is built on these {LICENCES.length} packages (and the packages they use). Thank
             you to their authors. The full licence texts of everything in the app are in{' '}
             <a href="/THIRD_PARTY_NOTICES.txt" target="_blank" rel="noopener noreferrer">
               THIRD_PARTY_NOTICES.txt
@@ -69,12 +69,12 @@ export function AboutPage() {
         <SettingRow id="about.legal" label="The fine print" stacked>
           <div className={styles.legal}>
             <p>
-              Shrike is an independent project. It is not made by, affiliated with or endorsed by
+              Snowdrop is an independent project. It is not made by, affiliated with or endorsed by
               Signal Messenger LLC or the Signal Technology Foundation. “Signal” is their trademark,
               used here only to describe compatibility.
             </p>
             <p>
-              Shrike talks to signal-cli (GPL-3.0), which runs as a separate program on your
+              Snowdrop talks to signal-cli (GPL-3.0), which runs as a separate program on your
               computer; none of its code is included. Inter and JetBrains Mono are used under the
               SIL Open Font License and bundled locally. Icons are from Lucide (ISC).
             </p>

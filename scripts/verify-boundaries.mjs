@@ -58,8 +58,8 @@ const cases = [
     ['import-x/no-restricted-paths'],
   ],
   ['ui/plugins', "export { toMarkdown } from '@/ui/features/chat';", []],
-  ['ui/plugins', "export { useShrike } from '@/ui/hooks';", []],
-  ['ui/plugins', "export { createShrike } from '@/app';", ['import-x/no-restricted-paths']],
+  ['ui/plugins', "export { useSnowdrop } from '@/ui/hooks';", []],
+  ['ui/plugins', "export { createSnowdrop } from '@/app';", ['import-x/no-restricted-paths']],
   [
     'ui/plugins',
     "export { SignalCliBackend } from '@/core/backend/signal-cli';",

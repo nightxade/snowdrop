@@ -58,7 +58,7 @@ import {
 import { registerCoreCommands } from './coreCommands';
 import { createPluginHost } from './pluginHost';
 
-export interface ShrikeOptions {
+export interface SnowdropOptions {
   storage?: KeyValueStorage;
   /** Where themes are applied; omit for headless use (tests). */
   document?: ThemeDocument;
@@ -81,7 +81,7 @@ export interface ShrikeOptions {
   backends?: BackendRegistry;
 }
 
-export interface Shrike {
+export interface Snowdrop {
   stores: Stores;
   backend: ChatBackend;
   /** Every registered transport; `backend` is the one this instance runs on. */
@@ -107,7 +107,7 @@ export interface Shrike {
   dispose(): Promise<void>;
 }
 
-export function createShrike(options: ShrikeOptions = {}): Shrike {
+export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
   const storage = options.storage ?? defaultStorage();
   const clock = options.clock ?? systemClock;
   const scheduler = options.scheduler ?? systemScheduler;
@@ -133,7 +133,7 @@ export function createShrike(options: ShrikeOptions = {}): Shrike {
   ];
 
   const reportError = (error: unknown, context: string): void => {
-    console.error(`[shrike] ${context}`, error);
+    console.error(`[snowdrop] ${context}`, error);
   };
 
   // The transport is chosen once per instance; switching means a new instance (a reload).

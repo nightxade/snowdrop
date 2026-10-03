@@ -3,30 +3,30 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { createMemoryStorage } from '@/core/persistence';
 import { spacesSelectors, uiSelectors } from '@/core/stores';
 import { App } from './App';
-import { createShrike, type Shrike } from './createShrike';
-import { ShrikeProvider } from './ShrikeProvider';
+import { createSnowdrop, type Snowdrop } from './createSnowdrop';
+import { SnowdropProvider } from './SnowdropProvider';
 
 // Tell React this environment supports act().
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
-const shrikes: Shrike[] = [];
+const snowdrops: Snowdrop[] = [];
 
 afterEach(async () => {
   cleanup();
-  for (const h of shrikes.splice(0)) await h.dispose();
+  for (const h of snowdrops.splice(0)) await h.dispose();
 });
 
-async function bootDemo(): Promise<Shrike> {
-  const shrike = createShrike({ storage: createMemoryStorage(), mockLatencyMs: 0 });
-  shrikes.push(shrike);
-  shrike.stores.settings.getState().update('connection', { mockLiveliness: false });
+async function bootDemo(): Promise<Snowdrop> {
+  const snowdrop = createSnowdrop({ storage: createMemoryStorage(), mockLatencyMs: 0 });
+  snowdrops.push(snowdrop);
+  snowdrop.stores.settings.getState().update('connection', { mockLiveliness: false });
   render(
-    <ShrikeProvider shrike={shrike}>
+    <SnowdropProvider snowdrop={snowdrop}>
       <App />
-    </ShrikeProvider>,
+    </SnowdropProvider>,
   );
   // First run: the welcome screen, then the demo.
-  expect(await screen.findByRole('heading', { name: 'Shrike' }, { timeout: 5000 })).toBeTruthy();
+  expect(await screen.findByRole('heading', { name: 'Snowdrop' }, { timeout: 5000 })).toBeTruthy();
   // The welcome screen is a lazy chunk: wait for it (outside act, so it can render).
   const demo = await screen.findByRole('button', { name: /Try the demo/u }, { timeout: 5000 });
   await act(async () => {
@@ -34,10 +34,10 @@ async function bootDemo(): Promise<Shrike> {
     await Promise.resolve();
   });
   await act(async () => {
-    await shrike.start();
-    await shrike.sync.idle();
+    await snowdrop.start();
+    await snowdrop.sync.idle();
   });
-  return shrike;
+  return snowdrop;
 }
 
 function key(init: KeyboardEventInit) {
@@ -48,23 +48,23 @@ function key(init: KeyboardEventInit) {
 
 describe('<App />', () => {
   it('goes from the welcome screen into the demo shell', async () => {
-    const shrike = await bootDemo();
-    expect(shrike.stores.settings.getState().connection.backend).toBe('mock');
-    expect(document.querySelector('[data-shrike="rail"]')).not.toBeNull();
-    const sidebar = document.querySelector<HTMLElement>('[data-shrike="sidebar"]')!;
+    const snowdrop = await bootDemo();
+    expect(snowdrop.stores.settings.getState().connection.backend).toBe('mock');
+    expect(document.querySelector('[data-snowdrop="rail"]')).not.toBeNull();
+    const sidebar = document.querySelector<HTMLElement>('[data-snowdrop="sidebar"]')!;
     expect(within(sidebar).getByRole('region', { name: 'Direct Messages' })).toBeTruthy();
     expect(within(sidebar).getByRole('region', { name: 'Groups' })).toBeTruthy();
     // Every seeded space has a rail tile.
-    const rail = document.querySelector<HTMLElement>('[data-shrike="rail"]')!;
-    for (const id of spacesSelectors.orderedIds(shrike.stores.spaces.getState())) {
-      const name = shrike.stores.spaces.getState().spaces[id]!.name;
+    const rail = document.querySelector<HTMLElement>('[data-snowdrop="rail"]')!;
+    for (const id of spacesSelectors.orderedIds(snowdrop.stores.spaces.getState())) {
+      const name = snowdrop.stores.spaces.getState().spaces[id]!.name;
       expect(within(rail).getByRole('button', { name: new RegExp(`^${name}`, 'u') })).toBeTruthy();
     }
   });
 
   it('shows unread and mention indicators on space tiles; muting keeps mentions only', async () => {
-    const shrike = await bootDemo();
-    const { stores } = shrike;
+    const snowdrop = await bootDemo();
+    const { stores } = snowdrop;
     const spaceId = spacesSelectors.orderedIds(stores.spaces.getState())[0]!;
     const space = stores.spaces.getState().spaces[spaceId]!;
     const convs = space.categories.flatMap((c) => c.conversationIds);
@@ -91,15 +91,15 @@ describe('<App />', () => {
   });
 
   it('navigates by keyboard: Alt+↓, Alt+Shift+↓, Ctrl+Shift+M and Escape', async () => {
-    const shrike = await bootDemo();
-    const { stores } = shrike;
+    const snowdrop = await bootDemo();
+    const { stores } = snowdrop;
     const selected = () => uiSelectors.selectedConversation(stores.ui.getState());
 
     // Alt+↓ with nothing open picks the first row of the visible list.
     key({ key: 'ArrowDown', code: 'ArrowDown', altKey: true });
     const first = selected();
     expect(first).not.toBeNull();
-    const sidebar = document.querySelector<HTMLElement>('[data-shrike="sidebar"]')!;
+    const sidebar = document.querySelector<HTMLElement>('[data-snowdrop="sidebar"]')!;
     expect(within(sidebar).getByRole('button', { current: 'page' })).toBeTruthy();
     key({ key: 'ArrowDown', code: 'ArrowDown', altKey: true });
     expect(selected()).not.toBe(first);
@@ -130,7 +130,7 @@ describe('<App />', () => {
     stores.conversations.getState().setUnread(target, { count: 3, mentions: 1 });
     key({ key: 'Escape', code: 'Escape' });
     await act(async () => {
-      await shrike.sync.idle();
+      await snowdrop.sync.idle();
       await new Promise((r) => setTimeout(r, 0));
     });
     expect(stores.conversations.getState().unread[target]?.count ?? 0).toBe(0);
@@ -139,7 +139,7 @@ describe('<App />', () => {
   it('arrow keys move focus between sidebar rows', async () => {
     await bootDemo();
     const rows = document.querySelectorAll<HTMLElement>(
-      '[data-shrike="conversation-list"] [data-roving-item]',
+      '[data-snowdrop="conversation-list"] [data-roving-item]',
     );
     expect(rows.length).toBeGreaterThan(3);
     act(() => {

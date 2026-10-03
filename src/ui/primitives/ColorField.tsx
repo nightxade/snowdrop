@@ -88,7 +88,7 @@ export function ColorField({ value, presets, onValueChange, label }: ColorFieldP
           id={id}
           className={styles.hex}
           value={hex}
-          placeholder="#d4744a"
+          placeholder="#5fbf9f"
           maxLength={7}
           aria-invalid={invalid || undefined}
           spellCheck={false}

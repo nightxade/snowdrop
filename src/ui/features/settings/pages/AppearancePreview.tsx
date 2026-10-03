@@ -29,7 +29,7 @@ export function AppearancePreview() {
                 {formatClock(now - m.ago * 60_000, { clock24h: a.clock24h })}
               </span>
               {a.showAvatarsInCompact && (
-                <Avatar size={16} fallback="" color={`var(--shrike-avatar-${m.hue})`} />
+                <Avatar size={16} fallback="" color={`var(--snowdrop-avatar-${m.hue})`} />
               )}
               <span className={styles.previewName}>{m.name}</span>
               <span className={styles.previewText}>{m.text}</span>
@@ -39,7 +39,7 @@ export function AppearancePreview() {
               <Avatar
                 size={40}
                 fallback={m.name.slice(0, 1)}
-                color={`var(--shrike-avatar-${m.hue})`}
+                color={`var(--snowdrop-avatar-${m.hue})`}
               />
               <span className={styles.previewBody}>
                 <span>

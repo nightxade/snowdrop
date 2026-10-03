@@ -2,8 +2,8 @@
   position: fixed;
   z-index: 40;
   inset: 0;
-  background: var(--shrike-bg-overlay);
-  animation: fade var(--shrike-duration-base) var(--shrike-ease);
+  background: var(--snowdrop-bg-overlay);
+  animation: fade var(--snowdrop-duration-base) var(--snowdrop-ease);
 }
 
 .content {
@@ -16,11 +16,11 @@
   width: min(440px, calc(100vw - 32px));
   max-height: min(720px, calc(100dvh - 48px));
   overflow: hidden;
-  border-radius: var(--shrike-radius-lg);
-  background: var(--shrike-bg-elevated);
-  box-shadow: var(--shrike-shadow-modal);
+  border-radius: var(--snowdrop-radius-lg);
+  background: var(--snowdrop-bg-elevated);
+  box-shadow: var(--snowdrop-shadow-modal);
   transform: translate(-50%, -50%);
-  animation: rise var(--shrike-duration-slow) var(--shrike-ease);
+  animation: rise var(--snowdrop-duration-slow) var(--snowdrop-ease);
 }
 
 .content:focus {
@@ -47,7 +47,8 @@
 
 .header {
   position: relative;
-  padding: var(--shrike-space-7) var(--shrike-space-8) var(--shrike-space-4) var(--shrike-space-7);
+  padding: var(--snowdrop-space-7) var(--snowdrop-space-8) var(--snowdrop-space-4)
+    var(--snowdrop-space-7);
 }
 
 .header[data-hidden] {
@@ -60,34 +61,34 @@
 }
 
 .title {
-  color: var(--shrike-text-strong);
-  font-size: var(--shrike-font-size-title);
-  font-weight: var(--shrike-font-weight-bold);
+  color: var(--snowdrop-text-strong);
+  font-size: var(--snowdrop-font-size-title);
+  font-weight: var(--snowdrop-font-weight-bold);
   line-height: 1.25;
 }
 
 .description {
-  margin-top: var(--shrike-space-3);
-  color: var(--shrike-text-muted);
-  font-size: var(--shrike-font-size-ui);
+  margin-top: var(--snowdrop-space-3);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-ui);
   line-height: 1.45;
 }
 
 .close {
   position: absolute;
-  top: var(--shrike-space-5);
-  right: var(--shrike-space-5);
+  top: var(--snowdrop-space-5);
+  right: var(--snowdrop-space-5);
 }
 
 .body {
   flex: 1;
   min-height: 0;
-  padding: var(--shrike-space-3) var(--shrike-space-7) var(--shrike-space-7);
+  padding: var(--snowdrop-space-3) var(--snowdrop-space-7) var(--snowdrop-space-7);
   overflow-y: auto;
 }
 
 .header[data-hidden] + .body {
-  padding: var(--shrike-space-5);
+  padding: var(--snowdrop-space-5);
 }
 
 .body[data-flush],
@@ -98,9 +99,9 @@
 .footer {
   display: flex;
   justify-content: flex-end;
-  gap: var(--shrike-space-3);
-  padding: var(--shrike-space-5) var(--shrike-space-7);
-  background: var(--shrike-bg-sidebar);
+  gap: var(--snowdrop-space-3);
+  padding: var(--snowdrop-space-5) var(--snowdrop-space-7);
+  background: var(--snowdrop-bg-sidebar);
 }
 
 @keyframes fade {

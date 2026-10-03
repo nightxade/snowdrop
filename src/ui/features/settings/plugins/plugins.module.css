@@ -1,14 +1,14 @@
 .page {
   display: flex;
   flex-direction: column;
-  gap: var(--shrike-space-4);
+  gap: var(--snowdrop-space-4);
 }
 
 .toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--shrike-space-3);
+  gap: var(--snowdrop-space-3);
 }
 
 .search {
@@ -21,27 +21,27 @@
 }
 
 .count {
-  color: var(--shrike-text-faint);
-  font-size: var(--shrike-font-size-sm);
+  color: var(--snowdrop-text-faint);
+  font-size: var(--snowdrop-font-size-sm);
 }
 
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: var(--shrike-space-4);
+  gap: var(--snowdrop-space-4);
 }
 
 .card {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: var(--shrike-space-3);
+  gap: var(--snowdrop-space-3);
   min-height: 148px;
-  padding: var(--shrike-space-5) var(--shrike-space-5) var(--shrike-space-4);
+  padding: var(--snowdrop-space-5) var(--snowdrop-space-5) var(--snowdrop-space-4);
   overflow: hidden;
-  border: 1px solid var(--shrike-border);
-  border-radius: var(--shrike-radius-md);
-  background: var(--shrike-bg-elevated);
+  border: 1px solid var(--snowdrop-border);
+  border-radius: var(--snowdrop-radius-md);
+  background: var(--snowdrop-bg-elevated);
 }
 
 /* State lives on the left edge: on = accent, failed = danger. */
@@ -54,25 +54,25 @@
 }
 
 .card[data-enabled]::before {
-  background: var(--shrike-accent);
+  background: var(--snowdrop-accent);
 }
 
 .card[data-status='failed']::before {
-  background: var(--shrike-danger);
+  background: var(--snowdrop-danger);
 }
 
 .cardHeader {
   display: flex;
   align-items: center;
-  gap: var(--shrike-space-3);
+  gap: var(--snowdrop-space-3);
 }
 
 .cardTitle {
   min-width: 0;
   overflow: hidden;
-  color: var(--shrike-text-strong);
-  font-size: var(--shrike-font-size-ui);
-  font-weight: var(--shrike-font-weight-semibold);
+  color: var(--snowdrop-text-strong);
+  font-size: var(--snowdrop-font-size-ui);
+  font-weight: var(--snowdrop-font-weight-semibold);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -84,42 +84,42 @@
   gap: 3px;
   height: 18px;
   padding: 0 6px;
-  border-radius: var(--shrike-radius-xs);
-  background: var(--shrike-bg-selected);
-  color: var(--shrike-text-muted);
-  font-size: var(--shrike-font-size-xs);
-  font-weight: var(--shrike-font-weight-semibold);
+  border-radius: var(--snowdrop-radius-xs);
+  background: var(--snowdrop-bg-selected);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-xs);
+  font-weight: var(--snowdrop-font-weight-semibold);
 }
 
 .cardControls {
   display: flex;
   flex: none;
   align-items: center;
-  gap: var(--shrike-space-2);
+  gap: var(--snowdrop-space-2);
   margin-left: auto;
 }
 
 .cardDescription {
   flex: 1;
-  color: var(--shrike-text-muted);
-  font-size: var(--shrike-font-size-sm);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
   line-height: 1.5;
 }
 
 .failure {
   display: flex;
   align-items: center;
-  gap: var(--shrike-space-3);
-  padding: var(--shrike-space-3);
-  border-radius: var(--shrike-radius-sm);
-  background: var(--shrike-danger-soft);
-  color: var(--shrike-text);
-  font-size: var(--shrike-font-size-sm);
+  gap: var(--snowdrop-space-3);
+  padding: var(--snowdrop-space-3);
+  border-radius: var(--snowdrop-radius-sm);
+  background: var(--snowdrop-danger-soft);
+  color: var(--snowdrop-text);
+  font-size: var(--snowdrop-font-size-sm);
 }
 
 .failure > svg {
   flex: none;
-  color: var(--shrike-danger);
+  color: var(--snowdrop-danger);
 }
 
 .failureText {
@@ -132,13 +132,13 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--shrike-space-2) var(--shrike-space-3);
+  gap: var(--snowdrop-space-2) var(--snowdrop-space-3);
 }
 
 .authors,
 .starting {
-  color: var(--shrike-text-faint);
-  font-size: var(--shrike-font-size-xs);
+  color: var(--snowdrop-text-faint);
+  font-size: var(--snowdrop-font-size-xs);
 }
 
 .starting {
@@ -160,28 +160,28 @@
 .tags {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--shrike-space-2);
+  gap: var(--snowdrop-space-2);
   margin-left: auto;
 }
 
 .tag {
   height: 22px;
-  padding: 0 var(--shrike-space-3);
-  border-radius: var(--shrike-radius-full);
-  background: var(--shrike-bg-hover);
-  color: var(--shrike-text-muted);
-  font-size: var(--shrike-font-size-xs);
-  font-weight: var(--shrike-font-weight-medium);
+  padding: 0 var(--snowdrop-space-3);
+  border-radius: var(--snowdrop-radius-full);
+  background: var(--snowdrop-bg-hover);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-xs);
+  font-weight: var(--snowdrop-font-weight-medium);
 }
 
 .tag:hover {
-  background: var(--shrike-bg-active);
-  color: var(--shrike-text-strong);
+  background: var(--snowdrop-bg-active);
+  color: var(--snowdrop-text-strong);
 }
 
 .tag[aria-pressed='true'] {
-  background: var(--shrike-accent-soft);
-  color: var(--shrike-text-strong);
+  background: var(--snowdrop-accent-soft);
+  color: var(--snowdrop-text-strong);
 }
 
 /* Auto-generated settings form */
@@ -191,7 +191,7 @@
 }
 
 .noSettings {
-  color: var(--shrike-text-muted);
+  color: var(--snowdrop-text-muted);
 }
 
 .number {
@@ -205,11 +205,11 @@
 .textarea {
   width: 100%;
   min-height: 96px;
-  padding: var(--shrike-space-3) var(--shrike-space-4);
-  border: 1px solid var(--shrike-border-strong);
-  border-radius: var(--shrike-radius-sm);
-  background: var(--shrike-bg-input);
-  color: var(--shrike-text-strong);
+  padding: var(--snowdrop-space-3) var(--snowdrop-space-4);
+  border: 1px solid var(--snowdrop-border-strong);
+  border-radius: var(--snowdrop-radius-sm);
+  background: var(--snowdrop-bg-input);
+  color: var(--snowdrop-text-strong);
   font: inherit;
   resize: vertical;
 }

@@ -34,14 +34,14 @@ export function MessageResult({
           size={32}
           {...(author?.avatarUrl ? { src: author.avatarUrl } : {})}
           fallback={initialsFor(name)}
-          color={author?.color ?? 'var(--shrike-avatar-1)'}
+          color={author?.color ?? 'var(--snowdrop-avatar-1)'}
         />
         <span className={styles.main}>
           <span className={styles.head}>
             <span
               className={styles.name}
               style={
-                { '--name-color': author?.color ?? 'var(--shrike-text-strong)' } as CSSProperties
+                { '--name-color': author?.color ?? 'var(--snowdrop-text-strong)' } as CSSProperties
               }
             >
               {name}

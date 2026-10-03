@@ -73,7 +73,7 @@ export function ConnectForm({
     setChecking(true);
     const result = await probe(target);
     setChecking(false);
-    // No account yet is fine: Shrike walks you through linking next.
+    // No account yet is fine: Snowdrop walks you through linking next.
     if (result.ok) onConnect(target);
     else setFailure(result.message);
   };
@@ -94,7 +94,7 @@ export function ConnectForm({
         </li>
         <li>
           Keep the address below unless you changed the dev proxy. The daemon has no CORS support,
-          so Shrike reaches it through the same-origin path{' '}
+          so Snowdrop reaches it through the same-origin path{' '}
           <code className={styles.code}>/signal-cli</code>.
         </li>
       </ol>

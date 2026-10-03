@@ -19,7 +19,7 @@ import tokensCss from '@/ui/styles/tokens.css?raw';
 const base: Record<string, string> = {};
 // Only the top-level :root block (reduced-motion overrides follow later).
 const rootBlock = tokensCss.slice(0, tokensCss.indexOf('}'));
-for (const m of rootBlock.matchAll(/--shrike-([a-z0-9-]+)\s*:\s*([^;]+);/gu)) {
+for (const m of rootBlock.matchAll(/--snowdrop-([a-z0-9-]+)\s*:\s*([^;]+);/gu)) {
   base[m[1] as string] = (m[2] as string).trim();
 }
 
@@ -102,7 +102,7 @@ describe.each(BUILTIN_THEMES.map((t) => [t.name, t] as const))('%s contrast', (_
   });
 
   const accentTextOf = (accent: string | null) =>
-    /--shrike-accent-text: (#[0-9a-f]{6});/u.exec(
+    /--snowdrop-accent-text: (#[0-9a-f]{6});/u.exec(
       buildThemeCss({
         themeId: theme.id,
         accent,

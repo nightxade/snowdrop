@@ -1,11 +1,11 @@
 export {
-  ShrikeContextProvider,
-  useShrike,
+  SnowdropContextProvider,
+  useSnowdrop,
   useStores,
   type AppAdmin,
   type AppServices,
   type DaemonProbe,
-} from './ShrikeContext';
+} from './SnowdropContext';
 export { useObservableList, type ListSource } from './useObservableList';
 export { BREAKPOINTS, useMediaQuery } from './useMediaQuery';
 export { useKeybindLabel } from './useKeybindLabel';

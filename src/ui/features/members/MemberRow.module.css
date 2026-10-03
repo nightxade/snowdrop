@@ -5,22 +5,22 @@
 .row {
   display: flex;
   align-items: center;
-  gap: var(--shrike-space-4);
+  gap: var(--snowdrop-space-4);
   width: 100%;
   min-height: 40px;
-  padding: 0 var(--shrike-space-3);
-  border-radius: var(--shrike-radius-sm);
+  padding: 0 var(--snowdrop-space-3);
+  border-radius: var(--snowdrop-radius-sm);
   text-align: left;
-  transition: background-color var(--shrike-duration-fast) var(--shrike-ease);
+  transition: background-color var(--snowdrop-duration-fast) var(--snowdrop-ease);
 }
 
 .row:hover,
 .row[data-state='open'] {
-  background: var(--shrike-bg-hover);
+  background: var(--snowdrop-bg-hover);
 }
 
 .row[data-state='open'] {
-  background: var(--shrike-bg-selected);
+  background: var(--snowdrop-bg-selected);
 }
 
 .row:focus-visible {
@@ -32,19 +32,19 @@
   flex: 1;
   min-width: 0;
   overflow: hidden;
-  font-size: var(--shrike-font-size-ui);
-  font-weight: var(--shrike-font-weight-medium);
-  color: color-mix(in oklab, var(--name-color) 55%, var(--shrike-text-strong));
+  font-size: var(--snowdrop-font-size-ui);
+  font-weight: var(--snowdrop-font-weight-medium);
+  color: color-mix(in oklab, var(--name-color) 55%, var(--snowdrop-text-strong));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .you {
-  color: var(--shrike-text-faint);
-  font-weight: var(--shrike-font-weight-regular);
+  color: var(--snowdrop-text-faint);
+  font-weight: var(--snowdrop-font-weight-regular);
 }
 
 .emoji {
   flex: none;
-  font-size: var(--shrike-font-size-ui);
+  font-size: var(--snowdrop-font-size-ui);
 }

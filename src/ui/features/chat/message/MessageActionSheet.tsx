@@ -21,7 +21,7 @@ export function MessageActionSheet({
   return (
     <Drawer side="bottom" open={open} onOpenChange={onOpenChange} label="Message actions">
       {open && (
-        <div className={styles.sheet} data-shrike="message-action-sheet">
+        <div className={styles.sheet} data-snowdrop="message-action-sheet">
           <span className={styles.grip} aria-hidden />
           {entries().map((entry) => {
             switch (entry.kind) {

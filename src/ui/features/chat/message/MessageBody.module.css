@@ -1,24 +1,24 @@
 .body {
-  color: var(--shrike-text);
-  font-size: var(--shrike-font-size-message);
-  line-height: var(--shrike-line-height-message);
+  color: var(--snowdrop-text);
+  font-size: var(--snowdrop-font-size-message);
+  line-height: var(--snowdrop-line-height-message);
   overflow-wrap: anywhere;
   white-space: pre-wrap;
   user-select: text;
 }
 
 .body[data-jumbo] {
-  font-size: calc(40px * var(--shrike-font-scale));
+  font-size: calc(40px * var(--snowdrop-font-scale));
   line-height: 1.2;
 }
 
 .body strong {
-  color: var(--shrike-text-strong);
-  font-weight: var(--shrike-font-weight-bold);
+  color: var(--snowdrop-text-strong);
+  font-weight: var(--snowdrop-font-weight-bold);
 }
 
 .link {
-  color: var(--shrike-text-link);
+  color: var(--snowdrop-text-link);
   text-decoration: none;
 }
 
@@ -28,53 +28,53 @@
 
 .code {
   padding: 1px 4px;
-  border-radius: var(--shrike-radius-xs);
-  background: var(--shrike-code-bg);
-  font-family: var(--shrike-font-mono);
+  border-radius: var(--snowdrop-radius-xs);
+  background: var(--snowdrop-code-bg);
+  font-family: var(--snowdrop-font-mono);
   font-size: 0.86em;
 }
 
 .block {
   max-width: min(100%, 720px);
-  margin: var(--shrike-space-2) 0;
-  padding: var(--shrike-space-3) var(--shrike-space-4);
+  margin: var(--snowdrop-space-2) 0;
+  padding: var(--snowdrop-space-3) var(--snowdrop-space-4);
   overflow-x: auto;
-  border: 1px solid var(--shrike-border);
-  border-radius: var(--shrike-radius-sm);
-  background: var(--shrike-code-bg);
-  font-family: var(--shrike-font-mono);
-  font-size: calc(13px * var(--shrike-font-scale));
+  border: 1px solid var(--snowdrop-border);
+  border-radius: var(--snowdrop-radius-sm);
+  background: var(--snowdrop-code-bg);
+  font-family: var(--snowdrop-font-mono);
+  font-size: calc(13px * var(--snowdrop-font-scale));
   line-height: 1.5;
   white-space: pre;
-  scrollbar-color: var(--shrike-scrollbar-thumb) transparent;
+  scrollbar-color: var(--snowdrop-scrollbar-thumb) transparent;
   scrollbar-width: thin;
 }
 
 .mention {
   padding: 0 2px;
-  border-radius: var(--shrike-radius-xs);
-  background: var(--shrike-mention-pill-bg);
-  color: var(--shrike-mention-pill-text);
-  font-weight: var(--shrike-font-weight-medium);
+  border-radius: var(--snowdrop-radius-xs);
+  background: var(--snowdrop-mention-pill-bg);
+  color: var(--snowdrop-mention-pill-text);
+  font-weight: var(--snowdrop-font-weight-medium);
   cursor: pointer;
-  transition: background-color var(--shrike-duration-fast) var(--shrike-ease);
+  transition: background-color var(--snowdrop-duration-fast) var(--snowdrop-ease);
 }
 
 .mention:hover {
-  background: var(--shrike-accent);
-  color: var(--shrike-text-on-accent);
+  background: var(--snowdrop-accent);
+  color: var(--snowdrop-text-on-accent);
 }
 
 .spoiler {
-  border-radius: var(--shrike-radius-xs);
-  background: var(--shrike-spoiler-bg);
+  border-radius: var(--snowdrop-radius-xs);
+  background: var(--snowdrop-spoiler-bg);
   cursor: pointer;
-  transition: background-color var(--shrike-duration-base) var(--shrike-ease);
+  transition: background-color var(--snowdrop-duration-base) var(--snowdrop-ease);
 }
 
 .spoiler:not([data-revealed]):hover {
-  background: var(--shrike-bg-active);
-  background: color-mix(in srgb, var(--shrike-spoiler-bg) 85%, var(--shrike-text));
+  background: var(--snowdrop-bg-active);
+  background: color-mix(in srgb, var(--snowdrop-spoiler-bg) 85%, var(--snowdrop-text));
 }
 
 .spoilerText {
@@ -82,6 +82,6 @@
 }
 
 .spoiler[data-revealed] {
-  background: var(--shrike-bg-active);
+  background: var(--snowdrop-bg-active);
   cursor: text;
 }

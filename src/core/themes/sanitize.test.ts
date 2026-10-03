@@ -76,9 +76,9 @@ describe('Custom CSS sanitiser (B1)', () => {
 
   it('keeps everything else as written and the braces balanced', () => {
     const css =
-      ':root { --shrike-accent: #4a90d6; }\n.x { color: red; background: url(https://evil.example/a.png); padding: 2px }';
+      ':root { --snowdrop-accent: #4a90d6; }\n.x { color: red; background: url(https://evil.example/a.png); padding: 2px }';
     const out = sanitizeUserCss(css);
-    expect(out.css).toBe(':root { --shrike-accent: #4a90d6; }\n.x { color: red; padding: 2px }');
+    expect(out.css).toBe(':root { --snowdrop-accent: #4a90d6; }\n.x { color: red; padding: 2px }');
     expect(removedSummary(out.removed)).toBe('Removed 1 remote reference');
   });
 
@@ -154,8 +154,8 @@ describe('accent text colour (M4)', () => {
   it('keeps tokens.css in sync with DUSK_BASE', () => {
     const css = readFileSync('src/ui/styles/tokens.css', 'utf8');
     for (const [name, value] of Object.entries(DUSK_BASE))
-      expect(css).toContain(`--shrike-${name}: ${value};`);
-    const declared = /--shrike-accent-text: (#[0-9a-f]{6});/u.exec(css)?.[1];
+      expect(css).toContain(`--snowdrop-${name}: ${value};`);
+    const declared = /--snowdrop-accent-text: (#[0-9a-f]{6});/u.exec(css)?.[1];
     expect(declared).toBe(deriveAccentText(DUSK_BASE.accent, textSurfaces(BUILTIN_THEMES[0]!)));
   });
 
@@ -188,7 +188,7 @@ describe('accent text colour (M4)', () => {
         reducedMotion: 'system',
         customCss: '',
       });
-      const own = /--shrike-accent-text: (#[0-9a-f]{6});/u.exec(css)?.[1] ?? '';
+      const own = /--snowdrop-accent-text: (#[0-9a-f]{6});/u.exec(css)?.[1] ?? '';
       expect(
         contrastRatio(own, theme.tokens['bg-chat'] ?? DUSK_BASE['bg-chat']),
       ).toBeGreaterThanOrEqual(4.5);

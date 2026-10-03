@@ -55,7 +55,7 @@ describe('settingsStore', () => {
   it('migrates v1 connection settings (account, proxy URL) and keeps custom URLs', () => {
     const v1 = (daemonUrl: string) =>
       createMemoryStorage({
-        'shrike.settings': JSON.stringify({
+        'snowdrop.settings': JSON.stringify({
           v: 1,
           data: { connection: { backend: 'signal-cli', daemonUrl, mockLiveliness: false } },
         }),

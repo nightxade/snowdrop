@@ -3,18 +3,18 @@ import { useStore } from 'zustand';
 import { initialsFor } from '@/core/domain';
 import { sessionSelectors } from '@/core/stores';
 import { copyText, formatPhone } from '@/ui/features/conversation';
-import { useShrike } from '@/ui/hooks';
+import { useSnowdrop } from '@/ui/hooks';
 import { Avatar, Button } from '@/ui/primitives';
 import { SettingRow } from '../rows/SettingRow';
 import { SettingsSection } from '../rows/SettingsSection';
 import styles from './pages.module.css';
 
 export function ProfilePage() {
-  const app = useShrike();
+  const app = useSnowdrop();
   const self = useStore(app.stores.session, sessionSelectors.self);
   const backend = app.backend.kind;
   if (!self) {
-    return <p className={styles.muted}>Your profile appears here once Shrike has connected.</p>;
+    return <p className={styles.muted}>Your profile appears here once Snowdrop has connected.</p>;
   }
   return (
     <SettingsSection>
@@ -41,7 +41,7 @@ export function ProfilePage() {
           <Smartphone size={14} aria-hidden />
           {backend === 'mock'
             ? 'This is the demo profile. With signal-cli, your real Signal profile shows here.'
-            : 'Change your name, photo and about text in the Signal app on your phone; Shrike picks it up automatically.'}
+            : 'Change your name, photo and about text in the Signal app on your phone; Snowdrop picks it up automatically.'}
         </p>
       </SettingRow>
       <SettingRow

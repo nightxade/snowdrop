@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { useCallback } from 'react';
 import { HOME, type SpaceId } from '@/core/stores';
-import { useShrike, type AppServices } from '@/ui/hooks';
+import { useSnowdrop, type AppServices } from '@/ui/hooks';
 import { pluginMenuEntries } from '@/ui/features/conversation';
 import type { MenuEntry } from '@/ui/primitives';
 
@@ -31,7 +31,7 @@ export function markSpaceRead(app: AppServices, spaceId: SpaceId): void {
 
 /** Space context/dropdown menu (PLAN §4.2): mark read, mute, edit, delete + plugin items. */
 export function useSpaceMenu(spaceId: SpaceId): () => MenuEntry[] {
-  const app = useShrike();
+  const app = useSnowdrop();
   return useCallback(() => {
     const { stores, registries } = app;
     const space = stores.spaces.getState().spaces[spaceId];

@@ -28,7 +28,7 @@ export function packageDirOf(id: string): string | null {
 
 export function thirdPartyNotices(): Plugin {
   return {
-    name: 'shrike:third-party-notices',
+    name: 'snowdrop:third-party-notices',
     apply: 'build',
     generateBundle(_options, bundle) {
       const dirs = new Set<string>();
@@ -64,7 +64,7 @@ export function thirdPartyNotices(): Plugin {
       this.emitFile({
         type: 'asset',
         fileName: 'THIRD_PARTY_NOTICES.txt',
-        source: `Shrike includes the following third-party software (${entries.length} packages).\n\n${body}`,
+        source: `Snowdrop includes the following third-party software (${entries.length} packages).\n\n${body}`,
       });
     },
   };

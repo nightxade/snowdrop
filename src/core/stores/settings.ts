@@ -60,7 +60,7 @@ export interface ConnectionSettings {
   backend: BackendKind | null;
   /**
    * Base URL the *browser* uses to reach signal-cli. The default is the
-   * same-origin Vite proxy path (`/signal-cli` → SHRIKE_SIGNAL_CLI_URL,
+   * same-origin Vite proxy path (`/signal-cli` → SNOWDROP_SIGNAL_CLI_URL,
    * default http://127.0.0.1:8080), because the daemon sends no CORS headers
    * and pins the Host header. An absolute URL only works same-origin.
    */
@@ -371,7 +371,7 @@ export function createSettingsSchema(
 }
 
 export const settingsSchema: VersionedSchema<Settings> = {
-  key: 'shrike.settings',
+  key: 'snowdrop.settings',
   version: 3,
   migrations: {
     // v2 (P5): `connection.account`; the untouched v1 default daemon URL moves

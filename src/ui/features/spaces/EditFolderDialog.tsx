@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import { useShrike } from '@/ui/hooks';
+import { useSnowdrop } from '@/ui/hooks';
 import { Button, Modal, TextInput } from '@/ui/primitives';
 import { HuePicker } from './HuePicker';
 import styles from './SpaceForm.module.css';
 
 export function EditFolderDialog({ folderId, onClose }: { folderId: string; onClose: () => void }) {
-  const { stores } = useShrike();
+  const { stores } = useSnowdrop();
   const folder = stores.spaces
     .getState()
     .rail.find((e) => e.type === 'folder' && e.id === folderId);

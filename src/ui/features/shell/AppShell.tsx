@@ -50,7 +50,7 @@ export function AppShell() {
       <TooltipProvider>
         <div
           className={styles.shell}
-          data-shrike="app"
+          data-snowdrop="app"
           data-layout={drawer ? 'drawer' : narrow ? 'narrow' : 'wide'}
         >
           {drawer ? (
@@ -60,7 +60,7 @@ export function AppShell() {
               label="Navigation"
               returnFocus={navToggle}
             >
-              <div className={styles.nav} data-shrike="drawer">
+              <div className={styles.nav} data-snowdrop="drawer">
                 <Rail />
                 <Sidebar />
               </div>
@@ -83,7 +83,7 @@ export function AppShell() {
 /** The chat header's hamburger: where focus returns when the navigation drawer closes. */
 const navToggle = () =>
   document.querySelector<HTMLElement>(
-    '[data-shrike="chat-header"] button[aria-label^="Open navigation"]',
+    '[data-snowdrop="chat-header"] button[aria-label^="Open navigation"]',
   );
 
 /**

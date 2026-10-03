@@ -1,7 +1,7 @@
 .root {
   display: flex;
   flex-direction: column;
-  gap: var(--shrike-space-3);
+  gap: var(--snowdrop-space-3);
 }
 
 .head {
@@ -11,21 +11,21 @@
 }
 
 .label {
-  color: var(--shrike-text-muted);
-  font-size: var(--shrike-font-size-sm);
-  font-weight: var(--shrike-font-weight-semibold);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
+  font-weight: var(--snowdrop-font-weight-semibold);
 }
 
 .count {
-  color: var(--shrike-text-faint);
-  font-size: var(--shrike-font-size-sm);
+  color: var(--snowdrop-text-faint);
+  font-size: var(--snowdrop-font-size-sm);
   font-variant-numeric: tabular-nums;
 }
 
 .list {
   max-height: min(300px, 36vh);
-  margin: 0 calc(-1 * var(--shrike-space-3));
-  padding: 0 var(--shrike-space-3);
+  margin: 0 calc(-1 * var(--snowdrop-space-3));
+  padding: 0 var(--snowdrop-space-3);
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -36,26 +36,26 @@
   top: 0;
   display: flex;
   align-items: center;
-  gap: var(--shrike-space-2);
-  padding: var(--shrike-space-3) 0 var(--shrike-space-2);
-  background: var(--shrike-bg-elevated);
-  color: var(--shrike-text-faint);
-  font-size: var(--shrike-font-size-sm);
-  font-weight: var(--shrike-font-weight-semibold);
+  gap: var(--snowdrop-space-2);
+  padding: var(--snowdrop-space-3) 0 var(--snowdrop-space-2);
+  background: var(--snowdrop-bg-elevated);
+  color: var(--snowdrop-text-faint);
+  font-size: var(--snowdrop-font-size-sm);
+  font-weight: var(--snowdrop-font-weight-semibold);
 }
 
 .section svg {
-  color: var(--shrike-accent-text);
+  color: var(--snowdrop-accent-text);
 }
 
 .row {
   min-height: 44px;
-  padding: var(--shrike-space-2) var(--shrike-space-3);
-  border-radius: var(--shrike-radius-sm);
+  padding: var(--snowdrop-space-2) var(--snowdrop-space-3);
+  border-radius: var(--snowdrop-radius-sm);
 }
 
 .row:hover {
-  background: var(--shrike-bg-hover);
+  background: var(--snowdrop-bg-hover);
 }
 
 .text {
@@ -66,35 +66,35 @@
 
 .title {
   overflow: hidden;
-  color: var(--shrike-text-strong);
-  font-weight: var(--shrike-font-weight-medium);
+  color: var(--snowdrop-text-strong);
+  font-weight: var(--snowdrop-font-weight-medium);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .meta {
   overflow: hidden;
-  color: var(--shrike-text-faint);
-  font-size: var(--shrike-font-size-xs);
+  color: var(--snowdrop-text-faint);
+  font-size: var(--snowdrop-font-size-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .none {
-  padding: var(--shrike-space-5) 0;
-  color: var(--shrike-text-muted);
+  padding: var(--snowdrop-space-5) 0;
+  color: var(--snowdrop-text-muted);
 }
 
 /* S11: meta stays readable on the hover background. */
 .row:hover .meta {
-  color: var(--shrike-text-muted);
+  color: var(--snowdrop-text-muted);
 }
 
 /* Picks, pinned under the search so they stay visible while you scroll. */
 .chips {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--shrike-space-2);
+  gap: var(--snowdrop-space-2);
   max-height: 64px;
   overflow-y: auto;
 }
@@ -105,11 +105,11 @@
   gap: 2px;
   max-width: 200px;
   height: 26px;
-  padding: 0 2px 0 var(--shrike-space-3);
-  border-radius: var(--shrike-radius-full);
-  background: var(--shrike-accent-soft);
-  color: var(--shrike-text-strong);
-  font-size: var(--shrike-font-size-sm);
+  padding: 0 2px 0 var(--snowdrop-space-3);
+  border-radius: var(--snowdrop-radius-full);
+  background: var(--snowdrop-accent-soft);
+  color: var(--snowdrop-text-strong);
+  font-size: var(--snowdrop-font-size-sm);
 }
 
 .chipText {
@@ -124,11 +124,11 @@
   place-items: center;
   width: 22px;
   height: 22px;
-  border-radius: var(--shrike-radius-full);
-  color: var(--shrike-text-muted);
+  border-radius: var(--snowdrop-radius-full);
+  color: var(--snowdrop-text-muted);
 }
 
 .chipRemove:hover {
-  background: var(--shrike-bg-active);
-  color: var(--shrike-text-strong);
+  background: var(--snowdrop-bg-active);
+  color: var(--snowdrop-text-strong);
 }

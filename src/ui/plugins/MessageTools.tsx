@@ -47,7 +47,7 @@ export const messageToolsPlugin = definePlugin({
   id: 'message-tools',
   name: 'Message Tools',
   description: 'Adds “Copy as Markdown” and a word count to the message hover bar and menu.',
-  authors: ['shrike'],
+  authors: ['snowdrop'],
   tags: ['messages'],
   settings,
   start(ctx) {

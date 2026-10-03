@@ -4,7 +4,7 @@ import { useStore } from 'zustand';
 import { CoreCommand } from '@/core/commands';
 import type { ConversationId, ConversationView } from '@/core/domain';
 import { messagesSelectors, sessionSelectors, uiSelectors } from '@/core/stores';
-import { setConversationFocusResolver, useObservableList, useShrike } from '@/ui/hooks';
+import { setConversationFocusResolver, useObservableList, useSnowdrop } from '@/ui/hooks';
 import { useConversationView } from '@/ui/features/conversation';
 import { EmojiPickerPopover, IconButton, Slot } from '@/ui/primitives';
 import { useChatController } from '../ChatController';
@@ -30,7 +30,7 @@ export const Composer = memo(function Composer({
 });
 
 function ComposerInner({ conversation }: { conversation: ConversationView }) {
-  const app = useShrike();
+  const app = useSnowdrop();
   const { stores, commands } = app;
   const chat = useChatController();
   const conversationId = conversation.id;
@@ -140,7 +140,7 @@ function ComposerInner({ conversation }: { conversation: ConversationView }) {
       : `Message @${conversation.title}`;
 
   return (
-    <div className={styles.composer} data-shrike="composer">
+    <div className={styles.composer} data-snowdrop="composer">
       {state.error && (
         <p className={styles.error} role="alert">
           {state.error}
@@ -194,7 +194,7 @@ function ComposerInner({ conversation }: { conversation: ConversationView }) {
               }}
               onSelect={field_.syncCaret}
               onKeyDown={onKeyDown}
-              data-shrike="composer-input"
+              data-snowdrop="composer-input"
               onPaste={(e) => {
                 const files = [...e.clipboardData.files];
                 if (files.length > 0) {

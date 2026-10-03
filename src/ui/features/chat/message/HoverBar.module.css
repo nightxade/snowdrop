@@ -2,15 +2,15 @@
   position: absolute;
   z-index: 2;
   top: -16px;
-  right: var(--shrike-space-5);
+  right: var(--snowdrop-space-5);
   display: flex;
   align-items: center;
   gap: 2px;
   padding: 2px;
-  border-radius: var(--shrike-radius-sm);
-  background: var(--shrike-bg-elevated);
-  box-shadow: var(--shrike-shadow-menu);
-  animation: bar-in var(--shrike-duration-fast) var(--shrike-ease);
+  border-radius: var(--snowdrop-radius-sm);
+  background: var(--snowdrop-bg-elevated);
+  box-shadow: var(--snowdrop-shadow-menu);
+  animation: bar-in var(--snowdrop-duration-fast) var(--snowdrop-ease);
 }
 
 @keyframes bar-in {
@@ -25,16 +25,16 @@
   place-items: center;
   width: 32px;
   height: 32px;
-  border-radius: var(--shrike-radius-sm);
-  font-size: var(--shrike-font-size-emoji-sm);
+  border-radius: var(--snowdrop-radius-sm);
+  font-size: var(--snowdrop-font-size-emoji-sm);
   line-height: 1;
   transition:
-    background-color var(--shrike-duration-fast) var(--shrike-ease),
-    transform var(--shrike-duration-fast) var(--shrike-ease);
+    background-color var(--snowdrop-duration-fast) var(--snowdrop-ease),
+    transform var(--snowdrop-duration-fast) var(--snowdrop-ease);
 }
 
 .quick:hover {
-  background: var(--shrike-bg-hover);
+  background: var(--snowdrop-bg-hover);
   transform: scale(1.12);
 }
 
@@ -42,14 +42,14 @@
   width: 1px;
   height: 20px;
   margin: 0 2px;
-  background: var(--shrike-border-strong);
+  background: var(--snowdrop-border-strong);
 }
 
 .danger {
-  color: var(--shrike-danger);
+  color: var(--snowdrop-danger);
 }
 
 .danger:hover:not(:disabled) {
-  background: var(--shrike-danger-soft);
-  color: var(--shrike-danger);
+  background: var(--snowdrop-danger-soft);
+  color: var(--snowdrop-danger);
 }

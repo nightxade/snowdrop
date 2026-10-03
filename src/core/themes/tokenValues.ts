@@ -38,7 +38,7 @@ const NUM = String.raw`-?(?:\d+\.?\d*|\.\d+)`;
 const COLOR_FN = String.raw`(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color-mix|color)\([^()]*(?:\([^()]*\)[^()]*)*\)`;
 const FALLBACK: Record<TokenKind, RegExp> = {
   color: new RegExp(
-    String.raw`^(?:#[0-9a-f]{3,8}|[a-z]+|${COLOR_FN}|var\(--shrike-[a-z0-9-]+\))$`,
+    String.raw`^(?:#[0-9a-f]{3,8}|[a-z]+|${COLOR_FN}|var\(--snowdrop-[a-z0-9-]+\))$`,
     'iu',
   ),
   length: new RegExp(String.raw`^(?:0|${NUM}(?:px|rem|em|%|vh|vw|ch)|calc\([^;{}]*\))$`, 'iu'),

@@ -10,28 +10,28 @@ body,
 }
 
 html {
-  zoom: var(--shrike-zoom);
+  zoom: var(--snowdrop-zoom);
 }
 
 body {
-  background: var(--shrike-bg-chat);
-  color: var(--shrike-text);
-  font-family: var(--shrike-font-sans);
-  font-size: var(--shrike-font-size-ui);
-  line-height: var(--shrike-line-height-ui);
+  background: var(--snowdrop-bg-chat);
+  color: var(--snowdrop-text);
+  font-family: var(--snowdrop-font-sans);
+  font-size: var(--snowdrop-font-size-ui);
+  line-height: var(--snowdrop-line-height-ui);
   font-feature-settings: 'cv11', 'ss01';
 }
 
 /* A filter creates a containing block for fixed children, so only apply it when needed. */
 :root[data-saturation-adjusted] body {
-  filter: saturate(var(--shrike-saturation));
+  filter: saturate(var(--snowdrop-saturation));
 }
 
 code,
 kbd,
 pre,
 samp {
-  font-family: var(--shrike-font-mono);
+  font-family: var(--snowdrop-font-mono);
 }
 
 :focus {
@@ -39,21 +39,21 @@ samp {
 }
 
 :focus-visible {
-  outline: 2px solid var(--shrike-focus-ring);
+  outline: 2px solid var(--snowdrop-focus-ring);
   outline-offset: 2px;
 }
 
 ::selection {
-  background: var(--shrike-accent-soft);
+  background: var(--snowdrop-accent-soft);
 }
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--shrike-scrollbar-thumb) transparent;
+  scrollbar-color: var(--snowdrop-scrollbar-thumb) transparent;
 }
 
 a {
-  color: var(--shrike-text-link);
+  color: var(--snowdrop-text-link);
   text-decoration: none;
 }
 
@@ -87,14 +87,14 @@ a:hover {
 
 /* Settings → Accessibility: high-contrast focus. */
 :root[data-focus='strong'] :focus-visible {
-  outline: 3px solid var(--shrike-text-strong);
+  outline: 3px solid var(--snowdrop-text-strong);
   outline-offset: 2px;
-  box-shadow: 0 0 0 5px var(--shrike-bg-floating);
+  box-shadow: 0 0 0 5px var(--snowdrop-bg-floating);
 }
 
 /* Settings → Accessibility: larger hit targets (≥ 44px rows, ≥ 36px icon buttons). */
-:root[data-targets='large'] [data-shrike='conversation-row'] [data-conversation-id],
-:root[data-targets='large'] [data-shrike='member-row'] {
+:root[data-targets='large'] [data-snowdrop='conversation-row'] [data-conversation-id],
+:root[data-targets='large'] [data-snowdrop='member-row'] {
   min-height: 44px;
 }
 

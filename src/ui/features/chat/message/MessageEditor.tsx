@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useStore } from 'zustand';
 import type { Message } from '@/core/domain';
-import { useShrike } from '@/ui/hooks';
+import { useSnowdrop } from '@/ui/hooks';
 import { addToken, encodeMentions, type MentionToken } from '../composer/mentionTokens';
 import { useAutocompleteField } from '../composer/useAutocompleteField';
 import { useAutoGrow } from '../composer/useAutoGrow';
@@ -19,7 +19,7 @@ const focusedSessions = new Set<string>();
  * and returns focus to the row.
  */
 export function MessageEditor({ message, onDone }: { message: Message; onDone: () => void }) {
-  const app = useShrike();
+  const app = useSnowdrop();
   const { stores } = app;
   const [initial] = useState(() => toMarkdown(message.body, message.ranges, nameResolver(app)));
   const draft = useStore(stores.ui, (s) => s.editing?.draft);

@@ -1,7 +1,8 @@
 /*
- * Shrike design tokens — base (Dusk, dark) theme.
+ * Snowdrop design tokens — base (Dusk, dark) theme: cool winter-dusk
+ * neutrals and a snowdrop-green accent.
  *
- * Every visual constant lives here as a `--shrike-*` custom property. Themes
+ * Every visual constant lives here as a `--snowdrop-*` custom property. Themes
  * (core/themes) override a subset of these on :root via a single <style> tag,
  * so components must only ever reference tokens, never raw values.
  * The list of names is mirrored in core/themes/tokens.ts; a test keeps the
@@ -9,151 +10,151 @@
  */
 :root {
   /* Surfaces */
-  --shrike-bg-rail: #101114;
-  --shrike-bg-sidebar: #15171b;
-  --shrike-bg-chat: #1b1d22;
-  --shrike-bg-elevated: #22252b;
-  --shrike-bg-floating: #0c0d10;
-  --shrike-bg-input: #22252b;
-  --shrike-bg-hover: rgba(255, 255, 255, 0.04);
-  --shrike-bg-active: rgba(255, 255, 255, 0.08);
-  --shrike-bg-selected: rgba(255, 255, 255, 0.1);
-  --shrike-bg-overlay: rgba(6, 7, 9, 0.72);
-  --shrike-border: rgba(255, 255, 255, 0.06);
-  --shrike-border-strong: rgba(255, 255, 255, 0.12);
+  --snowdrop-bg-rail: #0f1115;
+  --snowdrop-bg-sidebar: #14171c;
+  --snowdrop-bg-chat: #1a1d23;
+  --snowdrop-bg-elevated: #21252c;
+  --snowdrop-bg-floating: #0b0d10;
+  --snowdrop-bg-input: #21252c;
+  --snowdrop-bg-hover: rgba(255, 255, 255, 0.04);
+  --snowdrop-bg-active: rgba(255, 255, 255, 0.08);
+  --snowdrop-bg-selected: rgba(255, 255, 255, 0.1);
+  --snowdrop-bg-overlay: rgba(5, 7, 10, 0.72);
+  --snowdrop-border: rgba(255, 255, 255, 0.06);
+  --snowdrop-border-strong: rgba(255, 255, 255, 0.12);
 
   /* Text */
-  --shrike-text: #e6e8eb;
-  --shrike-text-strong: #ffffff;
-  --shrike-text-muted: #aaadb2;
-  --shrike-text-faint: #9b9ea4;
-  --shrike-text-on-accent: #1a0f0b;
-  --shrike-text-on-avatar: #ffffff;
-  --shrike-text-on-danger: #ffffff;
-  --shrike-text-link: #f69369;
+  --snowdrop-text: #e6e8eb;
+  --snowdrop-text-strong: #ffffff;
+  --snowdrop-text-muted: #aaadb2;
+  --snowdrop-text-faint: #9b9ea4;
+  --snowdrop-text-on-accent: #08130e;
+  --snowdrop-text-on-avatar: #ffffff;
+  --snowdrop-text-on-danger: #ffffff;
+  --snowdrop-text-link: #79cfae;
 
   /* Accent (overridable via Appearance → accent colour) */
-  --shrike-accent: #d4744a;
-  --shrike-accent-hover: #e58359;
-  --shrike-accent-active: #c06238;
-  --shrike-accent-soft: rgba(212, 116, 74, 0.16);
+  --snowdrop-accent: #5fbf9f;
+  --snowdrop-accent-hover: #70cfaf;
+  --snowdrop-accent-active: #4bac8d;
+  --snowdrop-accent-soft: rgba(95, 191, 159, 0.16);
   /* The accent as *text*: lightness-shifted to ≥ 4.5:1 on every text surface, hover tints included (engine-derived). */
-  --shrike-accent-text: #e58359;
+  --snowdrop-accent-text: #5fbf9f;
 
   /* Status */
-  --shrike-danger: #f26781;
-  --shrike-danger-strong: #c93553;
-  --shrike-danger-soft: rgba(240, 80, 110, 0.14);
-  --shrike-success: #3ccf91;
-  --shrike-warning: #f5b44a;
-  --shrike-info: #6ab7ff;
+  --snowdrop-danger: #f26781;
+  --snowdrop-danger-strong: #c93553;
+  --snowdrop-danger-soft: rgba(240, 80, 110, 0.14);
+  --snowdrop-success: #3ccf91;
+  --snowdrop-warning: #f5b44a;
+  --snowdrop-info: #6ab7ff;
 
   /* Messages */
-  --shrike-mention-bg: rgba(212, 116, 74, 0.1);
-  --shrike-mention-bar: #d4744a;
-  --shrike-mention-pill-bg: rgba(212, 116, 74, 0.22);
-  --shrike-mention-pill-text: #f9d4c3;
-  --shrike-code-bg: #121317;
-  --shrike-spoiler-bg: #3a3d45;
-  --shrike-highlight-bg: rgba(245, 180, 74, 0.14);
-  --shrike-focus-ring: #d4744a;
-  --shrike-scrollbar-thumb: rgba(255, 255, 255, 0.14);
+  --snowdrop-mention-bg: rgba(95, 191, 159, 0.1);
+  --snowdrop-mention-bar: #5fbf9f;
+  --snowdrop-mention-pill-bg: rgba(95, 191, 159, 0.22);
+  --snowdrop-mention-pill-text: #c9f0e0;
+  --snowdrop-code-bg: #11141a;
+  --snowdrop-spoiler-bg: #393e47;
+  --snowdrop-highlight-bg: rgba(245, 180, 74, 0.14);
+  --snowdrop-focus-ring: #5fbf9f;
+  --snowdrop-scrollbar-thumb: rgba(255, 255, 255, 0.14);
 
   /* Avatar hues: white initials reach ≥ 4.5:1 on every hue (tested in themes.test.ts). */
-  --shrike-avatar-1: #bd523c;
-  --shrike-avatar-2: #a95b1a;
-  --shrike-avatar-3: #806d12;
-  --shrike-avatar-4: #4a8028;
-  --shrike-avatar-5: #218055;
-  --shrike-avatar-6: #1c7b7a;
-  --shrike-avatar-7: #2878a8;
-  --shrike-avatar-8: #4a68c4;
-  --shrike-avatar-9: #7059c7;
-  --shrike-avatar-10: #9150b3;
-  --shrike-avatar-11: #b24b8a;
-  --shrike-avatar-12: #c14b62;
+  --snowdrop-avatar-1: #bd523c;
+  --snowdrop-avatar-2: #a95b1a;
+  --snowdrop-avatar-3: #806d12;
+  --snowdrop-avatar-4: #4a8028;
+  --snowdrop-avatar-5: #218055;
+  --snowdrop-avatar-6: #1c7b7a;
+  --snowdrop-avatar-7: #2878a8;
+  --snowdrop-avatar-8: #4a68c4;
+  --snowdrop-avatar-9: #7059c7;
+  --snowdrop-avatar-10: #9150b3;
+  --snowdrop-avatar-11: #b24b8a;
+  --snowdrop-avatar-12: #c14b62;
 
   /* Spacing (4px grid) */
-  --shrike-space-0: 0;
-  --shrike-space-1: 2px;
-  --shrike-space-2: 4px;
-  --shrike-space-3: 8px;
-  --shrike-space-4: 12px;
-  --shrike-space-5: 16px;
-  --shrike-space-6: 20px;
-  --shrike-space-7: 24px;
-  --shrike-space-8: 32px;
-  --shrike-space-9: 48px;
+  --snowdrop-space-0: 0;
+  --snowdrop-space-1: 2px;
+  --snowdrop-space-2: 4px;
+  --snowdrop-space-3: 8px;
+  --snowdrop-space-4: 12px;
+  --snowdrop-space-5: 16px;
+  --snowdrop-space-6: 20px;
+  --snowdrop-space-7: 24px;
+  --snowdrop-space-8: 32px;
+  --snowdrop-space-9: 48px;
 
   /* Radii */
-  --shrike-radius-tile: 14px;
-  --shrike-radius-2xs: 2px;
-  --shrike-radius-xs: 4px;
-  --shrike-radius-sm: 8px;
-  --shrike-radius-md: 12px;
-  --shrike-radius-lg: 16px;
-  --shrike-radius-full: 9999px;
+  --snowdrop-radius-tile: 14px;
+  --snowdrop-radius-2xs: 2px;
+  --snowdrop-radius-xs: 4px;
+  --snowdrop-radius-sm: 8px;
+  --snowdrop-radius-md: 12px;
+  --snowdrop-radius-lg: 16px;
+  --snowdrop-radius-full: 9999px;
 
   /* Layout */
-  --shrike-rail-width: 72px;
-  --shrike-sidebar-width: 248px;
-  --shrike-members-width: 248px;
-  --shrike-header-height: 48px;
-  --shrike-tile-size: 48px;
+  --snowdrop-rail-width: 72px;
+  --snowdrop-sidebar-width: 248px;
+  --snowdrop-members-width: 248px;
+  --snowdrop-header-height: 48px;
+  --snowdrop-tile-size: 48px;
 
   /* Typography */
-  --shrike-font-sans: 'Inter Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --shrike-font-mono: 'JetBrains Mono Variable', ui-monospace, 'SFMono-Regular', monospace;
-  --shrike-font-scale: 1;
-  --shrike-font-size-xs: calc(11px * var(--shrike-font-scale));
-  --shrike-font-size-sm: calc(12px * var(--shrike-font-scale));
-  --shrike-font-size-ui: calc(14px * var(--shrike-font-scale));
-  --shrike-font-size-message: calc(15px * var(--shrike-font-scale));
-  --shrike-font-size-header: calc(16px * var(--shrike-font-scale));
-  --shrike-font-size-title: calc(20px * var(--shrike-font-scale));
-  --shrike-font-size-display: calc(28px * var(--shrike-font-scale));
-  --shrike-font-size-hero: calc(40px * var(--shrike-font-scale));
+  --snowdrop-font-sans: 'Inter Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --snowdrop-font-mono: 'JetBrains Mono Variable', ui-monospace, 'SFMono-Regular', monospace;
+  --snowdrop-font-scale: 1;
+  --snowdrop-font-size-xs: calc(11px * var(--snowdrop-font-scale));
+  --snowdrop-font-size-sm: calc(12px * var(--snowdrop-font-scale));
+  --snowdrop-font-size-ui: calc(14px * var(--snowdrop-font-scale));
+  --snowdrop-font-size-message: calc(15px * var(--snowdrop-font-scale));
+  --snowdrop-font-size-header: calc(16px * var(--snowdrop-font-scale));
+  --snowdrop-font-size-title: calc(20px * var(--snowdrop-font-scale));
+  --snowdrop-font-size-display: calc(28px * var(--snowdrop-font-scale));
+  --snowdrop-font-size-hero: calc(40px * var(--snowdrop-font-scale));
   /* Emoji glyphs (pickers, tiles, reactions) follow the text size too. */
-  --shrike-font-size-emoji-sm: calc(18px * var(--shrike-font-scale));
-  --shrike-font-size-emoji: calc(22px * var(--shrike-font-scale));
-  --shrike-line-height-message: 1.375;
-  --shrike-line-height-ui: 1.3;
-  --shrike-font-weight-regular: 400;
-  --shrike-font-weight-medium: 500;
-  --shrike-font-weight-semibold: 600;
-  --shrike-font-weight-bold: 700;
-  --shrike-tracking-label: 0.02em;
+  --snowdrop-font-size-emoji-sm: calc(18px * var(--snowdrop-font-scale));
+  --snowdrop-font-size-emoji: calc(22px * var(--snowdrop-font-scale));
+  --snowdrop-line-height-message: 1.375;
+  --snowdrop-line-height-ui: 1.3;
+  --snowdrop-font-weight-regular: 400;
+  --snowdrop-font-weight-medium: 500;
+  --snowdrop-font-weight-semibold: 600;
+  --snowdrop-font-weight-bold: 700;
+  --snowdrop-tracking-label: 0.02em;
 
   /* Shadows — floating layers only */
-  --shrike-shadow-menu: 0 8px 24px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.05);
-  --shrike-shadow-popout: 0 12px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05);
-  --shrike-shadow-modal: 0 24px 64px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  --snowdrop-shadow-menu: 0 8px 24px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  --snowdrop-shadow-popout: 0 12px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  --snowdrop-shadow-modal: 0 24px 64px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.06);
 
   /* Motion */
-  --shrike-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
-  --shrike-duration-fast: 120ms;
-  --shrike-duration-base: 160ms;
-  --shrike-duration-slow: 200ms;
+  --snowdrop-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --snowdrop-duration-fast: 120ms;
+  --snowdrop-duration-base: 160ms;
+  --snowdrop-duration-slow: 200ms;
 
   /* Misc */
   /* QR codes stay black-on-white in every theme (scanners need it). */
-  --shrike-qr-ink: #000000;
-  --shrike-qr-paper: #ffffff;
-  --shrike-saturation: 1;
-  --shrike-zoom: 1;
+  --snowdrop-qr-ink: #000000;
+  --snowdrop-qr-paper: #ffffff;
+  --snowdrop-saturation: 1;
+  --snowdrop-zoom: 1;
 }
 
 /* Reduced motion (OS preference, or `data-reduced-motion` set by the app). */
 @media (prefers-reduced-motion: reduce) {
   :root:not([data-reduced-motion='off']) {
-    --shrike-duration-fast: 0ms;
-    --shrike-duration-base: 0ms;
-    --shrike-duration-slow: 0ms;
+    --snowdrop-duration-fast: 0ms;
+    --snowdrop-duration-base: 0ms;
+    --snowdrop-duration-slow: 0ms;
   }
 }
 
 :root[data-reduced-motion='on'] {
-  --shrike-duration-fast: 0ms;
-  --shrike-duration-base: 0ms;
-  --shrike-duration-slow: 0ms;
+  --snowdrop-duration-fast: 0ms;
+  --snowdrop-duration-base: 0ms;
+  --snowdrop-duration-slow: 0ms;
 }

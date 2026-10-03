@@ -1,23 +1,23 @@
 .bar {
   position: absolute;
   z-index: 3;
-  top: var(--shrike-space-3);
-  right: var(--shrike-space-7);
-  left: var(--shrike-space-7);
+  top: var(--snowdrop-space-3);
+  right: var(--snowdrop-space-7);
+  left: var(--snowdrop-space-7);
   display: flex;
   align-items: stretch;
   height: 30px;
   overflow: hidden;
-  border-radius: var(--shrike-radius-full);
-  background: var(--shrike-accent);
-  color: var(--shrike-text-on-accent);
-  font-size: var(--shrike-font-size-sm);
-  font-weight: var(--shrike-font-weight-semibold);
+  border-radius: var(--snowdrop-radius-full);
+  background: var(--snowdrop-accent);
+  color: var(--snowdrop-text-on-accent);
+  font-size: var(--snowdrop-font-size-sm);
+  font-weight: var(--snowdrop-font-weight-semibold);
   /* Floats clear of the text beneath it rather than sitting flush over a line. */
   box-shadow:
-    var(--shrike-shadow-menu),
-    0 0 0 4px var(--shrike-bg-chat);
-  animation: drop var(--shrike-duration-base) var(--shrike-ease);
+    var(--snowdrop-shadow-menu),
+    0 0 0 4px var(--snowdrop-bg-chat);
+  animation: drop var(--snowdrop-duration-base) var(--snowdrop-ease);
 }
 
 @keyframes drop {
@@ -31,8 +31,8 @@
 .barRead {
   display: flex;
   align-items: center;
-  gap: var(--shrike-space-2);
-  padding: 0 var(--shrike-space-4);
+  gap: var(--snowdrop-space-2);
+  padding: 0 var(--snowdrop-space-4);
   color: inherit;
   font-size: inherit;
   font-weight: inherit;
@@ -40,7 +40,7 @@
 
 .barJump {
   flex: 1;
-  padding-left: var(--shrike-space-5);
+  padding-left: var(--snowdrop-space-5);
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -49,7 +49,7 @@
 
 .barJump:hover,
 .barRead:hover {
-  background: var(--shrike-accent-hover);
+  background: var(--snowdrop-accent-hover);
 }
 
 .barRead {
@@ -60,7 +60,7 @@
   position: absolute;
   z-index: 3;
   right: 0;
-  bottom: var(--shrike-space-4);
+  bottom: var(--snowdrop-space-4);
   left: 0;
   display: flex;
   justify-content: center;
@@ -70,32 +70,32 @@
 .jump {
   display: flex;
   align-items: center;
-  gap: var(--shrike-space-3);
+  gap: var(--snowdrop-space-3);
   height: 32px;
-  padding: 0 var(--shrike-space-4) 0 var(--shrike-space-5);
-  border-radius: var(--shrike-radius-full);
-  background: var(--shrike-bg-floating);
-  box-shadow: var(--shrike-shadow-popout);
-  color: var(--shrike-text);
-  font-size: var(--shrike-font-size-sm);
-  font-weight: var(--shrike-font-weight-semibold);
+  padding: 0 var(--snowdrop-space-4) 0 var(--snowdrop-space-5);
+  border-radius: var(--snowdrop-radius-full);
+  background: var(--snowdrop-bg-floating);
+  box-shadow: var(--snowdrop-shadow-popout);
+  color: var(--snowdrop-text);
+  font-size: var(--snowdrop-font-size-sm);
+  font-weight: var(--snowdrop-font-weight-semibold);
   pointer-events: auto;
-  animation: rise var(--shrike-duration-base) var(--shrike-ease);
-  transition: background-color var(--shrike-duration-fast) var(--shrike-ease);
+  animation: rise var(--snowdrop-duration-base) var(--snowdrop-ease);
+  transition: background-color var(--snowdrop-duration-fast) var(--snowdrop-ease);
 }
 
 .jump:hover {
-  background: var(--shrike-bg-elevated);
-  color: var(--shrike-text-strong);
+  background: var(--snowdrop-bg-elevated);
+  color: var(--snowdrop-text-strong);
 }
 
 .jump[data-new] {
-  background: var(--shrike-accent);
-  color: var(--shrike-text-on-accent);
+  background: var(--snowdrop-accent);
+  color: var(--snowdrop-text-on-accent);
 }
 
 .jump[data-new]:hover {
-  background: var(--shrike-accent-hover);
+  background: var(--snowdrop-accent-hover);
 }
 
 @keyframes rise {

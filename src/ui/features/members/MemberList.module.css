@@ -1,11 +1,11 @@
 .list {
   flex: 1;
-  padding: var(--shrike-space-2) var(--shrike-space-3) var(--shrike-space-5);
+  padding: var(--snowdrop-space-2) var(--snowdrop-space-3) var(--snowdrop-space-5);
 }
 
 .heading {
-  margin: var(--shrike-space-6) var(--shrike-space-3) var(--shrike-space-2);
-  color: var(--shrike-text-faint);
-  font-size: var(--shrike-font-size-sm);
-  font-weight: var(--shrike-font-weight-semibold);
+  margin: var(--snowdrop-space-6) var(--snowdrop-space-3) var(--snowdrop-space-2);
+  color: var(--snowdrop-text-faint);
+  font-size: var(--snowdrop-font-size-sm);
+  font-weight: var(--snowdrop-font-weight-semibold);
 }

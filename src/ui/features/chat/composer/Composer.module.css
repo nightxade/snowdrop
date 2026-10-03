@@ -1,43 +1,43 @@
 .composer {
   position: relative;
   flex: none;
-  padding: 0 var(--shrike-space-5);
+  padding: 0 var(--snowdrop-space-5);
 }
 
 .error {
-  margin-bottom: var(--shrike-space-2);
-  padding: var(--shrike-space-2) var(--shrike-space-4);
-  border-radius: var(--shrike-radius-sm);
-  background: var(--shrike-danger-soft);
-  color: var(--shrike-danger);
-  font-size: var(--shrike-font-size-sm);
-  font-weight: var(--shrike-font-weight-medium);
+  margin-bottom: var(--snowdrop-space-2);
+  padding: var(--snowdrop-space-2) var(--snowdrop-space-4);
+  border-radius: var(--snowdrop-radius-sm);
+  background: var(--snowdrop-danger-soft);
+  color: var(--snowdrop-danger);
+  font-size: var(--snowdrop-font-size-sm);
+  font-weight: var(--snowdrop-font-weight-medium);
 }
 
 .shell {
-  border-radius: var(--shrike-radius-md);
-  background: var(--shrike-bg-input);
+  border-radius: var(--snowdrop-radius-md);
+  background: var(--snowdrop-bg-input);
 }
 
 .box {
-  border-radius: var(--shrike-radius-md);
-  transition: box-shadow var(--shrike-duration-fast) var(--shrike-ease);
+  border-radius: var(--snowdrop-radius-md);
+  transition: box-shadow var(--snowdrop-duration-fast) var(--snowdrop-ease);
 }
 
 .shell[data-reply] .box {
-  border-radius: 0 0 var(--shrike-radius-md) var(--shrike-radius-md);
+  border-radius: 0 0 var(--snowdrop-radius-md) var(--snowdrop-radius-md);
 }
 
 .box:focus-within {
-  box-shadow: inset 0 0 0 1px var(--shrike-border-strong);
+  box-shadow: inset 0 0 0 1px var(--snowdrop-border-strong);
 }
 
 .field {
   display: flex;
   align-items: flex-end;
-  gap: var(--shrike-space-2);
+  gap: var(--snowdrop-space-2);
   min-height: 44px;
-  padding: 6px var(--shrike-space-3);
+  padding: 6px var(--snowdrop-space-3);
 }
 
 .button {
@@ -55,17 +55,17 @@
   flex: 1;
   min-width: 0;
   min-height: 32px;
-  padding: 5px var(--shrike-space-2);
+  padding: 5px var(--snowdrop-space-2);
   border: 0;
   background: transparent;
-  color: var(--shrike-text);
+  color: var(--snowdrop-text);
   font: inherit;
-  font-size: var(--shrike-font-size-message);
-  line-height: var(--shrike-line-height-message);
+  font-size: var(--snowdrop-font-size-message);
+  line-height: var(--snowdrop-line-height-message);
   outline: none;
   overflow-y: auto;
   resize: none;
-  scrollbar-color: var(--shrike-scrollbar-thumb) transparent;
+  scrollbar-color: var(--snowdrop-scrollbar-thumb) transparent;
   scrollbar-width: thin;
 }
 
@@ -75,13 +75,13 @@
 
 .input::placeholder {
   overflow: hidden;
-  color: var(--shrike-text-faint);
+  color: var(--snowdrop-text-faint);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 @media (max-width: 759.98px) {
   .composer {
-    padding: 0 var(--shrike-space-3);
+    padding: 0 var(--snowdrop-space-3);
   }
 }
