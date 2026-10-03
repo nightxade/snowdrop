@@ -3,8 +3,13 @@ import { useId, type CSSProperties } from 'react';
 import { useStore } from 'zustand';
 import { initialsFor, type Contact, type ConversationId } from '@/core/domain';
 import { localSelectors } from '@/core/stores';
-import { useShrike } from '@/ui/hooks';
-import { copyText, formatPhone, openDirectConversation } from '@/ui/features/conversation';
+import { useObservableList, useShrike } from '@/ui/hooks';
+import {
+  copyText,
+  formatPhone,
+  openDirectConversation,
+  pluginMenuEntries,
+} from '@/ui/features/conversation';
 import { Avatar, Button } from '@/ui/primitives';
 import styles from './ProfilePopout.module.css';
 
@@ -22,12 +27,21 @@ export function ProfilePopout({
   contact,
   conversationId,
   onClose,
+  variant = 'popout',
 }: {
   contact: Contact;
   conversationId?: ConversationId | undefined;
   onClose: () => void;
+  /** `sheet`: full width inside a bottom drawer (phones). */
+  variant?: 'popout' | 'sheet';
 }) {
   const app = useShrike();
+  const pluginItems = useObservableList(app.registries.menus.member);
+  const plugin = conversationId
+    ? pluginMenuEntries(pluginItems, { contact, conversationId }, app.registries).flatMap((e) =>
+        e.kind === 'item' ? [e] : [],
+      )
+    : [];
   const { stores } = app;
   const note = useStore(stores.local, localSelectors.note(contact.id));
   const isAdmin = useStore(stores.conversations, (s) =>
@@ -37,7 +51,11 @@ export function ProfilePopout({
   const showProfileName = contact.profileName && contact.profileName !== contact.name;
 
   return (
-    <div className={styles.card} style={{ '--tint': contact.color } as CSSProperties}>
+    <div
+      className={styles.card}
+      data-variant={variant}
+      style={{ '--tint': contact.color } as CSSProperties}
+    >
       <header className={styles.header}>
         <Avatar
           src={contact.avatarUrl}
@@ -88,6 +106,25 @@ export function ProfilePopout({
             >
               Copy safety-number steps
             </Button>
+          </div>
+        )}
+        {plugin.length > 0 && (
+          <div className={styles.pluginActions} role="group" aria-label="More actions">
+            {plugin.map((item) => (
+              <Button
+                key={item.id}
+                variant="ghost"
+                size="sm"
+                icon={item.icon}
+                className={item.danger ? styles.dangerAction : undefined}
+                onClick={() => {
+                  item.onSelect();
+                  onClose();
+                }}
+              >
+                {item.label}
+              </Button>
+            ))}
           </div>
         )}
         <div className={styles.note}>

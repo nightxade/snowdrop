@@ -36,9 +36,13 @@ const features = [
   ]),
 ];
 
-/** Every source file outside a given backend adapter folder. */
+/**
+ * Every source file outside a given backend adapter folder. Add a new
+ * adapter's folder here (and register it in src/app/backends.ts).
+ */
 const adapterZones = ['mock', 'signal-cli'].map((adapter) => ({
   target: [
+    src('*.{ts,tsx}'),
     src('ui/**'),
     src('test/**'),
     src('core/!(backend)/**'),
@@ -73,12 +77,35 @@ const boundaryZones = [
     from: [src('ui/features'), src('core'), src('app')],
     message: 'ui/primitives are pure presentational components.',
   },
+  {
+    target: src('ui/hooks'),
+    from: [src('ui/features'), src('ui/plugins')],
+    message: 'ui/hooks sit below features and plugins: they must not import them.',
+  },
+  {
+    target: src('ui/plugins'),
+    from: src('ui/features/**'),
+    except: [src('ui/features/*/index.{ts,tsx}')],
+    message: 'ui/plugins may use a feature only through its index.ts.',
+  },
   ...features.map((feature) => ({
     target: src(`ui/features/${feature}/**`),
     from: src('ui/features/**'),
     except: [src(`ui/features/${feature}/**`), src('ui/features/*/index.{ts,tsx}')],
     message: 'Import another feature only through its index.ts.',
   })),
+];
+
+/**
+ * Production-only boundaries (tests may boot the whole app): built-in plugins
+ * reach the app through AppServices / PluginContext, never the composition root.
+ */
+const appZones = [
+  {
+    target: src('ui/plugins'),
+    from: src('app'),
+    message: 'ui/plugins must not import the composition root (use PluginContext).',
+  },
 ];
 
 export default tseslint.config(
@@ -122,7 +149,10 @@ export default tseslint.config(
         },
       ],
       'import-x/no-cycle': 'error',
-      'import-x/no-restricted-paths': ['error', { zones: [...boundaryZones, ...adapterZones] }],
+      'import-x/no-restricted-paths': [
+        'error',
+        { zones: [...boundaryZones, ...adapterZones, ...appZones] },
+      ],
     },
   },
   {

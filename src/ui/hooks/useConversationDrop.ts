@@ -14,7 +14,7 @@ export function startConversationDrag(e: DragEvent, conversationId: string): voi
 }
 
 export function isConversationDrag(e: DragEvent): boolean {
-  return e.dataTransfer.types.includes(CONVERSATION_MIME);
+  return ((e.dataTransfer as DataTransfer | null)?.types ?? []).includes(CONVERSATION_MIME);
 }
 
 export interface ConversationDropTarget {

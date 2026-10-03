@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { CoreCommand, DEFAULT_KEYBINDS } from '@/core/commands';
 import { isMuted, uiSelectors, type Stores } from '@/core/stores';
-import { useShrike } from '@/ui/hooks';
+import { followConversationFocus, useShrike } from '@/ui/hooks';
 import {
   currentGlobalOrder,
   currentNavigationOrder,
@@ -10,7 +10,10 @@ import {
   wantsAttention,
 } from '@/ui/features/sidebar';
 
-/** Next/previous unread across Home and every space, switching spaces as needed. */
+/**
+ * Next/previous unread across Home and every space, switching spaces as
+ * needed. Focus follows (see `followConversationFocus`).
+ */
 export function jumpToUnread(stores: Stores, delta: 1 | -1): boolean {
   const ui = stores.ui.getState();
   const current = uiSelectors.selectedConversation(ui);
@@ -33,17 +36,21 @@ export function jumpToUnread(stores: Stores, delta: 1 | -1): boolean {
     },
   );
   if (!target) return false;
+  const follow = followConversationFocus();
   stores.ui.getState().selectConversation(target.id, target.space);
+  follow(target.id);
   return true;
 }
 
-/** Previous/next row in the visible sidebar. */
+/** Previous/next row in the visible sidebar; focus follows like `jumpToUnread`. */
 export function stepSidebar(stores: Stores, delta: 1 | -1): boolean {
   const ui = stores.ui.getState();
   const current = uiSelectors.selectedConversation(ui);
   const next = stepConversation(currentNavigationOrder(stores), current, delta);
   if (!next || next === current) return false;
+  const follow = followConversationFocus();
   stores.ui.getState().selectConversation(next);
+  follow(next);
   return true;
 }
 

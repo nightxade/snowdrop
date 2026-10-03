@@ -20,7 +20,8 @@ export { focusQuietly } from './focusQuietly';
 export { FullScreenDialog, type FullScreenDialogProps } from './FullScreenDialog';
 export { IconButton, type IconButtonProps } from './IconButton';
 export { Kbd, splitCombo } from './Kbd';
-export { Lightbox, type LightboxItem, type LightboxProps } from './Lightbox';
+// Lightbox is loaded on demand: import it from '@/ui/primitives/Lightbox'.
+export type { LightboxItem, LightboxProps } from './Lightbox';
 export {
   ContextMenu,
   DropdownMenu,

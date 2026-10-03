@@ -4,7 +4,7 @@
 
 .wordmark {
   color: var(--shrike-text-strong);
-  font-size: 32px;
+  font-size: calc(var(--shrike-font-size-hero) * 0.8);
   font-weight: var(--shrike-font-weight-bold);
   letter-spacing: -0.03em;
   line-height: 1;

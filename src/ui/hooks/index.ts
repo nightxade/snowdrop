@@ -15,6 +15,7 @@ export { ShellLayoutProvider, useShellLayout, type ShellLayout } from './ShellLa
 export {
   conversationFocusTarget,
   focusConversation,
+  followConversationFocus,
   setConversationFocusResolver,
   type ConversationFocusResolver,
 } from './focusTargets';
@@ -25,4 +26,10 @@ export {
   useConversationDrop,
   type ConversationDropTarget,
 } from './useConversationDrop';
-export { describeFocus, registerTextSurface, textSurfaceFor } from './textSurfaces';
+export {
+  describeFocus,
+  overlayOwnsKeys,
+  registerTextSurface,
+  textSurfaceFor,
+} from './textSurfaces';
+export { usePluginState } from './usePluginState';

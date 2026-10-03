@@ -5,8 +5,9 @@
  * are both large, and a session only ever needs one), so `createShrike`
  * imports it dynamically. Services are wired synchronously, though, and some
  * read *which optional methods exist* up front (`SendService.capabilities`,
- * the UI's `resolveAttachmentUrl` check). So the per-kind capabilities are
- * declared here, and a test keeps them in line with the real adapters.
+ * the UI's `resolveAttachmentUrl` check). So each backend registration
+ * (`app/backends.ts`) declares its capabilities, and a test keeps them in
+ * line with the real adapters.
  *
  * Async methods await the adapter; `on()` subscriptions made early are
  * attached once it arrives; `getStatus()` is "connecting" until then.
@@ -26,18 +27,6 @@ export const OPTIONAL_METHODS = [
 
 export type OptionalMethod = (typeof OPTIONAL_METHODS)[number];
 
-export const BACKEND_CAPABILITIES: Readonly<Record<BackendKind, ReadonlySet<OptionalMethod>>> = {
-  mock: new Set(['fetchHistory', 'adminDelete', 'pinMessage', 'updateConversation']),
-  'signal-cli': new Set([
-    'adminDelete',
-    'pinMessage',
-    'updateConversation',
-    'resolveAttachmentUrl',
-    'acknowledge',
-    'link',
-  ]),
-};
-
 interface Subscription {
   event: keyof BackendEvents;
   fn: (payload: never) => void;
@@ -49,7 +38,16 @@ function missing(name: string): never {
   throw new TypeError(`Backend has no ${name}()`);
 }
 
-export function deferredBackend(kind: BackendKind, ready: Promise<ChatBackend>): ChatBackend {
+/**
+ * @param kind the registration's kind (reported before the adapter loads)
+ * @param caps the registration's declared optional methods
+ * @param ready resolves with the real adapter once its chunk has loaded
+ */
+export function deferredBackend(
+  kind: BackendKind,
+  caps: ReadonlySet<OptionalMethod>,
+  ready: Promise<ChatBackend>,
+): ChatBackend {
   let real: ChatBackend | null = null;
   const subscriptions = new Set<Subscription>();
   const acks: string[] = [];
@@ -69,7 +67,6 @@ export function deferredBackend(kind: BackendKind, ready: Promise<ChatBackend>):
     () => undefined,
   );
   const call = <T>(fn: (backend: ChatBackend) => Promise<T>): Promise<T> => ready.then(fn);
-  const caps = BACKEND_CAPABILITIES[kind];
 
   const backend: ChatBackend = {
     kind,

@@ -28,9 +28,12 @@ function countdown(ms: number): string {
 export function MessageMeta({
   message: m,
   variant,
+  quiet = false,
 }: {
   message: Message;
   variant: 'header' | 'gutter' | 'compact';
+  /** Suppress the full-date tooltip (the row's context menu is open). */
+  quiet?: boolean;
 }) {
   const { stores } = useShrike();
   const clock24h = useStore(stores.settings, (s) => s.appearance.clock24h);
@@ -43,7 +46,7 @@ export function MessageMeta({
       : formatClock(m.sentAt, opts);
 
   const time = (
-    <Tooltip label={full} delayMs={500}>
+    <Tooltip label={full} delayMs={500} disabled={quiet}>
       <time
         className={styles.time}
         data-variant={variant}

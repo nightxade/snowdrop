@@ -1,5 +1,6 @@
 import * as RadixPopover from '@radix-ui/react-popover';
-import { lazy, Suspense, type ReactElement } from 'react';
+import { lazy, Suspense, useRef, type ReactElement } from 'react';
+import { focusQuietly } from './focusQuietly';
 import { EMOJIBASE_URL, type EmojiPickerProps } from './emojiPickerTypes';
 import styles from './EmojiPicker.module.css';
 
@@ -47,9 +48,12 @@ export function EmojiPickerPopover({
   stayOpen,
   columns,
 }: EmojiPickerPopoverProps) {
+  const trigger = useRef<HTMLButtonElement | null>(null);
   return (
     <RadixPopover.Root open={open} onOpenChange={onOpenChange}>
-      <RadixPopover.Trigger asChild>{children}</RadixPopover.Trigger>
+      <RadixPopover.Trigger asChild ref={trigger}>
+        {children}
+      </RadixPopover.Trigger>
       <RadixPopover.Portal>
         <RadixPopover.Content
           className={styles.popover}
@@ -58,6 +62,11 @@ export function EmojiPickerPopover({
           sideOffset={8}
           collisionPadding={12}
           aria-label="Emoji picker"
+          onCloseAutoFocus={(e) => {
+            // Back on the button without popping its tooltip, as after a dialog.
+            e.preventDefault();
+            if (trigger.current?.isConnected) focusQuietly(trigger.current);
+          }}
         >
           {open && (
             <EmojiPicker

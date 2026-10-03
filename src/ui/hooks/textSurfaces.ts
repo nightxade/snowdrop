@@ -28,15 +28,44 @@ function isTextField(el: Element): boolean {
 }
 
 const OVERLAY = '[role="dialog"],[role="alertdialog"],[role="menu"],[role="listbox"]';
+/** Open modal layers that own the keyboard even if focus hasn't moved into them yet. */
+const TOP_LAYER =
+  '[aria-modal="true"],[role="alertdialog"][data-state="open"],[role="menu"][data-state="open"]';
+
+/**
+ * Whether a dialog, menu or listbox owns the keyboard right now: one that
+ * contains focus, one the focused field controls, or an open modal/menu
+ * focus hasn't reached yet. Persistent listboxes elsewhere don't count.
+ */
+export function overlayOwnsKeys(
+  doc: Document,
+  active: Element | null = doc.activeElement,
+): boolean {
+  if (active && active !== doc.body) {
+    // Focus inside one (a menu, the switcher's list, a dialog, the nav drawer).
+    if (active.closest(OVERLAY)) return true;
+    // A popup the focused field controls (the composer's suggestions).
+    for (const attr of ['aria-controls', 'aria-owns', 'aria-activedescendant']) {
+      for (const id of (active.getAttribute(attr) ?? '').split(/\s+/u)) {
+        const el = id ? doc.getElementById(id) : null;
+        if (el?.closest(OVERLAY)) return true;
+      }
+    }
+  }
+  // A modal or open menu whose focus hasn't landed yet. Persistent listboxes
+  // elsewhere on the page (a sidebar list, a closed drawer) don't count.
+  return doc.querySelector(TOP_LAYER) !== null;
+}
 
 /**
  * Where focus is and whether something modal owns the keyboard, for key
- * layers. The composer's own suggestion list counts as an overlay, so its
- * Escape and arrows keep working in Vim's Insert mode.
+ * layers. Only overlays that contain focus, that the focused field controls
+ * (the composer's suggestion list, so its Escape and arrows keep working in
+ * Vim's Insert mode) or that are open modals count.
  */
 export function describeFocus(doc: Document, modalOpen: boolean): KeyLayerContext {
   const active = doc.activeElement;
-  const overlay = modalOpen || doc.querySelector(OVERLAY) !== null;
+  const overlay = modalOpen || overlayOwnsKeys(doc, active);
   let target: FocusTarget = 'other';
   let surface: TextSurface | null = null;
   if (!active || active === doc.body || active === doc.documentElement) target = 'none';

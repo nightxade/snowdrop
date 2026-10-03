@@ -11,6 +11,7 @@ import { Slash } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import { initialsFor } from '@/core/domain';
 import { Avatar } from '@/ui/primitives';
+import { optionId } from './optionId';
 import type { Suggestion } from './useAutocomplete';
 import type { TriggerKind } from './triggers';
 import styles from './AutocompletePopover.module.css';
@@ -30,10 +31,6 @@ export interface AutocompletePopoverProps {
   active: number;
   onHover: (index: number) => void;
   onPick: (index: number) => void;
-}
-
-export function optionId(listId: string, index: number): string {
-  return `${listId}-opt-${index}`;
 }
 
 /** Suggestion list floating above the composer (a listbox the textarea controls). */
@@ -86,8 +83,11 @@ export function AutocompletePopover({
         style={floatingStyles}
         className={styles.popover}
         data-shrike="autocomplete"
+        // Portalled to <body>: a labelled region keeps it inside a landmark.
+        role="region"
+        aria-label="Suggestions"
       >
-        <div className={styles.title}>
+        <div className={styles.title} aria-hidden>
           {TITLES[kind]}
           {kind === 'emoji' && <span className={styles.query}> :{query}</span>}
         </div>

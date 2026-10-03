@@ -62,7 +62,7 @@
 
 .helpBody code {
   padding: 1px 4px;
-  border-radius: 4px;
+  border-radius: var(--shrike-radius-xs);
   background: var(--shrike-code-bg);
   color: var(--shrike-text);
   font-size: 0.95em;

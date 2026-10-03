@@ -38,7 +38,9 @@ const draft = (text: string): OutgoingDraft => ({
 function setup(plugins: readonly PluginDefinition[], stores: Stores = createStores()) {
   const onError = vi.fn();
   const toast = vi.fn();
-  const messageListeners = new Set<(m: ReturnType<typeof makeMessage>) => void>();
+  const messageListeners = new Set<
+    (m: ReturnType<typeof makeMessage>, arrival: { live: boolean }) => void
+  >();
   const host: PluginHost = {
     stores,
     toast,
@@ -55,8 +57,8 @@ function setup(plugins: readonly PluginDefinition[], stores: Stores = createStor
   };
   const registries = new Registries(onError);
   const runtime = new PluginRuntime(host, registries, plugins);
-  const emitMessage = (m: ReturnType<typeof makeMessage>) => {
-    for (const fn of messageListeners) fn(m);
+  const emitMessage = (m: ReturnType<typeof makeMessage>, live = true) => {
+    for (const fn of messageListeners) fn(m, { live });
   };
   return { runtime, registries, stores, onError, toast, emitMessage, messageListeners };
 }
@@ -104,12 +106,22 @@ describe('PluginRuntime lifecycle', () => {
         ctx.slash.register({ name: 'Hello', description: '', execute: () => ({ type: 'done' }) });
         ctx.send.addTransform((d) => d);
         ctx.send.addTypingGuard(() => true);
-        ctx.messages.addAccessory('a', 'Component');
-        ctx.messages.addDecoration('d', 'Component');
-        ctx.messages.addHoverAction({ id: 'h', label: 'H', icon: null, onClick: () => undefined });
+        ctx.messages.addAccessory('a', () => null);
+        ctx.messages.addDecoration('d', () => null);
+        ctx.messages.addHoverAction({
+          id: 'h',
+          label: 'H',
+          icon: () => null,
+          onClick: () => undefined,
+        });
         ctx.menus.add('message', { id: 'm', label: 'M', onSelect: () => undefined });
-        ctx.headerBar.addButton({ id: 'b', label: 'B', icon: null, onClick: () => undefined });
-        ctx.settingsPanels.add({ id: 's', title: 'S', component: null });
+        ctx.headerBar.addButton({
+          id: 'b',
+          label: 'B',
+          icon: () => null,
+          onClick: () => undefined,
+        });
+        ctx.settingsPanels.add({ id: 's', title: 'S', component: () => null });
         ctx.styles.inject('.x { color: red }');
         ctx.onDispose(cleanup);
       },

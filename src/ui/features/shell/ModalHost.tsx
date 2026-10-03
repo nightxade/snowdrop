@@ -3,15 +3,7 @@ import { useStore } from 'zustand';
 import type { ConversationId } from '@/core/domain';
 import { uiSelectors } from '@/core/stores';
 import { useStores } from '@/ui/hooks';
-import {
-  CategoryDialog,
-  CreateSpaceDialog,
-  DeleteSpaceDialog,
-  EditFolderDialog,
-  EditSpaceDialog,
-} from '@/ui/features/spaces';
 import { SettingsFallback } from './SettingsFallback';
-import { ShortcutsDialog } from './ShortcutsDialog';
 
 // The switcher (with cmdk) is its own chunk, prefetched once the app is idle so
 // Ctrl+K never waits on the network.
@@ -22,6 +14,17 @@ const QuickSwitcher = lazy(() => loadSwitcher().then((m) => ({ default: m.QuickS
 const SettingsOverlay = lazy(() =>
   import('@/ui/features/settings').then((m) => ({ default: m.SettingsOverlay })),
 );
+
+// Space/folder/category dialogs and the shortcut sheet: small, but opened rarely.
+// Prefetched with the switcher so opening one doesn't wait on the network.
+const loadSpaces = () => import('@/ui/features/spaces');
+const CreateSpaceDialog = lazy(() => loadSpaces().then((m) => ({ default: m.CreateSpaceDialog })));
+const EditSpaceDialog = lazy(() => loadSpaces().then((m) => ({ default: m.EditSpaceDialog })));
+const DeleteSpaceDialog = lazy(() => loadSpaces().then((m) => ({ default: m.DeleteSpaceDialog })));
+const EditFolderDialog = lazy(() => loadSpaces().then((m) => ({ default: m.EditFolderDialog })));
+const CategoryDialog = lazy(() => loadSpaces().then((m) => ({ default: m.CategoryDialog })));
+const loadShortcuts = () => import('./ShortcutsDialog');
+const ShortcutsDialog = lazy(() => loadShortcuts().then((m) => ({ default: m.ShortcutsDialog })));
 
 function stringProp(props: Record<string, unknown> | undefined, key: string): string | undefined {
   const value = props?.[key];
@@ -40,6 +43,8 @@ export function ModalHost() {
   useEffect(() => {
     const prefetch = () => {
       void loadSwitcher();
+      void loadSpaces();
+      void loadShortcuts();
     };
     if ('requestIdleCallback' in window) window.requestIdleCallback(prefetch);
     else setTimeout(prefetch, 1500);
@@ -48,19 +53,21 @@ export function ModalHost() {
   const close = () => {
     stores.ui.getState().closeModal();
   };
+  return (
+    <Suspense fallback={modal.type === 'settings' ? <SettingsFallback /> : null}>
+      {modalElement(modal, close)}
+    </Suspense>
+  );
+}
+
+type Modal = NonNullable<ReturnType<typeof uiSelectors.modal>>;
+
+function modalElement(modal: Modal, close: () => void) {
   switch (modal.type) {
     case 'switcher':
-      return (
-        <Suspense fallback={null}>
-          <QuickSwitcher onClose={close} initialQuery={stringProp(modal.props, 'query')} />
-        </Suspense>
-      );
+      return <QuickSwitcher onClose={close} initialQuery={stringProp(modal.props, 'query')} />;
     case 'settings':
-      return (
-        <Suspense fallback={<SettingsFallback />}>
-          <SettingsOverlay onClose={close} {...pageProp(modal.props)} />
-        </Suspense>
-      );
+      return <SettingsOverlay onClose={close} {...pageProp(modal.props)} />;
     case 'shortcuts':
       return <ShortcutsDialog onClose={close} />;
     case 'createSpace': {

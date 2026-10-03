@@ -3,3 +3,4 @@ export * from './registries';
 export * from './types';
 export * from './runtime';
 export * from './builtin';
+export * from './state';

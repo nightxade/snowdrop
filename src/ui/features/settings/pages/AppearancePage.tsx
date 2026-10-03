@@ -14,7 +14,7 @@ import { useSettingsSection } from '../useSettingsSection';
 import { AppearancePreview } from './AppearancePreview';
 
 /** Text-on-accent contrast for a custom accent (the engine picks the better of dark/white). */
-export function accentContrast(accent: string, kind: 'dark' | 'light'): number {
+function accentContrast(accent: string, kind: 'dark' | 'light'): number {
   const on = deriveAccentTokens(accent, kind)['text-on-accent'];
   return on ? contrastRatio(accent, on) : 21;
 }

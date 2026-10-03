@@ -61,6 +61,12 @@
   scrollbar-width: none;
 }
 
+.commandText:focus-visible {
+  border-radius: var(--shrike-radius-xs);
+  outline: 2px solid var(--shrike-focus-ring);
+  outline-offset: 2px;
+}
+
 .failure {
   display: flex;
   flex-direction: column;

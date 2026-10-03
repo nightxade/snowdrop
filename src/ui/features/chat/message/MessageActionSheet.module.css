@@ -35,7 +35,7 @@
   border-radius: var(--shrike-radius-full);
   background: var(--shrike-bg-elevated);
   color: var(--shrike-text);
-  font-size: 22px;
+  font-size: var(--shrike-font-size-emoji);
   line-height: 1;
 }
 

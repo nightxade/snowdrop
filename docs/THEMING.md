@@ -66,8 +66,8 @@ derived), so a theme's value for them is ignored.
 | ---------------- | ----- | ----------------- | -------------------- |
 | `text`           | color | `#e6e8eb`         | L, HC                |
 | `text-strong`    | color | `#ffffff`         | L, HC                |
-| `text-muted`     | color | `#a2a5aa`         | L, HC                |
-| `text-faint`     | color | `#8d9096`         | M, L, HC             |
+| `text-muted`     | color | `#aaadb2`         | L, HC                |
+| `text-faint`     | color | `#9b9ea4`         | M, L, HC             |
 | `text-on-accent` | color | `#1a0f0b`         | L, _accent override_ |
 | `text-on-avatar` | color | `#ffffff`         | —                    |
 | `text-on-danger` | color | `#ffffff`         | HC                   |
@@ -81,13 +81,13 @@ derived), so a theme's value for them is ignored.
 | `accent-hover`  | color | `#e58359`                  | L, HC, _accent override_ |
 | `accent-active` | color | `#c06238`                  | L, HC, _accent override_ |
 | `accent-soft`   | color | `rgba(212, 116, 74, 0.16)` | L, HC, _accent override_ |
-| `accent-text`   | color | `#d4744a`                  | _engine_                 |
+| `accent-text`   | color | `#e58359`                  | _engine_                 |
 
 #### Status
 
 | Token           | Kind  | Dusk (base) value          | Overridden by |
 | --------------- | ----- | -------------------------- | ------------- |
-| `danger`        | color | `#f0506e`                  | L, HC         |
+| `danger`        | color | `#f26781`                  | L, HC         |
 | `danger-strong` | color | `#c93553`                  | L, HC         |
 | `danger-soft`   | color | `rgba(240, 80, 110, 0.14)` | L             |
 | `success`       | color | `#3ccf91`                  | L, HC         |
@@ -145,6 +145,7 @@ derived), so a theme's value for them is ignored.
 | Token         | Kind   | Dusk (base) value | Overridden by |
 | ------------- | ------ | ----------------- | ------------- |
 | `radius-tile` | length | `14px`            | —             |
+| `radius-2xs`  | length | `2px`             | —             |
 | `radius-xs`   | length | `4px`             | —             |
 | `radius-sm`   | length | `8px`             | —             |
 | `radius-md`   | length | `12px`            | —             |
@@ -175,6 +176,9 @@ derived), so a theme's value for them is ignored.
 | `font-size-header`     | length      | `calc(16px * var(--shrike-font-scale))`                                | —             |
 | `font-size-title`      | length      | `calc(20px * var(--shrike-font-scale))`                                | —             |
 | `font-size-display`    | length      | `calc(28px * var(--shrike-font-scale))`                                | —             |
+| `font-size-hero`       | length      | `calc(40px * var(--shrike-font-scale))`                                | —             |
+| `font-size-emoji-sm`   | length      | `calc(18px * var(--shrike-font-scale))`                                | —             |
+| `font-size-emoji`      | length      | `calc(22px * var(--shrike-font-scale))`                                | —             |
 | `line-height-message`  | number      | `1.375`                                                                | —             |
 | `line-height-ui`       | number      | `1.3`                                                                  | —             |
 | `font-weight-regular`  | number      | `400`                                                                  | —             |
@@ -243,13 +247,21 @@ that one colour (`deriveAccentTokens`):
 
 **`accent-text`** is the accent used _as text_ (links in the UI, selected
 labels). It is always computed by the engine, with or without an override
-(`deriveAccentText`): if the accent already reaches 4.5:1 on the theme's
-`bg-chat` it is used as is; otherwise its OKLCH lightness is moved away from
-the background (lighter on dark themes, darker on light ones) in 0.01 steps
-until it does, falling back to white or black. Components use
+(`deriveAccentText`): if the accent already reaches 4.5:1 on every surface
+text sits on (`textSurfaces`: `bg-chat`, `bg-sidebar`, `bg-elevated` and
+`bg-floating`, each with the `bg-hover` tint composited over it, plus
+`bg-selected` over the chat and sidebar) it is used as is; otherwise its OKLCH
+lightness is moved away from the backgrounds (lighter on dark themes, darker
+on light ones) in 0.01 steps until the hardest surface reaches 4.5:1, falling
+back to white or black. Components use
 `--shrike-accent-text`, never `--shrike-accent`, for accent-coloured text. If
 either colour isn't hex (e.g. a custom theme using `rgb()`), the accent is used
-unchanged, so give custom themes hex `accent` and `bg-chat` values.
+unchanged, so give custom themes hex `accent` and surface values.
+
+Imported themes may not set the engine's tokens (`accent-text`, `font-scale`,
+`zoom`, `saturation`): an import drops them with a warning. Exporting a
+built-in writes every resolved token value (base sheet plus its overrides), so
+the file describes the theme completely.
 
 The Appearance page warns when a custom accent gives text-on-accent below
 4.5:1, or when the accent itself is below 3:1 against `bg-chat` (buttons, rings
@@ -458,10 +470,13 @@ CSS on import, on load and again inside the engine, whatever the caller did.
 - Each statement is judged on a **normalised copy**: comments stripped, CSS
   escapes decoded (`@\69mport`, `https\3a //`), lower-cased. Tricks like
   `@import/**/url()` or escaped letters therefore can't hide a reference.
-- A statement that mentions `@import`, `url(`, `image-set(`, `image(`,
-  `cross-fade(` or `element(` is **removed** unless every target is inline
-  (`data:` or `blob:`). If the reference is in a block's prelude, the whole
-  block goes. Surviving statements are emitted exactly as written.
+- A statement that mentions `@import`, `url(`, `src(`, `image-set(`,
+  `image(`, `cross-fade(` or `element(` is **removed** unless every target is
+  inline (`data:` or `blob:`). A `var()` inside `src(` or `image-set(` counts
+  as remote, since the custom property could hold a URL (the property itself,
+  a plain string, is harmless and stays). If the reference is in a block's
+  prelude, the whole block goes. Surviving statements are emitted exactly as
+  written.
 
 For example:
 
@@ -477,6 +492,11 @@ For example:
 @font-face {
   font-family: X;
   src: url(https://example.com/f.woff2); /* removed; the rest of the block stays */
+}
+.c {
+  --u: 'https://example.com/p.png'; /* kept: a string fetches nothing */
+  background: image-set(var(--u) 1x); /* removed: var() could be remote */
+  mask-image: src('https://example.com/m.png'); /* removed */
 }
 ```
 

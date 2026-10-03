@@ -158,7 +158,7 @@ function NavButton({ current, onOpen }: { current: ConversationId | null; onOpen
 }
 
 /** "1w", "8h", "30s" for the compact timer chip; never rounds up past the real value. */
-export function shortDuration(seconds: number): string {
+function shortDuration(seconds: number): string {
   const units: [number, string][] = [
     [604_800, 'w'],
     [86_400, 'd'],

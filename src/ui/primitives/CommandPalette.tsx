@@ -52,11 +52,33 @@ export function CommandPaletteInput({
   );
 }
 
-export function CommandPaletteList({ children, label }: { children: ReactNode; label: string }) {
+/**
+ * The results listbox. Pass `empty` when there are no results: the listbox
+ * then stays mounted but hidden (the input's aria-controls still resolves,
+ * and an option-less listbox never reaches the accessibility tree), and the
+ * message is announced from a status region outside it.
+ */
+export function CommandPaletteList({
+  children,
+  label,
+  empty,
+}: {
+  children: ReactNode;
+  label: string;
+  empty?: ReactNode;
+}) {
+  const isEmpty = empty !== undefined && empty !== null && empty !== false;
   return (
-    <Command.List className={styles.list} label={label}>
-      {children}
-    </Command.List>
+    <>
+      <Command.List className={styles.list} label={label} hidden={isEmpty}>
+        {children}
+      </Command.List>
+      {isEmpty && (
+        <div className={styles.empty} role="status">
+          {empty}
+        </div>
+      )}
+    </>
   );
 }
 
@@ -72,10 +94,6 @@ export function CommandPaletteGroup({
       {children}
     </Command.Group>
   );
-}
-
-export function CommandPaletteEmpty({ children }: { children: ReactNode }) {
-  return <Command.Empty className={styles.empty}>{children}</Command.Empty>;
 }
 
 export interface CommandPaletteItemProps {

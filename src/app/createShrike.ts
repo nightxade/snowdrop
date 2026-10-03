@@ -2,19 +2,13 @@
  * Composition root: the only place that knows which concrete backend,
  * repository and plugins are in use. Everything else receives its
  * dependencies explicitly, which keeps core/ testable and adapters swappable.
+ * Transports are registered in `backends.ts`, the plugin host's services are
+ * in `pluginHost.ts` and the headless core commands in `coreCommands.ts`.
  */
 import type { ChatBackend } from '@/core/backend';
-// Type-only: the adapters themselves are loaded on demand (one chunk each).
-import type { MockBackend } from '@/core/backend/mock';
+// Type-only: the adapter itself is loaded on demand (its own chunk).
 import type { FetchLike } from '@/core/backend/signal-cli';
-import {
-  type CommandRegistry,
-  CoreCommand,
-  DEFAULT_KEYBINDS,
-  isMacPlatform,
-  KeybindDispatcher,
-  NavCommand,
-} from '@/core/commands';
+import { type CommandRegistry, isMacPlatform, KeybindDispatcher } from '@/core/commands';
 import {
   systemClock,
   systemScheduler,
@@ -27,11 +21,10 @@ import {
   defaultStorage,
   type PersistenceBinding,
   loadVersioned,
-  MemoryMessageRepository,
   type KeyValueStorage,
   type MessageRepository,
 } from '@/core/persistence';
-import { BUILTIN_PLUGINS, PluginRuntime, Registries, type PluginHost } from '@/core/plugins';
+import { BUILTIN_PLUGINS, PluginRuntime, Registries } from '@/core/plugins';
 import {
   browserNotificationApi,
   exportHistory,
@@ -43,23 +36,27 @@ import {
   type NotificationApi,
 } from '@/core/services';
 import {
+  createSettingsSchema,
   createStores,
-  HOME,
   localSchema,
   selectLocalData,
   selectSettingsData,
   selectSpacesData,
-  settingsSchema,
   spacesSchema,
-  spacesSelectors,
-  uiSelectors,
   type Stores,
 } from '@/core/stores';
-import { applyAppearance, BUILTIN_THEMES, toTheme, type ThemeDocument } from '@/core/themes';
+import { applyAppearance, toTheme, type ThemeDocument } from '@/core/themes';
 import { focusConversation, type AppAdmin } from '@/ui/hooks';
 import { withUiPlugins } from '@/ui/plugins';
-import { deferredBackend } from './deferredBackend';
-import { deferredRepository } from './deferredRepository';
+import {
+  BackendRegistry,
+  BUILTIN_BACKENDS,
+  connectBackend,
+  DEFAULT_BACKEND,
+  type BackendRegistration,
+} from './backends';
+import { registerCoreCommands } from './coreCommands';
+import { createPluginHost } from './pluginHost';
 
 export interface ShrikeOptions {
   storage?: KeyValueStorage;
@@ -80,11 +77,15 @@ export interface ShrikeOptions {
    * Custom CSS are not applied, so a broken one can always be removed.
    */
   safeMode?: boolean;
+  /** The transports to choose from (tests); defaults to `BUILTIN_BACKENDS`. */
+  backends?: BackendRegistry;
 }
 
 export interface Shrike {
   stores: Stores;
   backend: ChatBackend;
+  /** Every registered transport; `backend` is the one this instance runs on. */
+  backends: BackendRegistry;
   repository: MessageRepository;
   registries: Registries;
   commands: CommandRegistry;
@@ -106,78 +107,15 @@ export interface Shrike {
   dispose(): Promise<void>;
 }
 
-interface BackendChoice {
-  /** Usable immediately; forwards to the adapter once its chunk has loaded. */
-  backend: ChatBackend;
-  ready: Promise<ChatBackend>;
-  repository: MessageRepository;
-  /** Set only for the demo, which has extra knobs (liveliness, seeded spaces). */
-  mock: Promise<MockBackend> | null;
-}
-
-/**
- * Picks the transport from settings. The choice is made once per Shrike
- * instance; switching backends means creating a new instance.
- * - mock (also before the user has chosen): in-memory history, because the
- *   demo world is regenerated each launch relative to "now" and persisting it
- *   would mix timelines.
- * - signal-cli: IndexedDB history, since the daemon keeps none.
- */
-function createBackend(
-  options: ShrikeOptions,
-  stores: Stores,
-  storage: KeyValueStorage,
-  clock: Clock,
-  scheduler: Scheduler,
-): BackendChoice {
-  const connection = stores.settings.getState().connection;
-  if (connection.backend === 'signal-cli') {
-    const ready = import('@/core/backend/signal-cli').then(
-      ({ SignalCliBackend }) =>
-        new SignalCliBackend({
-          baseUrl: connection.daemonUrl,
-          account: connection.account,
-          ...(options.fetch ? { fetch: options.fetch } : {}),
-          clock,
-          scheduler,
-          storage,
-          onAccountSelected: (account) => {
-            if (stores.settings.getState().connection.account !== account) {
-              stores.settings.getState().update('connection', { account });
-            }
-          },
-        }),
-    );
-    const repository =
-      options.repository ??
-      (typeof indexedDB === 'undefined'
-        ? new MemoryMessageRepository()
-        : // Its own chunk (with idb): the demo never needs it.
-          deferredRepository(
-            import('@/core/persistence/IdbMessageRepository').then((m) =>
-              m.IdbMessageRepository.open('shrike-signal-cli'),
-            ),
-          ));
-    return { backend: deferredBackend('signal-cli', ready), ready, repository, mock: null };
-  }
-  const mock = import('@/core/backend/mock').then(
-    ({ MockBackend }) =>
-      new MockBackend({ clock, scheduler, latencyMs: options.mockLatencyMs ?? 120 }),
-  );
-  return {
-    backend: deferredBackend('mock', mock),
-    ready: mock,
-    repository: options.repository ?? new MemoryMessageRepository(),
-    mock,
-  };
-}
-
 export function createShrike(options: ShrikeOptions = {}): Shrike {
   const storage = options.storage ?? defaultStorage();
   const clock = options.clock ?? systemClock;
   const scheduler = options.scheduler ?? systemScheduler;
   const cleanups: Unsubscribe[] = [];
 
+  const backends = options.backends ?? new BackendRegistry(BUILTIN_BACKENDS);
+  // A stored kind this build doesn't register parses as "not chosen yet".
+  const settingsSchema = createSettingsSchema({ isBackendKind: (kind) => backends.has(kind) });
   const stores = createStores({
     settings: loadVersioned(storage, settingsSchema),
     spaces: loadVersioned(storage, spacesSchema),
@@ -198,25 +136,34 @@ export function createShrike(options: ShrikeOptions = {}): Shrike {
     console.error(`[shrike] ${context}`, error);
   };
 
-  const {
-    backend,
-    ready,
-    repository,
-    mock: mockReady,
-  } = createBackend(options, stores, storage, clock, scheduler);
-  // The loaded demo backend, for the synchronous liveliness toggle.
-  let mock: MockBackend | null = null;
-  void mockReady?.then(
-    (m) => {
-      mock = m;
+  // The transport is chosen once per instance; switching means a new instance (a reload).
+  const registration = pickBackend(backends, stores.settings.getState().connection.backend);
+  const { backend, ready, repository } = connectBackend(
+    registration,
+    {
+      clock,
+      scheduler,
+      storage,
+      connection: stores.settings.getState().connection,
+      updateConnection: (patch) => {
+        stores.settings.getState().update('connection', patch);
+      },
+      overrides: {
+        ...(options.fetch ? { fetch: options.fetch } : {}),
+        ...(options.mockLatencyMs === undefined ? {} : { mockLatencyMs: options.mockLatencyMs }),
+      },
     },
-    () => undefined,
+    options.repository,
   );
   // Shared so a receipt that beats the send's acknowledgement isn't lost.
   const receipts = new ReceiptBuffer();
 
+  // Plugin errors outside start/stop (commands, transforms, hover actions…)
+  // are logged and recorded on the plugin, so its card shows them with Retry.
+  let plugins: PluginRuntime | null = null;
   const registries = new Registries((error, owner, where) => {
     reportError(error, `plugin "${owner}" failed in ${where}`);
+    plugins?.reportRuntimeError(owner, error, where);
   });
   const commands = registries.commands;
   const send = new SendService({
@@ -239,24 +186,17 @@ export function createShrike(options: ShrikeOptions = {}): Shrike {
   });
   const history = new HistoryService({ backend, repository, stores, onError: reportError });
 
-  const host: PluginHost = {
+  const host = createPluginHost({
     stores,
-    backend: {
-      kind: backend.kind,
-      status: () => backend.getStatus(),
-      sendText: async (conversationId, text) => {
-        await send.send({ conversationId, text, mentionIds: [], attachments: [] });
-      },
-      onMessage: (fn) => sync.on('message', fn),
-    },
-    toast: (message, kind, source) => {
-      stores.ui.getState().pushToast({ message, kind, source });
-    },
+    backend,
+    send,
+    sync,
     onError: (error, pluginId, where) => {
       reportError(error, `plugin "${pluginId}" failed during ${where}`);
     },
-  };
-  const plugins = new PluginRuntime(host, registries, withUiPlugins(BUILTIN_PLUGINS));
+  });
+  const runtime = new PluginRuntime(host, registries, withUiPlugins(BUILTIN_PLUGINS));
+  plugins = runtime;
   const notifications = new NotificationService({
     stores,
     clock,
@@ -309,13 +249,6 @@ export function createShrike(options: ShrikeOptions = {}): Shrike {
     );
   }
 
-  const syncLiveliness = (): void => {
-    const on = stores.settings.getState().connection.mockLiveliness;
-    if (!mock) return;
-    if (on && backend.getStatus() === 'online') mock.liveliness.start();
-    else mock.liveliness.stop();
-  };
-
   let started = false;
   const admin: AppAdmin = {
     probeDaemon: async (url) => {
@@ -333,10 +266,11 @@ export function createShrike(options: ShrikeOptions = {}): Shrike {
     stores,
     backend,
     repository,
+    backends,
     registries,
     commands,
     keybinds,
-    plugins,
+    plugins: runtime,
     sync,
     send,
     history,
@@ -350,23 +284,13 @@ export function createShrike(options: ShrikeOptions = {}): Shrike {
       // A failure (e.g. signal-cli has no account yet) leaves `started` false so a retry runs everything.
       await sync.start();
       await send.restoreOutbox();
-      if (mockReady) {
-        const demo = await mockReady;
-        // Demo-only defaults so the Discord-like structure is visible on first run.
-        // Never applied to a real account, and never re-applied after the user changes them.
-        stores.spaces.getState().seedDefaults(demo.world.defaultSpaces);
-        stores.local.getState().seedDefaults(demo.world.defaultLocal);
-      }
-      await plugins.startAll();
+      // sync.start() connected, so the adapter has loaded.
+      const loaded = await ready;
+      registration.onStarted?.(loaded, { stores });
+      await runtime.startAll();
       notifications.start();
       started = true;
-      syncLiveliness();
-      cleanups.push(
-        stores.settings.subscribe((s, prev) => {
-          if (s.connection !== prev.connection) syncLiveliness();
-        }),
-        backend.on('status', syncLiveliness),
-      );
+      if (registration.attach) cleanups.push(registration.attach(loaded, { stores }));
     },
 
     flush() {
@@ -376,156 +300,16 @@ export function createShrike(options: ShrikeOptions = {}): Shrike {
     async dispose() {
       for (const off of cleanups.splice(0)) off();
       for (const binding of bindings.splice(0)) binding.dispose();
-      mock?.liveliness.stop();
       notifications.stop();
-      await plugins.stopAll();
+      await runtime.stopAll();
       await sync.stop();
     },
   };
 }
 
-/**
- * Core commands that can run headless today. The rest (conversation
- * navigation, search, jump to present) need view state that arrives with
- * the P2/P3 UI and will be registered there against the same ids.
- */
-function registerCoreCommands(commands: CommandRegistry, stores: Stores, sync: SyncService): void {
-  const ui = () => stores.ui.getState();
-  commands.register({
-    id: CoreCommand.QuickSwitcher,
-    title: 'Open quick switcher',
-    category: 'Navigation',
-    keybind: DEFAULT_KEYBINDS[CoreCommand.QuickSwitcher],
-    allowInInputs: true,
-    run: () => {
-      ui().openModal({ type: 'switcher' });
-    },
-  });
-  commands.register({
-    id: CoreCommand.ToggleMemberList,
-    title: 'Toggle member list',
-    category: 'View',
-    keybind: DEFAULT_KEYBINDS[CoreCommand.ToggleMemberList],
-    allowInInputs: true,
-    run: () => {
-      ui().toggleMemberList();
-    },
-  });
-  commands.register({
-    id: CoreCommand.OpenSettings,
-    title: 'Open settings',
-    category: 'App',
-    keybind: DEFAULT_KEYBINDS[CoreCommand.OpenSettings],
-    allowInInputs: true,
-    run: () => {
-      ui().openModal({ type: 'settings' });
-    },
-  });
-  commands.register({
-    id: CoreCommand.ShortcutHelp,
-    title: 'Keyboard shortcuts',
-    category: 'App',
-    keybind: DEFAULT_KEYBINDS[CoreCommand.ShortcutHelp],
-    allowInInputs: true,
-    run: () => {
-      ui().openModal({ type: 'shortcuts' });
-    },
-  });
-  // Palette-only actions (no default keys; bindable in Settings → Keybinds).
-  const settings = () => stores.settings.getState();
-  commands.register({
-    id: NavCommand.CommandPalette,
-    title: 'Open command palette',
-    category: 'Navigation',
-    allowInInputs: true,
-    run: () => {
-      ui().openModal({ type: 'switcher', props: { query: '>' } });
-    },
-  });
-  /** Home, then every space in rail order, wrapping. */
-  const stepSpace = (delta: 1 | -1) => {
-    const order = [HOME, ...spacesSelectors.orderedIds(stores.spaces.getState())];
-    const i = order.indexOf(ui().selectedSpace);
-    const next = order[(Math.max(0, i) + delta + order.length) % order.length];
-    if (next !== undefined) ui().selectSpace(next);
-  };
-  commands.register({
-    id: NavCommand.NextSpace,
-    title: 'Next space',
-    category: 'Spaces',
-    run: () => {
-      stepSpace(1);
-    },
-  });
-  commands.register({
-    id: NavCommand.PrevSpace,
-    title: 'Previous space',
-    category: 'Spaces',
-    run: () => {
-      stepSpace(-1);
-    },
-  });
-  commands.register({
-    id: 'core.createSpace',
-    title: 'Create a space',
-    category: 'Spaces',
-    run: () => {
-      ui().openModal({ type: 'createSpace' });
-    },
-  });
-  commands.register({
-    id: 'core.toggleDensity',
-    title: 'Toggle compact mode',
-    category: 'View',
-    run: () => {
-      const density = settings().appearance.density === 'compact' ? 'comfortable' : 'compact';
-      settings().update('appearance', { density });
-    },
-  });
-  commands.register({
-    id: 'core.toggleNotifications',
-    title: 'Toggle desktop notifications',
-    category: 'App',
-    run: () => {
-      settings().update('notifications', { enabled: !settings().notifications.enabled });
-    },
-  });
-  for (const [page, title] of [
-    ['plugins', 'Open plugins'],
-    ['themes', 'Open themes'],
-    ['appearance', 'Open appearance settings'],
-    ['keybinds', 'Edit keyboard shortcuts'],
-  ] as const) {
-    commands.register({
-      id: `core.settings.${page}`,
-      title,
-      category: 'App',
-      run: () => {
-        ui().openModal({ type: 'settings', props: { page } });
-      },
-    });
-  }
-  // ">dark" in the switcher: one command per built-in theme.
-  for (const theme of BUILTIN_THEMES) {
-    commands.register({
-      id: `core.theme.${theme.id}`,
-      title: `Theme: ${theme.name}, ${theme.kind}`,
-      category: 'Theme',
-      enabled: () => settings().appearance.themeId !== theme.id,
-      run: () => {
-        settings().update('appearance', { themeId: theme.id });
-      },
-    });
-  }
-  commands.register({
-    id: CoreCommand.MarkRead,
-    title: 'Mark conversation as read',
-    category: 'Conversation',
-    keybind: DEFAULT_KEYBINDS[CoreCommand.MarkRead],
-    enabled: () => uiSelectors.selectedConversation(ui()) !== null,
-    run: async () => {
-      const id = uiSelectors.selectedConversation(ui());
-      if (id) await sync.markConversationRead(id);
-    },
-  });
+/** The registration for the stored choice; the default before the user has chosen. */
+function pickBackend(backends: BackendRegistry, chosen: string | null): BackendRegistration {
+  const registration = backends.get(chosen ?? DEFAULT_BACKEND) ?? backends.list()[0];
+  if (!registration) throw new Error('No backend is registered');
+  return registration;
 }

@@ -32,3 +32,36 @@ export function focusConversation(id: ConversationId): void {
     conversationFocusTarget(id)?.focus();
   });
 }
+
+const sidebarRow = (id: ConversationId): HTMLElement | null =>
+  document.querySelector<HTMLElement>(
+    `[data-shrike="sidebar"] [data-conversation-id="${CSS.escape(id)}"][data-roving-item]`,
+  );
+
+/**
+ * Call just before a command switches conversation (Alt+↑/↓, next unread,
+ * Vim J/K/]u). Returns the function to call with the new conversation: it
+ * moves focus deliberately instead of letting it fall to `<body>` when the
+ * old view unmounts. From a sidebar row, focus follows to the new row (so
+ * you can keep stepping); from the chat column, or from anywhere the switch
+ * removed, it lands in the new conversation's composer.
+ */
+export function followConversationFocus(): (id: ConversationId) => void {
+  const before = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  const fromRow =
+    before?.matches('[data-roving-item][data-conversation-id]') === true &&
+    before.closest('[data-shrike="sidebar"]') !== null;
+  const fromChat = !before || before === document.body || before.closest('[data-shrike="chat"]');
+  return (id) => {
+    requestAnimationFrame(() => {
+      if (fromRow) {
+        const row = sidebarRow(id);
+        if (row) {
+          row.focus();
+          return;
+        }
+      }
+      if (fromRow || fromChat || !before.isConnected) conversationFocusTarget(id)?.focus();
+    });
+  };
+}

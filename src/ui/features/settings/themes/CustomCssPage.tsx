@@ -1,7 +1,7 @@
 import { ChevronRight, RotateCcw, ShieldAlert, TriangleAlert } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from 'zustand';
-import { removedSummary, sanitizeUserCss, TOKEN_NAMES } from '@/core/themes';
+import { removedSummary, sanitizeUserCss, STYLE_HOOKS, TOKEN_NAMES } from '@/core/themes';
 import { useShrike } from '@/ui/hooks';
 import { Button } from '@/ui/primitives';
 import { CodeEditor } from '@/ui/primitives/CodeEditor';
@@ -10,33 +10,6 @@ import { SettingsSection } from '../rows/SettingsSection';
 import styles from './customcss.module.css';
 
 const APPLY_DELAY_MS = 300;
-
-/** Stable styling hooks (data-shrike="…") documented for user CSS. */
-export const STYLE_HOOKS: { hook: string; what: string }[] = [
-  { hook: 'app', what: 'The whole shell' },
-  { hook: 'rail', what: 'Spaces rail' },
-  { hook: 'sidebar', what: 'Conversation sidebar' },
-  { hook: 'sidebar-header', what: 'Sidebar title bar' },
-  { hook: 'conversation-list', what: 'Conversation list' },
-  { hook: 'conversation-row', what: 'One conversation in the sidebar' },
-  { hook: 'section-header', what: 'Sidebar section / category header' },
-  { hook: 'user-panel', what: 'Your profile at the bottom of the sidebar' },
-  { hook: 'chat', what: 'Chat column' },
-  { hook: 'chat-header', what: 'Chat title bar' },
-  { hook: 'message-pane', what: 'Message area' },
-  { hook: 'message-log', what: 'The message list' },
-  { hook: 'message', what: 'One message (has data-compact, data-mention, data-continuation)' },
-  { hook: 'message-body', what: 'The text of a message' },
-  { hook: 'hover-bar', what: 'Message hover actions' },
-  { hook: 'system-message', what: 'Joined / renamed / timer lines' },
-  { hook: 'new-divider', what: 'The “new messages” line' },
-  { hook: 'composer', what: 'Message composer' },
-  { hook: 'typing-line', what: '“… is typing” strip' },
-  { hook: 'members', what: 'Member list' },
-  { hook: 'member-row', what: 'One member' },
-  { hook: 'settings', what: 'Settings screen' },
-  { hook: 'plugin-card', what: 'A plugin in Settings → Plugins' },
-];
 
 const PLACEHOLDER = `/* Example: roomier messages and a softer mention tint */
 [data-shrike='message'] {

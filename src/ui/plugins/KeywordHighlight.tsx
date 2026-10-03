@@ -24,7 +24,7 @@ function registry(): { highlights: HighlightRegistry; create: () => unknown } | 
 }
 
 /** Ranges of every whole-word occurrence of `keyword` in the text under `root`. */
-export function keywordRanges(root: Node, keyword: string): Range[] {
+function keywordRanges(root: Node, keyword: string): Range[] {
   const needle = keyword.toLowerCase();
   if (!needle) return [];
   const ranges: Range[] = [];

@@ -1,5 +1,5 @@
 import { Download, Trash2 } from 'lucide-react';
-import type { CSSProperties } from 'react';
+import { useId, type CSSProperties } from 'react';
 import { useStore } from 'zustand';
 import { BUILTIN_THEMES, toTheme, type Theme } from '@/core/themes';
 import { useStores } from '@/ui/hooks';
@@ -79,6 +79,9 @@ export interface ThemeCardsProps {
 /** Theme picker: native radios (arrow keys move between themes) styled as preview cards. */
 export function ThemeCards({ manage, onExport, label }: ThemeCardsProps) {
   const stores = useStores();
+  // One radio group per instance: Appearance and Themes both show cards, and
+  // settings search can show both at once.
+  const group = useId();
   const themeId = useStore(stores.settings, (s) => s.appearance.themeId);
   const { builtin, custom } = useAllThemes();
   const all = [...builtin, ...custom];
@@ -93,7 +96,7 @@ export function ThemeCards({ manage, onExport, label }: ThemeCardsProps) {
             <label className={styles.card} data-theme-card={theme.id}>
               <input
                 type="radio"
-                name="shrike-theme"
+                name={group}
                 className={styles.radio}
                 value={theme.id}
                 checked={active === theme.id}

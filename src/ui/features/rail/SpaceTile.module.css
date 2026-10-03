@@ -1,5 +1,5 @@
 .emoji {
-  font-size: 22px;
+  font-size: var(--shrike-font-size-emoji);
   line-height: 1;
 }
 

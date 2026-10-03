@@ -26,7 +26,10 @@ function CommandChip({ command }: { command: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <span className={styles.command}>
-      <code className={styles.commandText}>{command}</code>
+      {/* It scrolls sideways on narrow screens, so keyboard users can focus and scroll it too. */}
+      <code className={styles.commandText} tabIndex={0} role="group" aria-label="Command to run">
+        {command}
+      </code>
       <IconButton
         size="sm"
         label={copied ? 'Copied' : 'Copy command'}

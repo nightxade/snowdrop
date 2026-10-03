@@ -13,10 +13,10 @@
 .mini {
   display: grid;
   place-items: center;
-  border-radius: 5px;
+  border-radius: var(--shrike-radius-xs);
   background: var(--tile-hue);
   color: var(--shrike-text-on-avatar);
-  font-size: 9px;
+  font-size: calc(var(--shrike-font-size-emoji) * 0.4);
   font-weight: var(--shrike-font-weight-bold);
   line-height: 1;
 }
@@ -39,7 +39,7 @@
   width: 6px;
   border: 2px solid var(--folder-hue, var(--shrike-border-strong));
   border-left: none;
-  border-radius: 0 6px 6px 0;
+  border-radius: 0 var(--shrike-radius-xs) var(--shrike-radius-xs) 0;
   pointer-events: none;
 }
 

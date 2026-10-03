@@ -72,7 +72,11 @@ export function KeybindsPage() {
         </Button>
       </div>
       {[...groups].map(([category, list]) => (
-        <SettingsSection key={category} title={category}>
+        <SettingsSection
+          key={category}
+          title={category}
+          rowIds={list.map((command) => `keybind.${command.id}`)}
+        >
           {list.map((command) => {
             const overridden = command.id in overrides;
             const effective = overridden

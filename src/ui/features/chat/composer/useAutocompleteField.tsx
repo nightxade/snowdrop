@@ -1,9 +1,43 @@
-import { useId, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
-import { AutocompletePopover, optionId } from './AutocompletePopover';
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useId,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+  type RefObject,
+} from 'react';
+import { optionId } from './optionId';
 import { wrapSelection } from './formatting';
 import type { MentionToken } from './mentionTokens';
 import { useAutocomplete } from './useAutocomplete';
 import { replaceRange } from './useAutoGrow';
+
+// The popover (with floating-ui) is its own chunk, fetched when a field first mounts and
+// the browser is idle, so the first "@" never waits on the network.
+const loadPopover = () => import('./AutocompletePopover');
+const AutocompletePopover = lazy(() =>
+  loadPopover().then((m) => ({ default: m.AutocompletePopover })),
+);
+
+function usePrefetchPopover(): void {
+  useEffect(() => {
+    const prefetch = () => {
+      void loadPopover();
+    };
+    if ('requestIdleCallback' in window) {
+      const handle = window.requestIdleCallback(prefetch);
+      return () => {
+        window.cancelIdleCallback(handle);
+      };
+    }
+    const timer = setTimeout(prefetch, 1500);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, []);
+}
 
 export interface AutocompleteFieldOptions {
   textarea: RefObject<HTMLTextAreaElement | null>;
@@ -50,6 +84,7 @@ export function isImeKey(e: KeyboardEvent): boolean {
 export function useAutocompleteField(o: AutocompleteFieldOptions): AutocompleteField {
   const [caret, setCaret] = useState(o.text.length);
   const listId = useId();
+  usePrefetchPopover();
   const auto = useAutocomplete(o.text, caret, o.memberIds, o.slash, o.suggestions ?? true);
 
   const syncCaret = () => {
@@ -117,16 +152,18 @@ export function useAutocompleteField(o: AutocompleteFieldOptions): AutocompleteF
     },
     popover:
       auto.open && auto.trigger ? (
-        <AutocompletePopover
-          id={listId}
-          anchor={o.anchor}
-          kind={auto.trigger.kind}
-          query={auto.trigger.query}
-          suggestions={auto.suggestions}
-          active={auto.active}
-          onHover={auto.setActive}
-          onPick={accept}
-        />
+        <Suspense fallback={null}>
+          <AutocompletePopover
+            id={listId}
+            anchor={o.anchor}
+            kind={auto.trigger.kind}
+            query={auto.trigger.query}
+            suggestions={auto.suggestions}
+            active={auto.active}
+            onHover={auto.setActive}
+            onPick={accept}
+          />
+        </Suspense>
       ) : null,
   };
 }

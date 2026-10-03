@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect } from 'react';
 import { useStore } from 'zustand';
-import type { BackendChoice } from '@/core/stores';
+import type { BackendKind } from '@/core/backend';
 // Onboarding is seen once (or on connection trouble): keep it out of the main chunk.
 const Welcome = lazy(() =>
   import('@/ui/features/onboarding').then((m) => ({ default: m.Welcome })),
@@ -48,7 +48,7 @@ export function App({ onBackendChange }: AppProps) {
   }, [choice, matches, shrike, onBackendChange]);
 
   if (choice === null) {
-    const choose = (backend: BackendChoice, url?: string) => {
+    const choose = (backend: BackendKind, url?: string) => {
       shrike.stores.settings
         .getState()
         .update('connection', { backend, ...(url !== undefined ? { daemonUrl: url } : {}) });

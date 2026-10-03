@@ -18,7 +18,7 @@ import {
   type MessageId,
 } from '@/core/domain';
 import { messagesSelectors, sessionSelectors } from '@/core/stores';
-import { BREAKPOINTS, useMediaQuery, useShrike } from '@/ui/hooks';
+import { BREAKPOINTS, overlayOwnsKeys, useMediaQuery, useShrike } from '@/ui/hooks';
 import { ContextMenu, Drawer, EmojiPicker, VisuallyHidden } from '@/ui/primitives';
 import { useChatController } from '../ChatController';
 import {
@@ -216,8 +216,7 @@ export const MessageItem = memo(function MessageItem({
     if (e.target !== e.currentTarget) {
       // Escape steps out of an entered row — unless it just closed a menu or
       // popover. (A tooltip also "handles" Escape, but shouldn't cost a press.)
-      const layerOpen = document.querySelector('[role="menu"], [role="dialog"], [role="listbox"]');
-      if (e.key === 'Escape' && entered && !layerOpen) {
+      if (e.key === 'Escape' && entered && !overlayOwnsKeys(document)) {
         e.preventDefault();
         leaveRow();
       }
@@ -240,7 +239,8 @@ export const MessageItem = memo(function MessageItem({
     e.preventDefault();
   };
 
-  const showBar = active && !editing && m.kind === 'normal' && !touch;
+  // The row's own context menu replaces the bar (and the time tooltip) while it's open.
+  const showBar = active && !editing && m.kind === 'normal' && !touch && !contextOpen;
   const article = (
     <div
       ref={row}
@@ -347,6 +347,7 @@ export const MessageItem = memo(function MessageItem({
         continuation={continuation}
         editing={editing}
         pending={pending}
+        menuOpen={contextOpen}
         bodyId={bodyId}
         onEditDone={leaveRow}
       />

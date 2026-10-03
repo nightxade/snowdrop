@@ -6,6 +6,15 @@
   border-radius: var(--shrike-radius-md);
 }
 
+.card[data-variant='sheet'] {
+  width: 100%;
+  overflow-y: auto;
+  border-radius: var(--shrike-radius-lg) var(--shrike-radius-lg) 0 0;
+  background: var(--shrike-bg-floating);
+  /* Clear the home indicator on phones. */
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
 .header {
   display: flex;
   align-items: center;
@@ -132,4 +141,15 @@
 
 .noteInput::placeholder {
   color: var(--shrike-text-faint);
+}
+
+.pluginActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--shrike-space-2);
+  margin-top: calc(-1 * var(--shrike-space-2));
+}
+
+.dangerAction {
+  color: var(--shrike-danger);
 }

@@ -195,7 +195,7 @@ Abridged; the file is authoritative.
 
 ```ts
 interface ChatBackend {
-  readonly kind: 'mock' | 'signal-cli'
+  readonly kind: BackendKind           // string: a kind registered in app/backends.ts ('mock', 'signal-cli')
   connect(): Promise<void>; disconnect(): Promise<void>
   getStatus(): ConnectionStatus  // 'connecting' | 'online' | 'offline' | 'error'
   getSelf(): Promise<Contact>
@@ -207,7 +207,7 @@ interface ChatBackend {
   deleteForEveryone(conv: ConversationId, sentAt: number): Promise<void>
   setTyping(conv: ConversationId, typing: boolean): Promise<void>
   markRead(conv: ConversationId, messages: MessageRef[]): Promise<void>   // MessageRef = { authorId, sentAt }
-  // Optional; which ones exist per kind is declared in BACKEND_CAPABILITIES (app/deferredBackend.ts)
+  // Optional; which ones exist is declared by each backend registration's `capabilities` (app/backends.ts)
   adminDelete?(conv: ConversationId, target: MessageRef): Promise<void>
   pinMessage?(input: PinInput): Promise<void>
   updateConversation?(conv: ConversationId, patch: ConversationPatch): Promise<void> // expireTimerSec | title | description
@@ -233,7 +233,11 @@ interface BackendEvents {
 }
 ```
 Adapters translate protocol quirks into these events. The UI never sees raw
-envelopes. How to add an adapter: `docs/ARCHITECTURE.md`.
+envelopes. Transports are registered in the composition root
+(`app/backends.ts`: kind, label, `load()`, capabilities, history store); how
+to add one: `docs/ARCHITECTURE.md`. Message identity stays Signal's
+`(authorId, sentAt)`; the plan for opaque ids is in ARCHITECTURE.md
+("Future: opaque message ids").
 
 ### 3.3 Stores (`core/stores`, zustand/vanilla)
 
@@ -296,27 +300,35 @@ The plugin author guide is `docs/PLUGINS.md`.
 - `ctx.commands.register({ id, title, keybind?, run })` — palette + hotkeys.
   `ctx.commands.execute(id)` runs any command (plugins drive the app by id).
 - `ctx.keys.addLayer(layer)` — modal key layer with first refusal on keys (Vim mode; §8).
-- `ctx.composer.addAccessory(id, Component)` — rendered inside the composer field.
+- `ctx.composer.addAccessory(id, Component)` — rendered inside the composer field
+  (props `{ conversationId, descriptionId }`).
 - `ctx.slash.register({ name, description, usage?, execute })` — `/shrug`, `/me`…;
   `execute` returns a `SlashResult` (`send` | `replace` | `error` | `done`).
 - `ctx.send.addTransform(fn)` — outgoing draft pipeline; `ctx.send.addTypingGuard(fn)`.
-- `ctx.messages.addAccessory(id, Component)` — rendered under a message.
-- `ctx.messages.addDecoration(id, Component)` — badge next to author name.
+- `ctx.messages.addAccessory(id, Component)` — rendered under a message (props `{ message }`).
+- `ctx.messages.addDecoration(id, Component)` — badge next to author name (props `{ message }`).
 - `ctx.messages.addHoverAction({ id, icon, label, onClick, visible? })`.
+- `ctx.messages.reply(m)`, `react(m, emoji)`, `copy(m)` — act on a given message.
+- `ctx.conversations.get(id)`, `isDirect(id)` — read-only lookups.
+- `ctx.state(initial)` — plugin-local observable (`usePluginState` in `ui/hooks`).
 - `ctx.menus.add('message' | 'conversation' | 'member' | 'space', item)`
   (no member menu renders plugin items yet).
 - `ctx.headerBar.addButton(...)`, `ctx.settingsPanels.add(...)`.
 - `ctx.styles.inject(css, id?)`.
 - `ctx.notifications.addBooster(fn)` — a reason string makes a message notify like a mention.
 - `ctx.stores` (read + subscribe), `ctx.backend` (`kind`, `status()`,
-  `sendText()`, `onMessage()`), `ctx.toast`, `ctx.log`, `ctx.onDispose`.
+  `sendText()`, `onMessage((message, { live }) => …)`), `ctx.toast`,
+  `ctx.log`, `ctx.onDispose`.
 - `ctx.settings.get/set/all/subscribe` (typed from the schema).
 
 Plugins that render UI supply React components; the runtime is React-agnostic
-(components are opaque values stored in registries; `ui/` renders them via
+(components are typed by their props only, `ComponentLike<P> = (props: P) =>
+unknown`, stored in registries; `ui/` renders them via
 `<Slot name="message.accessories" …/>`). Each slot is wrapped in an error
 boundary: a crashing plugin shows a small inline "plugin X failed" chip and
-never takes down the app.
+never takes down the app. Callbacks the UI invokes (hover actions, menu
+items, header buttons) run through `Registries.invoke` / `isVisible`, so
+their errors reach the plugin's card like command and transform errors.
 
 Built-in plugins (as shipped; headless ones in `core/plugins/builtin`, UI ones
 in `ui/plugins`):
@@ -572,9 +584,9 @@ The complete keyboard reference (lists, composer, dialogs, Vim mode) is
 - Default theme **Dusk**: graphite neutrals (cool grey, like the bird's
   plumage): rail `#101114`, sidebar `#15171b`, chat `#1b1d22`, elevated
   `#22252b`, floating `#0c0d10`, border `rgba(255,255,255,.06)`, text
-  `#e6e8eb`, muted `#a2a5aa`, faint `#8d9096`. Accent rufous `#d4744a`
+  `#e6e8eb`, muted `#aaadb2`, faint `#9b9ea4`. Accent rufous `#d4744a`
   (hover `#e58359`, active `#c06238`, dark `#1a0f0b` text on it), danger
-  `#f0506e` (badge/button fills use `danger-strong` `#c93553` so white text
+  `#f26781` (badge/button fills use `danger-strong` `#c93553` so white text
   passes 4.5:1), success `#3ccf91`, warning `#f5b44a`, mention bg
   `rgba(212,116,74,.10)`. Linen uses a deeper rufous `#a84f2c` (white text on
   it), High Contrast a lighter `#ef8d62`.
@@ -610,7 +622,7 @@ gates and commits. Quality gates for every phase:
 | **P3 Messaging** | Message list, message rendering, reactions, replies, attachments + lightbox, hover bar, context menu, composer with autocomplete/attachments/edit/reply, typing, unread divider, jump-to-present | Send/edit/react/reply/delete all work optimistically against mock | **Done** (f16f3b4, review fixes included). Not done: attachment spoiler toggle (no protocol flag), scroll restore per conversation, search term highlighting. |
 | **P4 Power UX** | Quick switcher, settings overlay (all pages), plugins UI + built-in plugins, themes + accent + Custom CSS, keybinds, spaces CRUD + drag & drop, notifications | All built-in plugins toggle live; theme changes live | **Done** (20e5a11; review fixes in 1105001). Also: device linking, `deferredBackend`, licence list, safe mode, CSP. Then **Vim mode** + key-layer API (1105001). |
 | **P5 signal-cli** | Adapter (JSON-RPC HTTP + SSE with Last-Event-ID resume), envelope normaliser (tested with fixtures), attachments, link-device flow, Vite proxy, README setup guide | Fixture-driven tests; manual run doc | **Done** (de40998, review fixes cf9126c); setup guide is `docs/SIGNAL_CLI.md`. Verified against fixtures and a fake daemon only (see §8 "Known limits"). |
-| **P6 Polish** | Visual QA via Playwright screenshots of every surface in 3 themes & 3 widths, a11y audit (axe), perf (10k-message conversation smooth), docs (ARCHITECTURE.md, PLUGINS.md, THEMING.md) | Reviewer sign-off | **In progress.** Docs written: `README.md`, `docs/ARCHITECTURE.md`, `docs/PLUGINS.md`, `docs/THEMING.md`, `docs/KEYBOARD.md` (checked against code). Visual QA, axe audit and the 10k-message perf pass await sign-off. |
+| **P6 Polish** | Visual QA via Playwright screenshots of every surface in 3 themes & 3 widths, a11y audit (axe), perf (10k-message conversation smooth), docs (ARCHITECTURE.md, PLUGINS.md, THEMING.md) | Reviewer sign-off | **In progress.** Docs written: `README.md`, `docs/ARCHITECTURE.md`, `docs/PLUGINS.md`, `docs/THEMING.md`, `docs/KEYBOARD.md` (checked against code). Visual QA, axe audit and the 10k-message perf pass await sign-off. Final-review polish: builder A (UX/a11y), builder B (code quality, extensibility; §8 "P6 polish B"). |
 
 ## 7. Code conventions
 - Named exports only; one component per file; file = component name.
@@ -1389,7 +1401,8 @@ User-facing reference: `docs/KEYBOARD.md`.
 
 **Core: key layers (`core/commands/keyLayer.ts`, React-free).**
 `KeyLayerStack` (owned by `Registries.keyLayers`) holds modal layers, newest
-first; `onKey(stroke, ctx) → handled`. `ctx` = `{ target: 'none' | 'list' |
+first; `handle(event, ctx)` offers the key to each layer's
+`onKey(stroke, ctx) → handled`. `ctx` = `{ target: 'none' | 'list' |
 'message' | 'composer' | 'input' | 'other', overlay, surface }`. The stack
 drops IME composition (`isComposing` / keyCode 229) and bare modifiers.
 `keyToken` turns events into Vim notation (`j`, `G`, `<C-d>`, `<Esc>`) with
@@ -1536,3 +1549,139 @@ Finding → fix (the full changelog is in the phase report).
   single empty-name error, hex `aria-invalid`, row labels wired to Segmented /
   Slider, folder names, ⋯ on rows and a menu hint in empty categories, `/me`
   keeps your name.
+
+### P6 polish B
+
+Code quality, extensibility and correctness fixes from the final review.
+
+- **Vim + IME (blocker).** A composition starting outside Insert mode used to
+  replace the block cursor's character and bypass the engine's undo. The
+  plugin now listens for `compositionstart` and the keyCode-229 keydown
+  before it (capture phase) and calls `VimController.onCompositionStart`:
+  collapse the caret and `enterInsert(state, 'cursor', ['i'])`, so the
+  composed text is one Insert change (one `u`, repeatable with `.`).
+- **Vim robustness.** `describeFocus` (`ui/hooks/textSurfaces.ts`) counts an
+  overlay only if it contains focus, is controlled by the focused field
+  (`aria-controls`/`aria-owns`/`aria-activedescendant`: the composer's
+  suggestions) or is an open modal (`[aria-modal]`, open alertdialog/menu);
+  a persistent listbox elsewhere no longer disables Vim. Counted app keys
+  (`5J`) run sequentially, each awaiting the previous `execute` (single keys
+  still run at once). The composer's `aria-describedby` points at the pill's
+  "Vim: Normal mode" text (new `ComposerSlotProps.descriptionId`).
+- **Vim engine split.** `engine/engine.ts` (1279 lines) → `engine.ts`
+  (public API, 180), `types.ts`, `parse.ts`, `exec.ts` (editing
+  primitives), `normal.ts`, `visual.ts`, `operators.ts`, `insert.ts`,
+  `undo.ts`, `dot.ts`, `positions.ts`; no cycles (`.` gets `feed` injected).
+  Public API unchanged except the dead `enterNormal`, removed.
+- **Vim lazy-loaded.** `vimPlugin.ts` is just the definition and `settings.ts`;
+  `start()` imports `startVim.ts` (engine, controller, pill, keys panel: a
+  ~36 kB chunk) the first time the plugin starts.
+- **Sanitiser.** `src(` joins the resource functions (`RESOURCE`,
+  `targetsOf`); a `var()` inside `src(`/`image-set(` counts as remote.
+- **Plugin API.** Typed slot props (`ComponentLike<P>`, `MessageSlotProps`,
+  `ComposerSlotProps`, `IconComponent`, `PanelComponent`; `OpaqueComponent`
+  removed); `ctx.messages.reply/react/copy` (host services in
+  `app/pluginHost.ts`); `ctx.state()` + `usePluginState`;
+  `onMessage(fn(message, { live }))` via the new `SyncService` event
+  `messageArrived`; `ctx.conversations.get/isDirect`. Hover action, menu item
+  and header button failures (and async rejections) go through
+  `Registries.invoke`/`isVisible` to `onError`; the app records them with
+  `PluginRuntime.reportRuntimeError` and the card shows them with Retry
+  (which restarts a running plugin). Command errors are now attributed to the
+  owning plugin, not the command id.
+- **Backend registry.** `BackendKind` is a string; `app/backends.ts` holds
+  `BackendRegistration`s (`kind`, `label`, `description`, `load()`,
+  `capabilities`, `history`, `settingsSchema?`, `onStarted?`, `attach?`).
+  The mock's seeding and liveliness moved into its registration;
+  `deferredBackend(kind, capabilities, ready)` replaces
+  `BACKEND_CAPABILITIES`; the settings parser takes `isBackendKind` from the
+  registry (`createSettingsSchema`); Settings → Connection lists the
+  registered kinds (`AppServices.backends`). `BackendChoice` is gone.
+- **MessageRef generalisation: not done.** It touches every adapter, both
+  services and most of their tests; written up as a design note with every
+  touch point and a migration order (ARCHITECTURE.md, "Future: opaque
+  message ids").
+- **Housekeeping.** `package.json` licence `UNLICENSED` (README: none chosen);
+  stale comments (core-commands JSDoc, sanitiser CSP location, this
+  section's `handle`, "community-style"); lint zones for top-level files
+  (`main.tsx`) vs adapters, `ui/hooks` (no features/plugins) and `ui/plugins`
+  (features only through their index; no `app/`), with fixtures in
+  `verify-boundaries.mjs`; dead exports un-exported (`UI_PLUGINS`,
+  `displayKeys`, `keywordRanges`, `fieldFor`, `probeAdvice`,
+  `accentContrast`, `shortDuration`) or removed (`enterNormal`).
+  `createShrike.ts` 531 → ~315 lines (`backends.ts`, `pluginHost.ts`,
+  `coreCommands.ts`); `SendService`'s attachment-preview helpers moved to
+  `localAttachments.ts`. `SignalCliBackend` was left whole: send params and
+  normalisation are already separate modules, and the group handling is tied
+  to its event queue and state.
+
+
+### P6 polish A
+
+Finding → fix (the reviewer's numbering).
+
+- **1 Alt+↑/↓ lost focus.** `followConversationFocus()` (`ui/hooks/focusTargets.ts`)
+  is captured before a command switches conversation and applied after: from a
+  sidebar row focus moves to the new row; from the chat column, `<body>`, or
+  anywhere the switch removed, it lands in the new composer. `stepSidebar` and
+  `jumpToUnread` use it, so Vim J/K/]u follow too (they run the same
+  commands); the switcher and notification clicks already focus the composer.
+- **2 Pending contrast.** No opacity: pending body text is `text-muted`, the
+  author keeps its colour, and a 12px clock with hidden "Sending" follows the
+  text. Failed/deleted states are covered by the token checks below.
+- **3 Switcher empty state.** `CommandPaletteList` takes `empty`: the listbox
+  stays mounted but `hidden` (aria-controls still resolves) and the message is
+  a `role="status"` outside it.
+- **4 Profile at 390.** `ProfileTrigger` (members feature): a bottom `Drawer`
+  sheet below 760px, a collision-avoiding popover elsewhere. Member rows, author
+  names/avatars and mentions use it. Drawer scrim and panel share one z-index so
+  a nested sheet stacks above its parent drawer.
+- **5/6 Settings.** Theme cards use `name={useId()}`. `SettingsSection rowIds`
+  hides headings (keybind categories, Danger zone) with no matching rows.
+- **7 Drawer.** One Esc closes it from any descendant: a capture listener
+  registered on open runs before a tooltip layer, while layers opened from the
+  drawer keep focus outside its DOM and close first. The opener is recorded on
+  each open and gets focus back on close or unmount (`returnFocus` fallback:
+  the hamburger, the member toggle), including when focus was inside the panel
+  as it animated out.
+- **8 Contrast.** `textSurfaces(theme)` lists the opaque colours text sits on
+  (four surfaces, hover over each, selected over chat/sidebar; `compositeOver`).
+  `accent-text` is derived against the hardest one (Dusk → `#e58359`).
+  Dusk muted/faint `#aaadb2`/`#9b9ea4`, danger `#f26781`; Midnight faint
+  `#8a8d92`; Linen muted/faint/link/warning `#534e4a`/`#605a55`/`#98431d`/`#855400`.
+  `contrast.test.ts` checks text, muted, faint and link on every composite,
+  danger/warning on hovered surfaces, and accent-text for every preset × theme.
+- **9 Landmarks.** "Pick a conversation" is the h1 when nothing is open (the
+  chat header's h1 otherwise); autocomplete is `role="region"` "Suggestions";
+  the ConnectForm command scroller is focusable and labelled. Axe: 0 violations
+  across 4 themes × {1440, 390}. Radix menu/tooltip portals are excluded from
+  the `region` rule only: they are transient popups owned by a trigger inside a
+  landmark.
+- **10 Bundle.** Lazy: Lightbox (mounted on first open), autocomplete popover
+  (+ floating-ui, prefetched when idle), space/folder/category dialogs and the
+  shortcut sheet (prefetched with the switcher), the search panel. Index
+  549 → 491 kB (with B's lazy Vim).
+- **11** Emoji picker and popovers restore focus with `focusQuietly`; the hover
+  bar and the time tooltip hide while the row's context menu is open.
+- **12 Tokens.** `radius-2xs`, `font-size-hero`, `font-size-emoji-sm`,
+  `font-size-emoji` (emoji follow text size); raw sizes and radii replaced.
+  Settings nav icons stay 18px: next to the 15px labels they read balanced in
+  screenshots, and 16px looked undersized.
+- **13** "Reset…" has an icon like "Clear…"; "Set up keyword alerts" is a
+  secondary button.
+- **14** Drop overlay tolerates a null `dataTransfer`, and leave/drop always
+  settle it.
+- **15** `pluginMenuEntries` (icons, visibility, failure reporting) feeds the
+  conversation, space and member menus. The member row has a context menu
+  (Profile, Message, Copy phone number, plugin items), and the profile shows
+  plugin member actions. `STYLE_HOOKS` lives in `core/themes/styleHooks.ts`; a
+  test checks it against every `data-shrike` value in `src` and the THEMING
+  table. Imports drop engine tokens with a warning; exporting a built-in writes
+  resolved tokens (`resolvedThemeTokens`). The conversation menu has a
+  "Disappearing messages" submenu, and the group details popover offers
+  "Rename group" (admins only). Both go through `SendService.updateConversation`
+  (+ `capabilities.updateConversation`); the mock now writes the "You set…"
+  system line, as signal-cli already did.
+- **16** `spaces.ts` says "community-style".
+- **From B's review.** `tokenValues` rejects `src(`. `MessageItem`'s Escape and
+  `useTypeToFocus` reuse `overlayOwnsKeys`/`describeFocus`.

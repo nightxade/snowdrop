@@ -31,7 +31,7 @@ const PROPERTY: Record<TokenKind, string> = {
 };
 
 /** Hard bans whatever the kind: escapes, resources, at-rules, declaration break-outs. */
-const FORBIDDEN = /[\\;{}<>@]|\/\*|\*\/|url\(|image-set\(|image\(|cross-fade\(|element\(/iu;
+const FORBIDDEN = /[\\;{}<>@]|\/\*|\*\/|url\(|src\(|image-set\(|image\(|cross-fade\(|element\(/iu;
 
 // Fallbacks where CSS.supports is missing (tests, old engines). Deliberately narrow.
 const NUM = String.raw`-?(?:\d+\.?\d*|\.\d+)`;

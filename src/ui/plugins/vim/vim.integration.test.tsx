@@ -137,6 +137,7 @@ describe('Vim mode: navigation', () => {
     press('k');
     expect(rows().indexOf(focused()!)).toBe(first - 1);
     keys('3k');
+    await settle(); // counted runs execute one after another
     expect(rows().indexOf(focused()!)).toBe(first - 4);
     press('j');
     expect(rows().indexOf(focused()!)).toBe(first - 3);
@@ -164,9 +165,13 @@ describe('Vim mode: navigation', () => {
     press('K', { shiftKey: true });
     expect(selected()).toBe(id);
     keys('2J');
+    await settle(); // counted runs execute one after another
     const two = selected();
+    blur(); // focus followed the switch; navigate from the list again
     keys('2K');
+    await settle();
     expect(selected()).toBe(id);
+    blur();
     keys('JJ');
     expect(selected()).toBe(two);
   });
@@ -286,7 +291,7 @@ describe('Vim mode: composer', () => {
     blur();
     press('i');
     typeIn('hey @');
-    expect(screen.queryByRole('listbox')).not.toBeNull();
+    expect(await screen.findByRole('listbox')).toBeTruthy();
     // The suggestion list owns Escape: it closes, and we stay in Insert mode.
     press('Escape');
     expect(screen.queryByRole('listbox')).toBeNull();
@@ -308,6 +313,71 @@ describe('Vim mode: composer', () => {
     expect(press('j', { isComposing: true })).toBe(false);
     expect(press('x', { keyCode: 229 })).toBe(false);
     expect(composer().value).toBe('abc');
+  });
+
+  it('turns IME input in Normal mode into one Insert change (no lost character, one undo)', async () => {
+    await bootVim();
+    blur();
+    press('i');
+    typeIn('hello brae');
+    press('Escape');
+    press('0');
+    const el = composer();
+    // The block cursor selects "h"; an IME composition would replace it.
+    expect(el.value.slice(el.selectionStart, el.selectionEnd)).toBe('h');
+    act(() => {
+      el.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true, data: '' }));
+    });
+    // Insert mode with a collapsed caret before the composition lands.
+    expect(pill()).toBe('INSERT');
+    expect([el.selectionStart, el.selectionEnd]).toEqual([0, 0]);
+    // The browser inserts the composed text at the caret.
+    act(() => {
+      el.dispatchEvent(new CompositionEvent('compositionupdate', { bubbles: true, data: 'に' }));
+    });
+    const value = `に${el.value}`;
+    fireEvent.change(el, { target: { value } });
+    el.setSelectionRange(1, 1);
+    fireEvent.select(el);
+    act(() => {
+      el.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: 'に' }));
+    });
+    expect(composer().value).toBe('にhello brae');
+    press('Escape');
+    expect(pill()).toBe('NORMAL');
+    // One undo step removes exactly the composed text…
+    press('u');
+    expect(composer().value).toBe('hello brae');
+    // …and "." repeats it like "i".
+    press('.');
+    expect(composer().value).toBe('にhello brae');
+  });
+
+  it('enters Insert mode on the IME keydown (keyCode 229) before compositionstart', async () => {
+    await bootVim();
+    blur();
+    press('i');
+    typeIn('abc');
+    press('Escape');
+    expect(pill()).toBe('NORMAL');
+    expect(press('Process', { keyCode: 229 })).toBe(false);
+    expect(pill()).toBe('INSERT');
+    const el = composer();
+    expect(el.selectionStart).toBe(el.selectionEnd);
+    expect(el.value).toBe('abc');
+  });
+
+  it('describes the composer with the current mode', async () => {
+    await bootVim();
+    blur();
+    press('i');
+    press('Escape');
+    const el = composer();
+    const id = el.getAttribute('aria-describedby');
+    expect(id).toBeTruthy();
+    expect(document.getElementById(id!)?.textContent).toBe('Vim: Normal mode');
+    press('i');
+    expect(document.getElementById(id!)?.textContent).toBe('Vim: Insert mode');
   });
 
   it('runs app keys from Normal mode (gt) without editing text', async () => {

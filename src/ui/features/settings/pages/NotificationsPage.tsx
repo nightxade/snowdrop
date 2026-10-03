@@ -132,7 +132,7 @@ export function NotificationsPage({ onNavigate }: PageProps) {
           control={
             <Button
               size="sm"
-              variant="ghost"
+              variant="secondary"
               onClick={() => {
                 onNavigate('plugins');
               }}

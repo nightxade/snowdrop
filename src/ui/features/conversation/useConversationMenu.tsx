@@ -9,6 +9,7 @@ import {
   Pin,
   PinOff,
   Rows3,
+  Timer,
 } from 'lucide-react';
 import { useCallback } from 'react';
 import { isMuted } from '@/core/stores';
@@ -16,7 +17,16 @@ import type { ConversationId } from '@/core/domain';
 import { spacesSelectors } from '@/core/stores';
 import { useShrike } from '@/ui/hooks';
 import type { MenuEntry } from '@/ui/primitives';
-import { archive, copyText, markRead, MUTE_OPTIONS, muteState } from './actions';
+import {
+  archive,
+  copyText,
+  markRead,
+  MUTE_OPTIONS,
+  muteState,
+  TIMER_OPTIONS,
+  updateConversation,
+} from './actions';
+import { pluginMenuEntries } from './pluginMenu';
 
 const ICON = 16;
 
@@ -69,28 +79,31 @@ export function useConversationMenu(id: ConversationId): () => MenuEntry[] {
       return space ? [space] : [];
     });
 
-    const plugin = registries.menus.conversation
-      .list()
-      .filter((item) => {
-        try {
-          return item.visible?.(conversation) ?? true;
-        } catch {
-          return false;
-        }
-      })
-      .map((item): MenuEntry => ({
-        kind: 'item',
-        id: `plugin:${item.owner}:${item.id}`,
-        label: item.label,
-        ...(item.danger ? { danger: true } : {}),
-        onSelect: () => {
-          try {
-            item.onSelect(conversation);
-          } catch (error) {
-            console.error(`[shrike] plugin "${item.owner}" menu item failed`, error);
-          }
-        },
-      }));
+    const plugin = pluginMenuEntries(
+      registries.menus.conversation.list(),
+      conversation,
+      registries,
+    );
+    const timer: MenuEntry[] = app.send.capabilities.updateConversation
+      ? [
+          {
+            kind: 'submenu',
+            id: 'timer',
+            label: 'Disappearing messages',
+            icon: <Timer size={ICON} />,
+            items: TIMER_OPTIONS.map((option): MenuEntry => ({
+              kind: 'check',
+              id: `timer-${option.seconds}`,
+              label: option.label,
+              checked: conversation.expireTimerSec === option.seconds,
+              onSelect: () => {
+                if (option.seconds !== conversation.expireTimerSec)
+                  void updateConversation(app, id, { expireTimerSec: option.seconds });
+              },
+            })),
+          },
+        ]
+      : [];
 
     return [
       {
@@ -179,6 +192,7 @@ export function useConversationMenu(id: ConversationId): () => MenuEntry[] {
         ],
       },
       ...categoryMove(),
+      ...timer,
       { kind: 'separator', id: 's2' },
       {
         kind: 'item',

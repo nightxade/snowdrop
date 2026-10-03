@@ -156,7 +156,7 @@
   height: 100%;
   margin: 0;
   border: 2px solid var(--shrike-text-faint);
-  border-radius: 6px;
+  border-radius: var(--shrike-radius-xs);
   background: transparent;
   appearance: none;
   cursor: pointer;
@@ -229,7 +229,7 @@
   height: 28px;
   padding: 0;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--shrike-radius-xs);
   background: none;
   cursor: pointer;
 }
@@ -240,12 +240,12 @@
 
 .colorInput::-webkit-color-swatch {
   border: none;
-  border-radius: 6px;
+  border-radius: var(--shrike-radius-xs);
 }
 
 .colorInput::-moz-color-swatch {
   border: none;
-  border-radius: 6px;
+  border-radius: var(--shrike-radius-xs);
 }
 
 .hex {

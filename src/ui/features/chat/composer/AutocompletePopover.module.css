@@ -75,7 +75,7 @@
 
 .emoji {
   width: 24px;
-  font-size: 20px;
+  font-size: var(--shrike-font-size-emoji-sm);
   line-height: 1;
   text-align: center;
 }

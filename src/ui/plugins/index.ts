@@ -12,7 +12,7 @@ import { vimPlugin } from './vim';
 
 export { noteBadgeText } from './ContactNotesBadge';
 
-export const UI_PLUGINS: readonly PluginDefinition[] = [
+const UI_PLUGINS: readonly PluginDefinition[] = [
   relativeTimestampsPlugin,
   messageToolsPlugin,
   contactNotesBadgePlugin,

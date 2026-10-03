@@ -63,3 +63,22 @@
   color: var(--shrike-text);
   font-weight: var(--shrike-font-weight-medium);
 }
+
+.rename {
+  display: flex;
+  flex-direction: column;
+  gap: var(--shrike-space-3);
+  width: 100%;
+}
+
+.renameActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--shrike-space-3);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--shrike-space-3);
+}

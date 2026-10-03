@@ -3,7 +3,17 @@
  * Base values come from tokens.css itself, so the test can't drift from it.
  */
 import { describe, expect, it } from 'vitest';
-import { BUILTIN_THEMES, contrastRatio, type Theme, type TokenName } from '@/core/themes';
+import {
+  ACCENT_PRESETS,
+  accentContext,
+  BUILTIN_THEMES,
+  buildThemeCss,
+  contrastRatio,
+  deriveAccentText,
+  textSurfaces,
+  type Theme,
+  type TokenName,
+} from '@/core/themes';
 import tokensCss from '@/ui/styles/tokens.css?raw';
 
 const base: Record<string, string> = {};
@@ -67,4 +77,57 @@ describe.each(BUILTIN_THEMES.map((t) => [t.name, t] as const))('%s contrast', (_
       expect(contrastRatio(t('text-on-avatar'), t(hue)), hue).toBeGreaterThanOrEqual(4.5);
     }
   });
+
+  // Hovered rows, menu items and the selected sidebar/member row: the tints
+  // composited over the surfaces they're painted on (P6: profile "(you)",
+  // hovered timestamps, accent text in popouts).
+  const surfaces = textSurfaces(theme);
+
+  it('covers the hover/selected composites, not just the flat surfaces', () => {
+    expect(surfaces.length).toBeGreaterThan(SURFACES.length - 2);
+  });
+
+  it.each(['text', 'text-muted', 'text-faint', 'text-link'] as TokenName[])(
+    '%s ≥ 4.5 on every hover and selected surface',
+    (fg) => {
+      for (const bg of surfaces)
+        expect(contrastRatio(t(fg), bg), `${fg} on ${bg}`).toBeGreaterThanOrEqual(4.5);
+    },
+  );
+
+  // "Failed to send" / "Not delivered" sit in message rows, which hover but never select.
+  it.each(['danger', 'warning'] as TokenName[])('%s ≥ 4.5 on hovered surfaces', (fg) => {
+    for (const bg of textSurfaces(theme, { selected: false }))
+      expect(contrastRatio(t(fg), bg), `${fg} on ${bg}`).toBeGreaterThanOrEqual(4.5);
+  });
+
+  const accentTextOf = (accent: string | null) =>
+    /--shrike-accent-text: (#[0-9a-f]{6});/u.exec(
+      buildThemeCss({
+        themeId: theme.id,
+        accent,
+        density: 'comfortable',
+        fontScale: 1,
+        zoom: 1,
+        saturation: 1,
+        reducedMotion: 'system',
+        customCss: '',
+      }),
+    )?.[1] ?? '';
+
+  it('accent-text ≥ 4.5 on its hardest surface (theme accent)', () => {
+    const text = accentTextOf(null);
+    for (const bg of surfaces)
+      expect(contrastRatio(text, bg), `accent-text on ${bg}`).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it.each(ACCENT_PRESETS.map((p) => [p.label, p.value] as const))(
+    'accent-text for the %s preset ≥ 4.5 on every surface',
+    (_label, value) => {
+      const text = accentTextOf(value);
+      expect(text).toBe(deriveAccentText(accentContext(theme, value).accent, surfaces));
+      for (const bg of surfaces)
+        expect(contrastRatio(text, bg), `${value} as text on ${bg}`).toBeGreaterThanOrEqual(4.5);
+    },
+  );
 });

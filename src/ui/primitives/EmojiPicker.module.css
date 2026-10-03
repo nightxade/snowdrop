@@ -60,7 +60,7 @@
   width: 32px;
   height: 32px;
   border-radius: var(--shrike-radius-sm);
-  font-size: 18px;
+  font-size: var(--shrike-font-size-emoji-sm);
   line-height: 1;
 }
 
@@ -113,7 +113,7 @@
   width: 36px;
   height: 36px;
   border-radius: var(--shrike-radius-sm);
-  font-size: 22px;
+  font-size: var(--shrike-font-size-emoji);
   line-height: 1;
 }
 
@@ -133,7 +133,7 @@
 }
 
 .previewEmoji {
-  font-size: 24px;
+  font-size: var(--shrike-font-size-emoji);
   line-height: 1;
 }
 

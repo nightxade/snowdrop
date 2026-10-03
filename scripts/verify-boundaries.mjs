@@ -45,6 +45,26 @@ const cases = [
   ['core/stores', "export type { Message } from '@/core/domain';", []],
   ['app', "export { MockBackend } from '@/core/backend/mock';", []],
   ['core/domain', 'const x = 1;\nexport default x;', ['no-restricted-syntax']],
+  // Top-level files (the entry point main.tsx) are outside the composition root: no adapters.
+  ['', "export { MockBackend } from '@/core/backend/mock';", ['import-x/no-restricted-paths']],
+  // ui/hooks sit below features and plugins.
+  ['ui/hooks', "export * from '@/ui/features/chat';", ['import-x/no-restricted-paths']],
+  ['ui/hooks', "export * from '@/ui/plugins';", ['import-x/no-restricted-paths']],
+  ['ui/hooks', "export type { Message } from '@/core/domain';", []],
+  // ui/plugins: core, primitives, hooks, and features only through their index.
+  [
+    'ui/plugins',
+    "export * from '@/ui/features/chat/lib/toMarkdown';",
+    ['import-x/no-restricted-paths'],
+  ],
+  ['ui/plugins', "export { toMarkdown } from '@/ui/features/chat';", []],
+  ['ui/plugins', "export { useShrike } from '@/ui/hooks';", []],
+  ['ui/plugins', "export { createShrike } from '@/app';", ['import-x/no-restricted-paths']],
+  [
+    'ui/plugins',
+    "export { SignalCliBackend } from '@/core/backend/signal-cli';",
+    ['import-x/no-restricted-paths'],
+  ],
 ];
 
 /** Removes fixtures left behind by a run that was killed before cleaning up. */

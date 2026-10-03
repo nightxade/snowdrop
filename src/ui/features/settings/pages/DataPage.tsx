@@ -1,4 +1,4 @@
-import { Download, LoaderCircle, Trash2 } from 'lucide-react';
+import { Download, LoaderCircle, RotateCcw, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useShrike } from '@/ui/hooks';
 import { Button, Modal } from '@/ui/primitives';
@@ -158,7 +158,7 @@ export function DataPage() {
           }
         />
       </SettingsSection>
-      <SettingsSection title="Danger zone">
+      <SettingsSection title="Danger zone" rowIds={['data.clear', 'data.reset']}>
         <SettingRow
           id="data.clear"
           label="Clear history"
@@ -182,6 +182,7 @@ export function DataPage() {
           control={
             <Button
               variant="danger"
+              icon={<RotateCcw size={16} />}
               onClick={() => {
                 setDanger('reset');
               }}

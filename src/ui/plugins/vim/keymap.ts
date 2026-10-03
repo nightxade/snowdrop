@@ -105,18 +105,11 @@ export const NAV_BINDINGS: readonly NavBinding[] = [
 ];
 
 /** Display form of a binding for keycaps: sequences split by spaces ("g g", "Space s", "Ctrl+D"). */
-export function displayKeys(keys: string, leader: string): string {
+function displayKeys(keys: string, leader: string): string {
   return parseKeySequence(keys, leader)
     .map((t) => formatKeyToken(t))
     .join(' ');
 }
-
-export const LEADER_OPTIONS = [
-  { value: ' ', label: 'Space' },
-  { value: ',', label: 'Comma (,)' },
-  { value: '\\', label: 'Backslash (\\)' },
-  { value: ';', label: 'Semicolon (;)' },
-] as const;
 
 type Row = [keys: string, title: string];
 

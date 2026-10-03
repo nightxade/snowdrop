@@ -26,7 +26,7 @@
   width: 32px;
   height: 32px;
   border-radius: var(--shrike-radius-sm);
-  font-size: 18px;
+  font-size: var(--shrike-font-size-emoji-sm);
   line-height: 1;
   transition:
     background-color var(--shrike-duration-fast) var(--shrike-ease),

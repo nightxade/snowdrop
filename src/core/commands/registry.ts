@@ -41,7 +41,7 @@ export class CommandRegistry {
   private readonly list = new ObservableList<RegisteredCommand>();
 
   constructor(
-    private readonly onError: (error: unknown, command: Command) => void = defaultOnError,
+    private readonly onError: (error: unknown, command: RegisteredCommand) => void = defaultOnError,
   ) {}
 
   /** Throws on a duplicate id so a misbehaving plugin fails loudly at start, not silently at runtime. */

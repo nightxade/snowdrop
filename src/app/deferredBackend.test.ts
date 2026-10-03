@@ -3,7 +3,9 @@ import type { ChatBackend } from '@/core/backend';
 import { MockBackend } from '@/core/backend/mock';
 import { SignalCliBackend } from '@/core/backend/signal-cli';
 import { ManualScheduler } from '@/core/lib';
-import { BACKEND_CAPABILITIES, deferredBackend, OPTIONAL_METHODS } from './deferredBackend';
+import { createMemoryStorage } from '@/core/persistence';
+import { BackendRegistry, BUILTIN_BACKENDS, type BackendEnvironment } from './backends';
+import { deferredBackend, OPTIONAL_METHODS } from './deferredBackend';
 
 const present = (b: ChatBackend) =>
   OPTIONAL_METHODS.filter((m) => (b as unknown as Record<string, unknown>)[m] !== undefined).sort();
@@ -12,8 +14,25 @@ describe('deferredBackend', () => {
   it('declares exactly the optional methods each real adapter has', () => {
     const mock = new MockBackend({ latencyMs: 0 });
     const cli = new SignalCliBackend({ baseUrl: '/signal-cli', account: null });
-    expect([...BACKEND_CAPABILITIES.mock].sort()).toEqual(present(mock));
-    expect([...BACKEND_CAPABILITIES['signal-cli']].sort()).toEqual(present(cli));
+    const registry = new BackendRegistry(BUILTIN_BACKENDS);
+    expect([...registry.get('mock')!.capabilities].sort()).toEqual(present(mock));
+    expect([...registry.get('signal-cli')!.capabilities].sort()).toEqual(present(cli));
+  });
+
+  it('loads every registered adapter through its factory, with matching kind and capabilities', async () => {
+    const env: BackendEnvironment = {
+      clock: new ManualScheduler(0),
+      scheduler: new ManualScheduler(0),
+      storage: createMemoryStorage(),
+      connection: { backend: null, daemonUrl: '/signal-cli', account: null, mockLiveliness: false },
+      updateConnection: () => undefined,
+      overrides: { mockLatencyMs: 0 },
+    };
+    for (const registration of BUILTIN_BACKENDS) {
+      const backend = (await registration.load())(env);
+      expect(backend.kind).toBe(registration.kind);
+      expect(present(backend)).toEqual([...registration.capabilities].sort());
+    }
   });
 
   it('exposes capabilities before the adapter loads and forwards calls after', async () => {
@@ -21,7 +40,11 @@ describe('deferredBackend', () => {
     const ready = new Promise<ChatBackend>((r) => {
       resolve = r;
     });
-    const deferred = deferredBackend('mock', ready);
+    const deferred = deferredBackend(
+      'mock',
+      new BackendRegistry(BUILTIN_BACKENDS).get('mock')!.capabilities,
+      ready,
+    );
     expect(deferred.kind).toBe('mock');
     expect('fetchHistory' in deferred).toBe(true);
     expect('resolveAttachmentUrl' in deferred).toBe(false);
@@ -44,7 +67,11 @@ describe('deferredBackend', () => {
   });
 
   it('rejects calls when the adapter fails to load', async () => {
-    const deferred = deferredBackend('signal-cli', Promise.reject(new Error('chunk failed')));
+    const deferred = deferredBackend(
+      'signal-cli',
+      new Set(['link']),
+      Promise.reject(new Error('chunk failed')),
+    );
     await expect(deferred.connect()).rejects.toThrow('chunk failed');
     expect(deferred.link).toBeDefined();
   });

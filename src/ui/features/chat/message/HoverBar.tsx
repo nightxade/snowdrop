@@ -38,13 +38,9 @@ export function HoverBar(props: HoverBarProps) {
   const { stores, registries } = useShrike();
   const quick = useStore(stores.local, localSelectors.quickReactions);
   const shift = useShiftHeld();
-  const plugins = useObservableList(registries.hoverActions).filter((a) => {
-    try {
-      return a.visible?.(m) ?? true;
-    } catch {
-      return false;
-    }
-  });
+  const plugins = useObservableList(registries.hoverActions).filter((a) =>
+    registries.isVisible(a, m, 'hover action'),
+  );
 
   return (
     <div className={styles.bar} role="toolbar" aria-label="Message actions" data-shrike="hover-bar">
@@ -97,11 +93,7 @@ export function HoverBar(props: HoverBarProps) {
               label={action.label}
               icon={<Icon size={20} />}
               onClick={() => {
-                try {
-                  action.onClick(m);
-                } catch (error) {
-                  console.error(`[shrike] plugin "${action.owner}" hover action failed`, error);
-                }
+                registries.invoke(action, 'hover action', () => action.onClick(m));
               }}
             />
           </PluginBoundary>

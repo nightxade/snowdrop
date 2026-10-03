@@ -114,3 +114,29 @@ export function contrastRatio(a: string, b: string): number {
   const lb = relativeLuminance(rb);
   return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
 }
+
+/** Parses `#rgb`, `#rrggbb`, `rgb()` and `rgba()` (comma or space syntax) into channels + alpha. */
+export function parseColor(css: string): { rgb: Rgb; alpha: number } | null {
+  const hex = parseHex(css);
+  if (hex) return { rgb: hex, alpha: 1 };
+  const m = /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)(?:\s*[,/]\s*([\d.]+%?))?\s*\)$/iu.exec(
+    css.trim(),
+  );
+  if (!m) return null;
+  const ch = (v: string | undefined) => Math.min(255, Number(v)) / 255;
+  const a = m[4];
+  const alpha = a === undefined ? 1 : a.endsWith('%') ? Number(a.slice(0, -1)) / 100 : Number(a);
+  return { rgb: { r: ch(m[1]), g: ch(m[2]), b: ch(m[3]) }, alpha: Math.min(1, Math.max(0, alpha)) };
+}
+
+/**
+ * The opaque colour you see when `top` (possibly translucent, like the hover
+ * tint) is painted over the opaque `base`. Null when either can't be parsed.
+ */
+export function compositeOver(top: string, base: string): string | null {
+  const t = parseColor(top);
+  const b = parseHex(base);
+  if (!t || !b) return null;
+  const mix = (f: number, g: number) => f * t.alpha + g * (1 - t.alpha);
+  return toHex({ r: mix(t.rgb.r, b.r), g: mix(t.rgb.g, b.g), b: mix(t.rgb.b, b.b) });
+}

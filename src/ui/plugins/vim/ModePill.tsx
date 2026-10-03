@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import type { ComposerSlotProps } from '@/core/plugins';
 import { Tooltip, VisuallyHidden } from '@/ui/primitives';
 import { modeLabel, type Mode } from './engine/engine';
 import type { ModeStore } from './modeStore';
@@ -21,11 +22,12 @@ export interface ModePillDeps {
 
 /**
  * The composer's mode indicator ("NORMAL", "INSERT", "VISUAL") with any
- * pending keys, like Vim's showcmd. Mode changes (not keys) are announced
- * politely to screen readers.
+ * pending keys, like Vim's showcmd. The current mode describes the composer
+ * field (`descriptionId`, read with the field on focus), and mode changes
+ * (not keys) are announced politely to screen readers.
  */
 export function makeModePill(deps: ModePillDeps) {
-  return function VimModePill({ conversationId }: { conversationId: string }) {
+  return function VimModePill({ conversationId, descriptionId }: ComposerSlotProps) {
     const snapshot = useSyncExternalStore(deps.modes.subscribe, () =>
       deps.modes.get(conversationId),
     );
@@ -48,6 +50,7 @@ export function makeModePill(deps: ModePillDeps) {
             )}
           </span>
         </Tooltip>
+        <VisuallyHidden id={descriptionId}>{`Vim: ${SPOKEN[mode]}`}</VisuallyHidden>
         <VisuallyHidden role="status">{announcement}</VisuallyHidden>
       </>
     );

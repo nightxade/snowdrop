@@ -4,14 +4,17 @@
  * Any CSS fetch to a third party is a beacon: it tells that server when you
  * use Shrike, and attribute selectors or `unicode-range` can even leak what
  * is on screen. So every statement or declaration that references a resource
- * (`@import`, `url(`, `image-set(`) is removed unless all its targets are
- * inline (`data:` / `blob:`).
+ * (`@import`, `url(`, `src(`, `image-set(`, `image(`, `cross-fade(`,
+ * `element(`) is removed unless all its targets are inline (`data:` /
+ * `blob:`). A target that is a `var()` counts as remote: the custom property
+ * could hold anything.
  *
  * Decisions are made on a *normalised* copy of each statement (comments
  * stripped, CSS escapes decoded), so `@\69mport`, `https\3a //`,
  * `@import/**\/url()` and friends can't sneak past; the statements that
- * survive are emitted as written. The production CSP (vite.config.ts) is the
- * second line of defence.
+ * survive are emitted as written. The production Content-Security-Policy
+ * meta tag (`devserver/csp.ts`, added to built pages) is the second line of
+ * defence.
  */
 
 export interface SanitizedCss {
@@ -63,16 +66,20 @@ export function normaliseCss(s: string): string {
 }
 
 const INLINE = /^(data|blob):/u;
-const RESOURCE = /@import|url\(|image-set\(|image\(|cross-fade\(|element\(/u;
+const RESOURCE = /@import|url\(|(?<![\w-])src\(|image-set\(|image\(|cross-fade\(|element\(/u;
 
 /** Resource targets referenced by a normalised statement (null = unparseable). */
 function targetsOf(normalised: string): string[] | null {
   const targets: string[] = [];
   for (const m of normalised.matchAll(/url\(\s*(['"]?)([^'")]*)\1\s*\)/gu))
     targets.push(m[2] ?? '');
-  // Bare strings inside image-set()/@import also fetch.
-  for (const m of normalised.matchAll(/(?:image-set\(|@import)([^;{}]*)/gu))
-    for (const s of (m[1] ?? '').matchAll(/(['"])(.*?)\1/gu)) targets.push(s[2] ?? '');
+  // Bare strings inside image-set()/src()/@import also fetch.
+  for (const m of normalised.matchAll(/(?:image-set\(|(?<![\w-])src\(|@import)([^;{}]*)/gu)) {
+    const args = m[1] ?? '';
+    for (const s of args.matchAll(/(['"])(.*?)\1/gu)) targets.push(s[2] ?? '');
+    // `src(var(--u))`, `image-set(var(--u) 1x)`: the property's value is unknown.
+    if (/var\(/u.test(args)) targets.push('var(');
+  }
   if (targets.length === 0) return null;
   return targets.map((t) => t.trim());
 }

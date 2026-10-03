@@ -59,7 +59,7 @@
 }
 
 .spaceEmoji {
-  font-size: 16px;
+  font-size: var(--shrike-font-size-header);
 }
 
 .spaceName {

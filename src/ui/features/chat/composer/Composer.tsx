@@ -1,5 +1,5 @@
 import { CirclePlus, Smile } from 'lucide-react';
-import { memo, useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { memo, useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import { useStore } from 'zustand';
 import { CoreCommand } from '@/core/commands';
 import type { ConversationId, ConversationView } from '@/core/domain';
@@ -44,6 +44,8 @@ function ComposerInner({ conversation }: { conversation: ConversationView }) {
   const [field, setField] = useState<HTMLDivElement | null>(null);
   const [emojiOpen, setEmojiOpen] = useState(false);
   const accessories = useObservableList(app.registries.composerAccessories);
+  // An accessory may describe the field's state (Vim's mode) on this id (ComposerSlotProps).
+  const descriptionId = useId();
   const syncCaret = useRef<() => void>(() => undefined);
   const suggestions = useComposerSurface({
     textarea,
@@ -183,6 +185,7 @@ function ComposerInner({ conversation }: { conversation: ConversationView }) {
               value={text}
               placeholder={placeholder}
               aria-label={placeholder}
+              aria-describedby={accessories.length > 0 ? descriptionId : undefined}
               {...field_.inputProps}
               spellCheck
               onChange={(e) => {
@@ -203,7 +206,7 @@ function ComposerInner({ conversation }: { conversation: ConversationView }) {
             <Slot
               name="composer.accessories"
               entries={accessories}
-              props={{ conversationId }}
+              props={{ conversationId, descriptionId }}
               className={styles.accessories}
             />
             <EmojiPickerPopover

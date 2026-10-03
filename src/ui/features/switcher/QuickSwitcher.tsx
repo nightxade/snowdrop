@@ -21,7 +21,6 @@ import { conversationFocusTarget, useNow, useShrike } from '@/ui/hooks';
 import { Badge, Kbd, Modal } from '@/ui/primitives';
 import {
   CommandPalette,
-  CommandPaletteEmpty,
   CommandPaletteGroup,
   CommandPaletteInput,
   CommandPaletteItem,
@@ -234,12 +233,16 @@ export function QuickSwitcher({
             }
           }}
         />
-        <CommandPaletteList label="Results">
-          <CommandPaletteEmpty>
-            {parseQuery(query).text
-              ? `Nothing matches “${parseQuery(query).text}”.`
-              : 'Nothing here yet.'}
-          </CommandPaletteEmpty>
+        <CommandPaletteList
+          label="Results"
+          empty={
+            sections.every((s) => s.items.length === 0)
+              ? parseQuery(query).text
+                ? `Nothing matches “${parseQuery(query).text}”.`
+                : 'Nothing here yet.'
+              : undefined
+          }
+        >
           {sections.map((section) => (
             <CommandPaletteGroup key={section.id} heading={section.heading}>
               {section.items.map((item) => (

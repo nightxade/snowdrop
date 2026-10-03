@@ -5,6 +5,12 @@ import styles from './rows.module.css';
 export interface SettingsSectionProps {
   /** Matches `SettingsEntry.section` so search can hide empty sections. */
   id?: string;
+  /**
+   * The entry ids of the rows inside, for sections without a registered
+   * `id` (keybind categories): under a search, the section and its heading
+   * disappear when none of them match.
+   */
+  rowIds?: readonly string[];
   title?: string;
   description?: ReactNode;
   children: ReactNode;
@@ -14,6 +20,7 @@ export interface SettingsSectionProps {
 
 export function SettingsSection({
   id,
+  rowIds,
   title,
   description,
   children,
@@ -22,6 +29,7 @@ export function SettingsSection({
   const filter = useSettingsFilter();
   const headingId = useId();
   if (id && !filter.isSectionVisible(id)) return null;
+  if (rowIds && !rowIds.some((row) => filter.isVisible(row))) return null;
   return (
     <section className={styles.section} aria-labelledby={title ? headingId : undefined}>
       {(title ?? actions) && (

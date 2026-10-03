@@ -66,7 +66,7 @@ describe('themes', () => {
     for (const theme of BUILTIN_THEMES) {
       const bg = theme.tokens['bg-chat'] ?? duskChat;
       const text = theme.tokens.text ?? '#e6e8eb';
-      const muted = theme.tokens['text-muted'] ?? '#a2a5aa';
+      const muted = theme.tokens['text-muted'] ?? '#aaadb2';
       expect(contrastRatio(text, bg)).toBeGreaterThanOrEqual(4.5);
       expect(contrastRatio(muted, bg)).toBeGreaterThanOrEqual(4.5);
     }

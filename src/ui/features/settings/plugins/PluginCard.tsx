@@ -21,6 +21,8 @@ export function PluginCard({ info, onOpenSettings, onTag, activeTag }: PluginCar
   const descId = useId();
   const hasSettings = Object.values(d.settings ?? {}).some((def) => !def.hidden);
   const failed = status === 'failed';
+  // A running plugin's latest failure (a hover action, command, transform…); Retry restarts it.
+  const runtimeError = status === 'running' ? info.runtimeError : undefined;
   return (
     <article
       className={styles.card}
@@ -66,10 +68,14 @@ export function PluginCard({ info, onOpenSettings, onTag, activeTag }: PluginCar
       <p id={descId} className={styles.cardDescription}>
         {d.description}
       </p>
-      {failed && (
+      {(failed || runtimeError) && (
         <div className={styles.failure} role="alert">
           <TriangleAlert size={14} aria-hidden />
-          <span className={styles.failureText}>Failed to start: {errorMessage(info.error)}</span>
+          <span className={styles.failureText}>
+            {runtimeError
+              ? `Failed in ${runtimeError.where}: ${errorMessage(runtimeError.error)}`
+              : `Failed to start: ${errorMessage(info.error)}`}
+          </span>
           <Button
             size="sm"
             variant="secondary"

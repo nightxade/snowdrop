@@ -18,7 +18,19 @@ import type {
 } from '@/core/domain';
 import type { Unsubscribe } from '@/core/lib';
 
-export type BackendKind = 'mock' | 'signal-cli';
+/**
+ * A transport's registered kind (`'mock'`, `'signal-cli'`, …): an open set.
+ * Backends are registered in the composition root (`app/backends.ts`).
+ */
+export type BackendKind = string;
+
+/** A registered backend as the UI lists it (Settings → Connection). */
+export interface BackendOption {
+  kind: BackendKind;
+  /** Short name: "Demo", "signal-cli". */
+  label: string;
+  description?: string;
+}
 
 /** A file picked by the user, before upload. */
 export interface OutgoingAttachment {

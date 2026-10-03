@@ -3,6 +3,7 @@
  * enable state persisted in settings, and error isolation (a plugin that
  * throws while starting is marked failed and cleaned up; others carry on).
  */
+import { parseConversationId } from '@/core/domain';
 import { DisposableStore, type Disposer, type Unsubscribe } from '@/core/lib';
 import type { Registries } from './registries';
 import {
@@ -11,21 +12,39 @@ import {
   type SettingsSchema,
   type SettingsValues,
 } from './settings';
-import type { PluginContext, PluginDefinition, PluginHost, PluginLogger } from './types';
+import { createPluginState } from './state';
+import type {
+  PluginContext,
+  PluginDefinition,
+  PluginHost,
+  PluginLogger,
+  PluginMessageActions,
+} from './types';
 
 export type PluginStatus = 'stopped' | 'starting' | 'running' | 'failed';
+
+/** A failure while the plugin was running (a hover action, a command, a transform…). */
+export interface PluginRuntimeError {
+  error: unknown;
+  /** What failed, e.g. `hover action "remind"`. */
+  where: string;
+}
 
 export interface PluginInfo {
   definition: PluginDefinition;
   enabled: boolean;
   status: PluginStatus;
+  /** Why `start` failed (status 'failed'). */
   error?: unknown;
+  /** The latest error from a running plugin; cleared by `retry` (a restart) or stop. */
+  runtimeError?: PluginRuntimeError;
 }
 
 interface Slot {
   definition: PluginDefinition;
   status: PluginStatus;
   error?: unknown;
+  runtimeError?: PluginRuntimeError;
   disposables?: DisposableStore;
   ctx?: PluginContext;
   /** Serialises start/stop per plugin. */
@@ -121,9 +140,26 @@ export class PluginRuntime {
     else await slot.chain;
   }
 
-  /** Starts a failed (enabled) plugin again: the card's Retry button. */
+  /**
+   * The card's Retry button: starts a failed (enabled) plugin again, or
+   * restarts a running one that has reported a runtime error.
+   */
   async retry(id: string): Promise<void> {
-    if (this.isEnabled(id)) await this.start(id);
+    if (!this.isEnabled(id)) return;
+    if (this.slots.get(id)?.status === 'running') await this.stop(id);
+    await this.start(id);
+  }
+
+  /**
+   * Records an error a running plugin caused outside start/stop (Registries'
+   * `onError` routes here in the app), so its card can show it with Retry.
+   * Ids that aren't plugins (`core`) are ignored.
+   */
+  reportRuntimeError(id: string, error: unknown, where: string): void {
+    const slot = this.slots.get(id);
+    if (!slot) return;
+    slot.runtimeError = { error, where };
+    this.changed();
   }
 
   private apply(id: string): Promise<void> {
@@ -153,6 +189,7 @@ export class PluginRuntime {
       slot.ctx = ctx;
       slot.status = 'starting';
       delete slot.error;
+      delete slot.runtimeError;
       this.changed();
       try {
         await slot.definition.start(ctx);
@@ -188,6 +225,7 @@ export class PluginRuntime {
       slot.disposables?.dispose();
       delete slot.disposables;
       delete slot.ctx;
+      delete slot.runtimeError;
       slot.status = 'stopped';
       this.changed();
     });
@@ -219,6 +257,7 @@ export class PluginRuntime {
         status: slot.status,
       };
       if (slot.error !== undefined) info.error = slot.error;
+      if (slot.runtimeError) info.runtimeError = slot.runtimeError;
       return info;
     });
   }
@@ -250,6 +289,16 @@ export class PluginRuntime {
         console.error(`[plugin:${id}]`, ...args);
       },
     };
+
+    const unavailable = (): never => {
+      throw new Error('Message actions are not available in this host');
+    };
+    const actions: PluginMessageActions = this.host.messages ?? {
+      reply: unavailable,
+      react: unavailable,
+      copy: unavailable,
+    };
+    const stores = this.host.stores;
 
     let styleCounter = 0;
     return {
@@ -290,6 +339,11 @@ export class PluginRuntime {
         addTypingGuard: (guard) => track(r.typingGuards.add({ guard, owner: id })),
       },
       messages: {
+        reply: (message) => {
+          actions.reply(message);
+        },
+        react: (message, emoji) => actions.react(message, emoji),
+        copy: (message) => actions.copy(message),
         addAccessory: (entryId, component) =>
           track(r.messageAccessories.add({ id: entryId, component, owner: id })),
         addDecoration: (entryId, component) =>
@@ -308,7 +362,22 @@ export class PluginRuntime {
       notifications: {
         addBooster: (boost) => track(r.notificationBoosters.add({ boost, owner: id })),
       },
-      stores: this.host.stores,
+      conversations: {
+        get: (conversationId) => stores.conversations.getState().byId[conversationId],
+        isDirect: (conversationId) =>
+          (stores.conversations.getState().byId[conversationId]?.kind ??
+            parseConversationId(conversationId)?.kind) === 'direct',
+      },
+      stores,
+      state: (initial) => {
+        const state = createPluginState(initial, (error) => {
+          this.report(error, id, 'state listener');
+        });
+        track(() => {
+          state.clear();
+        });
+        return state;
+      },
       backend: {
         kind: this.host.backend.kind,
         status: () => this.host.backend.status(),

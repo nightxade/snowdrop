@@ -1,5 +1,6 @@
 import * as RadixPopover from '@radix-ui/react-popover';
-import type { ReactElement, ReactNode } from 'react';
+import { useRef, type ReactElement, type ReactNode } from 'react';
+import { focusQuietly } from './focusQuietly';
 import styles from './Popover.module.css';
 
 export interface PopoverProps {
@@ -29,12 +30,15 @@ export function Popover({
   className,
   flush,
 }: PopoverProps) {
+  const anchor = useRef<HTMLButtonElement | null>(null);
   return (
     <RadixPopover.Root
       {...(open !== undefined ? { open } : {})}
       {...(onOpenChange ? { onOpenChange } : {})}
     >
-      <RadixPopover.Trigger asChild>{trigger}</RadixPopover.Trigger>
+      <RadixPopover.Trigger asChild ref={anchor}>
+        {trigger}
+      </RadixPopover.Trigger>
       <RadixPopover.Portal>
         <RadixPopover.Content
           className={[styles.content, className].filter(Boolean).join(' ')}
@@ -42,8 +46,14 @@ export function Popover({
           side={side}
           align={align}
           sideOffset={sideOffset}
+          avoidCollisions
           collisionPadding={12}
           aria-label={label}
+          onCloseAutoFocus={(e) => {
+            // Back on the trigger without popping its tooltip.
+            e.preventDefault();
+            if (anchor.current?.isConnected) focusQuietly(anchor.current);
+          }}
         >
           {children}
         </RadixPopover.Content>

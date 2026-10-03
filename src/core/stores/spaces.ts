@@ -2,7 +2,7 @@
  * Spaces: purely local organisation of Signal conversations.
  *
  * Signal has no concept of servers/channels. Spaces let the user group their
- * Signal groups into Discord-like collections with categories, on this device
+ * Signal groups into community-style collections with categories, on this device
  * only. A conversation belongs to at most one space; DMs still appear in Home
  * even when also placed in a space (Home is "everything personal").
  */

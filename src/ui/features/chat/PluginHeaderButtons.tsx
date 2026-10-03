@@ -7,13 +7,7 @@ import { IconButton, isRenderableComponent, PluginBoundary } from '@/ui/primitiv
 export function PluginHeaderButtons({ conversation }: { conversation: ConversationView }) {
   const { registries } = useShrike();
   const buttons = useObservableList(registries.headerButtons);
-  const visible = buttons.filter((b) => {
-    try {
-      return b.visible?.(conversation) ?? true;
-    } catch {
-      return false;
-    }
-  });
+  const visible = buttons.filter((b) => registries.isVisible(b, conversation, 'header button'));
   if (visible.length === 0) return null;
   return (
     <span data-slot="chat.header.buttons" style={{ display: 'contents' }}>
@@ -28,11 +22,7 @@ export function PluginHeaderButtons({ conversation }: { conversation: Conversati
               label={button.label}
               icon={<Icon size={20} />}
               onClick={() => {
-                try {
-                  button.onClick(conversation);
-                } catch (error) {
-                  console.error(`[shrike] plugin "${button.owner}" header button failed`, error);
-                }
+                registries.invoke(button, 'header button', () => button.onClick(conversation));
               }}
             />
           </PluginBoundary>

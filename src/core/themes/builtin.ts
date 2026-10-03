@@ -22,7 +22,15 @@ export interface Theme {
  * The base (Dusk) values the engine needs to reason about colour; tokens.css
  * holds the full set (a test keeps these two in sync with it).
  */
-export const DUSK_BASE = { accent: '#d4744a', 'bg-chat': '#1b1d22' } as const;
+export const DUSK_BASE = {
+  accent: '#d4744a',
+  'bg-chat': '#1b1d22',
+  'bg-sidebar': '#15171b',
+  'bg-elevated': '#22252b',
+  'bg-floating': '#0c0d10',
+  'bg-hover': 'rgba(255, 255, 255, 0.04)',
+  'bg-selected': 'rgba(255, 255, 255, 0.1)',
+} as const;
 
 export const DUSK: Theme = {
   id: 'dusk',
@@ -52,7 +60,7 @@ export const MIDNIGHT: Theme = {
     'border-strong': 'rgba(255, 255, 255, 0.14)',
     'code-bg': '#0b0c0e',
     'spoiler-bg': '#2c2e33',
-    'text-faint': '#7c7f84',
+    'text-faint': '#8a8d92',
   },
   preview: ['#000000', '#0e0f11', '#e6e8eb', '#d4744a'],
 };
@@ -77,10 +85,10 @@ export const LINEN: Theme = {
     'border-strong': 'rgba(40, 30, 20, 0.18)',
     text: '#26221f',
     'text-strong': '#0d0b0a',
-    'text-muted': '#5f5955',
-    'text-faint': '#655f5a',
+    'text-muted': '#534e4a',
+    'text-faint': '#605a55',
     'text-on-accent': '#ffffff',
-    'text-link': '#9e4623',
+    'text-link': '#98431d',
     accent: '#a84f2c',
     'accent-hover': '#98401c',
     'accent-active': '#873108',
@@ -89,7 +97,7 @@ export const LINEN: Theme = {
     'danger-strong': '#b3203f',
     'danger-soft': 'rgba(196, 47, 76, 0.12)',
     success: '#1c8456',
-    warning: '#9a6200',
+    warning: '#855400',
     info: '#1f6fb2',
     'mention-bg': 'rgba(168, 79, 44, 0.1)',
     'mention-bar': '#a84f2c',

@@ -20,7 +20,7 @@
   place-items: center;
   width: 24px;
   height: 24px;
-  border-radius: 7px;
+  border-radius: calc(var(--shrike-radius-tile) / 2);
   background: var(--tile-hue);
   color: var(--shrike-text-on-avatar);
   font-size: var(--shrike-font-size-xs);
@@ -77,7 +77,7 @@
   place-items: center;
   min-width: 18px;
   height: 18px;
-  border-radius: 4px;
+  border-radius: var(--shrike-radius-xs);
   background: var(--shrike-bg-selected);
   color: var(--shrike-text-strong);
   font-size: var(--shrike-font-size-xs);

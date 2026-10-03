@@ -12,7 +12,7 @@
   left: calc(var(--shrike-space-3) * -1);
   width: 4px;
   height: 12px;
-  border-radius: 0 2px 2px 0;
+  border-radius: 0 var(--shrike-radius-2xs) var(--shrike-radius-2xs) 0;
   background: var(--shrike-text-strong);
   transform: translateY(-50%);
 }

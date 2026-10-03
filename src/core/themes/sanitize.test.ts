@@ -3,7 +3,13 @@ import { readFileSync } from 'node:fs';
 import { ACCENT_PRESETS, BUILTIN_THEMES, DUSK_BASE } from './builtin';
 import { contrastRatio } from './color';
 import { validateTheme } from './custom';
-import { accentContext, buildThemeCss, deriveAccentText, deriveAccentTokens } from './engine';
+import {
+  accentContext,
+  buildThemeCss,
+  deriveAccentText,
+  deriveAccentTokens,
+  textSurfaces,
+} from './engine';
 import { cssUnescape, removedSummary, sanitizeUserCss } from './sanitize';
 import { isValidTokenValue, tokenKind } from './tokenValues';
 
@@ -31,6 +37,35 @@ describe('Custom CSS sanitiser (B1)', () => {
   ])('removes %s', (_label, css) => {
     expect(leaks(css)).toBe(false);
     expect(sanitizeUserCss(css).removed.length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ['src() with a string', '@font-face{font-family:x;src:src("https://evil.example/f.woff")}'],
+    ['escaped src()', 'a{background:image(\\73rc("https://evil.example/s.png"))}'],
+    ['src() with var()', 'a{--u:"x";background-image:src(var(--u))}'],
+  ])('removes CSS src(): %s', (_label, css) => {
+    const out = sanitizeUserCss(css);
+    expect(out.css).not.toMatch(/evil\.example|src\(/u);
+    expect(out.removed.length).toBeGreaterThan(0);
+  });
+
+  it('removes a custom property URL used through image-set(var())', () => {
+    const css =
+      ':root{--u:"https://evil.example/v.png"}\na{background-image:image-set(var(--u) 1x)}';
+    const out = sanitizeUserCss(css);
+    // The string alone fetches nothing; the declaration that would use it is gone.
+    expect(out.css).not.toMatch(/image-set/u);
+    expect(out.removed).toEqual(['background-image:image-set(var(--u) 1x)}']);
+  });
+
+  it('removes src(var()) even when other image-set candidates are inline', () => {
+    const css = 'a{background:image-set("data:image/png;base64,AA" 1x, var(--u) 2x)}';
+    expect(sanitizeUserCss(css).css).toBe('a{}');
+  });
+
+  it('does not treat names ending in "src(" as src()', () => {
+    const css = 'a{--x:my-src(1)}';
+    expect(sanitizeUserCss(css)).toEqual({ css, removed: [] });
   });
 
   it('keeps inline data:/blob: resources, including unquoted data URLs with ";"', () => {
@@ -118,10 +153,10 @@ describe('theme token values (B1)', () => {
 describe('accent text colour (M4)', () => {
   it('keeps tokens.css in sync with DUSK_BASE', () => {
     const css = readFileSync('src/ui/styles/tokens.css', 'utf8');
-    expect(css).toContain(`--shrike-accent: ${DUSK_BASE.accent};`);
-    expect(css).toContain(`--shrike-bg-chat: ${DUSK_BASE['bg-chat']};`);
+    for (const [name, value] of Object.entries(DUSK_BASE))
+      expect(css).toContain(`--shrike-${name}: ${value};`);
     const declared = /--shrike-accent-text: (#[0-9a-f]{6});/u.exec(css)?.[1];
-    expect(declared).toBe(deriveAccentText(DUSK_BASE.accent, DUSK_BASE['bg-chat']));
+    expect(declared).toBe(deriveAccentText(DUSK_BASE.accent, textSurfaces(BUILTIN_THEMES[0]!)));
   });
 
   it('moves lightness until text reaches 4.5:1, and leaves good accents alone', () => {

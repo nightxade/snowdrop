@@ -10,6 +10,7 @@ import {
   applyDelete,
   applyEdit,
   applyReaction,
+  formatDuration,
   messageId,
   type Attachment,
   type ConnectionStatus,
@@ -283,6 +284,35 @@ export class MockBackend implements ChatBackend {
     const next: Conversation = { ...conv, ...patch };
     this.world.conversations.set(conversationId, next);
     this.emitter.emit('conversationUpdated', structuredClone(next));
+    // Like signal-cli's adapter: nothing echoes our own change, so author the line here.
+    const lines: string[] = [];
+    if (patch.title !== undefined && patch.title !== conv.title)
+      lines.push(`You changed the group name to "${patch.title}".`);
+    if (patch.expireTimerSec !== undefined && patch.expireTimerSec !== conv.expireTimerSec)
+      lines.push(
+        patch.expireTimerSec > 0
+          ? `You set disappearing messages to ${formatDuration(patch.expireTimerSec)}.`
+          : 'You turned off disappearing messages.',
+      );
+    if (lines.length > 0) {
+      const sentAt = Math.max(this.clock.now(), this.lastSentAt + 1);
+      this.lastSentAt = sentAt;
+      const selfId = this.world.self.id;
+      this.deliver({
+        id: messageId(selfId, sentAt),
+        conversationId,
+        authorId: selfId,
+        sentAt,
+        receivedAt: sentAt,
+        body: '',
+        ranges: [],
+        attachments: [],
+        reactions: [],
+        status: 'sent',
+        kind: 'system',
+        systemText: lines.join(' '),
+      });
+    }
   }
 
   // ─── Test & demo hooks (not part of ChatBackend) ───────────────────────

@@ -8,7 +8,7 @@
  */
 import type { ReducedMotion, Density } from '@/core/stores';
 import { findTheme, type Theme } from './builtin';
-import { adjustLightness, contrastRatio, parseHex, withAlpha } from './color';
+import { adjustLightness, compositeOver, contrastRatio, parseHex, withAlpha } from './color';
 import { DUSK_BASE } from './builtin';
 import { sanitizeUserCss } from './sanitize';
 import { cssVar, type TokenName, type TokenOverrides } from './tokens';
@@ -69,26 +69,70 @@ export function deriveAccentTokens(accent: string, kind: Theme['kind']): TokenOv
 
 /**
  * The accent as a text colour: moves OKLCH lightness away from the
- * background (lighter on dark, darker on light) until it reaches `min`
- * contrast on it. Returns the accent unchanged when it already does, or when
- * either colour isn't hex (custom themes using rgb()).
+ * backgrounds (lighter on dark, darker on light) until it reaches `min`
+ * contrast on every one of them, so the hardest surface decides. Returns the
+ * accent unchanged when it already does; non-hex colours (custom themes
+ * using rgb()) are ignored, and with none left the accent is returned as is.
  */
-export function deriveAccentText(accent: string, background: string, min = 4.5): string {
-  if (!parseHex(accent) || !parseHex(background)) return accent;
-  if (contrastRatio(accent, background) >= min) return accent;
-  const lighter = contrastRatio('#ffffff', background) >= contrastRatio('#000000', background);
+export function deriveAccentText(
+  accent: string,
+  backgrounds: string | readonly string[],
+  min = 4.5,
+): string {
+  const list = (typeof backgrounds === 'string' ? [backgrounds] : backgrounds).filter(
+    (b) => parseHex(b) !== null,
+  );
+  if (!parseHex(accent) || list.length === 0) return accent;
+  const worst = (c: string) => Math.min(...list.map((b) => contrastRatio(c, b)));
+  if (worst(accent) >= min) return accent;
+  const first = list[0] as string;
+  const lighter = contrastRatio('#ffffff', first) >= contrastRatio('#000000', first);
   for (let step = 1; step <= 60; step++) {
     const best = adjustLightness(accent, (lighter ? 0.01 : -0.01) * step);
-    if (contrastRatio(best, background) >= min) return best;
+    if (worst(best) >= min) return best;
   }
   return lighter ? '#ffffff' : '#000000';
 }
 
-/** The effective accent and chat background of a theme (+ override). */
+type SurfaceToken = 'bg-chat' | 'bg-sidebar' | 'bg-elevated' | 'bg-floating';
+const SURFACE_TOKENS: readonly SurfaceToken[] = [
+  'bg-chat',
+  'bg-sidebar',
+  'bg-elevated',
+  'bg-floating',
+];
+
+/**
+ * The opaque colours text (and accent-coloured text) actually sits on in a
+ * theme: the four text surfaces, the hover tint painted over each of them
+ * (hovered message rows, sidebar rows, menu items, popout rows), and the
+ * selected tint over the chat and sidebar (the open conversation's row, the
+ * member whose profile is open). Values that aren't hex/rgba are skipped.
+ */
+export function textSurfaces(theme: Theme, { selected = true } = {}): string[] {
+  const token = (name: keyof typeof DUSK_BASE) => theme.tokens[name] ?? DUSK_BASE[name];
+  const out = new Set<string>();
+  for (const name of SURFACE_TOKENS) {
+    const base = token(name);
+    if (!parseHex(base)) continue;
+    out.add(base.toLowerCase());
+    const tints =
+      selected && (name === 'bg-chat' || name === 'bg-sidebar')
+        ? (['bg-hover', 'bg-selected'] as const)
+        : (['bg-hover'] as const);
+    for (const tint of tints.map(token)) {
+      const mixed = compositeOver(tint, base);
+      if (mixed) out.add(mixed);
+    }
+  }
+  return [...out];
+}
+
+/** The effective accent, chat background and text surfaces of a theme (+ override). */
 export function accentContext(theme: Theme, accentOverride: string | null) {
   const accent = accentOverride ?? theme.tokens.accent ?? DUSK_BASE.accent;
   const background = theme.tokens['bg-chat'] ?? DUSK_BASE['bg-chat'];
-  return { accent, background };
+  return { accent, background, surfaces: textSurfaces(theme) };
 }
 
 function tokenBlock(tokens: TokenOverrides): string {
@@ -101,11 +145,11 @@ function tokenBlock(tokens: TokenOverrides): string {
 /** Pure: the CSS text for the theme <style> tag. */
 export function buildThemeCss(input: AppearanceInput): string {
   const theme = findTheme(input.themeId, input.extraThemes);
-  const { accent, background } = accentContext(theme, input.accent);
+  const { accent, surfaces } = accentContext(theme, input.accent);
   const tokens: TokenOverrides = {
     ...theme.tokens,
     ...(input.accent ? deriveAccentTokens(input.accent, theme.kind) : {}),
-    'accent-text': deriveAccentText(accent, background),
+    'accent-text': deriveAccentText(accent, surfaces),
     'font-scale': String(input.fontScale),
     zoom: String(input.zoom),
     saturation: String(input.saturation),

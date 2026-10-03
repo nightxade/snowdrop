@@ -1,9 +1,10 @@
+import { Clock } from 'lucide-react';
 import type { CSSProperties } from 'react';
 import { useStore } from 'zustand';
 import { initialsFor, type ConversationId, type Message } from '@/core/domain';
 import { contactsSelectors } from '@/core/stores';
 import { useObservableList, useShrike } from '@/ui/hooks';
-import { Avatar, Slot } from '@/ui/primitives';
+import { Avatar, Slot, VisuallyHidden } from '@/ui/primitives';
 import * as act from './actions';
 import { Attachments } from './Attachments';
 import { AuthorPopover } from './AuthorPopover';
@@ -25,6 +26,8 @@ export interface MessageContentProps {
   continuation: boolean;
   editing: boolean;
   pending: boolean;
+  /** The row's context menu is open: no tooltips over it. */
+  menuOpen?: boolean;
   /** Id for the row's aria-describedby. */
   bodyId: string;
   onEditDone: () => void;
@@ -41,6 +44,7 @@ export function MessageContent({
   continuation,
   editing,
   pending,
+  menuOpen = false,
   bodyId,
   onEditDone,
 }: MessageContentProps) {
@@ -71,8 +75,8 @@ export function MessageContent({
             </button>
           </AuthorPopover>
         )}
-        {!compact && !showHeader && <MessageMeta message={m} variant="gutter" />}
-        {compact && <MessageMeta message={m} variant="compact" />}
+        {!compact && !showHeader && <MessageMeta message={m} variant="gutter" quiet={menuOpen} />}
+        {compact && <MessageMeta message={m} variant="compact" quiet={menuOpen} />}
       </div>
       <div className={styles.content}>
         {showHeader && (
@@ -95,7 +99,7 @@ export function MessageContent({
                 props={{ message: m }}
               />
             )}
-            {!compact && <MessageMeta message={m} variant="header" />}
+            {!compact && <MessageMeta message={m} variant="header" quiet={menuOpen} />}
           </span>
         )}
         {editing ? (
@@ -113,7 +117,12 @@ export function MessageContent({
               ranges={m.ranges}
               selfId={selfId}
               nameFor={nameFor}
-              trailing={m.editedAt !== undefined ? <EditedTag editedAt={m.editedAt} /> : null}
+              trailing={
+                <>
+                  {m.editedAt !== undefined && <EditedTag editedAt={m.editedAt} />}
+                  {pending && <PendingMark />}
+                </>
+              }
               renderMention={(contactId, pill) => (
                 <AuthorPopover contactId={contactId} conversationId={conversationId} side="top">
                   {pill}
@@ -122,6 +131,7 @@ export function MessageContent({
             />
           )
         )}
+        {pending && m.body === '' && !editing && <PendingMark />}
         {!editing && !m.deleted && <MessageNotes message={m} nameFor={nameFor} />}
         {m.attachments.length > 0 && (
           <Attachments
@@ -149,6 +159,16 @@ export function MessageContent({
         )}
       </div>
     </>
+  );
+}
+
+/** Small clock after a message that hasn't left yet; screen readers hear "Sending". */
+function PendingMark() {
+  return (
+    <span className={styles.pendingMark}>
+      <Clock size={12} aria-hidden />
+      <VisuallyHidden>Sending</VisuallyHidden>
+    </span>
   );
 }
 

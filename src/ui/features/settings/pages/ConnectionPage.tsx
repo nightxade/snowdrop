@@ -1,7 +1,7 @@
 import { CircleCheck, CircleX, LoaderCircle, PlugZap, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 import { useStore } from 'zustand';
-import type { BackendChoice } from '@/core/stores';
+import type { BackendKind } from '@/core/backend';
 import { validateDaemonUrl } from '@/ui/features/onboarding';
 import { useShrike, type DaemonProbe } from '@/ui/hooks';
 import { Button, Modal, Segmented, Switch, TextInput } from '@/ui/primitives';
@@ -18,7 +18,7 @@ const STATUS_TEXT = {
 } as const;
 
 /** Explains a failed probe in terms of what to do next. */
-export function probeAdvice(result: Extract<DaemonProbe, { ok: false }>): string {
+function probeAdvice(result: Extract<DaemonProbe, { ok: false }>): string {
   switch (result.kind) {
     case 'unreachable':
       return 'Nothing answered at that address. Is the daemon running (signal-cli daemon --http 127.0.0.1:8080), and is the dev proxy pointing at it?';
@@ -38,7 +38,10 @@ export function ConnectionPage() {
   const [saved, set] = useSettingsSection('connection');
   const status = useStore(app.stores.session, (s) => s.status);
   const running = app.backend.kind;
-  const [backend, setBackend] = useState<BackendChoice>(saved.backend ?? running);
+  // Every registered transport (app/backends.ts), in registration order.
+  const options = app.backends.options();
+  const runningLabel = options.find((o) => o.kind === running)?.label ?? running;
+  const [backend, setBackend] = useState<BackendKind>(saved.backend ?? running);
   const [url, setUrl] = useState(saved.daemonUrl);
   const [account, setAccount] = useState(saved.account ?? '');
   const [probe, setProbe] = useState<DaemonProbe | 'testing' | null>(null);
@@ -71,7 +74,7 @@ export function ConnectionPage() {
             <>
               Now using{' '}
               <strong className={styles.strong}>
-                {running === 'mock' ? 'the demo' : 'signal-cli'}
+                {running === 'mock' ? 'the demo' : runningLabel}
               </strong>
               :{' '}
               <span data-status={status} className={styles.status}>
@@ -84,10 +87,7 @@ export function ConnectionPage() {
               labelledBy={ids.labelId}
               label="Source"
               value={backend}
-              options={[
-                { value: 'mock', label: 'Demo' },
-                { value: 'signal-cli', label: 'signal-cli' },
-              ]}
+              options={options.map((o) => ({ value: o.kind, label: o.label }))}
               onValueChange={(v) => {
                 setBackend(v);
                 setProbe(null);

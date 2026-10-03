@@ -153,13 +153,9 @@ export function buildMessageMenu(
     );
   }
 
-  const plugins = app.registries.menus.message.list().filter((item) => {
-    try {
-      return item.visible?.(m) ?? true;
-    } catch {
-      return false;
-    }
-  });
+  const plugins = app.registries.menus.message
+    .list()
+    .filter((item) => app.registries.isVisible(item, m, 'menu item'));
   if (plugins.length > 0) {
     entries.push({ kind: 'separator', id: 'sep-plugins' });
     for (const item of plugins) {
@@ -171,11 +167,7 @@ export function buildMessageMenu(
         ...(Icon ? { icon: <Icon size={ICON} /> } : {}),
         ...(item.danger ? { danger: true } : {}),
         onSelect: () => {
-          try {
-            item.onSelect(m);
-          } catch (error) {
-            console.error(`[shrike] plugin "${item.owner}" menu item failed`, error);
-          }
+          app.registries.invoke(item, 'menu item', () => item.onSelect(m));
         },
       });
     }

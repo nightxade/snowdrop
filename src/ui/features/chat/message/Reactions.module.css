@@ -33,7 +33,7 @@
 }
 
 .emoji {
-  font-size: 16px;
+  font-size: var(--shrike-font-size-header);
   line-height: 1;
 }
 
@@ -74,6 +74,6 @@
 }
 
 .tipEmoji {
-  font-size: 24px;
+  font-size: var(--shrike-font-size-emoji);
   line-height: 1;
 }

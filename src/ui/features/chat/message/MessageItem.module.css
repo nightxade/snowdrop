@@ -64,8 +64,18 @@
   background: var(--shrike-highlight-bg);
 }
 
-.row[data-pending] .content {
-  opacity: 0.6;
+/* Not sent yet: quieter body text (still ≥ 4.5:1), author colour unchanged, plus a clock. */
+.row[data-pending] .body,
+.row[data-pending] .body strong {
+  color: var(--shrike-text-muted);
+}
+
+.pendingMark {
+  display: inline-grid;
+  place-items: center;
+  margin-left: var(--shrike-space-2);
+  color: var(--shrike-text-muted);
+  vertical-align: -1px;
 }
 
 .quote {

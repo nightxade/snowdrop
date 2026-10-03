@@ -66,6 +66,9 @@ export class VimController {
   /** Where the next composer focus should land in Insert mode (i/a/I/A, reply). */
   private pendingInsert: 'cursor' | 'after' | 'start' | 'end' | null = null;
   private readonly actions: VimActions;
+  /** App commands run one after another ("5J" must not race five conversation switches). */
+  private queue: Promise<unknown> = Promise.resolve();
+  private running = 0;
 
   constructor(
     private readonly host: VimHost,
@@ -74,7 +77,25 @@ export class VimController {
     this.modes = modes;
     this.actions = {
       run: (id, count) => {
-        for (let i = 0; i < Math.max(1, count ?? 1); i++) void host.execute(id);
+        const times = Math.max(1, count ?? 1);
+        // A single run starts at once, like a keybind, unless a counted run is still going.
+        if (times === 1 && this.running === 0) {
+          void host.execute(id);
+          return;
+        }
+        const task = async () => {
+          this.running++;
+          try {
+            for (let i = 0; i < times; i++) {
+              // A command that's missing, disabled or failed ends the repeat.
+              if (!(await host.execute(id))) break;
+            }
+          } finally {
+            this.running--;
+          }
+        };
+        // Counted runs go one after another, each awaiting the previous command.
+        this.queue = this.running === 0 ? task() : this.queue.then(task);
       },
       insert: (where) => {
         this.pendingInsert = where;
@@ -250,6 +271,26 @@ export class VimController {
     if (where && state.mode === 'insert') {
       surface.write({ text: state.text, selectionStart: state.cursor, selectionEnd: state.cursor });
     }
+  }
+
+  /**
+   * IME composition is about to start in the composer (compositionstart, or
+   * the keyCode-229 keydown before it). Outside Insert mode the composition
+   * would replace the block cursor's character and bypass the engine's undo,
+   * so collapse the caret and enter Insert mode first: the composed text then
+   * lands as an ordinary Insert change (one undo step, repeatable with ".").
+   */
+  onCompositionStart(surface: TextSurface): void {
+    if (!this.host.options().composer) return;
+    const state = this.stateFor(surface);
+    if (state.mode === 'insert') return;
+    this.composerNav.reset();
+    this.commit(surface, state, enterInsert(state, 'cursor', ['i']), true);
+  }
+
+  /** For tests: resolves once queued app commands (counted runs) have finished. */
+  idle(): Promise<void> {
+    return this.queue.then(() => undefined);
   }
 
   /** A click or drag in the composer: show the block cursor there, or Visual mode for a selection. */

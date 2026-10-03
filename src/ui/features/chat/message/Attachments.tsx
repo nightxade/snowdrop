@@ -1,7 +1,7 @@
 import { Download, FileText, ImageOff, Play, RotateCw } from 'lucide-react';
-import { memo, useState, type CSSProperties } from 'react';
+import { lazy, memo, Suspense, useState, type CSSProperties } from 'react';
 import type { Attachment, ConversationId } from '@/core/domain';
-import { Lightbox, Tooltip, type LightboxItem } from '@/ui/primitives';
+import { Tooltip, type LightboxItem } from '@/ui/primitives';
 import { attachmentKind, fitMedia, formatBytes, isGridMedia, safeHref } from '../lib/attachments';
 import { useAttachmentUrl } from './useAttachmentUrl';
 import styles from './Attachments.module.css';
@@ -16,6 +16,11 @@ export interface AttachmentsProps {
 
 const GRID_MAX = 4;
 
+// The viewer is only fetched the first time someone opens a photo.
+const Lightbox = lazy(() =>
+  import('@/ui/primitives/Lightbox').then((m) => ({ default: m.Lightbox })),
+);
+
 export const Attachments = memo(function Attachments({
   conversationId,
   attachments,
@@ -25,6 +30,9 @@ export const Attachments = memo(function Attachments({
   const media = attachments.filter((a) => isGridMedia(a));
   const others = attachments.filter((a) => !isGridMedia(a));
   const [viewer, setViewer] = useState<number | null>(null);
+  // Mounted on first open, then kept: unmounting an open Radix dialog can leave the page inert.
+  const [viewerMounted, setViewerMounted] = useState(false);
+  if (viewer !== null && !viewerMounted) setViewerMounted(true);
   const [urls, setUrls] = useState<Record<string, string>>({});
 
   const items: LightboxItem[] = media.flatMap((a) => {
@@ -81,18 +89,19 @@ export const Attachments = memo(function Attachments({
           <FileCard key={a.id} conversationId={conversationId} attachment={a} pending={pending} />
         ),
       )}
-      {items.length > 0 && (
-        // Stays mounted: unmounting an open Radix dialog can leave the page inert.
-        <Lightbox
-          items={items}
-          index={Math.min(viewer ?? 0, items.length - 1)}
-          onIndexChange={setViewer}
-          open={viewer !== null}
-          onOpenChange={(o) => {
-            if (!o) setViewer(null);
-          }}
-          caption={caption}
-        />
+      {items.length > 0 && viewerMounted && (
+        <Suspense fallback={null}>
+          <Lightbox
+            items={items}
+            index={Math.min(viewer ?? 0, items.length - 1)}
+            onIndexChange={setViewer}
+            open={viewer !== null}
+            onOpenChange={(o) => {
+              if (!o) setViewer(null);
+            }}
+            caption={caption}
+          />
+        </Suspense>
       )}
     </div>
   );

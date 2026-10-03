@@ -2,8 +2,13 @@ import { Upload } from 'lucide-react';
 import { useRef, useState, type DragEvent } from 'react';
 import styles from './DropOverlay.module.css';
 
+/** Synthetic or cross-frame drag events can arrive without a DataTransfer. */
+function transfer(e: DragEvent): DataTransfer | null {
+  return e.dataTransfer;
+}
+
 function hasFiles(e: DragEvent): boolean {
-  return [...e.dataTransfer.types].includes('Files');
+  return [...(transfer(e)?.types ?? [])].includes('Files');
 }
 
 /**
@@ -23,21 +28,25 @@ export function useFileDrop(onFiles: (files: File[]) => void) {
         setDragging(true);
       },
       onDragOver: (e: DragEvent) => {
-        if (!hasFiles(e)) return;
+        const dt = transfer(e);
+        if (!dt || !hasFiles(e)) return;
         e.preventDefault();
-        e.dataTransfer.dropEffect = 'copy';
+        dt.dropEffect = 'copy';
       },
-      onDragLeave: (e: DragEvent) => {
-        if (!hasFiles(e)) return;
-        depth.current = Math.max(0, depth.current - 1);
+      // Leave and drop settle the overlay whatever they carry, so it can't get stuck.
+      onDragLeave: () => {
+        if (depth.current === 0) return;
+        depth.current -= 1;
         if (depth.current === 0) setDragging(false);
       },
       onDrop: (e: DragEvent) => {
-        if (!hasFiles(e)) return;
-        e.preventDefault();
+        const wasDragging = depth.current > 0;
         depth.current = 0;
         setDragging(false);
-        onFiles([...e.dataTransfer.files]);
+        const files = [...(transfer(e)?.files ?? [])];
+        if (!wasDragging && files.length === 0) return;
+        e.preventDefault();
+        if (files.length > 0) onFiles(files);
       },
     },
   };

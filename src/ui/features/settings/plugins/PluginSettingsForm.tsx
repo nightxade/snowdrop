@@ -56,7 +56,7 @@ export function PluginSettingsForm({ plugin }: { plugin: PluginDefinition }) {
 }
 
 /** The control for one schema field (exported for tests). */
-export function fieldFor(
+function fieldFor(
   def: SettingDefinition,
   value: unknown,
   onChange: (value: unknown) => void,

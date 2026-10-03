@@ -12,6 +12,7 @@ import {
 import { useCallback } from 'react';
 import { HOME, type SpaceId } from '@/core/stores';
 import { useShrike, type AppServices } from '@/ui/hooks';
+import { pluginMenuEntries } from '@/ui/features/conversation';
 import type { MenuEntry } from '@/ui/primitives';
 
 const ICON = 16;
@@ -39,28 +40,7 @@ export function useSpaceMenu(spaceId: SpaceId): () => MenuEntry[] {
     const hasUnread = space.categories.some((c) =>
       c.conversationIds.some((id) => (unread[id]?.count ?? 0) > 0),
     );
-    const plugin = registries.menus.space
-      .list()
-      .filter((item) => {
-        try {
-          return item.visible?.({ spaceId }) ?? true;
-        } catch {
-          return false;
-        }
-      })
-      .map((item): MenuEntry => ({
-        kind: 'item',
-        id: `plugin:${item.owner}:${item.id}`,
-        label: item.label,
-        ...(item.danger ? { danger: true } : {}),
-        onSelect: () => {
-          try {
-            item.onSelect({ spaceId });
-          } catch (error) {
-            console.error(`[shrike] plugin "${item.owner}" menu item failed`, error);
-          }
-        },
-      }));
+    const plugin = pluginMenuEntries(registries.menus.space.list(), { spaceId }, registries);
     // Keyboard-accessible reordering (drag & drop is pointer-only).
     const rail = stores.spaces.getState().rail;
     const index = rail.findIndex((e) => e.type === 'space' && e.id === spaceId);

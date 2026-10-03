@@ -54,7 +54,12 @@ export function AppShell() {
           data-layout={drawer ? 'drawer' : narrow ? 'narrow' : 'wide'}
         >
           {drawer ? (
-            <Drawer open={navOpen} onOpenChange={setNavOpen} label="Navigation">
+            <Drawer
+              open={navOpen}
+              onOpenChange={setNavOpen}
+              label="Navigation"
+              returnFocus={navToggle}
+            >
               <div className={styles.nav} data-shrike="drawer">
                 <Rail />
                 <Sidebar />
@@ -74,6 +79,12 @@ export function AppShell() {
     </ShellLayoutProvider>
   );
 }
+
+/** The chat header's hamburger: where focus returns when the navigation drawer closes. */
+const navToggle = () =>
+  document.querySelector<HTMLElement>(
+    '[data-shrike="chat-header"] button[aria-label^="Open navigation"]',
+  );
 
 /**
  * Below 1100px the member list is an overlay, so it starts closed there

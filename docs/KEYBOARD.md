@@ -180,8 +180,15 @@ Normal mode.
 - **Suggestions** (`@` `:` `/`) appear only in Insert mode. While the list is
   open it owns Esc and the arrows, so Esc closes it and keeps you in Insert.
 - **Mode pill:** `INSERT` (quiet), `NORMAL` (accent), `VISUAL` / `V-LINE`
-  (highlight), inside the field next to the emoji button. Mode changes are
-  announced politely to screen readers.
+  (highlight), inside the field next to the emoji button. The field's
+  accessible description is the current mode ("Vim: Normal mode"), so it is
+  read with the field on focus; mode changes are also announced politely.
+- **IME input outside Insert mode** (Japanese, Chinese, Korean…): starting a
+  composition switches to Insert mode at the cursor first, so the composed
+  text is inserted rather than replacing the character under the block
+  cursor, and it is one undo step (repeatable with `.`).
+- **Counts on app keys** (`5J`, `3]u`) run one after another, each waiting
+  for the previous one to finish.
 - **Block cursor:** a textarea can't draw one, so Normal mode shows the
   character under the cursor as a one-character, accent-coloured selection.
   On an empty line the normal thin caret shows instead. Visual modes use the

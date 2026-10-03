@@ -15,14 +15,14 @@ export function matchKeyword(text: string, keywords: readonly string[]): string 
 }
 
 import type { Message } from '@/core/domain';
-import type { OpaqueComponent } from '../registries';
+import type { ComponentLike, MessageSlotProps } from '../registries';
 
 export interface KeywordAlertsUi {
   /**
    * Builds the decoration shown next to the author of a matching message.
    * Receives the matcher so the component stays in sync with the settings.
    */
-  highlight?: (matcher: (message: Message) => string | null) => OpaqueComponent;
+  highlight?: (matcher: (message: Message) => string | null) => ComponentLike<MessageSlotProps>;
   /** CSS injected while highlighting is on (e.g. tinting the matching row). */
   highlightCss?: string;
 }

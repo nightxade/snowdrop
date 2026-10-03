@@ -93,3 +93,38 @@ export async function copyText(app: AppServices, text: string, what: string): Pr
     });
   }
 }
+
+/** Disappearing-message timers offered in the conversation menu (seconds; 0 = off). */
+export const TIMER_OPTIONS: readonly { seconds: number; label: string }[] = [
+  { seconds: 0, label: 'Off' },
+  { seconds: 30, label: '30 seconds' },
+  { seconds: 5 * 60, label: '5 minutes' },
+  { seconds: 60 * 60, label: '1 hour' },
+  { seconds: 8 * 60 * 60, label: '8 hours' },
+  { seconds: 24 * 60 * 60, label: '1 day' },
+  { seconds: 7 * 24 * 60 * 60, label: '1 week' },
+  { seconds: 28 * 24 * 60 * 60, label: '4 weeks' },
+];
+
+/**
+ * Changes the timer or group name for everyone. The conversation (and the
+ * "You set…" line in the timeline) updates when the transport confirms; a
+ * failure says so in a toast.
+ */
+export async function updateConversation(
+  app: AppServices,
+  id: ConversationId,
+  patch: { expireTimerSec?: number; title?: string },
+): Promise<boolean> {
+  const ok = await app.send.updateConversation(id, patch);
+  if (!ok)
+    app.stores.ui.getState().pushToast({
+      message:
+        patch.title !== undefined
+          ? 'Couldn’t rename the group. Check the connection and try again.'
+          : 'Couldn’t change disappearing messages. Check the connection and try again.',
+      kind: 'error',
+      source: 'core',
+    });
+  return ok;
+}

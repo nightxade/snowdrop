@@ -12,7 +12,7 @@
  * acknowledged. If the send never went out (it failed), an edit simply
  * rewrites what will be sent and a delete discards it.
  */
-import type { ChatBackend, OutgoingAttachment, SendInput } from '@/core/backend';
+import type { ChatBackend, ConversationPatch, SendInput } from '@/core/backend';
 import {
   advanceStatus,
   applyDelete,
@@ -24,7 +24,6 @@ import {
   messageId,
   parseMarkdownToRanges,
   pendingMessageId,
-  type Attachment,
   type BodyRange,
   type ConversationId,
   type Message,
@@ -33,6 +32,7 @@ import {
 import { createNonce, type Clock } from '@/core/lib';
 import type { MessageRepository } from '@/core/persistence';
 import type { Stores } from '@/core/stores';
+import { localAttachment, withLocalUrls } from './localAttachments';
 import { ReceiptBuffer } from './ReceiptBuffer';
 import {
   consoleReporter,
@@ -473,10 +473,11 @@ export class SendService {
   }
 
   /** What the transport supports beyond the required contract (menus hide the rest). */
-  get capabilities(): { pin: boolean; adminDelete: boolean } {
+  get capabilities(): { pin: boolean; adminDelete: boolean; updateConversation: boolean } {
     return {
       pin: this.deps.backend.pinMessage !== undefined,
       adminDelete: this.deps.backend.adminDelete !== undefined,
+      updateConversation: this.deps.backend.updateConversation !== undefined,
     };
   }
 
@@ -530,6 +531,29 @@ export class SendService {
     }
     this.deps.stores.messages.getState().remove(conversationId, target.id);
     await this.deps.repository.delete(target.id);
+  }
+
+  // ─── Conversation settings ─────────────────────────────────────────────
+
+  /**
+   * Changes the disappearing-messages timer, group name or description for
+   * everyone. Not optimistic: the conversation updates (and the "You set…"
+   * system line appears) when the transport confirms. Failures are reported
+   * and resolve to false.
+   */
+  async updateConversation(
+    conversationId: ConversationId,
+    patch: ConversationPatch,
+  ): Promise<boolean> {
+    const update = this.deps.backend.updateConversation?.bind(this.deps.backend);
+    if (!update) return false;
+    try {
+      await update(conversationId, patch);
+      return true;
+    } catch (error) {
+      this.onError(error, 'conversation update failed');
+      return false;
+    }
   }
 
   // ─── Typing ────────────────────────────────────────────────────────────
@@ -611,54 +635,4 @@ function sameRanges(a: readonly BodyRange[], b: readonly BodyRange[]): boolean {
       );
     })
   );
-}
-
-/** The optimistic copy of an outgoing attachment: shows the local preview until the transport has a URL. */
-function localAttachment(a: OutgoingAttachment, id: string): Attachment {
-  return {
-    id,
-    contentType: a.contentType,
-    fileName: a.fileName,
-    size: a.data.size,
-    ...(a.previewUrl !== undefined ? { url: a.previewUrl } : {}),
-    ...(a.width !== undefined ? { width: a.width } : {}),
-    ...(a.height !== undefined ? { height: a.height } : {}),
-  };
-}
-
-/**
- * Acknowledged attachments, keeping the local preview URL (and size) for any
- * the transport returned without one — otherwise our own photo would turn
- * into "not available" the moment it's sent. A preview superseded by a real
- * URL is an object URL nobody needs any more, so it is released.
- */
-function withLocalUrls(
-  acknowledged: readonly Attachment[] | undefined,
-  pending: readonly Attachment[] | undefined,
-): Attachment[] {
-  if (!acknowledged) return [...(pending ?? [])];
-  return acknowledged.map((a, i) => {
-    const local = pending?.[i];
-    if (!local) return a;
-    if (a.url !== undefined) {
-      if (local.url?.startsWith('blob:') && local.url !== a.url) revokeLater(local.url);
-      return { ...pickSize(local), ...a };
-    }
-    return { ...pickSize(local), ...a, ...(local.url !== undefined ? { url: local.url } : {}) };
-  });
-}
-
-function pickSize(a: Attachment): Partial<Attachment> {
-  return {
-    ...(a.width !== undefined ? { width: a.width } : {}),
-    ...(a.height !== undefined ? { height: a.height } : {}),
-  };
-}
-
-/** Rows still showing the old URL re-render on the next frame; release it after that. */
-function revokeLater(url: string): void {
-  if (typeof URL.revokeObjectURL !== 'function') return;
-  setTimeout(() => {
-    URL.revokeObjectURL(url);
-  }, 5_000);
 }

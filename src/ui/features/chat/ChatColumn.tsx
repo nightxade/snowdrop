@@ -70,6 +70,7 @@ function ChatColumnInner() {
                 if (!open) closeMembers();
               }}
               label="Members"
+              returnFocus={memberToggle}
             >
               <MembersPanel conversationId={selected} onClose={closeMembers} />
             </Drawer>
@@ -83,13 +84,15 @@ function ChatColumnInner() {
   );
 }
 
+const memberToggle = () => document.querySelector<HTMLElement>('[data-shrike="member-toggle"]');
+
 function NothingOpen() {
   const switcher = useKeybindLabel(CoreCommand.QuickSwitcher);
   const next = useKeybindLabel(CoreCommand.NextUnread);
   return (
     <div className={styles.empty}>
       <ShrikeMark size={56} className={styles.mark} />
-      <p className={styles.emptyTitle}>Pick a conversation</p>
+      <h1 className={styles.emptyTitle}>Pick a conversation</h1>
       <p className={styles.emptyBody}>Choose one from the list, or jump straight to one.</p>
       <dl className={styles.shortcuts}>
         {switcher && (

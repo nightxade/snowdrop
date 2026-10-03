@@ -7,6 +7,8 @@ export {
   muteState,
   openConversation,
   openDirectConversation,
+  TIMER_OPTIONS,
+  updateConversation,
 } from './actions';
 export { previewText, type PreviewContext } from './preview';
 export {
@@ -17,4 +19,5 @@ export {
   type AvatarLook,
 } from './useConversation';
 export { useConversationMenu } from './useConversationMenu';
+export { pluginMenuEntries } from './pluginMenu';
 export { formatPhone } from './formatPhone';

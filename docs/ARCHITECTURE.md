@@ -48,25 +48,25 @@ An arrow means "may import". Arrows are transitive downwards (a feature may
 also import `core/domain`, `core/stores`, `core/themes`…); the diagram shows
 the main edges, not every one.
 
-| Layer                     | Responsibility                                                                                                                              |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `core/lib`                | Typed `Emitter`, `Clock`/`Scheduler` (+ `ManualScheduler` for tests), `DisposableStore`, `ObservableList`, nonces.                          |
-| `core/domain`             | Pure types (`Message`, `Conversation`, `Contact`…) and pure helpers (markdown → ranges, grouping, fuzzy, ids).                              |
-| `core/backend/types.ts`   | The `ChatBackend` contract and `BackendEvents`.                                                                                             |
-| `core/backend/mock`       | Seeded demo world with simulated activity.                                                                                                  |
-| `core/backend/signal-cli` | JSON-RPC over HTTP + SSE adapter for a local signal-cli daemon ([SIGNAL_CLI.md](SIGNAL_CLI.md)).                                            |
-| `core/persistence`        | `MessageRepository` (memory and IndexedDB), versioned key-value settings storage.                                                           |
-| `core/stores`             | zustand vanilla stores, one slice per file, plus memoised selectors.                                                                        |
-| `core/services`           | `SyncService`, `SendService`, `HistoryService`, `NotificationService`, `ReceiptBuffer`, history export.                                     |
-| `core/commands`           | `CommandRegistry`, keybind parsing/matching (`KeybindDispatcher`), key layers (`KeyLayerStack`), core command ids.                          |
-| `core/plugins`            | `PluginRuntime`, `Registries` (extension points), settings schemas, headless built-in plugins.                                              |
-| `core/themes`             | Token names, built-in themes, the theme engine, the CSS sanitiser, theme import/export.                                                     |
-| `ui/primitives`           | Buttons, menus, dialogs, `Slot`/`PluginBoundary`… Thin wrappers over Radix, cmdk, frimousse, dnd-kit, sonner.                               |
-| `ui/hooks`                | `useShrike()` (`AppServices`), `useObservableList`, layout state, roving focus, focus targets, text surfaces.                               |
-| `ui/features/*`           | One folder per product area: `rail`, `sidebar`, `chat`, `members`, `settings`, `switcher`, `onboarding`, `spaces`, `conversation`, `shell`. |
-| `ui/plugins`              | Built-in plugins that render UI (Relative Timestamps, Message Tools, Pronoun & Notes Badge, Vim Mode, Keyword Alerts' UI half).             |
-| `ui/styles`               | `tokens.css` (the Dusk base theme), `global.css`, `reset.css`.                                                                              |
-| `app`                     | `createShrike`, `deferredBackend`, `deferredRepository`, `ShrikeProvider`, `App` (onboarding vs shell), dev tools.                          |
+| Layer                     | Responsibility                                                                                                                                 |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `core/lib`                | Typed `Emitter`, `Clock`/`Scheduler` (+ `ManualScheduler` for tests), `DisposableStore`, `ObservableList`, nonces.                             |
+| `core/domain`             | Pure types (`Message`, `Conversation`, `Contact`…) and pure helpers (markdown → ranges, grouping, fuzzy, ids).                                 |
+| `core/backend/types.ts`   | The `ChatBackend` contract, `BackendEvents`, and `BackendKind` (an open set of registered kinds).                                              |
+| `core/backend/mock`       | Seeded demo world with simulated activity.                                                                                                     |
+| `core/backend/signal-cli` | JSON-RPC over HTTP + SSE adapter for a local signal-cli daemon ([SIGNAL_CLI.md](SIGNAL_CLI.md)).                                               |
+| `core/persistence`        | `MessageRepository` (memory and IndexedDB), versioned key-value settings storage.                                                              |
+| `core/stores`             | zustand vanilla stores, one slice per file, plus memoised selectors.                                                                           |
+| `core/services`           | `SyncService`, `SendService`, `HistoryService`, `NotificationService`, `ReceiptBuffer`, history export.                                        |
+| `core/commands`           | `CommandRegistry`, keybind parsing/matching (`KeybindDispatcher`), key layers (`KeyLayerStack`), core command ids.                             |
+| `core/plugins`            | `PluginRuntime`, `Registries` (extension points), settings schemas, headless built-in plugins.                                                 |
+| `core/themes`             | Token names, built-in themes, the theme engine, the CSS sanitiser, theme import/export.                                                        |
+| `ui/primitives`           | Buttons, menus, dialogs, `Slot`/`PluginBoundary`… Thin wrappers over Radix, cmdk, frimousse, dnd-kit, sonner.                                  |
+| `ui/hooks`                | `useShrike()` (`AppServices`), `useObservableList`, layout state, roving focus, focus targets, text surfaces.                                  |
+| `ui/features/*`           | One folder per product area: `rail`, `sidebar`, `chat`, `members`, `settings`, `switcher`, `onboarding`, `spaces`, `conversation`, `shell`.    |
+| `ui/plugins`              | Built-in plugins that render UI (Relative Timestamps, Message Tools, Pronoun & Notes Badge, Vim Mode, Keyword Alerts' UI half).                |
+| `ui/styles`               | `tokens.css` (the Dusk base theme), `global.css`, `reset.css`.                                                                                 |
+| `app`                     | `createShrike`, the backend registry (`backends.ts`), the plugin host (`pluginHost.ts`), core commands, `deferredBackend`/`Repository`, `App`. |
 
 ### The rules
 
@@ -82,10 +82,14 @@ These are enforced on every source file by `eslint.config.js`
    are pure presentational components.
 4. A feature (`ui/features/<name>/**`) may import another feature only through
    that feature's `index.ts`.
-5. The adapters under `core/backend/mock` and `core/backend/signal-cli` may
-   only be imported by `app/` (the composition root). Test files may import
-   the mock directly.
-6. Named exports only (`no-restricted-syntax` on `export default`), and no
+5. `ui/hooks` must not import `ui/features` or `ui/plugins` (they build on
+   it). `ui/plugins` may import `core`, `ui/primitives`, `ui/hooks` and a
+   feature's `index.ts`, never a feature's internals or `app/`.
+6. The adapters under `core/backend/mock` and `core/backend/signal-cli` may
+   only be imported by `app/` (the composition root); not by `ui/`, the rest
+   of `core/`, or top-level files such as `src/main.tsx`. Test files may
+   import the mock directly.
+7. Named exports only (`no-restricted-syntax` on `export default`), and no
    import cycles (`import-x/no-cycle`).
 
 `ui/features` and `ui/plugins` reach the composed app through
@@ -114,44 +118,56 @@ layer or a rule, add a case to the `cases` table in that script.
    (`createStores`), then binds them back to storage with `bindPersistence`
    (the `local` store is debounced: drafts change per keystroke).
 2. Picks the transport from `settings.connection.backend`, **once per
-   instance**. Switching transport means a new instance: `main.tsx` reloads
-   the page (`App`'s `onBackendChange`).
-   - `mock` (also before the user has chosen): in-memory repository, because
-     the demo world is regenerated relative to "now" on each launch.
-   - `signal-cli`: IndexedDB repository (`shrike-signal-cli`), because the
-     daemon keeps no history. Falls back to memory when IndexedDB is missing.
+   instance**, by looking it up in the backend registry (`app/backends.ts`;
+   the default, before the user has chosen, is `mock`). Switching transport
+   means a new instance: `main.tsx` reloads the page (`App`'s
+   `onBackendChange`). The registration says where history lives:
+   - `mock`: in memory, because the demo world is regenerated relative to
+     "now" on each launch.
+   - `signal-cli`: IndexedDB (`shrike-signal-cli`), because the daemon keeps
+     no history. Falls back to memory when IndexedDB is missing.
+
+   The settings are parsed against the registry too
+   (`createSettingsSchema({ isBackendKind })`): a stored kind this build
+   doesn't register reads as "not chosen", so the welcome screen shows.
+
 3. Creates `Registries`, `SendService`, `SyncService` and `HistoryService`
    with explicit dependencies (backend, repository, stores, clock, scheduler,
    a shared `ReceiptBuffer`, an error reporter).
 4. Creates the `PluginRuntime` with `withUiPlugins(BUILTIN_PLUGINS)` and a
-   `PluginHost` (stores, a narrow backend facade, toasts, error reporting).
+   `PluginHost` (`pluginHost.ts`: stores, a narrow backend facade, message
+   actions, toasts, error reporting). `Registries`' error handler logs plugin
+   failures and records them on the plugin (`reportRuntimeError`), so its card
+   shows them with Retry.
 5. Creates `NotificationService` (fed by `sync.on('message')`, boosted by
    `registries.boostReason`) and the `KeybindDispatcher`.
-6. Registers the core commands that need no view state (switcher, settings,
-   shortcuts, member list, mark read, spaces, theme commands…). Commands that
-   need view order are registered by the UI against the same ids
-   (`useCoreCommands`, `useChatCommands`).
+6. Registers the core commands that need no view state (`coreCommands.ts`:
+   switcher, settings, shortcuts, member list, mark read, spaces, theme
+   commands…). Commands that need view order are registered by the UI against
+   the same ids (`useCoreCommands`, `useChatCommands`).
 7. When given a `document`, applies appearance (`applyAppearance`) and
    re-applies it when appearance settings, Custom CSS, custom themes or plugin
    styles change. Safe mode passes empty Custom CSS and no imported themes.
 
 `shrike.start()` then connects and runs the initial sync, restores the outbox,
-seeds demo spaces (mock only, once), starts plugins and notifications. A
+runs the registration's `onStarted` (the demo seeds its spaces, once), starts
+plugins and notifications, and wires the registration's `attach` (the demo's
+liveliness switch). A
 failed start (e.g. signal-cli has no account yet) can simply be retried.
 `flush()` writes debounced state (called on `pagehide` and before reloads);
 `dispose()` tears everything down.
 
 ### Lazy adapters: `deferredBackend` and `deferredRepository`
 
-Each adapter is its own chunk, loaded with a dynamic `import()`. Services are
-wired synchronously, so `createShrike` hands them a `deferredBackend(kind,
-ready)`: a `ChatBackend` whose async methods await the adapter, whose `on()`
-subscriptions made early attach once it loads, and whose `getStatus()` reports
-`connecting` until then. Some code checks _which optional methods exist_ up
-front (`SendService.capabilities`, the UI's `resolveAttachmentUrl` check), so
-the per-kind optional methods are declared in `BACKEND_CAPABILITIES`
-(`src/app/deferredBackend.ts`); a test in `deferredBackend.test.ts` fails if
-that declaration drifts from the real adapters.
+Each adapter is its own chunk, loaded by its registration's `load()` (a
+dynamic `import()`). Services are wired synchronously, so `connectBackend`
+hands them a `deferredBackend(kind, capabilities, ready)`: a `ChatBackend`
+whose async methods await the adapter, whose `on()` subscriptions made early
+attach once it loads, and whose `getStatus()` reports `connecting` until
+then. Some code checks _which optional methods exist_ up front
+(`SendService.capabilities`, the UI's `resolveAttachmentUrl` check), so each
+registration declares its `capabilities`; a test in `deferredBackend.test.ts`
+loads every registered adapter and fails if the declaration drifts from it.
 
 `deferredRepository(ready)` does the same for `IdbMessageRepository.open()`:
 a `Proxy` that awaits the real repository before forwarding each call.
@@ -212,9 +228,10 @@ Adapters translate protocol quirks into the domain-level `BackendEvents`
   duplicate), appended to windows anchored to the present
   (`messages.appendLive`), bumps conversation activity and the sidebar preview
   (`conversations.noteLatest`), clears that author's typing state and, if new,
-  updates unread/mention counts and emits `sync.on('message')`. That event
-  feeds `NotificationService` and plugins' `ctx.backend.onMessage`. A
-  re-delivery neither re-counts nor re-notifies.
+  updates unread/mention counts and emits `sync.on('message')` (feeds
+  `NotificationService`) and `sync.on('messageArrived')` with `live: false`
+  for messages parked behind the initial sync (feeds plugins'
+  `ctx.backend.onMessage`). A re-delivery neither re-counts nor re-notifies.
 - Edits older than the stored edit are ignored; deletes, pins and reactions
   update the stored row and the loaded window in place; receipts only ever
   advance status (`advanceStatus`); disappearing messages are purged on a timer
@@ -335,32 +352,57 @@ memoised selectors (`stores/views.ts`).
 ## How to add a backend adapter
 
 A new transport (say, `matrix-bridge`) is a folder under `core/backend/` that
-implements `ChatBackend`. Nothing above the contract changes.
+implements `ChatBackend`, plus **one registration**. Nothing above the
+contract changes: settings parsing, `deferredBackend`, Settings → Connection
+and plugins' `ctx.backend.kind` all read the registry.
 
 1. **Create the folder** `src/core/backend/<kind>/` with an `index.ts` that
    exports the adapter class. Import only `@/core/domain`, `@/core/lib` and the
-   contract types from `@/core/backend`.
-2. **Add the kind** to `BackendKind` in `src/core/backend/types.ts`, and to
-   `BackendChoice` plus its parser in `src/core/stores/settings.ts` (the
-   persisted `connection.backend` value).
-3. **Declare capabilities** in `BACKEND_CAPABILITIES`
-   (`src/app/deferredBackend.ts`): exactly the optional methods your adapter
-   implements. Add the kind to the capability test in
-   `src/app/deferredBackend.test.ts`.
-4. **Wire it in the composition root:** a branch in `createBackend`
-   (`src/app/createShrike.ts`) that dynamic-imports the adapter, wraps it in
-   `deferredBackend(kind, ready)` and picks a repository (IndexedDB through
-   `deferredRepository` if the transport keeps no history).
-5. **Keep it behind the boundary:** add the folder name to the `adapterZones`
+   contract types from `@/core/backend`. Its `kind` is your kind string
+   (`/^[a-z][a-z0-9-]{0,31}$/`).
+2. **Register it** in `BUILTIN_BACKENDS` (`src/app/backends.ts`):
+
+   ```ts
+   const matrixBackend: BackendRegistration = {
+     kind: 'matrix-bridge',
+     label: 'Matrix bridge',
+     description: 'Signal rooms through a Matrix bridge.',
+     load: () =>
+       import('@/core/backend/matrix-bridge').then(
+         ({ MatrixBackend }) =>
+           (env) =>
+             new MatrixBackend({
+               clock: env.clock,
+               scheduler: env.scheduler,
+               storage: env.storage,
+             }),
+       ),
+     capabilities: new Set(['fetchHistory']), // exactly the optional methods it implements
+     history: { kind: 'memory' }, // or { kind: 'indexeddb', name: 'shrike-matrix' } if the transport keeps none
+   };
+   ```
+
+   `env` (`BackendEnvironment`) carries the clock, scheduler, key-value
+   storage, the persisted connection settings and `updateConnection` for
+   settings the adapter discovers. Optional hooks: `onStarted` (after the
+   first successful start) and `attach` (wiring for the instance's lifetime;
+   returns its cleanup). `settingsSchema` is reserved for adapter-specific
+   options.
+
+3. **Keep it behind the boundary:** add the folder name to the `adapterZones`
    list in `eslint.config.js` (currently `['mock', 'signal-cli']`) so only
    `app/` may import it.
-6. **Expose it in the UI:** the welcome screen (`ui/features/onboarding`) and
-   Settings → Connection (`ui/features/settings/pages/ConnectionPage.tsx`) list
-   the choices; `ConnectionBanner` names the transport.
-7. **Test it** headless: drive it with a fake transport (see
+4. **Test it** headless: drive it with a fake transport (see
    `core/backend/signal-cli/testing.ts` for a scriptable fake daemon) and boot
    it through `createShrike` with injected fakes (see
-   `src/app/createShrike.signalCli.test.ts`).
+   `src/app/createShrike.signalCli.test.ts`, and `src/app/backends.test.ts`,
+   which boots a newly registered kind). `deferredBackend.test.ts` checks the
+   declared `capabilities` against the loaded adapter automatically.
+
+Settings → Connection lists the registered kinds. Connection fields specific
+to one transport (signal-cli's daemon address and account) and the welcome
+screen's two buttons are still written for the built-in transports; a new
+adapter with its own options adds them there.
 
 ### Contract checklist
 
@@ -391,13 +433,67 @@ implements `ChatBackend`. Nothing above the contract changes.
       only for allow-listed raster image/audio/video types (never SVG or HTML).
 - [ ] **Optional methods** (`fetchHistory`, `adminDelete`, `pinMessage`,
       `updateConversation`, `resolveAttachmentUrl`, `acknowledge`, `link`) are
-      either implemented properly or absent, and match `BACKEND_CAPABILITIES`.
+      either implemented properly or absent, and match the registration's
+      `capabilities`.
 - [ ] **Errors** carry a string `kind` (duck-typed into `session.errorKind`), so
       the UI can show onboarding states like signal-cli's `no-account`.
 - [ ] **`on()`** returns an unsubscribe; listener errors never break the
       adapter (use `Emitter` from `core/lib`).
 - [ ] **No raw protocol objects** leave the adapter; validate untrusted input at
       the boundary (`unknown` + narrowing, see `signal-cli/validate.ts`).
+
+### Future: opaque message ids
+
+Message identity is Signal's `(authorId, sentAt)` all the way through the
+contract (`MessageId = "<authorId>:<sentAt>"`, built by `messageId()`). A
+transport whose messages have opaque ids (Matrix event ids, say) can't fill
+those fields honestly. The plan is a `MessageRef` at the contract boundary,
+
+```ts
+interface MessageRef {
+  id: MessageId; // always set: the stored message's id
+  authorId?: string; // Signal-style transports
+  sentAt?: number;
+}
+```
+
+with each adapter mapping it to its native identity. It was deliberately not
+done in P6: it touches every adapter, both services and most of their tests.
+Every touch point:
+
+- **Contract (`core/backend/types.ts`).** `deleteForEveryone(conv, sentAt)`;
+  `adminDelete(conv, MessageRef)` and `markRead(conv, MessageRef[])` (today's
+  `MessageRef` is `{ authorId, sentAt }`); `EditInput.targetSentAt`;
+  `ReactInput` / `PinInput` `targetAuthorId` + `targetSentAt`; events
+  `messageEdited` / `messageDeleted` (`authorId` + `targetSentAt`),
+  `messagePinned` / `reaction` (`targetAuthorId` + `targetSentAt`),
+  `receipt.sentAts` (resolved via `messageId(self, sentAt)`), `readSync.messages`;
+  `SendResult.sentAt` (the new message's identity) and `HistoryQuery.before`
+  (a `sentAt` cursor).
+- **`SyncService`.** Every handler rebuilds ids with `messageId(e.authorId,
+e.targetSentAt)`; `onReceipt` maps `sentAts` to our own ids; `onReadSync`
+  resolves refs to conversations; read cursors and `markRead` send refs built
+  from stored messages.
+- **`SendService`.** Commits optimistic rows as `messageId(self,
+result.sentAt)`; `edit` / `react` / `deleteForEveryone` / `pin` /
+  `adminDelete` pass `real.authorId` / `real.sentAt`; queued operations on
+  pending rows replay against the acknowledged `(self, sentAt)`;
+  `ReceiptBuffer` is keyed by `sentAt`.
+- **`HistoryService`** pages with `before: sentAt`.
+- **Adapters.** The mock's world and liveliness, signal-cli's normaliser
+  (`normalise/envelope.ts`), `params.ts` (`targetTimestamp`,
+  `targetAuthor`, `quoteTimestamp`) and `SignalCliBackend`'s edit/react/delete/
+  pin/markRead.
+- **Domain.** `Message.sentAt` stays (display and ordering fallback), but
+  identity would be `Message.id` alone; `Quote` references `(authorId,
+sentAt)` too.
+- **Tests.** `services.test.ts`, `races.test.ts`, the signal-cli backend and
+  normaliser suites and `MockBackend.test.ts` construct refs directly.
+
+Migration order that keeps the suite green at each step: add `id` to the
+contract types alongside the Signal fields (adapters fill both); switch the
+services to read `id`; then make `authorId` / `sentAt` optional and let new
+adapters omit them.
 
 ## Testing
 

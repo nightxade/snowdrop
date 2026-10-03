@@ -1,7 +1,13 @@
 import { FileUp, ShieldAlert, TriangleAlert } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { CustomThemeData } from '@/core/stores';
-import { exportTheme, parseThemeJson, type Theme } from '@/core/themes';
+import {
+  exportTheme,
+  parseThemeJson,
+  parseTokenBlock,
+  resolvedThemeTokens,
+  type Theme,
+} from '@/core/themes';
 import { useShrike } from '@/ui/hooks';
 import { Button, Modal } from '@/ui/primitives';
 import { downloadText } from '../download';
@@ -75,10 +81,20 @@ export function ThemesPage() {
     });
   };
 
-  const onExport = (theme: Theme) => {
-    // Built-in ids are reserved, so an exported built-in imports as a copy.
+  const onExport = async (theme: Theme) => {
+    // Built-in ids are reserved, so an exported built-in imports as a copy. Its
+    // overrides are sparse (Dusk has none), so the file carries every resolved value.
     const builtin = !stores.settings.getState().customThemes.some((t) => t.id === theme.id);
-    const data = builtin ? { ...theme, id: `${theme.id}-copy`, name: `${theme.name} copy` } : theme;
+    let data = theme;
+    if (builtin) {
+      const { default: base } = await import('@/ui/styles/tokens.css?raw');
+      data = {
+        ...theme,
+        id: `${theme.id}-copy`,
+        name: `${theme.name} copy`,
+        tokens: resolvedThemeTokens(theme, parseTokenBlock(base)),
+      };
+    }
     downloadText(`${data.id}.shrike-theme.json`, exportTheme(data));
   };
 
@@ -108,7 +124,15 @@ export function ThemesPage() {
           label="Themes"
           description="Pick one to apply it. Hover a theme to export it as a starting point for your own."
           stacked
-          control={<ThemeCards label="Themes" manage onExport={onExport} />}
+          control={
+            <ThemeCards
+              label="Themes"
+              manage
+              onExport={(theme) => {
+                void onExport(theme);
+              }}
+            />
+          }
         />
         <SettingRow
           id="themes.import"

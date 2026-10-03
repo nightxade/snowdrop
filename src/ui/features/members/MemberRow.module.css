@@ -46,5 +46,5 @@
 
 .emoji {
   flex: none;
-  font-size: 14px;
+  font-size: var(--shrike-font-size-ui);
 }

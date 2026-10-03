@@ -6,12 +6,12 @@
  * field* instead of resetting everything.
  */
 import { createStore, type StoreApi } from 'zustand/vanilla';
+import type { BackendKind } from '@/core/backend';
 import { isRecord, type VersionedSchema } from '@/core/persistence';
 
 export type Density = 'comfortable' | 'compact';
 export type ReducedMotion = 'system' | 'on' | 'off';
 export type NotificationMode = 'all' | 'mentions' | 'none';
-export type BackendChoice = 'mock' | 'signal-cli';
 
 export interface AppearanceSettings {
   themeId: string;
@@ -52,8 +52,12 @@ export interface BehaviourSettings {
 }
 
 export interface ConnectionSettings {
-  /** Chosen on the welcome screen; null until the user picks. */
-  backend: BackendChoice | null;
+  /**
+   * A registered backend kind (`app/backends.ts`), chosen on the welcome
+   * screen; null until the user picks, or when the stored kind isn't
+   * registered in this build.
+   */
+  backend: BackendKind | null;
   /**
    * Base URL the *browser* uses to reach signal-cli. The default is the
    * same-origin Vite proxy path (`/signal-cli` → SHRIKE_SIGNAL_CLI_URL,
@@ -252,7 +256,15 @@ const oneOf = <T extends string>(v: unknown, options: readonly T[], fallback: T)
   typeof v === 'string' && (options as readonly string[]).includes(v) ? (v as T) : fallback;
 const HEX = /^#[0-9a-f]{6}$/iu;
 
-export function parseSettings(data: unknown): Settings {
+/** Syntax of a backend kind; which kinds exist is the backend registry's business. */
+const BACKEND_KIND = /^[a-z][a-z0-9-]{0,31}$/u;
+
+export interface SettingsParseOptions {
+  /** Whether a stored backend kind is registered; unknown kinds parse as null. */
+  isBackendKind?: (kind: string) => boolean;
+}
+
+export function parseSettings(data: unknown, options: SettingsParseOptions = {}): Settings {
   const d = defaultSettings();
   const root = isRecord(data) ? data : {};
   const a = isRecord(root.appearance) ? root.appearance : {};
@@ -304,7 +316,12 @@ export function parseSettings(data: unknown): Settings {
       linkPreviews: bool(b.linkPreviews, d.behaviour.linkPreviews),
     },
     connection: {
-      backend: c.backend === 'mock' || c.backend === 'signal-cli' ? c.backend : null,
+      backend:
+        typeof c.backend === 'string' &&
+        BACKEND_KIND.test(c.backend) &&
+        (options.isBackendKind?.(c.backend) ?? true)
+          ? c.backend
+          : null,
       daemonUrl:
         typeof c.daemonUrl === 'string' && c.daemonUrl.trim()
           ? c.daemonUrl.trim()
@@ -336,6 +353,20 @@ function parseCustomTheme(value: unknown): CustomThemeData | null {
     kind: value.kind === 'light' ? 'light' : 'dark',
     tokens,
     css: typeof value.css === 'string' ? value.css : '',
+  };
+}
+
+/**
+ * The persisted settings schema. The composition root passes the backend
+ * registry's `has` so a kind this build doesn't know falls back to the
+ * welcome screen; `settingsSchema` (no registry) accepts any well-formed kind.
+ */
+export function createSettingsSchema(
+  options: SettingsParseOptions = {},
+): VersionedSchema<Settings> {
+  return {
+    ...settingsSchema,
+    parse: (data) => parseSettings(data, options),
   };
 }
 
@@ -373,5 +404,5 @@ export const settingsSchema: VersionedSchema<Settings> = {
     },
   },
   defaults: defaultSettings,
-  parse: parseSettings,
+  parse: (data) => parseSettings(data),
 };

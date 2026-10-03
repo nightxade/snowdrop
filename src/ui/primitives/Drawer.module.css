@@ -1,6 +1,7 @@
 .overlay {
   position: fixed;
-  z-index: 30;
+  /* Same layer as the panel: DOM order then stacks a nested sheet (and its scrim) above its parent drawer. */
+  z-index: 31;
   inset: 0;
   background: var(--shrike-bg-overlay);
   animation: fade var(--shrike-duration-slow) var(--shrike-ease);

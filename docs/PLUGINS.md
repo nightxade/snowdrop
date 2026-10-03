@@ -146,8 +146,10 @@ ctx.settings.subscribe((values) => {
 ## Capabilities
 
 `PluginContext` (`src/core/plugins/types.ts`). UI contributions are React
-components; core stores them as opaque values, and `ui/` renders them inside
-per-plugin error boundaries.
+components. Core stays React-free but types each slot by its props
+(`ComponentLike<P> = (props: P) => unknown`), so a component written for the
+wrong slot is a compile error; `ui/` renders them inside per-plugin error
+boundaries.
 
 | Capability                                  | What it does                                                                       |
 | ------------------------------------------- | ---------------------------------------------------------------------------------- |
@@ -156,16 +158,19 @@ per-plugin error boundaries.
 | `ctx.slash.register(command)`               | A `/command` in the composer, with autocomplete.                                   |
 | `ctx.send.addTransform(fn)`                 | Rewrites outgoing drafts before they're sent.                                      |
 | `ctx.send.addTypingGuard(fn)`               | Suppresses outgoing typing indicators per conversation.                            |
-| `ctx.messages.addAccessory(id, Component)`  | Rendered under a message's body.                                                   |
-| `ctx.messages.addDecoration(id, Component)` | Rendered next to the author name.                                                  |
+| `ctx.messages.addAccessory(id, Component)`  | Rendered under a message's body (props `{ message }`).                             |
+| `ctx.messages.addDecoration(id, Component)` | Rendered next to the author name (props `{ message }`).                            |
 | `ctx.messages.addHoverAction(action)`       | A button in the message hover bar.                                                 |
+| `ctx.messages.reply / react / copy`         | Reply to, react to or copy a given message (not the focused one).                  |
+| `ctx.conversations.get(id) / isDirect(id)`  | Read-only conversation lookup; whether it's a one-to-one chat.                     |
+| `ctx.state(initial)`                        | A small observable value owned by the plugin (`usePluginState` in components).     |
 | `ctx.menus.add(location, item)`             | An item in a context menu.                                                         |
 | `ctx.headerBar.addButton(button)`           | A button in the chat header.                                                       |
 | `ctx.settingsPanels.add(panel)`             | A page under Settings → From plugins.                                              |
 | `ctx.styles.inject(css, id?)`               | Global CSS while the plugin runs.                                                  |
 | `ctx.notifications.addBooster(fn)`          | Marks messages as important (notify like a mention).                               |
 | `ctx.keys.addLayer(layer)`                  | A modal key layer that sees keys before everything else.                           |
-| `ctx.composer.addAccessory(id, Component)`  | Rendered inside the composer field.                                                |
+| `ctx.composer.addAccessory(id, Component)`  | Rendered inside the composer field (props `{ conversationId, descriptionId }`).    |
 | `ctx.toast(message, kind?)`                 | An in-app toast.                                                                   |
 | `ctx.log.info / warn / error`               | Console logging prefixed with `[plugin:<id>]`.                                     |
 | `ctx.stores`                                | Read-only access to every store.                                                   |
@@ -261,13 +266,61 @@ ctx.messages.addDecoration('bot-tag', ({ message }: { message: Message }) =>
 );
 ```
 
-Both receive `{ message }`. Accessories render under the body (slot
+Both receive `MessageSlotProps` (`{ message }`); a component that expects
+other props doesn't compile. Accessories render under the body (slot
 `message.accessories`), decorations next to the author name and time in the
 message header (slot `message.decorations`; continuation rows have no header,
 so they show no decorations). Return `null` to render nothing. Components are
-re-rendered when the message changes; to follow settings or other stores, use
+re-rendered when the message changes; to follow your own state use
+`ctx.state` + `usePluginState` (below), and for settings or other stores
 `useSyncExternalStore` (see the worked example and
 `src/ui/plugins/ContactNotesBadge.tsx`).
+
+### Message actions
+
+```ts
+ctx.messages.reply(message); // opens its conversation if needed, sets the reply, focuses the composer
+await ctx.messages.react(message, '👍'); // replaces your reaction (Signal allows one); no-op if already set
+await ctx.messages.copy(message); // plain text, mentions as names, with a toast; rejects if the clipboard refuses
+```
+
+These act on the message you pass, through the same services as the
+built-in hover bar and menu, so they work from anywhere: a hover action, a
+menu item, an `onMessage` listener. (The `MessageCommand` ids act on the
+_focused_ message instead, which is what key bindings want.)
+
+### Plugin state
+
+```tsx
+import { usePluginState } from '@/ui/hooks';
+
+const away = ctx.state(false); // PluginState<boolean>
+away.set(true);
+away.set((v) => !v); // updater form
+const off = away.subscribe((v) => ctx.log.info('away is now', v)); // returns an unsubscribe
+
+function AwayBadge({ message }: MessageSlotProps) {
+  const isAway = usePluginState(away); // re-renders on change
+  return isAway && message.authorId === selfId ? <span>☕</span> : null;
+}
+```
+
+`get` / `set` / `subscribe`; setting the same value (`Object.is`) notifies
+nobody, a throwing listener is reported and skipped, and every listener is
+dropped when the plugin stops. The state lives as long as the plugin runs; use
+a hidden setting for anything that must survive a restart.
+
+### Conversations
+
+```ts
+const conv = ctx.conversations.get(message.conversationId); // Readonly<Conversation> | undefined
+if (ctx.conversations.isDirect(message.conversationId)) {
+  /* one-to-one */
+}
+```
+
+`isDirect` also answers for conversations that haven't synced yet (from the
+id). For everything else, read `ctx.stores.conversations`.
 
 ### Hover actions
 
@@ -287,6 +340,11 @@ ctx.messages.addHoverAction({
   },
 });
 ```
+
+`onClick` may be async. A throw or a rejected promise is reported against
+your plugin (its card shows "Failed in hover action …" with Retry), as are
+failures in menu items' `onSelect`, header buttons' `onClick` and every
+`visible` (a throwing `visible` hides the entry and is reported once).
 
 The hover bar is not shown on touch layouts; offer the same action as a
 message menu item so it stays reachable there and from the keyboard (Message
@@ -452,8 +510,11 @@ ctx.composer.addAccessory('draft-length', makeDraftLength(ctx));
 ```
 
 Rendered inside the composer field next to the emoji button (slot
-`composer.accessories`), with props `{ conversationId }`. Vim Mode's mode pill
-is one.
+`composer.accessories`), with props `ComposerSlotProps`:
+`{ conversationId, descriptionId }`. The text field lists `descriptionId` in
+its `aria-describedby`; an accessory that shows the field's state puts that
+id on an element so screen readers read it with the field (Vim Mode's mode
+pill does, with "Vim: Normal mode"). At most one accessory should use it.
 
 ### Toasts and logging
 
@@ -471,8 +532,8 @@ or must know; Keyword Alerts makes its toast a setting.
 const self = ctx.stores.session.getState().self;
 const open = uiSelectors.selectedConversation(ctx.stores.ui.getState());
 if (open && ctx.backend.status() === 'online') void ctx.backend.sendText(open, 'hi **there**');
-ctx.backend.onMessage((m) => {
-  ctx.log.info('new message in', m.conversationId);
+ctx.backend.onMessage((m, { live }) => {
+  if (live) ctx.log.info('new message in', m.conversationId);
 });
 ```
 
@@ -481,32 +542,42 @@ ctx.backend.onMessage((m) => {
   `spaces`, `ui`, `settings`). The type is read-only on purpose: change state
   through the ctx APIs or by running commands. Selectors exported from
   `@/core/stores` (`uiSelectors`, `spacesSelectors`, …) work on these states.
-- `ctx.backend` is a facade, not the transport: `kind` (`'mock' |
-'signal-cli'`), `status()`, `sendText(conversationId, text)` (goes through
-  the normal send pipeline, transforms included, Markdown per the user's
-  setting) and `onMessage(fn)`, called once per **new** incoming or synced
-  message after it has been stored (re-deliveries don't fire it).
+- `ctx.backend` is a facade, not the transport: `kind` (the registered
+  backend kind, `'mock'` or `'signal-cli'` in this build; an open set, see
+  [ARCHITECTURE.md](ARCHITECTURE.md#how-to-add-a-backend-adapter)),
+  `status()`, `sendText(conversationId, text)` (goes through the normal send
+  pipeline, transforms included, Markdown per the user's setting) and
+  `onMessage(fn)`, called once per **new** incoming or synced message after it
+  has been stored (re-deliveries don't fire it), with `{ live }`: `true` for
+  messages that arrived while the app was running, `false` for those caught up
+  at startup (delivered while it was closed). Auto-replies want `live` only.
 
 ## Error isolation
 
 A plugin bug stays inside the plugin:
 
-| Where it fails                            | What happens                                                                                                  |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `start` throws or rejects                 | Everything it registered so far is disposed, the plugin is marked **failed**, other plugins carry on.         |
-| A component throws while rendering        | Its `PluginBoundary` shows one small "Name failed" chip with a Retry button per plugin (not one per message). |
-| A send transform throws / returns junk    | That transform is skipped and reported; the message is still sent.                                            |
-| A typing guard throws                     | Treated as "allow".                                                                                           |
-| A booster throws                          | Skipped; the next booster is asked.                                                                           |
-| A command's `run` throws                  | Reported; `execute` resolves `false`.                                                                         |
-| A key layer's `onKey` throws              | That layer is skipped for this key.                                                                           |
-| `onClick` / `onSelect` / `visible` throws | Caught; a throwing `visible` hides the entry.                                                                 |
-| `stop` throws                             | Reported; automatic disposal still runs.                                                                      |
+| Where it fails                           | What happens                                                                                                  |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `start` throws or rejects                | Everything it registered so far is disposed, the plugin is marked **failed**, other plugins carry on.         |
+| A component throws while rendering       | Its `PluginBoundary` shows one small "Name failed" chip with a Retry button per plugin (not one per message). |
+| A send transform throws / returns junk   | That transform is skipped and reported; the message is still sent.                                            |
+| A typing guard throws                    | Treated as "allow".                                                                                           |
+| A booster throws                         | Skipped; the next booster is asked.                                                                           |
+| A command's `run` throws                 | Reported; `execute` resolves `false`.                                                                         |
+| A key layer's `onKey` throws             | That layer is skipped for this key.                                                                           |
+| `onClick` / `onSelect` throws or rejects | Reported (hover actions, menu items, header buttons).                                                         |
+| `visible` throws                         | The entry is hidden; reported once.                                                                           |
+| A `ctx.state` listener throws            | Reported; the other listeners still run.                                                                      |
+| `stop` throws                            | Reported; automatic disposal still runs.                                                                      |
 
 Errors are logged to the console with the plugin id. A **failed** plugin's
-card shows the error and a **Retry** button (`PluginRuntime.retry(id)`); a
-render error's chip has its own Retry, and the boundary also resets by itself
-when the plugin supplies a new component (e.g. after being re-enabled).
+card shows the error and a **Retry** button (`PluginRuntime.retry(id)`).
+Errors from a _running_ plugin ("Reported" above) go through `Registries`'
+`onError`, which the app routes to `PluginRuntime.reportRuntimeError`: the
+card shows the latest one ("Failed in hover action "remind": …") and Retry
+restarts the plugin, which clears it. A render error's chip has its own
+Retry, and the boundary also resets by itself when the plugin supplies a new
+component (e.g. after being re-enabled).
 Duplicate ids are errors too: two plugins with one id throw
 `DuplicatePluginError` at construction, and a duplicate command id or slash
 name makes the second plugin's `start` fail.
@@ -517,8 +588,12 @@ name makes the second plugin's `start` fail.
   added to `BUILTIN_PLUGINS` in `src/core/plugins/builtin/index.ts`. Core is
   React-free (lint enforces it), so a headless plugin can take its UI half as
   a parameter, like `createKeywordAlertsPlugin(ui)`.
-- **Plugins with UI** live in `src/ui/plugins/` and are added to `UI_PLUGINS`
-  in `src/ui/plugins/index.ts`. `withUiPlugins(BUILTIN_PLUGINS)` merges both
+- **Plugins with UI** live in `src/ui/plugins/` and are added to the
+  `UI_PLUGINS` list in `src/ui/plugins/index.ts`. They may import `@/core`,
+  `@/ui/primitives`, `@/ui/hooks` and a feature's `index.ts`, never a feature's
+  internals or `@/app` (lint enforces it). A large plugin can keep its
+  definition small and `import()` the rest in `start` so it stays out of the
+  main bundle while disabled (Vim Mode does: `vimPlugin.ts` → `startVim.ts`). `withUiPlugins(BUILTIN_PLUGINS)` merges both
   lists (and gives Keyword Alerts its highlight UI); `createShrike` passes the
   result to the `PluginRuntime`.
 - `src/ui/plugins/plugins.test.ts` asserts the full list of built-in ids, so
@@ -530,7 +605,7 @@ name makes the second plugin's `start` fail.
 
 A complete plugin: settings, a send transform, a slash command, a decoration
 with injected CSS, a hover action mirrored in the message menu, a header
-button, a command, an `onMessage` listener and cleanup. It was compiled with
+button, a command, an `onMessage` listener with plugin state, and cleanup. It was compiled with
 `tsc` against the real types and run through `PluginRuntime` in a test; it is
 not shipped. To try it, save it as `src/ui/plugins/CapsGuard.tsx` and add
 `capsGuardPlugin` to `UI_PLUGINS`.
@@ -682,13 +757,13 @@ export const capsGuardPlugin = definePlugin({
       },
     });
 
-    // 7. React to incoming messages (after they are stored).
-    let heard = 0;
-    ctx.backend.onMessage((m) => {
-      if (shouted(ctx, m)) heard++;
+    // 7. React to messages as they arrive (after they are stored), live ones only.
+    const heard = ctx.state(0);
+    ctx.backend.onMessage((m, { live }) => {
+      if (live && shouted(ctx, m)) heard.set((n) => n + 1);
     });
     ctx.onDispose(() => {
-      ctx.log.info(`heard ${heard} shouted messages this session`);
+      ctx.log.info(`heard ${heard.get()} shouted messages this session`);
     });
   },
 });

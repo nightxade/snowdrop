@@ -1,22 +1,25 @@
 import type { Command, KeyLayer } from '@/core/commands';
 import type { BackendKind } from '@/core/backend';
-import type { ConnectionStatus, ConversationId, Message } from '@/core/domain';
+import type { ConnectionStatus, Conversation, ConversationId, Message } from '@/core/domain';
 import type { Disposer } from '@/core/lib';
 import type { Stores, ToastKind } from '@/core/stores';
 import type {
+  ComponentLike,
+  ComposerSlotProps,
   HeaderButton,
   HoverAction,
   MenuItem,
   MenuLocation,
   MenuTargets,
+  MessageSlotProps,
   NotificationBooster,
-  OpaqueComponent,
   SendTransform,
   SettingsPanel,
   SlashCommand,
   TypingGuard,
 } from './registries';
 import type { SettingsSchema, SettingsValues } from './settings';
+import type { PluginState } from './state';
 
 /** Read-only view of a store: plugins observe state but change it only through actions/ctx APIs. */
 export interface ReadonlyStore<S> {
@@ -28,14 +31,45 @@ export type ReadonlyStores = {
   [K in keyof Stores]: ReadonlyStore<ReturnType<Stores[K]['getState']>>;
 };
 
+/** How a message reached `onMessage`. */
+export interface MessageArrival {
+  /**
+   * True when the message arrived while the app was running; false when it
+   * was delivered as part of catching up at startup (messages that arrived
+   * while the app was closed). Auto-replies usually want only live ones.
+   */
+  live: boolean;
+}
+
 /** The narrow slice of messaging a plugin may drive. */
 export interface PluginBackendFacade {
+  /** The transport's registered kind (`'mock'`, `'signal-cli'`, …). */
   readonly kind: BackendKind;
   status(): ConnectionStatus;
   /** Sends a plain/markdown text message through the normal send pipeline. */
   sendText(conversationId: ConversationId, text: string): Promise<void>;
-  /** Called for every incoming or synced message after it's been stored. */
-  onMessage(fn: (message: Message) => void): Disposer;
+  /** Called once per new incoming or synced message, after it's been stored. */
+  onMessage(fn: (message: Message, arrival: MessageArrival) => void): Disposer;
+}
+
+/**
+ * Actions on a given message, independent of focus or what is on screen
+ * (the host implements them with the same services as the built-in UI).
+ */
+export interface PluginMessageActions {
+  /** Starts a reply to `message` in its conversation's composer (opening it if needed). */
+  reply(message: Message): void;
+  /** Reacts with `emoji` (replacing your previous reaction, as Signal allows one). */
+  react(message: Message, emoji: string): Promise<void>;
+  /** Copies the message's text (mentions as names) to the clipboard, with a toast. */
+  copy(message: Message): Promise<void>;
+}
+
+/** Read-only conversation lookups. */
+export interface PluginConversations {
+  get(id: ConversationId): Readonly<Conversation> | undefined;
+  /** True for one-to-one conversations (known or not yet synced). */
+  isDirect(id: ConversationId): boolean;
 }
 
 export interface PluginLogger {
@@ -67,18 +101,21 @@ export interface PluginContext<S extends SettingsSchema = SettingsSchema> {
   };
   /** Modal key layers that see keys before keybinds and the focused widget. */
   readonly keys: { addLayer(layer: KeyLayer): Disposer };
-  /** Components rendered inside the composer field (props: { conversationId }). */
-  readonly composer: { addAccessory(id: string, component: OpaqueComponent): Disposer };
+  /** Components rendered inside the composer field. */
+  readonly composer: {
+    addAccessory(id: string, component: ComponentLike<ComposerSlotProps>): Disposer;
+  };
   readonly slash: { register(command: SlashCommand): Disposer };
   readonly send: {
     addTransform(transform: SendTransform): Disposer;
     addTypingGuard(guard: TypingGuard): Disposer;
   };
-  readonly messages: {
-    addAccessory(id: string, component: OpaqueComponent): Disposer;
-    addDecoration(id: string, component: OpaqueComponent): Disposer;
+  readonly messages: PluginMessageActions & {
+    addAccessory(id: string, component: ComponentLike<MessageSlotProps>): Disposer;
+    addDecoration(id: string, component: ComponentLike<MessageSlotProps>): Disposer;
     addHoverAction(action: HoverAction): Disposer;
   };
+  readonly conversations: PluginConversations;
   readonly menus: {
     add<L extends MenuLocation>(location: L, item: MenuItem<MenuTargets[L]>): Disposer;
   };
@@ -88,6 +125,11 @@ export interface PluginContext<S extends SettingsSchema = SettingsSchema> {
   readonly notifications: { addBooster(booster: NotificationBooster): Disposer };
   readonly stores: ReadonlyStores;
   readonly backend: PluginBackendFacade;
+  /**
+   * A reactive value owned by this plugin (read it in components with
+   * `usePluginState` from `@/ui/hooks`). Listeners are dropped on stop.
+   */
+  state<T>(initial: T): PluginState<T>;
   toast(message: string, kind?: ToastKind): void;
   readonly log: PluginLogger;
   /** Registers arbitrary cleanup to run on stop (timers, subscriptions). */
@@ -124,6 +166,8 @@ export function definePlugin<const S extends SettingsSchema = SettingsSchema>(
 export interface PluginHost {
   stores: Stores;
   backend: PluginBackendFacade;
+  /** Message actions; tests may omit them (calls then throw "not available"). */
+  messages?: PluginMessageActions;
   toast(message: string, kind: ToastKind, pluginId: string): void;
   onError?(error: unknown, pluginId: string, where: string): void;
 }

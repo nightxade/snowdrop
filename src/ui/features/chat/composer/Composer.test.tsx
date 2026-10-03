@@ -93,7 +93,8 @@ describe('<Composer />', () => {
   it('accepts a member mention with Tab and sends it as a mention range', async () => {
     const { shrike, conv, input, typeText } = await setup();
     typeText('hey @');
-    const list = screen.getByRole('listbox');
+    // The suggestion popover is a lazy chunk: the first one waits for it.
+    const list = await screen.findByRole('listbox');
     const options = within(list).getAllByRole('option');
     expect(options.length).toBeGreaterThan(0);
     expect(input.getAttribute('aria-controls')).toBe(list.id);
@@ -119,7 +120,7 @@ describe('<Composer />', () => {
   it('dismisses autocomplete with Escape and keeps it closed while typing on', async () => {
     const { input, typeText } = await setup();
     typeText('@');
-    expect(screen.getByRole('listbox')).toBeTruthy();
+    expect(await screen.findByRole('listbox')).toBeTruthy();
     fireEvent.keyDown(input, { key: 'Escape' });
     expect(screen.queryByRole('listbox')).toBeNull();
     typeText('@a');
@@ -132,7 +133,7 @@ describe('<Composer />', () => {
   it('suggests slash commands from the registry', async () => {
     const { input, typeText } = await setup();
     typeText('/shr');
-    const option = within(screen.getByRole('listbox')).getByRole('option');
+    const option = within(await screen.findByRole('listbox')).getByRole('option');
     expect(option.textContent).toContain('/shrug');
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(input.value).toBe('/shrug ');

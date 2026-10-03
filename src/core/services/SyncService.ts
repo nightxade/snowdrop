@@ -53,6 +53,12 @@ export interface SyncServiceDeps {
 export interface SyncEvents {
   /** A *new* message (incoming or synced), after it has been stored and applied. */
   message: Message;
+  /**
+   * The same moment, with how the message arrived: `live` is false for
+   * messages parked during the initial sync (delivered while the app was
+   * closed) and replayed once it completed. Plugins' `onMessage` uses it.
+   */
+  messageArrived: { message: Message; live: boolean };
 }
 
 const RECEIPT_STATUS: Record<BackendEvents['receipt']['type'], MessageStatus> = {
@@ -291,18 +297,18 @@ export class SyncService {
     const { backend } = this.deps;
     const on = <E extends keyof BackendEvents>(
       event: E,
-      handler: (payload: BackendEvents[E]) => Promise<void> | void,
+      /** `live` is false when the event was parked behind the initial sync. */
+      handler: (payload: BackendEvents[E], live: boolean) => Promise<void> | void,
       immediate = false,
     ): void => {
       this.unsubscribers.push(
         backend.on(event, (payload) => {
           if (immediate) {
-            void this.run(event, () => handler(payload));
+            void this.run(event, () => handler(payload, true));
             return;
           }
-          const task = () => handler(payload);
-          if (this.gated) this.backlog.push({ event, task });
-          else this.enqueue(event, task);
+          if (this.gated) this.backlog.push({ event, task: () => handler(payload, false) });
+          else this.enqueue(event, () => handler(payload, true));
         }),
       );
     };
@@ -336,7 +342,7 @@ export class SyncService {
       // Protocol fields only; local state lives in localStore and is untouched.
       this.deps.stores.conversations.getState().upsert(conv);
     });
-    on('message', (m) => this.onMessage(m));
+    on('message', (m, live) => this.onMessage(m, live));
     on('messageEdited', (e) =>
       this.updateMessage(e.conversationId, messageId(e.authorId, e.targetSentAt), (m) =>
         applyEdit(m, { body: e.body, ranges: e.ranges, editedAt: e.editedAt }),
@@ -377,7 +383,7 @@ export class SyncService {
     }
   }
 
-  private async onMessage(incoming: Message): Promise<void> {
+  private async onMessage(incoming: Message, live: boolean): Promise<void> {
     const { repository, stores } = this.deps;
     // A re-delivered (replayed) disappearing message must not come back
     // after it has been purged, nor flash in if it is already due.
@@ -399,6 +405,7 @@ export class SyncService {
     if (!created) return;
     await this.updateReadState(message);
     this.events.emit('message', message);
+    this.events.emit('messageArrived', { message, live });
   }
 
   private async updateReadState(message: Message): Promise<void> {

@@ -1,0 +1,51 @@
+/**
+ * The stable `[data-shrike='…']` hooks Custom CSS and themes can target
+ * (CSS-module class names are hashed). One list for Settings → Custom CSS,
+ * THEMING.md and the test that checks every `data-shrike` value in the
+ * source is listed here.
+ */
+export const STYLE_HOOKS = [
+  { hook: 'app', what: 'The whole shell' },
+  { hook: 'rail', what: 'Spaces rail' },
+  { hook: 'drawer', what: 'Rail + sidebar slide-over on narrow screens' },
+  { hook: 'sidebar', what: 'Conversation sidebar' },
+  { hook: 'sidebar-header', what: 'Sidebar title bar' },
+  { hook: 'conversation-list', what: 'Conversation list' },
+  { hook: 'conversation-row', what: 'One conversation in the sidebar' },
+  { hook: 'section-header', what: 'Sidebar section / category header' },
+  { hook: 'user-panel', what: 'Your profile at the bottom of the sidebar' },
+  { hook: 'chat', what: 'Chat column' },
+  { hook: 'chat-header', what: 'Chat title bar' },
+  { hook: 'member-toggle', what: 'Member-list button in the chat header' },
+  { hook: 'connection-banner', what: 'Connection-problem banner above the chat' },
+  { hook: 'message-pane', what: 'Message area' },
+  { hook: 'message-log', what: 'The message list' },
+  { hook: 'conversation-intro', what: '“Beginning of your conversation” block' },
+  { hook: 'history-skeleton', what: 'Loading placeholder rows' },
+  { hook: 'message', what: 'One message row (has data-compact, data-continuation, data-mention)' },
+  { hook: 'message-body', what: 'The text of a message' },
+  { hook: 'hover-bar', what: 'Message hover actions' },
+  { hook: 'message-action-sheet', what: 'Long-press action sheet (touch)' },
+  { hook: 'system-message', what: 'Joined / renamed / timer lines' },
+  { hook: 'new-divider', what: 'The “New” line at the first unread message' },
+  { hook: 'new-messages-bar', what: '“N new messages since …” bar' },
+  { hook: 'jump-to-present', what: 'Jump-to-present pill' },
+  { hook: 'composer', what: 'Message composer' },
+  { hook: 'composer-input', what: 'The composer’s textarea' },
+  { hook: 'attachment-tray', what: 'Attachments waiting to be sent' },
+  { hook: 'reply-bar', what: '“Replying to …” bar' },
+  { hook: 'autocomplete', what: '@ / : / slash suggestions' },
+  { hook: 'typing-line', what: '“… is typing” strip' },
+  { hook: 'drop-overlay', what: 'Drag-and-drop overlay' },
+  { hook: 'search-panel', what: 'In-conversation search results' },
+  { hook: 'members', what: 'Member list' },
+  { hook: 'member-row', what: 'One member' },
+  { hook: 'settings', what: 'Settings screen' },
+  { hook: 'plugin-card', what: 'A plugin in Settings → Plugins' },
+  { hook: 'welcome', what: 'Welcome / connection setup screens' },
+  { hook: 'link-device', what: 'Device-linking screen' },
+  { hook: 'note-badge', what: 'Pronoun & Notes Badge plugin’s badge' },
+  { hook: 'vim-mode', what: 'Vim Mode plugin’s mode pill' },
+] as const satisfies readonly { hook: string; what: string }[];
+
+export type StyleHook = (typeof STYLE_HOOKS)[number]['hook'];

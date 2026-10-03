@@ -57,6 +57,23 @@ describe('quick switcher', () => {
     );
   });
 
+  it('announces "Nothing matches" outside an empty (hidden) listbox', async () => {
+    await bootDemo();
+    key({ key: 'k', code: 'KeyK', ctrlKey: true });
+    const input = await screen.findByRole('combobox', { name: 'Quick switcher' });
+    act(() => {
+      fireEvent.change(input, { target: { value: 'qqqzzzxx' } });
+    });
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByRole('status').textContent).toContain('Nothing matches');
+    expect(screen.queryByRole('listbox')).toBeNull();
+    expect(document.querySelector('[cmdk-list]')?.hasAttribute('hidden')).toBe(true);
+    const results = await axe(dialog, {
+      rules: { 'color-contrast': { enabled: false }, region: { enabled: false } },
+    });
+    expect(results.violations.map((v) => v.id)).toEqual([]);
+  });
+
   it('returns focus to where it was when dismissed', async () => {
     await bootDemo();
     const row = sidebar().querySelectorAll<HTMLElement>('[data-conversation-id]')[1]!;
@@ -188,6 +205,64 @@ describe('responsive overlays', () => {
   });
 });
 
+describe('drawer focus and Escape', () => {
+  const frames = () =>
+    act(async () => {
+      await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 10)));
+    });
+
+  it('member sheet: one Esc from a descendant closes it; focus returns to the toggle', async () => {
+    setViewport(1024);
+    const shrike = await bootDemo();
+    const { stores } = shrike;
+    const spaceId = spacesSelectors.orderedIds(stores.spaces.getState())[0]!;
+    const group = stores.spaces.getState().spaces[spaceId]!.categories[0]!.conversationIds[0]!;
+    act(() => {
+      stores.ui.getState().selectConversation(group, spaceId);
+    });
+    const toggle = screen.getByRole('button', { name: 'Show member list' });
+    act(() => {
+      toggle.focus();
+      fireEvent.click(toggle);
+    });
+    const sheet = await screen.findByRole('dialog', { name: 'Members' });
+    await settle();
+    const row = sheet.querySelector<HTMLElement>('[data-shrike="member-row"]')!;
+    act(() => {
+      row.focus();
+    });
+    key({ key: 'Escape' }, row);
+    await frames();
+    expect(screen.queryByRole('dialog', { name: 'Members' })).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Show member list' }));
+  });
+
+  it('navigation drawer: Esc from a row closes it; focus returns to the hamburger', async () => {
+    setViewport(390);
+    await bootDemo();
+    const drawer = await screen.findByRole('dialog', { name: 'Navigation' });
+    act(() => {
+      fireEvent.click(drawer.querySelector<HTMLElement>('[data-conversation-id]')!);
+    });
+    await frames();
+    const hamburger = screen.getByRole('button', { name: /Open navigation/u });
+    act(() => {
+      hamburger.focus();
+      fireEvent.click(hamburger);
+    });
+    const reopened = await screen.findByRole('dialog', { name: 'Navigation' });
+    await settle();
+    const row = reopened.querySelector<HTMLElement>('[data-conversation-id]')!;
+    act(() => {
+      row.focus();
+    });
+    key({ key: 'Escape' }, row);
+    await frames();
+    expect(screen.queryByRole('dialog', { name: 'Navigation' })).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: /Open navigation/u }));
+  });
+});
+
 describe('accessibility smoke test', () => {
   it('has no axe violations in the demo shell (layout-dependent rules off)', async () => {
     await bootDemo();
@@ -199,5 +274,59 @@ describe('accessibility smoke test', () => {
       },
     });
     expect(results.violations.map((v) => `${v.id}: ${v.nodes.length}`)).toEqual([]);
+  });
+});
+
+describe('conversation navigation keeps focus', () => {
+  const composer = () => document.querySelector<HTMLElement>('[data-shrike="composer"] textarea');
+  const settleFrame = () =>
+    act(async () => {
+      await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+    });
+
+  it('Alt+↓ and Alt+Shift+↓ from the composer land in the new composer', async () => {
+    const shrike = await bootDemo();
+    const first = sidebar().querySelector<HTMLElement>('[data-conversation-id]')!;
+    act(() => {
+      fireEvent.click(first);
+    });
+    await settleFrame();
+    act(() => {
+      composer()!.focus();
+    });
+    const start = uiSelectors.selectedConversation(shrike.stores.ui.getState());
+    key({ key: 'ArrowDown', code: 'ArrowDown', altKey: true });
+    await settleFrame();
+    const second = uiSelectors.selectedConversation(shrike.stores.ui.getState());
+    expect(second).not.toBe(start);
+    expect(document.activeElement).toBe(composer());
+
+    key({ key: 'ArrowDown', code: 'ArrowDown', altKey: true, shiftKey: true });
+    await settleFrame();
+    // Wherever next-unread went (possibly another space), focus is in its composer, not on <body>.
+    expect(document.activeElement).not.toBe(document.body);
+    expect(document.activeElement).toBe(composer());
+  });
+
+  it('Alt+↓ from a sidebar row moves focus to the next row', async () => {
+    const shrike = await bootDemo();
+    const rows = () => [
+      ...sidebar().querySelectorAll<HTMLElement>('[data-conversation-id][data-roving-item]'),
+    ];
+    act(() => {
+      fireEvent.click(rows()[0]!);
+    });
+    await settleFrame();
+    const row = sidebar().querySelector<HTMLElement>(
+      `[data-conversation-id="${uiSelectors.selectedConversation(shrike.stores.ui.getState())}"][data-roving-item]`,
+    )!;
+    act(() => {
+      row.focus();
+    });
+    key({ key: 'ArrowDown', code: 'ArrowDown', altKey: true });
+    await settleFrame();
+    const next = uiSelectors.selectedConversation(shrike.stores.ui.getState())!;
+    expect(document.activeElement?.getAttribute('data-conversation-id')).toBe(next);
+    expect(sidebar().contains(document.activeElement)).toBe(true);
   });
 });

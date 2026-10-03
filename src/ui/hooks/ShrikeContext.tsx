@@ -4,7 +4,7 @@
  * concrete `Shrike` from app/createShrike satisfies this structurally.
  */
 import { createContext, use, type ReactNode } from 'react';
-import type { ChatBackend } from '@/core/backend';
+import type { BackendOption, ChatBackend } from '@/core/backend';
 import type { CommandRegistry, KeybindDispatcher } from '@/core/commands';
 import type { MessageRepository } from '@/core/persistence';
 import type { PluginRuntime, Registries } from '@/core/plugins';
@@ -48,6 +48,8 @@ export interface AppServices {
    * Everything else goes through the services.
    */
   backend: Pick<ChatBackend, 'kind' | 'resolveAttachmentUrl' | 'link'>;
+  /** The registered transports (Settings → Connection lists them). */
+  backends: { options(): readonly BackendOption[] };
   /** Desktop notification permission + a test notification. */
   notifications: Pick<NotificationService, 'permission' | 'requestPermission' | 'test'>;
   admin: AppAdmin;
