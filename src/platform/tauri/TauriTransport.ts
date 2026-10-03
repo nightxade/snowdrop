@@ -6,6 +6,7 @@
  * events it holds until `acknowledge` (see src-tauri/src/events.rs).
  */
 import {
+  isRecord,
   SignalCliError,
   type EventStreamState,
   type EventSubscription,
@@ -26,13 +27,7 @@ import {
   type CommandError,
   type TauriIpc,
 } from './ipc';
-
-/** What the Rust side emits for each received envelope (`HeldEvent`). */
-interface ReceivedPayload {
-  cursor: string;
-  type: string;
-  data: unknown;
-}
+import { validateRpcReply } from './ipcValidate';
 
 /** The Rust side's `StreamState`. */
 type RustStreamState =
@@ -116,11 +111,12 @@ export class TauriTransport implements SignalCliTransport {
     options: TransportCallOptions,
   ): Promise<RpcReply> {
     try {
-      return await this.ipc.invoke<RpcReply>('signal_cli_request', {
+      const raw = await this.ipc.invoke<unknown>('signal_cli_request', {
         method,
         params: params ?? null,
         timeoutMs: options.timeoutMs,
       });
+      return validateRpcReply(method, raw);
     } catch (error) {
       throw toSignalCliError(error);
     }
@@ -177,16 +173,25 @@ class TauriSubscription implements EventSubscription {
   private async run(): Promise<void> {
     // Listen first: the Rust side replays held events while subscribing.
     this.unlisten.push(
-      await this.ipc.listen<ReceivedPayload>(EVENT_RECEIVE, (event) => {
+      await this.ipc.listen<unknown>(EVENT_RECEIVE, (event) => {
         if (!this.running) return;
+        if (!isRecord(event) || typeof event.type !== 'string') {
+          console.error('Malformed signal-cli event payload', event);
+          return;
+        }
         this.options.onEvent({
           type: event.type,
           data: event.data,
-          cursor: event.cursor || undefined,
+          cursor: typeof event.cursor === 'string' ? event.cursor || undefined : undefined,
         });
       }),
-      await this.ipc.listen<RustStreamState>(EVENT_STATE, (state) => {
-        if (this.running) this.options.onState(toStreamState(state));
+      await this.ipc.listen<unknown>(EVENT_STATE, (state) => {
+        if (!this.running) return;
+        if (!isRecord(state) || typeof state.kind !== 'string') {
+          console.error('Malformed signal-cli state payload', state);
+          return;
+        }
+        this.options.onState(toStreamState(state as RustStreamState));
       }),
     );
     for (let attempt = 0; this.isRunning(); attempt++) {

@@ -1,21 +1,42 @@
 import { CircleCheck, CircleX, DownloadCloud, LoaderCircle, PlugZap } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import type { DesktopAdmin, DesktopProbeResult, InstallStatus, LocateResult } from '@/core/backend';
+import type {
+  DesktopAdmin,
+  DesktopProbeResult,
+  InstallStatus,
+  LocateResult,
+  ResolvedProgram,
+} from '@/core/backend';
 import type { DesktopConnection } from '@/core/stores';
+import { friendlyErrorMessage } from '@/ui/lib/connectionErrors';
 import { Button, Segmented, TextInput } from '@/ui/primitives';
 import { SettingRow } from '../rows/SettingRow';
 import styles from './pages.module.css';
 
+/** `satisfies` keeps this exhaustive against `ResolvedProgram['source']` at the type level. */
 const SOURCE_TEXT = {
   downloaded: 'the signal-cli Snowdrop downloaded',
   bundled: 'the copy bundled with Snowdrop',
   configured: 'the path below',
   path: 'the one on your PATH',
-} as const;
+} satisfies Record<ResolvedProgram['source'], string>;
+
+/**
+ * Looks up `SOURCE_TEXT`, falling back at runtime for a `source` that isn't
+ * one of the known values — e.g. a desktop build newer than this UI, or a
+ * value that reached here without going through the IPC boundary's own
+ * validation. Never renders "undefined".
+ */
+function sourceText(source: ResolvedProgram['source']): string {
+  return (
+    (SOURCE_TEXT as Record<string, string | undefined>)[source] ??
+    "Snowdrop couldn't determine which signal-cli it will use."
+  );
+}
 
 function probeNote(result: DesktopProbeResult): string {
-  if (!result.ok) return result.message;
-  const program = result.program ? ` (${SOURCE_TEXT[result.program.source]})` : '';
+  if (!result.ok) return friendlyErrorMessage(result.kind, result.message);
+  const program = result.program ? ` (${sourceText(result.program.source)})` : '';
   const version = result.version
     ? `signal-cli ${result.version}${program} works`
     : 'The daemon is running';
@@ -25,7 +46,11 @@ function probeNote(result: DesktopProbeResult): string {
   return `${version}, with ${result.accounts} account${result.accounts === 1 ? '' : 's'}.`;
 }
 
-type DownloadState = 'idle' | 'downloading' | { ok: true; status: InstallStatus } | { ok: false; message: string };
+type DownloadState =
+  | 'idle'
+  | 'downloading'
+  | { ok: true; status: InstallStatus }
+  | { ok: false; kind: string; message: string };
 
 /**
  * Settings → Connection in the desktop app: Snowdrop runs signal-cli itself
@@ -66,6 +91,7 @@ export function DesktopConnectionRows({
     // Debounced: typing a path shouldn't hit the disk per keystroke.
     const timer = setTimeout(() => {
       void admin.locate({ binaryPath }).then((result) => {
+        if (!result.ok) console.error('[snowdrop] signal-cli locate failed', result.kind, result.message);
         if (live) setLocated(result);
       });
     }, 250);
@@ -77,8 +103,8 @@ export function DesktopConnectionRows({
 
   const programNote = located
     ? located.ok
-      ? `Snowdrop will run ${located.source === 'configured' ? located.path : SOURCE_TEXT[located.source]}.`
-      : located.message
+      ? `Snowdrop will run ${located.source === 'configured' ? located.path : sourceText(located.source)}.`
+      : friendlyErrorMessage(located.kind, located.message)
     : undefined;
 
   const redownload = () => {
@@ -87,7 +113,10 @@ export function DesktopConnectionRows({
       // The settings row only shows a spinner; the full progress bar lives
       // in onboarding's first-run screen (DownloadSignalCli).
     }).then((result) => {
-      setDownload(result.ok ? { ok: true, status: result.status } : { ok: false, message: result.message });
+      if (!result.ok) console.error('[snowdrop] signal-cli install failed', result.kind, result.message);
+      setDownload(
+        result.ok ? { ok: true, status: result.status } : { ok: false, kind: result.kind, message: result.message },
+      );
       if (result.ok) setInstalled(result.status);
     });
   };
@@ -128,7 +157,7 @@ export function DesktopConnectionRows({
                 </>
               ) : typeof download === 'object' && !download.ok ? (
                 <>
-                  <CircleX size={14} aria-hidden /> {download.message}
+                  <CircleX size={14} aria-hidden /> {friendlyErrorMessage(download.kind, download.message)}
                 </>
               ) : installed ? (
                 installed.installed ? (
@@ -233,7 +262,10 @@ export function DesktopConnectionRows({
             disabled={probe === 'testing'}
             onClick={() => {
               setProbe('testing');
-              void admin.probe(value).then(setProbe);
+              void admin.probe(value).then((result) => {
+                if (!result.ok) console.error('[snowdrop] signal-cli probe failed', result.kind, result.message);
+                setProbe(result);
+              });
             }}
           >
             {probe === 'testing' ? 'Testing…' : 'Test'}

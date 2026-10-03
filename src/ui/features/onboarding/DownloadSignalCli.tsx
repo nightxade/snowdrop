@@ -1,35 +1,17 @@
 import { CloudDownload, RotateCw, TriangleAlert } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { DesktopAdmin, InstallProgress, PinnedRelease } from '@/core/backend';
+import { friendlyErrorMessage } from '@/ui/lib/connectionErrors';
 import { Button } from '@/ui/primitives';
 import styles from './Setup.module.css';
 
 type Phase =
   | { step: 'idle' }
   | { step: 'downloading'; received: number; total: number | null }
-  | { step: 'error'; message: string };
+  | { step: 'error'; message: string; detail: string };
 
 function megabytes(bytes: number): string {
   return `${Math.max(1, Math.round(bytes / 1_000_000))} MB`;
-}
-
-/** A human explanation for each way the download can fail (PLAN: clear errors). */
-function errorMessage(kind: string, message: string): string {
-  switch (kind) {
-    case 'unreachable':
-    case 'timeout':
-      return "Couldn't reach github.com. Check your connection and try again.";
-    case 'config':
-      return message.toLowerCase().includes('checksum')
-        ? "The download didn't match what Snowdrop expected (a checksum mismatch). Try again — if it keeps happening, your network may be altering the download."
-        : message;
-    case 'cancelled':
-      return 'Download cancelled.';
-    case 'internal':
-      return `Couldn't save signal-cli (${message.toLowerCase().includes('no space') ? 'the disk may be full' : 'a disk problem'}). ${message}`;
-    default:
-      return message;
-  }
 }
 
 /**
@@ -66,7 +48,11 @@ export function DownloadSignalCli({
       if (result.ok) {
         onInstalled();
       } else {
-        setPhase({ step: 'error', message: errorMessage(result.kind, result.message) });
+        setPhase({
+          step: 'error',
+          message: friendlyErrorMessage(result.kind, result.message),
+          detail: result.message,
+        });
       }
     });
   };
@@ -134,6 +120,12 @@ export function DownloadSignalCli({
           <p className={styles.error} role="alert">
             <TriangleAlert size={14} aria-hidden /> {phase.message}
           </p>
+          {phase.detail && phase.detail !== phase.message && (
+            <details className={styles.muted}>
+              <summary>Details</summary>
+              {phase.detail}
+            </details>
+          )}
           <div className={styles.actions}>
             <Button type="button" variant="primary" icon={<RotateCw size={16} />} onClick={start}>
               Try again

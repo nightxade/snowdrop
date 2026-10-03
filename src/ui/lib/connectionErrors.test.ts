@@ -1,0 +1,46 @@
+import { describe, expect, it } from 'vitest';
+import { friendlyErrorMessage } from './connectionErrors';
+
+describe('friendlyErrorMessage', () => {
+  it('hides the raw engine message for kinds that carry exception text', () => {
+    expect(friendlyErrorMessage('internal', 'boom (NullPointerException)')).toBe(
+      'signal-cli ran into an internal problem.',
+    );
+    expect(friendlyErrorMessage('user', 'Invalid group id')).toBe(
+      'signal-cli rejected that request.',
+    );
+    expect(friendlyErrorMessage('unreachable', 'TypeError: Failed to fetch')).not.toMatch(
+      /TypeError/u,
+    );
+  });
+
+  it('refines a couple of kinds by sniffing a keyword, without echoing the raw text', () => {
+    expect(friendlyErrorMessage('internal', 'No space left on device')).toBe(
+      "Couldn't save signal-cli: the disk may be full.",
+    );
+    expect(friendlyErrorMessage('http', 'Daemon rejected the Host header')).toMatch(
+      /Host header/u,
+    );
+    expect(friendlyErrorMessage('config', 'checksum mismatch: expected a, got b')).toMatch(
+      /a checksum mismatch/u,
+    );
+  });
+
+  it('passes through adapter-crafted copy for kinds meant to already be user-facing', () => {
+    expect(friendlyErrorMessage('not-installed', 'No signal-cli at /opt/x. Install it from…')).toBe(
+      'No signal-cli at /opt/x. Install it from…',
+    );
+    expect(friendlyErrorMessage('config', "That file isn't named signal-cli.")).toBe(
+      "That file isn't named signal-cli.",
+    );
+  });
+
+  it('falls back to a safe default for an empty detail or an unknown kind', () => {
+    expect(friendlyErrorMessage('not-installed', '')).toBe("Snowdrop couldn't find signal-cli.");
+    expect(friendlyErrorMessage('something-new', 'whatever')).toBe(
+      "Snowdrop couldn't complete that.",
+    );
+    expect(friendlyErrorMessage(null, 'whatever')).toBe("Snowdrop couldn't complete that.");
+    expect(friendlyErrorMessage(undefined)).toBe("Snowdrop couldn't complete that.");
+  });
+});

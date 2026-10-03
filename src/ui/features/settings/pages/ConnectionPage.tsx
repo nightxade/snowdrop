@@ -5,6 +5,7 @@ import type { BackendKind } from '@/core/backend';
 import type { DesktopConnection } from '@/core/stores';
 import { validateDaemonUrl } from '@/ui/features/onboarding';
 import { useSnowdrop, type DaemonProbe } from '@/ui/hooks';
+import { friendlyErrorMessage } from '@/ui/lib/connectionErrors';
 import { Button, Modal, Segmented, Switch, TextInput } from '@/ui/primitives';
 import { SettingRow } from '../rows/SettingRow';
 import { SettingsSection } from '../rows/SettingsSection';
@@ -18,22 +19,6 @@ const STATUS_TEXT = {
   offline: 'Offline',
   error: 'Can’t connect',
 } as const;
-
-/** Explains a failed probe in terms of what to do next. */
-function probeAdvice(result: Extract<DaemonProbe, { ok: false }>): string {
-  switch (result.kind) {
-    case 'unreachable':
-      return 'Nothing answered at that address. Is the daemon running (signal-cli daemon --http 127.0.0.1:8080), and is the dev proxy pointing at it?';
-    case 'timeout':
-      return 'The daemon didn’t answer within 5 seconds.';
-    case 'http':
-      return `The daemon refused the request: ${result.message}. A 421 means the Host header was rejected; use the /signal-cli proxy path.`;
-    case 'invalid-response':
-      return 'Something answered, but it isn’t signal-cli’s HTTP API.';
-    default:
-      return result.message;
-  }
-}
 
 export function ConnectionPage() {
   const app = useSnowdrop();
@@ -196,7 +181,11 @@ export function ConnectionPage() {
                   ) : (
                     <>
                       <CircleX size={14} aria-hidden />
-                      {probeAdvice(probe)}
+                      {friendlyErrorMessage(probe.kind, probe.message)}
+                      <details className={styles.muted}>
+                        <summary>Details</summary>
+                        {probe.message}
+                      </details>
                     </>
                   )
                 ) : undefined

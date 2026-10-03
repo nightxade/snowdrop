@@ -115,4 +115,24 @@ describe('Settings → Connection, browser build', () => {
     expect(screen.getByLabelText('Daemon address')).toBeTruthy();
     expect(screen.getByText(/same-origin proxy path/u)).toBeTruthy();
   });
+
+  it('reports a failed test connection with plain copy, raw detail only behind "Details"', async () => {
+    snowdrop = await bootSnowdrop();
+    renderWithSnowdrop(snowdrop, <ConnectionPage />);
+
+    act(() => {
+      fireEvent.click(screen.getByRole('radio', { name: 'signal-cli' }));
+    });
+    await settle(snowdrop);
+
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: 'Test' }));
+    });
+
+    // Nothing is listening on the daemon address in this test environment,
+    // so the probe always fails; only the mapped copy may appear inline.
+    const details = await screen.findByText('Details', {}, { timeout: 3000 });
+    expect(screen.queryByText(/Failed to fetch|ECONNREFUSED|TypeError/u)).toBeNull();
+    expect(details.closest('details')).toBeTruthy();
+  });
 });

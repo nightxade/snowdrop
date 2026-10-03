@@ -4,11 +4,25 @@ import { SignalCliError } from './errors';
 import { enrichSendError } from './params';
 import { JsonRpcClient, type FetchLike } from './rpc';
 import { FakeDaemon } from './testing';
+import type { SignalCliTransport } from './transport';
 import { unknownValue } from './validate';
 import { wireSendResult } from './wire';
 
 function client(daemon: FakeDaemon, fetch: FetchLike = daemon.fetch) {
   return new JsonRpcClient({ baseUrl: '/signal-cli/', fetch, timeoutMs: 50 });
+}
+
+/** A transport whose `request` resolves whatever raw (possibly malformed) value is given. */
+function rawTransport(reply: unknown): SignalCliTransport {
+  return {
+    resumeScope: 'test',
+    description: 'test transport',
+    check: () => Promise.resolve(),
+    request: () => Promise.resolve(reply as never),
+    subscribe: () => {
+      throw new Error('not used in these tests');
+    },
+  };
 }
 
 async function failure(promise: Promise<unknown>): Promise<SignalCliError> {
@@ -122,6 +136,18 @@ describe('JsonRpcClient', () => {
     const error = await failure(client(daemon, hang).call('x', {}, unknownValue));
     expect(error.kind).toBe('timeout');
     expect(error.transient).toBe(true);
+  });
+
+  it.each([
+    ['undefined', undefined],
+    ['null', null],
+    ['a non-object', 'nope'],
+    ['an object with neither result nor error', { id: 1 }],
+    ['an error without a code/message', { error: { oops: true } }],
+  ] as const)('turns %s transport reply into a protocol error', async (_label, reply) => {
+    const rpc = new JsonRpcClient({ transport: rawTransport(reply), timeoutMs: 50 });
+    const error = await failure(rpc.call('send', {}, unknownValue));
+    expect(error.kind).toBe('protocol');
   });
 
   it('honours an external abort signal', async () => {

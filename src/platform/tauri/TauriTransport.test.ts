@@ -92,6 +92,19 @@ describe('TauriTransport', () => {
     });
   });
 
+  it.each([
+    ['undefined', undefined],
+    ['null', null],
+    ['a non-object', 'nope'],
+    ['an object with neither result nor error', { id: 1 }],
+    ['an error without a code/message', { error: { oops: true } }],
+  ] as const)('turns a malformed IPC reply (%s) into an invalid-response error', async (_label, raw) => {
+    ipc.invoke.mockResolvedValue(raw);
+    await expect(
+      new TauriTransport({ desktop: spawn }).request('listGroups', undefined, call),
+    ).rejects.toMatchObject({ name: 'SignalCliError', kind: 'invalid-response' });
+  });
+
   it('maps command errors onto SignalCliError kinds', async () => {
     const transport = new TauriTransport({ desktop: spawn });
     ipc.invoke.mockRejectedValueOnce({ kind: 'not-installed', message: 'Install signal-cli…' });
@@ -253,6 +266,46 @@ describe('desktop admin', () => {
     await admin.info();
     await admin.info();
     expect(ipc.invoke.mock.calls.filter(([c]) => c === 'desktop_info')).toHaveLength(1);
+  });
+
+  it('turns a malformed probe/locate reply into a typed invalid-response error', async () => {
+    const admin = createDesktopAdmin();
+    ipc.invoke.mockResolvedValueOnce(undefined);
+    expect(await admin.probe(DEFAULT_DESKTOP_CONNECTION)).toMatchObject({
+      ok: false,
+      kind: 'invalid-response',
+    });
+    ipc.invoke.mockResolvedValueOnce({ accounts: 1, version: '0.14.8', binary: { path: '/x' } });
+    expect(await admin.probe(DEFAULT_DESKTOP_CONNECTION)).toMatchObject({
+      ok: false,
+      kind: 'invalid-response',
+    });
+    ipc.invoke.mockResolvedValueOnce('not an object');
+    expect(await admin.locate({ binaryPath: '' })).toMatchObject({
+      ok: false,
+      kind: 'invalid-response',
+    });
+  });
+
+  it('falls back to defaults when desktop_info resolves something unexpected', async () => {
+    const admin = createDesktopAdmin();
+    ipc.invoke.mockResolvedValueOnce(null);
+    expect(await admin.info()).toEqual({
+      managedSignalCli: null,
+      signalCliReleaseUrl: null,
+      signalCliLicense: null,
+      signalCliSource: null,
+      dataDir: '',
+      logFile: null,
+    });
+  });
+
+  it('rejects a malformed install status/pinned release reply', async () => {
+    const admin = createDesktopAdmin();
+    ipc.invoke.mockResolvedValueOnce({ installed: 'yes' });
+    await expect(admin.installStatus()).rejects.toMatchObject({ kind: 'invalid-response' });
+    ipc.invoke.mockResolvedValueOnce({ version: '1.0' });
+    await expect(admin.pinnedRelease()).rejects.toMatchObject({ kind: 'invalid-response' });
   });
 });
 

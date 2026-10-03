@@ -1,8 +1,9 @@
 import { RotateCw, WifiOff, LoaderCircle } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useStore } from 'zustand';
 import { sessionSelectors } from '@/core/stores';
 import { useSnowdrop } from '@/ui/hooks';
+import { friendlyErrorMessage } from '@/ui/lib/connectionErrors';
 import styles from './ConnectionBanner.module.css';
 
 /** Slim banner at the top of the chat column when the connection degrades (PLAN §4.10). */
@@ -11,8 +12,14 @@ export function ConnectionBanner() {
   const status = useStore(stores.session, sessionSelectors.status);
   const ready = useStore(stores.session, sessionSelectors.ready);
   const error = useStore(stores.session, sessionSelectors.error);
+  const errorKind = useStore(stores.session, sessionSelectors.errorKind);
   const backend = useStore(stores.session, (s) => s.backendKind);
   const [retrying, setRetrying] = useState(false);
+
+  // The raw detail is never shown; it only ever goes to the console.
+  useEffect(() => {
+    if (status === 'error' && error) console.error('[snowdrop] connection error', error);
+  }, [status, error]);
 
   // Before the first sync, "offline"/"connecting" is just booting; the shell shows skeletons.
   if (status === 'online' || (!ready && status !== 'error')) return null;
@@ -22,7 +29,7 @@ export function ConnectionBanner() {
     status === 'connecting'
       ? `Reconnecting to ${daemon}…`
       : status === 'error'
-        ? `Can't reach ${daemon}${error ? `: ${error}` : '.'}`
+        ? `Can't reach ${daemon}: ${friendlyErrorMessage(errorKind, error)}`
         : `You're offline. Messages you send will go out when ${daemon} is back.`;
 
   const retry = () => {

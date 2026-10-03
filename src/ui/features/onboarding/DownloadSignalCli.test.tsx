@@ -112,8 +112,13 @@ describe('DownloadSignalCli: error and retry', () => {
     act(() => {
       fireEvent.click(screen.getByRole('button', { name: /Download and continue/u }));
     });
-    expect(await screen.findByRole('alert')).toBeTruthy();
-    expect(screen.getByText(/Couldn.t reach github\.com\. Check your connection/u)).toBeTruthy();
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toMatch(/Couldn.t connect\. Check your network/u);
+    // The raw engine detail never appears inline in the alert — only behind "Details".
+    expect(alert.textContent).not.toMatch(/Couldn't reach github\.com\./u);
+    expect(screen.getByText('Details').closest('details')?.textContent).toContain(
+      "Couldn't reach github.com.",
+    );
 
     act(() => {
       fireEvent.click(screen.getByRole('button', { name: /Try again/u }));

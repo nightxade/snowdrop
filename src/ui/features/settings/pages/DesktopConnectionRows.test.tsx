@@ -92,7 +92,7 @@ describe('DesktopConnectionRows', () => {
     expect(await screen.findByText(/signal-cli 0\.14\.9/u)).toBeTruthy();
   });
 
-  it('reports a failed download', async () => {
+  it('reports a failed download with plain-language copy, not the raw error', async () => {
     const admin = fakeAdmin({
       install: () => Promise.resolve({ ok: false, kind: 'unreachable', message: "Couldn't reach github.com." }),
     });
@@ -101,7 +101,8 @@ describe('DesktopConnectionRows', () => {
     act(() => {
       fireEvent.click(button);
     });
-    expect(await screen.findByText("Couldn't reach github.com.")).toBeTruthy();
+    expect(await screen.findByText(/Couldn.t connect\. Check your network/u)).toBeTruthy();
+    expect(screen.queryByText("Couldn't reach github.com.")).toBeNull();
   });
 
   it('shows a validation error for a custom path that isn’t named signal-cli', async () => {
@@ -140,6 +141,27 @@ describe('DesktopConnectionRows', () => {
     });
     expect(
       await screen.findByText(/signal-cli 0\.14\.8 .*works, with 1 account\./u),
+    ).toBeTruthy();
+  });
+
+  it('falls back to a safe note for a program source it does not recognise', async () => {
+    const admin = fakeAdmin({
+      probe: () =>
+        Promise.resolve({
+          ok: true,
+          accounts: 1,
+          version: '0.14.8',
+          // Simulates a shape that slipped past validation (e.g. a newer
+          // desktop build with a source this UI doesn't know about yet).
+          program: { path: '/x', source: 'mystery' as never },
+        }),
+    });
+    render(<Controlled admin={admin} />);
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: 'Test' }));
+    });
+    expect(
+      await screen.findByText(/Snowdrop couldn.t determine which signal-cli it will use\./u),
     ).toBeTruthy();
   });
 });

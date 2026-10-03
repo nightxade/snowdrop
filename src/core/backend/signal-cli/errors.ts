@@ -17,6 +17,8 @@ export type SignalCliErrorKind =
   | 'config'
   /** The daemon answered with something that isn't the JSON we expect. */
   | 'invalid-response'
+  /** The transport resolved something that isn't a valid JSON-RPC reply at all (not an object, or missing both `result` and `error`). */
+  | 'protocol'
   /** The daemon has no registered/linked account (start the link flow). */
   | 'no-account'
   /**

@@ -10,8 +10,8 @@
  */
 import { kindForRpcCode, SignalCliError } from './errors';
 import { HttpTransport, type FetchLike } from './httpTransport';
-import type { RpcParams, SignalCliTransport, TransportCallOptions } from './transport';
-import { decode, type Decoder } from './validate';
+import type { RpcParams, RpcReply, SignalCliTransport, TransportCallOptions } from './transport';
+import { decode, isRecord, type Decoder } from './validate';
 
 export { joinUrl, type FetchLike } from './httpTransport';
 export type { RpcParams } from './transport';
@@ -63,13 +63,14 @@ export class JsonRpcClient {
     const account = options.account === undefined ? this.account : options.account;
     const allParams: RpcParams = { ...params };
     if (account !== null && account !== undefined) allParams.account = account;
-    const reply = await this.withDeadline(options, (call) =>
+    const rawReply = await this.withDeadline(options, (call) =>
       this.transport.request(
         method,
         Object.keys(allParams).length > 0 ? allParams : undefined,
         call,
       ),
     );
+    const reply = validateReply(method, rawReply);
     if (reply.error) {
       const { code, message } = reply.error;
       throw new SignalCliError(kindForRpcCode(code, message), message, {
@@ -133,4 +134,37 @@ export class JsonRpcClient {
       controller.abort();
     }
   }
+}
+
+/**
+ * Validates a transport's raw reply before the client trusts its shape.
+ * `SignalCliTransport.request` is an interface any transport can implement
+ * (the HTTP daemon, Tauri IPC, a test double); a bug or a version skew on
+ * either side can hand back `undefined`, `null`, or an object with neither
+ * `result` nor `error`. Rather than let `reply.error` throw a raw
+ * TypeError, that becomes a typed `SignalCliError` with kind `'protocol'`.
+ */
+function validateReply(method: string, reply: unknown): RpcReply {
+  if (!isRecord(reply)) {
+    throw new SignalCliError('protocol', `${method}: malformed reply from transport`, {
+      data: reply,
+    });
+  }
+  if (reply.error !== undefined && reply.error !== null) {
+    const error = reply.error;
+    if (!isRecord(error) || typeof error.code !== 'number' || typeof error.message !== 'string') {
+      throw new SignalCliError('protocol', `${method}: malformed error in transport reply`, {
+        data: reply,
+      });
+    }
+    return { error: { code: error.code, message: error.message, data: error.data } };
+  }
+  if ('result' in reply) {
+    return { result: reply.result };
+  }
+  throw new SignalCliError(
+    'protocol',
+    `${method}: transport reply has neither a result nor an error`,
+    { data: reply },
+  );
 }

@@ -9,6 +9,7 @@ const ConnectionSetup = lazy(() =>
   import('@/ui/features/onboarding').then((m) => ({ default: m.ConnectionSetup })),
 );
 import { AppShell } from '@/ui/features/shell';
+import { friendlyErrorMessage } from '@/ui/lib/connectionErrors';
 import type { Snowdrop } from './createSnowdrop';
 import { useSnowdrop } from './SnowdropProvider';
 
@@ -49,6 +50,11 @@ export function App({ onBackendChange }: AppProps) {
     else onBackendChange?.();
   }, [choice, matches, snowdrop, onBackendChange]);
 
+  // The raw detail is logged once here; the UI only ever sees the mapped copy.
+  useEffect(() => {
+    if (errorMessage) console.error('[snowdrop] connection error', errorMessage);
+  }, [errorMessage]);
+
   if (choice === null) {
     const choose = (backend: BackendKind, url?: string) => {
       snowdrop.stores.settings
@@ -88,7 +94,7 @@ export function App({ onBackendChange }: AppProps) {
       <Suspense fallback={null}>
         <ConnectionSetup
           reason={errorKind}
-          errorMessage={errorMessage}
+          errorMessage={friendlyErrorMessage(errorKind, errorMessage)}
           onProgramPath={(binaryPath) => {
             const { connection } = snowdrop.stores.settings.getState();
             snowdrop.stores.settings.getState().update('connection', {
