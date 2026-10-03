@@ -5,7 +5,7 @@
  * Transports are registered in `backends.ts`, the plugin host's services are
  * in `pluginHost.ts` and the headless core commands in `coreCommands.ts`.
  */
-import type { ChatBackend } from '@/core/backend';
+import type { ChatBackend, DesktopAdmin } from '@/core/backend';
 // Type-only: the adapter itself is loaded on demand (its own chunk).
 import type { FetchLike } from '@/core/backend/signal-cli';
 import { type CommandRegistry, isMacPlatform, KeybindDispatcher } from '@/core/commands';
@@ -57,6 +57,7 @@ import {
 } from './backends';
 import { registerCoreCommands } from './coreCommands';
 import { createPluginHost } from './pluginHost';
+import { desktopAdmin, desktopNotificationApi, installDesktopLinks, isTauri } from './platform';
 
 export interface SnowdropOptions {
   storage?: KeyValueStorage;
@@ -70,7 +71,7 @@ export interface SnowdropOptions {
   fetch?: FetchLike;
   /** Message repository override (tests); defaults per backend. */
   repository?: MessageRepository;
-  /** Desktop notifications (tests inject a fake); defaults to the browser's. */
+  /** Desktop notifications (tests inject a fake); defaults to the browser's (native in the desktop app). */
   notificationApi?: NotificationApi;
   /**
    * Safe mode (`?safe=1`, or Shift held while loading): imported themes and
@@ -98,6 +99,8 @@ export interface Snowdrop {
   backendReady: Promise<ChatBackend>;
   notifications: NotificationService;
   admin: AppAdmin;
+  /** The desktop app's signal-cli management; null in the browser. */
+  desktop: DesktopAdmin | null;
   /** True when started in safe mode (custom themes and Custom CSS off). */
   readonly safeMode: boolean;
   /** Connects, syncs and starts plugins. Safe to call again after a failed start (retry). */
@@ -200,7 +203,8 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
   const notifications = new NotificationService({
     stores,
     clock,
-    api: options.notificationApi ?? browserNotificationApi(),
+    api:
+      options.notificationApi ?? (isTauri() ? desktopNotificationApi() : browserNotificationApi()),
     source: sync,
     boost: (message) => registries.boostReason(message),
     isVisible: () => typeof document === 'undefined' || document.visibilityState === 'visible',
@@ -225,6 +229,8 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
 
   // Appearance follows settings and plugin styles live.
   const doc = options.document;
+  // In the desktop app, links open in the system browser, never in the window.
+  if (doc && isTauri()) installDesktopLinks();
   if (doc) {
     const apply = (): void => {
       const s = stores.settings.getState();
@@ -278,6 +284,7 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     safeMode: options.safeMode ?? false,
     notifications,
     admin,
+    desktop: isTauri() ? desktopAdmin() : null,
 
     async start() {
       if (started) return;

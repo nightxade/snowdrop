@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { createMemoryStorage, loadVersioned } from '@/core/persistence';
-import { createSettingsStore, defaultSettings, parseSettings, settingsSchema } from './settings';
+import {
+  createSettingsStore,
+  DEFAULT_DESKTOP_CONNECTION,
+  defaultSettings,
+  parseSettings,
+  settingsSchema,
+} from './settings';
 
 describe('settingsStore', () => {
   it('updates sections immutably', () => {
@@ -65,6 +71,7 @@ describe('settingsStore', () => {
       daemonUrl: '/signal-cli',
       account: null,
       mockLiveliness: false,
+      desktop: DEFAULT_DESKTOP_CONNECTION,
     });
     expect(loadVersioned(v1('http://10.0.0.2:9000'), settingsSchema).connection.daemonUrl).toBe(
       'http://10.0.0.2:9000',
@@ -72,5 +79,25 @@ describe('settingsStore', () => {
     expect(
       parseSettings({ connection: { account: '+15550000000', daemonUrl: '  ' } }).connection,
     ).toMatchObject({ account: '+15550000000', daemonUrl: '/signal-cli' });
+  });
+  it('parses the desktop connection, falling back field by field', () => {
+    const parsed = parseSettings({
+      connection: {
+        desktop: { mode: 'external', useBundled: 'yes', binaryPath: 42, externalUrl: ' ' },
+      },
+    });
+    expect(parsed.connection.desktop).toEqual({
+      ...DEFAULT_DESKTOP_CONNECTION,
+      mode: 'external',
+    });
+    expect(parseSettings({ connection: { desktop: 'nope' } }).connection.desktop).toEqual(
+      DEFAULT_DESKTOP_CONNECTION,
+    );
+    const custom = {
+      ...DEFAULT_DESKTOP_CONNECTION,
+      useBundled: false,
+      binaryPath: '/opt/signal-cli',
+    };
+    expect(parseSettings({ connection: { desktop: custom } }).connection.desktop).toEqual(custom);
   });
 });

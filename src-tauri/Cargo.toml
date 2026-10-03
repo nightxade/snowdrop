@@ -1,0 +1,39 @@
+[package]
+name = "snowdrop"
+version = "0.1.0"
+description = "Snowdrop: a community-style chat client for Signal, driven by signal-cli"
+edition = "2021"
+rust-version = "1.80"
+license = "UNLICENSED"
+publish = false
+
+[lib]
+# The app logic lives in the library so integration tests can reach it.
+name = "snowdrop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-notification = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-window-state = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["io-util", "macros", "process", "rt-multi-thread", "sync", "time"] }
+# External-daemon mode: plain HTTP to a loopback signal-cli daemon (no TLS needed).
+ureq = { version = "2", default-features = false }
+log = "0.4"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["io-util", "macros", "process", "rt-multi-thread", "sync", "time", "test-util"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

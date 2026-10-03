@@ -265,6 +265,16 @@ export const SETTINGS_PAGES: SettingsPageDef[] = [
     keywords: ['signal-cli', 'daemon', 'demo', 'backend', 'server'],
     entries: [
       { id: 'connection.backend', label: 'Source', keywords: ['demo', 'signal-cli'] },
+      {
+        id: 'connection.desktopMode',
+        label: 'Run signal-cli',
+        keywords: ['desktop', 'bundled', 'external', 'daemon'],
+      },
+      {
+        id: 'connection.program',
+        label: 'signal-cli program',
+        keywords: ['path', 'bundled', 'install', 'binary'],
+      },
       { id: 'connection.url', label: 'Daemon address', keywords: ['url', 'proxy'] },
       { id: 'connection.account', label: 'Account', keywords: ['number', 'phone'] },
       { id: 'connection.test', label: 'Test connection' },
@@ -295,6 +305,11 @@ export const SETTINGS_PAGES: SettingsPageDef[] = [
     entries: [
       { id: 'about.version', label: 'Version' },
       { id: 'about.licences', label: 'Open-source licences', keywords: ['mit', 'dependencies'] },
+      {
+        id: 'about.signalCli',
+        label: 'signal-cli',
+        keywords: ['gpl', 'source', 'licence', 'license', 'bundled'],
+      },
       { id: 'about.legal', label: 'Legal', keywords: ['trademark', 'signal'] },
     ],
   },

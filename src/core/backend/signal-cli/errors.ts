@@ -11,6 +11,10 @@ export type SignalCliErrorKind =
   | 'timeout'
   /** Non-2xx HTTP status (421 = Host header rejected, 400 = unknown account on /events). */
   | 'http'
+  /** No signal-cli program was found (desktop app; the message says how to install it). */
+  | 'not-installed'
+  /** A connection setting was rejected (desktop app: signal-cli path, account, daemon URL). */
+  | 'config'
   /** The daemon answered with something that isn't the JSON we expect. */
   | 'invalid-response'
   /** The daemon has no registered/linked account (start the link flow). */

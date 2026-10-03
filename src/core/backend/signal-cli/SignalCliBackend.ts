@@ -1,19 +1,21 @@
 /**
- * ChatBackend over a local signal-cli daemon (`signal-cli daemon --http`).
+ * ChatBackend over signal-cli, through a `SignalCliTransport`: the HTTP
+ * daemon (`signal-cli daemon --http`, the default) or, in the desktop app,
+ * a transport whose Rust side owns signal-cli (src/platform/tauri).
  *
- * - Commands go through `JsonRpcClient` (POST /api/v1/rpc).
- * - Incoming envelopes arrive on the SSE stream (GET /api/v1/events), are
+ * - Commands go through `JsonRpcClient`.
+ * - Incoming envelopes arrive on the transport's event subscription, are
  *   validated and normalised by pure functions, and are then applied *in
  *   order* through one promise queue — some need a daemon round-trip first
  *   (a group update is re-listed and diffed) and must not be overtaken by the
- *   message that follows them. After each SSE event's work a `checkpoint`
- *   is emitted; the resume position is persisted only when the sync engine
- *   acknowledges it (i.e. after the repository write), so a reload can cause
- *   re-delivery but never loss.
+ *   message that follows them. After each event's work a `checkpoint` is
+ *   emitted with the event's cursor; the resume position is persisted only
+ *   when the sync engine acknowledges it (i.e. after the repository write),
+ *   so a reload can cause re-delivery but never loss.
  * - signal-cli keeps no message history and has no DM list; the repository
  *   owns history, and `DirectPeers` remembers who we've talked to.
  * - Multi-account daemons: the account is sent as the `account` param and
- *   `?account=` on the stream. Single-account daemons (`-a +X daemon`) have
+ *   with the event subscription. Single-account daemons (`-a +X daemon`) have
  *   no `listAccounts`; we then send no account param and rely on the
  *   configured account for our own identity (see SelfIdentity).
  */
@@ -66,8 +68,14 @@ import {
   targetParams,
 } from './params';
 import { DirectPeers } from './peers';
-import { JsonRpcClient, joinUrl, type FetchLike, type RpcParams } from './rpc';
-import { EventStream, type EventStreamState, type SseEvent } from './sse';
+import { HttpTransport } from './httpTransport';
+import { JsonRpcClient, type FetchLike, type RpcParams } from './rpc';
+import type {
+  EventStreamState,
+  EventSubscription,
+  SignalCliTransport,
+  TransportEvent,
+} from './transport';
 import { isRecord, unknownValue } from './validate';
 import {
   wireAccounts,
@@ -78,8 +86,10 @@ import {
 } from './wire';
 
 export interface SignalCliBackendOptions {
-  /** Daemon base URL: `/signal-cli` behind the Vite proxy. */
+  /** HTTP daemon base URL (`/signal-cli` behind the Vite proxy); ignored with `transport`. */
   baseUrl: string;
+  /** How to reach signal-cli; defaults to an `HttpTransport` on `baseUrl`. */
+  transport?: SignalCliTransport;
   /**
    * Account (number or ACI). Multi-account daemons: preferred account (else
    * the first). Single-account daemons: *required* — it's our identity.
@@ -89,7 +99,7 @@ export interface SignalCliBackendOptions {
   clock?: Clock;
   scheduler?: Scheduler;
   random?: () => number;
-  /** Persists DM peers and the SSE resume position. */
+  /** Persists DM peers and the event resume position. */
   storage?: KeyValueStorage;
   /** Called with the account in use after connect/link, so settings can remember it. */
   onAccountSelected?: (account: string) => void;
@@ -126,7 +136,8 @@ export class SignalCliBackend implements ChatBackend {
 
   private status: ConnectionStatus = 'offline';
   private preferredAccount: string | null;
-  private stream: EventStream | null = null;
+  private stream: EventSubscription | null = null;
+  private readonly transport: SignalCliTransport;
   private connecting: Promise<void> | null = null;
   private queue: Promise<void> = Promise.resolve();
   /** Bumped on disconnect so queued work from an old session is dropped. */
@@ -146,9 +157,17 @@ export class SignalCliBackend implements ChatBackend {
       ((message, detail) => {
         console.debug(`[snowdrop] signal-cli: ${message}`, detail ?? '');
       });
+    this.transport =
+      options.transport ??
+      new HttpTransport({
+        baseUrl: options.baseUrl,
+        ...(options.fetch ? { fetch: options.fetch } : {}),
+        scheduler: this.scheduler,
+        ...(options.random ? { random: options.random } : {}),
+        ...(options.stream ? { stream: options.stream } : {}),
+      });
     this.rpc = new JsonRpcClient({
-      baseUrl: options.baseUrl,
-      ...(options.fetch ? { fetch: options.fetch } : {}),
+      transport: this.transport,
       ...(options.rpcTimeoutMs === undefined ? {} : { timeoutMs: options.rpcTimeoutMs }),
     });
     this.attachments = new AttachmentResolver({ rpc: this.rpc });
@@ -207,7 +226,7 @@ export class SignalCliBackend implements ChatBackend {
     if (this.stream) return;
     this.setStatus('connecting');
     try {
-      await this.rpc.check({ timeoutMs: 5_000 });
+      await this.rpc.check({ timeoutMs: this.transport.checkTimeoutMs ?? 5_000 });
       this.selectAccount(await this.discoverAccount());
       // Stream first: nothing sent to us while we load the directory is missed.
       this.openStream();
@@ -308,28 +327,24 @@ export class SignalCliBackend implements ChatBackend {
     this.preferredAccount = id;
   }
 
-  private lastEventIdKey(): string {
-    return `snowdrop.signal-cli.lastEventId.${this.selfId}`;
+  /** Resume cursors are per transport kind (an SSE id means nothing to the desktop). */
+  private cursorKey(): string {
+    return `snowdrop.signal-cli.cursor.${this.transport.resumeScope}.${this.selfId}`;
   }
 
   private openStream(): void {
     const session = this.session;
-    const query = this.multiAccount ? `?account=${encodeURIComponent(this.selfId)}` : '';
-    let lastEventId = '';
+    let resumeFrom = '';
     try {
-      lastEventId = this.options.storage?.getItem(this.lastEventIdKey()) ?? '';
+      resumeFrom = this.options.storage?.getItem(this.cursorKey()) ?? '';
     } catch {
       // Storage unavailable: start from live events.
     }
-    const stream = new EventStream({
-      url: joinUrl(this.options.baseUrl, `/api/v1/events${query}`),
-      ...(this.options.fetch ? { fetch: this.options.fetch } : {}),
-      scheduler: this.scheduler,
-      ...(this.options.random ? { random: this.options.random } : {}),
-      ...this.options.stream,
-      lastEventId,
+    const stream = this.transport.subscribe({
+      account: this.multiAccount ? this.selfId : null,
+      resumeFrom,
       onEvent: (event) => {
-        if (session === this.session) this.onSse(event);
+        if (session === this.session) this.onTransportEvent(event);
       },
       onState: (state) => {
         if (session === this.session) this.onStreamState(state);
@@ -371,21 +386,23 @@ export class SignalCliBackend implements ChatBackend {
 
   // ─── Incoming events ───────────────────────────────────────────────────
 
-  private onSse(event: SseEvent): void {
+  private onTransportEvent(event: TransportEvent): void {
     let events: AdapterEvent[] = [];
     if (event.type !== 'receive') {
-      this.debugLog(`ignored SSE event "${event.type}"`);
+      this.debugLog(`ignored event "${event.type}"`);
     } else {
       try {
-        const payload: unknown = JSON.parse(event.data);
+        // SSE delivers text; IPC delivers parsed JSON.
+        const payload: unknown =
+          typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
         this.learnSelf(payload);
         events = normaliseReceive(payload, this.normaliseContext());
       } catch {
-        this.debugLog('ignored non-JSON SSE data', event.data.slice(0, 200));
+        this.debugLog('ignored non-JSON event data', String(event.data).slice(0, 200));
       }
     }
     // Even an ignored event advances the resume position (once acknowledged).
-    this.enqueue(events, event.lastEventId || undefined);
+    this.enqueue(events, event.cursor || undefined);
   }
 
   /** Learns our other identifier from payloads (see SelfIdentity). */
@@ -427,10 +444,12 @@ export class SignalCliBackend implements ChatBackend {
   acknowledge(cursor: string): void {
     if (!this.selfId) return;
     try {
-      this.options.storage?.setItem(this.lastEventIdKey(), cursor);
+      this.options.storage?.setItem(this.cursorKey(), cursor);
     } catch {
       // Resume position is an optimisation only; the worst case is re-delivery.
     }
+    // The desktop transport stops holding what's now stored.
+    this.transport.acknowledge?.(cursor);
   }
 
   private enqueue(events: AdapterEvent[], cursor: string | undefined): void {

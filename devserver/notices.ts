@@ -26,7 +26,35 @@ export function packageDirOf(id: string): string | null {
   return name ? id.slice(0, at + marker.length) + name : null;
 }
 
-export function thirdPartyNotices(): Plugin {
+/**
+ * Programs shipped next to the app rather than bundled into it: the desktop
+ * build includes signal-cli (GPL-3.0) as a separate executable, so its
+ * licence and the location of its exact source go in the notices too.
+ */
+export function bundledProgramNotices(root: string): string {
+  const dir = path.join(root, 'src-tauri', 'licenses', 'signal-cli');
+  const licence = path.join(dir, 'COPYING');
+  const source = path.join(dir, 'SOURCE.txt');
+  if (!existsSync(licence) || !existsSync(source)) {
+    throw new Error(
+      'Desktop build without signal-cli licence files: run `node scripts/fetch-signal-cli.mjs` first.',
+    );
+  }
+  const rule = '='.repeat(72);
+  return [
+    '',
+    rule,
+    'PROGRAMS SHIPPED WITH THE DESKTOP APP',
+    rule,
+    '',
+    readFileSync(source, 'utf8').trim(),
+    '',
+    readFileSync(licence, 'utf8').trim(),
+    '',
+  ].join('\n');
+}
+
+export function thirdPartyNotices({ desktop = false }: { desktop?: boolean } = {}): Plugin {
   return {
     name: 'snowdrop:third-party-notices',
     apply: 'build',
@@ -64,7 +92,7 @@ export function thirdPartyNotices(): Plugin {
       this.emitFile({
         type: 'asset',
         fileName: 'THIRD_PARTY_NOTICES.txt',
-        source: `Snowdrop includes the following third-party software (${entries.length} packages).\n\n${body}`,
+        source: `Snowdrop includes the following third-party software (${entries.length} packages).\n\n${body}${desktop ? bundledProgramNotices(process.cwd()) : ''}`,
       });
     },
   };

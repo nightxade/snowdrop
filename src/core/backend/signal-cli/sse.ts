@@ -10,7 +10,9 @@
  */
 import { systemScheduler, type Cancel, type Scheduler } from '@/core/lib';
 import { SignalCliError } from './errors';
-import type { FetchLike } from './rpc';
+import type { EventStreamState, EventSubscription, FetchLike } from './transport';
+
+export type { EventStreamState } from './transport';
 
 export interface SseEvent {
   /** `event:` field; "message" when absent. signal-cli uses "receive". */
@@ -137,14 +139,6 @@ export class SseParser {
 
 // ─── Reconnecting stream ─────────────────────────────────────────────────
 
-export type EventStreamState =
-  | { kind: 'connecting'; attempt: number }
-  | { kind: 'open' }
-  | { kind: 'waiting'; attempt: number; delayMs: number; error: unknown }
-  /** Gave up: a non-retryable response (e.g. 400 unknown account). */
-  | { kind: 'failed'; error: SignalCliError }
-  | { kind: 'closed' };
-
 export interface EventStreamOptions {
   url: string;
   fetch?: FetchLike;
@@ -180,7 +174,7 @@ const FATAL_STATUSES = new Set([400, 401, 403, 404, 405, 421]);
 
 const globalFetch: FetchLike = (input, init) => globalThis.fetch(input, init);
 
-export class EventStream {
+export class EventStream implements EventSubscription {
   private readonly fetch: FetchLike;
   private readonly scheduler: Scheduler;
   private readonly random: () => number;

@@ -4,6 +4,7 @@ import { MockBackend } from '@/core/backend/mock';
 import { SignalCliBackend } from '@/core/backend/signal-cli';
 import { ManualScheduler } from '@/core/lib';
 import { createMemoryStorage } from '@/core/persistence';
+import { DEFAULT_DESKTOP_CONNECTION } from '@/core/stores';
 import { BackendRegistry, BUILTIN_BACKENDS, type BackendEnvironment } from './backends';
 import { deferredBackend, OPTIONAL_METHODS } from './deferredBackend';
 
@@ -24,7 +25,13 @@ describe('deferredBackend', () => {
       clock: new ManualScheduler(0),
       scheduler: new ManualScheduler(0),
       storage: createMemoryStorage(),
-      connection: { backend: null, daemonUrl: '/signal-cli', account: null, mockLiveliness: false },
+      connection: {
+        backend: null,
+        daemonUrl: '/signal-cli',
+        account: null,
+        mockLiveliness: false,
+        desktop: DEFAULT_DESKTOP_CONNECTION,
+      },
       updateConnection: () => undefined,
       overrides: { mockLatencyMs: 0 },
     };

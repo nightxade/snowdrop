@@ -2,7 +2,7 @@
 import { fileURLToPath, URL } from 'node:url';
 import react from '@vitejs/plugin-react';
 import { defineConfig, loadEnv, type Connect, type Plugin, type ProxyOptions } from 'vite';
-import { contentSecurityPolicy } from './devserver/csp.ts';
+import { contentSecurityPolicy, isTauriBuild } from './devserver/csp.ts';
 import { emojibaseAssets } from './devserver/emojibase.ts';
 import { thirdPartyNotices } from './devserver/notices.ts';
 import { checkSignalCliRequest } from './devserver/signalCliGuard.ts';
@@ -58,21 +58,28 @@ function signalCliGuard(): Plugin {
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), 'SNOWDROP_');
   const proxy = signalCliProxy(env.SNOWDROP_SIGNAL_CLI_URL ?? 'http://127.0.0.1:8080');
+  // `npm run tauri:build` runs this build with TAURI_ENV_* set (docs/DESKTOP.md).
+  const desktop = isTauriBuild();
   return {
     plugins: [
       signalCliGuard(),
       emojibaseAssets(),
-      contentSecurityPolicy(),
-      thirdPartyNotices(),
+      contentSecurityPolicy({ desktop }),
+      thirdPartyNotices({ desktop }),
       react(),
     ],
+    // Tauri's CLI prints its own output in the same terminal.
+    clearScreen: false,
+    // WebKitGTK (the Linux webview) is Safari-class; the browser build keeps Vite's defaults.
+    ...(desktop ? { build: { target: ['es2022', 'safari16'] } } : {}),
     resolve: {
       alias: {
         '@': fileURLToPath(new URL('./src', import.meta.url)),
       },
     },
     // No CORS: nothing but the app's own origin may talk to the dev server.
-    server: { proxy, cors: false },
+    // The Rust side rebuilds itself; its target directory must not trigger reloads.
+    server: { proxy, cors: false, watch: { ignored: ['**/src-tauri/**'] } },
     preview: { proxy, cors: false },
     test: {
       environment: 'happy-dom',

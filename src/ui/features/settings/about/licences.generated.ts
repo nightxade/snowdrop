@@ -95,6 +95,18 @@ export const LICENCES: readonly LicenceEntry[] = [
     url: 'https://radix-ui.com/primitives',
   },
   {
+    name: '@tauri-apps/api',
+    version: '2.12.1',
+    license: 'Apache-2.0 OR MIT',
+    url: 'https://github.com/tauri-apps/tauri#readme',
+  },
+  {
+    name: '@tauri-apps/plugin-notification',
+    version: '2.5.1',
+    license: 'MIT OR Apache-2.0',
+    url: 'https://github.com/tauri-apps/plugins-workspace',
+  },
+  {
     name: 'cmdk',
     version: '1.1.1',
     license: 'MIT',

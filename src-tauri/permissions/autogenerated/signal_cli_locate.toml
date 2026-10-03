@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-signal-cli-locate"
+description = "Enables the signal_cli_locate command without any pre-configured scope."
+commands.allow = ["signal_cli_locate"]
+
+[[permission]]
+identifier = "deny-signal-cli-locate"
+description = "Denies the signal_cli_locate command without any pre-configured scope."
+commands.deny = ["signal_cli_locate"]

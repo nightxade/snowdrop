@@ -1,11 +1,38 @@
 import { ExternalLink } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import type { DesktopInfo } from '@/core/backend';
+import { useSnowdrop } from '@/ui/hooks';
 import { SnowdropMark } from '@/ui/primitives';
 import { SettingRow } from '../rows/SettingRow';
 import { SettingsSection } from '../rows/SettingsSection';
 import { APP_VERSION, LICENCES } from './licences.generated';
 import styles from './about.module.css';
 
+/** signal-cli's exact source, from the bundled SOURCE.txt ("Exact source: <url>"). */
+function sourceUrl(source: string | null): string | null {
+  const match = /^Exact source:\s+(https:\/\/\S+)$/mu.exec(source ?? '');
+  return match?.[1] ?? null;
+}
+
+function useDesktopInfo(): DesktopInfo | null {
+  const { desktop } = useSnowdrop();
+  const [info, setInfo] = useState<DesktopInfo | null>(null);
+  useEffect(() => {
+    let live = true;
+    void desktop?.info().then((value) => {
+      if (live) setInfo(value);
+    });
+    return () => {
+      live = false;
+    };
+  }, [desktop]);
+  return info;
+}
+
 export function AboutPage() {
+  const desktop = useDesktopInfo();
+  const bundled = desktop?.bundledSignalCli ?? null;
+  const source = sourceUrl(desktop?.signalCliSource ?? null);
   return (
     <>
       <SettingsSection>
@@ -65,6 +92,53 @@ export function AboutPage() {
           </table>
         </SettingRow>
       </SettingsSection>
+      {desktop && (
+        <SettingsSection
+          title="signal-cli"
+          description={
+            bundled
+              ? `This app includes signal-cli ${bundled}, unmodified, as a separate program that Snowdrop starts and talks to. signal-cli is free software under the GNU General Public License v3.`
+              : 'Snowdrop runs the signal-cli you installed, as a separate program.'
+          }
+        >
+          <SettingRow id="about.signalCli" label="signal-cli" stacked>
+            <div className={styles.legal}>
+              {source && (
+                <p>
+                  Source code of this exact version:{' '}
+                  <a
+                    href={source}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={styles.link}
+                  >
+                    {source}
+                    <ExternalLink size={12} aria-label="(opens in your browser)" />
+                  </a>
+                </p>
+              )}
+              {desktop.dataDir && (
+                <p>
+                  Its data (your linked account and keys) is kept in{' '}
+                  <code className={styles.path}>{desktop.dataDir}</code>
+                  {desktop.logFile && (
+                    <>
+                      , its log in <code className={styles.path}>{desktop.logFile}</code>
+                    </>
+                  )}
+                  .
+                </p>
+              )}
+              {desktop.signalCliLicense && (
+                <details className={styles.licence}>
+                  <summary>GNU General Public License v3 (signal-cli)</summary>
+                  <pre>{desktop.signalCliLicense}</pre>
+                </details>
+              )}
+            </div>
+          </SettingRow>
+        </SettingsSection>
+      )}
       <SettingsSection title="Legal">
         <SettingRow id="about.legal" label="The fine print" stacked>
           <div className={styles.legal}>
@@ -74,9 +148,11 @@ export function AboutPage() {
               used here only to describe compatibility.
             </p>
             <p>
-              Snowdrop talks to signal-cli (GPL-3.0), which runs as a separate program on your
-              computer; none of its code is included. Inter and JetBrains Mono are used under the
-              SIL Open Font License and bundled locally. Icons are from Lucide (ISC).
+              {bundled
+                ? 'Snowdrop talks to signal-cli (GPL-3.0), which ships with this app as a separate, unmodified program; none of its code is part of Snowdrop.'
+                : 'Snowdrop talks to signal-cli (GPL-3.0), which runs as a separate program on your computer; none of its code is included.'}{' '}
+              Inter and JetBrains Mono are used under the SIL Open Font License and bundled locally.
+              Icons are from Lucide (ISC).
             </p>
           </div>
         </SettingRow>

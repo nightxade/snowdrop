@@ -97,6 +97,30 @@ const boundaryZones = [
 ];
 
 /**
+ * The desktop platform layer (src/platform): only the composition root uses
+ * it, and it sits beside core (it may implement core contracts, e.g. the
+ * signal-cli transport), never above the UI.
+ */
+const platformZones = [
+  {
+    target: [src('*.{ts,tsx}'), src('ui/**'), src('core/**'), src('test/**')],
+    from: src('platform'),
+    message: 'src/platform is wired up by the composition root (src/app) only.',
+  },
+  {
+    target: src('platform'),
+    from: [src('ui'), src('app')],
+    message: 'src/platform must not depend on ui/ or app/.',
+  },
+];
+
+/** `@tauri-apps/*` stays inside src/platform/tauri (the browser build never loads it). */
+const TAURI_IMPORTS = {
+  group: ['@tauri-apps/*'],
+  message: 'Tauri APIs are only used in src/platform/tauri (behind isTauri()).',
+};
+
+/**
  * Production-only boundaries (tests may boot the whole app): built-in plugins
  * reach the app through AppServices / PluginContext, never the composition root.
  */
@@ -151,9 +175,14 @@ export default tseslint.config(
       'import-x/no-cycle': 'error',
       'import-x/no-restricted-paths': [
         'error',
-        { zones: [...boundaryZones, ...adapterZones, ...appZones] },
+        { zones: [...boundaryZones, ...platformZones, ...adapterZones, ...appZones] },
       ],
     },
+  },
+  {
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: ['src/platform/tauri/**'],
+    rules: { 'no-restricted-imports': ['error', { patterns: [TAURI_IMPORTS] }] },
   },
   {
     // core/ is React-free so plugins and services can run headless.
@@ -173,6 +202,7 @@ export default tseslint.config(
               group: ['zustand/react', 'zustand/traditional'],
               message: 'core/ must be React-free.',
             },
+            TAURI_IMPORTS,
           ],
         },
       ],
@@ -182,7 +212,7 @@ export default tseslint.config(
     // Tests may reach for the mock adapter directly; all other boundaries still apply.
     files: ['src/**/*.test.{ts,tsx}', 'src/test/**/*.{ts,tsx}'],
     rules: {
-      'import-x/no-restricted-paths': ['error', { zones: boundaryZones }],
+      'import-x/no-restricted-paths': ['error', { zones: [...boundaryZones, ...platformZones] }],
       '@typescript-eslint/no-non-null-assertion': 'off',
     },
   },

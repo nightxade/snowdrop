@@ -39,6 +39,7 @@ export function App({ onBackendChange }: AppProps) {
   const daemonUrl = useStore(snowdrop.stores.settings, (s) => s.connection.daemonUrl);
   const matches = choice !== null && choice === snowdrop.backend.kind;
   const errorKind = useStore(snowdrop.stores.session, (s) => s.errorKind);
+  const errorMessage = useStore(snowdrop.stores.session, (s) => s.error);
   const ready = useStore(snowdrop.stores.session, (s) => s.ready);
 
   useEffect(() => {
@@ -58,29 +59,43 @@ export function App({ onBackendChange }: AppProps) {
     return (
       <Suspense fallback={null}>
         <Welcome
+          desktop={snowdrop.desktop !== null}
           defaultDaemonUrl={daemonUrl}
           probe={(url) => snowdrop.admin.probeDaemon(url)}
           onDemo={() => {
             choose('mock');
           }}
           onConnect={(url) => {
-            choose('signal-cli', url);
+            // The desktop app runs signal-cli itself: its connection settings already hold the defaults.
+            choose('signal-cli', snowdrop.desktop ? undefined : url);
           }}
         />
       </Suspense>
     );
   }
   // signal-cli without a usable account: link this device, or name the account (PLAN §4.10).
+  // In the desktop app, also: no signal-cli program to run.
   if (
     matches &&
     !ready &&
     snowdrop.backend.kind === 'signal-cli' &&
-    (errorKind === 'no-account' || errorKind === 'account-required')
+    (errorKind === 'no-account' ||
+      errorKind === 'account-required' ||
+      (snowdrop.desktop && errorKind === 'not-installed'))
   ) {
     return (
       <Suspense fallback={null}>
         <ConnectionSetup
           reason={errorKind}
+          errorMessage={errorMessage}
+          onProgramPath={(binaryPath) => {
+            const { connection } = snowdrop.stores.settings.getState();
+            snowdrop.stores.settings.getState().update('connection', {
+              desktop: { ...connection.desktop, binaryPath, useBundled: false },
+            });
+            snowdrop.flush();
+            onBackendChange?.();
+          }}
           link={snowdrop.backend.link}
           onLinked={() => {
             // The adapter now knows the account; retry the start that failed.

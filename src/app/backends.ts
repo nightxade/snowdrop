@@ -22,6 +22,7 @@ import {
 } from '@/core/persistence';
 import type { SettingsSchema } from '@/core/plugins';
 import type { ConnectionSettings, Stores } from '@/core/stores';
+import { isTauri } from '@/platform/detect';
 import { deferredBackend, type OptionalMethod } from './deferredBackend';
 import { deferredRepository } from './deferredRepository';
 
@@ -163,27 +164,38 @@ const mockBackend: BackendRegistration = {
   },
 };
 
-/** A local signal-cli daemon over JSON-RPC + SSE. */
+/**
+ * signal-cli. In the browser: the HTTP daemon (JSON-RPC + SSE) through the
+ * dev proxy. In the desktop app: a transport whose Rust side runs the
+ * bundled signal-cli itself (or proxies an external daemon), see
+ * src/platform/tauri. The transport is picked here, so core/ stays
+ * free of Tauri.
+ */
 const signalCliBackend: BackendRegistration = {
   kind: 'signal-cli',
   label: 'signal-cli',
-  description: 'Your Signal account, through a local signal-cli daemon.',
-  load: () =>
-    import('@/core/backend/signal-cli').then(
-      ({ SignalCliBackend }) =>
-        (env) =>
-          new SignalCliBackend({
-            baseUrl: env.connection.daemonUrl,
-            account: env.connection.account,
-            ...(env.overrides.fetch ? { fetch: env.overrides.fetch } : {}),
-            clock: env.clock,
-            scheduler: env.scheduler,
-            storage: env.storage,
-            onAccountSelected: (account) => {
-              env.updateConnection({ account });
-            },
-          }),
-    ),
+  description: 'Your Signal account, through signal-cli.',
+  load: async () => {
+    const [{ SignalCliBackend }, desktop] = await Promise.all([
+      import('@/core/backend/signal-cli'),
+      isTauri() ? import('@/platform/tauri') : null,
+    ]);
+    return (env) =>
+      new SignalCliBackend({
+        baseUrl: env.connection.daemonUrl,
+        ...(desktop
+          ? { transport: new desktop.TauriTransport({ desktop: env.connection.desktop }) }
+          : {}),
+        account: env.connection.account,
+        ...(env.overrides.fetch ? { fetch: env.overrides.fetch } : {}),
+        clock: env.clock,
+        scheduler: env.scheduler,
+        storage: env.storage,
+        onAccountSelected: (account) => {
+          env.updateConnection({ account });
+        },
+      });
+  },
   capabilities: new Set([
     'adminDelete',
     'pinMessage',

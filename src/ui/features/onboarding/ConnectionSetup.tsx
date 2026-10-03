@@ -3,6 +3,7 @@ import { lazy, Suspense } from 'react';
 import type { LinkFlow } from '@/core/backend';
 import { SnowdropMark, TooltipProvider } from '@/ui/primitives';
 import { AccountPrompt } from './AccountPrompt';
+import { MissingSignalCli } from './MissingSignalCli';
 import styles from './Welcome.module.css';
 import setup from './Setup.module.css';
 
@@ -10,8 +11,15 @@ import setup from './Setup.module.css';
 const LinkDevice = lazy(() => import('./LinkDevice').then((m) => ({ default: m.LinkDevice })));
 
 export interface ConnectionSetupProps {
-  /** Why setup is needed: no linked account, or a single-account daemon that needs its number. */
-  reason: 'no-account' | 'account-required';
+  /**
+   * Why setup is needed: no linked account, a single-account daemon that
+   * needs its number, or (desktop app) no signal-cli program to run.
+   */
+  reason: 'no-account' | 'account-required' | 'not-installed';
+  /** The connection error, shown when signal-cli is missing. */
+  errorMessage?: string | null;
+  /** Desktop app: use the signal-cli at this path. */
+  onProgramPath?: (path: string) => void;
   link: LinkFlow | undefined;
   onLinked: (accountId: string) => void;
   onAccount: (account: string) => void;
@@ -21,6 +29,8 @@ export interface ConnectionSetupProps {
 
 export function ConnectionSetup({
   reason,
+  errorMessage = null,
+  onProgramPath,
   link,
   onLinked,
   onAccount,
@@ -39,6 +49,8 @@ export function ConnectionSetup({
             <Suspense fallback={<div className={setup.card} aria-busy="true" />}>
               <LinkDevice link={link} onLinked={onLinked} />
             </Suspense>
+          ) : reason === 'not-installed' ? (
+            <MissingSignalCli message={errorMessage} onSubmit={(path) => onProgramPath?.(path)} />
           ) : (
             <AccountPrompt onSubmit={onAccount} />
           )}

@@ -1,0 +1,17 @@
+fn main() {
+    // An app manifest makes the app's own commands permission-gated like
+    // plugin commands: only those listed in capabilities/main.json are callable.
+    tauri_build::try_build(
+        tauri_build::Attributes::new().app_manifest(tauri_build::AppManifest::new().commands(&[
+            "signal_cli_connect",
+            "signal_cli_request",
+            "signal_cli_subscribe",
+            "signal_cli_ack",
+            "signal_cli_probe",
+            "signal_cli_locate",
+            "desktop_info",
+            "open_external",
+        ])),
+    )
+    .expect("failed to run tauri-build");
+}

@@ -65,6 +65,19 @@ const cases = [
     "export { SignalCliBackend } from '@/core/backend/signal-cli';",
     ['import-x/no-restricted-paths'],
   ],
+  // Tauri APIs only in src/platform/tauri; the platform layer only from src/app.
+  ['ui/features/chat', "export { invoke } from '@tauri-apps/api/core';", ['no-restricted-imports']],
+  ['core/services', "export { invoke } from '@tauri-apps/api/core';", ['no-restricted-imports']],
+  ['platform/tauri', "export { invoke } from '@tauri-apps/api/core';", []],
+  [
+    'ui/features/chat',
+    "export { TauriTransport } from '@/platform/tauri';",
+    ['import-x/no-restricted-paths'],
+  ],
+  ['core/stores', "export { isTauri } from '@/platform/detect';", ['import-x/no-restricted-paths']],
+  ['app', "export { isTauri } from '@/platform/detect';", []],
+  ['platform/tauri', "export { useSnowdrop } from '@/ui/hooks';", ['import-x/no-restricted-paths']],
+  ['platform/tauri', "export { SignalCliError } from '@/core/backend/signal-cli';", []],
 ];
 
 /** Removes fixtures left behind by a run that was killed before cleaning up. */

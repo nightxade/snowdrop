@@ -198,3 +198,9 @@
   font-size: var(--snowdrop-font-size-message);
   line-height: var(--snowdrop-line-height-message);
 }
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--snowdrop-space-4);
+}

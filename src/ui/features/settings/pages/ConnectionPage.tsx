@@ -2,12 +2,14 @@ import { CircleCheck, CircleX, LoaderCircle, PlugZap, RefreshCw } from 'lucide-r
 import { useState } from 'react';
 import { useStore } from 'zustand';
 import type { BackendKind } from '@/core/backend';
+import type { DesktopConnection } from '@/core/stores';
 import { validateDaemonUrl } from '@/ui/features/onboarding';
 import { useSnowdrop, type DaemonProbe } from '@/ui/hooks';
 import { Button, Modal, Segmented, Switch, TextInput } from '@/ui/primitives';
 import { SettingRow } from '../rows/SettingRow';
 import { SettingsSection } from '../rows/SettingsSection';
 import { useSettingsSection } from '../useSettingsSection';
+import { DesktopConnectionRows } from './DesktopConnectionRows';
 import styles from './pages.module.css';
 
 const STATUS_TEXT = {
@@ -46,18 +48,28 @@ export function ConnectionPage() {
   const [account, setAccount] = useState(saved.account ?? '');
   const [probe, setProbe] = useState<DaemonProbe | 'testing' | null>(null);
   const [confirm, setConfirm] = useState(false);
+  // The desktop app runs signal-cli itself: no daemon URL, its own settings.
+  const desktopAdmin = app.desktop;
+  const [desktop, setDesktop] = useState<DesktopConnection>(saved.desktop);
 
-  const urlError = backend === 'signal-cli' ? validateDaemonUrl(url) : null;
+  const urlError = backend === 'signal-cli' && !desktopAdmin ? validateDaemonUrl(url) : null;
+  const desktopChanged = (Object.keys(desktop) as (keyof DesktopConnection)[]).some(
+    (key) => desktop[key] !== saved.desktop[key],
+  );
   const changed =
     backend !== running ||
     (backend === 'signal-cli' &&
-      (url.trim() !== saved.daemonUrl || (account.trim() || null) !== saved.account));
+      (desktopAdmin
+        ? desktopChanged
+        : url.trim() !== saved.daemonUrl || (account.trim() || null) !== saved.account));
 
   const apply = () => {
     set({
       backend,
       ...(backend === 'signal-cli'
-        ? { daemonUrl: url.trim(), account: account.trim() || null }
+        ? desktopAdmin
+          ? { desktop }
+          : { daemonUrl: url.trim(), account: account.trim() || null }
         : {}),
     });
     app.admin.flush();
@@ -95,7 +107,10 @@ export function ConnectionPage() {
             />
           )}
         />
-        {backend === 'signal-cli' && (
+        {backend === 'signal-cli' && desktopAdmin && (
+          <DesktopConnectionRows admin={desktopAdmin} value={desktop} onChange={setDesktop} />
+        )}
+        {backend === 'signal-cli' && !desktopAdmin && (
           <>
             <SettingRow
               id="connection.url"
@@ -232,7 +247,7 @@ export function ConnectionPage() {
           title="Reload Snowdrop?"
           description={
             backend === 'mock'
-              ? 'Snowdrop will reload into the demo. Your signal-cli history stays stored in this browser.'
+              ? `Snowdrop will reload into the demo. Your signal-cli history stays stored ${desktopAdmin ? 'on this computer' : 'in this browser'}.`
               : 'Snowdrop will reload and connect to signal-cli. Unsent drafts are kept.'
           }
           footer={

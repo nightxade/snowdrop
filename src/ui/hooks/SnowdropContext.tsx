@@ -4,7 +4,7 @@
  * concrete `Snowdrop` from app/createSnowdrop satisfies this structurally.
  */
 import { createContext, use, type ReactNode } from 'react';
-import type { BackendOption, ChatBackend } from '@/core/backend';
+import type { BackendOption, ChatBackend, DesktopAdmin } from '@/core/backend';
 import type { CommandRegistry, KeybindDispatcher } from '@/core/commands';
 import type { MessageRepository } from '@/core/persistence';
 import type { PluginRuntime, Registries } from '@/core/plugins';
@@ -53,6 +53,8 @@ export interface AppServices {
   /** Desktop notification permission + a test notification. */
   notifications: Pick<NotificationService, 'permission' | 'requestPermission' | 'test'>;
   admin: AppAdmin;
+  /** The desktop app's signal-cli management (Settings → Connection, About); null in the browser. */
+  desktop: DesktopAdmin | null;
   /** Started in safe mode: imported themes and Custom CSS are not applied. */
   readonly safeMode: boolean;
   /** Read-only history queries (search, mentions inbox, pins). */

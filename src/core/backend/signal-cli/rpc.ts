@@ -1,5 +1,6 @@
 /**
- * JSON-RPC 2.0 over signal-cli's HTTP endpoint (`POST /api/v1/rpc`).
+ * JSON-RPC 2.0 client for signal-cli, over any `SignalCliTransport`
+ * (the HTTP daemon in the browser, Tauri IPC in the desktop app).
  *
  * Every result is validated with a decoder before it leaves this module, and
  * every failure becomes a `SignalCliError` with a machine-readable kind.
@@ -8,18 +9,21 @@
  * for startLink/finishLink/listAccounts).
  */
 import { kindForRpcCode, SignalCliError } from './errors';
-import { decode, isRecord, type Decoder } from './validate';
+import { HttpTransport, type FetchLike } from './httpTransport';
+import type { RpcParams, SignalCliTransport, TransportCallOptions } from './transport';
+import { decode, type Decoder } from './validate';
 
-/** The subset of `fetch` we use; injected so tests can fake the daemon. */
-export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
+export { joinUrl, type FetchLike } from './httpTransport';
+export type { RpcParams } from './transport';
 
-export interface JsonRpcClientOptions {
-  /** Daemon base URL, e.g. `/signal-cli` (dev proxy) or `http://127.0.0.1:8080`. */
-  baseUrl: string;
-  fetch?: FetchLike;
+export type JsonRpcClientOptions = {
   /** Default per-call timeout. */
   timeoutMs?: number;
-}
+} & (
+  | { transport: SignalCliTransport }
+  /** Shorthand for an `HttpTransport`. */
+  | { baseUrl: string; fetch?: FetchLike }
+);
 
 export interface CallOptions {
   /** Overrides the client's account; `null` sends no account param. */
@@ -28,43 +32,26 @@ export interface CallOptions {
   signal?: AbortSignal;
 }
 
-export type RpcParams = Record<string, unknown>;
-
-export function joinUrl(base: string, path: string): string {
-  return `${base.replace(/\/+$/u, '')}${path}`;
-}
-
-/** Bound `fetch` lazily so a test can stub the global after construction. */
-const globalFetch: FetchLike = (input, init) => globalThis.fetch(input, init);
-
 export class JsonRpcClient {
   /** Account injected into single-account calls (ACI or number). */
   account: string | undefined;
-  private nextId = 1;
-  private readonly fetch: FetchLike;
+  readonly transport: SignalCliTransport;
   private readonly timeoutMs: number;
 
-  constructor(private readonly options: JsonRpcClientOptions) {
-    this.fetch = options.fetch ?? globalFetch;
+  constructor(options: JsonRpcClientOptions) {
+    this.transport =
+      'transport' in options
+        ? options.transport
+        : new HttpTransport({
+            baseUrl: options.baseUrl,
+            ...(options.fetch ? { fetch: options.fetch } : {}),
+          });
     this.timeoutMs = options.timeoutMs ?? 30_000;
   }
 
-  get baseUrl(): string {
-    return this.options.baseUrl;
-  }
-
-  /** `GET /api/v1/check`: resolves when the daemon is up. */
-  async check(options: Pick<CallOptions, 'timeoutMs' | 'signal'> = {}): Promise<void> {
-    const response = await this.request(
-      joinUrl(this.baseUrl, '/api/v1/check'),
-      { method: 'GET' },
-      options,
-    );
-    if (!response.ok) {
-      throw new SignalCliError('http', `Daemon health check failed (HTTP ${response.status})`, {
-        status: response.status,
-      });
-    }
+  /** Resolves when signal-cli is up (the HTTP daemon's /api/v1/check; the desktop starts it). */
+  check(options: Pick<CallOptions, 'timeoutMs' | 'signal'> = {}): Promise<void> {
+    return this.withDeadline(options, (call) => this.transport.check(call));
   }
 
   async call<T>(
@@ -73,59 +60,24 @@ export class JsonRpcClient {
     decoder: Decoder<T>,
     options: CallOptions = {},
   ): Promise<T> {
-    const id = this.nextId++;
     const account = options.account === undefined ? this.account : options.account;
     const allParams: RpcParams = { ...params };
     if (account !== null && account !== undefined) allParams.account = account;
-    const body = JSON.stringify({
-      jsonrpc: '2.0',
-      method,
-      id,
-      ...(Object.keys(allParams).length > 0 ? { params: allParams } : {}),
-    });
-
-    const response = await this.request(
-      joinUrl(this.baseUrl, '/api/v1/rpc'),
-      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body },
-      options,
+    const reply = await this.withDeadline(options, (call) =>
+      this.transport.request(
+        method,
+        Object.keys(allParams).length > 0 ? allParams : undefined,
+        call,
+      ),
     );
-    if (response.status === 201) {
-      // Only for notifications; we always send an id, but be tolerant.
-      return this.decodeResult(method, {}, decoder);
-    }
-    if (!response.ok) {
-      throw new SignalCliError(
-        'http',
-        response.status === 421
-          ? 'Daemon rejected the Host header (use the dev proxy or a localhost URL)'
-          : `HTTP ${response.status} from daemon`,
-        { status: response.status },
-      );
-    }
-
-    let payload: unknown;
-    try {
-      payload = await response.json();
-    } catch (cause) {
-      throw new SignalCliError('invalid-response', `${method}: response is not JSON`, { cause });
-    }
-    if (!isRecord(payload)) {
-      throw new SignalCliError('invalid-response', `${method}: response is not an object`);
-    }
-    if (isRecord(payload.error)) {
-      const code = typeof payload.error.code === 'number' ? payload.error.code : -32603;
-      const message =
-        typeof payload.error.message === 'string' ? payload.error.message : 'Unknown error';
+    if (reply.error) {
+      const { code, message } = reply.error;
       throw new SignalCliError(kindForRpcCode(code, message), message, {
         code,
-        data: payload.error.data ?? undefined,
+        data: reply.error.data ?? undefined,
       });
     }
-    return this.decodeResult(method, payload.result, decoder);
-  }
-
-  private decodeResult<T>(method: string, value: unknown, decoder: Decoder<T>): T {
-    const result = decode(decoder, value);
+    const result = decode(decoder, reply.result);
     if (!result.ok) {
       throw new SignalCliError('invalid-response', `${method}: ${result.error.message}`, {
         cause: result.error,
@@ -134,40 +86,51 @@ export class JsonRpcClient {
     return result.value;
   }
 
-  private async request(
-    url: string,
-    init: RequestInit,
+  /**
+   * Runs a transport call with a timeout and the caller's abort signal. The
+   * deadline is enforced here, whether or not the transport can cancel.
+   */
+  private async withDeadline<T>(
     options: Pick<CallOptions, 'timeoutMs' | 'signal'>,
-  ): Promise<Response> {
+    run: (call: TransportCallOptions) => Promise<T>,
+  ): Promise<T> {
     const controller = new AbortController();
     const timeoutMs = options.timeoutMs ?? this.timeoutMs;
-    // A holder object: TS can't see closure writes to a local `let`.
-    const state = { timedOut: false };
-    const timer = setTimeout(() => {
-      state.timedOut = true;
-      controller.abort();
-    }, timeoutMs);
     const external = options.signal;
-    const onAbort = (): void => {
-      controller.abort();
-    };
-    if (external?.aborted) controller.abort();
-    else external?.addEventListener('abort', onAbort, { once: true });
+    const failure = new Promise<never>((_, reject) => {
+      const timer = setTimeout(() => {
+        controller.abort();
+        reject(new SignalCliError('timeout', `signal-cli did not answer within ${timeoutMs} ms`));
+      }, timeoutMs);
+      const onAbort = (): void => {
+        controller.abort();
+        reject(new SignalCliError('aborted', 'Request aborted'));
+      };
+      if (external?.aborted) onAbort();
+      else external?.addEventListener('abort', onAbort, { once: true });
+      controller.signal.addEventListener('abort', () => {
+        clearTimeout(timer);
+        external?.removeEventListener('abort', onAbort);
+      });
+    });
+    // Unhandled-rejection guard: `failure` may settle after the call won.
+    failure.catch(() => undefined);
     try {
-      return await this.fetch(url, { ...init, signal: controller.signal });
-    } catch (cause) {
-      if (state.timedOut) {
-        throw new SignalCliError('timeout', `Daemon did not answer within ${timeoutMs} ms`, {
-          cause,
+      return await Promise.race([run({ signal: controller.signal, timeoutMs }), failure]);
+    } catch (error) {
+      if (controller.signal.aborted) {
+        // An abort or the timeout rejected `failure`; prefer that over the
+        // transport's own AbortError.
+        await failure.catch((reason: unknown) => {
+          throw reason;
         });
       }
-      if (external?.aborted) throw new SignalCliError('aborted', 'Request aborted', { cause });
-      throw new SignalCliError('unreachable', `Cannot reach signal-cli at ${this.baseUrl}`, {
-        cause,
+      if (error instanceof SignalCliError) throw error;
+      throw new SignalCliError('unreachable', `Cannot reach ${this.transport.description}`, {
+        cause: error,
       });
     } finally {
-      clearTimeout(timer);
-      external?.removeEventListener('abort', onAbort);
+      controller.abort();
     }
   }
 }

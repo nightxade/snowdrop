@@ -1,4 +1,4 @@
-import { ArrowLeft, PlugZap, Sparkles } from 'lucide-react';
+import { ArrowLeft, PlugZap, Smartphone, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 import { SnowdropMark, TooltipProvider } from '@/ui/primitives';
 import { ConnectForm } from './ConnectForm';
@@ -12,12 +12,17 @@ export interface WelcomeProps {
   defaultDaemonUrl: string;
   /** Checks a daemon URL before connecting. */
   probe?: ConnectFormProbe;
+  /**
+   * The desktop app: it runs the signal-cli bundled with it, so connecting
+   * needs no address and goes straight to linking this computer.
+   */
+  desktop?: boolean;
 }
 
 type ConnectFormProbe = Parameters<typeof ConnectForm>[0]['probe'];
 
 /** First run (PLAN §4.10): the one screen where the brand gets room to breathe. */
-export function Welcome({ onDemo, onConnect, defaultDaemonUrl, probe }: WelcomeProps) {
+export function Welcome({ onDemo, onConnect, defaultDaemonUrl, probe, desktop }: WelcomeProps) {
   const [step, setStep] = useState<'choose' | 'connect'>('choose');
   return (
     <TooltipProvider>
@@ -52,16 +57,25 @@ export function Welcome({ onDemo, onConnect, defaultDaemonUrl, probe }: WelcomeP
                   type="button"
                   className={styles.choice}
                   onClick={() => {
-                    setStep('connect');
+                    if (desktop) onConnect(defaultDaemonUrl);
+                    else setStep('connect');
                   }}
                 >
                   <span className={styles.choiceIcon}>
-                    <PlugZap size={20} aria-hidden />
+                    {desktop ? (
+                      <Smartphone size={20} aria-hidden />
+                    ) : (
+                      <PlugZap size={20} aria-hidden />
+                    )}
                   </span>
                   <span className={styles.choiceText}>
-                    <span className={styles.choiceTitle}>Connect to signal-cli</span>
+                    <span className={styles.choiceTitle}>
+                      {desktop ? 'Use your Signal account' : 'Connect to signal-cli'}
+                    </span>
                     <span className={styles.choiceBody}>
-                      Use your real account through a signal-cli daemon running on this computer.
+                      {desktop
+                        ? 'Link this computer to your phone with a QR code. Nothing to install: Snowdrop runs signal-cli for you.'
+                        : 'Use your real account through a signal-cli daemon running on this computer.'}
                     </span>
                   </span>
                 </button>

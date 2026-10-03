@@ -64,3 +64,27 @@
   font-size: var(--snowdrop-font-size-sm);
   line-height: 1.6;
 }
+
+.path {
+  font-family: var(--snowdrop-font-mono);
+  font-size: var(--snowdrop-font-size-xs);
+  overflow-wrap: anywhere;
+}
+
+.licence summary {
+  color: var(--snowdrop-text);
+  cursor: pointer;
+}
+
+.licence pre {
+  max-height: 320px;
+  margin-top: var(--snowdrop-space-3);
+  padding: var(--snowdrop-space-4);
+  overflow: auto;
+  border-radius: var(--snowdrop-radius-sm);
+  background: var(--snowdrop-code-bg);
+  color: var(--snowdrop-text-muted);
+  font-family: var(--snowdrop-font-mono);
+  font-size: var(--snowdrop-font-size-xs);
+  white-space: pre-wrap;
+}

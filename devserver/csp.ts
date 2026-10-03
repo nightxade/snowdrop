@@ -18,16 +18,33 @@ export const CSP = [
   "base-uri 'none'",
 ].join('; ');
 
-export function contentSecurityPolicy(): Plugin {
+/**
+ * The desktop app's policy: the same, plus Tauri's IPC endpoints (`ipc:` on
+ * Linux/macOS, `http://ipc.localhost` on Windows). Tauri applies it itself
+ * from src-tauri/tauri.conf.json (a test keeps the two equal), adding hashes
+ * for its own scripts, so desktop builds get no meta tag.
+ */
+export const TAURI_CSP = CSP.replace(
+  "connect-src 'self'",
+  "connect-src 'self' ipc: http://ipc.localhost",
+);
+
+/** True while the Tauri CLI runs the build (`beforeBuildCommand`). */
+export const isTauriBuild = (): boolean => Boolean(process.env.TAURI_ENV_PLATFORM);
+
+export function contentSecurityPolicy({ desktop = false }: { desktop?: boolean } = {}): Plugin {
   return {
     name: 'snowdrop:csp',
     apply: 'build',
-    transformIndexHtml: () => [
-      {
-        tag: 'meta',
-        attrs: { 'http-equiv': 'Content-Security-Policy', content: CSP },
-        injectTo: 'head',
-      },
-    ],
+    transformIndexHtml: () =>
+      desktop
+        ? []
+        : [
+            {
+              tag: 'meta',
+              attrs: { 'http-equiv': 'Content-Security-Policy', content: CSP },
+              injectTo: 'head',
+            },
+          ],
   };
 }

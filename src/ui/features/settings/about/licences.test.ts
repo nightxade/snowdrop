@@ -19,7 +19,12 @@ describe('About → licences', () => {
     for (const l of LICENCES) {
       const wanted = (pkg.dependencies[l.name] ?? '').replace(/^[\^~]/u, '');
       expect(l.version.split('.')[0], l.name).toBe(wanted.split('.')[0]);
-      expect(ALLOWED.has(l.license), `${l.name}: ${l.license}`).toBe(true);
+      // A dual licence ("MIT OR Apache-2.0") is fine when either choice is.
+      const choices = l.license.replace(/^\(|\)$/gu, '').split(/\s+OR\s+/u);
+      expect(
+        choices.some((c) => ALLOWED.has(c)),
+        `${l.name}: ${l.license}`,
+      ).toBe(true);
     }
   });
 });

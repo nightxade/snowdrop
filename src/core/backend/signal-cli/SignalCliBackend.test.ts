@@ -223,7 +223,7 @@ describe('SignalCliBackend: connection', () => {
     await flush();
     await backend.idle();
     expect(order).toEqual([`message:${T0}`, 'checkpoint:run-7', 'checkpoint:run-8']);
-    const key = `snowdrop.signal-cli.lastEventId.${SELF_ACI}`;
+    const key = `snowdrop.signal-cli.cursor.http.${SELF_ACI}`;
     // Not acknowledged ⇒ a reload would re-deliver (never lose) these events.
     expect(storage.getItem(key)).toBeNull();
     backend.acknowledge('run-7');
@@ -589,7 +589,7 @@ describe('SignalCliBackend + SyncService', () => {
     expect(stored).toMatchObject({ body: 'hello there (edited)', editedAt: T0 + 20 });
     expect(stores.conversations.getState().unread[GROUP]).toMatchObject({ count: 1, mentions: 1 });
     // The sync engine acknowledged the last event after storing it.
-    expect(storage.getItem(`snowdrop.signal-cli.lastEventId.${SELF_ACI}`)).toBe('r-3');
+    expect(storage.getItem(`snowdrop.signal-cli.cursor.http.${SELF_ACI}`)).toBe('r-3');
     await sync.stop();
     expect(stores.session.getState().status).toBe('offline');
   });

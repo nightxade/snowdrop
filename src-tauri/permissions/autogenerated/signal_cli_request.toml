@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-signal-cli-request"
+description = "Enables the signal_cli_request command without any pre-configured scope."
+commands.allow = ["signal_cli_request"]
+
+[[permission]]
+identifier = "deny-signal-cli-request"
+description = "Denies the signal_cli_request command without any pre-configured scope."
+commands.deny = ["signal_cli_request"]

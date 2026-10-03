@@ -1,0 +1,59 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Snowdrop",
+  "version": "0.1.0",
+  "identifier": "local.snowdrop.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev -- --port 5173 --strictPort",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Snowdrop",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 360,
+        "minHeight": 560,
+        "center": true,
+        "dragDropEnabled": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data: blob:; media-src 'self' data: blob:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'",
+      "devCsp": null,
+      "freezePrototype": true,
+      "capabilities": ["main"]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["appimage", "deb"],
+    "category": "SocialNetworking",
+    "shortDescription": "A quiet, private chat client for Signal, driven by signal-cli",
+    "longDescription": "Snowdrop organises your Signal conversations into spaces, with a sidebar, full keyboard control, theming and plugins. It bundles signal-cli and keeps everything on this computer. Not affiliated with Signal.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/64x64.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "externalBin": ["binaries/signal-cli"],
+    "resources": {
+      "licenses/signal-cli/COPYING": "licenses/signal-cli/COPYING",
+      "licenses/signal-cli/SOURCE.txt": "licenses/signal-cli/SOURCE.txt"
+    },
+    "linux": {
+      "deb": {
+        "depends": []
+      }
+    }
+  }
+}

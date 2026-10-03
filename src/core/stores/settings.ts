@@ -69,7 +69,34 @@ export interface ConnectionSettings {
   account: string | null;
   /** Mock only: simulated activity. */
   mockLiveliness: boolean;
+  /** Desktop app only: how it reaches signal-cli (the browser uses `daemonUrl`). */
+  desktop: DesktopConnection;
 }
+
+/**
+ * How the desktop app reaches signal-cli. By default it runs the signal-cli
+ * bundled with it (`signal-cli jsonRpc`, a child process); an external HTTP
+ * daemon on this computer is the advanced alternative.
+ */
+export interface DesktopConnection {
+  mode: 'spawn' | 'external';
+  /** Spawn: prefer the bundled signal-cli when this build has one. */
+  useBundled: boolean;
+  /** Spawn: absolute path of a signal-cli you installed ('' = look on PATH). */
+  binaryPath: string;
+  /** Spawn: run signal-cli for this account only (`-a`); '' = multi-account. */
+  account: string;
+  /** External: the daemon's address (loopback only). */
+  externalUrl: string;
+}
+
+export const DEFAULT_DESKTOP_CONNECTION: DesktopConnection = {
+  mode: 'spawn',
+  useBundled: true,
+  binaryPath: '',
+  account: '',
+  externalUrl: 'http://127.0.0.1:8080',
+};
 
 /** A user-imported theme (Settings → Themes). Validated on import and on load. */
 export interface CustomThemeData {
@@ -132,6 +159,7 @@ export function defaultSettings(): Settings {
       daemonUrl: DEFAULT_DAEMON_URL,
       account: null,
       mockLiveliness: true,
+      desktop: DEFAULT_DESKTOP_CONNECTION,
     },
     keybinds: {},
     plugins: {},
@@ -328,6 +356,7 @@ export function parseSettings(data: unknown, options: SettingsParseOptions = {})
           : d.connection.daemonUrl,
       account: typeof c.account === 'string' && c.account ? c.account : null,
       mockLiveliness: bool(c.mockLiveliness, d.connection.mockLiveliness),
+      desktop: parseDesktopConnection(c.desktop),
     },
     keybinds,
     plugins,
@@ -335,6 +364,21 @@ export function parseSettings(data: unknown, options: SettingsParseOptions = {})
     customThemes: Array.isArray(root.customThemes)
       ? root.customThemes.map(parseCustomTheme).filter((t): t is CustomThemeData => t !== null)
       : [],
+  };
+}
+
+/** Shape and length only; the Rust side validates paths, accounts and URLs before use. */
+function parseDesktopConnection(value: unknown): DesktopConnection {
+  const d = DEFAULT_DESKTOP_CONNECTION;
+  if (!isRecord(value)) return d;
+  const text = (v: unknown, fallback: string) =>
+    typeof v === 'string' && v.length <= 4096 ? v : fallback;
+  return {
+    mode: value.mode === 'external' ? 'external' : 'spawn',
+    useBundled: typeof value.useBundled === 'boolean' ? value.useBundled : d.useBundled,
+    binaryPath: text(value.binaryPath, d.binaryPath),
+    account: text(value.account, d.account),
+    externalUrl: text(value.externalUrl, d.externalUrl).trim() || d.externalUrl,
   };
 }
 
