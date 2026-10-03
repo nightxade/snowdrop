@@ -47,6 +47,13 @@ app (`signal_cli_install` below), on first launch or when Settings →
 Connection asks it to. There's nothing a `cargo build` in `src-tauri/`
 needs that isn't already in the repo.
 
+`scratch/tauri-env.sh` (outside this repo, alongside it) is **optional**: it
+just points `CARGO_HOME`, `CARGO_TARGET_DIR`, `XDG_CACHE_HOME` and the npm
+cache at a workspace-local directory, so Rust/npm downloads and build
+products stay inside `~/Downloads/aligns` instead of `~/.cargo` or
+`~/.cache`. Plain `npm run tauri:dev` / `npm run tauri:build` work fine
+without sourcing it.
+
 ## Downloading signal-cli (the default)
 
 `src-tauri/signal-cli.json` is the **one pinned source of truth**, read by
@@ -92,8 +99,10 @@ Both sides refuse to install anything whose hash doesn't match.
    mismatch deletes the file and fails the install; nothing unverified is
    ever extracted.
 5. The verified `.tar.gz` is extracted with `flate2` + `tar`, rejecting any
-   entry with an absolute path or a `..` component (path-traversal
-   protection for a hostile or corrupted archive).
+   entry with an absolute path or a `..` component, and any entry that isn't
+   a plain file or directory — symlinks, hard links, devices and FIFOs are
+   all rejected too (path-traversal protection for a hostile or corrupted
+   archive).
 6. The `signal-cli` binary is marked executable and the whole result is
    built in a staged sibling directory, then **atomically** `rename`d into
    `<app_data_dir>/signal-cli/<version>/` — that directory is either absent
@@ -258,8 +267,9 @@ unknown (replay everything currently held/available).
 - **Download integrity.** The signal-cli download is HTTPS over `rustls`
   (no OpenSSL anywhere in this app), checked against a pinned SHA-256 before
   extraction, and the `.tar.gz` extractor rejects any entry with an absolute
-  path or a `..` component (`signal_cli_install::extract_tar_gz`) — a
-  corrupted or tampered archive can't write outside the install directory.
+  path or a `..` component, as well as symlink, hard-link, device and FIFO
+  entries (`signal_cli_install::extract_tar_gz`) — a corrupted or tampered
+  archive can't write outside the install directory.
 - **External daemon, loopback only.** `validate_daemon_url` accepts only
   `http://` (no TLS, matching signal-cli's own daemon) on `localhost`,
   `127.0.0.1`, `::1`, or another loopback address, with no embedded

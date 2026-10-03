@@ -6,7 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::ffi::{OsStr, OsString};
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 
 use crate::error::{Error, ErrorKind};
@@ -206,17 +206,24 @@ pub fn validate_daemon_url(raw: &str) -> Result<DaemonUrl, Error> {
             return Err(bad("That port isn't valid."));
         }
     }
-    let loopback = host.eq_ignore_ascii_case("localhost")
-        || host.parse::<IpAddr>().is_ok_and(|ip| ip.is_loopback())
-        || host == Ipv4Addr::LOCALHOST.to_string()
-        || host == Ipv6Addr::LOCALHOST.to_string();
+    let is_localhost = host.eq_ignore_ascii_case("localhost");
+    let loopback = is_localhost || host.parse::<IpAddr>().is_ok_and(|ip| ip.is_loopback());
     if !loopback {
         return Err(bad("Snowdrop only connects to a signal-cli daemon on this computer (127.0.0.1, ::1 or localhost)."));
     }
     if path.chars().any(|c| c.is_whitespace() || c == '?' || c == '#') {
         return Err(bad("That daemon address isn't valid."));
     }
-    Ok(DaemonUrl { base: url.to_owned() })
+    // "localhost" isn't trusted as-is: a misconfigured resolver or
+    // `/etc/hosts` entry could in principle point it somewhere that isn't
+    // loopback, and every connection is built from `base` afterwards. Pin it
+    // to the literal loopback address now, before anything ever resolves it.
+    let base = if is_localhost {
+        format!("http://{}{}", authority.replacen(host, "127.0.0.1", 1), if path.is_empty() { String::new() } else { format!("/{path}") })
+    } else {
+        url.to_owned()
+    };
+    Ok(DaemonUrl { base })
 }
 
 #[cfg(test)]
@@ -320,6 +327,20 @@ mod tests {
         ] {
             assert!(validate_daemon_url(bad).is_err(), "{bad}");
         }
+    }
+
+    /// "localhost" is never trusted to resolve correctly on its own — it's
+    /// pinned to the literal loopback address before anything connects, so a
+    /// hijacked resolver or `/etc/hosts` entry can't send it anywhere else.
+    #[test]
+    fn normalises_localhost_to_the_loopback_address() {
+        assert_eq!(validate_daemon_url("http://localhost:8080").unwrap().base, "http://127.0.0.1:8080");
+        assert_eq!(validate_daemon_url("http://localhost").unwrap().base, "http://127.0.0.1");
+        assert_eq!(validate_daemon_url("http://LOCALHOST:8080").unwrap().base, "http://127.0.0.1:8080");
+        assert_eq!(validate_daemon_url("http://localhost:8080/v1").unwrap().base, "http://127.0.0.1:8080/v1");
+        // A real loopback IP address is left exactly as given.
+        assert_eq!(validate_daemon_url("http://127.0.0.2:8080").unwrap().base, "http://127.0.0.2:8080");
+        assert_eq!(validate_daemon_url("http://[::1]:8080").unwrap().base, "http://[::1]:8080");
     }
 
     #[test]

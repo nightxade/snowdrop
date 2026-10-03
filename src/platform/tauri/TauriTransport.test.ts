@@ -151,6 +151,40 @@ describe('TauriTransport', () => {
     expect(events).toHaveLength(1);
   });
 
+  it('does not flicker back to open if stop() races an in-flight signal_cli_subscribe', async () => {
+    const states: { kind: string }[] = [];
+    let resolveSubscribe: (() => void) | undefined;
+    ipc.invoke.mockImplementation((command) => {
+      if (command === 'signal_cli_subscribe') {
+        return new Promise<string>((resolve) => {
+          resolveSubscribe = () => {
+            resolve('r1');
+          };
+        });
+      }
+      return Promise.resolve('r1');
+    });
+    const sub = new TauriTransport({ desktop: spawn }).subscribe({
+      account: null,
+      resumeFrom: '',
+      onEvent: () => undefined,
+      onState: (s) => states.push(s),
+    });
+    sub.start();
+    await vi.waitFor(() => {
+      expect(states).toContainEqual({ kind: 'connecting', attempt: 0 });
+    });
+
+    // stop() while signal_cli_subscribe is still in flight...
+    const stopped = sub.stop();
+    // ...then the call finally succeeds.
+    resolveSubscribe?.();
+    await stopped;
+
+    // `closed` is the last word: the late success never flickers it back to `open`.
+    expect(states.map((s) => s.kind)).toEqual(['connecting', 'closed']);
+  });
+
   it('retries a subscription while signal-cli is restarting, and gives up when it is missing', async () => {
     const states: { kind: string }[] = [];
     ipc.invoke

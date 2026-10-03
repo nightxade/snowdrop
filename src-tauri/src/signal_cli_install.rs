@@ -293,9 +293,12 @@ pub async fn download_and_install(
         ));
     }
 
-    let binary = extract_and_install(&part_path, &work, app_data_dir, version)?;
-    let _ = fs::remove_file(&part_path);
-    Ok(binary)
+    // The verified download is spent either way from here: extracted into
+    // the install, or cleaned up if that fails. `CleanupGuard` removes it on
+    // every exit from this point (including a `?` out of `extract_and_install`),
+    // so a failed extraction never leaves the `.part` file behind.
+    let _part_cleanup = CleanupGuard(&part_path);
+    extract_and_install(&part_path, &work, app_data_dir, version)
 }
 
 /// Streams `url` into `part_path`, resuming from whatever's already there
@@ -350,6 +353,20 @@ fn network_err(e: reqwest::Error) -> Error {
     Error::new(ErrorKind::Unreachable, format!("Couldn't reach github.com: {e}"))
 }
 
+/// Removes `path` (file or directory, whichever it turns out to be, ignoring
+/// either kind of "not found") when dropped. Used for install scratch space
+/// (the `.part` download, the extraction and staging directories) so an
+/// early return via `?` cleans up exactly like a normal success does,
+/// without repeating the cleanup at every call site.
+struct CleanupGuard<'a>(&'a Path);
+
+impl Drop for CleanupGuard<'_> {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(self.0);
+        let _ = fs::remove_dir_all(self.0);
+    }
+}
+
 fn sha256_file(path: &Path) -> Result<String, Error> {
     let mut file = File::open(path).map_err(io_err)?;
     let mut hasher = Sha256::new();
@@ -372,15 +389,21 @@ fn extract_and_install(archive_path: &Path, work: &Path, app_data_dir: &Path, ve
     let extract_tmp = work.join(format!("{version}.extract"));
     let _ = fs::remove_dir_all(&extract_tmp);
     fs::create_dir_all(&extract_tmp).map_err(io_err)?;
+    // Cleaned up on any exit (success or a `?` below): nothing extracted is
+    // needed once it's copied into `staged`, and a failed extraction leaves
+    // nothing behind either.
+    let _extract_cleanup = CleanupGuard(&extract_tmp);
     let extracted_binary = extract_tar_gz(archive_path, &extract_tmp)?;
 
     let staged = work.join(format!("{version}.staged"));
     let _ = fs::remove_dir_all(&staged);
     fs::create_dir_all(&staged).map_err(io_err)?;
+    // Cleaned up the same way; once `rename` below succeeds this path no
+    // longer exists, so the cleanup is a (harmless) no-op on success.
+    let _staged_cleanup = CleanupGuard(&staged);
     let staged_binary = staged.join("signal-cli");
     fs::copy(&extracted_binary, &staged_binary).map_err(io_err)?;
     make_executable(&staged_binary)?;
-    let _ = fs::remove_dir_all(&extract_tmp);
 
     let final_dir = install_dir(app_data_dir, version);
     if let Some(parent) = final_dir.parent() {
@@ -394,8 +417,13 @@ fn extract_and_install(archive_path: &Path, work: &Path, app_data_dir: &Path, ve
 }
 
 /// Extracts `archive_path` (a `.tar.gz`) into `dest`, refusing any entry
-/// whose path is absolute or contains a `..` component, and returns the path
-/// of the `signal-cli` executable it found.
+/// whose path is absolute or contains a `..` component, and any entry that
+/// isn't a plain regular file or a directory (symlinks, hard links, devices,
+/// FIFOs, …), and returns the path of the `signal-cli` executable it found.
+///
+/// Two independent guards keep an entry from writing outside `dest`: the
+/// explicit path check below, and `Entry::unpack_in`, which tar itself
+/// refuses to let escape `dest` (unlike the unchecked `Entry::unpack`).
 fn extract_tar_gz(archive_path: &Path, dest: &Path) -> Result<PathBuf, Error> {
     let file = File::open(archive_path).map_err(io_err)?;
     let decoder = flate2::read::GzDecoder::new(file);
@@ -411,15 +439,29 @@ fn extract_tar_gz(archive_path: &Path, dest: &Path) -> Result<PathBuf, Error> {
                 format!("The signal-cli archive contains an unsafe path ({}) and was rejected.", raw_path.display()),
             ));
         }
+        let entry_type = entry.header().entry_type();
+        if !entry_type.is_file() && !entry_type.is_dir() {
+            return Err(Error::new(
+                ErrorKind::Config,
+                format!(
+                    "The signal-cli archive contains an entry that isn't a file or directory ({}, {:?}) and was rejected.",
+                    raw_path.display(),
+                    entry_type
+                ),
+            ));
+        }
         let out_path = dest.join(&raw_path);
-        if entry.header().entry_type().is_dir() {
+        if entry_type.is_dir() {
             fs::create_dir_all(&out_path).map_err(io_err)?;
             continue;
         }
-        if let Some(parent) = out_path.parent() {
-            fs::create_dir_all(parent).map_err(io_err)?;
+        let unpacked = entry.unpack_in(dest).map_err(io_err)?;
+        if !unpacked {
+            return Err(Error::new(
+                ErrorKind::Config,
+                format!("The signal-cli archive contains an unsafe path ({}) and was rejected.", raw_path.display()),
+            ));
         }
-        entry.unpack(&out_path).map_err(io_err)?;
         if found.is_none() && out_path.file_name().and_then(|n| n.to_str()) == Some("signal-cli") {
             found = Some(out_path);
         }
@@ -504,6 +546,56 @@ mod tests {
         header.set_mode(0o755);
         header.set_cksum();
         builder.append(&header, &b"evil"[..]).unwrap();
+        let tar_bytes = builder.into_inner().unwrap();
+        let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+        encoder.write_all(&tar_bytes).unwrap();
+        encoder.finish().unwrap()
+    }
+
+    /// A tar.gz with one symlink entry pointing outside the extraction
+    /// directory (`evil-link` -> `/etc`).
+    fn make_symlink_archive() -> Vec<u8> {
+        let mut builder = tar::Builder::new(Vec::new());
+        let mut header = tar::Header::new_gnu();
+        header.set_entry_type(tar::EntryType::Symlink);
+        header.set_size(0);
+        builder.append_link(&mut header, "evil-link", "/etc").unwrap();
+        let tar_bytes = builder.into_inner().unwrap();
+        let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+        encoder.write_all(&tar_bytes).unwrap();
+        encoder.finish().unwrap()
+    }
+
+    /// A tar.gz with one hard-link entry pointing at a file outside the
+    /// extraction directory.
+    fn make_hard_link_archive() -> Vec<u8> {
+        let mut builder = tar::Builder::new(Vec::new());
+        let mut header = tar::Header::new_gnu();
+        header.set_entry_type(tar::EntryType::Link);
+        header.set_size(0);
+        builder.append_link(&mut header, "evil-hardlink", "/etc/passwd").unwrap();
+        let tar_bytes = builder.into_inner().unwrap();
+        let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+        encoder.write_all(&tar_bytes).unwrap();
+        encoder.finish().unwrap()
+    }
+
+    /// A tar.gz that first symlinks a directory outside the extraction
+    /// directory, then drops a file through it (the classic "symlinked
+    /// directory" escape: if the symlink were followed, the file would land
+    /// outside `dest`).
+    fn make_symlinked_dir_archive() -> Vec<u8> {
+        let mut builder = tar::Builder::new(Vec::new());
+        let mut link_header = tar::Header::new_gnu();
+        link_header.set_entry_type(tar::EntryType::Symlink);
+        link_header.set_size(0);
+        builder.append_link(&mut link_header, "evil-dir", "/tmp").unwrap();
+        let mut file_header = tar::Header::new_gnu();
+        file_header.set_path("evil-dir/pwned").unwrap();
+        file_header.set_size(4);
+        file_header.set_mode(0o644);
+        file_header.set_cksum();
+        builder.append(&file_header, &b"evil"[..]).unwrap();
         let tar_bytes = builder.into_inner().unwrap();
         let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
         encoder.write_all(&tar_bytes).unwrap();
@@ -663,6 +755,52 @@ mod tests {
     }
 
     #[test]
+    fn rejects_tar_entries_that_are_symlinks() {
+        let app_data = temp_dir("symlink");
+        let archive_path = app_data.join("evil.tar.gz");
+        fs::write(&archive_path, make_symlink_archive()).unwrap();
+        let dest = app_data.join("dest");
+        fs::create_dir_all(&dest).unwrap();
+
+        let err = extract_tar_gz(&archive_path, &dest).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::Config);
+        assert!(err.message.contains("isn't a file or directory"), "{}", err.message);
+        // Nothing was written at all, not even inside dest.
+        assert!(fs::read_dir(&dest).unwrap().next().is_none());
+    }
+
+    #[test]
+    fn rejects_tar_entries_that_are_hard_links() {
+        let app_data = temp_dir("hardlink");
+        let archive_path = app_data.join("evil.tar.gz");
+        fs::write(&archive_path, make_hard_link_archive()).unwrap();
+        let dest = app_data.join("dest");
+        fs::create_dir_all(&dest).unwrap();
+
+        let err = extract_tar_gz(&archive_path, &dest).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::Config);
+        assert!(err.message.contains("isn't a file or directory"), "{}", err.message);
+        assert!(fs::read_dir(&dest).unwrap().next().is_none());
+    }
+
+    #[test]
+    fn rejects_a_symlinked_directory_followed_by_a_file_under_it() {
+        let app_data = temp_dir("symlinked-dir");
+        let archive_path = app_data.join("evil.tar.gz");
+        fs::write(&archive_path, make_symlinked_dir_archive()).unwrap();
+        let dest = app_data.join("dest");
+        fs::create_dir_all(&dest).unwrap();
+
+        let err = extract_tar_gz(&archive_path, &dest).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::Config);
+        assert!(err.message.contains("isn't a file or directory"), "{}", err.message);
+        // The symlink entry was rejected before the file entry under it was
+        // ever reached, so nothing escaped into /tmp and dest stays empty.
+        assert!(fs::read_dir(&dest).unwrap().next().is_none());
+        assert!(!Path::new("/tmp/pwned").exists());
+    }
+
+    #[test]
     fn a_failed_extraction_leaves_no_install_directory() {
         let app_data = temp_dir("extract-fail");
         // An archive with no signal-cli executable inside it at all.
@@ -683,6 +821,46 @@ mod tests {
 
         let err = extract_and_install(&archive_path, &work, &app_data, "9.9.9").unwrap_err();
         assert_eq!(err.kind, ErrorKind::Config);
+        assert!(!install_dir(&app_data, "9.9.9").exists());
+        // No leftover scratch directories either.
+        assert!(!work.join("9.9.9.extract").exists());
+        assert!(!work.join("9.9.9.staged").exists());
+    }
+
+    #[tokio::test]
+    async fn failed_extraction_leaves_no_leftover_part_file_or_scratch_directories() {
+        // Downloads and checksum-verifies fine, but has nothing to extract.
+        let mut builder = tar::Builder::new(Vec::new());
+        let mut header = tar::Header::new_gnu();
+        header.set_path("README").unwrap();
+        header.set_size(3);
+        header.set_cksum();
+        builder.append(&header, &b"hi\n"[..]).unwrap();
+        let tar_bytes = builder.into_inner().unwrap();
+        let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+        encoder.write_all(&tar_bytes).unwrap();
+        let archive = encoder.finish().unwrap();
+        let sha = sha256_bytes(&archive);
+        let server = TestServer::start(archive, false).await;
+        let app_data = temp_dir("download-extract-fail");
+
+        let err = download_and_install(
+            &client(),
+            &server.url(),
+            &sha,
+            &app_data,
+            "9.9.9",
+            noop_progress(),
+            CancelToken::new(),
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(err.kind, ErrorKind::Config);
+        let work = work_dir(&app_data);
+        assert!(!work.join("9.9.9.part").exists());
+        assert!(!work.join("9.9.9.extract").exists());
+        assert!(!work.join("9.9.9.staged").exists());
         assert!(!install_dir(&app_data, "9.9.9").exists());
     }
 

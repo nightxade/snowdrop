@@ -389,8 +389,16 @@ impl Service {
             let subs = self.subs.lock().expect("subs lock");
             match subscription.and_then(|id| subs.by_id.get(&id)) {
                 Some(account) => account.clone(),
-                // An unwrapped notification (automatic receiving) or a subscription we lost track of.
-                None => subs.accounts.first().cloned().unwrap_or_default(),
+                // An unwrapped notification (automatic receiving) or a subscription we
+                // lost track of: only safe to guess the account when there's just one.
+                None if subs.accounts.len() == 1 => subs.accounts[0].clone(),
+                None => {
+                    log::warn!(
+                        "dropped a receive notification with an unrecognised subscription id ({} account(s) subscribed)",
+                        subs.accounts.len()
+                    );
+                    return;
+                }
             }
         };
         let payload = receive_payload(params);
@@ -504,4 +512,75 @@ async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, Error> + Send
     tokio::task::spawn_blocking(f)
         .await
         .unwrap_or_else(|e| Err(Error::new(ErrorKind::Internal, format!("background task failed: {e}"))))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Default)]
+    struct FakeSink {
+        events: Mutex<Vec<HeldEvent>>,
+        states: Mutex<Vec<StreamState>>,
+    }
+
+    impl EventSink for FakeSink {
+        fn event(&self, event: &HeldEvent) {
+            self.events.lock().unwrap().push(event.clone());
+        }
+        fn state(&self, state: &StreamState) {
+            self.states.lock().unwrap().push(state.clone());
+        }
+    }
+
+    fn service_with_sink() -> (Arc<Service>, Arc<FakeSink>) {
+        let sink = Arc::new(FakeSink::default());
+        let svc = Service::new(
+            Paths { app_data_dir: PathBuf::new(), data_dir: PathBuf::new(), log_file: None, bundled: None },
+            sink.clone(),
+        );
+        (svc, sink)
+    }
+
+    /// A single subscribed account is still a safe guess for a notification
+    /// whose subscription id doesn't match anything Snowdrop tracked (e.g. an
+    /// unwrapped notification from automatic receiving).
+    #[test]
+    fn unrecognised_subscription_falls_back_to_the_lone_subscribed_account() {
+        let (svc, sink) = service_with_sink();
+        svc.subs.lock().unwrap().accounts.push("+15550001".into());
+
+        svc.on_notification("receive", json!({"subscription": 999, "envelope": {"dataMessage": {"message": "hi"}}}));
+
+        let events = sink.events.lock().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].account, "+15550001");
+    }
+
+    /// With more than one account subscribed, guessing which one an
+    /// unrecognised subscription belongs to would misattribute someone else's
+    /// message, so the notification is dropped instead.
+    #[test]
+    fn unrecognised_subscription_is_dropped_with_multiple_accounts_subscribed() {
+        let (svc, sink) = service_with_sink();
+        {
+            let mut subs = svc.subs.lock().unwrap();
+            subs.accounts.push("+15550001".into());
+            subs.accounts.push("+15550002".into());
+        }
+
+        svc.on_notification("receive", json!({"subscription": 999, "envelope": {"dataMessage": {"message": "hi"}}}));
+
+        assert!(sink.events.lock().unwrap().is_empty());
+    }
+
+    /// Same when no account has subscribed yet at all.
+    #[test]
+    fn unrecognised_subscription_is_dropped_with_no_accounts_subscribed() {
+        let (svc, sink) = service_with_sink();
+
+        svc.on_notification("receive", json!({"subscription": 999, "envelope": {}}));
+
+        assert!(sink.events.lock().unwrap().is_empty());
+    }
 }

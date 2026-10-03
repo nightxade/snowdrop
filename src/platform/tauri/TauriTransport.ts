@@ -196,7 +196,9 @@ class TauriSubscription implements EventSubscription {
           account: this.options.account,
           resumeFrom: this.options.resumeFrom,
         });
-        this.options.onState({ kind: 'open' });
+        // `stop()` may have run while the invoke above was in flight: it
+        // already emitted `closed`, so don't flicker back to `open`.
+        if (this.isRunning()) this.options.onState({ kind: 'open' });
         return;
       } catch (error) {
         const failure = toSignalCliError(error);
