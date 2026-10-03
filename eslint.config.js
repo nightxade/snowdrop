@@ -133,7 +133,16 @@ const appZones = [
 ];
 
 export default tseslint.config(
-  { ignores: ['dist', 'coverage', 'node_modules', 'src/test/lint-fixtures/**'] },
+  {
+    ignores: [
+      'dist',
+      'coverage',
+      'node_modules',
+      'src-tauri/target',
+      'src-tauri/gen',
+      'src/test/lint-fixtures/**',
+    ],
+  },
   {
     extends: [js.configs.recommended, ...tseslint.configs.strictTypeChecked],
     files: ['**/*.{ts,tsx}'],
