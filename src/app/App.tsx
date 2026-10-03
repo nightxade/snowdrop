@@ -41,6 +41,7 @@ export function App({ onBackendChange }: AppProps) {
   const errorKind = useStore(snowdrop.stores.session, (s) => s.errorKind);
   const errorMessage = useStore(snowdrop.stores.session, (s) => s.error);
   const ready = useStore(snowdrop.stores.session, (s) => s.ready);
+  const desktopBinaryPath = useStore(snowdrop.stores.settings, (s) => s.connection.desktop.binaryPath);
 
   useEffect(() => {
     if (choice === null) return;
@@ -91,11 +92,26 @@ export function App({ onBackendChange }: AppProps) {
           onProgramPath={(binaryPath) => {
             const { connection } = snowdrop.stores.settings.getState();
             snowdrop.stores.settings.getState().update('connection', {
-              desktop: { ...connection.desktop, binaryPath, useBundled: false },
+              desktop: { ...connection.desktop, binaryPath },
             });
             snowdrop.flush();
             onBackendChange?.();
           }}
+          install={
+            snowdrop.desktop
+              ? {
+                  admin: snowdrop.desktop,
+                  // A custom path the user set is the "bad path" case
+                  // (MissingSignalCli); nothing configured means first run.
+                  configured: desktopBinaryPath.trim() !== '',
+                  onInstalled: () => {
+                    snowdrop.start().catch((error: unknown) => {
+                      console.error('[snowdrop] failed to start after installing signal-cli', error);
+                    });
+                  },
+                }
+              : undefined
+          }
           link={snowdrop.backend.link}
           onLinked={() => {
             // The adapter now knows the account; retry the start that failed.

@@ -27,9 +27,13 @@ export function packageDirOf(id: string): string | null {
 }
 
 /**
- * Programs shipped next to the app rather than bundled into it: the desktop
- * build includes signal-cli (GPL-3.0) as a separate executable, so its
- * licence and the location of its exact source go in the notices too.
+ * Programs shipped next to the app rather than bundled into it: the
+ * *optional* bundled desktop build (`npm run tauri:build:bundled`) includes
+ * signal-cli (GPL-3.0) as a separate executable, so its licence and the
+ * location of its exact source go in the notices too. The default desktop
+ * build has no bundled program at all — it downloads signal-cli into the
+ * app's own data directory the first time it runs instead — so this only
+ * runs when `bundled` is set.
  */
 export function bundledProgramNotices(root: string): string {
   const dir = path.join(root, 'src-tauri', 'licenses', 'signal-cli');
@@ -54,7 +58,7 @@ export function bundledProgramNotices(root: string): string {
   ].join('\n');
 }
 
-export function thirdPartyNotices({ desktop = false }: { desktop?: boolean } = {}): Plugin {
+export function thirdPartyNotices({ bundled = false }: { bundled?: boolean } = {}): Plugin {
   return {
     name: 'snowdrop:third-party-notices',
     apply: 'build',
@@ -92,7 +96,7 @@ export function thirdPartyNotices({ desktop = false }: { desktop?: boolean } = {
       this.emitFile({
         type: 'asset',
         fileName: 'THIRD_PARTY_NOTICES.txt',
-        source: `Snowdrop includes the following third-party software (${entries.length} packages).\n\n${body}${desktop ? bundledProgramNotices(process.cwd()) : ''}`,
+        source: `Snowdrop includes the following third-party software (${entries.length} packages).\n\n${body}${bundled ? bundledProgramNotices(process.cwd()) : ''}`,
       });
     },
   };

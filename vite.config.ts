@@ -60,12 +60,15 @@ export default defineConfig(({ mode }) => {
   const proxy = signalCliProxy(env.SNOWDROP_SIGNAL_CLI_URL ?? 'http://127.0.0.1:8080');
   // `npm run tauri:build` runs this build with TAURI_ENV_* set (docs/DESKTOP.md).
   const desktop = isTauriBuild();
+  // Only `npm run tauri:build:bundled` sets this: it's the one build that
+  // ships signal-cli itself and so needs its licence in the notices.
+  const bundled = process.env.SNOWDROP_BUNDLED === '1';
   return {
     plugins: [
       signalCliGuard(),
       emojibaseAssets(),
       contentSecurityPolicy({ desktop }),
-      thirdPartyNotices({ desktop }),
+      thirdPartyNotices({ bundled }),
       react(),
     ],
     // Tauri's CLI prints its own output in the same terminal.

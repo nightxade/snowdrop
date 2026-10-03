@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-signal-cli-pinned-release"
+description = "Enables the signal_cli_pinned_release command without any pre-configured scope."
+commands.allow = ["signal_cli_pinned_release"]
+
+[[permission]]
+identifier = "deny-signal-cli-pinned-release"
+description = "Denies the signal_cli_pinned_release command without any pre-configured scope."
+commands.deny = ["signal_cli_pinned_release"]

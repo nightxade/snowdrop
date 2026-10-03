@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-signal-cli-install"
+description = "Enables the signal_cli_install command without any pre-configured scope."
+commands.allow = ["signal_cli_install"]
+
+[[permission]]
+identifier = "deny-signal-cli-install"
+description = "Denies the signal_cli_install command without any pre-configured scope."
+commands.deny = ["signal_cli_install"]

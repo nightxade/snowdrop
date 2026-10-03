@@ -1,8 +1,9 @@
 import { ArrowLeft } from 'lucide-react';
 import { lazy, Suspense } from 'react';
-import type { LinkFlow } from '@/core/backend';
+import type { DesktopAdmin, LinkFlow } from '@/core/backend';
 import { SnowdropMark, TooltipProvider } from '@/ui/primitives';
 import { AccountPrompt } from './AccountPrompt';
+import { DownloadSignalCli } from './DownloadSignalCli';
 import { MissingSignalCli } from './MissingSignalCli';
 import styles from './Welcome.module.css';
 import setup from './Setup.module.css';
@@ -20,6 +21,15 @@ export interface ConnectionSetupProps {
   errorMessage?: string | null;
   /** Desktop app: use the signal-cli at this path. */
   onProgramPath?: (path: string) => void;
+  /**
+   * Desktop app, `not-installed`: lets the first-run screen download
+   * signal-cli instead of asking for a path. `configured` tells the two
+   * `not-installed` cases apart: a custom path the user set that turned out
+   * bad (`MissingSignalCli`, asks for another path) versus nothing
+   * configured at all, meaning this is the first run and nothing was found
+   * (the download screen). Omit it to always fall back to `MissingSignalCli`.
+   */
+  install?: { admin: DesktopAdmin; configured: boolean; onInstalled: () => void } | undefined;
   link: LinkFlow | undefined;
   onLinked: (accountId: string) => void;
   onAccount: (account: string) => void;
@@ -31,6 +41,7 @@ export function ConnectionSetup({
   reason,
   errorMessage = null,
   onProgramPath,
+  install,
   link,
   onLinked,
   onAccount,
@@ -50,7 +61,11 @@ export function ConnectionSetup({
               <LinkDevice link={link} onLinked={onLinked} />
             </Suspense>
           ) : reason === 'not-installed' ? (
-            <MissingSignalCli message={errorMessage} onSubmit={(path) => onProgramPath?.(path)} />
+            install && !install.configured ? (
+              <DownloadSignalCli admin={install.admin} onInstalled={install.onInstalled} />
+            ) : (
+              <MissingSignalCli message={errorMessage} onSubmit={(path) => onProgramPath?.(path)} />
+            )
           ) : (
             <AccountPrompt onSubmit={onAccount} />
           )}

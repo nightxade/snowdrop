@@ -18,10 +18,9 @@ pub enum ConnectConfig {
     /// Snowdrop runs `signal-cli jsonRpc` as a child process (the default).
     #[serde(rename_all = "camelCase")]
     Spawn {
-        /// Prefer the signal-cli bundled with the app (when it has one).
-        #[serde(default = "yes")]
-        use_bundled: bool,
-        /// A signal-cli the user installed: an absolute path, or empty for PATH.
+        /// A signal-cli the user installed: an absolute path, or empty to use
+        /// whatever `resolve_binary` finds (the downloaded install, then a
+        /// bundled sidecar in a bundled build, then PATH).
         #[serde(default)]
         binary_path: Option<String>,
         /// Run signal-cli for this account only (`-a`); empty = multi-account.
@@ -33,16 +32,15 @@ pub enum ConnectConfig {
     External { url: String },
 }
 
-fn yes() -> bool {
-    true
-}
-
 /// Where the program came from (shown in Settings → Connection).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum BinarySource {
-    Bundled,
     Configured,
+    /// Downloaded into the app data dir on first launch (signal_cli_install.rs).
+    Downloaded,
+    /// A sidecar shipped inside the app package (only in a `bundled-sidecar` build).
+    Bundled,
     Path,
 }
 
@@ -62,13 +60,13 @@ fn is_signal_cli_name(name: &OsStr) -> bool {
 }
 
 #[cfg(unix)]
-fn is_executable(path: &Path) -> bool {
+pub(crate) fn is_executable(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
     path.metadata().map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0).unwrap_or(false)
 }
 
 #[cfg(not(unix))]
-fn is_executable(path: &Path) -> bool {
+pub(crate) fn is_executable(path: &Path) -> bool {
     path.is_file()
 }
 
@@ -108,21 +106,24 @@ pub fn find_on_path(path_var: Option<&OsStr>) -> Option<PathBuf> {
     None
 }
 
-/// Resolution order: the bundled sidecar (unless turned off), then the
-/// configured path, then `signal-cli` on PATH.
+/// Resolution order: a user-configured path, then the version Snowdrop
+/// downloaded into the app data dir on first launch, then (only in a build
+/// with the `bundled-sidecar` Cargo feature) the sidecar shipped inside the
+/// app package, then `signal-cli` on PATH.
 pub fn resolve_binary(
-    use_bundled: bool,
     configured: Option<&str>,
+    downloaded: Option<&Path>,
     bundled: Option<&Path>,
     path_var: Option<&OsStr>,
 ) -> Result<ResolvedBinary, Error> {
-    if use_bundled {
-        if let Some(sidecar) = bundled.filter(|p| is_executable(p)) {
-            return Ok(ResolvedBinary { path: sidecar.to_path_buf(), source: BinarySource::Bundled });
-        }
-    }
     if let Some(raw) = configured.map(str::trim).filter(|s| !s.is_empty()) {
         return Ok(ResolvedBinary { path: validate_binary_path(raw)?, source: BinarySource::Configured });
+    }
+    if let Some(path) = downloaded.filter(|p| is_executable(p)) {
+        return Ok(ResolvedBinary { path: path.to_path_buf(), source: BinarySource::Downloaded });
+    }
+    if let Some(path) = bundled.filter(|p| is_executable(p)) {
+        return Ok(ResolvedBinary { path: path.to_path_buf(), source: BinarySource::Bundled });
     }
     find_on_path(path_var)
         .map(|path| ResolvedBinary { path, source: BinarySource::Path })
@@ -130,11 +131,19 @@ pub fn resolve_binary(
 }
 
 /// The sidecar Tauri installs next to the app's executable (`externalBin`).
+/// Only present in a build with the `bundled-sidecar` feature
+/// (`npm run tauri:build:bundled`): the default build has no sidecar at all.
+#[cfg(feature = "bundled-sidecar")]
 pub fn bundled_sidecar() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let dir = exe.parent()?;
     let path = dir.join(if cfg!(windows) { "signal-cli.exe" } else { "signal-cli" });
     is_executable(&path).then_some(path)
+}
+
+#[cfg(not(feature = "bundled-sidecar"))]
+pub fn bundled_sidecar() -> Option<PathBuf> {
+    None
 }
 
 /// A phone number in E.164 form or an ACI (UUID).
@@ -231,24 +240,32 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn resolves_bundled_then_configured_then_path() {
+    fn resolves_configured_then_downloaded_then_bundled_then_path() {
         let dir = temp_dir("resolve");
-        let bundled = dir.join("bundled").join("signal-cli");
         let configured = dir.join("configured").join("signal-cli");
+        let downloaded = dir.join("downloaded").join("signal-cli");
+        let bundled = dir.join("bundled").join("signal-cli");
         let on_path = dir.join("onpath").join("signal-cli");
-        for p in [&bundled, &configured, &on_path] {
+        for p in [&configured, &downloaded, &bundled, &on_path] {
             fs::create_dir_all(p.parent().unwrap()).unwrap();
             make_exec(p);
         }
         let path_var = std::env::join_paths([on_path.parent().unwrap()]).unwrap();
         let cfg = configured.to_str().unwrap();
-        let r = resolve_binary(true, Some(cfg), Some(&bundled), Some(&path_var)).unwrap();
-        assert_eq!((r.source, r.path), (BinarySource::Bundled, bundled.clone()));
-        let r = resolve_binary(false, Some(cfg), Some(&bundled), Some(&path_var)).unwrap();
+
+        // Configured beats everything else.
+        let r = resolve_binary(Some(cfg), Some(&downloaded), Some(&bundled), Some(&path_var)).unwrap();
         assert_eq!((r.source, r.path), (BinarySource::Configured, configured.clone()));
-        let r = resolve_binary(true, None, None, Some(&path_var)).unwrap();
+        // No configured path: the downloaded install beats the bundled sidecar.
+        let r = resolve_binary(None, Some(&downloaded), Some(&bundled), Some(&path_var)).unwrap();
+        assert_eq!((r.source, r.path), (BinarySource::Downloaded, downloaded.clone()));
+        // No downloaded install: the bundled sidecar beats PATH.
+        let r = resolve_binary(None, None, Some(&bundled), Some(&path_var)).unwrap();
+        assert_eq!((r.source, r.path), (BinarySource::Bundled, bundled.clone()));
+        // Nothing else: PATH.
+        let r = resolve_binary(None, None, None, Some(&path_var)).unwrap();
         assert_eq!((r.source, r.path), (BinarySource::Path, on_path));
-        let missing = resolve_binary(true, Some(""), None, Some(OsStr::new(""))).unwrap_err();
+        let missing = resolve_binary(Some(""), None, None, Some(OsStr::new(""))).unwrap_err();
         assert_eq!(missing.kind, ErrorKind::NotInstalled);
         assert!(missing.message.contains("Install signal-cli"));
     }
@@ -308,7 +325,7 @@ mod tests {
     #[test]
     fn parses_ui_config() {
         let spawn: ConnectConfig = serde_json::from_str(r#"{"mode":"spawn","binaryPath":null}"#).unwrap();
-        assert_eq!(spawn, ConnectConfig::Spawn { use_bundled: true, binary_path: None, account: None });
+        assert_eq!(spawn, ConnectConfig::Spawn { binary_path: None, account: None });
         let external: ConnectConfig = serde_json::from_str(r#"{"mode":"external","url":"http://127.0.0.1:8080"}"#).unwrap();
         assert_eq!(external, ConnectConfig::External { url: "http://127.0.0.1:8080".into() });
         assert!(serde_json::from_str::<ConnectConfig>(r#"{"mode":"shell","cmd":"rm"}"#).is_err());

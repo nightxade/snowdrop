@@ -1,12 +1,20 @@
 #!/usr/bin/env node
-// Downloads the pinned signal-cli release that the desktop app bundles as a
-// Tauri sidecar, verifies it against a pinned SHA-256, and installs it as
-// src-tauri/binaries/signal-cli-<target-triple> (plus its licence and a
-// pointer to the exact source, which the GPL asks us to ship with it).
+// Builds the OPTIONAL bundled signal-cli sidecar, for `npm run
+// tauri:build:bundled` only. The default build (`npm run tauri:build`)
+// doesn't call this at all: Snowdrop instead downloads signal-cli into the
+// app's own data directory the first time it runs (src-tauri/src/
+// signal_cli_install.rs), so the app itself stays small and never ships a
+// GPL binary in its own package.
+//
+// Downloads the pinned signal-cli release, verifies it against a pinned
+// SHA-256, and installs it as src-tauri/binaries/signal-cli-<target-triple>
+// (plus its licence and a pointer to the exact source, which the GPL asks us
+// to ship with it). The pinned version, asset name and checksum live in
+// src-tauri/signal-cli.json — the one place both this script and the Rust
+// downloader (signal_cli_install.rs) read them from.
 //
 // Usage: node scripts/fetch-signal-cli.mjs [--force]
-// Run by `npm run tauri:build` and `npm run tauri:dev`; a no-op when the
-// pinned version is already installed.
+// A no-op when the pinned version is already installed.
 //
 // Only Linux x86_64 has a self-contained native build (GraalVM, no Java).
 // Other platforms: see docs/DESKTOP.md ("Other platforms").
@@ -29,24 +37,13 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
 
-// ─── Pinned release: bump these together ────────────────────────────────
-const SIGNAL_CLI = {
-  version: '0.14.8',
-  /** https://github.com/AsamK/signal-cli/releases/tag/v0.14.8 */
-  assets: {
-    'x86_64-unknown-linux-gnu': {
-      name: 'signal-cli-0.14.8-Linux-native.tar.gz',
-      sha256: '36569af20c709e0c5e6e677b74f50f147b21f3740620b8a7affde70f6027f82a',
-    },
-  },
-  /** LICENSE at the release tag (GPL-3.0). */
-  licenseSha256: '8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903',
-};
-// ─────────────────────────────────────────────────────────────────────────
-
-const REPO = 'https://github.com/AsamK/signal-cli';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const tauriDir = path.join(root, 'src-tauri');
+// ─── Pinned release: the shared source of truth (also read by Rust) ──────
+const SIGNAL_CLI = JSON.parse(readFileSync(path.join(tauriDir, 'signal-cli.json'), 'utf8'));
+// ─────────────────────────────────────────────────────────────────────────
+
+const REPO = SIGNAL_CLI.repo;
 const binDir = path.join(tauriDir, 'binaries');
 const cacheDir = path.join(binDir, '.download');
 const licenceDir = path.join(tauriDir, 'licenses', 'signal-cli');

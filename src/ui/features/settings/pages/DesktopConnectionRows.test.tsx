@@ -1,27 +1,20 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { useState } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { DesktopAdmin, DesktopProbeResult, LocateResult } from '@/core/backend';
+import type { DesktopAdmin, DesktopProbeResult, InstallStatus, LocateResult } from '@/core/backend';
 import { DEFAULT_DESKTOP_CONNECTION, type DesktopConnection } from '@/core/stores';
 import { DesktopConnectionRows } from './DesktopConnectionRows';
 
 afterEach(cleanup);
 
 /** A fake signal-cli admin: no IPC, just enough behaviour to drive the rows. */
-function fakeAdmin(): DesktopAdmin {
+function fakeAdmin(overrides: Partial<DesktopAdmin> = {}): DesktopAdmin {
   return {
     probe: (): Promise<DesktopProbeResult> =>
       Promise.resolve({ ok: true, accounts: 1, version: '0.14.8', program: null }),
     locate: (value): Promise<LocateResult> => {
-      if (value.useBundled)
-        return Promise.resolve({ ok: true, path: '/opt/snowdrop/signal-cli', source: 'bundled' });
       const path = value.binaryPath.trim();
-      if (!path)
-        return Promise.resolve({
-          ok: false,
-          kind: 'not-installed',
-          message: 'Nothing named signal-cli was found on your PATH.',
-        });
+      if (!path) return Promise.resolve({ ok: true, path: '/data/signal-cli/0.14.8/signal-cli', source: 'downloaded' });
       if (!path.endsWith('signal-cli'))
         return Promise.resolve({
           ok: false,
@@ -32,12 +25,29 @@ function fakeAdmin(): DesktopAdmin {
     },
     info: () =>
       Promise.resolve({
-        bundledSignalCli: '0.14.8',
+        managedSignalCli: '0.14.8',
+        signalCliReleaseUrl: 'https://github.com/AsamK/signal-cli/releases/tag/v0.14.8',
         signalCliLicense: null,
         signalCliSource: null,
         dataDir: '/home/me/.local/share/signal-cli',
         logFile: null,
       }),
+    pinnedRelease: () =>
+      Promise.resolve({
+        version: '0.14.8',
+        repo: 'https://github.com/AsamK/signal-cli',
+        assetName: 'signal-cli-0.14.8-Linux-native.tar.gz',
+        downloadSizeBytes: 114_000_000,
+      }),
+    installStatus: (): Promise<InstallStatus> =>
+      Promise.resolve({ installed: true, version: '0.14.8', path: '/data/signal-cli/0.14.8/signal-cli' }),
+    install: () =>
+      Promise.resolve({
+        ok: true,
+        status: { installed: true, version: '0.14.8', path: '/data/signal-cli/0.14.8/signal-cli' },
+      }),
+    cancelInstall: () => Promise.resolve(),
+    ...overrides,
   };
 }
 
@@ -48,25 +58,54 @@ function Controlled({ admin, initial }: { admin: DesktopAdmin; initial?: Desktop
 }
 
 describe('DesktopConnectionRows', () => {
-  it('defaults to the bundled signal-cli, managed by Snowdrop', async () => {
+  it('shows the downloaded signal-cli version and path', async () => {
     render(<Controlled admin={fakeAdmin()} />);
     expect(
-      screen.getByRole('radio', { name: 'Managed by Snowdrop' }).getAttribute('aria-checked'),
-    ).toBe('true');
-    expect(
-      await screen.findByText(/Snowdrop will run the bundled signal-cli 0\.14\.8\./u),
+      await screen.findByText(/signal-cli 0\.14\.8 — \/data\/signal-cli\/0\.14\.8\/signal-cli/u),
     ).toBeTruthy();
-    // Bundled: just a switch, no free-text path field.
-    expect(screen.queryByLabelText('signal-cli path')).toBeNull();
+    expect(
+      await screen.findByText(/Snowdrop will run the signal-cli Snowdrop downloaded\./u),
+    ).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Re-download' })).toBeTruthy();
   });
 
-  it('shows a validation error for a path that isn’t named signal-cli', async () => {
-    render(<Controlled admin={fakeAdmin()} />);
-    // Wait for the bundled-signal-cli info to load; only then is there a switch to turn off.
-    const toggle = await screen.findByRole('switch', { name: 'signal-cli program' });
-    act(() => {
-      fireEvent.click(toggle);
+  it('downloads signal-cli again on request', async () => {
+    let resolveInstall: (() => void) | null = null;
+    const admin = fakeAdmin({
+      install: () =>
+        new Promise((resolve) => {
+          resolveInstall = () => {
+            resolve({ ok: true, status: { installed: true, version: '0.14.9', path: '/x/signal-cli' } });
+          };
+        }),
     });
+    render(<Controlled admin={admin} />);
+    const button = await screen.findByRole('button', { name: 'Re-download' });
+    act(() => {
+      fireEvent.click(button);
+    });
+    expect(screen.getByText('Downloading…')).toBeTruthy();
+    await act(async () => {
+      resolveInstall?.();
+      await Promise.resolve();
+    });
+    expect(await screen.findByText(/signal-cli 0\.14\.9/u)).toBeTruthy();
+  });
+
+  it('reports a failed download', async () => {
+    const admin = fakeAdmin({
+      install: () => Promise.resolve({ ok: false, kind: 'unreachable', message: "Couldn't reach github.com." }),
+    });
+    render(<Controlled admin={admin} />);
+    const button = await screen.findByRole('button', { name: 'Re-download' });
+    act(() => {
+      fireEvent.click(button);
+    });
+    expect(await screen.findByText("Couldn't reach github.com.")).toBeTruthy();
+  });
+
+  it('shows a validation error for a custom path that isn’t named signal-cli', async () => {
+    render(<Controlled admin={fakeAdmin()} />);
     const input = await screen.findByLabelText('signal-cli path');
     act(() => {
       fireEvent.change(input, { target: { value: '/usr/local/bin/other-tool' } });

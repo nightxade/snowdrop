@@ -11,6 +11,7 @@ pub mod jsonrpc;
 pub mod logfile;
 pub mod process;
 pub mod service;
+pub mod signal_cli_install;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -18,10 +19,13 @@ use tauri::{AppHandle, Emitter, Manager, RunEvent};
 
 use crate::events::HeldEvent;
 use crate::service::{EventSink, Paths, Service, StreamState};
+use crate::signal_cli_install::InstallState;
 
 /// Event names the UI listens to (src/platform/tauri/TauriTransport.ts).
 pub const EVENT_RECEIVE: &str = "signal-cli://event";
 pub const EVENT_STATE: &str = "signal-cli://state";
+/// Download progress for the first-run signal-cli install (`signal_cli_install.rs`).
+pub const EVENT_INSTALL_PROGRESS: &str = "signal-cli-install-progress";
 
 /// Where signal-cli's data and log live (shown on the About page).
 pub struct AppPaths {
@@ -62,13 +66,20 @@ pub fn run() {
             let handle = app.handle().clone();
             // signal-cli keeps Snowdrop's own data (linked account, keys) apart
             // from any signal-cli you use on the command line.
+            let app_data_dir = app.path().app_data_dir()?;
             let data_dir = std::env::var_os("SNOWDROP_SIGNAL_CLI_DATA")
                 .map(PathBuf::from)
-                .unwrap_or(app.path().app_data_dir()?.join("signal-cli"));
+                .unwrap_or(app_data_dir.join("signal-cli"));
             let log_file = app.path().app_log_dir().ok().map(|d| d.join("signal-cli.log"));
-            let paths = Paths { data_dir: data_dir.clone(), log_file: log_file.clone(), bundled: config::bundled_sidecar() };
+            let paths = Paths {
+                app_data_dir: app_data_dir.clone(),
+                data_dir: data_dir.clone(),
+                log_file: log_file.clone(),
+                bundled: config::bundled_sidecar(),
+            };
             app.manage(AppPaths { data_dir, log_file });
             app.manage(Service::new(paths, Arc::new(WebviewSink(handle))));
+            app.manage(Arc::new(InstallState::new(app_data_dir)));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -78,6 +89,10 @@ pub fn run() {
             commands::signal_cli_ack,
             commands::signal_cli_probe,
             commands::signal_cli_locate,
+            commands::signal_cli_pinned_release,
+            commands::signal_cli_install_status,
+            commands::signal_cli_install,
+            commands::signal_cli_install_cancel,
             commands::desktop_info,
             commands::open_external,
         ])

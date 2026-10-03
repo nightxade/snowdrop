@@ -38,6 +38,10 @@ export function desktopAdmin(): DesktopAdmin {
     probe: async (desktop) => (await admin).probe(desktop),
     locate: async (desktop) => (await admin).locate(desktop),
     info: async () => (await admin).info(),
+    pinnedRelease: async () => (await admin).pinnedRelease(),
+    installStatus: async () => (await admin).installStatus(),
+    install: async (onProgress) => (await admin).install(onProgress),
+    cancelInstall: async () => (await admin).cancelInstall(),
   };
 }
 

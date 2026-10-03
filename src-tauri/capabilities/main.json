@@ -15,6 +15,10 @@
     "allow-signal-cli-ack",
     "allow-signal-cli-probe",
     "allow-signal-cli-locate",
+    "allow-signal-cli-pinned-release",
+    "allow-signal-cli-install-status",
+    "allow-signal-cli-install",
+    "allow-signal-cli-install-cancel",
     "allow-desktop-info",
     "allow-open-external"
   ]

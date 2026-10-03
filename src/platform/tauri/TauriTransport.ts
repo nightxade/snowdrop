@@ -48,6 +48,8 @@ const KINDS: Record<CommandError['kind'], SignalCliErrorKind> = {
   'not-installed': 'not-installed',
   config: 'config',
   'invalid-response': 'invalid-response',
+  // Only ever returned by the signal-cli *install* commands, never connect/request.
+  cancelled: 'internal',
   internal: 'internal',
 };
 

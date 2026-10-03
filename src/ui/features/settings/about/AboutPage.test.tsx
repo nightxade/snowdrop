@@ -11,13 +11,25 @@ import { createMemoryStorage } from '@/core/persistence';
 import { bootSnowdrop, renderWithSnowdrop } from '@/test/renderWithSnowdrop';
 import { AboutPage } from './AboutPage';
 
-const DESKTOP_INFO: DesktopInfo = {
-  bundledSignalCli: '0.14.8',
+const BUNDLED_INFO: DesktopInfo = {
+  managedSignalCli: '0.14.8',
+  signalCliReleaseUrl: 'https://github.com/AsamK/signal-cli/releases/tag/v0.14.8',
   signalCliLicense: 'GNU GENERAL PUBLIC LICENSE\nVersion 3...',
   signalCliSource: 'Exact source: https://github.com/AsamK/signal-cli/tree/v0.14.8',
   dataDir: '/home/me/.local/share/local.snowdrop.desktop/signal-cli',
   logFile: '/home/me/.local/share/local.snowdrop.desktop/logs/signal-cli.log',
 };
+
+const DOWNLOADED_INFO: DesktopInfo = {
+  managedSignalCli: '0.14.8',
+  signalCliReleaseUrl: 'https://github.com/AsamK/signal-cli/releases/tag/v0.14.8',
+  signalCliLicense: null,
+  signalCliSource: null,
+  dataDir: '/home/me/.local/share/local.snowdrop.desktop/signal-cli',
+  logFile: '/home/me/.local/share/local.snowdrop.desktop/logs/signal-cli.log',
+};
+
+let desktopInfo: DesktopInfo = BUNDLED_INFO;
 
 function fakeDesktopAdmin(): DesktopAdmin {
   return {
@@ -25,7 +37,12 @@ function fakeDesktopAdmin(): DesktopAdmin {
       Promise.resolve({ ok: true, accounts: 1, version: '0.14.8', program: null }),
     locate: (): Promise<LocateResult> =>
       Promise.resolve({ ok: true, path: '/opt/snowdrop/signal-cli', source: 'bundled' }),
-    info: () => Promise.resolve(DESKTOP_INFO),
+    info: () => Promise.resolve(desktopInfo),
+    pinnedRelease: () =>
+      Promise.resolve({ version: '0.14.8', repo: 'https://github.com/AsamK/signal-cli', assetName: 'signal-cli-0.14.8-Linux-native.tar.gz', downloadSizeBytes: 114_000_000 }),
+    installStatus: () => Promise.resolve({ installed: true, version: '0.14.8', path: '/x/signal-cli' }),
+    install: () => Promise.resolve({ ok: true, status: { installed: true, version: '0.14.8', path: '/x/signal-cli' } }),
+    cancelInstall: () => Promise.resolve(),
   };
 }
 
@@ -57,11 +74,13 @@ afterEach(async () => {
   cleanup();
   await snowdrop?.dispose();
   snowdrop = null;
+  desktopInfo = BUNDLED_INFO;
   delete (globalThis as Record<string, unknown>).__TAURI_INTERNALS__;
 });
 
-describe('About, desktop build', () => {
+describe('About, desktop build (bundled)', () => {
   it('shows the bundled signal-cli licence and exact source', async () => {
+    desktopInfo = BUNDLED_INFO;
     snowdrop = await bootDesktopSnowdrop();
     renderWithSnowdrop(snowdrop, <AboutPage />);
 
@@ -72,11 +91,31 @@ describe('About, desktop build', () => {
       name: /github\.com\/AsamK\/signal-cli\/tree\/v0\.14\.8/u,
     });
     expect(source.getAttribute('href')).toBe('https://github.com/AsamK/signal-cli/tree/v0.14.8');
-    expect(screen.getByText(DESKTOP_INFO.dataDir)).toBeTruthy();
+    expect(screen.getByText(BUNDLED_INFO.dataDir)).toBeTruthy();
     const summary = screen.getByText('GNU General Public License v3 (signal-cli)');
     expect(summary.closest('details')?.textContent).toContain('Version 3');
     expect(
       screen.getByText(/ships with this app as a separate, unmodified program/u),
+    ).toBeTruthy();
+  });
+});
+
+describe('About, desktop build (downloaded, the default)', () => {
+  it('shows the downloaded signal-cli version and its release page, with no GPL text to carry', async () => {
+    desktopInfo = DOWNLOADED_INFO;
+    snowdrop = await bootDesktopSnowdrop();
+    renderWithSnowdrop(snowdrop, <AboutPage />);
+
+    expect(
+      await screen.findByText(/Snowdrop downloaded signal-cli 0\.14\.8 from its own release/u),
+    ).toBeTruthy();
+    const link = screen.getByRole('link', {
+      name: /github\.com\/AsamK\/signal-cli\/releases\/tag\/v0\.14\.8/u,
+    });
+    expect(link.getAttribute('href')).toBe('https://github.com/AsamK/signal-cli/releases/tag/v0.14.8');
+    expect(screen.queryByText('GNU General Public License v3 (signal-cli)')).toBeNull();
+    expect(
+      screen.getByText(/The first time it runs, Snowdrop downloads it directly from its own authors/u),
     ).toBeTruthy();
   });
 });

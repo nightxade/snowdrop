@@ -16,6 +16,8 @@ pub enum ErrorKind {
     Config,
     /// signal-cli answered with something that isn't JSON-RPC.
     InvalidResponse,
+    /// The caller cancelled an in-progress operation (e.g. the signal-cli download).
+    Cancelled,
     Internal,
 }
 

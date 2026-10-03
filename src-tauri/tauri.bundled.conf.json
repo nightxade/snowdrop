@@ -1,0 +1,11 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "longDescription": "Snowdrop organises your Signal conversations into spaces, with a sidebar, full keyboard control, theming and plugins. This build bundles signal-cli (GPL-3.0) and keeps everything on this computer. Not affiliated with Signal.",
+    "externalBin": ["binaries/signal-cli"],
+    "resources": {
+      "licenses/signal-cli/COPYING": "licenses/signal-cli/COPYING",
+      "licenses/signal-cli/SOURCE.txt": "licenses/signal-cli/SOURCE.txt"
+    }
+  }
+}

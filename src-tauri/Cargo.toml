@@ -15,6 +15,14 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
+[features]
+default = []
+# Only for `tauri:build:bundled`: compiles in the bundled-sidecar fallback in
+# the signal-cli resolution order (src/config.rs). The default build has no
+# such fallback: it downloads signal-cli into the app data dir instead
+# (src/signal_cli_install.rs), so the app itself ships no GPL binary.
+bundled-sidecar = []
+
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-notification = "2"
@@ -23,9 +31,15 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-window-state = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["io-util", "macros", "process", "rt-multi-thread", "sync", "time"] }
+tokio = { version = "1", features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "sync", "time"] }
 # External-daemon mode: plain HTTP to a loopback signal-cli daemon (no TLS needed).
 ureq = { version = "2", default-features = false }
+# First-run signal-cli download: HTTPS to github.com over rustls (no OpenSSL anywhere in the app).
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+tar = "0.4"
+sha2 = "0.10"
 log = "0.4"
 
 [dev-dependencies]

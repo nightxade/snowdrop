@@ -79,12 +79,17 @@ impl Recorder {
 }
 
 fn spawn_config() -> ConnectConfig {
-    ConnectConfig::Spawn { use_bundled: false, binary_path: Some(fake().display().to_string()), account: None }
+    ConnectConfig::Spawn { binary_path: Some(fake().display().to_string()), account: None }
 }
 
 fn service(dir: &Path, recorder: Arc<Recorder>) -> Arc<Service> {
     Service::with_timeouts(
-        Paths { data_dir: dir.to_path_buf(), log_file: Some(dir.join("signal-cli.log")), bundled: None },
+        Paths {
+            app_data_dir: dir.to_path_buf(),
+            data_dir: dir.to_path_buf(),
+            log_file: Some(dir.join("signal-cli.log")),
+            bundled: None,
+        },
         recorder,
         Timeouts { backoff: fast_backoff(), grace: Duration::from_secs(2), ..Timeouts::default() },
     )
@@ -164,12 +169,12 @@ async fn missing_program_is_reported_not_retried() {
     let dir = temp_dir("missing");
     let recorder = Arc::new(Recorder::default());
     let svc = service(&dir, recorder);
-    let config = ConnectConfig::Spawn { use_bundled: false, binary_path: Some("/nonexistent/signal-cli".into()), account: None };
+    let config = ConnectConfig::Spawn { binary_path: Some("/nonexistent/signal-cli".into()), account: None };
     let error = svc.connect(config).await.unwrap_err();
     assert_eq!(error.kind, ErrorKind::NotInstalled);
     assert!(error.message.contains("Install signal-cli"));
     // An invalid account never reaches the command line.
-    let bad = ConnectConfig::Spawn { use_bundled: false, binary_path: Some(fake().display().to_string()), account: Some("--help".into()) };
+    let bad = ConnectConfig::Spawn { binary_path: Some(fake().display().to_string()), account: Some("--help".into()) };
     assert_eq!(svc.connect(bad).await.unwrap_err().kind, ErrorKind::Config);
 }
 
@@ -335,11 +340,16 @@ async fn real_signal_cli_speaks_json_rpc_over_stdio() {
     let dir = temp_dir("real");
     let recorder = Arc::new(Recorder::default());
     let svc = Service::with_timeouts(
-        Paths { data_dir: dir.join("data"), log_file: Some(dir.join("signal-cli.log")), bundled: Some(program) },
+        Paths {
+            app_data_dir: dir.clone(),
+            data_dir: dir.join("data"),
+            log_file: Some(dir.join("signal-cli.log")),
+            bundled: Some(program),
+        },
         recorder.clone(),
         Timeouts { backoff: fast_backoff(), grace: Duration::from_secs(5), ..Timeouts::default() },
     );
-    let bundled = ConnectConfig::Spawn { use_bundled: true, binary_path: None, account: None };
+    let bundled = ConnectConfig::Spawn { binary_path: None, account: None };
     let probe = svc.probe(bundled.clone()).await.unwrap();
     assert!(probe.version.as_deref().is_some_and(|v| v.starts_with("0.")), "{probe:?}");
     let info = svc.connect(bundled).await.unwrap();

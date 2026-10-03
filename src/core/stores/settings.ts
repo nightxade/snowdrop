@@ -74,15 +74,15 @@ export interface ConnectionSettings {
 }
 
 /**
- * How the desktop app reaches signal-cli. By default it runs the signal-cli
- * bundled with it (`signal-cli jsonRpc`, a child process); an external HTTP
- * daemon on this computer is the advanced alternative.
+ * How the desktop app reaches signal-cli. By default it runs signal-cli as a
+ * child process (`signal-cli jsonRpc`) — downloaded into the app's own data
+ * directory the first time it's needed, or a build-time bundled sidecar in a
+ * `tauri:build:bundled` build; an external HTTP daemon on this computer is
+ * the advanced alternative.
  */
 export interface DesktopConnection {
   mode: 'spawn' | 'external';
-  /** Spawn: prefer the bundled signal-cli when this build has one. */
-  useBundled: boolean;
-  /** Spawn: absolute path of a signal-cli you installed ('' = look on PATH). */
+  /** Spawn: absolute path of a signal-cli you installed ('' = auto: downloaded, then bundled, then PATH). */
   binaryPath: string;
   /** Spawn: run signal-cli for this account only (`-a`); '' = multi-account. */
   account: string;
@@ -92,7 +92,6 @@ export interface DesktopConnection {
 
 export const DEFAULT_DESKTOP_CONNECTION: DesktopConnection = {
   mode: 'spawn',
-  useBundled: true,
   binaryPath: '',
   account: '',
   externalUrl: 'http://127.0.0.1:8080',
@@ -375,7 +374,6 @@ function parseDesktopConnection(value: unknown): DesktopConnection {
     typeof v === 'string' && v.length <= 4096 ? v : fallback;
   return {
     mode: value.mode === 'external' ? 'external' : 'spawn',
-    useBundled: typeof value.useBundled === 'boolean' ? value.useBundled : d.useBundled,
     binaryPath: text(value.binaryPath, d.binaryPath),
     account: text(value.account, d.account),
     externalUrl: text(value.externalUrl, d.externalUrl).trim() || d.externalUrl,

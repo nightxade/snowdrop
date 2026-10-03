@@ -48,7 +48,6 @@ export function connectConfig(desktop: DesktopConnection): Record<string, unknow
   if (desktop.mode === 'external') return { mode: 'external', url: desktop.externalUrl.trim() };
   return {
     mode: 'spawn',
-    useBundled: desktop.useBundled,
     binaryPath: desktop.binaryPath.trim() || null,
     account: desktop.account.trim() || null,
   };

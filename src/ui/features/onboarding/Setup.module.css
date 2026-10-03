@@ -173,6 +173,49 @@
   }
 }
 
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--snowdrop-space-4);
+}
+
+.progressTrack {
+  width: 100%;
+  height: 10px;
+  overflow: hidden;
+  border-radius: var(--snowdrop-radius-full);
+  background: var(--snowdrop-bg-sidebar);
+  box-shadow: inset 0 0 0 1px var(--snowdrop-border);
+}
+
+.progressFill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--snowdrop-accent);
+  transition: width 0.2s ease-out;
+}
+
+.progressFill[data-indeterminate] {
+  width: 35% !important;
+  animation: progress-sweep 1.4s ease-in-out infinite;
+}
+
+@keyframes progress-sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(285%);
+  }
+}
+
+.progressMeta {
+  display: flex;
+  justify-content: space-between;
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
+}
+
 @media (width < 640px) {
   .card {
     padding: var(--snowdrop-space-6) var(--snowdrop-space-5);

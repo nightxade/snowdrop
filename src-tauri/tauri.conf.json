@@ -35,7 +35,7 @@
     "targets": ["appimage", "deb"],
     "category": "SocialNetworking",
     "shortDescription": "A quiet, private chat client for Signal, driven by signal-cli",
-    "longDescription": "Snowdrop organises your Signal conversations into spaces, with a sidebar, full keyboard control, theming and plugins. It bundles signal-cli and keeps everything on this computer. Not affiliated with Signal.",
+    "longDescription": "Snowdrop organises your Signal conversations into spaces, with a sidebar, full keyboard control, theming and plugins. It downloads signal-cli the first time it runs and keeps everything else on this computer. Not affiliated with Signal.",
     "icon": [
       "icons/32x32.png",
       "icons/64x64.png",
@@ -45,11 +45,6 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "externalBin": ["binaries/signal-cli"],
-    "resources": {
-      "licenses/signal-cli/COPYING": "licenses/signal-cli/COPYING",
-      "licenses/signal-cli/SOURCE.txt": "licenses/signal-cli/SOURCE.txt"
-    },
     "linux": {
       "deb": {
         "depends": []

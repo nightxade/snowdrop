@@ -60,7 +60,7 @@ describe('TauriTransport', () => {
     ipc.invoke.mockResolvedValue({ mode: 'spawn', run: 'r1' });
     await new TauriTransport({ desktop: spawn }).check(call);
     expect(ipc.invoke).toHaveBeenCalledWith('signal_cli_connect', {
-      config: { mode: 'spawn', useBundled: true, binaryPath: '/opt/signal-cli', account: null },
+      config: { mode: 'spawn', binaryPath: '/opt/signal-cli', account: null },
     });
     await new TauriTransport({
       desktop: { ...spawn, mode: 'external', externalUrl: 'http://127.0.0.1:8080 ' },
@@ -207,16 +207,15 @@ describe('desktop admin', () => {
       program: { path: '/app/signal-cli', source: 'bundled' },
     });
     ipc.invoke.mockRejectedValueOnce({ kind: 'config', message: 'must be absolute' });
-    expect(await admin.locate({ useBundled: false, binaryPath: 'signal-cli' })).toEqual({
+    expect(await admin.locate({ binaryPath: 'signal-cli' })).toEqual({
       ok: false,
       kind: 'config',
       message: 'must be absolute',
     });
     expect(ipc.invoke).toHaveBeenLastCalledWith('signal_cli_locate', {
-      useBundled: false,
       binaryPath: 'signal-cli',
     });
-    ipc.invoke.mockResolvedValueOnce({ bundledSignalCli: '0.14.8', dataDir: '/d' });
+    ipc.invoke.mockResolvedValueOnce({ managedSignalCli: '0.14.8', dataDir: '/d' });
     await admin.info();
     await admin.info();
     expect(ipc.invoke.mock.calls.filter(([c]) => c === 'desktop_info')).toHaveLength(1);

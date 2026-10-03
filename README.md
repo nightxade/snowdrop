@@ -51,13 +51,16 @@ are fictional.
 
 ## Quick start
 
-**Desktop app (recommended).** The Tauri-based desktop build bundles
-signal-cli, so there is nothing to install or start first — build it (or get
-a build) and link your Signal account on first launch. See
-**[docs/DESKTOP.md](docs/DESKTOP.md)** for the dev and build commands, how
-the bundled signal-cli works, and the security model. Today the bundle is
-Linux x86_64 only; other platforms need signal-cli installed separately
-(same doc, "Other platforms").
+**Desktop app (recommended).** The Tauri-based desktop build stays small (no
+bundled binaries) and downloads signal-cli itself the first time it runs,
+straight from [AsamK/signal-cli's own
+releases](https://github.com/AsamK/signal-cli/releases) over HTTPS, checksum
+verified. Build it (or get a build), click through the one-screen download
+on first launch, and link your Signal account. See
+**[docs/DESKTOP.md](docs/DESKTOP.md)** for the dev and build commands, the
+download-on-first-run flow, the optional GPL-bundled build, and the security
+model. Today the pinned download is Linux x86_64 only; other platforms need
+signal-cli installed separately (same doc, "Other platforms").
 
 **Browser mode.** Runs entirely in a regular browser tab; good for trying
 the demo, developing the UI, or connecting to a signal-cli daemon you manage
@@ -114,9 +117,9 @@ see [docs/DESKTOP.md](docs/DESKTOP.md).
 | `npm run format`                | Prettier, writing changes.                                                               |
 | `npm run format:check`          | Prettier, check only.                                                                    |
 | `node scripts/gen-licences.mjs` | Regenerates the About page's licence list after dependency changes (then run Prettier).  |
-| `npm run tauri:fetch`           | Downloads and verifies the pinned signal-cli sidecar for the desktop app.                |
-| `npm run tauri:dev`             | Fetches the sidecar, then runs the desktop app in dev mode.                              |
-| `npm run tauri:build`           | Fetches the sidecar, then builds the desktop app (AppImage, .deb).                       |
+| `npm run tauri:dev`             | Runs the desktop app in dev mode (signal-cli downloads on first launch, inside the app). |
+| `npm run tauri:build`           | Builds the desktop app (AppImage, .deb); no bundled signal-cli.                          |
+| `npm run tauri:build:bundled`   | Optional: fetches and bundles signal-cli into the app package instead (GPL obligations apply — see docs/DESKTOP.md). |
 
 The full quality gate is
 `npm run typecheck && npm run lint && npm test && npm run build`. See
@@ -156,8 +159,9 @@ docs/                 documentation
 
 ## Documentation
 
-- [DESKTOP.md](docs/DESKTOP.md) — the Tauri desktop app: dev/build, the
-  bundled signal-cli sidecar, the transport layer, and the security model.
+- [DESKTOP.md](docs/DESKTOP.md) — the Tauri desktop app: dev/build,
+  downloading signal-cli on first run (and the optional bundled build), the
+  transport layer, and the security model.
 - [ARCHITECTURE.md](docs/ARCHITECTURE.md) — layers and boundaries, data flow,
   persistence, adding a backend adapter, testing.
 - [PLUGINS.md](docs/PLUGINS.md) — the plugin author guide.
@@ -173,6 +177,11 @@ docs/                 documentation
 - **Local only.** Snowdrop has no server of its own and no telemetry. It talks
   to nothing but your signal-cli daemon, through a same-origin proxy that only
   answers the app itself on a loopback address.
+- **Desktop app:** the first run that needs signal-cli contacts `github.com`
+  exactly once, to download the pinned, checksum-verified release — the same
+  request your browser would make visiting its release page. Nothing else
+  about your use of Snowdrop is sent with it. After that, the app runs
+  offline except for your own signal-cli traffic to Signal's servers.
 - **No CDNs.** Fonts (Inter, JetBrains Mono) and emoji data are bundled and
   served from Snowdrop's own origin. Link previews are off.
 - **Content-Security-Policy.** Production builds forbid every third-party
@@ -189,6 +198,9 @@ Inspired by Discord's layout. Not affiliated with or endorsed by Signal or Disco
 
 ## Licence
 
-[MIT](LICENSE) © 2026 nightxade. The desktop build bundles
-[signal-cli](https://github.com/AsamK/signal-cli) (GPL-3.0) as a separate
-program; see `docs/DESKTOP.md` and the About page for its licence notice.
+[MIT](LICENSE) © 2026 nightxade. The desktop app downloads
+[signal-cli](https://github.com/AsamK/signal-cli) (GPL-3.0) directly from its
+own releases on first run and talks to it as a separate program; an optional
+build (`npm run tauri:build:bundled`) bundles it instead, with the GPL
+obligations that carries. See `docs/DESKTOP.md` and the About page for
+details.

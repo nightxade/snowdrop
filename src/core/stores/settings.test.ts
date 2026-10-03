@@ -83,7 +83,7 @@ describe('settingsStore', () => {
   it('parses the desktop connection, falling back field by field', () => {
     const parsed = parseSettings({
       connection: {
-        desktop: { mode: 'external', useBundled: 'yes', binaryPath: 42, externalUrl: ' ' },
+        desktop: { mode: 'external', binaryPath: 42, externalUrl: ' ' },
       },
     });
     expect(parsed.connection.desktop).toEqual({
@@ -95,7 +95,6 @@ describe('settingsStore', () => {
     );
     const custom = {
       ...DEFAULT_DESKTOP_CONNECTION,
-      useBundled: false,
       binaryPath: '/opt/signal-cli',
     };
     expect(parseSettings({ connection: { desktop: custom } }).connection.desktop).toEqual(custom);

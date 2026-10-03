@@ -1,0 +1,12 @@
+{
+  "version": "0.14.8",
+  "repo": "https://github.com/AsamK/signal-cli",
+  "assets": {
+    "x86_64-unknown-linux-gnu": {
+      "name": "signal-cli-0.14.8-Linux-native.tar.gz",
+      "sha256": "36569af20c709e0c5e6e677b74f50f147b21f3740620b8a7affde70f6027f82a"
+    }
+  },
+  "licenseSha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903",
+  "downloadSizeBytes": 114000000
+}

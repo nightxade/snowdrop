@@ -31,8 +31,12 @@ function useDesktopInfo(): DesktopInfo | null {
 
 export function AboutPage() {
   const desktop = useDesktopInfo();
-  const bundled = desktop?.bundledSignalCli ?? null;
-  const source = sourceUrl(desktop?.signalCliSource ?? null);
+  const managed = desktop?.managedSignalCli ?? null;
+  // A bundled build has the exact source archive link (SOURCE.txt); a
+  // downloaded signal-cli instead links to its own release tag.
+  const exactSource = sourceUrl(desktop?.signalCliSource ?? null);
+  const bundled = Boolean(desktop?.signalCliLicense);
+  const releaseLink = exactSource ?? desktop?.signalCliReleaseUrl ?? null;
   return (
     <>
       <SettingsSection>
@@ -97,22 +101,24 @@ export function AboutPage() {
           title="signal-cli"
           description={
             bundled
-              ? `This app includes signal-cli ${bundled}, unmodified, as a separate program that Snowdrop starts and talks to. signal-cli is free software under the GNU General Public License v3.`
-              : 'Snowdrop runs the signal-cli you installed, as a separate program.'
+              ? `This app includes signal-cli ${managed}, unmodified, as a separate program that Snowdrop starts and talks to. signal-cli is free software under the GNU General Public License v3.`
+              : managed
+                ? `Snowdrop downloaded signal-cli ${managed} from its own release the first time it ran, and runs it as a separate program. signal-cli is free software under the GNU General Public License v3.`
+                : 'Snowdrop runs the signal-cli you installed, as a separate program.'
           }
         >
           <SettingRow id="about.signalCli" label="signal-cli" stacked>
             <div className={styles.legal}>
-              {source && (
+              {releaseLink && (
                 <p>
-                  Source code of this exact version:{' '}
+                  {exactSource ? 'Source code of this exact version:' : 'Its release page:'}{' '}
                   <a
-                    href={source}
+                    href={releaseLink}
                     target="_blank"
                     rel="noopener noreferrer"
                     className={styles.link}
                   >
-                    {source}
+                    {releaseLink}
                     <ExternalLink size={12} aria-label="(opens in your browser)" />
                   </a>
                 </p>
@@ -150,7 +156,9 @@ export function AboutPage() {
             <p>
               {bundled
                 ? 'Snowdrop talks to signal-cli (GPL-3.0), which ships with this app as a separate, unmodified program; none of its code is part of Snowdrop.'
-                : 'Snowdrop talks to signal-cli (GPL-3.0), which runs as a separate program on your computer; none of its code is included.'}{' '}
+                : managed
+                  ? 'Snowdrop talks to signal-cli (GPL-3.0). The first time it runs, Snowdrop downloads it directly from its own authors’ releases and runs it as a separate program on your computer; none of its code is part of Snowdrop.'
+                  : 'Snowdrop talks to signal-cli (GPL-3.0), which runs as a separate program on your computer; none of its code is included.'}{' '}
               Inter and JetBrains Mono are used under the SIL Open Font License and bundled locally.
               Icons are from Lucide (ISC).
             </p>

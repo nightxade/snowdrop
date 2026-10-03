@@ -40,11 +40,14 @@ pub enum StreamState {
 
 #[derive(Debug, Clone)]
 pub struct Paths {
+    /// The Tauri app data dir itself (where a downloaded signal-cli lives,
+    /// under `signal-cli/<version>/`; see `signal_cli_install`).
+    pub app_data_dir: PathBuf,
     /// signal-cli's data directory for the managed child (`--config`).
     pub data_dir: PathBuf,
     /// signal-cli's stderr.
     pub log_file: Option<PathBuf>,
-    /// The bundled sidecar, if this build has one.
+    /// The bundled sidecar, if this build has one (`bundled-sidecar` feature only).
     pub bundled: Option<PathBuf>,
 }
 
@@ -150,8 +153,14 @@ impl Service {
         self.paths.bundled.as_ref()
     }
 
-    pub fn locate(&self, use_bundled: bool, binary_path: Option<&str>) -> Result<ResolvedBinary, Error> {
-        config::resolve_binary(use_bundled, binary_path, self.paths.bundled.as_deref(), std::env::var_os("PATH").as_deref())
+    pub fn locate(&self, binary_path: Option<&str>) -> Result<ResolvedBinary, Error> {
+        let downloaded = crate::signal_cli_install::installed_binary(&self.paths.app_data_dir);
+        config::resolve_binary(
+            binary_path,
+            downloaded.as_deref(),
+            self.paths.bundled.as_deref(),
+            std::env::var_os("PATH").as_deref(),
+        )
     }
 
     /// Starts (or keeps) the backend for `config` and checks it answers.
@@ -201,9 +210,9 @@ impl Service {
 
     async fn start(&self, config: ConnectConfig) -> Result<Active, Error> {
         match &config {
-            ConnectConfig::Spawn { use_bundled, binary_path, account } => {
+            ConnectConfig::Spawn { binary_path, account } => {
                 let account = account.as_deref().map(str::trim).filter(|a| !a.is_empty()).map(config::validate_account).transpose()?;
-                let binary = self.locate(*use_bundled, binary_path.as_deref())?;
+                let binary = self.locate(binary_path.as_deref())?;
                 std::fs::create_dir_all(&self.paths.data_dir).map_err(|e| {
                     Error::new(ErrorKind::Internal, format!("Couldn't create {}: {e}", self.paths.data_dir.display()))
                 })?;
@@ -431,11 +440,11 @@ impl Service {
     /// Checks a configuration without disturbing the running one.
     pub async fn probe(&self, config: ConnectConfig) -> Result<ProbeResult, Error> {
         match config {
-            ConnectConfig::Spawn { use_bundled, binary_path, account } => {
+            ConnectConfig::Spawn { binary_path, account } => {
                 if let Some(account) = account.as_deref().map(str::trim).filter(|a| !a.is_empty()) {
                     config::validate_account(account)?;
                 }
-                let binary = self.locate(use_bundled, binary_path.as_deref())?;
+                let binary = self.locate(binary_path.as_deref())?;
                 let version = binary_version(&binary).await?;
                 // Accounts are only known from a running child with this binary
                 // (a second signal-cli on the same data would wait for its lock).

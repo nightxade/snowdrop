@@ -14,7 +14,8 @@ import { ConnectionPage } from './ConnectionPage';
 
 function fakeDesktopAdmin(): DesktopAdmin {
   const info: DesktopInfo = {
-    bundledSignalCli: '0.14.8',
+    managedSignalCli: '0.14.8',
+    signalCliReleaseUrl: 'https://github.com/AsamK/signal-cli/releases/tag/v0.14.8',
     signalCliLicense: null,
     signalCliSource: null,
     dataDir: '/home/me/.local/share/signal-cli',
@@ -25,11 +26,26 @@ function fakeDesktopAdmin(): DesktopAdmin {
       Promise.resolve({ ok: true, accounts: 0, version: '0.14.8', program: null }),
     locate: (value): Promise<LocateResult> =>
       Promise.resolve(
-        value.useBundled
-          ? { ok: true, path: '/opt/snowdrop/signal-cli', source: 'bundled' }
-          : { ok: false, kind: 'not-installed', message: 'No signal-cli on your PATH.' },
+        value.binaryPath
+          ? { ok: false, kind: 'not-installed', message: 'No signal-cli on your PATH.' }
+          : { ok: true, path: '/opt/snowdrop/signal-cli', source: 'downloaded' },
       ),
     info: () => Promise.resolve(info),
+    pinnedRelease: () =>
+      Promise.resolve({
+        version: '0.14.8',
+        repo: 'https://github.com/AsamK/signal-cli',
+        assetName: 'signal-cli-0.14.8-Linux-native.tar.gz',
+        downloadSizeBytes: 114_000_000,
+      }),
+    installStatus: () =>
+      Promise.resolve({ installed: true, version: '0.14.8', path: '/opt/snowdrop/signal-cli' }),
+    install: () =>
+      Promise.resolve({
+        ok: true,
+        status: { installed: true, version: '0.14.8', path: '/opt/snowdrop/signal-cli' },
+      }),
+    cancelInstall: () => Promise.resolve(),
   };
 }
 
@@ -76,7 +92,7 @@ describe('Settings → Connection, desktop build', () => {
 
     expect(screen.getByText('Run signal-cli')).toBeTruthy();
     expect(
-      await screen.findByText(/Snowdrop will run the bundled signal-cli 0\.14\.8\./u),
+      await screen.findByText(/Snowdrop will run the signal-cli Snowdrop downloaded\./u),
     ).toBeTruthy();
     // The browser-only daemon-address/account fields are gone in the desktop build.
     expect(screen.queryByLabelText('Daemon address')).toBeNull();
