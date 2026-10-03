@@ -629,6 +629,7 @@ gates and commits. Quality gates for every phase:
 | **P4 Power UX** | Quick switcher, settings overlay (all pages), plugins UI + built-in plugins, themes + accent + Custom CSS, keybinds, spaces CRUD + drag & drop, notifications | All built-in plugins toggle live; theme changes live | **Done** (20e5a11; review fixes in 1105001). Also: device linking, `deferredBackend`, licence list, safe mode, CSP. Then **Vim mode** + key-layer API (1105001). |
 | **P5 signal-cli** | Adapter (JSON-RPC HTTP + SSE with Last-Event-ID resume), envelope normaliser (tested with fixtures), attachments, link-device flow, Vite proxy, README setup guide | Fixture-driven tests; manual run doc | **Done** (de40998, review fixes cf9126c); setup guide is `docs/SIGNAL_CLI.md`. Verified against fixtures and a fake daemon only (see §8 "Known limits"). |
 | **P6 Polish** | Visual QA via Playwright screenshots of every surface in 3 themes & 3 widths, a11y audit (axe), perf (10k-message conversation smooth), docs (ARCHITECTURE.md, PLUGINS.md, THEMING.md) | Reviewer sign-off | **In progress.** Docs written: `README.md`, `docs/ARCHITECTURE.md`, `docs/PLUGINS.md`, `docs/THEMING.md`, `docs/KEYBOARD.md` (checked against code). Visual QA, axe audit and the 10k-message perf pass await sign-off. Final-review polish: builder A (UX/a11y), builder B (code quality, extensibility; §8 "P6 polish B"). |
+| **Desktop (Tauri)** | Tauri v2 shell, bundled signal-cli sidecar (Linux x86_64), transport seam + `src/platform`, Rust process/event manager, desktop Settings/Welcome/About UI, docs | typecheck/lint/test/build and the Rust gates (`cargo build`/`test`/`clippy`) all green | **In progress.** Implemented and gated green (see §8 "Desktop (Tauri)"). Not yet done: a real `tauri:build` bundling pass, a release smoke test, screenshots of the desktop flows, and UI tests for the desktop Welcome/Settings/About branches. |
 
 ## 7. Code conventions
 - Named exports only; one component per file; file = component name.
@@ -1617,7 +1618,7 @@ Code quality, extensibility and correctness fixes from the final review.
   services and most of their tests; written up as a design note with every
   touch point and a migration order (ARCHITECTURE.md, "Future: opaque
   message ids").
-- **Housekeeping.** `package.json` licence `UNLICENSED` (README: none chosen);
+- **Housekeeping.** `package.json` licence `UNLICENSED` (README: none chosen; later set to MIT on 2026-10-03);
   stale comments (core-commands JSDoc, sanitiser CSP location, this
   section's `handle`, "community-style"); lint zones for top-level files
   (`main.tsx`) vs adapters, `ui/hooks` (no features/plugins) and `ui/plugins`
@@ -1701,3 +1702,68 @@ Finding → fix (the reviewer's numbering).
 - **16** `spaces.ts` says "community-style".
 - **From B's review.** `tokenValues` rejects `src(`. `MessageItem`'s Escape and
   `useTypeToFocus` reuse `overlayOwnsKeys`/`describeFocus`.
+
+### Desktop (Tauri)
+
+A Tauri v2 shell (`src-tauri/`) so Snowdrop can run as a native app with
+signal-cli bundled, instead of requiring a daemon the user starts themselves.
+Full detail is `docs/DESKTOP.md`; this is the as-built summary.
+
+- **Transport seam.** `core/backend/signal-cli/transport.ts` now defines
+  `SignalCliTransport` (`resumeScope`, `description`, `check`, `request`,
+  `subscribe`, optional `acknowledge`); `httpTransport.ts` is the renamed old
+  fetch+SSE implementation. `rpc.ts`'s `JsonRpcClient` runs over any
+  transport and enforces its own timeouts. New error kinds `not-installed`
+  and `config`. **Resume key changed:** `snowdrop.signal-cli.cursor.<scope>.
+  <self>`, replacing `…lastEventId.<self>` (ARCHITECTURE.md updated to
+  match).
+- **Platform layer.** `src/platform/detect.ts` (`isTauri()`, no Tauri
+  imports) and `src/platform/tauri/` (`ipc.ts` — the only `@tauri-apps/*`
+  import — plus `TauriTransport.ts`, `notifications.ts`, `links.ts`,
+  `desktop.ts`). Two new lint-boundary rules (`@tauri-apps/*` confined to
+  `src/platform/tauri`; `src/platform` importable only by `src/app`), each
+  with a `verify-boundaries.mjs` case. `app/backends.ts` picks
+  `TauriTransport` when `isTauri()`, via dynamic import; `app/platform.ts`
+  wires lazy notifications, the desktop admin and link handling.
+- **Settings.** `ConnectionSettings.desktop: DesktopConnection` (`mode:
+  'spawn'|'external'`, `useBundled`, `binaryPath`, `account`,
+  `externalUrl`), parsed with field-by-field fallback (no settings version
+  bump needed). Deliberately separate from `connection.account` (browser
+  mode's, auto-remembered).
+- **UI.** Desktop rows in Settings → Connection
+  (`DesktopConnectionRows.tsx`), a "not-installed" screen
+  (`MissingSignalCli.tsx`), a desktop Welcome that skips the daemon-URL step,
+  and an About section with signal-cli's GPL text, source link, and data/log
+  paths.
+- **Rust (`src-tauri/`).** `config.rs` (binary resolution: bundled sidecar →
+  configured path → PATH, each validated; account/daemon-URL validation;
+  fixed `spawn_args`), `process.rs` (child process, restart with backoff,
+  graceful shutdown), `events.rs` (the held-event log and resume cursors,
+  capped at 5000), `external.rs` (external-daemon proxy, loopback only),
+  `service.rs` (one active backend at a time), `commands.rs` (the 8
+  commands), `logfile.rs` (2 MB rotating log). Capabilities
+  (`capabilities/main.json`) and `build.rs` limit the webview to exactly
+  those 8 commands plus event listen/unlisten and 3 notification
+  permissions.
+- **Sidecar.** `scripts/fetch-signal-cli.mjs` pins signal-cli 0.14.8 (Linux
+  x86_64 native build only), checksummed, and installs it plus its GPL-3.0
+  licence/source pointer under `src-tauri/{binaries,licenses}/` (gitignored,
+  re-fetched by `npm run tauri:fetch`, which `tauri:dev`/`tauri:build` run
+  first).
+- **Gates.** typecheck, lint (incl. `verify-boundaries`), `npm test` and
+  `npm run build` green; in `src-tauri`, `cargo build`, `cargo test` (fake
+  signal-cli plus a real-signal-cli stdio test) and `cargo clippy --all-targets
+  -D warnings` all green.
+- **Known limits.** An app crash between forwarding an event and storing it
+  loses that event (no daemon-side buffer to fall back on in spawn mode).
+  signal-cli prints a harmless GraalVM fatal-error dump to its log on
+  shutdown. The desktop build hasn't been exercised against a linked real
+  account (send/receive/attachments/linking were only tried against a fake
+  signal-cli and, separately, a real one over stdio). `tauri:build` hasn't
+  been run to produce an actual AppImage/.deb yet, and there are no UI tests
+  for the new desktop-only components.
+- **Future.** A native `presage`-based backend through the same registry
+  (`app/backends.ts`) could drop the signal-cli subprocess entirely, but
+  `presage` is AGPL-3.0 — bundling it would put the desktop binary itself
+  under AGPL-3.0, unlike today's arm's-length signal-cli subprocess. Not
+  started; a licensing call, not just an engineering one.

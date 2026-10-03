@@ -1,0 +1,261 @@
+# Desktop app
+
+Snowdrop's desktop app is the same React UI running inside a [Tauri
+v2](https://v2.tauri.app/) shell (app identifier `local.snowdrop.desktop`,
+window "Snowdrop", 1280×800, minimum 360×560). The Rust side owns the
+signal-cli process, so there is nothing to install or start first: a Linux
+x86_64 build bundles signal-cli itself and runs it as a child process.
+Browser mode (talking to a signal-cli daemon you run yourself — see
+[SIGNAL_CLI.md](SIGNAL_CLI.md)) remains available and is what `npm run dev`
+gives you.
+
+## Dev and build
+
+```sh
+npm run tauri:fetch   # download + verify the pinned signal-cli sidecar (no-op if current)
+npm run tauri:dev     # fetch, then `tauri dev` (hot-reloads the UI at localhost:5173)
+npm run tauri:build   # fetch, then `tauri build` (produces an AppImage and a .deb)
+```
+
+`tauri:dev` and `tauri:build` both run `scripts/fetch-signal-cli.mjs` first
+(`package.json`), because `tauri.conf.json`'s `bundle.resources` requires
+`src-tauri/licenses/signal-cli/{COPYING,SOURCE.txt}` to already exist — a
+bare `cargo build` in `src-tauri/` fails until that script has run at least
+once. `tauri` itself (the Tauri CLI, `@tauri-apps/cli`) is also exposed as
+`npm run tauri -- <args>` for anything else (`tauri icon`, `tauri info`, …).
+
+Dev loads `http://localhost:5173` (`beforeDevCommand: npm run dev -- --port
+5173 --strictPort`); a build runs `npm run build` into `dist/`
+(`frontendDist`). Bundle targets are `appimage` and `deb`
+(`src-tauri/tauri.conf.json`, `bundle.targets`).
+
+## The bundled signal-cli sidecar
+
+`scripts/fetch-signal-cli.mjs` holds the pinned release as one constant:
+
+```js
+const SIGNAL_CLI = {
+  version: '0.14.8',
+  assets: {
+    'x86_64-unknown-linux-gnu': {
+      name: 'signal-cli-0.14.8-Linux-native.tar.gz',
+      sha256: '36569af20c709e0c5e6e677b74f50f147b21f3740620b8a7affde70f6027f82a',
+    },
+  },
+  licenseSha256: '8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903',
+};
+```
+
+**To bump the version:** update `version`, the asset `name` and its `sha256`,
+and `licenseSha256` together (the GitHub release page gives you the asset's
+checksum; `licenseSha256` is the SHA-256 of that tag's `LICENSE` file), then
+run `node scripts/fetch-signal-cli.mjs --force` (or `npm run tauri:fetch --
+--force`) to re-download and re-verify. The script refuses to install
+anything whose hash doesn't match.
+
+A verified run installs:
+
+- `src-tauri/binaries/signal-cli-x86_64-unknown-linux-gnu` — the sidecar
+  Tauri's `externalBin` config points at (≈371 MB uncompressed; the tarball
+  download is ≈114 MB).
+- `src-tauri/licenses/signal-cli/{COPYING,SOURCE.txt}` — the GPL-3.0 licence
+  text and a pointer to the exact upstream source (see "GPL compliance"
+  below).
+
+Both paths are gitignored (`src-tauri/.gitignore`); every checkout re-fetches
+them. Only `linux`/`x64` has a pinned native (GraalVM, no JRE) asset today —
+see "Other platforms".
+
+### Resolution order
+
+At connect time (`src-tauri/src/config.rs`, `resolve_binary`), signal-cli is
+located in this order:
+
+1. **Bundled** — the sidecar Tauri installed next to the app's own
+   executable (`signal-cli`, or `signal-cli.exe` on Windows), unless
+   Settings → Connection has "Use the bundled signal-cli" turned off
+   (`DesktopConnection.useBundled`).
+2. **Configured** — an absolute path from Settings → Connection
+   (`DesktopConnection.binaryPath`). It must point to a file literally named
+   `signal-cli` (or `.exe`/`.bat`), including through a symlink, and be
+   executable; anything else is rejected before it's ever spawned.
+3. **PATH** — the first `signal-cli`/`signal-cli.exe`/`signal-cli.bat` found
+   on `PATH`.
+
+If none resolve, the UI shows the "not-installed" screen
+(`ui/features/onboarding/MissingSignalCli.tsx`) with
+`config::INSTALL_HINT`. Settings → Connection can also just **locate** a
+binary (`signal_cli_locate` → `ResolvedBinary { path, source }`) without
+connecting, to show which one would be used.
+
+### Fixed arguments
+
+Snowdrop decides every argument; nothing from the UI reaches the command line
+except an account that already passed validation (`config::spawn_args`):
+
+```
+--config <data-dir> [-a <account>] jsonRpc --receive-mode=manual
+```
+
+`-a <account>` is added only for an explicit desktop account setting
+(`connection.desktop.account`, E.164 phone number or ACI) — separate from
+`connection.account`, which belongs to browser mode and is auto-remembered.
+Leaving it unset runs signal-cli in multi-account mode.
+`--receive-mode=manual` means signal-cli won't pull anything from Signal's
+servers until the UI's first `subscribeReceive`, so nothing arrives before
+anyone is listening.
+
+### Data directory
+
+Signal-cli's `--config` directory defaults to
+`<Tauri app_data_dir>/signal-cli` (on Linux, under
+`~/.local/share/local.snowdrop.desktop/`), kept apart from any signal-cli you
+run yourself from a terminal. Override it with the `SNOWDROP_SIGNAL_CLI_DATA`
+environment variable (useful for tests or running more than one profile).
+
+## Transport layer
+
+`core/backend/signal-cli/transport.ts` defines `SignalCliTransport` — the
+seam between the signal-cli JSON-RPC client/normaliser (transport-agnostic)
+and however bytes actually move:
+
+- **Browser:** `httpTransport.ts`'s `HttpTransport` — `POST /api/v1/rpc` and
+  `GET /api/v1/events` (Server-Sent Events, resumable with `Last-Event-ID`)
+  through the dev/preview proxy.
+- **Desktop:** `src/platform/tauri/TauriTransport.ts`'s `TauriTransport` —
+  requests become Tauri command invocations (`signal_cli_connect`,
+  `signal_cli_request`, `signal_cli_subscribe`, `signal_cli_ack`); incoming
+  messages and stream state arrive as the Tauri events `signal-cli://event`
+  and `signal-cli://state`, emitted by `src-tauri/src/lib.rs`.
+
+`app/backends.ts` picks `TauriTransport` when `platform/detect.ts`'s
+`isTauri()` is true, loaded through a dynamic `import('@/platform/tauri')` —
+`core/` stays Tauri-free and the browser bundle never pulls in
+`@tauri-apps/*`. That boundary is enforced by lint, not just convention: see
+[ARCHITECTURE.md](ARCHITECTURE.md#the-transport-layer-and-srcplatform).
+
+## Cursor / held-event semantics
+
+An HTTP daemon numbers its SSE events and can replay by id; a `jsonRpc` child
+on stdin/stdout has nothing like that, and signal-cli acknowledges a message
+to Signal's own servers the moment it receives it — not when Snowdrop has
+stored it. So in spawn mode the Rust side (`src-tauri/src/events.rs`,
+`EventLog`) holds every event it forwards, numbered `"<run>:<seq>"` per
+process run, until the UI acknowledges it:
+
+- `SyncService` acknowledges a cursor only after the event's repository write
+  completes (`signal_cli_ack`, the same checkpoint → acknowledge pattern the
+  HTTP transport uses) — see ["Checkpoints and
+  acknowledgements"](ARCHITECTURE.md#checkpoints-and-acknowledgements).
+- A webview reload resubscribes with its last-acknowledged cursor; events
+  held after it are replayed, so nothing is lost.
+- A cursor from a previous app run matches nothing and is ignored — the
+  fresh subscription instead gets everything still held for that account.
+- Held events are capped at 5000; past that the oldest are dropped.
+- An app crash between forwarding an event and storing it loses that event —
+  a known limit, not a bug to chase (there's no daemon-side buffer to fall
+  back on in spawn mode).
+
+The persisted resume key is `snowdrop.signal-cli.cursor.<resumeScope>.<self>`
+— `desktop` for a spawned signal-cli, `desktop-external` for an external
+daemon reached from the desktop app, versus the browser transport's own
+scope. Cursors from one scope are meaningless to another and are treated as
+unknown (replay everything currently held/available).
+
+## Security model
+
+- **Capabilities.** `src-tauri/capabilities/main.json` grants the main
+  window exactly: `core:event:allow-listen`/`allow-unlisten`, three
+  notification permissions, and the app's own 8 commands
+  (`signal_cli_connect`, `signal_cli_request`, `signal_cli_subscribe`,
+  `signal_cli_ack`, `signal_cli_probe`, `signal_cli_locate`,
+  `desktop_info`, `open_external`). `build.rs` declares the app's command
+  manifest, so no other command is callable at all, capability or not.
+- **CSP.** `tauri.conf.json`'s `app.security.csp` is Snowdrop's normal
+  production policy (`default-src 'self'`, no remote fetches) plus Tauri's
+  own IPC origins (`connect-src ... ipc: http://ipc.localhost`); `devCsp` is
+  `null` and `freezePrototype` is on. `devserver/csp.ts` exports the same
+  policy as `TAURI_CSP` and a test keeps the two in sync, but a Tauri build
+  injects no `<meta>` CSP tag — Tauri applies the one from `tauri.conf.json`
+  itself.
+- **Path validation.** A configured signal-cli path must be absolute, named
+  `signal-cli` (or `.exe`/`.bat`) — including whatever a symlink resolves
+  to — and executable (`config::validate_binary_path`). Accounts must be
+  E.164 or a UUID-shaped ACI (`validate_account`). Nothing else from the UI
+  reaches a command line.
+- **External daemon, loopback only.** `validate_daemon_url` accepts only
+  `http://` (no TLS, matching signal-cli's own daemon) on `localhost`,
+  `127.0.0.1`, `::1`, or another loopback address, with no embedded
+  credentials — the same restriction browser mode documents in
+  [SIGNAL_CLI.md](SIGNAL_CLI.md#privacy).
+- **No shell/opener exposed to JS.** External links go through the
+  `open_external` command, which only accepts `http://`, `https://` and
+  `mailto:` (`commands::is_external_url`); the `@tauri-apps/plugin-opener`
+  _npm_ package isn't a dependency at all (only the Rust crate, called from
+  this one command), so the webview has no generic "open anything" API.
+- **Devtools off in release.** `src-tauri/Cargo.toml` depends on
+  `tauri = { version = "2", features = [] }` — the `devtools` feature isn't
+  enabled, so devtools are compiled out of release builds.
+- **One instance.** `tauri-plugin-single-instance` focuses the existing
+  window instead of starting a second signal-cli process. Window size and
+  position are restored by `tauri-plugin-window-state`.
+
+## Logs and troubleshooting
+
+- signal-cli's stderr is written to `<app log dir>/signal-cli.log`
+  (`src-tauri/src/logfile.rs`), capped at 2 MB with one rotation
+  (`signal-cli.log.1`). The exact path is shown on the About page and from
+  `desktop_info`.
+- A harmless GraalVM "Fatal error: InterruptedException" dump (exit code 99)
+  lands in that log whenever Snowdrop stops signal-cli (it closes stdin,
+  waits 5 s, then kills) — see "Known issues" in the handoff notes; it does
+  not indicate a real crash.
+- Settings → Connection can **locate** or **probe** a configuration
+  (`signal_cli_locate` / `signal_cli_probe`) without connecting, to check
+  which binary resolves, its version, and (if a matching child is already
+  running) its account count.
+- `SNOWDROP_SIGNAL_CLI_DATA` overrides the data directory, which is useful
+  for isolating a test run.
+- If `cargo build` in `src-tauri/` fails complaining about missing resources,
+  run `npm run tauri:fetch` first (see "Dev and build").
+
+## Other platforms
+
+The pinned, self-contained (GraalVM, no JRE) signal-cli build only exists for
+Linux x86_64. `fetch-signal-cli.mjs` exits with an error on any other host
+and does not install a sidecar. A desktop build for macOS, Windows, or other
+Linux architectures therefore has **no bundled signal-cli**: install the
+regular Java-based signal-cli build yourself (a JRE, 25 or newer for current
+releases — see [SIGNAL_CLI.md](SIGNAL_CLI.md#1-install-signal-cli)) and
+either put it on `PATH` or point Settings → Connection at its absolute path.
+External-daemon mode (`signal-cli daemon --http ...`, loopback only) works
+the same way on any platform.
+
+## GPL compliance
+
+signal-cli is GPL-3.0, written by AsamK and contributors. Snowdrop ships it
+unmodified as a separate program it starts and talks to over stdin/stdout —
+it is never linked into Snowdrop. `fetch-signal-cli.mjs` downloads and
+checksum-verifies the exact tag's `LICENSE` file into
+`src-tauri/licenses/signal-cli/COPYING`, and writes `SOURCE.txt` recording
+the release tag, the exact source tree and archive URLs, and the installed
+asset's checksum. Both files are declared as Tauri `resources` in
+`tauri.conf.json` (so they ship inside the app package) and are:
+
+- appended to `dist/THIRD_PARTY_NOTICES.txt` on a desktop build
+  (`devserver/notices.ts`), which refuses to build without them;
+- shown on the About page, along with the GPL text, the exact-source link,
+  and signal-cli's data/log paths (`ui/features/settings/about/AboutPage.tsx`).
+
+## Future: a native backend
+
+The backend registry (`app/backends.ts`, see
+[ARCHITECTURE.md](ARCHITECTURE.md#how-to-add-a-backend-adapter)) could in
+principle host a native Rust backend built on
+[`presage`](https://github.com/whisperfish/presage) instead of spawning
+signal-cli, removing the sidecar and its GPL process boundary entirely.
+`presage` is **AGPL-3.0**, though: compiling it into Snowdrop's desktop
+binary would place that binary's own source under AGPL-3.0 obligations,
+unlike the current arm's-length signal-cli subprocess. That's a licensing
+decision for whoever picks this up, not just an engineering one, and nothing
+here should be read as having made it.

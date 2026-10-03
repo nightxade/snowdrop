@@ -260,8 +260,10 @@ Transports that can resume emit `checkpoint { cursor }` after each unit of
 work (signal-cli: after the events produced by each SSE event). `SyncService` queues the
 checkpoint like any other event, so it runs only after every preceding
 repository write, and then calls `backend.acknowledge(cursor)`. Only then does
-the signal-cli adapter persist the SSE `Last-Event-ID`
-(`snowdrop.signal-cli.lastEventId.<account>`). A crash or reload therefore
+the signal-cli adapter persist the transport's cursor
+(`snowdrop.signal-cli.cursor.<resumeScope>.<account>`; the SSE event id in a
+browser, a desktop session cursor in the Tauri app — see "The transport layer
+and `src/platform`" below). A crash or reload therefore
 re-delivers rather than skips; re-delivery is deduplicated by the merge. Events
 dropped by `stop()` are never acknowledged. `deferredBackend` buffers
 acknowledgements made before the adapter has loaded.
@@ -333,13 +335,13 @@ when deciding whether a new message is unread.
 
 ## Persistence
 
-| What                                                                            | Where                                                                                    |
-| ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| Settings (`snowdrop.settings`, v3)                                              | `localStorage` via `loadVersioned` / `bindPersistence`                                   |
-| Spaces, folders, categories (`snowdrop.spaces`)                                 | same                                                                                     |
-| Pin / mute / archive / drafts, contact notes, reaction usage (`snowdrop.local`) | same, debounced                                                                          |
-| Messages, read cursors, outbox                                                  | `MessageRepository`: memory for the demo, IndexedDB `snowdrop-signal-cli` for signal-cli |
-| signal-cli resume position and DM peers                                         | `snowdrop.signal-cli.lastEventId.<account>`, `snowdrop.signal-cli.peers.<account>`       |
+| What                                                                            | Where                                                                                       |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Settings (`snowdrop.settings`, v3)                                              | `localStorage` via `loadVersioned` / `bindPersistence`                                      |
+| Spaces, folders, categories (`snowdrop.spaces`)                                 | same                                                                                        |
+| Pin / mute / archive / drafts, contact notes, reaction usage (`snowdrop.local`) | same, debounced                                                                             |
+| Messages, read cursors, outbox                                                  | `MessageRepository`: memory for the demo, IndexedDB `snowdrop-signal-cli` for signal-cli    |
+| signal-cli resume position and DM peers                                         | `snowdrop.signal-cli.cursor.<resumeScope>.<account>`, `snowdrop.signal-cli.peers.<account>` |
 
 Versioned data is stored as `{ v, data }`. Loading runs step-wise migrations,
 then parses **field by field** against defaults, so one corrupt field falls back
@@ -494,6 +496,50 @@ Migration order that keeps the suite green at each step: add `id` to the
 contract types alongside the Signal fields (adapters fill both); switch the
 services to read `id`; then make `authorId` / `sentAt` optional and let new
 adapters omit them.
+
+## The transport layer and `src/platform`
+
+`core/backend/signal-cli` talks to signal-cli through a small seam,
+`SignalCliTransport` (`core/backend/signal-cli/transport.ts`): `check`,
+`request`, `subscribe`, an optional `acknowledge`, a `resumeScope` (scopes
+persisted resume cursors, below) and a `description` for error messages.
+`JsonRpcClient` (`rpc.ts`) runs over any transport and enforces its own
+timeouts, so a transport that can't cancel still times out. Two
+implementations exist:
+
+- **`HttpTransport`** (`httpTransport.ts`) — the browser build. `POST
+/api/v1/rpc` and `GET /api/v1/events` (Server-Sent Events, resumable with
+  `Last-Event-ID`) through the dev/preview proxy.
+- **`TauriTransport`** (`src/platform/tauri/TauriTransport.ts`) — the desktop
+  build. Requests become Tauri command invocations; incoming events and
+  stream state arrive as Tauri events. The Rust side owns the signal-cli
+  process (or a proxied external daemon) and holds forwarded events until
+  acknowledged, since neither a child process nor Signal's own delivery gives
+  it a daemon-style event id to resume from. Full detail, including the
+  cursor format, is in [DESKTOP.md](DESKTOP.md).
+
+`src/platform/` is where anything Tauri-specific lives, kept out of `core/`
+and `ui/`:
+
+- `platform/detect.ts` exports `isTauri()` and imports nothing from Tauri, so
+  it's safe to call from anywhere.
+- `platform/tauri/` holds `ipc.ts` (the only `@tauri-apps/api` import),
+  `TauriTransport.ts`, `notifications.ts` (native notifications via
+  `tauri-plugin-notification`), `links.ts` (external links via the
+  `open_external` command) and `desktop.ts` (the `DesktopAdmin` used by
+  Settings → Connection and About).
+- `app/backends.ts` picks `TauriTransport` over `HttpTransport` when
+  `isTauri()` is true, through a dynamic `import('@/platform/tauri')`.
+  `app/platform.ts` wires lazy native notifications, the desktop admin, and
+  link handling into `AppServices.desktop`.
+
+**Lint boundary.** `eslint.config.js`'s `platformZones` (checked by
+`import-x/no-restricted-paths`, with cases in `verify-boundaries.mjs`)
+enforce two more rules alongside the layer rules in "The rules" above:
+`src/platform` may only be imported by `src/app`, and `src/platform` must not
+import `ui/` or `app/`. A separate `no-restricted-imports` group pins
+`@tauri-apps/*` to `src/platform/tauri` specifically, so the browser bundle
+never pulls in Tauri's JS APIs.
 
 ## Testing
 

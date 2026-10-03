@@ -1,5 +1,11 @@
 # Running Snowdrop against signal-cli
 
+> This page is about a signal-cli **HTTP daemon** you run yourself. It applies to
+> **browser mode** and to the desktop app's **external-daemon mode** (Settings →
+> Connection). The desktop app's default mode needs none of this: it bundles
+> signal-cli and runs it directly, with no daemon to install or start. See
+> [DESKTOP.md](DESKTOP.md).
+
 Snowdrop talks to the Signal network through [signal-cli](https://github.com/AsamK/signal-cli),
 a separately installed, GPL-licensed program that runs as a local daemon. Snowdrop ships none
 of its code; it only uses the daemon's documented HTTP JSON-RPC API:

@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Snowdrop: a community-style chat client for Signal, driven by signal-cli"
 edition = "2021"
 rust-version = "1.80"
-license = "UNLICENSED"
+license = "MIT"
 publish = false
 
 [lib]

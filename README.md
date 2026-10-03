@@ -51,7 +51,17 @@ are fictional.
 
 ## Quick start
 
-Requires Node.js 20 or newer.
+**Desktop app (recommended).** The Tauri-based desktop build bundles
+signal-cli, so there is nothing to install or start first — build it (or get
+a build) and link your Signal account on first launch. See
+**[docs/DESKTOP.md](docs/DESKTOP.md)** for the dev and build commands, how
+the bundled signal-cli works, and the security model. Today the bundle is
+Linux x86_64 only; other platforms need signal-cli installed separately
+(same doc, "Other platforms").
+
+**Browser mode.** Runs entirely in a regular browser tab; good for trying
+the demo, developing the UI, or connecting to a signal-cli daemon you manage
+yourself. Requires Node.js 20 or newer:
 
 ```sh
 npm install
@@ -73,10 +83,10 @@ everything without a Signal account. Things to try:
 Your choice is remembered; switch between the demo and signal-cli in
 **Settings → Connection**.
 
-## Connecting to signal-cli
+## Connecting to signal-cli (browser mode)
 
-To use your real Signal account, run signal-cli as a local HTTP daemon and
-choose **Connect to signal-cli** on the welcome screen:
+In browser mode, to use your real Signal account, run signal-cli as a local
+HTTP daemon and choose **Connect to signal-cli** on the welcome screen:
 
 ```sh
 signal-cli daemon --http 127.0.0.1:8080 --receive-mode on-connection
@@ -87,7 +97,8 @@ Snowdrop can link itself as a new device (scan a QR code with the Signal app).
 Read **[docs/SIGNAL_CLI.md](docs/SIGNAL_CLI.md)** first: it covers installation,
 single- and multi-account daemons, linking, what to expect (history starts
 when Snowdrop first connects) and troubleshooting. Keep the daemon on
-`127.0.0.1`: it has no authentication.
+`127.0.0.1`: it has no authentication. The desktop app needs none of this —
+see [docs/DESKTOP.md](docs/DESKTOP.md).
 
 ## Scripts
 
@@ -103,9 +114,13 @@ when Snowdrop first connects) and troubleshooting. Keep the daemon on
 | `npm run format`                | Prettier, writing changes.                                                               |
 | `npm run format:check`          | Prettier, check only.                                                                    |
 | `node scripts/gen-licences.mjs` | Regenerates the About page's licence list after dependency changes (then run Prettier).  |
+| `npm run tauri:fetch`           | Downloads and verifies the pinned signal-cli sidecar for the desktop app.                |
+| `npm run tauri:dev`             | Fetches the sidecar, then runs the desktop app in dev mode.                              |
+| `npm run tauri:build`           | Fetches the sidecar, then builds the desktop app (AppImage, .deb).                       |
 
 The full quality gate is
-`npm run typecheck && npm run lint && npm test && npm run build`.
+`npm run typecheck && npm run lint && npm test && npm run build`. See
+[docs/DESKTOP.md](docs/DESKTOP.md) for the desktop app's own build and gates.
 
 Environment: `SNOWDROP_SIGNAL_CLI_URL` (shell or `.env.local`) points the dev
 and preview proxy at a daemon other than `http://127.0.0.1:8080`.
@@ -141,6 +156,8 @@ docs/                 documentation
 
 ## Documentation
 
+- [DESKTOP.md](docs/DESKTOP.md) — the Tauri desktop app: dev/build, the
+  bundled signal-cli sidecar, the transport layer, and the security model.
 - [ARCHITECTURE.md](docs/ARCHITECTURE.md) — layers and boundaries, data flow,
   persistence, adding a backend adapter, testing.
 - [PLUGINS.md](docs/PLUGINS.md) — the plugin author guide.
@@ -172,7 +189,6 @@ Inspired by Discord's layout. Not affiliated with or endorsed by Signal or Disco
 
 ## Licence
 
-No licence chosen yet — all rights reserved by the author until one is added.
-The owner should pick a licence (for example MIT or Apache-2.0, matching the
-dependencies) and add a `LICENSE` file before others use or contribute to the
-code.
+[MIT](LICENSE) © 2026 nightxade. The desktop build bundles
+[signal-cli](https://github.com/AsamK/signal-cli) (GPL-3.0) as a separate
+program; see `docs/DESKTOP.md` and the About page for its licence notice.
