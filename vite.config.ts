@@ -92,6 +92,13 @@ export default defineConfig(({ mode }) => {
       env: { TZ: 'UTC' },
       // Let ?raw imports of our token sheet through (vitest blanks CSS by default).
       css: { include: [/tokens\.css/] },
+      // Vitest's default (min(12, cpus-1)) oversubscribes real cores once esbuild's
+      // own transform pool and the main thread are counted too. The heaviest files
+      // (full app boots, e.g. vim.integration.test.tsx) are CPU-bound per test, not
+      // waiting on real timers, so under that contention their synchronous render
+      // work stalls for wall-clock seconds and starts missing the 5s test timeout.
+      // Leaving real headroom keeps each worker's CPU-bound work fast and reliable.
+      maxWorkers: 6,
     },
   };
 });
