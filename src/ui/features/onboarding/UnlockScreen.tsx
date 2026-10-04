@@ -1,0 +1,239 @@
+import { LockKeyhole } from 'lucide-react';
+import { useState } from 'react';
+import type { StorageAdmin, StorageStatus, StorageUnlockMethod } from '@/core/backend';
+import { friendlyErrorMessage } from '@/ui/lib/connectionErrors';
+import { Button, Checkbox, Modal, Segmented, TextInput } from '@/ui/primitives';
+import { OnboardingShell } from './OnboardingShell';
+import setupStyles from './Setup.module.css';
+import { errorKind, unlockReasonCopy } from './storageCopy';
+import styles from './Storage.module.css';
+
+export interface UnlockScreenProps {
+  /** `state: 'locked'`. */
+  status: StorageStatus;
+  admin: StorageAdmin;
+  /** Every status change — a successful unlock, a re-check, or an erase — is reported the same way. */
+  onStatusChange: (status: StorageStatus) => void;
+}
+
+const ERASE_WORD = 'ERASE';
+
+/**
+ * Shown while storage is locked (docs/ENCRYPTION.md, "UX" §3): no keyring
+ * service, a locked or empty keyring, or passphrase mode. Purely controlled
+ * by `status` — a status change (unlock, retry, erase) is reported upward
+ * and `StorageGate` re-routes from the new status.
+ */
+export function UnlockScreen({ status, admin, onStatusChange }: UnlockScreenProps) {
+  const [method, setMethod] = useState<StorageUnlockMethod>(
+    status.hasRecovery ? 'recovery' : 'passphrase',
+  );
+  const [secret, setSecret] = useState('');
+  const [remember, setRemember] = useState(status.reason !== 'keyringUnavailable');
+  const [busy, setBusy] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [eraseOpen, setEraseOpen] = useState(false);
+
+  const reason = unlockReasonCopy(status.reason);
+  const canUnlock = status.hasRecovery || status.hasPassphrase;
+  const bothMethods = status.hasRecovery && status.hasPassphrase;
+
+  const tryAgain = async () => {
+    setChecking(true);
+    setError(null);
+    try {
+      onStatusChange(await admin.status());
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      onStatusChange(await admin.unlock(method, secret, remember));
+      setSecret('');
+    } catch (e) {
+      setError(friendlyErrorMessage(errorKind(e), e instanceof Error ? e.message : String(e)));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <OnboardingShell>
+      <section className={setupStyles.card} aria-labelledby="unlock-title" data-snowdrop="unlock">
+        <h2 id="unlock-title" className={setupStyles.title}>
+          <LockKeyhole size={18} aria-hidden style={{ verticalAlign: '-3px', marginRight: 8 }} />
+          {reason.title}
+        </h2>
+        <p className={setupStyles.lede}>{reason.body}</p>
+        {canUnlock ? (
+          <form
+            className={styles.fields}
+            onSubmit={(e) => {
+              e.preventDefault();
+              void submit();
+            }}
+          >
+            {bothMethods && (
+              <Segmented
+                label="Unlock method"
+                value={method}
+                onValueChange={(v) => {
+                  setMethod(v);
+                  setError(null);
+                }}
+                options={[
+                  { value: 'recovery', label: 'Recovery key' },
+                  { value: 'passphrase', label: 'Passphrase' },
+                ]}
+              />
+            )}
+            <TextInput
+              type={method === 'passphrase' ? 'password' : 'text'}
+              label={method === 'recovery' ? 'Recovery key' : 'Passphrase'}
+              autoFocus
+              autoComplete="off"
+              spellCheck={false}
+              value={secret}
+              onChange={(e) => {
+                setSecret(e.target.value);
+              }}
+            />
+            {error && (
+              <p className={setupStyles.error} role="alert">
+                {error}
+              </p>
+            )}
+            <Checkbox
+              className={styles.rememberRow}
+              checked={remember}
+              onCheckedChange={setRemember}
+            >
+              Remember on this device
+            </Checkbox>
+            <div className={setupStyles.actions}>
+              <Button type="submit" variant="primary" disabled={busy || !secret.trim()}>
+                Unlock
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={checking}
+                onClick={() => void tryAgain()}
+              >
+                Try again
+              </Button>
+            </div>
+          </form>
+        ) : (
+          // No recovery key and no passphrase exist: nothing to unlock with, so
+          // the only way forward is starting over (docs/ENCRYPTION.md, "UX" §3).
+          <div className={setupStyles.actions}>
+            <Button
+              type="button"
+              variant="danger"
+              autoFocus
+              onClick={() => {
+                setEraseOpen(true);
+              }}
+            >
+              Start fresh…
+            </Button>
+          </div>
+        )}
+        {eraseOpen && (
+          <StartFreshDialog
+            admin={admin}
+            onClose={() => {
+              setEraseOpen(false);
+            }}
+            onErased={(s) => {
+              setEraseOpen(false);
+              onStatusChange(s);
+            }}
+          />
+        )}
+      </section>
+    </OnboardingShell>
+  );
+}
+
+function StartFreshDialog({
+  admin,
+  onClose,
+  onErased,
+}: {
+  admin: StorageAdmin;
+  onClose: () => void;
+  onErased: (status: StorageStatus) => void;
+}) {
+  const [typed, setTyped] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const confirmErase = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await admin.eraseAll();
+      onErased(result.status);
+    } catch (e) {
+      setError(friendlyErrorMessage(errorKind(e), e instanceof Error ? e.message : String(e)));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal
+      open
+      size="sm"
+      onOpenChange={(open) => {
+        if (!open && !busy) onClose();
+      }}
+      title="Start fresh?"
+      description="This erases this computer's encrypted data for good. You'll re-link to your phone."
+      footer={
+        <>
+          <Button variant="ghost" disabled={busy} onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="danger"
+            disabled={busy || typed !== ERASE_WORD}
+            onClick={() => void confirmErase()}
+          >
+            Erase and start fresh
+          </Button>
+        </>
+      }
+    >
+      <ul className={styles.eraseList}>
+        <li>
+          <strong>Comes back:</strong> your Signal identity on this computer, as a new linked
+          device, plus contacts and groups synced from your phone.
+        </li>
+        <li>
+          <strong>Gone:</strong> this computer&rsquo;s copy of your message history, and
+          Snowdrop&rsquo;s own data — settings, spaces/folders, drafts, keyword alerts, and contact
+          notes and pronouns.
+        </li>
+      </ul>
+      <TextInput
+        label={`Type ${ERASE_WORD} to confirm`}
+        data-autofocus
+        autoComplete="off"
+        spellCheck={false}
+        value={typed}
+        error={error ?? undefined}
+        onChange={(e) => {
+          setTyped(e.target.value);
+          setError(null);
+        }}
+      />
+    </Modal>
+  );
+}

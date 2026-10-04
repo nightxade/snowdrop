@@ -147,6 +147,24 @@ export interface EraseResult {
   failures: string[];
 }
 
+/**
+ * Encrypted storage, as the bootstrap gate and the setup/unlock screens see
+ * it (docs/ENCRYPTION.md, "UX"). Implemented by `src/platform/tauri`; the
+ * gate (`src/app/StorageGate.tsx`) is the only thing that calls it directly.
+ */
+export interface StorageAdmin {
+  status(): Promise<StorageStatus>;
+  /** Whether the OS keyring is usable right now, for the setup screen's default. */
+  keyringStatus(): Promise<KeyringStatus>;
+  setup(mode: StorageSetupMode, passphrase: string | null): Promise<StorageStatus>;
+  unlock(method: StorageUnlockMethod, secret: string, remember: boolean): Promise<StorageStatus>;
+  /** The plaintext code, shown once. Never log it. */
+  createRecovery(): Promise<CreateRecoveryResult>;
+  /** Base64 of the 32-byte web cache key; only resolves while unlocked. */
+  webcacheKey(): Promise<string>;
+  eraseAll(): Promise<EraseResult>;
+}
+
 export interface DesktopAdmin {
   /** Checks a configuration without disturbing the running signal-cli. */
   probe(desktop: DesktopConnection): Promise<DesktopProbeResult>;

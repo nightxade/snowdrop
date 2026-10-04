@@ -15,6 +15,7 @@ import type {
   KeyringStatus,
   LocateResult,
   PinnedRelease,
+  StorageAdmin,
   StorageSetupMode,
   StorageStatus,
   StorageUnlockMethod,
@@ -118,6 +119,19 @@ export async function storageWebcacheKey(ipc: TauriIpc = tauriIpc): Promise<stri
 export async function storageEraseAll(ipc: TauriIpc = tauriIpc): Promise<EraseResult> {
   const raw = await ipc.invoke<unknown>('storage_erase_all', { confirm: 'ERASE' });
   return validateEraseResult('storage_erase_all', raw);
+}
+
+/** Bundles the `storage_*` wrappers above into the shape `StorageGate` depends on. */
+export function createStorageAdmin(ipc: TauriIpc = tauriIpc): StorageAdmin {
+  return {
+    status: () => storageStatus(ipc),
+    keyringStatus: () => storageKeyringStatus(ipc),
+    setup: (mode, passphrase) => storageSetup(mode, passphrase, ipc),
+    unlock: (method, secret, remember) => storageUnlock(method, secret, remember, ipc),
+    createRecovery: () => storageCreateRecovery(ipc),
+    webcacheKey: () => storageWebcacheKey(ipc),
+    eraseAll: () => storageEraseAll(ipc),
+  };
 }
 
 export function createDesktopAdmin(ipc: TauriIpc = tauriIpc): DesktopAdmin {

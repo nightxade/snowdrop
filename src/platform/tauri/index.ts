@@ -8,6 +8,7 @@ export { tauriNotificationApi } from './notifications';
 export { installExternalLinks } from './links';
 export {
   createDesktopAdmin,
+  createStorageAdmin,
   storageCreateRecovery,
   storageEnrollKeyring,
   storageEraseAll,

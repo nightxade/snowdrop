@@ -1,0 +1,167 @@
+/* Storage setup/unlock/erase screens. Builds on Setup.module.css's .card,
+ * .title, .lede, .nameForm, .actions, .error — this file only adds what's
+ * specific to encrypted storage. */
+
+.methodCard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--snowdrop-space-4);
+  padding: var(--snowdrop-space-5);
+  border: 1px solid var(--snowdrop-border-strong);
+  border-radius: var(--snowdrop-radius-md);
+  background: var(--snowdrop-bg-active);
+}
+
+.methodHeading {
+  display: flex;
+  align-items: center;
+  gap: var(--snowdrop-space-3);
+  color: var(--snowdrop-text-strong);
+  font-weight: var(--snowdrop-font-weight-semibold);
+}
+
+.methodIcon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--snowdrop-radius-sm);
+  background: var(--snowdrop-accent);
+  color: var(--snowdrop-text-on-accent);
+  flex-shrink: 0;
+}
+
+.fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--snowdrop-space-4);
+}
+
+.strengthRow {
+  display: flex;
+  align-items: center;
+  gap: var(--snowdrop-space-3);
+  margin-top: calc(var(--snowdrop-space-2) * -1);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
+}
+
+.strengthBar {
+  display: flex;
+  gap: 3px;
+}
+
+.strengthBar span {
+  width: 20px;
+  height: 4px;
+  border-radius: var(--snowdrop-radius-full);
+  background: var(--snowdrop-border-strong);
+}
+
+.strengthBar[data-level='fair'] span:nth-child(-n + 2),
+.strengthBar[data-level='good'] span {
+  background: var(--snowdrop-warning);
+}
+
+.strengthBar[data-level='good'] span {
+  background: var(--snowdrop-success);
+}
+
+.disclosure {
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
+}
+
+.disclosure summary {
+  width: fit-content;
+  color: var(--snowdrop-text-link);
+  cursor: pointer;
+}
+
+.disclosure summary:hover {
+  text-decoration: underline;
+}
+
+.disclosure > :not(summary) {
+  margin-top: var(--snowdrop-space-4);
+}
+
+.recoveryCode {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--snowdrop-space-3);
+  padding: var(--snowdrop-space-5);
+  border-radius: var(--snowdrop-radius-md);
+  background: var(--snowdrop-code-bg);
+  box-shadow: inset 0 0 0 1px var(--snowdrop-border-strong);
+  font-family: var(--snowdrop-font-mono);
+  font-size: var(--snowdrop-font-size-ui);
+  letter-spacing: 0.04em;
+  user-select: all;
+}
+
+.recoveryGroup {
+  color: var(--snowdrop-text-strong);
+}
+
+.recoveryGroup[data-checksum] {
+  color: var(--snowdrop-accent-text);
+}
+
+.recoveryActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--snowdrop-space-3);
+}
+
+.confirmRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--snowdrop-space-4);
+}
+
+.confirmRow > :first-child {
+  flex: 1 1 220px;
+}
+
+.rememberRow {
+  margin-top: calc(var(--snowdrop-space-2) * -1);
+}
+
+.eraseList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--snowdrop-space-2);
+  padding-left: var(--snowdrop-space-6);
+  color: var(--snowdrop-text);
+  font-size: var(--snowdrop-font-size-sm);
+  line-height: 1.5;
+}
+
+.eraseList strong {
+  color: var(--snowdrop-text-strong);
+}
+
+.hint {
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
+  line-height: 1.5;
+}
+
+.checking {
+  display: grid;
+  place-items: center;
+  min-height: 160px;
+  color: var(--snowdrop-text-faint);
+}
+
+.spin {
+  animation: storage-spin 1s linear infinite;
+}
+
+@keyframes storage-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

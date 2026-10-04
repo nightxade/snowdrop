@@ -51,7 +51,17 @@ const GENERIC_MESSAGES: Record<string, DetailMessage> = {
   'keyring-unavailable': () => 'No keyring service is available on this system.',
   'keyring-locked': () => 'The keyring is locked. Unlock it and try again.',
   'keyring-corrupt': () => "The keyring entry Snowdrop stored isn't valid.",
+  'keyring-secret-missing': () =>
+    "The keyring doesn't have Snowdrop's key. This happens after switching keyrings.",
   'storage-locked': () => 'Local storage is locked. Unlock it to connect.',
+  'auth-failed': () => "That didn't match.",
+  'slot-missing': () => "That unlock method isn't set up.",
+  'keys-file-corrupt': () => "Snowdrop's key file isn't valid.",
+  'recovery-code-typo': () => "That recovery key has a typo — check it against what you saved.",
+  'vault-corrupt': () => "Snowdrop's local data is unreadable.",
+  'vault-blob-corrupt': () => 'A piece of local data is unreadable.',
+  'no-ram-dir': () => 'No RAM-backed storage is available on this computer.',
+  'already-running': () => 'Snowdrop is already open.',
   internal: (detail) =>
     /no space/iu.test(detail)
       ? "Couldn't save signal-cli: the disk may be full."

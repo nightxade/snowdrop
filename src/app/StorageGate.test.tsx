@@ -1,0 +1,121 @@
+/**
+ * `StorageGate` routes a desktop boot by `StorageStatus.state`
+ * (docs/ENCRYPTION.md, "UX"). A fake `StorageAdmin` stands in for
+ * src/platform/tauri, in the style of DownloadSignalCli.test.tsx's
+ * `fakeAdmin()`.
+ */
+import 'fake-indexeddb/auto';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { StorageAdmin, StorageStatus } from '@/core/backend';
+import { toBase64 } from '@/core/persistence';
+import { StorageGate } from './StorageGate';
+
+afterEach(cleanup);
+
+const needsSetup: StorageStatus = {
+  state: 'needsSetup',
+  reason: null,
+  hasRecovery: false,
+  hasPassphrase: false,
+  hasKeyring: false,
+  keyringBackend: 'secret-service',
+  legacyPlaintext: false,
+  vaultDisabled: false,
+};
+
+const locked: StorageStatus = { ...needsSetup, state: 'locked', reason: 'keyringLocked', hasRecovery: true };
+const unavailable: StorageStatus = { ...needsSetup, state: 'unavailable', reason: 'alreadyRunning' };
+const unlocked: StorageStatus = { ...needsSetup, state: 'unlocked' };
+
+const randomKeyBase64 = () => toBase64(crypto.getRandomValues(new Uint8Array(32)));
+
+function fakeAdmin(overrides: Partial<StorageAdmin> = {}): StorageAdmin {
+  return {
+    status: () => Promise.resolve(needsSetup),
+    keyringStatus: () =>
+      Promise.resolve({ available: true, hasSecret: false, backend: 'secret-service' }),
+    setup: () => Promise.resolve(unlocked),
+    unlock: () => Promise.resolve(unlocked),
+    createRecovery: () => Promise.resolve({ code: 'AAAA', status: unlocked }),
+    webcacheKey: () => Promise.resolve(randomKeyBase64()),
+    eraseAll: () => Promise.resolve({ status: needsSetup, failures: [] }),
+    ...overrides,
+  };
+}
+
+describe('StorageGate: routes every state', () => {
+  it('needsSetup shows the setup wizard', async () => {
+    render(
+      <StorageGate admin={fakeAdmin({ status: () => Promise.resolve(needsSetup) })}>
+        {() => <div>never</div>}
+      </StorageGate>,
+    );
+    expect(await screen.findByRole('heading', { name: 'Protect your data' })).toBeTruthy();
+  });
+
+  it('locked shows the unlock screen, themed by its reason', async () => {
+    render(
+      <StorageGate admin={fakeAdmin({ status: () => Promise.resolve(locked) })}>
+        {() => <div>never</div>}
+      </StorageGate>,
+    );
+    expect(await screen.findByRole('heading', { name: /Your keyring is locked/u })).toBeTruthy();
+  });
+
+  it('unavailable shows an explanatory screen', async () => {
+    render(
+      <StorageGate admin={fakeAdmin({ status: () => Promise.resolve(unavailable) })}>
+        {() => <div>never</div>}
+      </StorageGate>,
+    );
+    expect(await screen.findByRole('heading', { name: /Snowdrop is already open/u })).toBeTruthy();
+  });
+
+  it('unlocked fetches the web cache key and renders the children with real persistence', async () => {
+    const children = vi.fn((persistence: { storage: unknown; repository: unknown }) => (
+      <div data-testid="booted">{typeof persistence.storage}</div>
+    ));
+    render(
+      <StorageGate admin={fakeAdmin({ status: () => Promise.resolve(unlocked) })}>{children}</StorageGate>,
+    );
+    expect(await screen.findByTestId('booted')).toBeTruthy();
+    expect(children).toHaveBeenCalledTimes(1);
+    const [persistence] = children.mock.calls[0]!;
+    expect(persistence.storage).toBeTruthy();
+    expect(persistence.repository).toBeTruthy();
+  });
+});
+
+describe('StorageGate: re-routes when a screen reports a new status', () => {
+  it('finishing setup (skip the recovery key) boots the app', async () => {
+    const status = vi.fn().mockResolvedValue(needsSetup);
+    render(
+      <StorageGate admin={fakeAdmin({ status, setup: () => Promise.resolve(unlocked) })}>
+        {() => <div data-testid="booted">ready</div>}
+      </StorageGate>,
+    );
+    await screen.findByText(/The key is kept in/u);
+    await act(async () => {
+      fireEvent.click(screen.getAllByRole('button', { name: 'Continue' })[0]!);
+      await Promise.resolve();
+    });
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: 'Skip for now' }));
+    });
+    expect(await screen.findByTestId('booted')).toBeTruthy();
+  });
+
+  it('retrying from the unavailable screen can boot the app once storage is unlocked', async () => {
+    const status = vi.fn().mockResolvedValueOnce(unavailable).mockResolvedValueOnce(unlocked);
+    render(
+      <StorageGate admin={fakeAdmin({ status })}>{() => <div data-testid="booted">ready</div>}</StorageGate>,
+    );
+    await screen.findByRole('heading', { name: /Snowdrop is already open/u });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+      await Promise.resolve();
+    });
+    expect(await screen.findByTestId('booted')).toBeTruthy();
+  });
+});

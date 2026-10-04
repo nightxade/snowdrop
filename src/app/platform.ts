@@ -3,13 +3,32 @@
  * imported dynamically, and only inside Tauri (`isTauri()`), so the browser
  * build and the tests never load `@tauri-apps/*`.
  */
-import type { DesktopAdmin } from '@/core/backend';
+import type { DesktopAdmin, StorageAdmin } from '@/core/backend';
 import type { NotificationApi } from '@/core/services';
 import { isTauri } from '@/platform/detect';
 
 export { isTauri };
 
 const platform = () => import('@/platform/tauri');
+
+/**
+ * Encrypted storage (docs/ENCRYPTION.md): lazily wraps the real
+ * `StorageAdmin` so `StorageGate` can call it before anything else in the
+ * desktop app has loaded, without this module (or the browser build) ever
+ * loading `@tauri-apps/*` directly.
+ */
+export function desktopStorageAdmin(): StorageAdmin {
+  const admin = platform().then((m) => m.createStorageAdmin());
+  return {
+    status: async () => (await admin).status(),
+    keyringStatus: async () => (await admin).keyringStatus(),
+    setup: async (mode, passphrase) => (await admin).setup(mode, passphrase),
+    unlock: async (method, secret, remember) => (await admin).unlock(method, secret, remember),
+    createRecovery: async () => (await admin).createRecovery(),
+    webcacheKey: async () => (await admin).webcacheKey(),
+    eraseAll: async () => (await admin).eraseAll(),
+  };
+}
 
 /** Native notifications; `permission()` reads "default" until the plugin has answered. */
 export function desktopNotificationApi(): NotificationApi {
