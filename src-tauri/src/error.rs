@@ -51,6 +51,15 @@ pub enum ErrorKind {
     /// (tampered bytes, or one blob's ciphertext swapped onto another's
     /// path), or the file is simply missing.
     VaultBlobCorrupt,
+    /// No RAM-backed directory is available for the signal-cli runtime dir
+    /// (docs/ENCRYPTION.md, "signal-cli vault"): `XDG_RUNTIME_DIR` isn't set,
+    /// isn't owned by this user, isn't mode `0700`, isn't tmpfs/ramfs, or
+    /// this platform has no equivalent yet. Snowdrop never falls back to a
+    /// disk path for signal-cli's plaintext keys.
+    NoRamDir,
+    /// `snowdrop.lock` is already held by another process: another Snowdrop
+    /// instance is running.
+    AlreadyRunning,
     Internal,
 }
 

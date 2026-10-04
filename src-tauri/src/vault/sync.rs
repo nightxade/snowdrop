@@ -40,11 +40,14 @@ pub struct SyncReport {
     pub removed_blobs: usize,
 }
 
-struct WalkEntry {
-    relpath: String,
-    path: PathBuf,
-    len: u64,
-    mtime_ns: u64,
+/// One file found under the runtime dir. `pub(crate)` so
+/// `session::VaultSession::evict_media` can reuse the same walk — and the
+/// same symlink/sidecar/non-UTF-8 skipping — rather than duplicating it.
+pub(crate) struct WalkEntry {
+    pub(crate) relpath: String,
+    pub(crate) path: PathBuf,
+    pub(crate) len: u64,
+    pub(crate) mtime_ns: u64,
 }
 
 fn is_sidecar(name: &str) -> bool {
@@ -56,8 +59,10 @@ fn mtime_ns(meta: &fs::Metadata) -> u64 {
 }
 
 /// Recursively walks `runtime_dir`, skipping `*-wal`/`*-shm`/`*-journal`
-/// sidecars, symlinks (warned, never followed) and non-UTF-8 names (warned).
-fn walk(runtime_dir: &Path) -> Result<Vec<WalkEntry>, Error> {
+/// sidecars, the crash-recovery marker (`MARKER_FILE_NAME`; it must never
+/// become a tracked manifest entry), symlinks (warned, never followed) and
+/// non-UTF-8 names (warned).
+pub(crate) fn walk(runtime_dir: &Path) -> Result<Vec<WalkEntry>, Error> {
     let mut out = Vec::new();
     walk_into(runtime_dir, runtime_dir, &mut out)?;
     Ok(out)
@@ -89,7 +94,8 @@ fn walk_into(root: &Path, dir: &Path, out: &mut Vec<WalkEntry>) -> Result<(), Er
             continue; // sockets, devices, fifos: signal-cli never writes these.
         }
         let name = entry.file_name();
-        if is_sidecar(&name.to_string_lossy()) {
+        let name_str = name.to_string_lossy();
+        if is_sidecar(&name_str) || name_str == super::MARKER_FILE_NAME {
             continue;
         }
         let meta = entry.metadata().map_err(|e| io_err(&path, e))?;

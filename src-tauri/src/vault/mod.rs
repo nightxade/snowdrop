@@ -1,10 +1,12 @@
 //! The signal-cli vault: pure filesystem logic that persists the RAM-backed
 //! signal-cli runtime dir as an encrypted blob store (docs/ENCRYPTION.md,
 //! "signal-cli vault"). No Tauri commands and no service wiring live here —
-//! that's the storage service (task 3b), which also owns the instance lock,
-//! crash recovery and media on-demand/eviction. This module only knows how
-//! to `open` a vault directory, `restore` it into a runtime dir, and `sync`
-//! a runtime dir back into it.
+//! that's the storage service (task 4), which wires a [`VaultSession`] into
+//! the signal-cli process lifecycle. This module knows how to `open` a vault
+//! directory, `restore` it into a runtime dir, `sync` a runtime dir back
+//! into it, resolve the RAM-backed runtime dir itself (`runtime`), take the
+//! single-instance lock (`lock`), and orchestrate restore/sync/recovery plus
+//! on-demand media and eviction around all of that (`session`).
 //!
 //! Layout, all under the vault directory (`dir`, mode `0700`):
 //! - `manifest`, `manifest.prev`: sealed, serde-encoded [`manifest::Manifest`]s.
@@ -19,12 +21,18 @@
 
 mod blobs;
 mod copy;
+mod lock;
 mod manifest;
 mod restore;
+mod runtime;
+mod session;
 mod sync;
 
+pub use lock::InstanceLock;
 pub use manifest::ManifestSource;
 pub use restore::RestoreReport;
+pub use runtime::resolve as resolve_runtime_dir;
+pub use session::{EvictReport, StartKind, VaultSession, DEFAULT_MEDIA_BUDGET_BYTES, DEFAULT_MEDIA_IDLE, MEDIA_PREFIXES};
 pub use sync::{SkippedFile, SyncReport};
 
 use std::fs;
@@ -37,6 +45,13 @@ use crate::error::{Error, ErrorKind};
 /// Bytes in a vault id (bound into every manifest's AAD; see `keyslots.rs`).
 pub const VAULT_ID_LEN: usize = 16;
 pub(crate) const BLOB_ID_LEN: usize = 16;
+
+/// The crash-recovery marker's file name, written directly in the runtime
+/// dir by `session::VaultSession::start` (docs/ENCRYPTION.md, "Crash
+/// recovery"). Named here, not in `session`, so `sync`'s walk can skip it
+/// without a dependency between the two sibling modules — a marker must
+/// never end up as a tracked manifest entry.
+pub(crate) const MARKER_FILE_NAME: &str = ".restored-from";
 
 /// An open vault directory plus the key that seals everything in it. Cheap
 /// to construct; all it does on [`open`](Vault::open) is make sure the

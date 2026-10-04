@@ -31,26 +31,46 @@ pub(crate) fn restore(vault: &Vault, runtime_dir: &Path, filter: impl Fn(&str) -
         if !filter(relpath) {
             continue;
         }
-        let id = blobs::id_from_hex(&entry.blob)
-            .ok_or_else(|| Error::new(ErrorKind::VaultCorrupt, format!("vault: manifest entry {relpath:?} has a malformed blob id.")))?;
-        let plaintext = blobs::read(&vault.dir, &vault.key, &vault.vault_id, &id)?;
-
-        let actual_sha256 = to_hex(&Sha256::digest(&plaintext));
-        if actual_sha256 != entry.sha256 {
-            return Err(Error::new(ErrorKind::VaultBlobCorrupt, format!("vault: blob for {relpath:?} doesn't match its recorded hash.")));
-        }
-
-        let dest = runtime_dir.join(relpath);
-        if let Some(parent) = dest.parent() {
-            if parent != runtime_dir {
-                create_secure_dir(parent)?;
-            }
-        }
-        write_secure_file(&dest, &plaintext)?;
-        set_mtime(&dest, entry.mtime_ns)?;
+        restore_entry(vault, runtime_dir, relpath, entry)?;
         restored += 1;
     }
     Ok(RestoreReport { source, restored })
+}
+
+/// Restores one manifest entry by relpath, verified the same way a full
+/// [`restore`] verifies every entry it writes — used by
+/// `session::VaultSession::ensure_media` to hydrate a single on-demand media
+/// file (docs/ENCRYPTION.md, "Attachment budget"). `Ok(false)` if `relpath`
+/// isn't tracked in the current manifest at all; nothing is written then.
+pub(crate) fn restore_one(vault: &Vault, runtime_dir: &Path, relpath: &str) -> Result<bool, Error> {
+    validate_relpath(relpath)?;
+    let (manifest, _source) = manifest::load_with_fallback(&vault.dir, &vault.key, &vault.vault_id)?;
+    let Some(entry) = manifest.entries.get(relpath) else {
+        return Ok(false);
+    };
+    create_secure_dir(runtime_dir)?;
+    restore_entry(vault, runtime_dir, relpath, entry)?;
+    Ok(true)
+}
+
+fn restore_entry(vault: &Vault, runtime_dir: &Path, relpath: &str, entry: &manifest::ManifestEntry) -> Result<(), Error> {
+    let id = blobs::id_from_hex(&entry.blob)
+        .ok_or_else(|| Error::new(ErrorKind::VaultCorrupt, format!("vault: manifest entry {relpath:?} has a malformed blob id.")))?;
+    let plaintext = blobs::read(&vault.dir, &vault.key, &vault.vault_id, &id)?;
+
+    let actual_sha256 = to_hex(&Sha256::digest(&plaintext));
+    if actual_sha256 != entry.sha256 {
+        return Err(Error::new(ErrorKind::VaultBlobCorrupt, format!("vault: blob for {relpath:?} doesn't match its recorded hash.")));
+    }
+
+    let dest = runtime_dir.join(relpath);
+    if let Some(parent) = dest.parent() {
+        if parent != runtime_dir {
+            create_secure_dir(parent)?;
+        }
+    }
+    write_secure_file(&dest, &plaintext)?;
+    set_mtime(&dest, entry.mtime_ns)
 }
 
 #[cfg(unix)]
