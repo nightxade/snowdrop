@@ -15,6 +15,7 @@ fn main() {
             "signal_cli_install_cancel",
             "desktop_info",
             "open_external",
+            "storage_keyring_status",
         ])),
     )
     .expect("failed to run tauri-build");

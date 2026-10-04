@@ -10,6 +10,7 @@ import type {
   InstallProgress,
   InstallResult,
   InstallStatus,
+  KeyringStatus,
   LocateResult,
   PinnedRelease,
 } from '@/core/backend';
@@ -19,10 +20,21 @@ import {
   tryValidateInstallProgress,
   validateDesktopInfo,
   validateInstallStatus,
+  validateKeyringStatus,
   validatePinnedRelease,
   validateProbe,
   validateResolvedProgram,
 } from './ipcValidate';
+
+/**
+ * Whether the OS keyring can hold Snowdrop's keyring slot secret right now,
+ * for the unlock screen and Settings → Privacy & security. Never resolves
+ * with the secret itself (see `src-tauri/src/secrets.rs`).
+ */
+export async function storageKeyringStatus(ipc: TauriIpc = tauriIpc): Promise<KeyringStatus> {
+  const raw = await ipc.invoke<unknown>('storage_keyring_status');
+  return validateKeyringStatus('storage_keyring_status', raw);
+}
 
 export function createDesktopAdmin(ipc: TauriIpc = tauriIpc): DesktopAdmin {
   let info: Promise<DesktopInfo> | null = null;

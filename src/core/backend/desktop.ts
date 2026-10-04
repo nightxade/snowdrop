@@ -12,6 +12,9 @@ export type DesktopErrorKind =
   | 'config'
   | 'invalid-response'
   | 'cancelled'
+  | 'keyring-unavailable'
+  | 'keyring-locked'
+  | 'keyring-corrupt'
   | 'internal';
 
 export interface ResolvedProgram {
@@ -65,6 +68,18 @@ export interface InstallProgress {
   received: number;
   /** Null until the response declares a Content-Length. */
   total: number | null;
+}
+
+/**
+ * Whether the OS keyring can hold Snowdrop's keyring slot secret
+ * (src-tauri/src/secrets.rs). Never carries the secret itself.
+ */
+export interface KeyringStatus {
+  /** Whether a keyring answered at all (a locked one still counts). */
+  available: boolean;
+  /** Whether it already holds a slot secret. */
+  hasSecret: boolean;
+  backend: 'secret-service' | 'macos-keychain' | 'windows';
 }
 
 export type InstallResult =

@@ -35,6 +35,18 @@ describe('friendlyErrorMessage', () => {
     );
   });
 
+  it('has plain copy for every keyring slot error kind', () => {
+    expect(friendlyErrorMessage('keyring-unavailable')).toBe(
+      'No keyring service is available on this system.',
+    );
+    expect(friendlyErrorMessage('keyring-locked')).toBe(
+      'The keyring is locked. Unlock it and try again.',
+    );
+    expect(friendlyErrorMessage('keyring-corrupt')).toBe(
+      "The keyring entry Snowdrop stored isn't valid.",
+    );
+  });
+
   it('falls back to a safe default for an empty detail or an unknown kind', () => {
     expect(friendlyErrorMessage('not-installed', '')).toBe("Snowdrop couldn't find signal-cli.");
     expect(friendlyErrorMessage('something-new', 'whatever')).toBe(

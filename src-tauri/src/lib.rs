@@ -2,6 +2,7 @@
 //! the signal-cli connection the UI drives through a handful of commands.
 //! See docs/DESKTOP.md.
 
+pub mod aead;
 pub mod commands;
 pub mod config;
 pub mod error;
@@ -10,6 +11,7 @@ pub mod external;
 pub mod jsonrpc;
 pub mod logfile;
 pub mod process;
+pub mod secrets;
 pub mod service;
 pub mod signal_cli_install;
 
@@ -99,6 +101,7 @@ pub fn run() {
             commands::signal_cli_install_cancel,
             commands::desktop_info,
             commands::open_external,
+            commands::storage_keyring_status,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Snowdrop");

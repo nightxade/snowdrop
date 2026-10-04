@@ -18,6 +18,13 @@ pub enum ErrorKind {
     InvalidResponse,
     /// The caller cancelled an in-progress operation (e.g. the signal-cli download).
     Cancelled,
+    /// No OS keyring service is reachable (no Secret Service on the bus, no
+    /// backend at all) or it didn't answer within the timeout.
+    KeyringUnavailable,
+    /// The keyring is reachable but locked, refused access, or a prompt was dismissed.
+    KeyringLocked,
+    /// The keyring answered, but its stored value isn't a well-formed slot secret.
+    KeyringCorrupt,
     Internal,
 }
 

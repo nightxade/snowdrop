@@ -19,7 +19,13 @@ import {
   type Decoder,
   type RpcReply,
 } from '@/core/backend/signal-cli';
-import type { DesktopInfo, InstallStatus, PinnedRelease, ResolvedProgram } from '@/core/backend';
+import type {
+  DesktopInfo,
+  InstallStatus,
+  KeyringStatus,
+  PinnedRelease,
+  ResolvedProgram,
+} from '@/core/backend';
 import type { CommandError } from './ipc';
 
 /** `null`/`undefined` → `null` (Rust's `Option<T>` serialises as JSON `null`). */
@@ -101,6 +107,16 @@ const installStatusShape: Decoder<InstallStatus> = object({
 
 export function validateInstallStatus(command: string, value: unknown): InstallStatus {
   return validated(command, installStatusShape, value);
+}
+
+const keyringStatusShape: Decoder<KeyringStatus> = object({
+  available: bool,
+  hasSecret: bool,
+  backend: oneOf(['secret-service', 'macos-keychain', 'windows']),
+});
+
+export function validateKeyringStatus(command: string, value: unknown): KeyringStatus {
+  return validated(command, keyringStatusShape, value);
 }
 
 export interface RustInstallProgress {

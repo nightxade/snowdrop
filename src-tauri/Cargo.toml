@@ -41,6 +41,16 @@ flate2 = { version = "1", default-features = false, features = ["rust_backend"] 
 tar = "0.4"
 sha2 = "0.10"
 log = "0.4"
+# Linux: freedesktop Secret Service over zbus's own self-contained async-io
+# executor (pure Rust, no libdbus/OpenSSL, and no ambient Tokio runtime
+# needed — secrets.rs calls this from a plain spawned thread). macOS/Windows:
+# the native keychain/credential-manager backends.
+keyring = { version = "3", default-features = false, features = ["async-secret-service", "async-io", "crypto-rust", "apple-native", "windows-native"] }
+zeroize = "1"
+hkdf = "0.12"
+base64 = "0.22"
+chacha20poly1305 = "0.10"
+getrandom = "0.2"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["io-util", "macros", "process", "rt-multi-thread", "sync", "time", "test-util"] }

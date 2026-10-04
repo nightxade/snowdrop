@@ -9,6 +9,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::config::{ConnectConfig, ResolvedBinary};
 use crate::error::{Error, ErrorKind};
+use crate::secrets::{self, KeyringStatus, KeyringStore};
 use crate::service::{ConnectInfo, ProbeResult, Service};
 use crate::signal_cli_install::{self, InstallState, InstallStatus, PinnedAsset};
 
@@ -183,6 +184,14 @@ pub fn open_external(url: String) -> Result<(), Error> {
         return Err(Error::new(ErrorKind::Config, "Only web and email links can be opened."));
     }
     tauri_plugin_opener::open_url(url, None::<&str>).map_err(|e| Error::new(ErrorKind::Internal, e.to_string()))
+}
+
+/// Whether the OS keyring is reachable and already holds a slot secret, for
+/// the unlock screen and Settings → Privacy & security. Never returns the
+/// secret itself — see `secrets::KeyringStatus`.
+#[tauri::command]
+pub fn storage_keyring_status() -> KeyringStatus {
+    secrets::status(&KeyringStore::new())
 }
 
 pub fn is_external_url(url: &str) -> bool {

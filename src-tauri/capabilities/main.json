@@ -20,6 +20,7 @@
     "allow-signal-cli-install",
     "allow-signal-cli-install-cancel",
     "allow-desktop-info",
-    "allow-open-external"
+    "allow-open-external",
+    "allow-storage-keyring-status"
   ]
 }

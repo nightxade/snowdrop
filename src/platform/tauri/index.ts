@@ -6,5 +6,5 @@
 export { TauriTransport, toSignalCliError, type TauriTransportOptions } from './TauriTransport';
 export { tauriNotificationApi } from './notifications';
 export { installExternalLinks } from './links';
-export { createDesktopAdmin } from './desktop';
+export { createDesktopAdmin, storageKeyringStatus } from './desktop';
 export type { TauriIpc } from './ipc';

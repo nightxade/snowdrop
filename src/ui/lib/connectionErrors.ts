@@ -48,6 +48,9 @@ const GENERIC_MESSAGES: Record<string, DetailMessage> = {
   'captcha-rejected': () => 'That captcha was rejected.',
   'invalid-params': () => 'signal-cli rejected that request.',
   'method-not-found': () => 'This signal-cli is too old for that.',
+  'keyring-unavailable': () => 'No keyring service is available on this system.',
+  'keyring-locked': () => 'The keyring is locked. Unlock it and try again.',
+  'keyring-corrupt': () => "The keyring entry Snowdrop stored isn't valid.",
   internal: (detail) =>
     /no space/iu.test(detail)
       ? "Couldn't save signal-cli: the disk may be full."

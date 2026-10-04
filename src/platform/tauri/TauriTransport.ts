@@ -45,6 +45,10 @@ const KINDS: Record<CommandError['kind'], SignalCliErrorKind> = {
   'invalid-response': 'invalid-response',
   // Only ever returned by the signal-cli *install* commands, never connect/request.
   cancelled: 'internal',
+  // Only ever returned by `storage_keyring_status`, never connect/request.
+  'keyring-unavailable': 'internal',
+  'keyring-locked': 'internal',
+  'keyring-corrupt': 'internal',
   internal: 'internal',
 };
 
