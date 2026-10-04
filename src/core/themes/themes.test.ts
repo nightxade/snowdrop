@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BUILTIN_THEMES, findTheme, LINEN } from './builtin';
 import {
   adjustLightness,
@@ -125,5 +125,24 @@ describe('applyAppearance', () => {
     expect(root.hasAttribute('data-reduced-motion')).toBe(false);
     expect(document.querySelectorAll(`#${STYLE_IDS.theme}`)).toHaveLength(1);
     late.remove();
+  });
+
+  // Regression: a theme switch used to unconditionally re-append all three
+  // <style> tags (a DOM remove+insert of each, even when nothing had moved
+  // them), on every apply. WebKitGTK has been observed to occasionally fail
+  // to repaint already-composited content after that kind of redundant
+  // detach/reattach of the live `:root` custom-property sheet -- the chat
+  // column keeps the previous theme's raster even though getComputedStyle
+  // already reports the new values (see engine.ts's applyAppearance comment).
+  // A plain switch, with nothing displacing our tags, must not touch the DOM
+  // position of any of the three style elements.
+  it('does not reposition its style tags when nothing has displaced them', () => {
+    applyAppearance(document, base);
+    const appendSpy = vi.spyOn(document.head, 'appendChild');
+
+    applyAppearance(document, { ...base, themeId: 'linen' });
+
+    expect(appendSpy).not.toHaveBeenCalled();
+    appendSpy.mockRestore();
   });
 });

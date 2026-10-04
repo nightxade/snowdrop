@@ -175,11 +175,27 @@ export function applyAppearance(doc: ThemeDocument, input: AppearanceInput): voi
     // Remote @imports are stripped here, whatever the caller did (privacy).
     [STYLE_IDS.customCss, sanitizeUserCss(input.customCss).css],
   ];
-  for (const [id, css] of blocks) {
+  const elements = blocks.map(([id, css]) => {
     const el = ensureStyle(doc, id);
     if (el.textContent !== css) el.textContent = css;
-    // appendChild moves an existing node, keeping our three tags last and ordered.
-    doc.head.appendChild(el);
+    return el;
+  });
+  // Keep our three tags last and ordered -- but only actually move them (a
+  // DOM remove+insert of each <style> node, even to reposition at the same
+  // spot) when something has displaced them, e.g. a later stylesheet got
+  // inserted after ours. On a plain theme switch the order never changes, so
+  // this is normally a no-op.
+  //
+  // WebKitGTK note: re-appending the live `:root` custom-property sheet on
+  // every apply (as this used to do unconditionally) detaches and reattaches
+  // it on every theme switch. We observed (rarely, timing-dependent) the chat
+  // column keeping the previous theme's paint after such a switch even though
+  // computed styles were already correct; avoiding the redundant churn is
+  // our best-evidence mitigation.
+  const tail = Array.from(doc.head.children).slice(-elements.length);
+  const inPlace = tail.length === elements.length && tail.every((node, i) => node === elements[i]);
+  if (!inPlace) {
+    for (const el of elements) doc.head.appendChild(el);
   }
 
   const root = doc.documentElement;
