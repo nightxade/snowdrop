@@ -93,6 +93,13 @@ describe('MessageBody', () => {
     expect(container.querySelector('button, a, [role="button"]')).toBeNull();
   });
 
+  it('sets dir="auto" so RTL text renders in its own direction', () => {
+    const { container } = renderBody('שלום עולם');
+    expect(container.querySelector('[data-snowdrop="message-body"]')?.getAttribute('dir')).toBe(
+      'auto',
+    );
+  });
+
   it('detects emoji-only messages for jumbo display', () => {
     expect(isJumbo('🎯🎯', [])).toBe(true);
     expect(isJumbo('👍🏽 ❤️', [])).toBe(true);

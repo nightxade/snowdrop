@@ -180,6 +180,8 @@
   font-weight: var(--snowdrop-font-weight-medium);
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* Filenames are attacker-controlled; contain any bidi controls. */
+  unicode-bidi: isolate;
 }
 
 .cardMeta {

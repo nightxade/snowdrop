@@ -24,9 +24,14 @@ export function ConversationIntro({ conversationId }: { conversationId: Conversa
       <ConversationAvatar conversation={conversation} size={80} />
       <h2 className={styles.title}>{conversation.title}</h2>
       <p className={styles.lede}>
-        {isGroup
-          ? `This is the start of your history in ${conversation.title} on this device.`
-          : `This is the start of your history with ${peer?.name ?? conversation.title} on this device.`}
+        {isGroup ? (
+          <>This is the start of your history in <bdi>{conversation.title}</bdi> on this device.</>
+        ) : (
+          <>
+            This is the start of your history with <bdi>{peer?.name ?? conversation.title}</bdi> on
+            this device.
+          </>
+        )}
       </p>
       {!isGroup && (
         <p className={styles.hint}>

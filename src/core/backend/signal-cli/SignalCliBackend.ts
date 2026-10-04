@@ -32,6 +32,7 @@ import {
 } from '@/core/domain';
 import {
   Emitter,
+  stripBidiControls,
   systemClock,
   systemScheduler,
   type Clock,
@@ -53,7 +54,7 @@ import type {
 } from '../types';
 import { AttachmentResolver, encodeOutgoing, type Thumbnailer } from './attachments';
 import { Directory } from './directory';
-import { SignalCliError } from './errors';
+import { describeError, SignalCliError } from './errors';
 import { GroupChangeTracker } from './groupChanges';
 import { isUuid, SelfIdentity } from './identity';
 import { systemMessage } from './normalise/content';
@@ -398,7 +399,8 @@ export class SignalCliBackend implements ChatBackend {
         this.learnSelf(payload);
         events = normaliseReceive(payload, this.normaliseContext());
       } catch {
-        this.debugLog('ignored non-JSON event data', String(event.data).slice(0, 200));
+        // Never log the data itself: it can be (or embed) raw message text.
+        this.debugLog('ignored non-JSON event data', `${String(event.data).length} chars`);
       }
     }
     // Even an ignored event advances the resume position (once acknowledged).
@@ -471,7 +473,8 @@ export class SignalCliBackend implements ChatBackend {
         try {
           await this.apply(event);
         } catch (error) {
-          this.debugLog(`failed to apply ${event.kind}`, error);
+          // Never log the error object itself: its message can embed payload data.
+          this.debugLog(`failed to apply ${event.kind}`, describeError(error));
         }
       }
       if (cursor && session === this.session) this.emitter.emit('checkpoint', { cursor });
@@ -622,9 +625,11 @@ export class SignalCliBackend implements ChatBackend {
     );
   }
 
+  // Stripped here since the result feeds plain-text system sentences
+  // (describeGroupChange) that no later CSS isolation can protect.
   private nameOf(id: string): string {
     if (id === this.selfId) return 'You';
-    return this.directory.contact(id)?.name ?? id;
+    return stripBidiControls(this.directory.contact(id)?.name ?? id);
   }
 
   // ─── Queries ───────────────────────────────────────────────────────────

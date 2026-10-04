@@ -22,6 +22,8 @@
   color: var(--snowdrop-text-muted);
   font-size: var(--snowdrop-font-size-xs);
   font-weight: var(--snowdrop-font-weight-semibold);
+  /* Holds the conversation title, which is attacker-controlled. */
+  unicode-bidi: isolate;
 }
 
 .row {
@@ -51,6 +53,8 @@
   font-weight: var(--snowdrop-font-weight-semibold);
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* An author name is attacker-controlled (profile data); contain any bidi controls. */
+  unicode-bidi: isolate;
 }
 
 .time {

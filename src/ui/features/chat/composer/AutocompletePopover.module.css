@@ -57,6 +57,8 @@
   flex: none;
   font-weight: var(--snowdrop-font-weight-medium);
   white-space: nowrap;
+  /* A contact name is attacker-controlled (profile data); contain any bidi controls. */
+  unicode-bidi: isolate;
 }
 
 .secondary {
@@ -66,6 +68,8 @@
   color: var(--snowdrop-text-muted);
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* Also holds a contact's profile name, which is attacker-controlled. */
+  unicode-bidi: isolate;
 }
 
 .usage {

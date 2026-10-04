@@ -45,6 +45,8 @@
   color: color-mix(in oklab, var(--name-color) 55%, var(--snowdrop-text-strong));
   font-weight: var(--snowdrop-font-weight-semibold);
   opacity: 0.9;
+  /* Quoted authors are attacker-controlled; contain any bidi controls. */
+  unicode-bidi: isolate;
 }
 
 .name:hover {

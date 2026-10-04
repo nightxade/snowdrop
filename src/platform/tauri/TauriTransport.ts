@@ -176,7 +176,7 @@ class TauriSubscription implements EventSubscription {
       await this.ipc.listen<unknown>(EVENT_RECEIVE, (event) => {
         if (!this.running) return;
         if (!isRecord(event) || typeof event.type !== 'string') {
-          console.error('Malformed signal-cli event payload', event);
+          console.error('Malformed signal-cli event payload', typeof event);
           return;
         }
         this.options.onEvent({
@@ -188,7 +188,7 @@ class TauriSubscription implements EventSubscription {
       await this.ipc.listen<unknown>(EVENT_STATE, (state) => {
         if (!this.running) return;
         if (!isRecord(state) || typeof state.kind !== 'string') {
-          console.error('Malformed signal-cli state payload', state);
+          console.error('Malformed signal-cli state payload', typeof state);
           return;
         }
         this.options.onState(toStreamState(state as RustStreamState));

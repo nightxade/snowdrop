@@ -37,6 +37,8 @@
   color: color-mix(in oklab, var(--name-color) 55%, var(--snowdrop-text-strong));
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* A contact name is attacker-controlled (profile data); contain any bidi controls. */
+  unicode-bidi: isolate;
 }
 
 .you {

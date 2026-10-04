@@ -14,6 +14,7 @@ import {
   type MessageStatus,
   type Quote,
 } from '@/core/domain';
+import { stripBidiControls } from '@/core/lib';
 import { addressId, type WireAttachment, type WireDataMessage, type WireQuote } from '../wire';
 import { sortRanges, toBodyRanges } from './ranges';
 
@@ -31,7 +32,8 @@ export interface MessageMeta {
 /** Attachment ids are signal-cli's local file ids; fall back to a stable synthetic id. */
 export function toAttachment(a: WireAttachment, fallbackId: string): Attachment {
   const out: Attachment = { id: a.id ?? fallbackId, contentType: a.contentType };
-  if (a.filename !== undefined) out.fileName = a.filename;
+  // Also used as an `<a download>` name, which CSS isolation can't protect.
+  if (a.filename !== undefined) out.fileName = stripBidiControls(a.filename);
   if (a.size !== undefined) out.size = a.size;
   if (a.width !== undefined && a.width > 0) out.width = a.width;
   if (a.height !== undefined && a.height > 0) out.height = a.height;
@@ -47,14 +49,16 @@ export function toQuote(q: WireQuote, resolveId: (id: string) => string): Quote 
   );
   if (!text && q.attachments.length > 0) {
     const first = q.attachments[0];
-    text = first?.filename ?? describeContentType(first?.contentType ?? '');
+    text = first?.filename
+      ? stripBidiControls(first.filename)
+      : describeContentType(first?.contentType ?? '');
   }
   const quote: Quote = { authorId: resolveId(author), sentAt: q.id, text };
   if (ranges.length > 0) quote.ranges = ranges;
   if (q.attachments.length > 0) {
     quote.attachments = q.attachments.map((a) =>
       a.filename
-        ? { contentType: a.contentType, fileName: a.filename }
+        ? { contentType: a.contentType, fileName: stripBidiControls(a.filename) }
         : { contentType: a.contentType },
     );
   }
@@ -87,7 +91,7 @@ function unsupportedNotes(data: WireDataMessage): string[] {
     const name =
       c.name?.nickname ??
       ([c.name?.given, c.name?.family].filter(Boolean).join(' ') || c.organization);
-    notes.push(name ? `Shared a contact: ${name}` : 'Shared a contact.');
+    notes.push(name ? `Shared a contact: ${stripBidiControls(name)}` : 'Shared a contact.');
   }
   return notes;
 }

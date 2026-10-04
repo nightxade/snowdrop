@@ -14,6 +14,8 @@
   font-weight: var(--snowdrop-font-weight-bold);
   letter-spacing: -0.01em;
   line-height: 1.2;
+  /* A DM/group title is attacker-controlled; contain any bidi controls. */
+  unicode-bidi: isolate;
 }
 
 .lede {

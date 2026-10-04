@@ -89,6 +89,8 @@
   line-height: 1.3;
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* A DM/group title is attacker-controlled; contain any bidi controls. */
+  unicode-bidi: isolate;
 }
 
 .row[data-unread] .title {

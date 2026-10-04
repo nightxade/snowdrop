@@ -182,6 +182,7 @@ export const MessageBody = memo(function MessageBody(props: MessageBodyProps) {
       className={[styles.body, className].filter(Boolean).join(' ')}
       data-snowdrop="message-body"
       data-jumbo={isJumbo(body, ranges) ? '' : undefined}
+      dir="auto"
     >
       {render(segments, props, 'b')}
       {props.trailing}

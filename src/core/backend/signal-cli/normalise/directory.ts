@@ -14,6 +14,7 @@ import {
   type Contact,
   type Conversation,
 } from '@/core/domain';
+import { stripBidiControls } from '@/core/lib';
 import { addressId, type WireContact, type WireGroup } from '../wire';
 
 const joinName = (...parts: (string | undefined)[]): string =>
@@ -112,10 +113,11 @@ export function describeGroupChange(
   if (!before) return [actorName ? `${actorName} updated the group.` : 'The group was updated.'];
   const lines: string[] = [];
   if (before.title !== after.title) {
+    const title = stripBidiControls(after.title);
     lines.push(
       actorName
-        ? `${actorName} changed the group name to "${after.title}".`
-        : `The group name was changed to "${after.title}".`,
+        ? `${actorName} changed the group name to "${title}".`
+        : `The group name was changed to "${title}".`,
     );
   }
   if ((before.description ?? '') !== (after.description ?? '')) {

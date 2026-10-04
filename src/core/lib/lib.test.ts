@@ -3,6 +3,7 @@ import { ManualScheduler } from './clock';
 import { DisposableStore } from './disposables';
 import { Emitter } from './emitter';
 import { ObservableList } from './observable';
+import { stripBidiControls } from './text';
 
 describe('Emitter', () => {
   it('delivers typed events and unsubscribes', () => {
@@ -107,5 +108,27 @@ describe('ObservableList', () => {
     remove();
     expect(list.list()).toEqual([]);
     expect(fn).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('stripBidiControls', () => {
+  it('removes bidi override, embedding and isolate controls', () => {
+    expect(stripBidiControls('a‮b‪c‭d‬e')).toBe('abcde');
+    expect(stripBidiControls('a⁦b⁧c⁨d⁩e')).toBe('abcde');
+  });
+
+  it('removes bidi marks and the Arabic letter mark', () => {
+    expect(stripBidiControls('a‎b‏c؜d')).toBe('abcd');
+  });
+
+  it('leaves ordinary text, including real RTL scripts, untouched', () => {
+    expect(stripBidiControls('hello world')).toBe('hello world');
+    expect(stripBidiControls('שלום עולם')).toBe('שלום עולם');
+  });
+
+  it('can neutralise a spoofed filename extension', () => {
+    // "exe.gpj" with an RLO before it displays as "jpg.exe" reversed.
+    const spoofed = `invoice‮exe.gpj`;
+    expect(stripBidiControls(spoofed)).toBe('invoiceexe.gpj');
   });
 });

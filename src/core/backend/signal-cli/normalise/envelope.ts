@@ -13,6 +13,7 @@ import {
   type ConversationId,
   type MessageStatus,
 } from '@/core/domain';
+import { stripBidiControls } from '@/core/lib';
 import type { ReceiptType } from '../../types';
 import { decode } from '../validate';
 import {
@@ -88,7 +89,7 @@ function decryptionFailure(
   if (hasContent) return null;
   const raw = addressId(envelope.sourceUuid, envelope.sourceNumber, envelope.source);
   if (!raw || ctx.selfAliases.has(raw)) return null;
-  const name = ctx.nameOf(raw) ?? envelope.sourceName ?? raw;
+  const name = stripBidiControls(ctx.nameOf(raw) ?? envelope.sourceName ?? raw);
   const hint =
     type === 'UntrustedIdentityException'
       ? 'Their safety number changed — verify it on your phone.'
@@ -111,8 +112,11 @@ export function normaliseEnvelope(envelope: WireEnvelope, ctx: NormaliseContext)
   }
   const resolve = (id: string): string => (ctx.selfAliases.has(id) ? ctx.selfId : id);
   const source = resolve(rawSource);
+  // Stripped here, once, since the result is interpolated into plain-text
+  // system sentences (timerSentence, the group-call line) that no later CSS
+  // isolation can protect.
   const nameOf = (id: string, fallback?: string): string =>
-    id === ctx.selfId ? 'You' : (ctx.nameOf(id) ?? fallback ?? id);
+    id === ctx.selfId ? 'You' : stripBidiControls(ctx.nameOf(id) ?? fallback ?? id);
   // Server time, so a replayed old message expires on schedule instead of
   // getting a fresh timer from "now".
   const timerStart = Math.min(ctx.now, serverTime(envelope) ?? ctx.now);

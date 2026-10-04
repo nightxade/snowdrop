@@ -26,6 +26,8 @@
   font-weight: var(--snowdrop-font-weight-semibold);
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* A DM/group title is attacker-controlled; contain any bidi controls. */
+  unicode-bidi: isolate;
 }
 
 .meta {

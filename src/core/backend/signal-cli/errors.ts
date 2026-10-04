@@ -85,6 +85,17 @@ export function isSignalCliError(error: unknown): error is SignalCliError {
   return error instanceof SignalCliError;
 }
 
+/**
+ * A safe, content-free description of a thrown value for debug logs — its
+ * class (and `SignalCliError.kind`), never its message, which can embed
+ * identifiers or payload data pulled in by the code that threw.
+ */
+export function describeError(error: unknown): string {
+  if (isSignalCliError(error)) return `SignalCliError(${error.kind})`;
+  if (error instanceof Error) return error.constructor.name;
+  return typeof error;
+}
+
 /** Maps a JSON-RPC error object to our error kind. */
 export function kindForRpcCode(code: number, message: string): SignalCliErrorKind {
   switch (code) {

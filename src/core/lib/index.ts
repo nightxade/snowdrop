@@ -3,3 +3,4 @@ export * from './clock';
 export * from './disposables';
 export * from './observable';
 export * from './nonce';
+export * from './text';

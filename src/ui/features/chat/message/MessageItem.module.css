@@ -175,6 +175,9 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   cursor: pointer;
+  /* A name is attacker-controlled (profile data); keep bidi controls in it
+     from reordering the text around it. */
+  unicode-bidi: isolate;
 }
 
 .name:hover {

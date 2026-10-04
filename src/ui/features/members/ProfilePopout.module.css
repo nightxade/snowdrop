@@ -56,11 +56,14 @@
   font-weight: var(--snowdrop-font-weight-bold);
   line-height: 1.3;
   overflow-wrap: anywhere;
+  /* A contact name is attacker-controlled (profile data); contain any bidi controls. */
+  unicode-bidi: isolate;
 }
 
 .profileName {
   color: var(--snowdrop-text);
   font-size: var(--snowdrop-font-size-ui);
+  unicode-bidi: isolate;
 }
 
 .about {
