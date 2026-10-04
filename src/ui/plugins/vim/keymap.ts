@@ -27,6 +27,13 @@ export interface NavBinding {
   run(actions: VimActions, count: number | null): void;
   /** Also available from the composer's Normal mode (app-level keys that don't edit text). */
   inComposer?: boolean;
+  /**
+   * Also available when focus is on any other non-text control (sidebar
+   * rows, rail tiles, header buttons) — not just the list, a message or
+   * nothing. Used for the "focus the composer" keys, which make sense from
+   * anywhere.
+   */
+  anywhere?: boolean;
 }
 
 const cmd =
@@ -60,24 +67,37 @@ export const NAV_BINDINGS: readonly NavBinding[] = [
     run: (a) => {
       a.insert('cursor');
     },
+    anywhere: true,
   },
   {
     keys: 'a',
     run: (a) => {
       a.insert('after');
     },
+    anywhere: true,
   },
   {
     keys: 'I',
     run: (a) => {
       a.insert('start');
     },
+    anywhere: true,
   },
   {
     keys: 'A',
     run: (a) => {
       a.insert('end');
     },
+    anywhere: true,
+  },
+  {
+    // "go to insert": the composer, caret at the end of the draft (Vim's
+    // last-insert position, simplified for a single-field composer).
+    keys: 'gi',
+    run: (a) => {
+      a.insert('end');
+    },
+    anywhere: true,
   },
   { keys: 'o', run: cmd(MessageCommand.Open, false) },
   {
@@ -137,6 +157,7 @@ export function vimHelp(leader: string): KeyHelpGroup[] {
         [']u|[u', 'Next / previous unread conversation'],
         ['gt|gT', 'Next / previous space'],
         ['i|a|I|A', 'Focus the composer in Insert mode'],
+        ['gi', 'Focus the composer, caret at the end of the draft (works from anywhere)'],
         ['<Esc>', 'Clear a pending key sequence'],
       ]),
     },

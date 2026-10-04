@@ -17,6 +17,19 @@ afterEach(async () => {
 
 const sidebar = () => document.querySelector<HTMLElement>('[data-snowdrop="sidebar"]')!;
 
+/**
+ * True once focus has landed on the message list: its roving tab stop (a
+ * rendered row) or, when Virtuoso hasn't rendered any row yet (as in these
+ * tests, which don't mock its viewport), the scroller itself — the same
+ * fallback `ListNavigation.focus()` uses.
+ */
+const focusedOnMessageList = (): boolean => {
+  const el = document.activeElement;
+  if (!el) return false;
+  if (el.hasAttribute('data-message-scroller')) return true;
+  return el.hasAttribute('data-roving-item') && el.hasAttribute('data-message-id');
+};
+
 describe('buildMemberSections', () => {
   const contact = (id: string, name: string) => ({ id, name, color: 'x' });
   it('puts admins first, sorts by name and skips unknown ids', () => {
@@ -35,7 +48,7 @@ describe('buildMemberSections', () => {
 });
 
 describe('quick switcher', () => {
-  it('highlights matches, opens with Enter and focuses the composer', async () => {
+  it('highlights matches, opens with Enter and focuses the message list', async () => {
     const snowdrop = await bootDemo();
     key({ key: 'k', code: 'KeyK', ctrlKey: true });
     const input = await screen.findByRole('combobox', { name: 'Quick switcher' });
@@ -51,7 +64,23 @@ describe('quick switcher', () => {
     const selected = uiSelectors.selectedConversation(snowdrop.stores.ui.getState());
     expect(selected).not.toBeNull();
     expect(screen.queryByRole('combobox', { name: 'Quick switcher' })).toBeNull();
-    // The composer registers itself as the focus target (P3), so you can type straight away.
+    // Default: lands on the message list's current row, not the composer.
+    expect(document.activeElement).not.toBe(
+      document.querySelector('[data-snowdrop="composer"] textarea'),
+    );
+    expect(focusedOnMessageList()).toBe(true);
+  });
+
+  it('focuses the composer instead when "Focus the message box…" is on', async () => {
+    const snowdrop = await bootDemo();
+    snowdrop.stores.settings.getState().update('behaviour', { focusComposerOnOpen: true });
+    key({ key: 'k', code: 'KeyK', ctrlKey: true });
+    const input = await screen.findByRole('combobox', { name: 'Quick switcher' });
+    act(() => {
+      fireEvent.change(input, { target: { value: 'orchard' } });
+    });
+    key({ key: 'Enter' }, input);
+    await settle();
     expect(document.activeElement).toBe(
       document.querySelector('[data-snowdrop="composer"] textarea'),
     );
@@ -284,7 +313,7 @@ describe('conversation navigation keeps focus', () => {
       await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
     });
 
-  it('Alt+↓ and Alt+Shift+↓ from the composer land in the new composer', async () => {
+  it('Alt+↓ and Alt+Shift+↓ from the composer land on the new message list', async () => {
     const snowdrop = await bootDemo();
     const first = sidebar().querySelector<HTMLElement>('[data-conversation-id]')!;
     act(() => {
@@ -299,12 +328,34 @@ describe('conversation navigation keeps focus', () => {
     await settleFrame();
     const second = uiSelectors.selectedConversation(snowdrop.stores.ui.getState());
     expect(second).not.toBe(start);
-    expect(document.activeElement).toBe(composer());
+    expect(document.activeElement).not.toBe(document.body);
+    expect(document.activeElement).not.toBe(composer());
+    expect(focusedOnMessageList()).toBe(true);
 
     key({ key: 'ArrowDown', code: 'ArrowDown', altKey: true, shiftKey: true });
     await settleFrame();
-    // Wherever next-unread went (possibly another space), focus is in its composer, not on <body>.
+    // Wherever next-unread went (possibly another space), focus is on its
+    // message list, never dropped to <body>.
     expect(document.activeElement).not.toBe(document.body);
+    expect(document.activeElement).not.toBe(composer());
+    expect(focusedOnMessageList()).toBe(true);
+  });
+
+  it('with "Focus the message box…" on, Alt+↓ from the composer lands in the new composer', async () => {
+    const snowdrop = await bootDemo();
+    snowdrop.stores.settings.getState().update('behaviour', { focusComposerOnOpen: true });
+    const first = sidebar().querySelector<HTMLElement>('[data-conversation-id]')!;
+    act(() => {
+      fireEvent.click(first);
+    });
+    await settleFrame();
+    act(() => {
+      composer()!.focus();
+    });
+    const start = uiSelectors.selectedConversation(snowdrop.stores.ui.getState());
+    key({ key: 'ArrowDown', code: 'ArrowDown', altKey: true });
+    await settleFrame();
+    expect(uiSelectors.selectedConversation(snowdrop.stores.ui.getState())).not.toBe(start);
     expect(document.activeElement).toBe(composer());
   });
 

@@ -36,7 +36,7 @@ export function jumpToUnread(stores: Stores, delta: 1 | -1): boolean {
     },
   );
   if (!target) return false;
-  const follow = followConversationFocus();
+  const follow = followConversationFocus(stores.settings.getState().behaviour.focusComposerOnOpen);
   stores.ui.getState().selectConversation(target.id, target.space);
   follow(target.id);
   return true;
@@ -48,7 +48,7 @@ export function stepSidebar(stores: Stores, delta: 1 | -1): boolean {
   const current = uiSelectors.selectedConversation(ui);
   const next = stepConversation(currentNavigationOrder(stores), current, delta);
   if (!next || next === current) return false;
-  const follow = followConversationFocus();
+  const follow = followConversationFocus(stores.settings.getState().behaviour.focusComposerOnOpen);
   stores.ui.getState().selectConversation(next);
   follow(next);
   return true;

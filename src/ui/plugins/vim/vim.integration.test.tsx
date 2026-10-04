@@ -221,6 +221,7 @@ describe('Vim mode: navigation', () => {
     await settle();
     expect(screen.getByRole('heading', { name: 'Vim · Navigation' })).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'Vim · Composer (Normal mode)' })).toBeTruthy();
+    expect(screen.getByText(/caret at the end of the draft/u)).toBeTruthy();
   });
 
   it('clears a pending sequence with Esc and drops it after the timeout', async () => {
@@ -251,6 +252,65 @@ describe('Vim mode: navigation', () => {
     keys('dd');
     await settle();
     expect(screen.getByRole('dialog', { name: /Delete for/u })).toBeTruthy();
+  });
+});
+
+describe('Vim mode: focus-composer keys from anywhere', () => {
+  const sidebarRow = () =>
+    document.querySelector<HTMLElement>(
+      '[data-snowdrop="sidebar"] [data-roving-item][data-conversation-id]',
+    )!;
+
+  it('i focuses the composer from a sidebar row (a non-text, non-list control)', async () => {
+    await bootVim();
+    const row = sidebarRow();
+    act(() => {
+      row.focus();
+    });
+    expect(focused()).toBe(row);
+    press('i');
+    expect(focused()).toBe(composer());
+    expect(pill()).toBe('INSERT');
+  });
+
+  it('gi focuses the composer with the caret at the end of the draft, from anywhere', async () => {
+    await bootVim();
+    blur();
+    press('i');
+    typeIn('draft so far');
+    press('Escape');
+    const row = sidebarRow();
+    act(() => {
+      row.focus();
+    });
+    press('g');
+    press('i');
+    expect(focused()).toBe(composer());
+    expect(pill()).toBe('INSERT');
+    const el = composer();
+    expect(el.selectionStart).toBe(el.value.length);
+    expect(el.selectionEnd).toBe(el.value.length);
+  });
+
+  it('never blocks Space or Enter on a focused button', async () => {
+    await bootVim();
+    const row = sidebarRow();
+    act(() => {
+      row.focus();
+    });
+    expect(press(' ')).toBe(false);
+    expect(press('Enter')).toBe(false);
+  });
+
+  it('stays inert in a text input (the quick switcher)', async () => {
+    await bootVim();
+    blur();
+    press('k', { ctrlKey: true });
+    const input = await screen.findByRole('combobox', { name: 'Quick switcher' });
+    expect(focused()).toBe(input);
+    expect(press('i')).toBe(false);
+    expect(focused()).toBe(input);
+    expect(focused()).not.toBe(composer());
   });
 });
 

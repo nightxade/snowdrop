@@ -24,7 +24,7 @@ import {
   type Mode,
   type VimState,
 } from './engine/engine';
-import { NAV_BINDINGS, vimHelp, type VimActions } from './keymap';
+import { NAV_BINDINGS, vimHelp, type NavBinding, type VimActions } from './keymap';
 import type { ModeStore } from './modeStore';
 
 export interface VimOptions {
@@ -60,6 +60,8 @@ export class VimController {
   private readonly surfaces = new Map<string, TextSurface>();
   private nav: KeySequencer;
   private composerNav: KeySequencer;
+  /** i/a/I/A/gi from a non-text control (sidebar rows, rail tiles, header buttons). */
+  private otherNav: KeySequencer;
   private leader: string;
   /** The layer to install with ctx.keys.addLayer. */
   readonly layer: KeyLayer;
@@ -121,8 +123,9 @@ export class VimController {
       },
     };
     this.leader = host.options().leader;
-    this.nav = this.sequencer(false);
-    this.composerNav = this.sequencer(true);
+    this.nav = this.sequencer(() => true);
+    this.composerNav = this.sequencer((b) => b.inComposer === true);
+    this.otherNav = this.sequencer((b) => b.anywhere === true);
     this.layer = {
       id: 'vim',
       // A getter: the sheet's help follows the leader setting.
@@ -136,10 +139,10 @@ export class VimController {
     };
   }
 
-  private sequencer(composerOnly: boolean): KeySequencer {
+  private sequencer(filter: (b: NavBinding) => boolean): KeySequencer {
     const leader = this.leader;
     return new KeySequencer({
-      bindings: NAV_BINDINGS.filter((b) => !composerOnly || b.inComposer).map((b) => ({
+      bindings: NAV_BINDINGS.filter(filter).map((b) => ({
         keys: parseKeySequence(b.keys, leader),
         run: (count: number | null) => {
           b.run(this.actions, count);
@@ -160,8 +163,10 @@ export class VimController {
     this.leader = leader;
     this.nav.reset();
     this.composerNav.reset();
-    this.nav = this.sequencer(false);
-    this.composerNav = this.sequencer(true);
+    this.otherNav.reset();
+    this.nav = this.sequencer(() => true);
+    this.composerNav = this.sequencer((b) => b.inComposer === true);
+    this.otherNav = this.sequencer((b) => b.anywhere === true);
   }
 
   onKey(stroke: KeyStroke, ctx: KeyLayerContext): boolean {
@@ -171,6 +176,7 @@ export class VimController {
       // Dialogs, menus and the composer's suggestions own the keyboard.
       this.nav.reset();
       this.composerNav.reset();
+      this.otherNav.reset();
       return false;
     }
     if (ctx.target === 'composer' && ctx.surface) {
@@ -181,7 +187,20 @@ export class VimController {
       (ctx.target === 'none' || ctx.target === 'list' || ctx.target === 'message')
     )
       return this.onNavKey(stroke, ctx);
+    // Any other focusable control (sidebar rows, rail tiles, header buttons):
+    // only the "focus the composer" keys apply, and only when they match —
+    // native activation (Space, Enter) must keep working on buttons.
+    if (options.navigation && ctx.target === 'other') return this.onOtherKey(stroke, ctx);
     return false;
+  }
+
+  private onOtherKey(stroke: KeyStroke, ctx: KeyLayerContext): boolean {
+    if (stroke.token === '<Esc>') {
+      if (!this.otherNav.isPending) return false;
+      this.otherNav.reset();
+      return true;
+    }
+    return this.otherNav.feed(stroke.token, ctx) !== 'none';
   }
 
   private onNavKey(stroke: KeyStroke, ctx: KeyLayerContext): boolean {
@@ -331,6 +350,7 @@ export class VimController {
   dispose(): void {
     this.nav.reset();
     this.composerNav.reset();
+    this.otherNav.reset();
     this.releaseComposers();
   }
 }

@@ -140,8 +140,10 @@ export function QuickSwitcher({
     if (item.kind === 'conversation') {
       const space = item.conversationKind === 'group' ? (item.spaceId ?? HOME) : HOME;
       ui.selectConversation(item.id, space);
-      // The composer focus resolver (P3) lands focus in the composer.
-      target.current = () => conversationFocusTarget(item.id);
+      // Lands on the message list's current row, unless "Focus the message
+      // box when opening a conversation" is on.
+      const preferComposer = stores.settings.getState().behaviour.focusComposerOnOpen;
+      target.current = () => conversationFocusTarget(item.id, preferComposer);
       onClose();
     } else if (item.kind === 'space') {
       ui.selectSpace(item.id);

@@ -2,35 +2,31 @@ import type { ConversationId } from '@/core/domain';
 
 /**
  * Where keyboard focus should land after navigating to a conversation (quick
- * switcher, profile "Message", …). Until the composer exists this is the
- * conversation's sidebar row; the composer registers a resolver so that
- * "go to conversation" puts the caret where you'll type.
+ * switcher, profile "Message", …). Two things register a preferred target:
+ * the composer (explicit "type here" intent — a reply, or the "Focus the
+ * message box" setting) and the message list (its roving tab stop, the
+ * default landing spot everywhere else). Until either exists this is the
+ * conversation's sidebar row.
  */
 export type ConversationFocusResolver = (id: ConversationId) => HTMLElement | null | undefined;
 
-let resolver: ConversationFocusResolver | null = null;
+let composerResolver: ConversationFocusResolver | null = null;
+let listResolver: ConversationFocusResolver | null = null;
 
-/** Registers the preferred focus target (e.g. the composer). Returns an unregister function. */
+/** Registers the composer as a focus target. Returns an unregister function. */
 export function setConversationFocusResolver(fn: ConversationFocusResolver): () => void {
-  resolver = fn;
+  composerResolver = fn;
   return () => {
-    if (resolver === fn) resolver = null;
+    if (composerResolver === fn) composerResolver = null;
   };
 }
 
-export function conversationFocusTarget(id: ConversationId): HTMLElement | null {
-  const preferred = resolver?.(id);
-  if (preferred) return preferred;
-  return document.querySelector<HTMLElement>(
-    `[data-conversation-id="${CSS.escape(id)}"][data-roving-item]`,
-  );
-}
-
-/** Focuses the target once the navigation has rendered. */
-export function focusConversation(id: ConversationId): void {
-  requestAnimationFrame(() => {
-    conversationFocusTarget(id)?.focus();
-  });
+/** Registers the message list's roving tab stop as a focus target. Returns an unregister function. */
+export function setConversationListFocusResolver(fn: ConversationFocusResolver): () => void {
+  listResolver = fn;
+  return () => {
+    if (listResolver === fn) listResolver = null;
+  };
 }
 
 const sidebarRow = (id: ConversationId): HTMLElement | null =>
@@ -39,19 +35,47 @@ const sidebarRow = (id: ConversationId): HTMLElement | null =>
   );
 
 /**
+ * The focus target for a conversation. By default this is the message list's
+ * current row (the newest message); with `preferComposer` (the "Focus the
+ * message box when opening a conversation" setting, or an explicit reply) it
+ * is the composer instead. Either falls back to the other, then to the
+ * conversation's sidebar row, so focus always lands somewhere real.
+ */
+export function conversationFocusTarget(
+  id: ConversationId,
+  preferComposer = false,
+): HTMLElement | null {
+  const first = preferComposer ? composerResolver?.(id) : listResolver?.(id);
+  if (first) return first;
+  const second = preferComposer ? listResolver?.(id) : composerResolver?.(id);
+  if (second) return second;
+  return sidebarRow(id);
+}
+
+/** Focuses the target once the navigation has rendered. */
+export function focusConversation(id: ConversationId, preferComposer = false): void {
+  requestAnimationFrame(() => {
+    conversationFocusTarget(id, preferComposer)?.focus();
+  });
+}
+
+/**
  * Call just before a command switches conversation (Alt+↑/↓, next unread,
  * Vim J/K/]u). Returns the function to call with the new conversation: it
  * moves focus deliberately instead of letting it fall to `<body>` when the
- * old view unmounts. From a sidebar row, focus follows to the new row (so
- * you can keep stepping); from the chat column, or from anywhere the switch
- * removed, it lands in the new conversation's composer.
+ * old view unmounts.
+ *
+ * From a sidebar row, focus follows to the new row (so you can keep
+ * stepping). From anywhere else, it lands on `conversationFocusTarget` —
+ * the message list's current row by default, or the composer when
+ * `preferComposer` (the "Focus the message box when opening a conversation"
+ * setting) is on.
  */
-export function followConversationFocus(): (id: ConversationId) => void {
+export function followConversationFocus(preferComposer = false): (id: ConversationId) => void {
   const before = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   const fromRow =
     before?.matches('[data-roving-item][data-conversation-id]') === true &&
     before.closest('[data-snowdrop="sidebar"]') !== null;
-  const fromChat = !before || before === document.body || before.closest('[data-snowdrop="chat"]');
   return (id) => {
     requestAnimationFrame(() => {
       if (fromRow) {
@@ -61,7 +85,7 @@ export function followConversationFocus(): (id: ConversationId) => void {
           return;
         }
       }
-      if (fromRow || fromChat || !before.isConnected) conversationFocusTarget(id)?.focus();
+      conversationFocusTarget(id, preferComposer)?.focus();
     });
   };
 }

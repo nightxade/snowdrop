@@ -65,7 +65,8 @@ function createMessageActions(deps: PluginHostDeps): PluginMessageActions {
         ui.selectConversation(id, space ?? HOME);
       }
       stores.ui.getState().setReplyTo(id, message.id);
-      if (typeof requestAnimationFrame !== 'undefined') focusConversation(id);
+      // Replying is an explicit "type here" intent: always the composer.
+      if (typeof requestAnimationFrame !== 'undefined') focusConversation(id, true);
     },
     async react(message: Message, emoji: string) {
       const selfId = stores.session.getState().self?.id;

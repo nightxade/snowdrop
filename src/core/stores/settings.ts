@@ -49,6 +49,12 @@ export interface BehaviourSettings {
   markdown: boolean;
   /** Off by default: fetching previews leaks what you're reading to third parties. */
   linkPreviews: boolean;
+  /**
+   * Off by default: opening a conversation (switcher, notification, sidebar
+   * next/previous, Vim J/K) puts keyboard focus on the message list instead
+   * of the composer. On restores putting it straight in the composer.
+   */
+  focusComposerOnOpen: boolean;
 }
 
 export interface ConnectionSettings {
@@ -152,6 +158,7 @@ export function defaultSettings(): Settings {
       sendReadReceipts: true,
       markdown: true,
       linkPreviews: false,
+      focusComposerOnOpen: false,
     },
     connection: {
       backend: null,
@@ -341,6 +348,7 @@ export function parseSettings(data: unknown, options: SettingsParseOptions = {})
       sendReadReceipts: bool(b.sendReadReceipts, d.behaviour.sendReadReceipts),
       markdown: bool(b.markdown, d.behaviour.markdown),
       linkPreviews: bool(b.linkPreviews, d.behaviour.linkPreviews),
+      focusComposerOnOpen: bool(b.focusComposerOnOpen, d.behaviour.focusComposerOnOpen),
     },
     connection: {
       backend:

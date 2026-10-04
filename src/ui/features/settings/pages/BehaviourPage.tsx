@@ -31,6 +31,21 @@ export function BehaviourPage() {
         )}
       />
       <SettingRow
+        id="behaviour.focusComposerOnOpen"
+        label="Focus the message box when opening a conversation"
+        description="When you open a conversation from the switcher, a notification or a keyboard shortcut, put the cursor in the message box instead of on the newest message. Clicking or pressing Enter on a conversation in the sidebar always keeps focus there."
+        control={(ids) => (
+          <Switch
+            id={ids.id}
+            aria-describedby={ids.descriptionId}
+            checked={b.focusComposerOnOpen}
+            onCheckedChange={(v) => {
+              set({ focusComposerOnOpen: v });
+            }}
+          />
+        )}
+      />
+      <SettingRow
         id="behaviour.markdown"
         label="Markdown formatting"
         description="Turns **bold**, *italic*, ~~strike~~, `code` and ||spoilers|| into real Signal formatting when you send."

@@ -112,7 +112,9 @@ Vim mode has two halves, each can be switched off in the plugin's settings:
 
 1. **Navigation keys** — active whenever focus is _not_ in a text field
    (on the message list, a message, or nothing in particular) and from the
-   composer's Normal mode for the app-level keys marked ◆ below.
+   composer's Normal mode for the app-level keys marked ◆ below. `i` `a` `I`
+   `A` and `gi` also work from any other focusable control — a sidebar row,
+   a rail tile, a header button — so you can always get to the composer.
 2. **Modal editing in the composer** — Normal, Insert, Visual and Visual
    Line modes in the message box.
 
@@ -134,6 +136,7 @@ The keys typed so far show in the composer's mode pill, like Vim's showcmd.
 | `]u` / `[u` ◆         | Next / previous unread conversation                                                                                                     |
 | `gt` / `gT` ◆         | Next / previous space                                                                                                                   |
 | `i` `a` `I` `A`       | Focus the composer in Insert mode (`A` at the end, `I` at the start)                                                                    |
+| `gi`                  | "Go to insert": the composer, caret at the end of the draft — from anywhere, not just the list                                           |
 | `Esc`                 | Clear a pending sequence (otherwise the usual Esc: close popovers, mark read)                                                           |
 
 ### Focused message

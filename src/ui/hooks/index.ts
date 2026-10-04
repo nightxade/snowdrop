@@ -17,6 +17,7 @@ export {
   focusConversation,
   followConversationFocus,
   setConversationFocusResolver,
+  setConversationListFocusResolver,
   type ConversationFocusResolver,
 } from './focusTargets';
 export {

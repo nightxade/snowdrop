@@ -80,6 +80,18 @@ describe('settingsStore', () => {
       parseSettings({ connection: { account: '+15550000000', daemonUrl: '  ' } }).connection,
     ).toMatchObject({ account: '+15550000000', daemonUrl: '/signal-cli' });
   });
+  it('defaults focusComposerOnOpen to off and parses it as a plain boolean', () => {
+    const d = defaultSettings();
+    expect(d.behaviour.focusComposerOnOpen).toBe(false);
+    expect(parseSettings({ behaviour: { focusComposerOnOpen: true } }).behaviour).toEqual({
+      ...d.behaviour,
+      focusComposerOnOpen: true,
+    });
+    expect(parseSettings({ behaviour: { focusComposerOnOpen: 'yes' } }).behaviour).toEqual(
+      d.behaviour,
+    );
+  });
+
   it('parses the desktop connection, falling back field by field', () => {
     const parsed = parseSettings({
       connection: {

@@ -211,11 +211,12 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     focusWindow: () => {
       if (typeof window !== 'undefined') window.focus();
     },
-    // Land in the composer of the conversation the notification opened.
+    // Land on the conversation's message list by default (the "Focus the
+    // message box when opening a conversation" setting puts it in the composer).
     onOpened: (id) => {
       if (typeof requestAnimationFrame !== 'undefined')
         requestAnimationFrame(() => {
-          focusConversation(id);
+          focusConversation(id, stores.settings.getState().behaviour.focusComposerOnOpen);
         });
     },
   });

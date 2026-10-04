@@ -13,7 +13,7 @@ import { Virtuoso, type Components, type VirtuosoHandle } from 'react-virtuoso';
 import { useStore } from 'zustand';
 import type { ConversationId, MessageId, RenderItem } from '@/core/domain';
 import { conversationsSelectors } from '@/core/stores';
-import { useSnowdrop } from '@/ui/hooks';
+import { setConversationListFocusResolver, useSnowdrop } from '@/ui/hooks';
 import { useChatController } from '../ChatController';
 import { MessageItem } from '../message/MessageItem';
 import { useRenderProbe } from '../lib/useRenderProbe';
@@ -249,6 +249,19 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
   useEffect(
     () => chat.registerList({ ...navigation, conversationId, jumpToPresent, reveal }),
     [chat, conversationId, jumpToPresent, reveal, navigation],
+  );
+
+  // Navigating to this conversation (switcher, notification, vim J/K…) lands
+  // on the message list's current row by default: reuse the roving tab stop
+  // (the newest message, or the scroller itself when none is rendered yet).
+  useEffect(
+    () =>
+      setConversationListFocusResolver((id) => {
+        if (id !== conversationId) return null;
+        navigation.focus();
+        return document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      }),
+    [conversationId, navigation],
   );
 
   // Latest-value refs for the stable scroller callbacks below.
