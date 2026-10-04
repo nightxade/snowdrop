@@ -167,8 +167,34 @@ export class IdbMessageRepository implements MessageRepository {
     return JSON.parse(utf8Decode(plain)) as Message;
   }
 
+  /**
+   * Decrypts a batch of rows independently: one unreadable row (corrupted,
+   * tampered, or sealed under a different key — e.g. left over from a
+   * previous vault) is dropped rather than failing the whole batch, so a
+   * single bad row can't hide an entire conversation's history or the whole
+   * read-cursor/outbox table behind a thrown error. Logged once, aggregated,
+   * and never with the row's contents or id.
+   */
+  private async decodeBatch<Row, Out>(
+    rows: readonly Row[],
+    decode: (row: Row) => Promise<Out>,
+    what: string,
+  ): Promise<Out[]> {
+    const settled = await Promise.allSettled(rows.map((row) => decode(row)));
+    const out: Out[] = [];
+    let dropped = 0;
+    for (const result of settled) {
+      if (result.status === 'fulfilled') out.push(result.value);
+      else dropped++;
+    }
+    if (dropped > 0) {
+      console.warn(`[snowdrop] dropped ${dropped} unreadable ${what} row(s)`);
+    }
+    return out;
+  }
+
   private async fromRows(rows: readonly MessageRow[]): Promise<Message[]> {
-    return Promise.all(rows.map((row) => this.fromRow(row)));
+    return this.decodeBatch(rows, (row) => this.fromRow(row), 'message');
   }
 
   private async seqStateOnce(): Promise<SeqState> {
@@ -407,11 +433,13 @@ export class IdbMessageRepository implements MessageRepository {
 
   async getReadCursors(): Promise<Map<ConversationId, number>> {
     const rows = await this.db.getAll('readCursors');
-    const entries = await Promise.all(
-      rows.map(async (row) => {
+    const entries = await this.decodeBatch(
+      rows,
+      async (row) => {
         const plain = await this.cipher.decrypt(row.payload, row.id);
         return JSON.parse(utf8Decode(plain)) as { conversationId: ConversationId; seq: number };
-      }),
+      },
+      'read cursor',
     );
     return new Map(entries.map((e) => [e.conversationId, e.seq]));
   }
@@ -502,7 +530,7 @@ export class IdbMessageRepository implements MessageRepository {
 
   async listOutbox(): Promise<OutboxEntry[]> {
     const rows = await this.db.getAll('outbox');
-    const entries = await Promise.all(rows.map((row) => this.fromOutboxRow(row)));
+    const entries = await this.decodeBatch(rows, (row) => this.fromOutboxRow(row), 'outbox');
     return entries.sort((a, b) => a.createdAt - b.createdAt);
   }
 

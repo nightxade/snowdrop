@@ -87,3 +87,19 @@ export function desktopAdmin(): DesktopAdmin {
 export function installDesktopLinks(): void {
   void platform().then((m) => m.installExternalLinks());
 }
+
+/**
+ * The close handshake (docs/ENCRYPTION.md, "Close handshake"): lazily wires
+ * up `onFlushBeforeClose` the same way the other desktop services above do,
+ * so `StorageGate` (the one caller) never has to load `@tauri-apps/*`
+ * directly. A no-op in the browser build, where there's no close handshake
+ * to answer.
+ */
+export function installFlushBeforeClose(handler: () => Promise<void>): void {
+  if (!isTauri()) return;
+  void platform()
+    .then((m) => m.onFlushBeforeClose(handler))
+    .catch((error: unknown) => {
+      console.error('[snowdrop] failed to register the close handshake', error);
+    });
+}

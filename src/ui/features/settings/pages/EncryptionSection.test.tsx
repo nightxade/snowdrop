@@ -163,6 +163,28 @@ describe('EncryptionSection: recovery key', () => {
     expect(await screen.findByRole('button', { name: 'Replace…' })).toBeTruthy();
   });
 
+  it('shows a clipboard hint after copying the recovery key', async () => {
+    const { admin } = makeAdmin();
+    await mount(admin);
+    const writeText = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue(undefined);
+
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: 'Create recovery key' }));
+    });
+    expect(await screen.findByText('Your recovery key')).toBeTruthy();
+    expect(screen.queryByText(/paste it somewhere safe/iu)).toBeNull();
+
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
+    });
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalled();
+    });
+    expect(
+      await screen.findByText(/Copied\. Paste it somewhere safe, then clear your clipboard\./u),
+    ).toBeTruthy();
+  });
+
   it('replace warns the old key stops working, then creates a new one', async () => {
     const { admin, spies } = makeAdmin({
       status: () => Promise.resolve({ ...baseStatus, hasRecovery: true }),
@@ -204,6 +226,26 @@ describe('EncryptionSection: recovery key', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Create recovery key' })).toBeTruthy();
     });
+  });
+
+  it('disables removing the recovery key when it is the only unlock method', async () => {
+    const { admin, spies } = makeAdmin({
+      status: () =>
+        Promise.resolve({ ...baseStatus, hasKeyring: false, hasRecovery: true, hasPassphrase: false }),
+    });
+    await mount(admin);
+
+    const remove = screen.getByRole('button', { name: 'Remove…' });
+    expect(remove).toHaveProperty('disabled', true);
+    expect(
+      screen.getByText(/only way left to unlock Snowdrop/iu),
+    ).toBeTruthy();
+
+    act(() => {
+      fireEvent.click(remove);
+    });
+    expect(screen.queryByText('Remove recovery key?')).toBeNull();
+    expect(spies.removeRecovery.mock.calls.length).toBe(0);
   });
 });
 
@@ -263,6 +305,76 @@ describe('EncryptionSection: passphrase', () => {
     await waitFor(() => {
       expect(spies.setPassphrase.mock.calls.at(-1)).toEqual([null]);
     });
+  });
+
+  it('clears the passphrase fields after a successful save (never kept around)', async () => {
+    const { admin } = makeAdmin();
+    await mount(admin);
+
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: 'Add passphrase' }));
+    });
+    act(() => {
+      fireEvent.change(screen.getByLabelText('New passphrase'), {
+        target: { value: 'longenough' },
+      });
+      fireEvent.change(screen.getByLabelText('Confirm passphrase'), {
+        target: { value: 'longenough' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    });
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Change…' })).toBeTruthy();
+    });
+
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: 'Change…' }));
+    });
+    expect(screen.getByLabelText<HTMLInputElement>('New passphrase').value).toBe('');
+    expect(screen.getByLabelText<HTMLInputElement>('Confirm passphrase').value).toBe('');
+  });
+
+  it('clears the passphrase fields on cancel', async () => {
+    const { admin } = makeAdmin();
+    await mount(admin);
+
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: 'Add passphrase' }));
+    });
+    act(() => {
+      fireEvent.change(screen.getByLabelText('New passphrase'), {
+        target: { value: 'some-secret' },
+      });
+      fireEvent.change(screen.getByLabelText('Confirm passphrase'), {
+        target: { value: 'some-secret' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    });
+
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: 'Add passphrase' }));
+    });
+    expect(screen.getByLabelText<HTMLInputElement>('New passphrase').value).toBe('');
+    expect(screen.getByLabelText<HTMLInputElement>('Confirm passphrase').value).toBe('');
+  });
+
+  it('disables removing the passphrase when it is the only unlock method', async () => {
+    const { admin } = makeAdmin({
+      status: () =>
+        Promise.resolve({ ...baseStatus, hasKeyring: false, hasRecovery: false, hasPassphrase: true }),
+    });
+    await mount(admin);
+
+    const remove = screen.getByRole('button', { name: 'Remove…' });
+    expect(remove).toHaveProperty('disabled', true);
+    expect(
+      screen.getByText(/only way left to unlock Snowdrop/iu),
+    ).toBeTruthy();
+
+    act(() => {
+      fireEvent.click(remove);
+    });
+    expect(screen.queryByText('Remove passphrase?')).toBeNull();
   });
 });
 

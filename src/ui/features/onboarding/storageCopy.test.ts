@@ -53,6 +53,31 @@ describe('unlockReasonCopy', () => {
   it('falls back to a generic message for an unknown/null reason', () => {
     expect(unlockReasonCopy(null).title).toBe('Snowdrop is locked');
   });
+
+  it('never points at a recovery key or passphrase when neither exists, for every reason', () => {
+    const reasons = [
+      'keyringUnavailable',
+      'keyringLocked',
+      'keyringSecretMissing',
+      null,
+    ] as const;
+    for (const reason of reasons) {
+      const { body } = unlockReasonCopy(reason, false);
+      expect(body).not.toMatch(/unlock with your recovery key or passphrase/iu);
+    }
+  });
+
+  it('matches the documented copy for a missing keyring secret with no fallback', () => {
+    expect(unlockReasonCopy('keyringSecretMissing', false).body).toBe(
+      "This happens after switching keyrings. Without a recovery key, the data on this computer can't be opened.",
+    );
+  });
+
+  it('defaults to the "can unlock" copy when the flag is omitted', () => {
+    expect(unlockReasonCopy('keyringSecretMissing')).toEqual(
+      unlockReasonCopy('keyringSecretMissing', true),
+    );
+  });
 });
 
 describe('groupRecoveryCode', () => {

@@ -35,8 +35,8 @@ export function UnlockScreen({ status, admin, onStatusChange }: UnlockScreenProp
   const [error, setError] = useState<string | null>(null);
   const [eraseOpen, setEraseOpen] = useState(false);
 
-  const reason = unlockReasonCopy(status.reason);
   const canUnlock = status.hasRecovery || status.hasPassphrase;
+  const reason = unlockReasonCopy(status.reason, canUnlock);
   const bothMethods = status.hasRecovery && status.hasPassphrase;
 
   const tryAgain = async () => {
@@ -180,7 +180,14 @@ function StartFreshDialog({
     setError(null);
     try {
       const result = await admin.eraseAll();
+      // Report the new status first: if restart() is slow (or this build's
+      // restart doesn't tear the webview down immediately), StorageGate can
+      // still show "Restart Snowdrop to finish" from `restartRequired`
+      // rather than leaving this dialog spinning.
       onErased(result.status);
+      // One-shot per process (docs/ENCRYPTION.md, "Erase") — matches
+      // EncryptionSection's DangerZone erase flow.
+      await admin.restart();
     } catch (e) {
       setError(friendlyErrorMessage(errorKind(e), e instanceof Error ? e.message : String(e)));
       setBusy(false);

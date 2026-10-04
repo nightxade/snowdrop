@@ -8,8 +8,13 @@ import { ManualScheduler } from '@/core/lib';
 import { createMemoryStorage } from '@/core/persistence';
 import { DEFAULT_DESKTOP_CONNECTION, type DesktopConnection } from '@/core/stores';
 import { BUILTIN_BACKENDS, type BackendEnvironment } from './backends';
+import { installFlushBeforeClose } from './platform';
 
-const platform = vi.hoisted(() => ({ loaded: 0, transports: [] as unknown[] }));
+const platform = vi.hoisted(() => ({
+  loaded: 0,
+  transports: [] as unknown[],
+  flushHandlers: [] as (() => Promise<void>)[],
+}));
 
 vi.mock('@/platform/tauri', () => {
   platform.loaded++;
@@ -20,7 +25,13 @@ vi.mock('@/platform/tauri', () => {
       platform.transports.push(options);
     }
   }
-  return { TauriTransport };
+  return {
+    TauriTransport,
+    onFlushBeforeClose: (handler: () => Promise<void>) => {
+      platform.flushHandlers.push(handler);
+      return Promise.resolve(() => {});
+    },
+  };
 });
 
 const desktop: DesktopConnection = { ...DEFAULT_DESKTOP_CONNECTION, binaryPath: '/opt/signal-cli' };
@@ -57,5 +68,21 @@ describe('signal-cli transport choice', () => {
     (await signalCli.load())(env);
     expect(platform.loaded).toBe(1);
     expect(platform.transports).toEqual([{ desktop }]);
+  });
+});
+
+describe('installFlushBeforeClose', () => {
+  it('never loads the desktop platform in the browser', () => {
+    installFlushBeforeClose(() => Promise.resolve());
+    expect(platform.flushHandlers).toHaveLength(0);
+  });
+
+  it('registers the handler with the desktop close handshake inside Tauri', async () => {
+    (globalThis as Record<string, unknown>).__TAURI_INTERNALS__ = {};
+    const handler = () => Promise.resolve();
+    installFlushBeforeClose(handler);
+    await vi.waitFor(() => {
+      expect(platform.flushHandlers).toContain(handler);
+    });
   });
 });

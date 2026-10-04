@@ -36,6 +36,7 @@ export function downloadRecoveryKey(code: string): void {
 export function RecoveryKeyReveal({ code, onConfirmed }: RecoveryKeyRevealProps) {
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const groups = groupRecoveryCode(code);
   const lastGroup = groups[groups.length - 1] ?? '';
   const grouped = groups.join('-');
@@ -58,7 +59,9 @@ export function RecoveryKeyReveal({ code, onConfirmed }: RecoveryKeyRevealProps)
           type="button"
           icon={<Copy size={16} />}
           onClick={() => {
-            void navigator.clipboard.writeText(grouped);
+            void navigator.clipboard.writeText(grouped).then(() => {
+              setCopied(true);
+            });
           }}
         >
           Copy
@@ -73,6 +76,11 @@ export function RecoveryKeyReveal({ code, onConfirmed }: RecoveryKeyRevealProps)
           Save as file…
         </Button>
       </div>
+      {copied && (
+        <p className={styles.hint} role="status">
+          Copied. Paste it somewhere safe, then clear your clipboard.
+        </p>
+      )}
       <form
         className={styles.confirmRow}
         onSubmit={(e) => {

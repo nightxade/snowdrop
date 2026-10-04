@@ -7,7 +7,7 @@
  */
 import 'fake-indexeddb/auto';
 import { openDB } from 'idb';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mergeDuplicate, messageId } from '@/core/domain';
 import { conversationIdFor, makeMessage } from '@/core/domain/testing';
 import { webCryptoCipher } from './crypto';
@@ -101,5 +101,53 @@ describe('IdbMessageRepository encryption', () => {
     expect(seq).toBe(1);
     await repo.upsert(makeMessage({ conversationId, body: 'fresh after migration' }), mergeDuplicate);
     expect((await repo.latest(conversationId))?.body).toBe('fresh after migration');
+  });
+
+  it('drops one corrupted row among good ones, with a single aggregated warning (no contents)', async () => {
+    const name = nextDbName();
+    const cipher = await webCryptoCipher(randomKey());
+    repo = await IdbMessageRepository.open(name, cipher);
+    const conversationId = conversationIdFor('mixed-group');
+
+    await repo.upsert(
+      makeMessage({ conversationId, authorId: 'a', sentAt: 1, body: 'first' }),
+      mergeDuplicate,
+    );
+    const { message: bad } = await repo.upsert(
+      makeMessage({
+        conversationId,
+        authorId: 'b',
+        sentAt: 2,
+        body: 'secret body that must never be logged',
+      }),
+      mergeDuplicate,
+    );
+    await repo.upsert(
+      makeMessage({ conversationId, authorId: 'c', sentAt: 3, body: 'second' }),
+      mergeDuplicate,
+    );
+
+    // Tamper with the middle row's ciphertext directly, bypassing the
+    // repository — the AEAD tag no longer matches, so decrypting it throws.
+    const badKey = await cipher.blindId(bad.id);
+    const raw = await openDB(name, 2);
+    const row = (await raw.get('messages', badKey)) as Record<string, unknown>;
+    expect(row).toBeDefined();
+    const payload = new Uint8Array(row.payload as Uint8Array);
+    payload[0] = (payload[0] ?? 0) ^ 0xff;
+    await raw.put('messages', { ...row, payload });
+    raw.close();
+
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const messages = await repo.page(conversationId, { limit: 10 });
+      expect(messages.map((m) => m.body)).toEqual(['first', 'second']);
+      expect(warn).toHaveBeenCalledTimes(1);
+      const [warning] = warn.mock.calls[0] as unknown[];
+      expect(warning).toMatch(/dropped 1/iu);
+      expect(warning).not.toContain('secret body');
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

@@ -22,8 +22,13 @@ if (isTauri()) {
   createRoot(container).render(
     <StrictMode>
       <StorageGate admin={desktopStorageAdmin()} document={document}>
-        {({ storage, repository }) => (
-          <DesktopBootedApp storage={storage} repository={repository} document={document} />
+        {({ storage, repository }, registerFlusher) => (
+          <DesktopBootedApp
+            storage={storage}
+            repository={repository}
+            document={document}
+            registerFlusher={registerFlusher}
+          />
         )}
       </StorageGate>
     </StrictMode>,

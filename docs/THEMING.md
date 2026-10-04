@@ -439,6 +439,7 @@ instead.
 | `recovery-key`         | Recovery-key suggestion / creation screen   |
 | `unlock`               | Encrypted-storage unlock screen             |
 | `storage-unavailable`  | Encrypted-storage unavailable screen        |
+| `restart-required`     | Restart-Snowdrop-to-finish screen, after an erase |
 | `note-badge`           | Pronoun & Notes Badge plugin's badge        |
 | `vim-mode`             | Vim Mode plugin's mode pill                 |
 | `vim-caret`            | Vim Mode plugin's block cursor              |

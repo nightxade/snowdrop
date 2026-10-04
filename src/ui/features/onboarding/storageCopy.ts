@@ -30,23 +30,35 @@ export interface ReasonCopy {
   body: string;
 }
 
-/** Why the unlock screen is showing (`StorageStatus.reason`). */
-export function unlockReasonCopy(reason: StorageReason | null): ReasonCopy {
+/**
+ * Why the unlock screen is showing (`StorageStatus.reason`). `canUnlock` —
+ * `status.hasRecovery || status.hasPassphrase` — branches the copy: pointing
+ * someone at "your recovery key or passphrase" when neither exists would be
+ * actively misleading, so that case gets its own sentence explaining that
+ * Start fresh (with the loss list) is the only way forward.
+ */
+export function unlockReasonCopy(reason: StorageReason | null, canUnlock = true): ReasonCopy {
   switch (reason) {
     case 'keyringUnavailable':
       return {
         title: 'No keyring is available',
-        body: "Snowdrop couldn't reach a keyring service on this system.",
+        body: canUnlock
+          ? "Snowdrop couldn't reach a keyring service on this system."
+          : "Snowdrop couldn't reach a keyring service on this system. Without a recovery key or passphrase, the data on this computer can't be opened.",
       };
     case 'keyringLocked':
       return {
         title: 'Your keyring is locked',
-        body: 'Unlock it, then try again — or unlock with your recovery key or passphrase below.',
+        body: canUnlock
+          ? 'Unlock it, then try again — or unlock with your recovery key or passphrase below.'
+          : "Unlock it, then try again. There's no recovery key or passphrase set up as a fallback, so until then, the data on this computer can't be opened.",
       };
     case 'keyringSecretMissing':
       return {
         title: "Your keyring doesn't have Snowdrop's key",
-        body: 'This happens after switching keyrings. Unlock with your recovery key or passphrase, and Snowdrop can re-enrol a new keyring slot.',
+        body: canUnlock
+          ? 'This happens after switching keyrings. Unlock with your recovery key or passphrase, and Snowdrop can re-enrol a new keyring slot.'
+          : "This happens after switching keyrings. Without a recovery key, the data on this computer can't be opened.",
       };
     case 'passphraseRequired':
       return {
@@ -56,7 +68,9 @@ export function unlockReasonCopy(reason: StorageReason | null): ReasonCopy {
     default:
       return {
         title: 'Snowdrop is locked',
-        body: 'Unlock with your recovery key or passphrase to continue.',
+        body: canUnlock
+          ? 'Unlock with your recovery key or passphrase to continue.'
+          : "There's no recovery key or passphrase set up, so the data on this computer can't be opened.",
       };
   }
 }

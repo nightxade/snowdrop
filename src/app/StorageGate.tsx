@@ -6,7 +6,7 @@
  * that means. Nothing else should branch on storage state.
  */
 import { LoaderCircle } from 'lucide-react';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { StorageAdmin, StorageStatus } from '@/core/backend';
 import { fromBase64, webCryptoCipher } from '@/core/persistence';
 import type { ThemeDocument } from '@/core/themes';
@@ -14,18 +14,32 @@ import type { ThemeDocument } from '@/core/themes';
 // Welcome/ConnectionSetup/LinkDevice, which App.tsx loads lazily — a static
 // import of the barrel here would pull all of it into the main bundle.
 import { OnboardingShell } from '@/ui/features/onboarding/OnboardingShell';
+import { RestartRequiredScreen } from '@/ui/features/onboarding/RestartRequiredScreen';
 import { StorageSetup } from '@/ui/features/onboarding/StorageSetup';
 import storageStyles from '@/ui/features/onboarding/Storage.module.css';
 import { StorageUnavailable } from '@/ui/features/onboarding/StorageUnavailable';
 import { UnlockScreen } from '@/ui/features/onboarding/UnlockScreen';
 import { applyBootAppearance } from './bootAppearance';
 import { createPersistence, discardUnreadableWebCache, type Persistence } from './persistence';
+import { installFlushBeforeClose } from './platform';
+
+/** A no-op until `DesktopBootedApp` registers the real one (nothing to flush yet). */
+const NOOP_FLUSHER = () => Promise.resolve();
 
 export interface StorageGateProps {
   admin: StorageAdmin;
   document?: ThemeDocument;
-  /** Rendered once storage is unlocked and the encrypted persistence layer is ready. */
-  children: (persistence: Persistence) => ReactNode;
+  /**
+   * Rendered once storage is unlocked and the encrypted persistence layer is
+   * ready. `registerFlusher` lets the booted app plug into the close
+   * handshake this gate registers once, for every screen (docs/ENCRYPTION.md,
+   * "Close handshake"): call it with a function that flushes everything
+   * pending before the window closes.
+   */
+  children: (
+    persistence: Persistence,
+    registerFlusher: (flusher: () => Promise<void>) => void,
+  ) => ReactNode;
 }
 
 type Phase =
@@ -38,6 +52,22 @@ type Phase =
 export function StorageGate({ admin, document, children }: StorageGateProps) {
   const [phase, setPhase] = useState<Phase>({ kind: 'checking' });
   const booting = useRef(false);
+  // Composable indirection (task: "the gate holds a ref to the current
+  // 'flusher' that DesktopBootedApp registers"). `registerFlusher` — handed
+  // to `children(...)` during render — only ever calls `setFlusher` (plain
+  // `useState` dispatch, never a ref, so passing it along during render is
+  // fine). A ref mirrors that state for the close-handshake effect below to
+  // read the latest value without re-subscribing on every change; the ref is
+  // only ever written from an effect and read from an event handler, never
+  // during render.
+  const [flusherState, setFlusher] = useState<() => Promise<void>>(() => NOOP_FLUSHER);
+  const flusherRef = useRef(flusherState);
+  useEffect(() => {
+    flusherRef.current = flusherState;
+  }, [flusherState]);
+  const registerFlusher = useCallback((fn: () => Promise<void>) => {
+    setFlusher(() => fn);
+  }, []);
 
   const boot = () => {
     if (booting.current) return;
@@ -61,7 +91,12 @@ export function StorageGate({ admin, document, children }: StorageGateProps) {
   };
 
   const route = (status: StorageStatus) => {
-    if (status.state === 'unlocked') boot();
+    // A restart is owed (an erase ran in this process): nothing else about
+    // `state` matters until that happens — not even the needsSetup cache
+    // discard below, since storage refuses every other command anyway.
+    if (status.restartRequired) {
+      setPhase({ kind: 'blocked', status });
+    } else if (status.state === 'unlocked') boot();
     else if (status.state === 'needsSetup') {
       // No key exists, so any encrypted web cache left behind is unreadable.
       void discardUnreadableWebCache().finally(() => {
@@ -78,7 +113,16 @@ export function StorageGate({ admin, document, children }: StorageGateProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  if (phase.kind === 'ready') return <>{children(phase.persistence)}</>;
+  useEffect(() => {
+    // Registered once, here, so it's active on every screen this gate can
+    // show — onboarding and locked included, where there's nothing to flush
+    // yet and the no-op resolves immediately — not just once a Snowdrop
+    // instance exists (docs/ENCRYPTION.md, "Close handshake"). A no-op in the
+    // browser build (`installFlushBeforeClose` checks `isTauri()` itself).
+    installFlushBeforeClose(() => flusherRef.current());
+  }, []);
+
+  if (phase.kind === 'ready') return <>{children(phase.persistence, registerFlusher)}</>;
 
   if (phase.kind === 'checking' || phase.kind === 'booting') {
     return (
@@ -101,6 +145,9 @@ export function StorageGate({ admin, document, children }: StorageGateProps) {
   }
 
   const { status } = phase;
+  if (status.restartRequired) {
+    return <RestartRequiredScreen onRestart={() => admin.restart()} />;
+  }
   if (status.state === 'needsSetup') {
     return <StorageSetup status={status} admin={admin} onDone={route} />;
   }

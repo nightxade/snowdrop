@@ -139,6 +139,12 @@ function RecoverySection({
   const [error, setError] = useState<string | null>(null);
   const [reminderDismissed, setReminderDismissed] = useState(false);
 
+  // docs/ENCRYPTION.md, "Key hierarchy": removing a slot that would leave
+  // `keys.json` with zero of them (no keyring, recovery or passphrase) is
+  // refused server-side; this disables the button pre-emptively instead of
+  // letting someone hit that error.
+  const isLastMethod = !status.hasKeyring && !status.hasPassphrase;
+
   const create = async () => {
     setBusy(true);
     setError(null);
@@ -222,10 +228,18 @@ function RecoverySection({
         <SettingRow
           id="privacy.removeRecoveryKey"
           label="Remove recovery key"
-          description="You won't be able to use it to unlock your data any more."
+          description={
+            isLastMethod
+              ? "This is the only way left to unlock Snowdrop — add a keyring or passphrase first."
+              : "You won't be able to use it to unlock your data any more."
+          }
           control={
             <Button
               variant="danger"
+              disabled={isLastMethod}
+              title={
+                isLastMethod ? 'Add another unlock method before removing this one.' : undefined
+              }
               onClick={() => {
                 setError(null);
                 setFlow({ kind: 'confirmRemove' });
@@ -344,6 +358,10 @@ function PassphraseSection({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // See RecoverySection's matching guard: the same "zero slots left" rule,
+  // the other way around.
+  const isLastMethod = !status.hasKeyring && !status.hasRecovery;
+
   const validation =
     value.length === 0
       ? 'Enter a passphrase.'
@@ -361,6 +379,14 @@ function PassphraseSection({
     setFlow({ kind: 'edit' });
   };
 
+  // Never kept around in state longer than it has to be: cleared after a
+  // successful save and on cancel alike (task: passphrase hygiene).
+  const closeEdit = () => {
+    setFlow({ kind: 'idle' });
+    setValue('');
+    setConfirm('');
+  };
+
   const save = async () => {
     setTouched(true);
     if (validation) return;
@@ -368,7 +394,7 @@ function PassphraseSection({
     setError(null);
     try {
       onStatusChange(await admin.setPassphrase(value));
-      setFlow({ kind: 'idle' });
+      closeEdit();
     } catch (e) {
       setError(describeError(e));
     } finally {
@@ -395,9 +421,11 @@ function PassphraseSection({
         id="privacy.passphrase"
         label="Passphrase"
         description={
-          status.hasPassphrase
-            ? 'Snowdrop asks for this passphrase at every launch, instead of (or alongside) the keyring.'
-            : 'Off. Add one to unlock with a passphrase instead of (or alongside) the keyring.'
+          status.hasPassphrase && isLastMethod
+            ? "This is the only way left to unlock Snowdrop — add a keyring or recovery key first to remove it."
+            : status.hasPassphrase
+              ? 'Snowdrop asks for this passphrase at every launch, instead of (or alongside) the keyring.'
+              : 'Off. Add one to unlock with a passphrase instead of (or alongside) the keyring.'
         }
         control={
           <div className={styles.rowActions}>
@@ -405,6 +433,10 @@ function PassphraseSection({
             {status.hasPassphrase && (
               <Button
                 variant="danger"
+                disabled={isLastMethod}
+                title={
+                  isLastMethod ? 'Add another unlock method before removing this one.' : undefined
+                }
                 onClick={() => {
                   setError(null);
                   setFlow({ kind: 'confirmRemove' });
@@ -421,7 +453,7 @@ function PassphraseSection({
           open
           size="sm"
           onOpenChange={(open) => {
-            if (!open && !busy) setFlow({ kind: 'idle' });
+            if (!open && !busy) closeEdit();
           }}
           title={status.hasPassphrase ? 'Change passphrase' : 'Add a passphrase'}
           description="Snowdrop will ask for this passphrase every time it starts."
@@ -430,9 +462,7 @@ function PassphraseSection({
               <Button
                 variant="ghost"
                 disabled={busy}
-                onClick={() => {
-                  setFlow({ kind: 'idle' });
-                }}
+                onClick={closeEdit}
               >
                 Cancel
               </Button>

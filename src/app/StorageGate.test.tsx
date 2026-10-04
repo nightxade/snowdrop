@@ -6,7 +6,7 @@
  */
 import 'fake-indexeddb/auto';
 import { IDBFactory } from 'fake-indexeddb';
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StorageAdmin, StorageStatus } from '@/core/backend';
 import { toBase64 } from '@/core/persistence';
@@ -34,6 +34,7 @@ const needsSetup: StorageStatus = {
 const locked: StorageStatus = { ...needsSetup, state: 'locked', reason: 'keyringLocked', hasRecovery: true };
 const unavailable: StorageStatus = { ...needsSetup, state: 'unavailable', reason: 'alreadyRunning' };
 const unlocked: StorageStatus = { ...needsSetup, state: 'unlocked' };
+const restartRequired: StorageStatus = { ...needsSetup, restartRequired: true };
 
 const randomKeyBase64 = () => toBase64(crypto.getRandomValues(new Uint8Array(32)));
 
@@ -84,17 +85,41 @@ describe('StorageGate: routes every state', () => {
   });
 
   it('unlocked fetches the web cache key and renders the children with real persistence', async () => {
-    const children = vi.fn((persistence: { storage: unknown; repository: unknown }) => (
-      <div data-testid="booted">{typeof persistence.storage}</div>
-    ));
+    const children = vi.fn(
+      (
+        persistence: { storage: unknown; repository: unknown },
+        _registerFlusher: (flusher: () => Promise<void>) => void,
+      ) => <div data-testid="booted">{typeof persistence.storage}</div>,
+    );
     render(
       <StorageGate admin={fakeAdmin({ status: () => Promise.resolve(unlocked) })}>{children}</StorageGate>,
     );
     expect(await screen.findByTestId('booted')).toBeTruthy();
     expect(children).toHaveBeenCalledTimes(1);
-    const [persistence] = children.mock.calls[0]!;
+    const [persistence, registerFlusher] = children.mock.calls[0]!;
     expect(persistence.storage).toBeTruthy();
     expect(persistence.repository).toBeTruthy();
+    // The close-handshake registration hook (task 3): always passed, so the
+    // booted app can plug its real flush into the gate's one registration.
+    expect(typeof registerFlusher).toBe('function');
+  });
+
+  it('restartRequired shows a calm restart screen, no matter the state, and restarts on click', async () => {
+    const restart = vi.fn().mockResolvedValue(undefined);
+    render(
+      <StorageGate admin={fakeAdmin({ status: () => Promise.resolve(restartRequired), restart })}>
+        {() => <div>never</div>}
+      </StorageGate>,
+    );
+    expect(await screen.findByRole('heading', { name: /Restart Snowdrop to finish/u })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Protect your data' })).toBeNull();
+
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: 'Restart Snowdrop' }));
+    });
+    await waitFor(() => {
+      expect(restart).toHaveBeenCalledTimes(1);
+    });
   });
 });
 

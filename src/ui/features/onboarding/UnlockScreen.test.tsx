@@ -65,6 +65,27 @@ describe('UnlockScreen: reason copy', () => {
     expect(screen.getByText(/switching keyrings/u)).toBeTruthy();
   });
 
+  it('branches to the fresh-start copy when neither recovery nor passphrase exists', () => {
+    render(
+      <UnlockScreen
+        status={{
+          ...baseStatus,
+          reason: 'keyringSecretMissing',
+          hasRecovery: false,
+          hasPassphrase: false,
+        }}
+        admin={fakeAdmin()}
+        onStatusChange={() => undefined}
+      />,
+    );
+    expect(
+      screen.getByRole('heading', { name: /keyring doesn.t have Snowdrop.s key/u }),
+    ).toBeTruthy();
+    // Never points at a method that doesn't exist.
+    expect(screen.queryByText(/unlock with your recovery key or passphrase/iu)).toBeNull();
+    expect(screen.getByText(/without a recovery key, the data on this computer can.t be opened/iu)).toBeTruthy();
+  });
+
   it('explains passphrase mode', () => {
     render(
       <UnlockScreen
@@ -155,10 +176,11 @@ describe('UnlockScreen: no recovery and no passphrase', () => {
     const eraseAll = vi
       .fn()
       .mockResolvedValue({ status: { ...baseStatus, state: 'needsSetup', reason: null }, failures: [] });
+    const restart = vi.fn().mockResolvedValue(undefined);
     render(
       <UnlockScreen
         status={{ ...baseStatus, hasRecovery: false, hasPassphrase: false }}
-        admin={fakeAdmin({ eraseAll })}
+        admin={fakeAdmin({ eraseAll, restart })}
         onStatusChange={onStatusChange}
       />,
     );
@@ -187,6 +209,9 @@ describe('UnlockScreen: no recovery and no passphrase', () => {
     expect(onStatusChange).toHaveBeenCalledWith(
       expect.objectContaining({ state: 'needsSetup' }),
     );
+    // Matches EncryptionSection's erase flow: the app restarts afterwards
+    // (docs/ENCRYPTION.md, "Erase").
+    expect(restart).toHaveBeenCalledTimes(1);
   });
 });
 
