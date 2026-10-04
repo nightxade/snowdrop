@@ -52,7 +52,7 @@ You get here by losing the keyring secret with no recovery key and no passphrase
   - A random 32-byte secret stored through the **freedesktop Secret Service API** (`org.freedesktop.secrets`), under service `local.snowdrop.desktop`, account `keyslot-v1`.
   - This isn't tied to KWallet. KWallet, GNOME Keyring, KeePassXC (Secret Service integration) and oo7 all implement the API. macOS Keychain and Windows Credential Manager are used on those platforms.
 - **Recovery slot (optional, recommended):**
-  - A random recovery key with 160 bits of entropy, displayed as 8 groups of 5 Crockford-base32 characters, plus one checksum group that catches typos before any KDF runs.
+  - A random recovery key with 160 bits of entropy, displayed as 8 groups of 4 Crockford-base32 characters, plus one checksum group of 4 that catches typos before any KDF runs.
   - It's the escape hatch for a keyring change.
   - Setup suggests creating one and explains why: "If you ever switch keyrings or reinstall, this lets Snowdrop unlock your data. Without it you'd have to re-link and would lose this computer's message history and your Snowdrop settings." It can be skipped and created later in Settings.
   - KDF: Argon2id, m = 19 MiB, t = 2, p = 1. That's the OWASP minimum, plenty for 160-bit input.

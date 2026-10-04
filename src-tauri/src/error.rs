@@ -25,6 +25,23 @@ pub enum ErrorKind {
     KeyringLocked,
     /// The keyring answered, but its stored value isn't a well-formed slot secret.
     KeyringCorrupt,
+    /// The keyring slot in `keys.json` expects a secret, but the OS keyring
+    /// has none (e.g. it was wiped, or a fresh keyring provider took over).
+    /// Distinct from `KeyringCorrupt` (a secret exists but is malformed) and
+    /// from `KeyringLocked`/`KeyringUnavailable` (the service itself).
+    KeyringSecretMissing,
+    /// A passphrase, recovery code or keyring secret didn't unwrap the DEK:
+    /// wrong secret, or (for a keyring/recovery/passphrase mismatch) a
+    /// tampered or swapped slot. Never distinguishes which, on purpose.
+    AuthFailed,
+    /// `keys.json` has no slot of the requested type.
+    SlotMissing,
+    /// `keys.json` doesn't parse, or its format version/fields aren't ones
+    /// this build understands.
+    KeysFileCorrupt,
+    /// A recovery code's checksum didn't match before any KDF ran: almost
+    /// always a typo, not a wrong-but-well-formed code.
+    RecoveryCodeTypo,
     Internal,
 }
 
