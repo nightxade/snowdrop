@@ -15,6 +15,7 @@ pub mod process;
 pub mod secrets;
 pub mod service;
 pub mod signal_cli_install;
+pub mod vault;
 
 use std::path::PathBuf;
 use std::sync::Arc;

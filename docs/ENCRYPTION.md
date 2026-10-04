@@ -76,9 +76,8 @@ signal-cli has no encryption of its own. So Snowdrop never lets its folder exist
   - If no RAM-backed dir is available (e.g. macOS or Windows, for now), the vault is unavailable and the app says so. It never decrypts to a disk path.
 
 **Format:**
-- Each file is a separate blob, encrypted with the vault key.
-- Each blob's AAD is its blob id plus the vault id, so blobs can't be swapped or replayed between vaults.
-- The manifest is encrypted with AAD `"manifest"` and a generation number. It maps each relative path to `{ blob id, size, mtime, sha256 }`, so file names and sizes stay hidden too.
+- Each file is a separate blob at `blobs/<random 16-byte hex id>`, encrypted with the vault key under AAD `"snowdrop/vault/blob/v1" || vault_id || blob id`, so blobs can't be swapped or replayed between vaults or between each other's paths.
+- The manifest is encrypted under AAD `"snowdrop/vault/manifest/v1" || vault_id`; the generation number lives in the plaintext, not the AAD. It maps each relative path to `{ blob, size, mtime_ns, sha256 }`, so file names and sizes stay hidden too.
 
 **Restore (on launch, after unlock):**
 1. Take an exclusive lock on `<app data>/snowdrop.lock`, so only one instance runs.

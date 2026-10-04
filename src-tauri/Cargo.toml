@@ -56,6 +56,15 @@ getrandom = "0.2"
 # API is used, not the PHC-string password-hashing API, so default features
 # ("password-hash", "rand") are dropped.
 argon2 = { version = "0.5", default-features = false, features = ["alloc"] }
+# signal-cli vault (docs/ENCRYPTION.md, "signal-cli vault"): a consistent
+# snapshot of account.db while signal-cli still has it open, via SQLite's own
+# online backup API. `bundled` compiles SQLite from source so the copy's
+# version always matches what this crate links against.
+rusqlite = { version = "0.32", features = ["bundled", "backup"] }
+# signal-cli vault: shared OFD `fcntl` locks (`F_OFD_SETLK`/`F_OFD_SETLKW`)
+# around copying signal-cli's non-SQLite files — the same lock kind
+# `java.nio.channels.FileChannel.lock` takes on Linux, so the two interoperate.
+libc = "0.2"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["io-util", "macros", "process", "rt-multi-thread", "sync", "time", "test-util"] }

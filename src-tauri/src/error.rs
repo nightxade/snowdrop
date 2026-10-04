@@ -42,6 +42,15 @@ pub enum ErrorKind {
     /// A recovery code's checksum didn't match before any KDF ran: almost
     /// always a typo, not a wrong-but-well-formed code.
     RecoveryCodeTypo,
+    /// Neither `manifest` nor `manifest.prev` could be decrypted and parsed.
+    /// Distinct from [`ErrorKind::VaultBlobCorrupt`]: the manifest itself
+    /// (both generations of it) is unreadable, so nothing is deleted and the
+    /// vault is left exactly as found (docs/ENCRYPTION.md, "signal-cli vault").
+    VaultCorrupt,
+    /// A manifest decrypted fine, but a blob it names didn't: wrong AAD
+    /// (tampered bytes, or one blob's ciphertext swapped onto another's
+    /// path), or the file is simply missing.
+    VaultBlobCorrupt,
     Internal,
 }
 
