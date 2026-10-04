@@ -1,34 +1,49 @@
 /**
- * IndexedDB-backed MessageRepository.
+ * IndexedDB-backed MessageRepository, encrypted (docs/ENCRYPTION.md, "Web
+ * cache").
  *
- * Messages are keyed by MessageId (author:sentAt — Signal's identity) and
- * indexed by [conversationId, seq] so paging a conversation is one bounded
- * cursor walk regardless of history size. Mentions (multiEntry) and
- * expiresAt are indexed for the inbox and the disappearing-message purge.
+ * Every record's body lives only as ciphertext (`payload`), AEAD-bound to
+ * its own stored (blinded) id as AAD so a row can't be moved to another key
+ * and decrypted there. Conversation ids and mention/contact ids are
+ * replaced by `cipher.blindId(...)` wherever they'd otherwise appear as an
+ * index key, so the index itself never reveals who a message is with.
+ * `seq` and `expiresAt` stay plaintext: ordering, paging and the
+ * disappearing-message purge need range queries over them, and
+ * docs/ENCRYPTION.md accepts that as a documented leak of *when*, not *what*
+ * or *who*. With `plaintextCipher` (browser/dev/mock, no vault), all of this
+ * is the identity transform, so the stored shape is the same as before this
+ * feature existed, just with the bytes passed through `TextEncoder`.
+ *
+ * A style note that recurs through this file: every encrypt/decrypt/blindId
+ * call happens *outside* any open IndexedDB transaction (snapshot reads,
+ * then crypto, then a transaction that only ever does plain IndexedDB
+ * requests). Awaiting WebCrypto in the middle of a transaction's request
+ * chain risks the transaction auto-committing out from under it — a real
+ * cross-browser footgun, not a theoretical one. The cost is a little less
+ * atomicity in a couple of read-modify-write paths (noted inline); given
+ * this is a resyncable local cache, that trade is the right one.
  */
 import { openDB, type DBSchema, type IDBPDatabase, type IDBPTransaction } from 'idb';
 import {
-  asConversationId,
+  mentionsOf,
   pendingMessageId,
   type ConversationId,
   type Message,
   type MessageId,
 } from '@/core/domain';
+import { plaintextCipher, utf8Decode, utf8Encode, type RecordCipher } from './crypto';
 import {
-  fromStored,
   matchesSearch,
   searchTerms,
-  toStored,
   type MergeFn,
   type MessageRepository,
   type OutboxEntry,
   type PageQuery,
   type SearchQuery,
-  type StoredMessage,
   type UpsertResult,
 } from './MessageRepository';
 
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const SEQ_KEY = 'seq';
 
 interface SeqState {
@@ -37,127 +52,215 @@ interface SeqState {
   max: number;
 }
 
+/** What's actually in the `messages` store: index sidecar fields plus the encrypted body. */
+interface MessageRow {
+  /** `cipher.blindId(message.id)` — the primary key, and the AAD for `payload`. */
+  id: string;
+  /** `cipher.blindId(message.conversationId)`. */
+  conversationKey: string;
+  seq: number;
+  expiresAt?: number;
+  /** `cipher.blindId(contactId)` for each mention — the mentions inbox stays queryable. */
+  mentionIds: string[];
+  /** AES-GCM of the full `Message` JSON, AAD = `id`. */
+  payload: Uint8Array;
+}
+
+interface CursorRow {
+  /** `cipher.blindId(conversationId)`. */
+  id: string;
+  /** AES-GCM of `{ conversationId, seq }`, AAD = `id`. */
+  payload: Uint8Array;
+}
+
+interface OutboxRow {
+  /** Plaintext: a random client nonce, not user data — nothing to blind. */
+  nonce: string;
+  createdAt: number;
+  /** AES-GCM of `{ input }`, AAD = `nonce`. */
+  payload: Uint8Array;
+}
+
 interface SnowdropDB extends DBSchema {
   messages: {
     key: string;
-    value: StoredMessage;
+    value: MessageRow;
     indexes: {
       byConversationSeq: [string, number];
       byMention: string;
       byExpiresAt: number;
     };
   };
-  readCursors: { key: string; value: { conversationId: string; seq: number } };
+  readCursors: { key: string; value: CursorRow };
   meta: { key: string; value: SeqState };
-  outbox: { key: string; value: OutboxEntry };
+  outbox: { key: string; value: OutboxRow };
 }
 
-type RwTx = IDBPTransaction<SnowdropDB, ('messages' | 'meta')[], 'readwrite'>;
+const encodeJson = (value: unknown): Uint8Array => utf8Encode(JSON.stringify(value));
 
 export class IdbMessageRepository implements MessageRepository {
-  private constructor(private readonly db: IDBPDatabase<SnowdropDB>) {}
+  private constructor(
+    private readonly db: IDBPDatabase<SnowdropDB>,
+    private readonly cipher: RecordCipher,
+  ) {}
 
-  static async open(name = 'snowdrop'): Promise<IdbMessageRepository> {
+  static async open(
+    name = 'snowdrop',
+    cipher: RecordCipher = plaintextCipher(),
+  ): Promise<IdbMessageRepository> {
     const db = await openDB<SnowdropDB>(name, DB_VERSION, {
       upgrade(database, oldVersion) {
         // Versioned, additive migrations: each step upgrades from the previous version.
-        if (oldVersion < 1) {
+        if (oldVersion >= 1 && oldVersion < 2) {
+          // v1 stored everything in plaintext, indexed by the real
+          // conversation id (and `readCursors` was keyed by it directly).
+          // Reconciling that into v2's blinded index would mean
+          // re-encrypting every row with async WebCrypto calls inside this
+          // versionchange transaction, which IndexedDB doesn't reliably
+          // keep alive across (see the file header). Deleting and
+          // recreating is the safer choice the contract allows: this is a
+          // resync-able cache, not the source of truth — signal-cli resends
+          // history to a fresh repository, at the cost of outstanding
+          // outbox entries, which the user would need to resend.
+          database.deleteObjectStore('messages');
+          database.deleteObjectStore('readCursors');
+          database.deleteObjectStore('meta');
+          database.deleteObjectStore('outbox');
+        }
+        if (oldVersion < 2) {
           const messages = database.createObjectStore('messages', { keyPath: 'id' });
-          messages.createIndex('byConversationSeq', ['conversationId', 'seq']);
+          messages.createIndex('byConversationSeq', ['conversationKey', 'seq']);
           messages.createIndex('byMention', 'mentionIds', { multiEntry: true });
           messages.createIndex('byExpiresAt', 'expiresAt');
-          database.createObjectStore('readCursors', { keyPath: 'conversationId' });
+          database.createObjectStore('readCursors', { keyPath: 'id' });
           database.createObjectStore('meta', { keyPath: 'key' });
           database.createObjectStore('outbox', { keyPath: 'nonce' });
         }
       },
     });
-    return new IdbMessageRepository(db);
+    return new IdbMessageRepository(db, cipher);
   }
 
   close(): void {
     this.db.close();
   }
 
-  private async seqState(tx: RwTx): Promise<SeqState> {
+  private async toRow(message: Message): Promise<MessageRow> {
+    const [id, conversationKey, mentionIds] = await Promise.all([
+      this.cipher.blindId(message.id),
+      this.cipher.blindId(message.conversationId),
+      Promise.all(mentionsOf(message).map((m) => this.cipher.blindId(m))),
+    ]);
+    const payload = await this.cipher.encrypt(encodeJson(message), id);
+    return {
+      id,
+      conversationKey,
+      seq: message.seq ?? 0,
+      mentionIds,
+      payload,
+      ...(message.expiresAt !== undefined ? { expiresAt: message.expiresAt } : {}),
+    };
+  }
+
+  private async fromRow(row: MessageRow): Promise<Message> {
+    const plain = await this.cipher.decrypt(row.payload, row.id);
+    return JSON.parse(utf8Decode(plain)) as Message;
+  }
+
+  private async fromRows(rows: readonly MessageRow[]): Promise<Message[]> {
+    return Promise.all(rows.map((row) => this.fromRow(row)));
+  }
+
+  private async seqStateOnce(): Promise<SeqState> {
+    return (await this.db.get('meta', SEQ_KEY)) ?? { key: SEQ_KEY, min: 1, max: 0 };
+  }
+
+  private async seqState(
+    tx: IDBPTransaction<SnowdropDB, ('messages' | 'meta')[], 'readwrite'>,
+  ): Promise<SeqState> {
     return (await tx.objectStore('meta').get(SEQ_KEY)) ?? { key: SEQ_KEY, min: 1, max: 0 };
   }
 
   async get(id: MessageId): Promise<Message | undefined> {
-    const stored = await this.db.get('messages', id);
-    return stored ? fromStored(stored) : undefined;
+    const key = await this.cipher.blindId(id);
+    const row = await this.db.get('messages', key);
+    return row ? this.fromRow(row) : undefined;
   }
 
   async upsert(message: Message, merge: MergeFn): Promise<UpsertResult> {
-    const tx = this.db.transaction(['messages', 'meta'], 'readwrite');
-    const store = tx.objectStore('messages');
-    const existing = await store.get(message.id);
-    let result: UpsertResult;
-    if (existing) {
-      const merged = merge(fromStored(existing), message);
-      await store.put(toStored(merged));
-      result = { message: merged, created: false };
-    } else {
-      const seq = await this.seqState(tx);
-      const stored = { ...message, seq: message.seq ?? seq.max + 1 };
-      await tx
-        .objectStore('meta')
-        .put({ ...seq, max: Math.max(seq.max, stored.seq), min: Math.min(seq.min, stored.seq) });
-      await store.put(toStored(stored));
-      result = { message: stored, created: true };
+    const key = await this.cipher.blindId(message.id);
+    const existingRow = await this.db.get('messages', key);
+    if (existingRow) {
+      const existing = await this.fromRow(existingRow);
+      const merged = merge(existing, message);
+      await this.db.put('messages', await this.toRow(merged));
+      return { message: merged, created: false };
     }
-    await tx.done;
-    return result;
+    const seq = await this.seqStateOnce();
+    const stored = { ...message, seq: message.seq ?? seq.max + 1 };
+    const row = await this.toRow(stored);
+    const tx = this.db.transaction(['messages', 'meta'], 'readwrite');
+    await Promise.all([
+      tx.objectStore('messages').put(row),
+      tx.objectStore('meta').put({
+        ...seq,
+        max: Math.max(seq.max, stored.seq),
+        min: Math.min(seq.min, stored.seq),
+      }),
+      tx.done,
+    ]);
+    return { message: stored, created: true };
   }
 
   async upsertMany(
     messages: readonly Message[],
     { backfill, merge }: { backfill: boolean; merge: MergeFn },
   ): Promise<Message[]> {
-    const tx = this.db.transaction(['messages', 'meta'], 'readwrite');
-    const store = tx.objectStore('messages');
-    const existing = await Promise.all(messages.map((m) => store.get(m.id)));
+    const keys = await Promise.all(messages.map((m) => this.cipher.blindId(m.id)));
+    const existingRows = await Promise.all(keys.map((key) => this.db.get('messages', key)));
+    const existing = await Promise.all(
+      existingRows.map((row) => (row ? this.fromRow(row) : Promise.resolve(undefined))),
+    );
     const freshCount = existing.filter((e) => e === undefined).length;
-    const seq = await this.seqState(tx);
+    const seq = await this.seqStateOnce();
     let next = backfill ? seq.min - freshCount : seq.max + 1;
     const out: Message[] = [];
     let min = seq.min;
     let max = seq.max;
     for (const [i, m] of messages.entries()) {
       const found = existing[i];
-      const stored = found ? merge(fromStored(found), m) : { ...m, seq: m.seq ?? next++ };
+      const stored = found ? merge(found, m) : { ...m, seq: m.seq ?? next++ };
       if (stored.seq !== undefined) {
         min = Math.min(min, stored.seq);
         max = Math.max(max, stored.seq);
       }
       out.push(stored);
     }
+    const rows = await Promise.all(out.map((m) => this.toRow(m)));
+    const tx = this.db.transaction(['messages', 'meta'], 'readwrite');
     await Promise.all([
-      ...out.map((m) => store.put(toStored(m))),
+      ...rows.map((row) => tx.objectStore('messages').put(row)),
       tx.objectStore('meta').put({ key: SEQ_KEY, min, max }),
+      tx.done,
     ]);
-    await tx.done;
     return out;
   }
 
   async update(id: MessageId, fn: (message: Message) => Message): Promise<Message | undefined> {
-    const tx = this.db.transaction('messages', 'readwrite');
-    const current = await tx.store.get(id);
-    if (!current) {
-      await tx.done;
-      return undefined;
-    }
-    const before = fromStored(current);
+    const key = await this.cipher.blindId(id);
+    const currentRow = await this.db.get('messages', key);
+    if (!currentRow) return undefined;
+    const before = await this.fromRow(currentRow);
     // Updates never move a message in the timeline.
     const next: Message =
       before.seq === undefined ? fn(before) : { ...fn(before), seq: before.seq };
-    await tx.store.put(toStored(next));
-    await tx.done;
+    await this.db.put('messages', await this.toRow(next));
     return next;
   }
 
   async delete(id: MessageId): Promise<void> {
-    await this.db.delete('messages', id);
+    const key = await this.cipher.blindId(id);
+    await this.db.delete('messages', key);
   }
 
   async allocateSeq(): Promise<number> {
@@ -170,15 +273,15 @@ export class IdbMessageRepository implements MessageRepository {
   }
 
   private range(
-    conversationId: ConversationId,
+    conversationKey: string,
     lower: number,
     upper: number,
     lowerOpen: boolean,
     upperOpen: boolean,
   ): IDBKeyRange {
     return IDBKeyRange.bound(
-      [conversationId, lower],
-      [conversationId, upper],
+      [conversationKey, lower],
+      [conversationKey, upper],
       lowerOpen,
       upperOpen,
     );
@@ -188,37 +291,39 @@ export class IdbMessageRepository implements MessageRepository {
     conversationId: ConversationId,
     { before, after, limit }: PageQuery,
   ): Promise<Message[]> {
+    const key = await this.cipher.blindId(conversationId);
     const index = this.db.transaction('messages').store.index('byConversationSeq');
-    const out: Message[] = [];
+    // Collect raw (still-encrypted) rows while the cursor is live, then
+    // decrypt the batch afterwards — see the file header.
+    const rows: MessageRow[] = [];
     if (after !== undefined) {
-      let cursor = await index.openCursor(
-        this.range(conversationId, after, Infinity, true, false),
-        'next',
-      );
-      while (cursor && out.length < limit) {
-        out.push(fromStored(cursor.value));
+      let cursor = await index.openCursor(this.range(key, after, Infinity, true, false), 'next');
+      while (cursor && rows.length < limit) {
+        rows.push(cursor.value);
         cursor = await cursor.continue();
       }
-      return out;
+      return this.fromRows(rows);
     }
     let cursor = await index.openCursor(
-      this.range(conversationId, -Infinity, before ?? Infinity, false, before !== undefined),
+      this.range(key, -Infinity, before ?? Infinity, false, before !== undefined),
       'prev',
     );
-    while (cursor && out.length < limit) {
-      out.push(fromStored(cursor.value));
+    while (cursor && rows.length < limit) {
+      rows.push(cursor.value);
       cursor = await cursor.continue();
     }
-    return out.reverse();
+    const messages = await this.fromRows(rows);
+    return messages.reverse();
   }
 
   async listAfter(conversationId: ConversationId, after: number): Promise<Message[]> {
+    const key = await this.cipher.blindId(conversationId);
     const rows = await this.db.getAllFromIndex(
       'messages',
       'byConversationSeq',
-      this.range(conversationId, after, Infinity, true, false),
+      this.range(key, after, Infinity, true, false),
     );
-    return rows.map(fromStored);
+    return this.fromRows(rows);
   }
 
   async latest(conversationId: ConversationId): Promise<Message | undefined> {
@@ -226,41 +331,49 @@ export class IdbMessageRepository implements MessageRepository {
     return last;
   }
 
-  count(conversationId: ConversationId): Promise<number> {
+  async count(conversationId: ConversationId): Promise<number> {
+    const key = await this.cipher.blindId(conversationId);
     return this.db.countFromIndex(
       'messages',
       'byConversationSeq',
-      this.range(conversationId, -Infinity, Infinity, false, false),
+      this.range(key, -Infinity, Infinity, false, false),
     );
   }
 
   async search(text: string, { conversationId, limit }: SearchQuery): Promise<Message[]> {
     const terms = searchTerms(text);
     if (terms.length === 0) return [];
-    const out: Message[] = [];
+    const key = conversationId === undefined ? undefined : await this.cipher.blindId(conversationId);
+    const rows: MessageRow[] = [];
     const tx = this.db.transaction('messages');
     let cursor =
-      conversationId === undefined
+      key === undefined
         ? await tx.store.openCursor()
         : await tx.store
             .index('byConversationSeq')
-            .openCursor(this.range(conversationId, -Infinity, Infinity, false, false), 'prev');
+            .openCursor(this.range(key, -Infinity, Infinity, false, false), 'prev');
+    // Can't filter by body match until it's decrypted, so (unlike the
+    // unencrypted version) there's no early break here per conversation —
+    // just a bound on the whole table scan, same as the cross-conversation case.
     while (cursor) {
-      const m = fromStored(cursor.value);
-      if (matchesSearch(m, terms)) out.push(m);
-      if (conversationId !== undefined && out.length >= limit) break;
+      rows.push(cursor.value);
       cursor = await cursor.continue();
     }
-    return out.sort((a, b) => (b.seq ?? 0) - (a.seq ?? 0)).slice(0, limit);
+    const messages = await this.fromRows(rows);
+    return messages
+      .filter((m) => matchesSearch(m, terms))
+      .sort((a, b) => (b.seq ?? 0) - (a.seq ?? 0))
+      .slice(0, limit);
   }
 
   async mentions(
     contactId: string,
     { before, limit }: { before?: number; limit: number },
   ): Promise<Message[]> {
-    const rows = await this.db.getAllFromIndex('messages', 'byMention', contactId);
-    return rows
-      .map(fromStored)
+    const key = await this.cipher.blindId(contactId);
+    const rows = await this.db.getAllFromIndex('messages', 'byMention', key);
+    const messages = await this.fromRows(rows);
+    return messages
       .filter((m) => !m.deleted && (before === undefined || (m.seq ?? 0) < before))
       .sort((a, b) => (b.seq ?? 0) - (a.seq ?? 0))
       .slice(0, limit);
@@ -268,17 +381,18 @@ export class IdbMessageRepository implements MessageRepository {
 
   async pinned(conversationId: ConversationId, limit: number): Promise<Message[]> {
     // Pins are rare and there's no index for them: one reverse scan of the conversation.
-    const out: Message[] = [];
+    const key = await this.cipher.blindId(conversationId);
+    const rows: MessageRow[] = [];
     let cursor = await this.db
       .transaction('messages')
       .store.index('byConversationSeq')
-      .openCursor(this.range(conversationId, -Infinity, Infinity, false, false), 'prev');
-    while (cursor && out.length < limit) {
-      const m = fromStored(cursor.value);
-      if (m.pinned === true && !m.deleted) out.push(m);
+      .openCursor(this.range(key, -Infinity, Infinity, false, false), 'prev');
+    while (cursor) {
+      rows.push(cursor.value);
       cursor = await cursor.continue();
     }
-    return out;
+    const messages = await this.fromRows(rows);
+    return messages.filter((m) => m.pinned === true && !m.deleted).slice(0, limit);
   }
 
   async expired(now: number, limit: number): Promise<Message[]> {
@@ -288,70 +402,98 @@ export class IdbMessageRepository implements MessageRepository {
       IDBKeyRange.upperBound(now),
       limit,
     );
-    return rows.map(fromStored);
+    return this.fromRows(rows);
   }
 
   async getReadCursors(): Promise<Map<ConversationId, number>> {
     const rows = await this.db.getAll('readCursors');
-    return new Map(
-      rows.flatMap((r) => {
-        const id = asConversationId(r.conversationId);
-        return id ? [[id, r.seq] as const] : [];
+    const entries = await Promise.all(
+      rows.map(async (row) => {
+        const plain = await this.cipher.decrypt(row.payload, row.id);
+        return JSON.parse(utf8Decode(plain)) as { conversationId: ConversationId; seq: number };
       }),
     );
+    return new Map(entries.map((e) => [e.conversationId, e.seq]));
   }
 
   async setReadCursor(conversationId: ConversationId, seq: number): Promise<void> {
-    await this.db.put('readCursors', { conversationId, seq });
+    const id = await this.cipher.blindId(conversationId);
+    const payload = await this.cipher.encrypt(encodeJson({ conversationId, seq }), id);
+    await this.db.put('readCursors', { id, payload });
   }
 
   async stageOutgoing(pending: Message, entry: OutboxEntry): Promise<void> {
+    const [messageRow, outboxRow] = await Promise.all([
+      this.toRow(pending),
+      this.toOutboxRow(entry),
+    ]);
     const tx = this.db.transaction(['messages', 'outbox'], 'readwrite');
     await Promise.all([
-      tx.objectStore('messages').put(toStored(pending)),
-      tx.objectStore('outbox').put(entry),
+      tx.objectStore('messages').put(messageRow),
+      tx.objectStore('outbox').put(outboxRow),
       tx.done,
     ]);
   }
 
   async commitOutgoing(nonce: string, final: Message, merge: MergeFn): Promise<UpsertResult> {
+    const [pendingId, finalKey] = await Promise.all([
+      this.cipher.blindId(pendingMessageId(nonce)),
+      this.cipher.blindId(final.id),
+    ]);
+    const existingRow = await this.db.get('messages', finalKey);
+    let stored: Message;
+    let created: boolean;
+    if (existingRow) {
+      const existing = await this.fromRow(existingRow);
+      stored = merge(existing, final);
+      created = false;
+    } else {
+      const seq = await this.seqStateOnce();
+      stored = { ...final, seq: final.seq ?? seq.max + 1 };
+      created = true;
+    }
+    const finalRow = await this.toRow(stored);
     const tx = this.db.transaction(['messages', 'meta', 'outbox'], 'readwrite');
     const messages = tx.objectStore('messages');
-    await messages.delete(pendingMessageId(nonce));
+    await messages.delete(pendingId);
     await tx.objectStore('outbox').delete(nonce);
-    const existing = await messages.get(final.id);
-    let result: UpsertResult;
-    if (existing) {
-      const merged = merge(fromStored(existing), final);
-      await messages.put(toStored(merged));
-      result = { message: merged, created: false };
-    } else {
-      const meta = tx.objectStore('meta');
-      const seq = (await meta.get(SEQ_KEY)) ?? { key: SEQ_KEY, min: 1, max: 0 };
-      const stored = { ...final, seq: final.seq ?? seq.max + 1 };
-      await meta.put({
+    await messages.put(finalRow);
+    if (created) {
+      const metaStore = tx.objectStore('meta');
+      const seq = (await metaStore.get(SEQ_KEY)) ?? { key: SEQ_KEY, min: 1, max: 0 };
+      await metaStore.put({
         ...seq,
-        max: Math.max(seq.max, stored.seq),
-        min: Math.min(seq.min, stored.seq),
+        max: Math.max(seq.max, stored.seq as number),
+        min: Math.min(seq.min, stored.seq as number),
       });
-      await messages.put(toStored(stored));
-      result = { message: stored, created: true };
     }
     await tx.done;
-    return result;
+    return { message: stored, created };
   }
 
   async discardOutgoing(nonce: string): Promise<void> {
+    const pendingId = await this.cipher.blindId(pendingMessageId(nonce));
     const tx = this.db.transaction(['messages', 'outbox'], 'readwrite');
     await Promise.all([
-      tx.objectStore('messages').delete(pendingMessageId(nonce)),
+      tx.objectStore('messages').delete(pendingId),
       tx.objectStore('outbox').delete(nonce),
       tx.done,
     ]);
   }
 
+  private async toOutboxRow(entry: OutboxEntry): Promise<OutboxRow> {
+    const payload = await this.cipher.encrypt(encodeJson({ input: entry.input }), entry.nonce);
+    return { nonce: entry.nonce, createdAt: entry.createdAt, payload };
+  }
+
+  private async fromOutboxRow(row: OutboxRow): Promise<OutboxEntry> {
+    const plain = await this.cipher.decrypt(row.payload, row.nonce);
+    const { input } = JSON.parse(utf8Decode(plain)) as { input: OutboxEntry['input'] };
+    return { nonce: row.nonce, createdAt: row.createdAt, input };
+  }
+
   async putOutbox(entry: OutboxEntry): Promise<void> {
-    await this.db.put('outbox', entry);
+    await this.db.put('outbox', await this.toOutboxRow(entry));
   }
 
   async deleteOutbox(nonce: string): Promise<void> {
@@ -360,7 +502,8 @@ export class IdbMessageRepository implements MessageRepository {
 
   async listOutbox(): Promise<OutboxEntry[]> {
     const rows = await this.db.getAll('outbox');
-    return rows.sort((a, b) => a.createdAt - b.createdAt);
+    const entries = await Promise.all(rows.map((row) => this.fromOutboxRow(row)));
+    return entries.sort((a, b) => a.createdAt - b.createdAt);
   }
 
   async clear(): Promise<void> {

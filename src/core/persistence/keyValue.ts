@@ -12,6 +12,12 @@ export interface KeyValueStorage {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
   removeItem(key: string): void;
+  /**
+   * Every key currently stored. Optional: only `hydrateKeyValue` (crypto/)
+   * needs it, to decrypt everything once after unlock, and not every
+   * storage worth wrapping (e.g. a narrow test double) can offer it cheaply.
+   */
+  keys?(): string[];
 }
 
 export function createMemoryStorage(initial: Record<string, string> = {}): KeyValueStorage {
@@ -24,6 +30,21 @@ export function createMemoryStorage(initial: Record<string, string> = {}): KeyVa
     removeItem: (key) => {
       map.delete(key);
     },
+    keys: () => [...map.keys()],
+  };
+}
+
+/** Wraps a real `Storage` (localStorage) with the `keys()` enumeration above. */
+function withKeys(storage: Storage): KeyValueStorage {
+  return {
+    getItem: (key) => storage.getItem(key),
+    setItem: (key, value) => {
+      storage.setItem(key, value);
+    },
+    removeItem: (key) => {
+      storage.removeItem(key);
+    },
+    keys: () => Object.keys(storage),
   };
 }
 
@@ -33,7 +54,7 @@ export function defaultStorage(): KeyValueStorage {
     const probe = '__snowdrop_probe__';
     globalThis.localStorage.setItem(probe, '1');
     globalThis.localStorage.removeItem(probe);
-    return globalThis.localStorage;
+    return withKeys(globalThis.localStorage);
   } catch {
     return createMemoryStorage();
   }

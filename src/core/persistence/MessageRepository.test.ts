@@ -2,9 +2,12 @@ import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mergeDuplicate, messageId, pendingMessageId, type Message } from '@/core/domain';
 import { conversationIdFor, makeMessage } from '@/core/domain/testing';
+import { webCryptoCipher } from './crypto';
 import { IdbMessageRepository } from './IdbMessageRepository';
 import { MemoryMessageRepository } from './MemoryMessageRepository';
 import type { MessageRepository } from './MessageRepository';
+
+const randomKey = (): Uint8Array => crypto.getRandomValues(new Uint8Array(32));
 
 const a = conversationIdFor('a');
 const b = conversationIdFor('b');
@@ -19,6 +22,11 @@ let dbCounter = 0;
 const implementations: [string, () => Promise<MessageRepository & { close?: () => void }>][] = [
   ['memory', () => Promise.resolve(new MemoryMessageRepository())],
   ['indexeddb', () => IdbMessageRepository.open(`snowdrop-test-${++dbCounter}`)],
+  [
+    'indexeddb+webCryptoCipher',
+    async () =>
+      IdbMessageRepository.open(`snowdrop-test-${++dbCounter}`, await webCryptoCipher(randomKey())),
+  ],
 ];
 
 describe.each(implementations)('MessageRepository (%s)', (_name, create) => {

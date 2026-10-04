@@ -17,6 +17,7 @@ import {
   type Unsubscribe,
 } from '@/core/lib';
 import {
+  APPEARANCE_BOOT_KEY,
   bindPersistence,
   defaultStorage,
   type PersistenceBinding,
@@ -134,6 +135,24 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     bindPersistence(stores.spaces, storage, spacesSchema, selectSpacesData),
     bindPersistence(stores.local, storage, localSchema, selectLocalData, debounce),
   ];
+
+  // A plaintext mirror of theme/density (the encrypted-storage bootstrap
+  // allow-list, docs/ENCRYPTION.md "Web cache"): the setup/unlock screens
+  // can read it straight from storage, before any vault is open, to paint
+  // themselves in the user's theme instead of flashing the default one.
+  let lastAppearanceBoot: string | undefined;
+  const writeAppearanceBoot = (appearance: { themeId: string; density: string }): void => {
+    const next = JSON.stringify({ themeId: appearance.themeId, density: appearance.density });
+    if (next === lastAppearanceBoot) return;
+    lastAppearanceBoot = next;
+    storage.setItem(APPEARANCE_BOOT_KEY, next);
+  };
+  writeAppearanceBoot(stores.settings.getState().appearance);
+  cleanups.push(
+    stores.settings.subscribe((s, prev) => {
+      if (s.appearance !== prev.appearance) writeAppearanceBoot(s.appearance);
+    }),
+  );
 
   const reportError = (error: unknown, context: string): void => {
     console.error(`[snowdrop] ${context}`, error);

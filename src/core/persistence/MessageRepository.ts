@@ -12,7 +12,7 @@
  * everything already stored so it lands before it.
  */
 import type { SendInput } from '@/core/backend';
-import { mentionsOf, type ConversationId, type Message, type MessageId } from '@/core/domain';
+import type { ConversationId, Message, MessageId } from '@/core/domain';
 
 /** Seq bounds are exclusive. With neither bound, returns the newest page. */
 export interface PageQuery {
@@ -124,16 +124,4 @@ export function searchTerms(text: string): string[] {
     .toLowerCase()
     .split(/\s+/u)
     .filter((t) => t.length > 0);
-}
-
-/** What IndexedDB stores: the message plus a derived, indexable mention list. */
-export type StoredMessage = Message & { mentionIds: string[] };
-
-export function toStored(message: Message): StoredMessage {
-  return { ...message, mentionIds: mentionsOf(message) };
-}
-
-export function fromStored(stored: StoredMessage): Message {
-  const { mentionIds: _mentions, ...message } = stored;
-  return message;
 }
