@@ -19,11 +19,39 @@
 import {
   defaultStorage,
   hydrateKeyValue,
+  isSealedValue,
   type HydratedKeyValue,
   type KeyValueStorage,
   type MessageRepository,
   type RecordCipher,
 } from '@/core/persistence';
+
+const DEFAULT_DB_NAME = 'snowdrop-signal-cli';
+
+/**
+ * Discards web cache data that can no longer be decrypted: run while storage
+ * needs setup, i.e. there is no key (after "Erase all local data", "Start
+ * fresh", or an erase interrupted midway). Sealed localStorage values and the
+ * encrypted message database go; legacy plaintext values stay, because setup
+ * migrates them (docs/ENCRYPTION.md, "Web cache"). Nothing holds the
+ * database open yet at this point, so the delete can't be blocked.
+ */
+export async function discardUnreadableWebCache({
+  storage = defaultStorage(),
+  dbName = DEFAULT_DB_NAME,
+}: { storage?: KeyValueStorage; dbName?: string } = {}): Promise<void> {
+  for (const key of storage.keys?.() ?? []) {
+    const raw = storage.getItem(key);
+    if (raw !== null && isSealedValue(raw)) storage.removeItem(key);
+  }
+  if (typeof indexedDB === 'undefined') return;
+  await new Promise<void>((resolve) => {
+    const request = indexedDB.deleteDatabase(dbName);
+    request.onsuccess = request.onerror = request.onblocked = () => {
+      resolve();
+    };
+  });
+}
 
 export interface CreatePersistenceOptions {
   cipher: RecordCipher;
@@ -41,7 +69,7 @@ export interface Persistence {
 export async function createPersistence({
   cipher,
   storage = defaultStorage(),
-  dbName = 'snowdrop-signal-cli',
+  dbName = DEFAULT_DB_NAME,
 }: CreatePersistenceOptions): Promise<Persistence> {
   const [hydrated, repository] = await Promise.all([
     hydrateKeyValue(cipher, storage),

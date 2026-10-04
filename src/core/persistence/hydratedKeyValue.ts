@@ -30,6 +30,9 @@ export const APPEARANCE_BOOT_KEY = 'snowdrop.appearance.boot';
 /** Marks a value as sealed by a {@link RecordCipher}, so legacy plaintext is never mistaken for ciphertext. */
 const SEALED_PREFIX = 'sd1:';
 
+/** True for a value written by {@link hydrateKeyValue} (ciphertext), false for legacy plaintext. */
+export const isSealedValue = (raw: string): boolean => raw.startsWith(SEALED_PREFIX);
+
 export const BOOTSTRAP_ALLOW_LIST: ReadonlySet<string> = new Set([APPEARANCE_BOOT_KEY]);
 
 export interface HydratedKeyValue extends KeyValueStorage {
@@ -49,7 +52,7 @@ export async function hydrateKeyValue(
     if (allowList.has(key)) continue;
     const raw = underlying.getItem(key);
     if (raw === null) continue;
-    if (!raw.startsWith(SEALED_PREFIX)) {
+    if (!isSealedValue(raw)) {
       // Written before encryption existed: keep the value and re-encrypt it
       // below.
       memory.set(key, raw);

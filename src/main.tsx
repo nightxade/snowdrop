@@ -5,6 +5,7 @@ import {
   createSnowdrop,
   desktopStorageAdmin,
   DesktopBootedApp,
+  installBootHelpers,
   isTauri,
   SnowdropProvider,
   StorageGate,
@@ -46,35 +47,10 @@ function bootBrowser(container: HTMLElement): void {
   const params = new URLSearchParams(window.location.search);
   const safeMode = params.get('safe') === '1';
   const snowdrop = createSnowdrop({ document, safeMode });
-  if (!safeMode) {
-    const onShift = (event: KeyboardEvent | PointerEvent) => {
-      // A held Shift auto-repeats; a single press (typing a capital) doesn't count.
-      const held =
-        event instanceof KeyboardEvent ? event.key === 'Shift' && event.repeat : event.shiftKey;
-      if (!held) return;
-      params.set('safe', '1');
-      snowdrop.flush();
-      window.location.search = params.toString();
-    };
-    window.addEventListener('keydown', onShift);
-    window.addEventListener('pointermove', onShift);
-    setTimeout(() => {
-      window.removeEventListener('keydown', onShift);
-      window.removeEventListener('pointermove', onShift);
-    }, 1500);
-  } else {
-    snowdrop.stores.ui.getState().pushToast({
-      message: 'Safe mode: imported themes and Custom CSS are off until you reload.',
-      kind: 'info',
-      source: 'core',
-    });
-  }
-  if (import.meta.env.DEV) {
-    // Dynamic import keeps the dev helpers (and their mock import) out of production bundles.
-    void import('@/app/devTools').then(({ installDevTools }) => {
-      installDevTools(snowdrop);
-    });
-  }
+  // Never unmounts, so the cleanup function (removed listeners) is never
+  // needed here — it matters for DesktopBootedApp, which can re-run this
+  // per instance.
+  installBootHelpers({ snowdrop, safeMode });
 
   createRoot(container).render(
     <StrictMode>
@@ -89,9 +65,4 @@ function bootBrowser(container: HTMLElement): void {
       </SnowdropProvider>
     </StrictMode>,
   );
-
-  // Debounced state (drafts) must reach storage even if the tab closes mid-burst.
-  window.addEventListener('pagehide', () => {
-    snowdrop.flush();
-  });
 }

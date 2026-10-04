@@ -5,7 +5,7 @@
  * Transports are registered in `backends.ts`, the plugin host's services are
  * in `pluginHost.ts` and the headless core commands in `coreCommands.ts`.
  */
-import type { ChatBackend, DesktopAdmin } from '@/core/backend';
+import type { ChatBackend, DesktopAdmin, StorageAdmin } from '@/core/backend';
 // Type-only: the adapter itself is loaded on demand (its own chunk).
 import type { FetchLike } from '@/core/backend/signal-cli';
 import { type CommandRegistry, isMacPlatform, KeybindDispatcher } from '@/core/commands';
@@ -58,7 +58,13 @@ import {
 } from './backends';
 import { registerCoreCommands } from './coreCommands';
 import { createPluginHost } from './pluginHost';
-import { desktopAdmin, desktopNotificationApi, installDesktopLinks, isTauri } from './platform';
+import {
+  desktopAdmin,
+  desktopNotificationApi,
+  desktopStorageAdmin,
+  installDesktopLinks,
+  isTauri,
+} from './platform';
 
 export interface SnowdropOptions {
   storage?: KeyValueStorage;
@@ -102,6 +108,13 @@ export interface Snowdrop {
   admin: AppAdmin;
   /** The desktop app's signal-cli management; null in the browser. */
   desktop: DesktopAdmin | null;
+  /**
+   * Encrypted storage (docs/ENCRYPTION.md): Settings → Privacy & security's
+   * recovery key, passphrase, keyring and erase controls. The same admin
+   * `StorageGate` used to unlock before this instance existed; null in the
+   * browser, where there's no vault.
+   */
+  storageAdmin: StorageAdmin | null;
   /** True when started in safe mode (custom themes and Custom CSS off). */
   readonly safeMode: boolean;
   /** Connects, syncs and starts plugins. Safe to call again after a failed start (retry). */
@@ -286,6 +299,13 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     flush: () => {
       for (const binding of bindings) binding.flush();
     },
+    stopPersistence: () => {
+      // Flushes each binding, then unsubscribes it: nothing writes to
+      // storage again after this (Settings → Privacy & security, Erase —
+      // docs/ENCRYPTION.md, "Erase" — must not let a later debounced write
+      // or pagehide flush re-create what was just cleared).
+      for (const binding of bindings.splice(0)) binding.dispose();
+    },
   };
 
   return {
@@ -305,6 +325,7 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     notifications,
     admin,
     desktop: isTauri() ? desktopAdmin() : null,
+    storageAdmin: isTauri() ? desktopStorageAdmin() : null,
 
     async start() {
       if (started) return;

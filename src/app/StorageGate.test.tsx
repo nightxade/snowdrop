@@ -5,13 +5,19 @@
  * `fakeAdmin()`.
  */
 import 'fake-indexeddb/auto';
+import { IDBFactory } from 'fake-indexeddb';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StorageAdmin, StorageStatus } from '@/core/backend';
 import { toBase64 } from '@/core/persistence';
 import { StorageGate } from './StorageGate';
 
 afterEach(cleanup);
+// A fresh IndexedDB per test: a repository left open by one test would
+// otherwise block the needsSetup cache discard (and later opens) in the next.
+beforeEach(() => {
+  globalThis.indexedDB = new IDBFactory();
+});
 
 const needsSetup: StorageStatus = {
   state: 'needsSetup',
@@ -38,8 +44,12 @@ function fakeAdmin(overrides: Partial<StorageAdmin> = {}): StorageAdmin {
     setup: () => Promise.resolve(unlocked),
     unlock: () => Promise.resolve(unlocked),
     createRecovery: () => Promise.resolve({ code: 'AAAA', status: unlocked }),
+    removeRecovery: () => Promise.resolve(unlocked),
+    setPassphrase: () => Promise.resolve(unlocked),
+    enrollKeyring: () => Promise.resolve(unlocked),
     webcacheKey: () => Promise.resolve(randomKeyBase64()),
     eraseAll: () => Promise.resolve({ status: needsSetup, failures: [] }),
+    restart: () => Promise.resolve(),
     ...overrides,
   };
 }

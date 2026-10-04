@@ -7,6 +7,7 @@ export { TauriTransport, toSignalCliError, type TauriTransportOptions } from './
 export { tauriNotificationApi } from './notifications';
 export { installExternalLinks } from './links';
 export {
+  appRestart,
   createDesktopAdmin,
   createStorageAdmin,
   storageCreateRecovery,

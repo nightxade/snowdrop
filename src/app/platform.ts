@@ -9,7 +9,14 @@ import { isTauri } from '@/platform/detect';
 
 export { isTauri };
 
-const platform = () => import('@/platform/tauri');
+// Cached: several callers (desktop admin, storage admin, notifications,
+// external links) each reach for this module, and it must resolve to the
+// exact same module object for all of them — including under `vi.mock`,
+// which replaces the module for one underlying `import()` call, not
+// necessarily for every call site that happens to share a specifier.
+const importPlatform = () => import('@/platform/tauri');
+let platformModule: ReturnType<typeof importPlatform> | null = null;
+const platform = () => (platformModule ??= importPlatform());
 
 /**
  * Encrypted storage (docs/ENCRYPTION.md): lazily wraps the real
@@ -19,14 +26,24 @@ const platform = () => import('@/platform/tauri');
  */
 export function desktopStorageAdmin(): StorageAdmin {
   const admin = platform().then((m) => m.createStorageAdmin());
+  // A second handler, so a rejection (the module failed to load, or a test
+  // mocks @/platform/tauri without createStorageAdmin because it's testing
+  // something unrelated) never becomes an unhandled rejection just from
+  // constructing this object. Every method below awaits `admin` itself and
+  // surfaces the same failure to its actual caller.
+  admin.catch(() => {});
   return {
     status: async () => (await admin).status(),
     keyringStatus: async () => (await admin).keyringStatus(),
     setup: async (mode, passphrase) => (await admin).setup(mode, passphrase),
     unlock: async (method, secret, remember) => (await admin).unlock(method, secret, remember),
     createRecovery: async () => (await admin).createRecovery(),
+    removeRecovery: async () => (await admin).removeRecovery(),
+    setPassphrase: async (passphrase) => (await admin).setPassphrase(passphrase),
+    enrollKeyring: async () => (await admin).enrollKeyring(),
     webcacheKey: async () => (await admin).webcacheKey(),
     eraseAll: async () => (await admin).eraseAll(),
+    restart: async () => (await admin).restart(),
   };
 }
 
@@ -53,6 +70,8 @@ export function desktopNotificationApi(): NotificationApi {
 
 export function desktopAdmin(): DesktopAdmin {
   const admin = platform().then((m) => m.createDesktopAdmin());
+  // See desktopStorageAdmin's matching guard just above.
+  admin.catch(() => {});
   return {
     probe: async (desktop) => (await admin).probe(desktop),
     locate: async (desktop) => (await admin).locate(desktop),

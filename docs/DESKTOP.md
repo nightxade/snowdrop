@@ -273,6 +273,14 @@ unknown (replay everything currently held/available).
 
 ## Security model
 
+- **Encrypted local storage.** [ENCRYPTION.md](ENCRYPTION.md) covers the full
+  model: the key hierarchy (OS keyring, recovery key, passphrase), the
+  signal-cli vault, web cache encryption, and Settings → Privacy & security
+  (create/replace/remove a recovery key, add/change/remove a passphrase,
+  re-enrol a keyring, erase all local data). `app_restart` (`AppHandle::restart`)
+  is the one command there beyond the `storage_*` ones: erasing needs a fresh
+  process, since the vault bridge and `snowdrop.lock` are one-shot per
+  process.
 - **Capabilities.** `src-tauri/capabilities/main.json` grants the main
   window exactly: `core:event:allow-listen`/`allow-unlisten`, three
   notification permissions, and the app's own 12 commands

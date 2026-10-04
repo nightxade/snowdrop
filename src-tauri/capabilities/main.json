@@ -30,6 +30,7 @@
     "allow-storage-set-passphrase",
     "allow-storage-enroll-keyring",
     "allow-storage-webcache-key",
-    "allow-storage-erase-all"
+    "allow-storage-erase-all",
+    "allow-app-restart"
   ]
 }

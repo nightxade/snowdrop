@@ -90,4 +90,26 @@ describe('createSnowdrop', () => {
     expect(error).toHaveBeenCalled();
     await snowdrop.dispose();
   });
+
+  it('admin.stopPersistence flushes pending writes, then nothing writes again', async () => {
+    const storage = createMemoryStorage();
+    const snowdrop = createSnowdrop({ storage, mockLatencyMs: 0 });
+    await snowdrop.start();
+
+    const conv = Object.values(snowdrop.stores.conversations.getState().byId)[0]!.id;
+    // Drafts are debounced (app/createSnowdrop.ts's `local` binding): this
+    // write is still pending until a flush.
+    snowdrop.stores.local.getState().setDraft(conv, 'unsaved draft');
+
+    snowdrop.admin.stopPersistence();
+    const afterStop = storage.getItem('snowdrop.local');
+    expect(afterStop).toContain('unsaved draft'); // flushed, not dropped
+
+    // A later change must not reach storage: persistence is stopped, not just flushed once.
+    snowdrop.stores.local.getState().setDraft(conv, 'should never be saved');
+    snowdrop.admin.flush();
+    expect(storage.getItem('snowdrop.local')).toBe(afterStop);
+
+    await snowdrop.dispose();
+  });
 });

@@ -1,6 +1,6 @@
 # Encrypted local storage
 
-Status: **design, under construction**. This document is the contract the implementation follows. It also explains to users what is and isn't protected.
+Status: **implemented** (desktop app only). This document is the contract the implementation follows. It also explains to users what is and isn't protected.
 
 ## Goals
 
@@ -153,33 +153,33 @@ The message cache (IndexedDB) and the key-value store (localStorage) are encrypt
    - A "Remember on this device" checkbox, which enrols a keyring slot.
    - Clear copy about why the screen appeared (no keyring service / locked / secret missing).
    - When there's no recovery key or passphrase to offer, the only action is **Start fresh**, with the *What a fresh start loses* list.
-4. **Settings → Privacy & security:**
-   - Storage status (encrypted, plus the keyring provider).
-   - Create a recovery key, or replace it (which removes the old slot).
-   - Add or remove a passphrase.
-   - Switch keyring (re-enrol).
-   - **Erase all local data:** type-to-confirm. It reminds you to also remove the device on your phone.
+4. **Settings → Privacy & security** (desktop only):
+   - **Status:** "Encrypted on this computer", with the key location (the keyring's friendly name, or "a passphrase"). If `vaultDisabled` (an external daemon, or `SNOWDROP_SIGNAL_CLI_DATA`), a clear warning that signal-cli's data is managed outside Snowdrop and isn't encrypted by it.
+   - **Recovery key:** create it, or replace it (a confirm step notes the old key stops working immediately), or remove it (confirm). The reveal-and-confirm step is the same component the first-run flow uses. With no recovery key, a gentle, dismissible reminder explains why one helps.
+   - **Passphrase:** add, change or remove, with the same validation and strength hint as first run.
+   - **Keyring:** "Re-save key to this keyring" (`storage_enroll_keyring`), for after switching providers; the result (saved, or why not) shows inline.
+   - **Erase all local data:** a danger-zone button opens a modal listing exactly what's deleted (the encrypted vault, recovery key, passphrase, keyring entry, and Snowdrop's own settings, spaces and drafts) and what isn't (your Signal account — remove this computer in your phone's Signal → Settings → Linked devices). Typing `ERASE` enables the confirm button.
 5. **Erase:**
-   1. Stop signal-cli.
-   2. Delete the vault, runtime dir, `keys.json`, keyring entry, IndexedDB, localStorage and `signal-cli.log`.
-   3. Return to the first-run flow.
+   1. Stop signal-cli, and stop this process's own buffered writes (nothing may re-create what's about to be deleted).
+   2. Delete the vault, runtime dir, `keys.json`, the keyring entry, and a legacy plaintext `signal-cli/` dir if one is still waiting to migrate.
+   3. Restart the app (`app_restart`): the vault bridge and the single-instance lock (`snowdrop.lock`) are one-shot per process, so only a fresh process can return to a clean `needsSetup` boot.
 
 ## Implementation plan
 
-Each step is a separately reviewed commit.
+Each step was a separately reviewed commit. All seven are done.
 
-1. `secrets` (keyring slot via a `SecretStore` trait) and `aead` helpers.
-2. `keyslots`: `keys.json` format, the three slot types, unlock, enrol and remove, plus recovery-key encoding.
-3. `vault`: pure filesystem logic, with fault-injection tests. It covers:
+1. ~~`secrets` (keyring slot via a `SecretStore` trait) and `aead` helpers.~~
+2. ~~`keyslots`: `keys.json` format, the three slot types, unlock, enrol and remove, plus recovery-key encoding.~~
+3. ~~`vault`: pure filesystem logic, with fault-injection tests. It covers:~~
    - restore and sync;
    - GC and generations;
    - the instance lock and crash recovery;
    - SQLite backup and per-file lock-and-validate copies;
    - on-demand media restore and eviction.
-4. A storage service state machine (`NeedsSetup → Locked → Unlocked → Running`):
+4. ~~A storage service state machine (`NeedsSetup → Locked → Unlocked → Running`):~~
    - Tauri commands.
    - Wiring into the signal-cli service: runtime dir, sync triggers, shutdown sync.
    - Migration.
-5. Web cache encryption in `src/core/persistence`, plus bootstrap ordering.
-6. UI: setup step, unlock screen, the Privacy & security page, and erase. Docs.
-7. A security review (crypto and vault; flows and UI), then fixes.
+5. ~~Web cache encryption in `src/core/persistence`, plus bootstrap ordering.~~
+6. ~~UI: setup step, unlock screen, the Privacy & security page, and erase. Docs.~~
+7. A security review (crypto and vault; flows and UI), then fixes — not yet done.

@@ -9,6 +9,7 @@ import type { KeyValueStorage, MessageRepository } from '@/core/persistence';
 import type { ThemeDocument } from '@/core/themes';
 import { App } from './App';
 import { createSnowdrop } from './createSnowdrop';
+import { installBootHelpers } from './installBootHelpers';
 import { SnowdropProvider } from './SnowdropProvider';
 
 export interface DesktopBootedAppProps {
@@ -32,56 +33,7 @@ export function DesktopBootedApp({ storage, repository, document }: DesktopBoote
     };
   });
 
-  useEffect(() => {
-    if (safeMode) {
-      snowdrop.stores.ui.getState().pushToast({
-        message: 'Safe mode: imported themes and Custom CSS are off until you reload.',
-        kind: 'info',
-        source: 'core',
-      });
-      return;
-    }
-    // A held Shift auto-repeats; a single press (typing a capital) doesn't count.
-    const onShift = (event: KeyboardEvent | PointerEvent) => {
-      const held =
-        event instanceof KeyboardEvent ? event.key === 'Shift' && event.repeat : event.shiftKey;
-      if (!held) return;
-      const params = new URLSearchParams(window.location.search);
-      params.set('safe', '1');
-      snowdrop.flush();
-      window.location.search = params.toString();
-    };
-    window.addEventListener('keydown', onShift);
-    window.addEventListener('pointermove', onShift);
-    const timer = window.setTimeout(() => {
-      window.removeEventListener('keydown', onShift);
-      window.removeEventListener('pointermove', onShift);
-    }, 1500);
-    return () => {
-      window.removeEventListener('keydown', onShift);
-      window.removeEventListener('pointermove', onShift);
-      window.clearTimeout(timer);
-    };
-  }, [snowdrop, safeMode]);
-
-  useEffect(() => {
-    if (!import.meta.env.DEV) return;
-    // Dynamic import keeps the dev helpers (and their mock import) out of production bundles.
-    void import('./devTools').then(({ installDevTools }) => {
-      installDevTools(snowdrop);
-    });
-  }, [snowdrop]);
-
-  useEffect(() => {
-    // Debounced state (drafts) must reach storage even if the window closes mid-burst.
-    const onHide = () => {
-      snowdrop.flush();
-    };
-    window.addEventListener('pagehide', onHide);
-    return () => {
-      window.removeEventListener('pagehide', onHide);
-    };
-  }, [snowdrop]);
+  useEffect(() => installBootHelpers({ snowdrop, safeMode }), [snowdrop, safeMode]);
 
   return (
     <SnowdropProvider snowdrop={snowdrop}>

@@ -160,9 +160,21 @@ export interface StorageAdmin {
   unlock(method: StorageUnlockMethod, secret: string, remember: boolean): Promise<StorageStatus>;
   /** The plaintext code, shown once. Never log it. */
   createRecovery(): Promise<CreateRecoveryResult>;
+  /** Removes the recovery slot, if any (Settings → Privacy & security). */
+  removeRecovery(): Promise<StorageStatus>;
+  /** `null` removes the passphrase slot; a string adds or replaces it. */
+  setPassphrase(passphrase: string | null): Promise<StorageStatus>;
+  /** Re-enrols a keyring slot for the current provider (e.g. after switching keyrings). */
+  enrollKeyring(): Promise<StorageStatus>;
   /** Base64 of the 32-byte web cache key; only resolves while unlocked. */
   webcacheKey(): Promise<string>;
   eraseAll(): Promise<EraseResult>;
+  /**
+   * Restarts the whole app process. Only needed after `eraseAll`: the vault
+   * bridge and the single-instance lock are one-shot per process
+   * (docs/ENCRYPTION.md, "Erase").
+   */
+  restart(): Promise<void>;
 }
 
 export interface DesktopAdmin {

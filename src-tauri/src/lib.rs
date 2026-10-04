@@ -158,6 +158,7 @@ pub fn run() {
             commands::storage_enroll_keyring,
             commands::storage_webcache_key,
             commands::storage_erase_all,
+            commands::app_restart,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Snowdrop");

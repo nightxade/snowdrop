@@ -25,12 +25,16 @@ function fakeAdmin(overrides: Partial<StorageAdmin> = {}): StorageAdmin {
     unlock: () => Promise.resolve({ ...baseStatus, state: 'unlocked', reason: null }),
     createRecovery: () =>
       Promise.resolve({ code: 'AAAA-BBBB-CCCC-DDDD-EEEE-FFFF-GGGG-HHHH-IIII', status: baseStatus }),
+    removeRecovery: () => Promise.resolve(baseStatus),
+    setPassphrase: () => Promise.resolve(baseStatus),
+    enrollKeyring: () => Promise.resolve(baseStatus),
     webcacheKey: () => Promise.resolve('AAAA'),
     eraseAll: () =>
       Promise.resolve({
         status: { ...baseStatus, state: 'needsSetup', reason: null, hasRecovery: false, hasPassphrase: false },
         failures: [],
       }),
+    restart: () => Promise.resolve(),
     ...overrides,
   };
 }

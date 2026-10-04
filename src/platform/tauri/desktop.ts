@@ -121,7 +121,16 @@ export async function storageEraseAll(ipc: TauriIpc = tauriIpc): Promise<EraseRe
   return validateEraseResult('storage_erase_all', raw);
 }
 
-/** Bundles the `storage_*` wrappers above into the shape `StorageGate` depends on. */
+/**
+ * Restarts the whole app process (`AppHandle::restart`, src-tauri/src/commands.rs).
+ * Only needed after `storageEraseAll`: the vault bridge and the
+ * single-instance lock are one-shot per process (docs/ENCRYPTION.md, "Erase").
+ */
+export async function appRestart(ipc: TauriIpc = tauriIpc): Promise<void> {
+  await ipc.invoke('app_restart');
+}
+
+/** Bundles the `storage_*` wrappers above into the shape `StorageGate` (and Settings) depend on. */
 export function createStorageAdmin(ipc: TauriIpc = tauriIpc): StorageAdmin {
   return {
     status: () => storageStatus(ipc),
@@ -129,8 +138,12 @@ export function createStorageAdmin(ipc: TauriIpc = tauriIpc): StorageAdmin {
     setup: (mode, passphrase) => storageSetup(mode, passphrase, ipc),
     unlock: (method, secret, remember) => storageUnlock(method, secret, remember, ipc),
     createRecovery: () => storageCreateRecovery(ipc),
+    removeRecovery: () => storageRemoveRecovery(ipc),
+    setPassphrase: (passphrase) => storageSetPassphrase(passphrase, ipc),
+    enrollKeyring: () => storageEnrollKeyring(ipc),
     webcacheKey: () => storageWebcacheKey(ipc),
     eraseAll: () => storageEraseAll(ipc),
+    restart: () => appRestart(ipc),
   };
 }
 

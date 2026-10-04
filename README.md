@@ -162,6 +162,9 @@ docs/                 documentation
 - [DESKTOP.md](docs/DESKTOP.md) — the Tauri desktop app: dev/build,
   downloading signal-cli on first run (and the optional bundled build), the
   transport layer, and the security model.
+- [ENCRYPTION.md](docs/ENCRYPTION.md) — the desktop app's encrypted local
+  storage: the threat model, the key hierarchy, and what "Erase all local
+  data" does.
 - [ARCHITECTURE.md](docs/ARCHITECTURE.md) — layers and boundaries, data flow,
   persistence, adding a backend adapter, testing.
 - [PLUGINS.md](docs/PLUGINS.md) — the plugin author guide.
@@ -172,11 +175,22 @@ docs/                 documentation
 - [PLAN.md](docs/PLAN.md) — the product plan, delivery status and the
   as-built record of decisions (§8).
 
-## Privacy
+## Privacy & encryption
 
 - **Local only.** Snowdrop has no server of its own and no telemetry. It talks
   to nothing but your signal-cli daemon, through a same-origin proxy that only
   answers the app itself on a loopback address.
+- **Desktop app: encrypted at rest.** Your keys, sessions, contacts and
+  message history are encrypted on disk, unlocked automatically through your
+  OS keyring (KWallet, GNOME Keyring, KeePassXC, macOS Keychain, Windows
+  Credential Manager) or a passphrase. Switching keyrings or reinstalling
+  doesn't mean starting over, as long as you've set up a recovery key in
+  Settings → Privacy & security. See [ENCRYPTION.md](docs/ENCRYPTION.md) for
+  the full threat model — including what's *not* protected (malware running
+  as you, or memory on unencrypted swap).
+- **If a device or key is ever compromised,** remove this computer in your
+  phone's Signal app (Settings → Linked devices). That invalidates the
+  stolen copy; it's the same remedy "Erase all local data" reminds you of.
 - **Desktop app:** the first run that needs signal-cli contacts `github.com`
   exactly once, to download the pinned, checksum-verified release — the same
   request your browser would make visiting its release page. Nothing else

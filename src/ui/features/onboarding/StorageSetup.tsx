@@ -1,16 +1,13 @@
-import { Copy, KeyRound, Save, ShieldCheck } from 'lucide-react';
+import { KeyRound, ShieldCheck } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { KeyringStatus, StorageAdmin, StorageStatus } from '@/core/backend';
 import { friendlyErrorMessage } from '@/ui/lib/connectionErrors';
 import { Button, TextInput } from '@/ui/primitives';
 import { OnboardingShell } from './OnboardingShell';
+import { PassphraseStrengthHint } from './PassphraseStrengthHint';
+import { RecoveryKeyReveal } from './RecoveryKeyReveal';
 import setupStyles from './Setup.module.css';
-import {
-  errorKind,
-  friendlyKeyringBackend,
-  groupRecoveryCode,
-  passphraseStrength,
-} from './storageCopy';
+import { errorKind, friendlyKeyringBackend } from './storageCopy';
 import styles from './Storage.module.css';
 
 export interface StorageSetupProps {
@@ -79,7 +76,6 @@ function ProtectYourData({
         : confirm !== passphrase
           ? "That doesn't match."
           : null;
-  const strength = passphraseStrength(passphrase);
 
   const runSetup = async (mode: 'keyring' | 'passphrase', secret: string | null) => {
     setBusy(true);
@@ -124,20 +120,7 @@ function ProtectYourData({
           setTouched(true);
         }}
       />
-      {passphrase.length > 0 && (
-        <p className={styles.strengthRow}>
-          <span className={styles.strengthBar} data-level={strength} aria-hidden>
-            <span />
-            <span />
-            <span />
-          </span>
-          {strength === 'good'
-            ? 'Good passphrase'
-            : strength === 'fair'
-              ? 'Fair passphrase'
-              : 'Weak passphrase'}
-        </p>
-      )}
+      <PassphraseStrengthHint passphrase={passphrase} />
       <TextInput
         type="password"
         label="Confirm passphrase"
@@ -241,9 +224,7 @@ function ProtectYourData({
   );
 }
 
-type RecoveryStep =
-  | { step: 'offer' }
-  | { step: 'created'; code: string; groups: string[]; confirm: string; error: string | null };
+type RecoveryStep = { step: 'offer' } | { step: 'created'; code: string };
 
 function RecoveryKeyStep({
   admin,
@@ -263,8 +244,7 @@ function RecoveryKeyStep({
     setError(null);
     try {
       const result = await admin.createRecovery();
-      const groups = groupRecoveryCode(result.code);
-      setStep({ step: 'created', code: result.code, groups, confirm: '', error: null });
+      setStep({ step: 'created', code: result.code });
     } catch (e) {
       setError(friendlyErrorMessage(errorKind(e), e instanceof Error ? e.message : String(e)));
     } finally {
@@ -273,9 +253,6 @@ function RecoveryKeyStep({
   };
 
   if (step.step === 'created') {
-    const lastGroup = step.groups[step.groups.length - 1] ?? '';
-    const matches = step.confirm.trim().toUpperCase() === lastGroup;
-    const grouped = step.groups.join('-');
     return (
       <section
         className={setupStyles.card}
@@ -289,65 +266,13 @@ function RecoveryKeyStep({
           Save this somewhere safe. Anyone with it — and access to this computer&rsquo;s data —
           could unlock it, so keep it as carefully as a password.
         </p>
-        <div className={styles.recoveryCode} role="group" aria-label="Recovery key">
-          {step.groups.map((group, i) => (
-            <span
-              key={i}
-              className={styles.recoveryGroup}
-              data-checksum={i === step.groups.length - 1 ? '' : undefined}
-            >
-              {group}
-            </span>
-          ))}
-        </div>
-        <div className={styles.recoveryActions}>
-          <Button
-            type="button"
-            icon={<Copy size={16} />}
-            onClick={() => {
-              void navigator.clipboard.writeText(grouped);
-            }}
-          >
-            Copy
-          </Button>
-          <Button
-            type="button"
-            icon={<Save size={16} />}
-            onClick={() => {
-              downloadRecoveryKey(grouped);
-            }}
-          >
-            Save as file…
-          </Button>
-        </div>
-        <form
-          className={styles.confirmRow}
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (!matches) {
-              setStep({ ...step, error: "That doesn't match the last group." });
-              return;
-            }
+        <RecoveryKeyReveal
+          code={step.code}
+          onConfirmed={() => {
             setStep({ step: 'offer' });
             onDone(status);
           }}
-        >
-          <TextInput
-            label="Type the last group to confirm"
-            placeholder={lastGroup}
-            autoFocus
-            autoComplete="off"
-            spellCheck={false}
-            value={step.confirm}
-            error={step.error ?? undefined}
-            onChange={(e) => {
-              setStep({ ...step, confirm: e.target.value, error: null });
-            }}
-          />
-          <Button type="submit" variant="primary">
-            Confirm
-          </Button>
-        </form>
+        />
       </section>
     );
   }
@@ -397,18 +322,4 @@ function RecoveryKeyStep({
       </div>
     </section>
   );
-}
-
-function downloadRecoveryKey(code: string): void {
-  const url = URL.createObjectURL(new Blob([`${code}\n`], { type: 'text/plain' }));
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'snowdrop-recovery-key.txt';
-  a.rel = 'noopener';
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => {
-    URL.revokeObjectURL(url);
-  }, 1000);
 }

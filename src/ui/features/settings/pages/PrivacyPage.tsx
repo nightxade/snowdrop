@@ -4,6 +4,7 @@ import { Switch } from '@/ui/primitives';
 import { SettingRow } from '../rows/SettingRow';
 import { SettingsSection } from '../rows/SettingsSection';
 import { useSettingsSection } from '../useSettingsSection';
+import { EncryptionSection } from './EncryptionSection';
 import styles from './pages.module.css';
 
 function usePluginEnabled(id: string): [boolean, (on: boolean) => void] {
@@ -16,10 +17,12 @@ function usePluginEnabled(id: string): [boolean, (on: boolean) => void] {
 }
 
 export function PrivacyPage() {
+  const app = useSnowdrop();
   const [behaviour, setBehaviour] = useSettingsSection('behaviour');
   const [clearUrls, setClearUrls] = usePluginEnabled('clear-urls');
   return (
     <>
+      {app.storageAdmin && <EncryptionSection admin={app.storageAdmin} />}
       <SettingsSection id="signals" title="What others see">
         <SettingRow
           id="privacy.receipts"

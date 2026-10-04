@@ -19,7 +19,7 @@ import storageStyles from '@/ui/features/onboarding/Storage.module.css';
 import { StorageUnavailable } from '@/ui/features/onboarding/StorageUnavailable';
 import { UnlockScreen } from '@/ui/features/onboarding/UnlockScreen';
 import { applyBootAppearance } from './bootAppearance';
-import { createPersistence, type Persistence } from './persistence';
+import { createPersistence, discardUnreadableWebCache, type Persistence } from './persistence';
 
 export interface StorageGateProps {
   admin: StorageAdmin;
@@ -62,7 +62,12 @@ export function StorageGate({ admin, document, children }: StorageGateProps) {
 
   const route = (status: StorageStatus) => {
     if (status.state === 'unlocked') boot();
-    else setPhase({ kind: 'blocked', status });
+    else if (status.state === 'needsSetup') {
+      // No key exists, so any encrypted web cache left behind is unreadable.
+      void discardUnreadableWebCache().finally(() => {
+        setPhase({ kind: 'blocked', status });
+      });
+    } else setPhase({ kind: 'blocked', status });
   };
 
   useEffect(() => {

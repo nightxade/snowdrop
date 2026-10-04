@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { mergeDuplicate } from '@/core/domain';
 import { conversationIdFor, makeMessage } from '@/core/domain/testing';
 import { createMemoryStorage, plaintextCipher, webCryptoCipher } from '@/core/persistence';
-import { createPersistence } from './persistence';
+import { createPersistence, discardUnreadableWebCache } from './persistence';
 
 const randomKey = (): Uint8Array => crypto.getRandomValues(new Uint8Array(32));
 let dbCounter = 0;
@@ -37,5 +37,14 @@ describe('createPersistence', () => {
     const conversationId = conversationIdFor('c2');
     await repository.upsert(makeMessage({ conversationId, body: 'hey' }), mergeDuplicate);
     expect((await repository.latest(conversationId))?.body).toBe('hey');
+  });
+});
+
+describe('discardUnreadableWebCache', () => {
+  it('removes sealed values and keeps legacy plaintext', async () => {
+    const storage = createMemoryStorage({ sealed: 'sd1:AAAA', legacy: '{"v":1}' });
+    await discardUnreadableWebCache({ storage, dbName: 'discard-test' });
+    expect(storage.getItem('sealed')).toBeNull();
+    expect(storage.getItem('legacy')).toBe('{"v":1}');
   });
 });

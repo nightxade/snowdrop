@@ -317,6 +317,16 @@ pub fn storage_erase_all(storage: Storage<'_>, service: Svc<'_>, confirm: String
     Ok(EraseResult { status: with_live_vault_disabled(status, &service), failures })
 }
 
+/// Restarts the whole Snowdrop process. Needed after `storage_erase_all`:
+/// the vault bridge and the single-instance lock (`snowdrop.lock`) are both
+/// one-shot per process, so the only way back to a clean `needsSetup` boot
+/// is a fresh process, not just a webview reload
+/// (docs/ENCRYPTION.md, "Erase").
+#[tauri::command]
+pub fn app_restart(app: AppHandle) {
+    app.restart();
+}
+
 pub fn is_external_url(url: &str) -> bool {
     let lower = url.trim_start().to_ascii_lowercase();
     url.len() <= 4096
