@@ -94,7 +94,7 @@ export function RecoveryKeyReveal({ code, onConfirmed }: RecoveryKeyRevealProps)
       >
         <TextInput
           label="Type the last group to confirm"
-          placeholder={lastGroup}
+          placeholder="Last 4 characters"
           autoFocus
           autoComplete="off"
           spellCheck={false}

@@ -4,6 +4,7 @@ import {
   friendlyKeyringBackend,
   groupRecoveryCode,
   passphraseStrength,
+  tryAgainLabel,
   unlockReasonCopy,
 } from './storageCopy';
 
@@ -69,7 +70,7 @@ describe('unlockReasonCopy', () => {
 
   it('matches the documented copy for a missing keyring secret with no fallback', () => {
     expect(unlockReasonCopy('keyringSecretMissing', false).body).toBe(
-      "This happens after switching keyrings. Without a recovery key, the data on this computer can't be opened.",
+      'This happens after switching keyrings. Without a recovery key, the data on this computer can’t be opened.',
     );
   });
 
@@ -77,6 +78,25 @@ describe('unlockReasonCopy', () => {
     expect(unlockReasonCopy('keyringSecretMissing')).toEqual(
       unlockReasonCopy('keyringSecretMissing', true),
     );
+  });
+
+  it('explains a missing keyring secret in plain words, without keyring-slot jargon', () => {
+    const { body } = unlockReasonCopy('keyringSecretMissing', true);
+    expect(body).not.toMatch(/re-enrol/iu);
+    expect(body).toMatch(/save its key to your current keyring/iu);
+  });
+});
+
+describe('tryAgainLabel', () => {
+  it('names it "Check keyring again" for keyring-related reasons', () => {
+    expect(tryAgainLabel('keyringUnavailable')).toBe('Check keyring again');
+    expect(tryAgainLabel('keyringLocked')).toBe('Check keyring again');
+    expect(tryAgainLabel('keyringSecretMissing')).toBe('Check keyring again');
+  });
+
+  it('keeps "Try again" for every other reason', () => {
+    expect(tryAgainLabel('passphraseRequired')).toBe('Try again');
+    expect(tryAgainLabel(null)).toBe('Try again');
   });
 });
 

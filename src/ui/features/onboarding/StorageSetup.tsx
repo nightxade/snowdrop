@@ -187,9 +187,6 @@ function ProtectYourData({
               <span className={styles.methodIcon}>
                 <ShieldCheck size={16} aria-hidden />
               </span>
-              Your messages and keys will be encrypted on this computer.
-            </p>
-            <p className={setupStyles.muted}>
               The key is kept in {friendlyKeyringBackend(keyring.backend)}.
             </p>
             <div className={setupStyles.actions}>

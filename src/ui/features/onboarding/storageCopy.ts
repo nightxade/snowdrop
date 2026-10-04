@@ -43,22 +43,22 @@ export function unlockReasonCopy(reason: StorageReason | null, canUnlock = true)
       return {
         title: 'No keyring is available',
         body: canUnlock
-          ? "Snowdrop couldn't reach a keyring service on this system."
-          : "Snowdrop couldn't reach a keyring service on this system. Without a recovery key or passphrase, the data on this computer can't be opened.",
+          ? 'Snowdrop couldn’t reach a keyring service on this system.'
+          : 'Snowdrop couldn’t reach a keyring service on this system. Without a recovery key or passphrase, the data on this computer can’t be opened.',
       };
     case 'keyringLocked':
       return {
         title: 'Your keyring is locked',
         body: canUnlock
           ? 'Unlock it, then try again — or unlock with your recovery key or passphrase below.'
-          : "Unlock it, then try again. There's no recovery key or passphrase set up as a fallback, so until then, the data on this computer can't be opened.",
+          : 'Unlock it, then try again. There’s no recovery key or passphrase set up as a fallback, so until then, the data on this computer can’t be opened.',
       };
     case 'keyringSecretMissing':
       return {
-        title: "Your keyring doesn't have Snowdrop's key",
+        title: 'Your keyring doesn’t have Snowdrop’s key',
         body: canUnlock
-          ? 'This happens after switching keyrings. Unlock with your recovery key or passphrase, and Snowdrop can re-enrol a new keyring slot.'
-          : "This happens after switching keyrings. Without a recovery key, the data on this computer can't be opened.",
+          ? 'This happens after switching keyrings. Unlock with your recovery key or passphrase, and Snowdrop will save its key to your current keyring.'
+          : 'This happens after switching keyrings. Without a recovery key, the data on this computer can’t be opened.',
       };
     case 'passphraseRequired':
       return {
@@ -70,8 +70,25 @@ export function unlockReasonCopy(reason: StorageReason | null, canUnlock = true)
         title: 'Snowdrop is locked',
         body: canUnlock
           ? 'Unlock with your recovery key or passphrase to continue.'
-          : "There's no recovery key or passphrase set up, so the data on this computer can't be opened.",
+          : 'There’s no recovery key or passphrase set up, so the data on this computer can’t be opened.',
       };
+  }
+}
+
+/**
+ * The unlock form's secondary action label. Keyring-related reasons point at
+ * re-checking the keyring specifically, since "Try again" (re-running the
+ * same check) reads as a no-op otherwise; every other reason keeps the
+ * generic label.
+ */
+export function tryAgainLabel(reason: StorageReason | null): string {
+  switch (reason) {
+    case 'keyringUnavailable':
+    case 'keyringLocked':
+    case 'keyringSecretMissing':
+      return 'Check keyring again';
+    default:
+      return 'Try again';
   }
 }
 

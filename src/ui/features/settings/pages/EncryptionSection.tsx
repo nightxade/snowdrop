@@ -687,11 +687,11 @@ function DangerZone({ admin }: { admin: StorageAdmin }) {
             </>
           }
         >
-          <ul className={styles.list}>
+          <ul className={styles.list} style={{ marginBottom: 'var(--snowdrop-space-5)' }}>
             <li>
-              <strong>Deleted:</strong> this computer's encrypted signal-cli vault (keys, sessions,
-              contacts and message history), your recovery key, passphrase and keyring entry, and
-              Snowdrop's own settings, spaces and drafts in this browser.
+              <strong>Deleted:</strong> this computer&rsquo;s encrypted signal-cli vault (keys,
+              sessions, contacts and message history), your recovery key, passphrase and keyring
+              entry, and Snowdrop&rsquo;s own settings, spaces and drafts in this browser.
             </li>
             <li>
               <strong>Not deleted:</strong> your Signal account. This computer stays listed as a

@@ -216,17 +216,30 @@ describe('UnlockScreen: no recovery and no passphrase', () => {
 });
 
 describe('UnlockScreen: try again', () => {
-  it('re-checks status and reports it upward', async () => {
+  it('names the secondary action "Check keyring again" for a keyring-related reason, and re-checks status', async () => {
     const onStatusChange = vi.fn();
     const status = vi.fn().mockResolvedValue({ ...baseStatus, state: 'unlocked', reason: null });
     render(<UnlockScreen status={baseStatus} admin={fakeAdmin({ status })} onStatusChange={onStatusChange} />);
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Check keyring again' }));
       await Promise.resolve();
     });
     expect(status).toHaveBeenCalledTimes(1);
     expect(onStatusChange).toHaveBeenCalledWith(
       expect.objectContaining({ state: 'unlocked' }),
     );
+  });
+
+  it('keeps the generic "Try again" label for a non-keyring reason', () => {
+    render(
+      <UnlockScreen
+        status={{ ...baseStatus, reason: 'passphraseRequired', hasPassphrase: true }}
+        admin={fakeAdmin()}
+        onStatusChange={() => undefined}
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Check keyring again' })).toBeNull();
   });
 });

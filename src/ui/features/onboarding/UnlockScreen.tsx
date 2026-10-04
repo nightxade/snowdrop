@@ -5,7 +5,7 @@ import { friendlyErrorMessage } from '@/ui/lib/connectionErrors';
 import { Button, Checkbox, Modal, Segmented, TextInput } from '@/ui/primitives';
 import { OnboardingShell } from './OnboardingShell';
 import setupStyles from './Setup.module.css';
-import { errorKind, unlockReasonCopy } from './storageCopy';
+import { errorKind, tryAgainLabel, unlockReasonCopy } from './storageCopy';
 import styles from './Storage.module.css';
 
 export interface UnlockScreenProps {
@@ -66,8 +66,10 @@ export function UnlockScreen({ status, admin, onStatusChange }: UnlockScreenProp
     <OnboardingShell>
       <section className={setupStyles.card} aria-labelledby="unlock-title" data-snowdrop="unlock">
         <h2 id="unlock-title" className={setupStyles.title}>
-          <LockKeyhole size={18} aria-hidden style={{ verticalAlign: '-3px', marginRight: 8 }} />
-          {reason.title}
+          <span className={styles.titleRow}>
+            <LockKeyhole size={18} aria-hidden />
+            {reason.title}
+          </span>
         </h2>
         <p className={setupStyles.lede}>{reason.body}</p>
         {canUnlock ? (
@@ -125,7 +127,7 @@ export function UnlockScreen({ status, admin, onStatusChange }: UnlockScreenProp
                 disabled={checking}
                 onClick={() => void tryAgain()}
               >
-                Try again
+                {tryAgainLabel(status.reason)}
               </Button>
             </div>
           </form>
@@ -202,7 +204,7 @@ function StartFreshDialog({
         if (!open && !busy) onClose();
       }}
       title="Start fresh?"
-      description="This erases this computer's encrypted data for good. You'll re-link to your phone."
+      description="This erases this computer’s encrypted data for good. You’ll re-link to your phone."
       footer={
         <>
           <Button variant="ghost" disabled={busy} onClick={onClose}>
