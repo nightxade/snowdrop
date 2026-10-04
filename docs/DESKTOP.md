@@ -54,6 +54,36 @@ products stay inside `~/Downloads/aligns` instead of `~/.cargo` or
 `~/.cache`. Plain `npm run tauri:dev` / `npm run tauri:build` work fine
 without sourcing it.
 
+## Media playback (GStreamer)
+
+The AppImage bundles its own copy of WebKitGTK, which can't see GStreamer
+plugins installed on the host system — even when they're present (e.g.
+`gst-plugins-base`/`good`/`libav`), the sandboxed WebKitGTK looks in its own
+bundled plugin path first and doesn't find `appsink` and friends, so playing
+an audio/video attachment logged `GStreamer element appsink not found` at
+launch and attachments didn't play.
+
+Fix: `bundle.linux.appimage.bundleMediaFramework: true`
+(`src-tauri/tauri.conf.json`) tells `tauri build` to bundle GStreamer's own
+base/good/bad/ugly plugins and libav *inside* the AppImage, next to the
+bundled WebKitGTK, so playback works regardless of what's on the host. This
+is why the AppImage is noticeably bigger — about **100 MB without it, ~168
+MB with it** (0.1.0, x86_64) — the GStreamer plugin set and its codec
+libraries dominate the difference. `tauri.bundled.conf.json` (the
+`tauri:build:bundled` overlay) doesn't touch `bundle.linux`, so it inherits
+the same setting.
+
+The `.deb` doesn't bundle anything (it links the *system* WebKitGTK and
+GStreamer), so it instead declares the plugin packages as dependencies —
+`gstreamer1.0-plugins-base`, `gstreamer1.0-plugins-good`,
+`gstreamer1.0-libav` — in `bundle.linux.deb.depends`, alongside the
+WebKitGTK/GTK dependencies `cargo tauri build` already adds automatically.
+
+Verified on 0.1.0: running the new AppImage for ~10 s (fresh
+`XDG_DATA_HOME`/`XDG_CONFIG_HOME`/`XDG_CACHE_HOME`) produces no
+`appsink`/`appimagesink` warning on stderr, where the pre-fix build logged
+it at launch.
+
 ## Downloading signal-cli (the default)
 
 `src-tauri/signal-cli.json` is the **one pinned source of truth**, read by
