@@ -17,6 +17,7 @@ export { probeDaemon, probeTransport, type ProbeResult } from './probe';
 // (src/platform/tauri) reuse it to validate their own IPC replies at the
 // boundary, the same way this adapter validates daemon JSON.
 export {
+  array,
   bool,
   decode,
   isRecord,

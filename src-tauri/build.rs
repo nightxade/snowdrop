@@ -16,6 +16,15 @@ fn main() {
             "desktop_info",
             "open_external",
             "storage_keyring_status",
+            "storage_status",
+            "storage_setup",
+            "storage_unlock",
+            "storage_create_recovery",
+            "storage_remove_recovery",
+            "storage_set_passphrase",
+            "storage_enroll_keyring",
+            "storage_webcache_key",
+            "storage_erase_all",
         ])),
     )
     .expect("failed to run tauri-build");

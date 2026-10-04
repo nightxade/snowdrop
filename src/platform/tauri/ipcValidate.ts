@@ -9,6 +9,7 @@
  * crash or a field silently reading `undefined`.
  */
 import {
+  array,
   bool,
   decode,
   isRecord,
@@ -20,11 +21,15 @@ import {
   type RpcReply,
 } from '@/core/backend/signal-cli';
 import type {
+  CreateRecoveryResult,
   DesktopInfo,
+  EraseResult,
   InstallStatus,
   KeyringStatus,
   PinnedRelease,
   ResolvedProgram,
+  StorageReason,
+  StorageStatus,
 } from '@/core/backend';
 import type { CommandError } from './ipc';
 
@@ -117,6 +122,54 @@ const keyringStatusShape: Decoder<KeyringStatus> = object({
 
 export function validateKeyringStatus(command: string, value: unknown): KeyringStatus {
   return validated(command, keyringStatusShape, value);
+}
+
+const storageReasonShape: Decoder<StorageReason> = oneOf([
+  'keyringUnavailable',
+  'keyringLocked',
+  'keyringSecretMissing',
+  'passphraseRequired',
+  'noRamDir',
+  'alreadyRunning',
+]);
+
+const storageStatusShape: Decoder<StorageStatus> = object({
+  state: oneOf(['needsSetup', 'locked', 'unlocked', 'unavailable']),
+  reason: nullable(storageReasonShape),
+  hasRecovery: bool,
+  hasPassphrase: bool,
+  hasKeyring: bool,
+  keyringBackend: oneOf(['secret-service', 'macos-keychain', 'windows']),
+  legacyPlaintext: bool,
+  vaultDisabled: bool,
+});
+
+export function validateStorageStatus(command: string, value: unknown): StorageStatus {
+  return validated(command, storageStatusShape, value);
+}
+
+const createRecoveryResultShape: Decoder<CreateRecoveryResult> = object({
+  code: str,
+  status: storageStatusShape,
+});
+
+export function validateCreateRecoveryResult(command: string, value: unknown): CreateRecoveryResult {
+  return validated(command, createRecoveryResultShape, value);
+}
+
+const eraseResultShape: Decoder<EraseResult> = object({
+  status: storageStatusShape,
+  failures: array(str),
+});
+
+export function validateEraseResult(command: string, value: unknown): EraseResult {
+  return validated(command, eraseResultShape, value);
+}
+
+const webcacheKeyResultShape: Decoder<{ keyBase64: string }> = object({ keyBase64: str });
+
+export function validateWebcacheKeyResult(command: string, value: unknown): { keyBase64: string } {
+  return validated(command, webcacheKeyResultShape, value);
 }
 
 export interface RustInstallProgress {

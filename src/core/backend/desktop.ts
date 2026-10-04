@@ -15,6 +15,15 @@ export type DesktopErrorKind =
   | 'keyring-unavailable'
   | 'keyring-locked'
   | 'keyring-corrupt'
+  | 'keyring-secret-missing'
+  | 'auth-failed'
+  | 'slot-missing'
+  | 'keys-file-corrupt'
+  | 'recovery-code-typo'
+  | 'vault-corrupt'
+  | 'vault-blob-corrupt'
+  | 'no-ram-dir'
+  | 'already-running'
   | 'internal';
 
 export interface ResolvedProgram {
@@ -85,6 +94,52 @@ export interface KeyringStatus {
 export type InstallResult =
   | { ok: true; status: InstallStatus }
   | { ok: false; kind: DesktopErrorKind; message: string };
+
+/** `storage_setup`'s `mode` (src-tauri/src/storage.rs). */
+export type StorageSetupMode = 'keyring' | 'passphrase';
+
+/** `storage_unlock`'s `method` (src-tauri/src/storage.rs). */
+export type StorageUnlockMethod = 'recovery' | 'passphrase';
+
+/** Why storage is `'locked'` or `'unavailable'` (`StorageStatus.reason`). */
+export type StorageReason =
+  | 'keyringUnavailable'
+  | 'keyringLocked'
+  | 'keyringSecretMissing'
+  | 'passphraseRequired'
+  | 'noRamDir'
+  | 'alreadyRunning';
+
+/**
+ * The storage state machine's status (src-tauri/src/storage.rs), the one
+ * shape every `storage_*` command returns so the UI always re-renders from a
+ * single source of truth (docs/ENCRYPTION.md).
+ */
+export interface StorageStatus {
+  state: 'needsSetup' | 'locked' | 'unlocked' | 'unavailable';
+  /** Only present for `'locked'`/`'unavailable'`. */
+  reason: StorageReason | null;
+  hasRecovery: boolean;
+  hasPassphrase: boolean;
+  hasKeyring: boolean;
+  keyringBackend: 'secret-service' | 'macos-keychain' | 'windows';
+  /** An unencrypted `signal-cli/` dir from before the vault existed. */
+  legacyPlaintext: boolean;
+  /** `SNOWDROP_SIGNAL_CLI_DATA`, or an external daemon, is in use. */
+  vaultDisabled: boolean;
+}
+
+/** `storage_create_recovery`'s reply: the plaintext code, shown once. */
+export interface CreateRecoveryResult {
+  code: string;
+  status: StorageStatus;
+}
+
+/** `storage_erase_all`'s reply: best-effort, so failures are reported, not thrown. */
+export interface EraseResult {
+  status: StorageStatus;
+  failures: string[];
+}
 
 export interface DesktopAdmin {
   /** Checks a configuration without disturbing the running signal-cli. */

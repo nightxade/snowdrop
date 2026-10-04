@@ -181,6 +181,23 @@ impl SecretStore for FakeStore {
     }
 }
 
+/// Lets a `SecretStore` be shared by multiple owners — e.g. tests that need
+/// two `storage::StorageService`s to see the same fake keyring, simulating
+/// "the same OS keyring, a different process".
+impl<T: SecretStore + ?Sized> SecretStore for std::sync::Arc<T> {
+    fn get(&self) -> Result<Option<String>, Error> {
+        self.as_ref().get()
+    }
+
+    fn set(&self, value: &str) -> Result<(), Error> {
+        self.as_ref().set(value)
+    }
+
+    fn delete(&self) -> Result<(), Error> {
+        self.as_ref().delete()
+    }
+}
+
 fn encode_key(key: &Key32) -> String {
     STANDARD.encode(key.as_bytes())
 }

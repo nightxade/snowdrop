@@ -49,6 +49,17 @@ const KINDS: Record<CommandError['kind'], SignalCliErrorKind> = {
   'keyring-unavailable': 'internal',
   'keyring-locked': 'internal',
   'keyring-corrupt': 'internal',
+  // Only ever returned by the storage_* commands (src-tauri/src/storage.rs),
+  // never connect/request.
+  'keyring-secret-missing': 'internal',
+  'auth-failed': 'internal',
+  'slot-missing': 'internal',
+  'keys-file-corrupt': 'internal',
+  'recovery-code-typo': 'internal',
+  'vault-corrupt': 'internal',
+  'vault-blob-corrupt': 'internal',
+  'no-ram-dir': 'internal',
+  'already-running': 'internal',
   internal: 'internal',
 };
 

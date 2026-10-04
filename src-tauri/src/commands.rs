@@ -1,9 +1,11 @@
 //! The Tauri commands the webview may call (each one listed in
 //! capabilities/main.json; build.rs makes the rest uncallable).
 
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine;
 use serde::Serialize;
 use serde_json::{Map, Value};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -12,9 +14,11 @@ use crate::error::{Error, ErrorKind};
 use crate::secrets::{self, KeyringStatus, KeyringStore};
 use crate::service::{ConnectInfo, ProbeResult, Service};
 use crate::signal_cli_install::{self, InstallState, InstallStatus, PinnedAsset};
+use crate::storage::{SetupMode, StorageService, StorageStatus, UnlockMethod};
 
 type Svc<'a> = State<'a, Arc<Service>>;
 type Install<'a> = State<'a, Arc<InstallState>>;
+type Storage<'a> = State<'a, Mutex<StorageService>>;
 
 /// Longest a single call may wait (finishLink waits for the phone to scan).
 const MAX_TIMEOUT: Duration = Duration::from_secs(15 * 60);
@@ -192,6 +196,125 @@ pub fn open_external(url: String) -> Result<(), Error> {
 #[tauri::command]
 pub fn storage_keyring_status() -> KeyringStatus {
     secrets::status(&KeyringStore::new())
+}
+
+/// `vaultDisabled` has two halves: `SNOWDROP_SIGNAL_CLI_DATA` (static,
+/// `storage::StorageService` already knows it) and an external daemon
+/// currently connected (live, only `Service` knows it — task 4b's wiring
+/// lives there, not in `storage.rs`). Every storage command ORs the second
+/// half in here before handing the status to the UI.
+fn with_live_vault_disabled(mut status: StorageStatus, service: &Service) -> StorageStatus {
+    status.vault_disabled = status.vault_disabled || service.is_external_active();
+    status
+}
+
+#[tauri::command]
+pub fn storage_status(storage: Storage<'_>, service: Svc<'_>) -> StorageStatus {
+    let mut storage = storage.lock().expect("storage lock");
+    with_live_vault_disabled(storage.status(), &service)
+}
+
+#[tauri::command]
+pub fn storage_setup(
+    storage: Storage<'_>,
+    service: Svc<'_>,
+    mode: SetupMode,
+    passphrase: Option<String>,
+) -> Result<StorageStatus, Error> {
+    let mut storage = storage.lock().expect("storage lock");
+    let status = storage.setup_new(mode, passphrase.as_deref())?;
+    Ok(with_live_vault_disabled(status, &service))
+}
+
+#[tauri::command]
+pub fn storage_unlock(
+    storage: Storage<'_>,
+    service: Svc<'_>,
+    method: UnlockMethod,
+    secret: String,
+    remember: bool,
+) -> Result<StorageStatus, Error> {
+    let mut storage = storage.lock().expect("storage lock");
+    let status = storage.unlock(method, &secret, remember)?;
+    Ok(with_live_vault_disabled(status, &service))
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateRecoveryResult {
+    /// The plaintext recovery code, shown exactly once. Never log this.
+    pub code: String,
+    pub status: StorageStatus,
+}
+
+#[tauri::command]
+pub fn storage_create_recovery(storage: Storage<'_>, service: Svc<'_>) -> Result<CreateRecoveryResult, Error> {
+    let mut storage = storage.lock().expect("storage lock");
+    let (code, status) = storage.create_recovery()?;
+    Ok(CreateRecoveryResult { code: code.to_string(), status: with_live_vault_disabled(status, &service) })
+}
+
+#[tauri::command]
+pub fn storage_remove_recovery(storage: Storage<'_>, service: Svc<'_>) -> Result<StorageStatus, Error> {
+    let mut storage = storage.lock().expect("storage lock");
+    let status = storage.remove_recovery()?;
+    Ok(with_live_vault_disabled(status, &service))
+}
+
+#[tauri::command]
+pub fn storage_set_passphrase(
+    storage: Storage<'_>,
+    service: Svc<'_>,
+    passphrase: Option<String>,
+) -> Result<StorageStatus, Error> {
+    let mut storage = storage.lock().expect("storage lock");
+    let status = storage.set_passphrase(passphrase.as_deref())?;
+    Ok(with_live_vault_disabled(status, &service))
+}
+
+#[tauri::command]
+pub fn storage_enroll_keyring(storage: Storage<'_>, service: Svc<'_>) -> Result<StorageStatus, Error> {
+    let mut storage = storage.lock().expect("storage lock");
+    let status = storage.enroll_keyring()?;
+    Ok(with_live_vault_disabled(status, &service))
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebcacheKeyResult {
+    /// Base64 of the 32-byte web cache subkey.
+    pub key_base64: String,
+}
+
+/// Hands the webview the web cache key once, right after unlock
+/// (docs/ENCRYPTION.md, "Web cache"). This looks like it defeats the vault,
+/// but it doesn't: any code running inside the webview could already read
+/// the *decrypted* cache it's about to use this key to decrypt, so handing
+/// over the key itself exposes nothing a compromised webview doesn't already
+/// have.
+#[tauri::command]
+pub fn storage_webcache_key(storage: Storage<'_>) -> Result<WebcacheKeyResult, Error> {
+    let storage = storage.lock().expect("storage lock");
+    let key = storage
+        .webcache_key()
+        .ok_or_else(|| Error::new(ErrorKind::Config, "Storage must be unlocked to read the web cache key."))?;
+    Ok(WebcacheKeyResult { key_base64: STANDARD.encode(key) })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EraseResult {
+    pub status: StorageStatus,
+    /// Best-effort: every item is attempted regardless, and anything that
+    /// failed is named here rather than left for the user to discover later.
+    pub failures: Vec<String>,
+}
+
+#[tauri::command]
+pub fn storage_erase_all(storage: Storage<'_>, service: Svc<'_>, confirm: String) -> Result<EraseResult, Error> {
+    let mut storage = storage.lock().expect("storage lock");
+    let (status, failures) = storage.erase_all(&confirm)?;
+    Ok(EraseResult { status: with_live_vault_disabled(status, &service), failures })
 }
 
 pub fn is_external_url(url: &str) -> bool {

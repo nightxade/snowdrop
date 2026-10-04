@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-storage-status"
+description = "Enables the storage_status command without any pre-configured scope."
+commands.allow = ["storage_status"]
+
+[[permission]]
+identifier = "deny-storage-status"
+description = "Denies the storage_status command without any pre-configured scope."
+commands.deny = ["storage_status"]

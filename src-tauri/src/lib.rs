@@ -15,6 +15,7 @@ pub mod process;
 pub mod secrets;
 pub mod service;
 pub mod signal_cli_install;
+pub mod storage;
 pub mod vault;
 
 use std::path::PathBuf;
@@ -75,9 +76,8 @@ pub fn run() {
             // Holds a downloaded signal-cli and (below) its own data dir; no
             // other local account should be able to read either.
             config::secure_dir(&app_data_dir)?;
-            let data_dir = std::env::var_os("SNOWDROP_SIGNAL_CLI_DATA")
-                .map(PathBuf::from)
-                .unwrap_or(app_data_dir.join("signal-cli"));
+            let signal_cli_data_override = std::env::var_os("SNOWDROP_SIGNAL_CLI_DATA");
+            let data_dir = signal_cli_data_override.clone().map(PathBuf::from).unwrap_or(app_data_dir.join("signal-cli"));
             let log_file = app.path().app_log_dir().ok().map(|d| d.join("signal-cli.log"));
             let paths = Paths {
                 app_data_dir: app_data_dir.clone(),
@@ -85,8 +85,18 @@ pub fn run() {
                 log_file: log_file.clone(),
                 bundled: config::bundled_sidecar(),
             };
-            app.manage(AppPaths { data_dir, log_file });
+            app.manage(AppPaths { data_dir, log_file: log_file.clone() });
             app.manage(Service::new(paths, Arc::new(WebviewSink(handle))));
+
+            // The storage state machine (docs/ENCRYPTION.md): its own lock,
+            // its own keys.json, held behind a std Mutex since every command
+            // that touches it is a brief, synchronous critical section.
+            let storage_paths = storage::StoragePaths::new(app_data_dir.clone(), log_file, signal_cli_data_override.is_some());
+            let mut storage_service =
+                storage::StorageService::new(storage_paths, secrets::KeyringStore::new(), Box::new(vault::resolve_runtime_dir));
+            storage_service.setup()?;
+            app.manage(std::sync::Mutex::new(storage_service));
+
             app.manage(Arc::new(InstallState::new(app_data_dir)));
             Ok(())
         })
@@ -104,6 +114,15 @@ pub fn run() {
             commands::desktop_info,
             commands::open_external,
             commands::storage_keyring_status,
+            commands::storage_status,
+            commands::storage_setup,
+            commands::storage_unlock,
+            commands::storage_create_recovery,
+            commands::storage_remove_recovery,
+            commands::storage_set_passphrase,
+            commands::storage_enroll_keyring,
+            commands::storage_webcache_key,
+            commands::storage_erase_all,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Snowdrop");

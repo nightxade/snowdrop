@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-storage-create-recovery"
+description = "Enables the storage_create_recovery command without any pre-configured scope."
+commands.allow = ["storage_create_recovery"]
+
+[[permission]]
+identifier = "deny-storage-create-recovery"
+description = "Denies the storage_create_recovery command without any pre-configured scope."
+commands.deny = ["storage_create_recovery"]

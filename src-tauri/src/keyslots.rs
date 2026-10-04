@@ -248,6 +248,20 @@ pub struct Locked {
 }
 
 impl Locked {
+    /// Whether this file has a keyring slot at all — the storage service
+    /// (`storage.rs`) only ever attempts a silent unlock when this is true.
+    pub fn has_keyring(&self) -> bool {
+        self.file.slot(SlotKind::Keyring).is_some()
+    }
+
+    pub fn has_recovery(&self) -> bool {
+        self.file.slot(SlotKind::Recovery).is_some()
+    }
+
+    pub fn has_passphrase(&self) -> bool {
+        self.file.slot(SlotKind::Passphrase).is_some()
+    }
+
     pub fn unlock_keyring<S: SecretStore>(&self, slot: &KeyringSlot<S>) -> Result<Unlocked, Error> {
         let keyring_slot = self.file.slot(SlotKind::Keyring).ok_or_else(|| Error::new(ErrorKind::SlotMissing, "keys.json has no keyring slot."))?;
         let kek = slot
@@ -304,6 +318,24 @@ impl Unlocked {
 
     pub fn webcache_key(&self) -> Key32 {
         hkdf_subkey(&self.dek, "snowdrop/webcache/v1")
+    }
+
+    /// The vault id bound into this `keys.json`'s AAD — also the id every
+    /// vault manifest/blob must be opened with (see `vault::Vault::open`).
+    pub fn vault_id(&self) -> Result<[u8; VAULT_ID_LEN], Error> {
+        self.file.vault_id_bytes()
+    }
+
+    pub fn has_keyring(&self) -> bool {
+        self.file.slot(SlotKind::Keyring).is_some()
+    }
+
+    pub fn has_recovery(&self) -> bool {
+        self.file.slot(SlotKind::Recovery).is_some()
+    }
+
+    pub fn has_passphrase(&self) -> bool {
+        self.file.slot(SlotKind::Passphrase).is_some()
     }
 
     /// Generates a fresh recovery code, replacing any existing recovery

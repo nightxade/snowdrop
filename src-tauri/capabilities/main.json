@@ -21,6 +21,15 @@
     "allow-signal-cli-install-cancel",
     "allow-desktop-info",
     "allow-open-external",
-    "allow-storage-keyring-status"
+    "allow-storage-keyring-status",
+    "allow-storage-status",
+    "allow-storage-setup",
+    "allow-storage-unlock",
+    "allow-storage-create-recovery",
+    "allow-storage-remove-recovery",
+    "allow-storage-set-passphrase",
+    "allow-storage-enroll-keyring",
+    "allow-storage-webcache-key",
+    "allow-storage-erase-all"
   ]
 }

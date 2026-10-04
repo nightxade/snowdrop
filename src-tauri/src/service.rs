@@ -153,6 +153,17 @@ impl Service {
         self.paths.bundled.as_ref()
     }
 
+    /// Whether the active backend (if any) is an external daemon rather than
+    /// a managed child — used for `StorageStatus::vault_disabled`
+    /// (docs/ENCRYPTION.md: external-daemon mode is explicitly "not covered"
+    /// by the vault; the user owns that data themselves). A `try_lock` that
+    /// doesn't succeed (a connect/disconnect briefly in flight) reads as
+    /// "not external", which only means the flag can lag by the instant of
+    /// that one call — never worth blocking a status read over.
+    pub fn is_external_active(&self) -> bool {
+        self.active.try_lock().map(|g| matches!(&*g, Some(Active::External { .. }))).unwrap_or(false)
+    }
+
     pub fn locate(&self, binary_path: Option<&str>) -> Result<ResolvedBinary, Error> {
         let downloaded = crate::signal_cli_install::installed_binary(&self.paths.app_data_dir);
         config::resolve_binary(
