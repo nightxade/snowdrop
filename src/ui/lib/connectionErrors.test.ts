@@ -47,6 +47,12 @@ describe('friendlyErrorMessage', () => {
     );
   });
 
+  it('has plain copy for a locked vault', () => {
+    expect(friendlyErrorMessage('storage-locked')).toBe(
+      'Local storage is locked. Unlock it to connect.',
+    );
+  });
+
   it('falls back to a safe default for an empty detail or an unknown kind', () => {
     expect(friendlyErrorMessage('not-installed', '')).toBe("Snowdrop couldn't find signal-cli.");
     expect(friendlyErrorMessage('something-new', 'whatever')).toBe(

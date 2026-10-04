@@ -60,6 +60,11 @@ const KINDS: Record<CommandError['kind'], SignalCliErrorKind> = {
   'vault-blob-corrupt': 'internal',
   'no-ram-dir': 'internal',
   'already-running': 'internal',
+  // Returned by `connect` itself (not just the storage_* commands) when
+  // storage is locked/needs setup: mapped to 'config' so a subscription
+  // retry loop stops immediately instead of backing off forever (same as
+  // 'not-installed'/'config') — unlocking needs the user, not a retry.
+  'storage-locked': 'config',
   internal: 'internal',
 };
 

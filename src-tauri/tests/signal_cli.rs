@@ -9,6 +9,7 @@ use snowdrop_lib::error::ErrorKind;
 use snowdrop_lib::events::HeldEvent;
 use snowdrop_lib::process::{Backoff, ProcessOptions, ProcessState, RpcProcess};
 use snowdrop_lib::service::{EventSink, Paths, Service, StreamState, Timeouts};
+use snowdrop_lib::vault_bridge::VaultBridge;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
@@ -92,6 +93,7 @@ fn service(dir: &Path, recorder: Arc<Recorder>) -> Arc<Service> {
         },
         recorder,
         Timeouts { backoff: fast_backoff(), grace: Duration::from_secs(2), ..Timeouts::default() },
+        VaultBridge::disabled(),
     )
 }
 
@@ -348,6 +350,7 @@ async fn real_signal_cli_speaks_json_rpc_over_stdio() {
         },
         recorder.clone(),
         Timeouts { backoff: fast_backoff(), grace: Duration::from_secs(5), ..Timeouts::default() },
+        VaultBridge::disabled(),
     );
     let bundled = ConnectConfig::Spawn { binary_path: None, account: None };
     let probe = svc.probe(bundled.clone()).await.unwrap();
@@ -367,4 +370,60 @@ async fn real_signal_cli_speaks_json_rpc_over_stdio() {
     let started = Instant::now();
     svc.shutdown().await;
     assert!(started.elapsed() < Duration::from_secs(10));
+}
+
+/// One pre-populated vault plus the `(Vault, PathBuf, InstanceLock)` triple a
+/// real `StorageService::vault_session_parts()` would hand over — built
+/// straight from `Vault`/`InstanceLock`, so this test never needs a real
+/// `StorageService` or keyring. Mirrors `vault_bridge`'s own unit test
+/// fixture, kept here too since it exercises the vault through a real
+/// `Service` and the fake signal-cli rather than in isolation.
+fn vault_fixture(dir: &Path) -> snowdrop_lib::storage::VaultSessionParts {
+    use snowdrop_lib::aead::Key32;
+    use snowdrop_lib::vault::{InstanceLock, Vault, VAULT_ID_LEN};
+    let vault = Vault::open(&dir.join("vault"), Key32::random(), [1u8; VAULT_ID_LEN]).unwrap();
+    let lock = InstanceLock::acquire(&dir.join("app-data")).unwrap();
+    (vault, dir.join("runtime"), lock)
+}
+
+/// End to end through a real `Service`: a managed child spawns against the
+/// vault's runtime dir (not `paths.data_dir`), and `shutdown` stops it
+/// *before* the vault's final sync and wipe — if it stopped the other way
+/// round, the still-running fake signal-cli would still hold `fake.pid` open
+/// in the runtime dir while the vault wiped it out from under it.
+#[tokio::test(flavor = "multi_thread")]
+async fn vault_backed_service_spawns_into_the_runtime_dir_and_stops_signal_cli_before_wiping_it() {
+    require_node!();
+    let dir = temp_dir("vault-backed");
+    let parts = Mutex::new(Some(vault_fixture(&dir)));
+    let (vault, vault_rx) = VaultBridge::new(false, Box::new(|| true), Box::new(move || parts.lock().unwrap().take()));
+    tokio::spawn(snowdrop_lib::vault_bridge::run_sync_loop(vault.clone(), vault_rx));
+
+    let recorder = Arc::new(Recorder::default());
+    let svc = Service::with_timeouts(
+        Paths {
+            app_data_dir: dir.clone(),
+            data_dir: dir.join("plaintext-should-not-be-used"),
+            log_file: Some(dir.join("signal-cli.log")),
+            bundled: None,
+        },
+        recorder,
+        Timeouts { backoff: fast_backoff(), grace: Duration::from_secs(2), ..Timeouts::default() },
+        vault,
+    );
+    svc.connect(spawn_config()).await.unwrap();
+    // The managed child's pid file landed in the vault's runtime dir, never
+    // in the plaintext fallback (docs/ENCRYPTION.md: "Snowdrop never lets
+    // its folder exist on disk in plaintext").
+    assert!(dir.join("runtime/fake.pid").exists());
+    assert!(!dir.join("plaintext-should-not-be-used").exists());
+    let pid = std::fs::read_to_string(dir.join("runtime/fake.pid")).unwrap();
+
+    svc.shutdown().await;
+    // Stopped, before the runtime dir was wiped out from under it: if the
+    // vault had wiped first, this would either still find the process alive
+    // or (worse) have raced a still-running signal-cli writing to a
+    // directory that was disappearing underneath it.
+    assert!(!PathBuf::from(format!("/proc/{}", pid.trim())).exists(), "signal-cli must have exited before shutdown returns");
+    assert!(!dir.join("runtime").exists(), "the runtime dir must be wiped only after signal-cli stopped");
 }

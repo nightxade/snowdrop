@@ -24,6 +24,12 @@ export type DesktopErrorKind =
   | 'vault-blob-corrupt'
   | 'no-ram-dir'
   | 'already-running'
+  /**
+   * `signal_cli_connect` while storage is `'locked'` or `'needsSetup'`: the
+   * signal-cli vault can't be restored or created yet. The UI should route
+   * to the unlock or setup screen rather than retry.
+   */
+  | 'storage-locked'
   | 'internal';
 
 export interface ResolvedProgram {

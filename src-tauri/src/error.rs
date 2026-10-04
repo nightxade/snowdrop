@@ -60,6 +60,11 @@ pub enum ErrorKind {
     /// `snowdrop.lock` is already held by another process: another Snowdrop
     /// instance is running.
     AlreadyRunning,
+    /// `signal_cli_connect` while storage is `Locked` or `NeedsSetup`: the
+    /// signal-cli vault can't be restored or created yet
+    /// (docs/ENCRYPTION.md, "signal-cli vault"). The UI should route to the
+    /// unlock or setup screen rather than retry.
+    StorageLocked,
     Internal,
 }
 

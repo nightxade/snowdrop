@@ -17,6 +17,7 @@ pub mod service;
 pub mod signal_cli_install;
 pub mod storage;
 pub mod vault;
+pub mod vault_bridge;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -86,7 +87,6 @@ pub fn run() {
                 bundled: config::bundled_sidecar(),
             };
             app.manage(AppPaths { data_dir, log_file: log_file.clone() });
-            app.manage(Service::new(paths, Arc::new(WebviewSink(handle))));
 
             // The storage state machine (docs/ENCRYPTION.md): its own lock,
             // its own keys.json, held behind a std Mutex since every command
@@ -95,8 +95,43 @@ pub fn run() {
             let mut storage_service =
                 storage::StorageService::new(storage_paths, secrets::KeyringStore::new(), Box::new(vault::resolve_runtime_dir));
             storage_service.setup()?;
-            app.manage(std::sync::Mutex::new(storage_service));
 
+            // The signal-cli vault bridge (docs/ENCRYPTION.md, "signal-cli
+            // vault"; task 4b): reaches the storage service it's managed
+            // alongside only through two closures, so `vault_bridge` stays
+            // independent of `storage::StorageService`'s own shape. Managed
+            // as `Mutex<StorageService>` below, same as before this task;
+            // these closures look it up lazily through the `AppHandle`
+            // rather than capturing it directly, so nothing here has to
+            // change how commands.rs reaches it.
+            let vault_disabled = signal_cli_data_override.is_some();
+            let handle_for_unlock = handle.clone();
+            let is_unlocked: vault_bridge::IsUnlocked = Box::new(move || {
+                handle_for_unlock.state::<std::sync::Mutex<storage::StorageService>>().lock().expect("storage lock").webcache_key().is_some()
+            });
+            let handle_for_parts = handle.clone();
+            let take_session_parts: vault_bridge::TakeSessionParts = Box::new(move || {
+                handle_for_parts.state::<std::sync::Mutex<storage::StorageService>>().lock().expect("storage lock").vault_session_parts()
+            });
+            let (vault, vault_rx) = vault_bridge::VaultBridge::new(vault_disabled, is_unlocked, take_session_parts);
+            tauri::async_runtime::spawn(vault_bridge::run_sync_loop(vault.clone(), vault_rx));
+
+            let service = Service::new(paths, Arc::new(WebviewSink(handle)), vault.clone());
+
+            // Erase hook (docs/ENCRYPTION.md, "Erase"): stop signal-cli, then
+            // discard the vault session *without* a final sync — erasing
+            // can't be allowed to re-create what it just deleted — before
+            // `storage::StorageService::erase_all` deletes the vault and
+            // runtime dirs itself.
+            let service_for_erase = service.clone();
+            let vault_for_erase = vault.clone();
+            storage_service.add_on_erase(move || {
+                tauri::async_runtime::block_on(service_for_erase.stop_backend());
+                vault_for_erase.discard();
+            });
+
+            app.manage(service);
+            app.manage(std::sync::Mutex::new(storage_service));
             app.manage(Arc::new(InstallState::new(app_data_dir)));
             Ok(())
         })

@@ -51,6 +51,7 @@ const GENERIC_MESSAGES: Record<string, DetailMessage> = {
   'keyring-unavailable': () => 'No keyring service is available on this system.',
   'keyring-locked': () => 'The keyring is locked. Unlock it and try again.',
   'keyring-corrupt': () => "The keyring entry Snowdrop stored isn't valid.",
+  'storage-locked': () => 'Local storage is locked. Unlock it to connect.',
   internal: (detail) =>
     /no space/iu.test(detail)
       ? "Couldn't save signal-cli: the disk may be full."

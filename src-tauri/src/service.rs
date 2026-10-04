@@ -18,6 +18,7 @@ use crate::events::{EventLog, HeldEvent};
 use crate::external::{ExternalDaemon, StreamUpdate, CURSOR_PREFIX};
 use crate::jsonrpc::receive_payload;
 use crate::process::{Backoff, ProcessOptions, ProcessState, RpcProcess};
+use crate::vault_bridge::{self, VaultBridge};
 
 /// Where incoming events and stream state go (the webview, or a test).
 pub trait EventSink: Send + Sync {
@@ -100,6 +101,11 @@ pub struct Service {
     active: tokio::sync::Mutex<Option<Active>>,
     me: Weak<Service>,
     timeouts: Timeouts,
+    /// The signal-cli vault (docs/ENCRYPTION.md, "signal-cli vault"; task
+    /// 4b): where to spawn a managed child's `--config` dir, sync triggers,
+    /// on-demand media, and the vault half of shutdown. A no-op pass-through
+    /// when the vault is disabled ([`VaultBridge::disabled`]).
+    vault: Arc<VaultBridge>,
 }
 
 #[derive(Debug, Clone)]
@@ -129,11 +135,11 @@ fn new_run_id() -> String {
 }
 
 impl Service {
-    pub fn new(paths: Paths, sink: Arc<dyn EventSink>) -> Arc<Self> {
-        Self::with_timeouts(paths, sink, Timeouts::default())
+    pub fn new(paths: Paths, sink: Arc<dyn EventSink>, vault: Arc<VaultBridge>) -> Arc<Self> {
+        Self::with_timeouts(paths, sink, Timeouts::default(), vault)
     }
 
-    pub fn with_timeouts(paths: Paths, sink: Arc<dyn EventSink>, timeouts: Timeouts) -> Arc<Self> {
+    pub fn with_timeouts(paths: Paths, sink: Arc<dyn EventSink>, timeouts: Timeouts, vault: Arc<VaultBridge>) -> Arc<Self> {
         Arc::new_cyclic(|me| Self {
             paths,
             sink,
@@ -142,6 +148,7 @@ impl Service {
             active: tokio::sync::Mutex::new(None),
             me: me.clone(),
             timeouts,
+            vault,
         })
     }
 
@@ -224,14 +231,17 @@ impl Service {
             ConnectConfig::Spawn { binary_path, account } => {
                 let account = account.as_deref().map(str::trim).filter(|a| !a.is_empty()).map(config::validate_account).transpose()?;
                 let binary = self.locate(binary_path.as_deref())?;
-                std::fs::create_dir_all(&self.paths.data_dir).map_err(|e| {
-                    Error::new(ErrorKind::Internal, format!("Couldn't create {}: {e}", self.paths.data_dir.display()))
-                })?;
+                // The vault's RAM-backed runtime dir once storage is unlocked
+                // and the vault applies, or `paths.data_dir` unchanged when
+                // it's disabled (docs/ENCRYPTION.md, "signal-cli vault").
+                let config_dir = self.vault.spawn_config_dir(&self.paths.data_dir)?;
+                std::fs::create_dir_all(&config_dir)
+                    .map_err(|e| Error::new(ErrorKind::Internal, format!("Couldn't create {}: {e}", config_dir.display())))?;
                 // Keys and message history live here; no other local account should read them.
-                config::secure_dir(&self.paths.data_dir)?;
+                config::secure_dir(&config_dir)?;
                 let options = ProcessOptions {
                     program: binary.path.clone(),
-                    args: config::spawn_args(&self.paths.data_dir, account.as_deref()),
+                    args: config::spawn_args(&config_dir, account.as_deref()),
                     log: self.paths.log_file.clone(),
                     backoff: self.timeouts.backoff.clone(),
                     grace: self.timeouts.grace,
@@ -279,20 +289,43 @@ impl Service {
         }
     }
 
-    /// Stops everything (app exit).
-    pub async fn shutdown(&self) {
+    /// Stops the active backend (if any) without touching the vault — the
+    /// half of shutdown the storage erase hook needs
+    /// (docs/ENCRYPTION.md, "Erase": stop signal-cli, but the vault must
+    /// never sync as part of an erase). [`shutdown`](Self::shutdown) is this
+    /// plus the vault's own stop, in that order.
+    pub async fn stop_backend(&self) {
         let active = self.active.lock().await.take();
         if let Some(active) = active {
             self.stop_active(active).await;
         }
     }
 
+    /// Stops everything (app exit): signal-cli first, waited for, then the
+    /// vault's final sync and wipe (docs/ENCRYPTION.md, "signal-cli vault",
+    /// "When to sync": "On shutdown, while still blocking exit").
+    pub async fn shutdown(&self) {
+        self.stop_backend().await;
+        self.vault.shutdown().await;
+    }
+
     pub async fn request(&self, method: &str, params: Option<Map<String, Value>>, timeout: Duration) -> Result<Value, Error> {
         if RESERVED.contains(&method) {
             return Err(Error::new(ErrorKind::Config, format!("{method} is managed by Snowdrop.")));
         }
+        // Before forwarding: hydrate the attachment into the runtime dir if
+        // the vault has it but the runtime copy was evicted or never
+        // restored (docs/ENCRYPTION.md, "Attachment budget").
+        if method == "getAttachment" {
+            if let Some(id) = params.as_ref().and_then(|p| p.get("id")).and_then(Value::as_str).map(str::to_owned) {
+                let vault = self.vault.clone();
+                tokio::task::spawn_blocking(move || vault.ensure_attachment(&id))
+                    .await
+                    .unwrap_or_else(|e| Err(Error::new(ErrorKind::Internal, format!("vault: attachment hydration task failed: {e}"))))?;
+            }
+        }
         let active = self.active.lock().await;
-        match active.as_ref() {
+        let result = match active.as_ref() {
             None => Err(Error::new(ErrorKind::Unreachable, "signal-cli isn't connected yet.")),
             Some(Active::Child { process, .. }) => {
                 let process = process.clone();
@@ -302,10 +335,19 @@ impl Service {
             Some(Active::External { daemon, .. }) => {
                 let daemon = daemon.clone();
                 drop(active);
-                let method = method.to_owned();
-                blocking(move || daemon.request(&method, params.as_ref(), timeout)).await
+                let method_owned = method.to_owned();
+                blocking(move || daemon.request(&method_owned, params.as_ref(), timeout)).await
+            }
+        };
+        // After a successful send*/updateGroup/updateContact/finishLink:
+        // mark the vault dirty (docs/ENCRYPTION.md, "When to sync"). A no-op
+        // when the vault is disabled or no session has been built yet.
+        if let Ok(reply) = &result {
+            if reply.get("error").is_none() && vault_bridge::triggers_sync(method) {
+                self.vault.trigger();
             }
         }
+        result
     }
 
     /// Starts receiving for `account` (None: single-account signal-cli),
@@ -390,6 +432,9 @@ impl Service {
     /// The UI stored everything up to `cursor`.
     pub fn acknowledge(&self, cursor: &str) {
         self.log.lock().expect("log lock").acknowledge(cursor);
+        // Mark the vault dirty (docs/ENCRYPTION.md, "When to sync": "about
+        // 2s, debounced, after a receive batch is acknowledged").
+        self.vault.trigger();
     }
 
     fn on_notification(&self, method: &str, params: Value) {
@@ -551,6 +596,7 @@ mod tests {
         let svc = Service::new(
             Paths { app_data_dir: PathBuf::new(), data_dir: PathBuf::new(), log_file: None, bundled: None },
             sink.clone(),
+            VaultBridge::disabled(),
         );
         (svc, sink)
     }
