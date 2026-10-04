@@ -18,6 +18,46 @@ type Install<'a> = State<'a, Arc<InstallState>>;
 /// Longest a single call may wait (finishLink waits for the phone to scan).
 const MAX_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 
+/// The only signal-cli JSON-RPC methods `signal_cli_request` will forward.
+///
+/// signal-cli also exposes account-destroying and config methods (register,
+/// unregister, deleteLocalAccountData, updateConfiguration, setPin, removePin,
+/// updateAccount, verify, addDevice, removeDevice, …) that no part of
+/// Snowdrop's UI ever calls. Rather than trust the webview to only ask for
+/// the right thing, this is a positive allow-list: every method here is one
+/// actually called from src/core/backend/signal-cli or src/platform/tauri,
+/// and everything else — known-dangerous or simply unrecognised — is
+/// rejected before it reaches signal-cli. Keep this in sync with those call
+/// sites; if the UI needs a new method, add it here deliberately.
+const ALLOWED_METHODS: &[&str] = &[
+    // Sending messages and conversation actions (SignalCliBackend.ts).
+    "send",
+    "sendTyping",
+    "sendReceipt",
+    "sendReaction",
+    "sendAdminDelete",
+    "sendPinMessage",
+    "sendUnpinMessage",
+    "remoteDelete",
+    "updateContact",
+    "updateGroup",
+    // Directory (directory.ts).
+    "listContacts",
+    "listGroups",
+    // Attachments (attachments.ts).
+    "getAttachment",
+    // Linking and accounts (SignalCliBackend.ts, probe.ts). Never
+    // register/unregister/addDevice/removeDevice: those create or destroy
+    // accounts rather than read or send through an existing one.
+    "startLink",
+    "finishLink",
+    "listAccounts",
+];
+
+fn is_allowed_method(method: &str) -> bool {
+    ALLOWED_METHODS.contains(&method)
+}
+
 #[tauri::command]
 pub async fn signal_cli_connect(service: Svc<'_>, config: ConnectConfig) -> Result<ConnectInfo, Error> {
     service.connect(config).await
@@ -30,8 +70,8 @@ pub async fn signal_cli_request(
     params: Option<Map<String, Value>>,
     timeout_ms: Option<u64>,
 ) -> Result<Value, Error> {
-    if method.is_empty() || method.len() > 64 || !method.chars().all(|c| c.is_ascii_alphanumeric()) {
-        return Err(Error::new(ErrorKind::Config, "Invalid method name."));
+    if !is_allowed_method(&method) {
+        return Err(Error::new(ErrorKind::Config, format!("{method} is not a method Snowdrop's UI may call.")));
     }
     let timeout = Duration::from_millis(timeout_ms.unwrap_or(30_000)).min(MAX_TIMEOUT);
     service.request(&method, params, timeout).await
@@ -154,7 +194,7 @@ pub fn is_external_url(url: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::is_external_url;
+    use super::{is_allowed_method, is_external_url, ALLOWED_METHODS};
 
     #[test]
     fn opens_only_web_and_mail_links() {
@@ -162,6 +202,49 @@ mod tests {
         assert!(is_external_url("mailto:a@b.c"));
         for bad in ["file:///etc/passwd", "javascript:alert(1)", "tauri://localhost", "smb://x", "https://a\nb"] {
             assert!(!is_external_url(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn allows_every_method_the_ui_actually_calls() {
+        for method in ALLOWED_METHODS {
+            assert!(is_allowed_method(method), "{method} should be allowed");
+        }
+    }
+
+    /// Account-destroying and config methods must never be reachable from the
+    /// webview, even though signal-cli itself implements them.
+    #[test]
+    fn rejects_account_destroying_and_config_methods() {
+        for method in [
+            "unregister",
+            "deleteLocalAccountData",
+            "updateConfiguration",
+            "removePin",
+            "setPin",
+            "register",
+            "verify",
+            "updateAccount",
+            "addDevice",
+            "removeDevice",
+        ] {
+            assert!(!is_allowed_method(method), "{method} should be rejected");
+        }
+    }
+
+    #[test]
+    fn rejects_unknown_or_malformed_methods() {
+        for method in [
+            "",
+            "Send",
+            "send ",
+            "sendMessage",
+            "subscribeReceive",
+            "unsubscribeReceive",
+            "version",
+            "eval(1)",
+        ] {
+            assert!(!is_allowed_method(method), "{method} should be rejected");
         }
     }
 }

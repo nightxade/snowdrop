@@ -67,6 +67,10 @@ pub fn run() {
             // signal-cli keeps Snowdrop's own data (linked account, keys) apart
             // from any signal-cli you use on the command line.
             let app_data_dir = app.path().app_data_dir()?;
+            std::fs::create_dir_all(&app_data_dir)?;
+            // Holds a downloaded signal-cli and (below) its own data dir; no
+            // other local account should be able to read either.
+            config::secure_dir(&app_data_dir)?;
             let data_dir = std::env::var_os("SNOWDROP_SIGNAL_CLI_DATA")
                 .map(PathBuf::from)
                 .unwrap_or(app_data_dir.join("signal-cli"));

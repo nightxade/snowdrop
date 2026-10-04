@@ -216,6 +216,8 @@ impl Service {
                 std::fs::create_dir_all(&self.paths.data_dir).map_err(|e| {
                     Error::new(ErrorKind::Internal, format!("Couldn't create {}: {e}", self.paths.data_dir.display()))
                 })?;
+                // Keys and message history live here; no other local account should read them.
+                config::secure_dir(&self.paths.data_dir)?;
                 let options = ProcessOptions {
                     program: binary.path.clone(),
                     args: config::spawn_args(&self.paths.data_dir, account.as_deref()),

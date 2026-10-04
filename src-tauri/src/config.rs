@@ -70,6 +70,28 @@ pub(crate) fn is_executable(path: &Path) -> bool {
     path.is_file()
 }
 
+/// Restricts a directory to its owner (unix `0700`): Snowdrop's app data dir
+/// and signal-cli's own data dir hold a linked account's keys and message
+/// history, which no other local account should be able to read. Called
+/// every time the directory is touched, not only when it's first created, so
+/// an install made before this existed gets fixed too.
+#[cfg(unix)]
+pub(crate) fn secure_dir(path: &Path) -> Result<(), Error> {
+    use std::os::unix::fs::PermissionsExt;
+    let mut perm = path
+        .metadata()
+        .map_err(|e| Error::new(ErrorKind::Internal, format!("Couldn't read {}: {e}", path.display())))?
+        .permissions();
+    perm.set_mode(0o700);
+    std::fs::set_permissions(path, perm)
+        .map_err(|e| Error::new(ErrorKind::Internal, format!("Couldn't secure {}: {e}", path.display())))
+}
+
+#[cfg(not(unix))]
+pub(crate) fn secure_dir(_path: &Path) -> Result<(), Error> {
+    Ok(())
+}
+
 /// Validates a configured path: absolute, named signal-cli, an executable file.
 pub fn validate_binary_path(raw: &str) -> Result<PathBuf, Error> {
     let path = PathBuf::from(raw.trim());
@@ -350,5 +372,29 @@ mod tests {
         let external: ConnectConfig = serde_json::from_str(r#"{"mode":"external","url":"http://127.0.0.1:8080"}"#).unwrap();
         assert_eq!(external, ConnectConfig::External { url: "http://127.0.0.1:8080".into() });
         assert!(serde_json::from_str::<ConnectConfig>(r#"{"mode":"shell","cmd":"rm"}"#).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn secure_dir_locks_a_directory_to_its_owner() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = temp_dir("secure-new");
+        // Freshly created directories are rarely 0700 by default (umask).
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).unwrap();
+        secure_dir(&dir).unwrap();
+        assert_eq!(dir.metadata().unwrap().permissions().mode() & 0o777, 0o700);
+    }
+
+    /// An install made before this existed may have a world- or group-
+    /// readable data dir; `secure_dir` must fix it, not just set it at
+    /// creation time.
+    #[cfg(unix)]
+    #[test]
+    fn secure_dir_fixes_a_directory_left_over_from_an_earlier_install() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = temp_dir("secure-existing");
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o777)).unwrap();
+        secure_dir(&dir).unwrap();
+        assert_eq!(dir.metadata().unwrap().permissions().mode() & 0o777, 0o700);
     }
 }

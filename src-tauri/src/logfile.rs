@@ -35,7 +35,16 @@ impl LogFile {
             let _ = fs::rename(&inner.path, rotated);
             inner.written = 0;
         }
-        if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(&inner.path) {
+        let mut options = OpenOptions::new();
+        options.create(true).append(true);
+        // Only applies when the file is newly created; signal-cli's stderr
+        // may mention account details, so it's as private as the data dir.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        if let Ok(mut file) = options.open(&inner.path) {
             if writeln!(file, "{line}").is_ok() {
                 inner.written += line.len() as u64 + 1;
             }
@@ -58,5 +67,16 @@ mod tests {
         log.append("second");
         assert_eq!(fs::read_to_string(dir.join("signal-cli.log")).unwrap(), "second\n");
         assert_eq!(fs::read_to_string(dir.join("signal-cli.log.1")).unwrap(), "first\n");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn creates_the_log_file_private_to_its_owner() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("snowdrop-log-mode-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let path = dir.join("signal-cli.log");
+        LogFile::new(path.clone()).append("hello");
+        assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
     }
 }
