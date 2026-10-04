@@ -38,6 +38,7 @@ const okStatus = {
   keyringBackend: 'secret-service',
   legacyPlaintext: false,
   vaultDisabled: false,
+  restartRequired: false,
 };
 
 describe('storageKeyringStatus', () => {

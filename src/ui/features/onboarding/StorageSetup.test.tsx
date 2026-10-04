@@ -20,6 +20,7 @@ const needsSetup: StorageStatus = {
   keyringBackend: 'secret-service',
   legacyPlaintext: false,
   vaultDisabled: false,
+  restartRequired: false,
 };
 
 const unlocked: StorageStatus = { ...needsSetup, state: 'unlocked' };

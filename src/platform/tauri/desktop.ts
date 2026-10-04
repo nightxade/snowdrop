@@ -130,6 +130,16 @@ export async function appRestart(ipc: TauriIpc = tauriIpc): Promise<void> {
   await ipc.invoke('app_restart');
 }
 
+/**
+ * Answers the close handshake (docs/ENCRYPTION.md, "signal-cli vault"):
+ * tells Rust it's safe to actually close/exit now. See
+ * `./closeHandshake.ts`'s `onFlushBeforeClose`, which calls this after
+ * running the frontend's own last-write-before-close work.
+ */
+export async function appCloseReady(ipc: TauriIpc = tauriIpc): Promise<void> {
+  await ipc.invoke('app_close_ready');
+}
+
 /** Bundles the `storage_*` wrappers above into the shape `StorageGate` (and Settings) depend on. */
 export function createStorageAdmin(ipc: TauriIpc = tauriIpc): StorageAdmin {
   return {

@@ -23,6 +23,7 @@ const baseStatus: StorageStatus = {
   keyringBackend: 'secret-service',
   legacyPlaintext: false,
   vaultDisabled: false,
+  restartRequired: false,
 };
 
 /** A thrown/rejected `{ kind, message }`, as a real `Error` (asCommandError's shape). */

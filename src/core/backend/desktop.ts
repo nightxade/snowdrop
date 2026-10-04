@@ -18,6 +18,12 @@ export type DesktopErrorKind =
   | 'keyring-secret-missing'
   | 'auth-failed'
   | 'slot-missing'
+  /**
+   * Removing a recovery or passphrase slot would leave no way to ever
+   * unlock Snowdrop again. The UI should explain that another method needs
+   * setting up first, not just show a generic failure.
+   */
+  | 'last-unlock-method'
   | 'keys-file-corrupt'
   | 'recovery-code-typo'
   | 'vault-corrupt'
@@ -133,6 +139,12 @@ export interface StorageStatus {
   legacyPlaintext: boolean;
   /** `SNOWDROP_SIGNAL_CLI_DATA`, or an external daemon, is in use. */
   vaultDisabled: boolean;
+  /**
+   * `true` once "Erase all local data" has run in this process: `state` is
+   * `'needsSetup'`, but every other storage command refuses until the app
+   * restarts (docs/ENCRYPTION.md, "Erase").
+   */
+  restartRequired: boolean;
 }
 
 /** `storage_create_recovery`'s reply: the plaintext code, shown once. */

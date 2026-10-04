@@ -53,6 +53,12 @@ describe('friendlyErrorMessage', () => {
     );
   });
 
+  it('has plain copy for removing the last unlock method', () => {
+    expect(friendlyErrorMessage('last-unlock-method')).toBe(
+      "That's the only way left to unlock Snowdrop. Set up another method first.",
+    );
+  });
+
   it('falls back to a safe default for an empty detail or an unknown kind', () => {
     expect(friendlyErrorMessage('not-installed', '')).toBe("Snowdrop couldn't find signal-cli.");
     expect(friendlyErrorMessage('something-new', 'whatever')).toBe(

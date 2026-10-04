@@ -142,6 +142,7 @@ const storageStatusShape: Decoder<StorageStatus> = object({
   keyringBackend: oneOf(['secret-service', 'macos-keychain', 'windows']),
   legacyPlaintext: bool,
   vaultDisabled: bool,
+  restartRequired: bool,
 });
 
 export function validateStorageStatus(command: string, value: unknown): StorageStatus {

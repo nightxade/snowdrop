@@ -14,6 +14,7 @@ const baseStatus: StorageStatus = {
   keyringBackend: 'secret-service',
   legacyPlaintext: false,
   vaultDisabled: false,
+  restartRequired: false,
 };
 
 function fakeAdmin(overrides: Partial<StorageAdmin> = {}): StorageAdmin {

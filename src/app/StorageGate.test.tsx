@@ -28,6 +28,7 @@ const needsSetup: StorageStatus = {
   keyringBackend: 'secret-service',
   legacyPlaintext: false,
   vaultDisabled: false,
+  restartRequired: false,
 };
 
 const locked: StorageStatus = { ...needsSetup, state: 'locked', reason: 'keyringLocked', hasRecovery: true };

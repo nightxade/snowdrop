@@ -36,6 +36,11 @@ pub enum ErrorKind {
     AuthFailed,
     /// `keys.json` has no slot of the requested type.
     SlotMissing,
+    /// Removing a recovery or passphrase slot would leave `keys.json` with
+    /// zero slots at all — no keyring, recovery or passphrase left to ever
+    /// unlock it again. Refused before anything is written
+    /// (docs/ENCRYPTION.md, "Key hierarchy").
+    LastUnlockMethod,
     /// `keys.json` doesn't parse, or its format version/fields aren't ones
     /// this build understands.
     KeysFileCorrupt,

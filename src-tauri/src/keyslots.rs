@@ -5,9 +5,10 @@
 //!
 //! The DEK itself never touches disk. Each slot stores `aead::seal(KEK,
 //! DEK, aad)`, where `aad` is a hand-built, deterministic encoding of that
-//! slot's own metadata (type, KDF algorithm, parameters, salt) plus the
-//! file's `vault_id` — never serde output, so field order can't matter and
-//! editing a parameter or swapping a wrapped blob between slots fails
+//! slot's own metadata (type, keyring entry id or KDF algorithm/parameters,
+//! salt) plus the file's `vault_id` — never serde output, so field order
+//! can't matter and editing a parameter, repointing a keyring slot at a
+//! different account, or swapping a wrapped blob between slots all fail
 //! authentication loudly (see [`slot_aad`]).
 
 use argon2::{Algorithm, Argon2, Params, Version};
@@ -81,8 +82,13 @@ pub enum KdfAlg {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Slot {
-    /// `wrapped` = `aead::seal(keyring secret, DEK, aad)`.
-    Keyring { wrapped: String },
+    /// `wrapped` = `aead::seal(keyring secret, DEK, aad)`. `entry` names
+    /// which keyring account that secret lives under
+    /// (`secrets::account_name`) — a fresh random id per enrolment, bound
+    /// into this slot's own AAD so a swapped-in different account's secret
+    /// can never be mistaken for the right one (docs/ENCRYPTION.md, "Key
+    /// hierarchy").
+    Keyring { entry: String, wrapped: String },
     /// `wrapped` = `aead::seal(Argon2id(recovery code, kdf), DEK, aad)`.
     Recovery { kdf: KdfParams, wrapped: String },
     /// `wrapped` = `aead::seal(Argon2id(passphrase, kdf), DEK, aad)`.
@@ -105,9 +111,17 @@ impl Slot {
         }
     }
 
+    /// The keyring account entry id, for a [`SlotKind::Keyring`] slot only.
+    fn keyring_entry(&self) -> Option<&str> {
+        match self {
+            Self::Keyring { entry, .. } => Some(entry),
+            Self::Recovery { .. } | Self::Passphrase { .. } => None,
+        }
+    }
+
     fn wrapped(&self) -> &str {
         match self {
-            Self::Keyring { wrapped } | Self::Recovery { wrapped, .. } | Self::Passphrase { wrapped, .. } => wrapped,
+            Self::Keyring { wrapped, .. } | Self::Recovery { wrapped, .. } | Self::Passphrase { wrapped, .. } => wrapped,
         }
     }
 }
@@ -177,6 +191,12 @@ fn slot_aad(vault_id: &[u8; VAULT_ID_LEN], slot: &Slot) -> Result<Vec<u8>, Error
         SlotKind::Passphrase => TAG_PASSPHRASE,
     };
     out.push(tag);
+    if let Some(entry) = slot.keyring_entry() {
+        out.push(0);
+        let entry_bytes = entry.as_bytes();
+        out.push(u8::try_from(entry_bytes.len()).unwrap_or(u8::MAX));
+        out.extend_from_slice(entry_bytes);
+    }
     if let Some(kdf) = slot.kdf() {
         out.push(0);
         out.push(match kdf.alg {
@@ -222,19 +242,27 @@ fn random_vault_id() -> Result<[u8; VAULT_ID_LEN], Error> {
 }
 
 /// Seals `dek` under `kek` for a slot of `kind`, building that slot's AAD
-/// from its own metadata first. `kdf` is `None` for the keyring slot.
-fn wrap_dek(dek: &Key32, kek: &Key32, vault_id: &[u8; VAULT_ID_LEN], kind: SlotKind, kdf: Option<KdfParams>) -> Result<Slot, Error> {
+/// from its own metadata first. `kdf` is `None` except for a recovery or
+/// passphrase slot; `entry` is `None` except for a keyring slot.
+fn wrap_dek(
+    dek: &Key32,
+    kek: &Key32,
+    vault_id: &[u8; VAULT_ID_LEN],
+    kind: SlotKind,
+    kdf: Option<KdfParams>,
+    entry: Option<String>,
+) -> Result<Slot, Error> {
     // A placeholder just to compute the AAD before we have ciphertext; the
     // wrapped field itself is never part of the AAD (see module docs).
     let unwrapped = match kind {
-        SlotKind::Keyring => Slot::Keyring { wrapped: String::new() },
+        SlotKind::Keyring => Slot::Keyring { entry: entry.clone().expect("keyring slot needs an entry id"), wrapped: String::new() },
         SlotKind::Recovery => Slot::Recovery { kdf: kdf.clone().expect("recovery slot needs kdf params"), wrapped: String::new() },
         SlotKind::Passphrase => Slot::Passphrase { kdf: kdf.clone().expect("passphrase slot needs kdf params"), wrapped: String::new() },
     };
     let aad = slot_aad(vault_id, &unwrapped)?;
     let wrapped = b64_encode(&aead::seal(kek, dek.as_bytes(), &aad));
     Ok(match kind {
-        SlotKind::Keyring => Slot::Keyring { wrapped },
+        SlotKind::Keyring => Slot::Keyring { entry: entry.expect("keyring slot needs an entry id"), wrapped },
         SlotKind::Recovery => Slot::Recovery { kdf: kdf.expect("recovery slot needs kdf params"), wrapped },
         SlotKind::Passphrase => Slot::Passphrase { kdf: kdf.expect("passphrase slot needs kdf params"), wrapped },
     })
@@ -262,10 +290,17 @@ impl Locked {
         self.file.slot(SlotKind::Passphrase).is_some()
     }
 
+    /// The keyring slot's entry id, if any (`storage::StorageService::erase_all`
+    /// uses this to know which keyring account to delete).
+    pub fn keyring_entry(&self) -> Option<String> {
+        self.file.slot(SlotKind::Keyring).and_then(Slot::keyring_entry).map(str::to_owned)
+    }
+
     pub fn unlock_keyring<S: SecretStore>(&self, slot: &KeyringSlot<S>) -> Result<Unlocked, Error> {
         let keyring_slot = self.file.slot(SlotKind::Keyring).ok_or_else(|| Error::new(ErrorKind::SlotMissing, "keys.json has no keyring slot."))?;
+        let entry = keyring_slot.keyring_entry().expect("a keyring slot always carries an entry id");
         let kek = slot
-            .get()?
+            .get(entry)?
             .ok_or_else(|| Error::new(ErrorKind::KeyringSecretMissing, "The OS keyring has no Snowdrop secret."))?;
         self.unwrap_with(keyring_slot, &kek)
     }
@@ -338,6 +373,28 @@ impl Unlocked {
         self.file.slot(SlotKind::Passphrase).is_some()
     }
 
+    /// The keyring slot's entry id, if any.
+    pub fn keyring_entry(&self) -> Option<String> {
+        self.file.slot(SlotKind::Keyring).and_then(Slot::keyring_entry).map(str::to_owned)
+    }
+
+    /// Refuses with [`ErrorKind::LastUnlockMethod`] if removing the slot of
+    /// `kind` would leave `keys.json` with zero slots at all — a no-op
+    /// (`Ok`) if that slot doesn't exist, since there's then nothing to
+    /// remove and no invariant at risk.
+    fn refuse_if_last_slot(&self, kind: SlotKind) -> Result<(), Error> {
+        if self.file.slot(kind).is_none() {
+            return Ok(());
+        }
+        if self.file.slots.len() <= 1 {
+            return Err(Error::new(
+                ErrorKind::LastUnlockMethod,
+                "That's the only way left to unlock Snowdrop. Set up another method before removing it.",
+            ));
+        }
+        Ok(())
+    }
+
     /// Generates a fresh recovery code, replacing any existing recovery
     /// slot, and returns it — this is the only time it's ever available;
     /// only its Argon2id-wrapped DEK is kept.
@@ -346,19 +403,26 @@ impl Unlocked {
         let kdf = new_kdf_params(RECOVERY_KDF)?;
         let kek = derive_kek(&code.0, &kdf)?;
         let vault_id = self.file.vault_id_bytes()?;
-        let slot = wrap_dek(&self.dek, &kek, &vault_id, SlotKind::Recovery, Some(kdf))?;
+        let slot = wrap_dek(&self.dek, &kek, &vault_id, SlotKind::Recovery, Some(kdf), None)?;
         self.file.set_slot(slot);
         Ok(code)
     }
 
-    pub fn remove_recovery(&mut self) {
+    /// Refuses with [`ErrorKind::LastUnlockMethod`] if the recovery slot is
+    /// the only slot left (docs/ENCRYPTION.md, "Key hierarchy").
+    pub fn remove_recovery(&mut self) -> Result<(), Error> {
+        self.refuse_if_last_slot(SlotKind::Recovery)?;
         self.file.remove_slot(SlotKind::Recovery);
+        Ok(())
     }
 
-    /// `None` removes the passphrase slot; `Some` replaces it.
+    /// `None` removes the passphrase slot (refusing with
+    /// [`ErrorKind::LastUnlockMethod`] if it's the only slot left); `Some`
+    /// replaces it.
     pub fn set_passphrase(&mut self, passphrase: Option<&str>) -> Result<(), Error> {
         match passphrase {
             None => {
+                self.refuse_if_last_slot(SlotKind::Passphrase)?;
                 self.file.remove_slot(SlotKind::Passphrase);
                 Ok(())
             }
@@ -366,23 +430,27 @@ impl Unlocked {
                 let kdf = new_kdf_params(PASSPHRASE_KDF)?;
                 let kek = derive_kek(pass.as_bytes(), &kdf)?;
                 let vault_id = self.file.vault_id_bytes()?;
-                let slot = wrap_dek(&self.dek, &kek, &vault_id, SlotKind::Passphrase, Some(kdf))?;
+                let slot = wrap_dek(&self.dek, &kek, &vault_id, SlotKind::Passphrase, Some(kdf), None)?;
                 self.file.set_slot(slot);
                 Ok(())
             }
         }
     }
 
-    /// Re-enrols the keyring slot: generates a brand new keyring secret
-    /// (via [`KeyringSlot::replace`], since this is a deliberate overwrite —
-    /// e.g. switching providers after the old secret was lost) and rewraps
-    /// the DEK under it.
-    pub fn enroll_keyring<S: SecretStore>(&mut self, slot: &KeyringSlot<S>) -> Result<(), Error> {
-        let kek = slot.replace()?;
+    /// Re-enrols the keyring slot under a brand-new entry id and secret
+    /// (docs/ENCRYPTION.md, "Key hierarchy") — never an overwrite of the
+    /// previous one. Returns the superseded entry id, if there was one, so
+    /// the caller can best-effort delete its keyring account *after*
+    /// [`save`](Self::save) has committed the new reference: a late write to
+    /// that old account can then only ever touch something `keys.json` no
+    /// longer points at.
+    pub fn enroll_keyring<S: SecretStore>(&mut self, slot: &KeyringSlot<S>) -> Result<Option<String>, Error> {
+        let old_entry = self.keyring_entry();
+        let (entry, kek) = slot.create_new()?;
         let vault_id = self.file.vault_id_bytes()?;
-        let wrapped = wrap_dek(&self.dek, &kek, &vault_id, SlotKind::Keyring, None)?;
+        let wrapped = wrap_dek(&self.dek, &kek, &vault_id, SlotKind::Keyring, None, Some(entry))?;
         self.file.set_slot(wrapped);
-        Ok(())
+        Ok(old_entry)
     }
 
     pub fn save(&self) -> Result<(), Error> {
@@ -451,17 +519,19 @@ fn refuse_if_exists(path: &Path) -> Result<(), Error> {
     Ok(())
 }
 
-/// Creates a brand new `keys.json` with a single keyring slot. Refuses if
-/// `path` already exists. A keyring secret left over without a `keys.json`
-/// (an interrupted setup, a partial erase) wraps nothing, so it is replaced
-/// rather than blocking setup forever.
+/// Creates a brand new `keys.json` with a single keyring slot, under a fresh
+/// entry id (never a fixed one — see `secrets.rs`). Refuses if `path`
+/// already exists. Any keyring secret left over from before (an interrupted
+/// setup, a partial erase) is simply orphaned, not reused or overwritten —
+/// harmless, since nothing ever references it (docs/ENCRYPTION.md, "Key
+/// hierarchy").
 pub fn init_with_keyring<S: SecretStore>(path: &Path, slot: &KeyringSlot<S>) -> Result<Unlocked, Error> {
     refuse_if_exists(path)?;
-    let kek = slot.replace()?;
+    let (entry, kek) = slot.create_new()?;
     let dek = Key32::random();
     let vault_id = random_vault_id()?;
     let mut file = KeyFile::new(vault_id);
-    file.set_slot(wrap_dek(&dek, &kek, &vault_id, SlotKind::Keyring, None)?);
+    file.set_slot(wrap_dek(&dek, &kek, &vault_id, SlotKind::Keyring, None, Some(entry))?);
     let unlocked = Unlocked { path: path.to_path_buf(), dek, file };
     unlocked.save()?;
     Ok(unlocked)
@@ -476,7 +546,7 @@ pub fn init_with_passphrase(path: &Path, passphrase: &str) -> Result<Unlocked, E
     let mut file = KeyFile::new(vault_id);
     let kdf = new_kdf_params(PASSPHRASE_KDF)?;
     let kek = derive_kek(passphrase.as_bytes(), &kdf)?;
-    file.set_slot(wrap_dek(&dek, &kek, &vault_id, SlotKind::Passphrase, Some(kdf))?);
+    file.set_slot(wrap_dek(&dek, &kek, &vault_id, SlotKind::Passphrase, Some(kdf), None)?);
     let unlocked = Unlocked { path: path.to_path_buf(), dek, file };
     unlocked.save()?;
     Ok(unlocked)
@@ -608,7 +678,8 @@ fn checksum_chars(bytes: &[u8; RECOVERY_SECRET_LEN]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::secrets::FakeStore;
+    use crate::secrets::{FakeStore, SecretStore};
+    use std::sync::Arc;
 
     fn temp_dir(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("snowdrop-keyslots-test-{}-{name}", std::process::id()));
@@ -818,7 +889,7 @@ mod tests {
         let slot = keyring_slot();
         let mut unlocked = init_with_keyring(&path, &slot).unwrap();
         let code = unlocked.add_recovery().unwrap();
-        unlocked.remove_recovery();
+        unlocked.remove_recovery().unwrap();
         unlocked.save().unwrap();
 
         let locked = load(&path).unwrap().unwrap();
@@ -874,14 +945,117 @@ mod tests {
     }
 
     #[test]
-    fn init_with_keyring_replaces_an_orphaned_keyring_secret() {
+    fn init_with_keyring_leaves_an_unrelated_keyring_secret_alone() {
         let path = temp_dir("keyring-orphaned-secret").join("keys.json");
         let slot = keyring_slot();
-        let stale = slot.create_new().unwrap();
+        let (stale_entry, stale_key) = slot.create_new().unwrap();
         let unlocked = init_with_keyring(&path, &slot).unwrap();
-        let current = slot.get().unwrap().unwrap();
-        assert_ne!(current.as_bytes(), stale.as_bytes());
+        // The pre-existing entry is simply orphaned, not touched or reused
+        // (docs/ENCRYPTION.md: "orphaned leftovers are harmless").
+        assert_eq!(slot.get(&stale_entry).unwrap().unwrap().as_bytes(), stale_key.as_bytes());
         let reopened = load(&path).unwrap().unwrap().unlock_keyring(&slot).unwrap();
         assert_eq!(reopened.vault_key().as_bytes(), unlocked.vault_key().as_bytes());
+    }
+
+    #[test]
+    fn enrolling_again_returns_the_superseded_entry_without_deleting_it() {
+        let store = Arc::new(FakeStore::new());
+        let path = temp_dir("enroll-returns-old").join("keys.json");
+        let slot = KeyringSlot::new(store);
+        let mut unlocked = init_with_keyring(&path, &slot).unwrap();
+        let first_entry = unlocked.keyring_entry().unwrap();
+
+        let old_entry = unlocked.enroll_keyring(&slot).unwrap();
+        assert_eq!(old_entry.as_deref(), Some(first_entry.as_str()));
+        // enroll_keyring itself never deletes the superseded account —
+        // that's the caller's job, done only after `save()` commits the new
+        // reference (docs/ENCRYPTION.md, "Key hierarchy").
+        assert!(slot.get(&first_entry).unwrap().is_some());
+        unlocked.save().unwrap();
+        slot.delete(&first_entry).unwrap();
+        assert!(slot.get(&first_entry).unwrap().is_none());
+
+        let new_entry = unlocked.keyring_entry().unwrap();
+        assert_ne!(new_entry, first_entry);
+        assert!(slot.get(&new_entry).unwrap().is_some());
+    }
+
+    #[test]
+    fn tampered_keyring_entry_id_fails_even_with_the_same_underlying_secret() {
+        let store = Arc::new(FakeStore::new());
+        let path = temp_dir("tamper-entry-same-secret").join("keys.json");
+        let slot = KeyringSlot::new(store.clone());
+        init_with_keyring(&path, &slot).unwrap();
+
+        let mut locked = load(&path).unwrap().unwrap();
+        let orig_entry = match locked.file.slots.first().unwrap() {
+            Slot::Keyring { entry, .. } => entry.clone(),
+            _ => unreachable!(),
+        };
+        // An attacker who can write keys.json duplicates the same keyring
+        // secret under a new account and repoints the slot at it.
+        let secret = store.get(&crate::secrets::account_name(&orig_entry)).unwrap().unwrap();
+        store.set(&crate::secrets::account_name("copied"), &secret).unwrap();
+        match locked.file.slots.first_mut().unwrap() {
+            Slot::Keyring { entry, .. } => *entry = "copied".to_owned(),
+            _ => unreachable!(),
+        }
+
+        // The same secret bytes unlock the account, but the AAD was built
+        // from the *tampered* entry id, so it no longer matches what was
+        // sealed under the original one.
+        let err = locked.unlock_keyring(&slot).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::AuthFailed);
+    }
+
+    #[test]
+    fn passphrase_only_cannot_remove_its_last_unlock_method() {
+        let path = temp_dir("last-slot-passphrase-only").join("keys.json");
+        let mut unlocked = init_with_passphrase(&path, "the only way in").unwrap();
+        let err = unlocked.set_passphrase(None).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::LastUnlockMethod);
+        // Nothing was actually removed.
+        assert!(unlocked.has_passphrase());
+    }
+
+    #[test]
+    fn recovery_plus_passphrase_only_the_very_last_slot_is_refused() {
+        let path = temp_dir("last-slot-recovery-plus-passphrase").join("keys.json");
+        let mut unlocked = init_with_passphrase(&path, "a passphrase").unwrap();
+        unlocked.add_recovery().unwrap();
+
+        // Two slots: removing one is fine, since the other remains.
+        unlocked.remove_recovery().unwrap();
+        assert!(!unlocked.has_recovery());
+        assert!(unlocked.has_passphrase());
+
+        // Now passphrase is the only slot left: removing it is refused.
+        let err = unlocked.set_passphrase(None).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::LastUnlockMethod);
+        assert!(unlocked.has_passphrase());
+
+        // And symmetrically, starting over with recovery as the survivor:
+        // once it's the last slot, removing it is refused too.
+        let path2 = temp_dir("last-slot-recovery-plus-passphrase-2").join("keys.json");
+        let mut unlocked2 = init_with_passphrase(&path2, "a passphrase").unwrap();
+        unlocked2.add_recovery().unwrap();
+        unlocked2.set_passphrase(None).unwrap();
+        let err = unlocked2.remove_recovery().unwrap_err();
+        assert_eq!(err.kind, ErrorKind::LastUnlockMethod);
+    }
+
+    #[test]
+    fn a_keyring_slot_means_removing_recovery_or_passphrase_is_never_the_last_slot() {
+        let path = temp_dir("last-slot-with-keyring").join("keys.json");
+        let slot = keyring_slot();
+        let mut unlocked = init_with_keyring(&path, &slot).unwrap();
+        unlocked.add_recovery().unwrap();
+        unlocked.set_passphrase(Some("extra")).unwrap();
+
+        unlocked.remove_recovery().unwrap();
+        unlocked.set_passphrase(None).unwrap();
+        assert!(unlocked.has_keyring());
+        assert!(!unlocked.has_recovery());
+        assert!(!unlocked.has_passphrase());
     }
 }

@@ -66,6 +66,13 @@ rusqlite = { version = "0.32", features = ["bundled", "backup"] }
 # `java.nio.channels.FileChannel.lock` takes on Linux, so the two interoperate.
 libc = "0.2"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+# Already a transitive dependency of `keyring`'s Secret Service backend;
+# depended on directly here too for secrets.rs's own fast availability probe
+# (is `org.freedesktop.secrets` owned on the session bus?), run ahead of the
+# slow real keyring call (docs/ENCRYPTION.md, "Keyring availability").
+zbus = "4"
+
 [dev-dependencies]
 tokio = { version = "1", features = ["io-util", "macros", "process", "rt-multi-thread", "sync", "time", "test-util"] }
 

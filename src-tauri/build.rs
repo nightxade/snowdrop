@@ -26,6 +26,7 @@ fn main() {
             "storage_webcache_key",
             "storage_erase_all",
             "app_restart",
+            "app_close_ready",
         ])),
     )
     .expect("failed to run tauri-build");

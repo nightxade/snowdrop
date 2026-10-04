@@ -31,6 +31,7 @@
     "allow-storage-enroll-keyring",
     "allow-storage-webcache-key",
     "allow-storage-erase-all",
-    "allow-app-restart"
+    "allow-app-restart",
+    "allow-app-close-ready"
   ]
 }

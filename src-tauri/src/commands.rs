@@ -15,10 +15,12 @@ use crate::secrets::{self, KeyringStatus, KeyringStore};
 use crate::service::{ConnectInfo, ProbeResult, Service};
 use crate::signal_cli_install::{self, InstallState, InstallStatus, PinnedAsset};
 use crate::storage::{SetupMode, StorageService, StorageStatus, UnlockMethod};
+use crate::CloseGate;
 
 type Svc<'a> = State<'a, Arc<Service>>;
 type Install<'a> = State<'a, Arc<InstallState>>;
 type Storage<'a> = State<'a, Mutex<StorageService>>;
+type CloseLatch<'a> = State<'a, Arc<CloseGate>>;
 
 /// Longest a single call may wait (finishLink waits for the phone to scan).
 const MAX_TIMEOUT: Duration = Duration::from_secs(15 * 60);
@@ -325,6 +327,18 @@ pub fn storage_erase_all(storage: Storage<'_>, service: Svc<'_>, confirm: String
 #[tauri::command]
 pub fn app_restart(app: AppHandle) {
     app.restart();
+}
+
+/// Answers `snowdrop://flush-before-close` (docs/ENCRYPTION.md, "signal-cli
+/// vault": the close handshake that keeps the last write from being lost):
+/// the frontend has finished (or given up on) its own last-write-before-close
+/// work, so it's safe to actually exit now. A no-op if the close already
+/// went through via `lib.rs`'s fallback timer.
+#[tauri::command]
+pub fn app_close_ready(app: AppHandle, gate: CloseLatch<'_>) {
+    if gate.fire() {
+        app.exit(0);
+    }
 }
 
 pub fn is_external_url(url: &str) -> bool {

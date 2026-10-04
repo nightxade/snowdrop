@@ -18,6 +18,7 @@ Status: **implemented** (desktop app only). This document is the contract the im
 | Another local user account | **Yes.** The data is encrypted, and the directories are `0700`. |
 | Malware running as you while you're logged in | **No.** It can ask the keyring for the secret or read process memory. Signal Desktop has the same limit. |
 | Memory paged to an unencrypted swap partition | **No.** Mitigate with encrypted swap or zram. Signal Desktop has the same limit. |
+| A compromised webview calls `storage_erase_all` | **Accepted.** It's reachable from the webview (see "UX" §5), but a compromised webview could already read everything decrypted and send it anywhere, so this adds no new exposure. Erasing is also recoverable: re-link and your phone resyncs contacts and groups (see "What a fresh start loses"). |
 | Signal's servers | Out of scope here. Signal's end-to-end encryption covers this. |
 
 If the keys are ever compromised, remove the device in your phone's Signal (Settings → Linked devices). That invalidates the stolen copy.
@@ -49,8 +50,11 @@ You get here by losing the keyring secret with no recovery key and no passphrase
 - **DEK:** 32 random bytes, generated once. It never touches disk unwrapped and is zeroized on drop.
 - **`keys.json`:** lives in the app data dir. It holds only wrapped DEKs and KDF parameters, so it's safe to back up.
 - **Keyring slot:**
-  - A random 32-byte secret stored through the **freedesktop Secret Service API** (`org.freedesktop.secrets`), under service `local.snowdrop.desktop`, account `keyslot-v1`.
+  - A random 32-byte secret stored through the **freedesktop Secret Service API** (`org.freedesktop.secrets`), under service `local.snowdrop.desktop`.
   - This isn't tied to KWallet. KWallet, GNOME Keyring, KeePassXC (Secret Service integration) and oo7 all implement the API. macOS Keychain and Windows Credential Manager are used on those platforms.
+  - **Every enrolment gets its own keyring account**, `keyslot-<entry>`, where `entry` is a fresh random id generated at setup or re-enrolment time — never a single fixed account. `entry` is recorded alongside the slot in `keys.json` and bound into that slot's AAD, so repointing a slot at a different (even valid) account fails authentication loudly rather than silently accepting the wrong secret.
+  - Enrolling (first setup, or "Remember on this device"/"Re-save key to this keyring" later) generates a new entry id and secret, writes it to the keyring, saves `keys.json` pointing at it, and only *then* best-effort deletes the old entry's keyring account. A write from a call that already timed out can therefore only ever land on an account nothing references — never overwrite the one `keys.json` currently points at.
+  - Orphaned accounts (an interrupted setup, a timed-out zombie write, a superseded entry whose best-effort delete itself failed) are harmless: nothing references them, and "Erase all local data" deletes whichever account is currently referenced regardless.
 - **Recovery slot (optional, recommended):**
   - A random recovery key with 160 bits of entropy, displayed as 8 groups of 4 Crockford-base32 characters, plus one checksum group of 4 that catches typos before any KDF runs.
   - It's the escape hatch for a keyring change.
@@ -60,11 +64,12 @@ You get here by losing the keyring secret with no recovery key and no passphrase
   - For people who don't want a keyring at all; they're asked at every launch.
   - Uses Argon2id with m = 64 MiB, t = 3, p = 1, stored per slot so it can be tuned.
 - **Wrapping:** XChaCha20-Poly1305, with 24-byte random nonces.
-  - The AAD is the canonical encoding of the slot's *entire* metadata: type, version, KDF algorithm, parameters and salt.
-  - So editing a slot's KDF parameters, or swapping slots, fails authentication loudly instead of silently changing behaviour.
+  - The AAD is the canonical encoding of the slot's *entire* metadata: type, version, keyring entry id (for the keyring slot) or KDF algorithm/parameters (for recovery/passphrase), and salt.
+  - So editing a slot's KDF parameters, repointing a keyring slot at a different account, or swapping slots, fails authentication loudly instead of silently changing behaviour.
   - `keys.json` also records a random `vault_id` that is bound into every vault AAD.
-- **Keyring availability:** every keyring call has a timeout of about 5 s. "No keyring service on this system" (e.g. a bare Hyprland session), "keyring locked or refused", and "keyring has no Snowdrop secret" are reported as distinct states, never as a hang.
-- **Changing keyring providers:** the new keyring has no secret, so Snowdrop shows the unlock screen. Enter the recovery key or passphrase, and Snowdrop offers to "Remember on this device", which enrols a new keyring slot. No data is re-encrypted, and the old slot is replaced.
+- **The last unlock method can't be removed.** Removing the recovery slot, or the passphrase slot, is refused if doing so would leave `keys.json` with zero slots at all (no keyring, recovery or passphrase left). This is checked dynamically against whatever's actually left, not just "is there a keyring" — e.g. with only a recovery and a passphrase slot, removing either one is fine, but removing the second is refused.
+- **Keyring availability:** a fast probe (about 2 s) checks whether `org.freedesktop.secrets` is even owned on the session bus before every real call; if not, Snowdrop reports "no keyring service" immediately rather than waiting. Once something answers, the real get/set/delete gets a generous timeout (about 120 s), because a *locked* wallet shows its own unlock prompt, which can legitimately take a while to answer — that's different from "nothing is there at all", and the two are never confused with each other (a locked keyring is never misreported as "no Snowdrop secret", which would otherwise incorrectly route to "Start fresh"). The probe itself only runs on Linux; macOS Keychain and Windows Credential Manager have no equivalent question to ask first.
+- **Changing keyring providers:** the new keyring has no secret, so Snowdrop shows the unlock screen. Enter the recovery key or passphrase, and Snowdrop offers to "Remember on this device", which enrols a brand-new keyring slot (new entry id, new secret) as described above. No data is re-encrypted.
 
 ## signal-cli vault
 
@@ -106,6 +111,8 @@ A crash at any point leaves either the old or the new generation fully intact. `
 - After linking finishes.
 - Every 60 s while there are unsynced changes.
 - On shutdown, while still blocking exit.
+
+**Close handshake:** closing the main window doesn't exit immediately. Rust intercepts the close, emits `snowdrop://flush-before-close`, and waits for the frontend to answer with the `app_close_ready` command (the frontend's own cap on that wait is about 2 s) before actually exiting — with a 3 s fallback that exits anyway if nothing ever answers, so a stuck or absent frontend can never make the app unclosable. Either path still runs the same shutdown sequence afterwards (stop signal-cli, then the vault's own final sync).
 
 **Attachment budget:**
 - Restore hydrates everything except media; media is restored on demand.
@@ -161,8 +168,9 @@ The message cache (IndexedDB) and the key-value store (localStorage) are encrypt
    - **Erase all local data:** a danger-zone button opens a modal listing exactly what's deleted (the encrypted vault, recovery key, passphrase, keyring entry, and Snowdrop's own settings, spaces and drafts) and what isn't (your Signal account — remove this computer in your phone's Signal → Settings → Linked devices). Typing `ERASE` enables the confirm button.
 5. **Erase:**
    1. Stop signal-cli, and stop this process's own buffered writes (nothing may re-create what's about to be deleted).
-   2. Delete the vault, runtime dir, `keys.json`, the keyring entry, and a legacy plaintext `signal-cli/` dir if one is still waiting to migrate.
+   2. Delete the vault, runtime dir, `keys.json`, the keyring entry `keys.json` referenced, and a legacy plaintext `signal-cli/` dir if one is still waiting to migrate. (Any other `keyslot-*` account for this service is left alone: the `keyring` crate has no cross-backend way to enumerate them, and an orphaned one is harmless — see "Keyring slot".)
    3. Restart the app (`app_restart`): the vault bridge and the single-instance lock (`snowdrop.lock`) are one-shot per process, so only a fresh process can return to a clean `needsSetup` boot.
+   4. Until that restart happens, storage latches into a terminal "erased" state, distinct from `needsSetup`: `storage_status` still reports `state: "needsSetup"` (nothing is left to resume), but now also `restartRequired: true`, and every other storage command refuses with a clear error instead of quietly behaving as if nothing had ever been set up.
 
 ## Implementation plan
 

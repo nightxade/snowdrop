@@ -56,6 +56,8 @@ const GENERIC_MESSAGES: Record<string, DetailMessage> = {
   'storage-locked': () => 'Local storage is locked. Unlock it to connect.',
   'auth-failed': () => "That didn't match.",
   'slot-missing': () => "That unlock method isn't set up.",
+  'last-unlock-method': () =>
+    "That's the only way left to unlock Snowdrop. Set up another method first.",
   'keys-file-corrupt': () => "Snowdrop's key file isn't valid.",
   'recovery-code-typo': () => "That recovery key has a typo — check it against what you saved.",
   'vault-corrupt': () => "Snowdrop's local data is unreadable.",

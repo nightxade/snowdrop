@@ -23,6 +23,7 @@ const status: StorageStatus = {
   keyringBackend: 'secret-service',
   legacyPlaintext: false,
   vaultDisabled: false,
+  restartRequired: false,
 };
 
 function fakeStorageAdmin(): StorageAdmin {

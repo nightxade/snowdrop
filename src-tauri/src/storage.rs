@@ -138,6 +138,14 @@ enum StorageState {
     Locked { locked: keyslots::Locked, reason: LockedReason },
     Unlocked { unlocked: keyslots::Unlocked },
     Unavailable { reason: UnavailableReason },
+    /// Terminal for this process: [`StorageService::erase_all`] has run.
+    /// Distinct from `NeedsSetup` so every other command can refuse with a
+    /// clear "restart Snowdrop" error instead of quietly behaving as if
+    /// nothing had ever been set up — the vault bridge and the
+    /// single-instance lock are one-shot per process either way, so only a
+    /// fresh process can actually return to `NeedsSetup`
+    /// (docs/ENCRYPTION.md, "Erase").
+    Erased,
 }
 
 /// The one JSON shape every storage command returns (docs/ENCRYPTION.md;
@@ -158,6 +166,11 @@ pub struct StorageStatus {
     /// module (it needs `Service`, task 4b's territory); `commands.rs` ORs
     /// it in before handing the status to the UI.
     pub vault_disabled: bool,
+    /// `true` only once [`StorageService::erase_all`] has run in this
+    /// process: `state` still reads `"needsSetup"` (nothing is actually
+    /// configured any more), but every other command refuses until the app
+    /// restarts (docs/ENCRYPTION.md, "Erase").
+    pub restart_required: bool,
 }
 
 /// The signal-cli vault, runtime dir and single-instance lock, handed over
@@ -254,11 +267,12 @@ impl<S: SecretStore> StorageService<S> {
     fn build_status(&self) -> StorageStatus {
         let (has_keyring, has_recovery, has_passphrase) = self.flags();
         let legacy_plaintext = legacy_signal_cli_dir(&self.paths.app_data_dir).is_dir();
-        let (state, reason) = match &self.state {
-            StorageState::NeedsSetup => ("needsSetup", None),
-            StorageState::Locked { reason, .. } => ("locked", Some(reason.as_str())),
-            StorageState::Unlocked { .. } => ("unlocked", None),
-            StorageState::Unavailable { reason } => ("unavailable", Some(reason.as_str())),
+        let (state, reason, restart_required) = match &self.state {
+            StorageState::NeedsSetup => ("needsSetup", None, false),
+            StorageState::Locked { reason, .. } => ("locked", Some(reason.as_str()), false),
+            StorageState::Unlocked { .. } => ("unlocked", None, false),
+            StorageState::Unavailable { reason } => ("unavailable", Some(reason.as_str()), false),
+            StorageState::Erased => ("needsSetup", None, true),
         };
         StorageStatus {
             state,
@@ -269,6 +283,7 @@ impl<S: SecretStore> StorageService<S> {
             keyring_backend: secrets::backend_name(),
             legacy_plaintext,
             vault_disabled: self.paths.external_override,
+            restart_required,
         }
     }
 
@@ -276,9 +291,10 @@ impl<S: SecretStore> StorageService<S> {
         match &self.state {
             StorageState::Locked { locked, .. } => (locked.has_keyring(), locked.has_recovery(), locked.has_passphrase()),
             StorageState::Unlocked { unlocked } => (unlocked.has_keyring(), unlocked.has_recovery(), unlocked.has_passphrase()),
-            StorageState::NeedsSetup | StorageState::Unavailable { .. } => {
+            StorageState::NeedsSetup | StorageState::Unavailable { .. } | StorageState::Erased => {
                 // Best-effort: reading keys.json never needs the instance
-                // lock, so this stays accurate even while `Unavailable`.
+                // lock, so this stays accurate even while `Unavailable`
+                // (and, once erased, simply comes up empty).
                 match keyslots::load(&self.paths.keys_path) {
                     Ok(Some(locked)) => (locked.has_keyring(), locked.has_recovery(), locked.has_passphrase()),
                     _ => (false, false, false),
@@ -287,9 +303,32 @@ impl<S: SecretStore> StorageService<S> {
         }
     }
 
+    /// Every command but `status` refuses once storage has been erased in
+    /// this process — see [`StorageState::Erased`].
+    fn refuse_if_erased(&self) -> Result<(), Error> {
+        if matches!(self.state, StorageState::Erased) {
+            return Err(Error::new(ErrorKind::Config, "Local data was erased; restart Snowdrop to continue."));
+        }
+        Ok(())
+    }
+
+    /// The keyring account currently referenced by `keys.json`, if any —
+    /// from whichever state actually has it in hand, falling back to a
+    /// best-effort disk read the same way [`Self::flags`] does.
+    fn current_keyring_entry(&self) -> Option<String> {
+        match &self.state {
+            StorageState::Locked { locked, .. } => locked.keyring_entry(),
+            StorageState::Unlocked { unlocked } => unlocked.keyring_entry(),
+            StorageState::NeedsSetup | StorageState::Unavailable { .. } | StorageState::Erased => {
+                keyslots::load(&self.paths.keys_path).ok().flatten().and_then(|locked| locked.keyring_entry())
+            }
+        }
+    }
+
     /// `storage_setup`: first-time creation of `keys.json`. Fails if storage
     /// isn't currently `NeedsSetup`.
     pub fn setup_new(&mut self, mode: SetupMode, passphrase: Option<&str>) -> Result<StorageStatus, Error> {
+        self.refuse_if_erased()?;
         if !matches!(self.state, StorageState::NeedsSetup) {
             return Err(Error::new(ErrorKind::Config, "Storage has already been set up."));
         }
@@ -311,6 +350,7 @@ impl<S: SecretStore> StorageService<S> {
     /// error propagates. With `remember`, a failed keyring enrolment is
     /// logged, not returned — the unlock itself already succeeded.
     pub fn unlock(&mut self, method: UnlockMethod, secret: &str, remember: bool) -> Result<StorageStatus, Error> {
+        self.refuse_if_erased()?;
         let StorageState::Locked { locked, .. } = &self.state else {
             return Err(Error::new(ErrorKind::Config, "Storage isn't locked."));
         };
@@ -319,8 +359,16 @@ impl<S: SecretStore> StorageService<S> {
             UnlockMethod::Passphrase => locked.unlock_passphrase(secret)?,
         };
         if remember {
-            match unlocked.enroll_keyring(&self.keyring_slot).and_then(|()| unlocked.save()) {
-                Ok(()) => {}
+            match unlocked.enroll_keyring(&self.keyring_slot).and_then(|old_entry| {
+                unlocked.save()?;
+                Ok(old_entry)
+            }) {
+                Ok(Some(old_entry)) => {
+                    if let Err(e) = self.keyring_slot.delete(&old_entry) {
+                        log::warn!("storage: couldn't remove the superseded keyring entry: {e}");
+                    }
+                }
+                Ok(None) => {}
                 Err(e) => log::warn!("storage: couldn't remember this device (enrol a keyring slot): {e}"),
             }
         }
@@ -331,6 +379,7 @@ impl<S: SecretStore> StorageService<S> {
     /// `storage_create_recovery`: returns the plaintext code exactly once.
     /// Never logged — callers must not log it either.
     pub fn create_recovery(&mut self) -> Result<(RecoveryCode, StorageStatus), Error> {
+        self.refuse_if_erased()?;
         let StorageState::Unlocked { unlocked } = &mut self.state else {
             return Err(Error::new(ErrorKind::Config, "Storage must be unlocked to create a recovery code."));
         };
@@ -340,15 +389,17 @@ impl<S: SecretStore> StorageService<S> {
     }
 
     pub fn remove_recovery(&mut self) -> Result<StorageStatus, Error> {
+        self.refuse_if_erased()?;
         let StorageState::Unlocked { unlocked } = &mut self.state else {
             return Err(Error::new(ErrorKind::Config, "Storage must be unlocked."));
         };
-        unlocked.remove_recovery();
+        unlocked.remove_recovery()?;
         unlocked.save()?;
         Ok(self.build_status())
     }
 
     pub fn set_passphrase(&mut self, passphrase: Option<&str>) -> Result<StorageStatus, Error> {
+        self.refuse_if_erased()?;
         let StorageState::Unlocked { unlocked } = &mut self.state else {
             return Err(Error::new(ErrorKind::Config, "Storage must be unlocked."));
         };
@@ -358,11 +409,17 @@ impl<S: SecretStore> StorageService<S> {
     }
 
     pub fn enroll_keyring(&mut self) -> Result<StorageStatus, Error> {
+        self.refuse_if_erased()?;
         let StorageState::Unlocked { unlocked } = &mut self.state else {
             return Err(Error::new(ErrorKind::Config, "Storage must be unlocked."));
         };
-        unlocked.enroll_keyring(&self.keyring_slot)?;
+        let old_entry = unlocked.enroll_keyring(&self.keyring_slot)?;
         unlocked.save()?;
+        if let Some(old_entry) = old_entry {
+            if let Err(e) = self.keyring_slot.delete(&old_entry) {
+                log::warn!("storage: couldn't remove the superseded keyring entry: {e}");
+            }
+        }
         Ok(self.build_status())
     }
 
@@ -392,10 +449,16 @@ impl<S: SecretStore> StorageService<S> {
     /// earlier one failed, and every failure is collected rather than
     /// surfaced as a hard stop. Doesn't stop signal-cli itself — that's
     /// whatever task 4b registered via [`add_on_erase`](Self::add_on_erase).
+    /// Leaves storage in the terminal [`StorageState::Erased`] state, not
+    /// `NeedsSetup` — only a fresh process can return to that.
     pub fn erase_all(&mut self, confirm: &str) -> Result<(StorageStatus, Vec<String>), Error> {
+        self.refuse_if_erased()?;
         if confirm != "ERASE" {
             return Err(Error::new(ErrorKind::Config, "Type ERASE to confirm erasing all local data."));
         }
+        // Captured before anything on disk is touched: once `keys_path` is
+        // gone, there's no other way to know which keyring account was ours.
+        let keyring_entry = self.current_keyring_entry();
         for hook in &self.on_erase {
             hook();
         }
@@ -406,15 +469,22 @@ impl<S: SecretStore> StorageService<S> {
             remove_dir_best_effort(&runtime_dir, &mut failures);
         }
         remove_file_best_effort(&self.paths.keys_path, &mut failures);
-        if let Err(e) = self.keyring_slot.delete() {
-            failures.push(format!("keyring entry: {e}"));
+        // Deletes the one account `keys.json` referenced. The `keyring`
+        // crate exposes no cross-backend way to enumerate every
+        // `keyslot-*` account for this service, so any other leftover from
+        // an aborted enrolment is simply left behind — harmless, since
+        // nothing references it (docs/ENCRYPTION.md, "Key hierarchy").
+        if let Some(entry) = keyring_entry {
+            if let Err(e) = self.keyring_slot.delete(&entry) {
+                failures.push(format!("keyring entry: {e}"));
+            }
         }
         remove_dir_best_effort(&legacy_signal_cli_dir(&self.paths.app_data_dir), &mut failures);
         if let Some(log_file) = self.paths.log_file.clone() {
             remove_file_best_effort(&log_file, &mut failures);
         }
 
-        self.state = StorageState::NeedsSetup;
+        self.state = StorageState::Erased;
         Ok((self.build_status(), failures))
     }
 
@@ -720,7 +790,7 @@ mod tests {
         assert!(status.has_keyring);
         // The new keyring provider now holds a secret: a later relaunch
         // auto-unlocks through it too.
-        assert!(fresh_store.get().unwrap().is_some());
+        assert_eq!(fresh_store.account_count(), 1);
         drop(second); // the previous "process" exits, releasing the instance lock
         let mut third = fx.service_with(fresh_store);
         third.setup().unwrap();
@@ -907,5 +977,81 @@ mod tests {
         assert!(svc.status().has_passphrase);
         svc.set_passphrase(None).unwrap();
         assert!(!svc.status().has_passphrase);
+    }
+
+    #[test]
+    fn erase_removes_the_keyring_entry_from_the_store() {
+        let fx = Fixture::new("erase-keyring-entry");
+        let store = Arc::new(FakeStore::new());
+        let mut svc = fx.service_with(store.clone());
+        svc.setup().unwrap();
+        svc.setup_new(SetupMode::Keyring, None).unwrap();
+        assert_eq!(store.account_count(), 1);
+        svc.erase_all("ERASE").unwrap();
+        assert_eq!(store.account_count(), 0);
+    }
+
+    #[test]
+    fn enroll_keyring_deletes_the_superseded_entry_once_saved() {
+        let fx = Fixture::new("enroll-cleanup");
+        let store = Arc::new(FakeStore::new());
+        let mut svc = fx.service_with(store.clone());
+        svc.setup().unwrap();
+        svc.setup_new(SetupMode::Keyring, None).unwrap();
+        assert_eq!(store.account_count(), 1);
+        svc.enroll_keyring().unwrap();
+        assert_eq!(store.account_count(), 1, "the superseded account is deleted, not just orphaned");
+        svc.enroll_keyring().unwrap();
+        assert_eq!(store.account_count(), 1);
+    }
+
+    #[test]
+    fn erase_moves_to_an_erased_state_that_requires_a_restart() {
+        let fx = Fixture::new("erase-latch");
+        let mut svc = fx.service();
+        svc.setup().unwrap();
+        svc.setup_new(SetupMode::Keyring, None).unwrap();
+
+        let (status, _failures) = svc.erase_all("ERASE").unwrap();
+        assert_eq!(status.state, "needsSetup");
+        assert!(status.restart_required);
+        // `status` itself never refuses, and keeps reporting the latch.
+        assert_eq!(svc.status().state, "needsSetup");
+        assert!(svc.status().restart_required);
+
+        // Every other command refuses now.
+        assert_eq!(svc.setup_new(SetupMode::Keyring, None).unwrap_err().kind, ErrorKind::Config);
+        assert_eq!(svc.unlock(UnlockMethod::Passphrase, "x", false).unwrap_err().kind, ErrorKind::Config);
+        assert_eq!(svc.create_recovery().unwrap_err().kind, ErrorKind::Config);
+        assert_eq!(svc.remove_recovery().unwrap_err().kind, ErrorKind::Config);
+        assert_eq!(svc.set_passphrase(Some("x")).unwrap_err().kind, ErrorKind::Config);
+        assert_eq!(svc.enroll_keyring().unwrap_err().kind, ErrorKind::Config);
+        assert_eq!(svc.erase_all("ERASE").unwrap_err().kind, ErrorKind::Config);
+    }
+
+    #[test]
+    fn last_unlock_method_is_refused_for_passphrase_only_and_recovery_plus_passphrase() {
+        // Passphrase-only: it's the one and only slot.
+        let fx = Fixture::new("last-slot-passphrase-only");
+        let mut svc = fx.service();
+        svc.setup().unwrap();
+        svc.setup_new(SetupMode::Passphrase, Some("the only way in")).unwrap();
+        let err = svc.set_passphrase(None).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::LastUnlockMethod);
+        assert!(svc.status().has_passphrase);
+
+        // Recovery-plus-passphrase: removing one is fine (the other
+        // remains); removing the one left after that is refused.
+        let fx2 = Fixture::new("last-slot-recovery-plus-passphrase");
+        let mut svc2 = fx2.service();
+        svc2.setup().unwrap();
+        svc2.setup_new(SetupMode::Passphrase, Some("a passphrase")).unwrap();
+        svc2.create_recovery().unwrap();
+        svc2.remove_recovery().unwrap();
+        assert!(!svc2.status().has_recovery);
+        assert!(svc2.status().has_passphrase);
+        let err = svc2.set_passphrase(None).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::LastUnlockMethod);
+        assert!(svc2.status().has_passphrase);
     }
 }

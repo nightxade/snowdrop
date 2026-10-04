@@ -20,8 +20,10 @@ pub mod vault;
 pub mod vault_bridge;
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter, Manager, RunEvent};
+use std::time::Duration;
+use tauri::{AppHandle, Emitter, Manager, RunEvent, WindowEvent};
 
 use crate::events::HeldEvent;
 use crate::service::{EventSink, Paths, Service, StreamState};
@@ -32,11 +34,36 @@ pub const EVENT_RECEIVE: &str = "signal-cli://event";
 pub const EVENT_STATE: &str = "signal-cli://state";
 /// Download progress for the first-run signal-cli install (`signal_cli_install.rs`).
 pub const EVENT_INSTALL_PROGRESS: &str = "signal-cli-install-progress";
+/// The close handshake (docs/ENCRYPTION.md, "signal-cli vault"): emitted at
+/// the main window's `CloseRequested`, which this module intercepts and
+/// prevents so the frontend gets a chance to flush its own last write first.
+/// Answered by the `app_close_ready` command.
+pub const EVENT_FLUSH_BEFORE_CLOSE: &str = "snowdrop://flush-before-close";
+/// How long the close handshake waits for `app_close_ready` before exiting
+/// anyway — a frontend that never answers (crashed, stuck, or simply absent
+/// in a test harness) must never make the app unclosable.
+const CLOSE_FALLBACK: Duration = Duration::from_secs(3);
 
 /// Where signal-cli's data and log live (shown on the About page).
 pub struct AppPaths {
     pub data_dir: PathBuf,
     pub log_file: Option<PathBuf>,
+}
+
+/// Deduplicates the close handshake's two possible triggers — the frontend
+/// answering `app_close_ready`, or [`CLOSE_FALLBACK`] firing first — so only
+/// the first one actually exits the app.
+pub struct CloseGate(AtomicBool);
+
+impl CloseGate {
+    fn new() -> Self {
+        Self(AtomicBool::new(false))
+    }
+
+    /// `true` only the first time this is called.
+    pub fn fire(&self) -> bool {
+        self.0.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_ok()
+    }
 }
 
 struct WebviewSink(AppHandle);
@@ -133,7 +160,29 @@ pub fn run() {
             app.manage(service);
             app.manage(std::sync::Mutex::new(storage_service));
             app.manage(Arc::new(InstallState::new(app_data_dir)));
+            app.manage(Arc::new(CloseGate::new()));
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            // Only the main window runs the close handshake; nothing else
+            // (e.g. a future secondary window) should delay or prevent exit.
+            if window.label() != "main" {
+                return;
+            }
+            let WindowEvent::CloseRequested { api, .. } = event else { return };
+            api.prevent_close();
+            if let Err(e) = window.emit(EVENT_FLUSH_BEFORE_CLOSE, ()) {
+                log::warn!("couldn't notify the frontend before closing: {e}");
+            }
+            let gate = window.state::<Arc<CloseGate>>().inner().clone();
+            let handle = window.app_handle().clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(CLOSE_FALLBACK).await;
+                if gate.fire() {
+                    log::warn!("snowdrop: the frontend never answered the close handshake; exiting anyway.");
+                    handle.exit(0);
+                }
+            });
         })
         .invoke_handler(tauri::generate_handler![
             commands::signal_cli_connect,
@@ -159,6 +208,7 @@ pub fn run() {
             commands::storage_webcache_key,
             commands::storage_erase_all,
             commands::app_restart,
+            commands::app_close_ready,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Snowdrop");

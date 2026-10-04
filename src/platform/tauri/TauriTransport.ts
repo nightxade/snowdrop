@@ -54,6 +54,9 @@ const KINDS: Record<CommandError['kind'], SignalCliErrorKind> = {
   'keyring-secret-missing': 'internal',
   'auth-failed': 'internal',
   'slot-missing': 'internal',
+  // Only ever returned by `storage_remove_recovery`/`storage_set_passphrase`,
+  // never connect/request.
+  'last-unlock-method': 'internal',
   'keys-file-corrupt': 'internal',
   'recovery-code-typo': 'internal',
   'vault-corrupt': 'internal',
