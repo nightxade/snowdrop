@@ -532,6 +532,9 @@ impl<S: SecretStore> StorageService<S> {
             remove_file_best_effort(&log_file, &mut failures);
         }
 
+        // Erase and sign-out release the lock while their hooks run, so the
+        // other may have finished first: an erase still wins over sign-out
+        // (it deleted strictly more), and a terminal state is never undone.
         self.state = StorageState::Erased;
         Ok((self.build_status(), failures))
     }
@@ -584,7 +587,11 @@ impl<S: SecretStore> StorageService<S> {
             log::warn!("storage: sign out couldn't remove {failure}");
         }
 
-        self.state = StorageState::SignedOut;
+        // First terminal state wins: don't overwrite an erase that finished
+        // while this sign-out's hooks ran with the lock released.
+        if !matches!(self.state, StorageState::Erased) {
+            self.state = StorageState::SignedOut;
+        }
         Ok(self.build_status())
     }
 
