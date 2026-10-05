@@ -312,10 +312,21 @@ pub struct EraseResult {
     pub failures: Vec<String>,
 }
 
+/// Split into three locking phases (`storage::StorageService::begin_erase`/
+/// `finish_erase`) rather than one `erase_all` call held under `storage`'s
+/// lock throughout: the erase hooks reach back into `Service` to stop
+/// signal-cli, which needs `Service`'s own `active` lock — the exact lock
+/// `Service::connect` holds while calling back into storage. Holding
+/// `storage`'s lock across the hooks would deadlock against a concurrent
+/// `connect` (docs/ENCRYPTION.md, "Erase"; see `storage.rs`'s
+/// `begin_erase` for the full account).
 #[tauri::command]
 pub fn storage_erase_all(storage: Storage<'_>, service: Svc<'_>, confirm: String) -> Result<EraseResult, Error> {
-    let mut storage = storage.lock().expect("storage lock");
-    let (status, failures) = storage.erase_all(&confirm)?;
+    let prep = storage.lock().expect("storage lock").begin_erase(&confirm)?;
+    for hook in &prep.hooks {
+        hook();
+    }
+    let (status, failures) = storage.lock().expect("storage lock").finish_erase(prep)?;
     Ok(EraseResult { status: with_live_vault_disabled(status, &service), failures })
 }
 
@@ -324,10 +335,16 @@ pub fn storage_erase_all(storage: Storage<'_>, service: Svc<'_>, confirm: String
 /// keyring entry so storage stays set up. Like `storage_erase_all`, the
 /// webview must restart the app (`app_restart`) before storage is usable
 /// again.
+///
+/// Split into locking phases the same way, and for the same reason, as
+/// `storage_erase_all` above: see `storage::StorageService::begin_sign_out`.
 #[tauri::command]
 pub fn storage_sign_out(storage: Storage<'_>, service: Svc<'_>) -> Result<StorageStatus, Error> {
-    let mut storage = storage.lock().expect("storage lock");
-    let status = storage.sign_out()?;
+    let hooks = storage.lock().expect("storage lock").begin_sign_out()?;
+    for hook in &hooks {
+        hook();
+    }
+    let status = storage.lock().expect("storage lock").finish_sign_out()?;
     Ok(with_live_vault_disabled(status, &service))
 }
 

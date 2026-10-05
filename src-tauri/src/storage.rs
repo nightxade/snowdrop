@@ -14,6 +14,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use crate::aead::Key32;
 use crate::error::{Error, ErrorKind};
@@ -25,10 +26,19 @@ use crate::vault::{InstanceLock, Vault};
 /// in production; a temp-dir closure in tests).
 pub type RuntimeDirResolver = Box<dyn Fn() -> Result<PathBuf, Error> + Send + Sync>;
 
-/// A hook run (synchronously) at the start of [`StorageService::erase_all`],
-/// before anything is deleted. Task 4b hangs the signal-cli shutdown off
-/// this, since storage itself knows nothing about the running process.
-pub type EraseHook = Box<dyn Fn() + Send + Sync>;
+/// A hook run (synchronously), with no lock held on this service, between
+/// [`StorageService::begin_erase`]/[`begin_sign_out`](StorageService::begin_sign_out)
+/// and their `finish_*` counterparts, before anything is deleted. Task 4b
+/// hangs the signal-cli shutdown and vault discard off this, since storage
+/// itself knows nothing about the running process. `Arc`, not `Box`: the
+/// caller clones the list out of `on_erase` under a brief lock (see
+/// [`StorageService::begin_erase`]) and runs it afterwards with that lock
+/// released — the whole point being that nothing here can still be holding
+/// storage's own lock while a hook reaches back into `Service`, which takes
+/// its own lock to stop the backend, while `Service::connect` holds that
+/// same lock across a call back into storage (docs/ENCRYPTION.md, "Erase";
+/// this is the deadlock `begin_erase`/`finish_erase` avoid).
+pub type EraseHook = Arc<dyn Fn() + Send + Sync>;
 
 /// Where `keys.json` and the vault live, plus the signal-cli log (deleted by
 /// [`StorageService::erase_all`]). All under the Tauri app data dir.
@@ -186,6 +196,17 @@ pub struct StorageStatus {
 /// live holder at a time), so this can only ever be called once per unlock.
 pub type VaultSessionParts = (Vault, PathBuf, InstanceLock);
 
+/// What [`StorageService::begin_erase`] hands its caller: everything the
+/// hooks (run with no lock held — phase 2) and
+/// [`StorageService::finish_erase`] (phase 3, re-locked) need, captured while
+/// phase 1 still held the lock.
+pub struct ErasePrep {
+    /// Run with no lock held on this service — see
+    /// [`StorageService::begin_erase`].
+    pub hooks: Vec<EraseHook>,
+    keyring_entry: Option<String>,
+}
+
 pub struct StorageService<S: SecretStore = KeyringStore> {
     paths: StoragePaths,
     keyring_slot: KeyringSlot<S>,
@@ -207,11 +228,12 @@ impl<S: SecretStore> StorageService<S> {
         }
     }
 
-    /// Registers a callback run (synchronously) at the start of
-    /// [`erase_all`](Self::erase_all), before anything is deleted — task 4b
-    /// hangs the signal-cli shutdown off this.
+    /// Registers a callback run (synchronously) between
+    /// [`begin_erase`](Self::begin_erase)/[`begin_sign_out`](Self::begin_sign_out)
+    /// and their `finish_*` counterparts, before anything is deleted — task
+    /// 4b hangs the signal-cli shutdown and vault discard off this.
     pub fn add_on_erase(&mut self, hook: impl Fn() + Send + Sync + 'static) {
-        self.on_erase.push(Box::new(hook));
+        self.on_erase.push(Arc::new(hook));
     }
 
     /// Called once at app start: takes the single-instance lock and loads
@@ -456,24 +478,39 @@ impl<S: SecretStore> StorageService<S> {
         Some((vault, runtime_dir, lock))
     }
 
-    /// `storage_erase_all`. Best-effort: every item is attempted even if an
-    /// earlier one failed, and every failure is collected rather than
-    /// surfaced as a hard stop. Doesn't stop signal-cli itself — that's
-    /// whatever task 4b registered via [`add_on_erase`](Self::add_on_erase).
-    /// Leaves storage in the terminal [`StorageState::Erased`] state, not
-    /// `NeedsSetup` — only a fresh process can return to that.
-    pub fn erase_all(&mut self, confirm: &str) -> Result<(StorageStatus, Vec<String>), Error> {
+    /// Phase 1 of `storage_erase_all` (docs/ENCRYPTION.md, "Erase"):
+    /// validates the confirmation string and, before anything on disk is
+    /// touched, captures the keyring account `keys.json` currently names —
+    /// once `keys_path` is gone there's no other way to know which account
+    /// was ours — plus the hooks to run. Nothing is deleted or latched yet.
+    ///
+    /// This takes `&self`, not `&mut self`, so `commands.rs`'s
+    /// `storage_erase_all` can lock the outer `Mutex<StorageService>` just
+    /// for this call, run the returned [`ErasePrep::hooks`] with that lock
+    /// released, and only re-lock for [`finish_erase`](Self::finish_erase).
+    /// That split fixes a real deadlock: a hook here (task 4b's
+    /// stop-signal-cli-then-discard) calls back into `Service`, which locks
+    /// its own `active` mutex to stop the backend — and `Service::connect`
+    /// holds that very lock while calling back into storage to resolve the
+    /// vault's spawn dir. Two locks taken in opposite orders on two threads
+    /// deadlock the moment both are in flight together; never holding
+    /// storage's lock while a hook runs breaks that cycle.
+    pub fn begin_erase(&self, confirm: &str) -> Result<ErasePrep, Error> {
         self.refuse_if_erased()?;
         if confirm != "ERASE" {
             return Err(Error::new(ErrorKind::Config, "Type ERASE to confirm erasing all local data."));
         }
-        // Captured before anything on disk is touched: once `keys_path` is
-        // gone, there's no other way to know which keyring account was ours.
-        let keyring_entry = self.current_keyring_entry();
-        for hook in &self.on_erase {
-            hook();
-        }
+        Ok(ErasePrep { keyring_entry: self.current_keyring_entry(), hooks: self.on_erase.clone() })
+    }
 
+    /// Phase 3 of `storage_erase_all`, re-locked after phase 2 (the caller
+    /// running `prep.hooks` with no lock held — see
+    /// [`begin_erase`](Self::begin_erase)). Best-effort: every item is
+    /// attempted even if an earlier one failed, and every failure is
+    /// collected rather than surfaced as a hard stop. Leaves storage in the
+    /// terminal [`StorageState::Erased`] state, not `NeedsSetup` — only a
+    /// fresh process can return to that.
+    pub fn finish_erase(&mut self, prep: ErasePrep) -> Result<(StorageStatus, Vec<String>), Error> {
         let mut failures = Vec::new();
         remove_dir_best_effort(&self.paths.vault_dir, &mut failures);
         if let Ok(runtime_dir) = (self.resolve_runtime_dir)() {
@@ -485,7 +522,7 @@ impl<S: SecretStore> StorageService<S> {
         // `keyslot-*` account for this service, so any other leftover from
         // an aborted enrolment is simply left behind — harmless, since
         // nothing references it (docs/ENCRYPTION.md, "Key hierarchy").
-        if let Some(entry) = keyring_entry {
+        if let Some(entry) = prep.keyring_entry {
             if let Err(e) = self.keyring_slot.delete(&entry) {
                 failures.push(format!("keyring entry: {e}"));
             }
@@ -499,27 +536,43 @@ impl<S: SecretStore> StorageService<S> {
         Ok((self.build_status(), failures))
     }
 
-    /// `storage_sign_out` (docs/ENCRYPTION.md, "Sign out"): removes this
-    /// computer's signal-cli vault — its manifests, blobs and RAM-backed
-    /// runtime dir — but deliberately keeps `keys.json` and the keyring
-    /// entry, so storage stays set up and (with a working keyring) unlocks
-    /// the same way it did before, around a freshly empty vault. Reuses
-    /// [`erase_all`](Self::erase_all)'s own hooks ([`add_on_erase`](Self::add_on_erase)):
-    /// the same stop-signal-cli-then-discard-without-syncing ordering
-    /// applies here, since the vault bridge must never be allowed to
-    /// resurrect what this is about to delete. Like `erase_all`, this
-    /// latches a terminal, restart-required state — the vault bridge and
-    /// the single-instance lock are one-shot per process, so only a fresh
-    /// process can open a vault again.
-    pub fn sign_out(&mut self) -> Result<StorageStatus, Error> {
+    /// `begin_erase` + running the hooks + `finish_erase`, with nothing
+    /// released in between: fine for a direct, single-threaded caller (this
+    /// module's own tests below). `commands.rs`'s `storage_erase_all` calls
+    /// `begin_erase`/`finish_erase` directly instead, with the lock released
+    /// across the hooks — see [`begin_erase`](Self::begin_erase) for why.
+    #[cfg(test)]
+    pub fn erase_all(&mut self, confirm: &str) -> Result<(StorageStatus, Vec<String>), Error> {
+        let prep = self.begin_erase(confirm)?;
+        for hook in &prep.hooks {
+            hook();
+        }
+        self.finish_erase(prep)
+    }
+
+    /// Phase 1 of `storage_sign_out` — the same split as, and for the same
+    /// deadlock-avoiding reason as, [`begin_erase`](Self::begin_erase)/
+    /// [`finish_erase`](Self::finish_erase): validates that storage is
+    /// actually `Unlocked` and hands back the hooks to run with no lock held
+    /// on this service.
+    pub fn begin_sign_out(&self) -> Result<Vec<EraseHook>, Error> {
         self.refuse_if_erased()?;
         if !matches!(self.state, StorageState::Unlocked { .. }) {
             return Err(Error::new(ErrorKind::Config, "Storage must be unlocked to sign out."));
         }
-        for hook in &self.on_erase {
-            hook();
-        }
+        Ok(self.on_erase.clone())
+    }
 
+    /// Phase 3 of `storage_sign_out`, re-locked after phase 2 (the caller
+    /// running the hooks [`begin_sign_out`](Self::begin_sign_out) returned,
+    /// with no lock held): wipes the vault's manifests, blobs and RAM-backed
+    /// runtime dir, but deliberately keeps `keys.json` and the keyring
+    /// entry, so storage stays set up and (with a working keyring) unlocks
+    /// the same way it did before, around a freshly empty vault. Like
+    /// `finish_erase`, latches a terminal, restart-required state — the
+    /// vault bridge and the single-instance lock are one-shot per process,
+    /// so only a fresh process can open a vault again.
+    pub fn finish_sign_out(&mut self) -> Result<StorageStatus, Error> {
         let mut failures = Vec::new();
         remove_dir_best_effort(&self.paths.vault_dir, &mut failures);
         if let Ok(runtime_dir) = (self.resolve_runtime_dir)() {
@@ -533,6 +586,21 @@ impl<S: SecretStore> StorageService<S> {
 
         self.state = StorageState::SignedOut;
         Ok(self.build_status())
+    }
+
+    /// `begin_sign_out` + running the hooks + `finish_sign_out`, with
+    /// nothing released in between: fine for a direct, single-threaded
+    /// caller (this module's own tests below). `commands.rs`'s
+    /// `storage_sign_out` calls `begin_sign_out`/`finish_sign_out` directly
+    /// instead, with the lock released across the hooks — see
+    /// [`begin_erase`](Self::begin_erase) for why.
+    #[cfg(test)]
+    pub fn sign_out(&mut self) -> Result<StorageStatus, Error> {
+        let hooks = self.begin_sign_out()?;
+        for hook in &hooks {
+            hook();
+        }
+        self.finish_sign_out()
     }
 
     /// Common tail of every path that reaches `Unlocked` (first-time setup,

@@ -182,6 +182,20 @@ impl Service {
     }
 
     /// Starts (or keeps) the backend for `config` and checks it answers.
+    ///
+    /// This holds `active` across `start()`, which (through the vault
+    /// bridge) briefly locks `storage::StorageService`'s own mutex to
+    /// resolve the spawn dir. Reviewed whether that's safe to avoid by
+    /// resolving the spawn dir before taking `active`: it isn't, without a
+    /// second lock to replace what `active` currently buys this
+    /// function — single-flight (only one `connect` ever spawns at a time)
+    /// and `request`/`subscribe` blocking until a reconnect in progress
+    /// finishes rather than seeing a momentary gap. Left as-is; the actual
+    /// deadlock is fixed on the other side (storage.rs's `begin_erase`/
+    /// `finish_erase`, `begin_sign_out`/`finish_sign_out`), which never lets
+    /// the erase/sign-out hooks hold storage's lock while they call back
+    /// into `stop_backend` for `active` — so this lock is only ever briefly
+    /// contended, never cyclically.
     pub async fn connect(&self, config: ConnectConfig) -> Result<ConnectInfo, Error> {
         let mut active = self.active.lock().await;
         if let Some(current) = active.as_ref() {

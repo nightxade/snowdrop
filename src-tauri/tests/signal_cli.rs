@@ -427,3 +427,87 @@ async fn vault_backed_service_spawns_into_the_runtime_dir_and_stops_signal_cli_b
     assert!(!PathBuf::from(format!("/proc/{}", pid.trim())).exists(), "signal-cli must have exited before shutdown returns");
     assert!(!dir.join("runtime").exists(), "the runtime dir must be wiped only after signal-cli stopped");
 }
+
+/// Regression test for a real deadlock between `Service::connect` and
+/// `storage_erase_all`/`storage_sign_out`: `connect` holds `Service`'s
+/// `active` lock while calling into the vault bridge, which locks
+/// `storage::StorageService`'s own mutex to resolve the spawn dir; the erase
+/// hook (stop signal-cli, discard the vault) used to run *under* that same
+/// storage mutex and calls back into `Service::stop_backend`, which needs
+/// `active` — two locks, opposite order, two threads. `storage.rs` now
+/// splits erase/sign-out into `begin_*`/`finish_*` so the hooks run with no
+/// lock held on storage (see `storage::StorageService::begin_erase`); this
+/// wires up a real `Service` (fake signal-cli), `VaultBridge` and
+/// `StorageService` the way `lib.rs` does in production, and proves a
+/// concurrent `connect` and erase both finish rather than one hanging
+/// forever on the other.
+#[tokio::test(flavor = "multi_thread")]
+async fn connect_and_erase_run_concurrently_without_deadlocking() {
+    require_node!();
+    let dir = temp_dir("connect-erase-deadlock");
+
+    let storage_paths = snowdrop_lib::storage::StoragePaths::new(dir.join("app-data"), None, false);
+    std::fs::create_dir_all(&storage_paths.app_data_dir).unwrap();
+    let runtime_dir = dir.join("runtime");
+    let resolver: snowdrop_lib::storage::RuntimeDirResolver = Box::new(move || {
+        std::fs::create_dir_all(&runtime_dir).map_err(|e| snowdrop_lib::error::Error::new(ErrorKind::Internal, e.to_string()))?;
+        Ok(runtime_dir.clone())
+    });
+    let mut storage_service =
+        snowdrop_lib::storage::StorageService::new(storage_paths, Arc::new(snowdrop_lib::secrets::FakeStore::new()), resolver);
+    storage_service.setup().unwrap();
+    storage_service.setup_new(snowdrop_lib::storage::SetupMode::Keyring, None).unwrap();
+    let storage = Arc::new(Mutex::new(storage_service));
+
+    let storage_for_unlock = storage.clone();
+    let is_unlocked: snowdrop_lib::vault_bridge::IsUnlocked =
+        Box::new(move || storage_for_unlock.lock().unwrap().webcache_key().is_some());
+    let storage_for_parts = storage.clone();
+    let take_session_parts: snowdrop_lib::vault_bridge::TakeSessionParts =
+        Box::new(move || storage_for_parts.lock().unwrap().vault_session_parts());
+    let (vault, vault_rx) = VaultBridge::new(false, is_unlocked, take_session_parts);
+    tokio::spawn(snowdrop_lib::vault_bridge::run_sync_loop(vault.clone(), vault_rx));
+
+    let recorder = Arc::new(Recorder::default());
+    let svc = Service::with_timeouts(
+        Paths { app_data_dir: dir.clone(), data_dir: dir.join("plaintext-should-not-be-used"), log_file: None, bundled: None },
+        recorder,
+        Timeouts { backoff: fast_backoff(), grace: Duration::from_secs(2), ..Timeouts::default() },
+        vault.clone(),
+    );
+
+    // Mirrors `lib.rs`'s own erase hook: stop signal-cli, then discard the
+    // vault without a final sync.
+    storage.lock().unwrap().add_on_erase({
+        let svc = svc.clone();
+        let vault = vault.clone();
+        move || {
+            tokio::runtime::Handle::current().block_on(svc.stop_backend());
+            vault.discard();
+        }
+    });
+
+    let connect_svc = svc.clone();
+    let connect = tokio::spawn(async move { connect_svc.connect(spawn_config()).await });
+
+    let erase_storage = storage.clone();
+    let erase = tokio::task::spawn_blocking(move || -> Result<(), snowdrop_lib::error::Error> {
+        let prep = erase_storage.lock().unwrap().begin_erase("ERASE")?;
+        for hook in &prep.hooks {
+            hook();
+        }
+        erase_storage.lock().unwrap().finish_erase(prep)?;
+        Ok(())
+    });
+
+    tokio::time::timeout(Duration::from_secs(10), async {
+        let (connect_result, erase_result) = tokio::join!(connect, erase);
+        // Either may lose the race on its own merits (e.g. `connect` racing
+        // a vault that's about to be discarded), but neither must hang or
+        // panic.
+        connect_result.unwrap().ok();
+        erase_result.unwrap().unwrap();
+    })
+    .await
+    .expect("connect and erase must both finish without deadlocking");
+}
