@@ -113,3 +113,27 @@ describe('createSnowdrop', () => {
     await snowdrop.dispose();
   });
 });
+
+describe('admin.reload', () => {
+  it('waits for an asynchronously persisting store before reloading', async () => {
+    const order: string[] = [];
+    const storage = Object.assign(createMemoryStorage(), {
+      flush: () =>
+        new Promise<void>((resolve) => {
+          setTimeout(() => {
+            order.push('flushed');
+            resolve();
+          }, 10);
+        }),
+    });
+    const snowdrop = createSnowdrop({ storage, mockLatencyMs: 0 });
+    const reload = vi.fn(() => order.push('reloaded'));
+    vi.stubGlobal('location', { reload });
+    try {
+      await snowdrop.admin.reload();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(order).toEqual(['flushed', 'reloaded']);
+  });
+});

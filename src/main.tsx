@@ -63,8 +63,7 @@ function bootBrowser(container: HTMLElement): void {
         <App
           onBackendChange={() => {
             // createSnowdrop picks the transport once; a new choice needs a fresh instance.
-            snowdrop.flush();
-            window.location.reload();
+            void snowdrop.admin.reload();
           }}
         />
       </SnowdropProvider>

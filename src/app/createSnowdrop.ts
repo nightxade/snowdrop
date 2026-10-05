@@ -299,6 +299,14 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     flush: () => {
       for (const binding of bindings) binding.flush();
     },
+    reload: async (search) => {
+      for (const binding of bindings) binding.flush();
+      // An encrypted (hydrated) store writes through asynchronously; reloading
+      // before it finishes would lose exactly the change that needed a reload.
+      if (hasPendingWrites(storage)) await storage.flush();
+      if (search === undefined) window.location.reload();
+      else window.location.search = search;
+    },
     stopPersistence: () => {
       // Flushes each binding, then unsubscribes it: nothing writes to
       // storage again after this (Settings → Privacy & security, Erase —
@@ -360,4 +368,9 @@ function pickBackend(backends: BackendRegistry, chosen: string | null): BackendR
   const registration = backends.get(chosen ?? DEFAULT_BACKEND) ?? backends.list()[0];
   if (!registration) throw new Error('No backend is registered');
   return registration;
+}
+
+/** A storage whose writes complete asynchronously (`HydratedKeyValue`). */
+function hasPendingWrites(storage: KeyValueStorage): storage is KeyValueStorage & { flush(): Promise<void> } {
+  return typeof (storage as { flush?: unknown }).flush === 'function';
 }

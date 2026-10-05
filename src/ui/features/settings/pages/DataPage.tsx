@@ -93,8 +93,7 @@ export function DataPage() {
       app.stores.settings.getState().reset();
       app.stores.settings.getState().update('connection', connection);
     }
-    app.admin.flush();
-    window.location.reload();
+    await app.admin.reload();
   };
 
   const fraction =

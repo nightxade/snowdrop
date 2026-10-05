@@ -37,19 +37,19 @@ describe('installBootHelpers', () => {
     expect(flush).not.toHaveBeenCalled();
   });
 
-  it('flushes and reloads into ?safe=1 on a held Shift, outside safe mode', () => {
+  it('saves and reloads into ?safe=1 on a held Shift, outside safe mode', () => {
     const snowdrop = makeSnowdrop();
     cleanup = installBootHelpers({ snowdrop, safeMode: false });
     expect(snowdrop.stores.ui.getState().toasts).toHaveLength(0);
 
-    const flush = vi.spyOn(snowdrop, 'flush');
+    const reload = vi.spyOn(snowdrop.admin, 'reload').mockResolvedValue();
     // A single keydown (key repeat false) is a normal keystroke, not a held Shift.
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Shift', repeat: false }));
-    expect(flush).not.toHaveBeenCalled();
+    expect(reload).not.toHaveBeenCalled();
 
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Shift', repeat: true }));
-    expect(flush).toHaveBeenCalledTimes(1);
-    expect(window.location.search).toContain('safe=1');
+    expect(reload).toHaveBeenCalledTimes(1);
+    expect(reload.mock.calls[0]?.[0]).toContain('safe=1');
   });
 
   it('flushes on pagehide, in both modes', () => {

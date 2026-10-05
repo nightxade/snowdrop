@@ -31,6 +31,12 @@ export interface AppAdmin {
   clearHistory(): Promise<void>;
   /** Writes debounced persisted state now (before a reload). */
   flush(): void;
+  /**
+   * Flushes and waits until persisted state has actually reached storage
+   * (encrypted writes finish asynchronously), then reloads — optionally
+   * with a new query string. Use this instead of `location.reload()`.
+   */
+  reload(search?: string): Promise<void>;
   /** Flushes, then unsubscribes every persistence binding (Settings → Privacy & security, Erase). */
   stopPersistence(): void;
 }

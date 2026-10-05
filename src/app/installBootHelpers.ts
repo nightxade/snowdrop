@@ -35,8 +35,7 @@ export function installBootHelpers({ snowdrop, safeMode }: InstallBootHelpersOpt
       if (!held) return;
       const params = new URLSearchParams(window.location.search);
       params.set('safe', '1');
-      snowdrop.flush();
-      window.location.search = params.toString();
+      void snowdrop.admin.reload(params.toString());
     };
     window.addEventListener('keydown', onShift);
     window.addEventListener('pointermove', onShift);

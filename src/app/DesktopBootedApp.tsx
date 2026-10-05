@@ -64,8 +64,7 @@ export function DesktopBootedApp({
     <SnowdropProvider snowdrop={snowdrop}>
       <App
         onBackendChange={() => {
-          snowdrop.flush();
-          window.location.reload();
+          void snowdrop.admin.reload();
         }}
       />
     </SnowdropProvider>

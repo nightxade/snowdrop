@@ -57,8 +57,7 @@ export function ConnectionPage() {
           : { daemonUrl: url.trim(), account: account.trim() || null }
         : {}),
     });
-    app.admin.flush();
-    window.location.reload();
+    void app.admin.reload();
   };
 
   return (
