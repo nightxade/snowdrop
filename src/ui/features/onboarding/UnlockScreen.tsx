@@ -38,6 +38,18 @@ export function UnlockScreen({ status, admin, onStatusChange }: UnlockScreenProp
   const canUnlock = status.hasRecovery || status.hasPassphrase;
   const reason = unlockReasonCopy(status.reason, canUnlock);
   const bothMethods = status.hasRecovery && status.hasPassphrase;
+  // Keyring-related reasons can clear themselves without touching the data at
+  // all — unlocking or starting the keyring and checking again costs nothing,
+  // so it stays on offer even with no recovery key or passphrase to fall
+  // back on. `keyringSecretMissing` is the one case where it's a long shot
+  // (the secret itself is gone, not just inaccessible) rather than the main
+  // way forward, so it's offered but not made the primary action.
+  const offerKeyringRetry =
+    status.reason === 'keyringLocked' ||
+    status.reason === 'keyringUnavailable' ||
+    status.reason === 'keyringSecretMissing';
+  const keyringRetryIsPrimary =
+    status.reason === 'keyringLocked' || status.reason === 'keyringUnavailable';
 
   const tryAgain = async () => {
     setChecking(true);
@@ -131,9 +143,35 @@ export function UnlockScreen({ status, admin, onStatusChange }: UnlockScreenProp
               </Button>
             </div>
           </form>
+        ) : keyringRetryIsPrimary ? (
+          // No recovery key or passphrase, but the keyring itself might just
+          // need unlocking or starting — that costs no data, so it leads,
+          // with Start fresh kept as the (data-losing) fallback.
+          <div className={setupStyles.actions}>
+            <Button
+              type="button"
+              variant="primary"
+              autoFocus
+              disabled={checking}
+              onClick={() => void tryAgain()}
+            >
+              {tryAgainLabel(status.reason)}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                setEraseOpen(true);
+              }}
+            >
+              Start fresh…
+            </Button>
+          </div>
         ) : (
-          // No recovery key and no passphrase exist: nothing to unlock with, so
-          // the only way forward is starting over (docs/ENCRYPTION.md, "UX" §3).
+          // Either no recovery key/passphrase and no keyring angle left to
+          // try (docs/ENCRYPTION.md, "UX" §3), or the keyring secret itself
+          // is gone — a re-check might still turn it up, but starting over
+          // is the reliable way forward, so it leads here.
           <div className={setupStyles.actions}>
             <Button
               type="button"
@@ -145,6 +183,16 @@ export function UnlockScreen({ status, admin, onStatusChange }: UnlockScreenProp
             >
               Start fresh…
             </Button>
+            {offerKeyringRetry && (
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={checking}
+                onClick={() => void tryAgain()}
+              >
+                {tryAgainLabel(status.reason)}
+              </Button>
+            )}
           </div>
         )}
         {eraseOpen && (

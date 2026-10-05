@@ -1,5 +1,5 @@
 import { Upload } from 'lucide-react';
-import { useRef, useState, type DragEvent } from 'react';
+import { useEffect, useRef, useState, type DragEvent } from 'react';
 import styles from './DropOverlay.module.css';
 
 /** Synthetic or cross-frame drag events can arrive without a DataTransfer. */
@@ -13,11 +13,29 @@ function hasFiles(e: DragEvent): boolean {
 
 /**
  * Drag-and-drop anywhere over the conversation. Enter/leave fire for every
- * child element, so a depth counter tells when the drag really left.
+ * child element, so a depth counter tells when the drag really left. In
+ * WebKit the counter can desync if a row unmounts mid-drag (its leave never
+ * fires), so window `dragend`/`drop`, and a `dragleave` whose
+ * `relatedTarget` is null (the drag left the window, not just a child),
+ * force it back to zero rather than trusting the running count.
  */
 export function useFileDrop(onFiles: (files: File[]) => void) {
   const depth = useRef(0);
   const [dragging, setDragging] = useState(false);
+
+  useEffect(() => {
+    const reset = () => {
+      depth.current = 0;
+      setDragging(false);
+    };
+    window.addEventListener('dragend', reset);
+    window.addEventListener('drop', reset);
+    return () => {
+      window.removeEventListener('dragend', reset);
+      window.removeEventListener('drop', reset);
+    };
+  }, []);
+
   return {
     dragging,
     handlers: {
@@ -34,7 +52,12 @@ export function useFileDrop(onFiles: (files: File[]) => void) {
         dt.dropEffect = 'copy';
       },
       // Leave and drop settle the overlay whatever they carry, so it can't get stuck.
-      onDragLeave: () => {
+      onDragLeave: (e: DragEvent) => {
+        if (e.relatedTarget === null) {
+          depth.current = 0;
+          setDragging(false);
+          return;
+        }
         if (depth.current === 0) return;
         depth.current -= 1;
         if (depth.current === 0) setDragging(false);

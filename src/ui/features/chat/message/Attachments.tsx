@@ -122,13 +122,11 @@ interface TileProps {
 
 function MediaTile({ conversationId, attachment, pending, more, onOpen }: TileProps) {
   const state = useAttachmentUrl(conversationId, attachment);
-  const [broken, setBroken] = useState(false);
   const video = attachmentKind(attachment) === 'video';
   const name = attachment.fileName ?? (video ? 'Video' : 'Image');
 
-  if (state.status !== 'ready' || broken) {
-    const failed =
-      state.status === 'error' || broken || (state.status === 'unavailable' && !pending);
+  if (state.status !== 'ready') {
+    const failed = state.status === 'error' || (state.status === 'unavailable' && !pending);
     return (
       <div className={styles.tile} data-state={failed ? 'error' : 'loading'} aria-label={name}>
         {failed ? (
@@ -158,7 +156,16 @@ function MediaTile({ conversationId, attachment, pending, more, onOpen }: TilePr
     >
       {video ? (
         <>
-          <video className={styles.media} src={state.url} preload="metadata" muted playsInline />
+          <video
+            className={styles.media}
+            src={state.url}
+            preload="metadata"
+            muted
+            playsInline
+            // A "ready" URL that won't load re-resolves once, then shows the
+            // error tile with a manual retry (see useAttachmentUrl).
+            onError={state.onMediaError}
+          />
           <span className={styles.play} aria-hidden>
             <Play size={20} fill="currentColor" />
           </span>
@@ -171,9 +178,7 @@ function MediaTile({ conversationId, attachment, pending, more, onOpen }: TilePr
           loading="lazy"
           decoding="async"
           draggable={false}
-          onError={() => {
-            setBroken(true);
-          }}
+          onError={state.onMediaError}
         />
       )}
       {more > 0 && <span className={styles.more}>+{more}</span>}

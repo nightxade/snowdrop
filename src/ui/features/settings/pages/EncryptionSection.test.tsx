@@ -409,7 +409,7 @@ describe('EncryptionSection: keyring', () => {
 });
 
 describe('EncryptionSection: erase all local data', () => {
-  it('requires typing ERASE, then stops persistence, erases, and restarts, in order', async () => {
+  it('requires typing ERASE, then erases, stops persistence, and restarts, in order', async () => {
     const { admin, spies } = makeAdmin();
     await mount(admin);
     const order: string[] = [];
@@ -451,14 +451,17 @@ describe('EncryptionSection: erase all local data', () => {
     await waitFor(() => {
       expect(spies.restart.mock.calls.length).toBeGreaterThan(0);
     });
-    expect(order).toEqual(['stopPersistence', 'eraseAll', 'restart']);
+    // eraseAll runs first: persistence is only stopped once the erase has
+    // actually succeeded (docs/ENCRYPTION.md, "Erase").
+    expect(order).toEqual(['eraseAll', 'stopPersistence', 'restart']);
   });
 
-  it('shows an error and stays open if eraseAll fails', async () => {
+  it('shows an error, leaves persistence running, and never restarts if eraseAll fails', async () => {
     const { admin, spies } = makeAdmin({
       eraseAll: vi.fn(() => Promise.reject(commandError('internal', 'disk full'))),
     });
     await mount(admin);
+    const stopPersistence = vi.spyOn(snowdrop!.admin, 'stopPersistence');
 
     act(() => {
       fireEvent.click(screen.getByRole('button', { name: 'Erase…' }));
@@ -470,6 +473,9 @@ describe('EncryptionSection: erase all local data', () => {
     });
 
     expect(await screen.findByText('signal-cli ran into an internal problem.')).toBeTruthy();
+    // Settings must keep saving after a failed erase: stopPersistence()
+    // never ran, and the app never restarted into the half-erased state.
+    expect(stopPersistence).not.toHaveBeenCalled();
     expect(spies.restart.mock.calls.length).toBe(0);
   });
 });

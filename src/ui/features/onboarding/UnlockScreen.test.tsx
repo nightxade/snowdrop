@@ -172,7 +172,7 @@ describe('UnlockScreen: remember on this device', () => {
 });
 
 describe('UnlockScreen: no recovery and no passphrase', () => {
-  it('offers only Start fresh, which requires typing ERASE', async () => {
+  it('offers only Start fresh when there is truly no keyring angle left', async () => {
     const onStatusChange = vi.fn();
     const eraseAll = vi
       .fn()
@@ -180,7 +180,9 @@ describe('UnlockScreen: no recovery and no passphrase', () => {
     const restart = vi.fn().mockResolvedValue(undefined);
     render(
       <UnlockScreen
-        status={{ ...baseStatus, hasRecovery: false, hasPassphrase: false }}
+        // 'noRamDir' isn't a keyring problem, so re-checking the keyring
+        // wouldn't help — it's the one case with no retry offered at all.
+        status={{ ...baseStatus, reason: 'noRamDir', hasRecovery: false, hasPassphrase: false }}
         admin={fakeAdmin({ eraseAll, restart })}
         onStatusChange={onStatusChange}
       />,
@@ -189,6 +191,7 @@ describe('UnlockScreen: no recovery and no passphrase', () => {
     expect(screen.getByRole('button', { name: 'Start fresh…' })).toBeTruthy();
     // Nothing to unlock with, and no way "Try again" would help: it's not offered.
     expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Check keyring again' })).toBeNull();
 
     act(() => {
       fireEvent.click(screen.getByRole('button', { name: 'Start fresh…' }));
@@ -213,6 +216,54 @@ describe('UnlockScreen: no recovery and no passphrase', () => {
     // Matches EncryptionSection's erase flow: the app restarts afterwards
     // (docs/ENCRYPTION.md, "Erase").
     expect(restart).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['keyringLocked', 'keyringUnavailable'] as const)(
+    'offers "Check keyring again" as the primary action for %s, with Start fresh secondary',
+    async (reasonValue) => {
+      const onStatusChange = vi.fn();
+      const status = vi.fn().mockResolvedValue({ ...baseStatus, state: 'unlocked', reason: null });
+      render(
+        <UnlockScreen
+          status={{ ...baseStatus, reason: reasonValue, hasRecovery: false, hasPassphrase: false }}
+          admin={fakeAdmin({ status })}
+          onStatusChange={onStatusChange}
+        />,
+      );
+      const retryButton = screen.getByRole('button', { name: 'Check keyring again' });
+      screen.getByRole('button', { name: 'Start fresh…' });
+      // The retry is zero-loss (unlock/start the keyring and recheck), so it
+      // leads; Start fresh (which loses data) is the secondary option.
+      expect(document.activeElement).toBe(retryButton);
+
+      await act(async () => {
+        fireEvent.click(retryButton);
+        await Promise.resolve();
+      });
+      expect(status).toHaveBeenCalledTimes(1);
+      expect(onStatusChange).toHaveBeenCalledWith(expect.objectContaining({ state: 'unlocked' }));
+    },
+  );
+
+  it('keeps Start fresh primary for a missing keyring secret, but still offers a recheck', () => {
+    render(
+      <UnlockScreen
+        status={{
+          ...baseStatus,
+          reason: 'keyringSecretMissing',
+          hasRecovery: false,
+          hasPassphrase: false,
+        }}
+        admin={fakeAdmin()}
+        onStatusChange={() => undefined}
+      />,
+    );
+    const startFreshButton = screen.getByRole('button', { name: 'Start fresh…' });
+    screen.getByRole('button', { name: 'Check keyring again' });
+    // The secret itself is missing, not just inaccessible, so starting over
+    // is the reliable path — but switching back to the right keyring could
+    // still make the secret reappear, so the recheck stays on offer too.
+    expect(document.activeElement).toBe(startFreshButton);
   });
 });
 

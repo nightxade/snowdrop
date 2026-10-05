@@ -632,12 +632,14 @@ function DangerZone({ admin }: { admin: StorageAdmin }) {
     setBusy(true);
     setError(null);
     try {
-      // Nothing may write local data back after it's gone: stop persistence
-      // before erasing (docs/ENCRYPTION.md, "Erase") — otherwise a lingering
-      // debounced write, or the pagehide flush that fires as the app closes
-      // to restart, could re-create what was just erased.
-      app.admin.stopPersistence();
+      // Erase first: if it throws, persistence must keep running so settings
+      // keep saving. Only stop persistence (docs/ENCRYPTION.md, "Erase")
+      // once the erase has actually succeeded — any encrypted value a
+      // lingering debounced write (or the pagehide flush on restart)
+      // re-creates afterward is dropped on the next boot anyway, by
+      // discardUnreadableWebCache.
       await admin.eraseAll();
+      app.admin.stopPersistence();
       await admin.restart();
     } catch (e) {
       setError(describeError(e));

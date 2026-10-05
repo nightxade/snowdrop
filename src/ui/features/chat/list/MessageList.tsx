@@ -166,6 +166,12 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
     if (last && 'id' in last) rows.setActive(last.id);
   }, [items, rows]);
 
+  // The latest scheduled focus-after-scroll, so a second "jump to" within
+  // 350ms can cancel the first one instead of letting it land on a stale row.
+  const pendingFocus = useRef<{ id: MessageId; timer: ReturnType<typeof setTimeout> } | null>(
+    null,
+  );
+
   // A pending jump whose target is now loaded: scroll to it, flash it, maybe focus it.
   useEffect(() => {
     if (!target) return;
@@ -186,12 +192,17 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
       }
       if (focus) {
         rows.setActive(id);
+        if (pendingFocus.current) clearTimeout(pendingFocus.current.timer);
         // After the (possibly smooth) scroll has rendered the row.
-        setTimeout(() => {
+        const timer = setTimeout(() => {
+          // Only focus if nothing superseded this jump in the meantime.
+          if (pendingFocus.current?.timer !== timer) return;
+          pendingFocus.current = null;
           scroller.current
             ?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(id)}"]`)
             ?.focus({ preventScroll: true });
         }, 350);
+        pendingFocus.current = { id, timer };
       }
       setTarget(null);
     });
@@ -199,6 +210,13 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
       cancelAnimationFrame(frame);
     };
   }, [target, indexOf, rows]);
+
+  // Release a still-pending focus timer if the list unmounts first.
+  useEffect(() => {
+    return () => {
+      if (pendingFocus.current) clearTimeout(pendingFocus.current.timer);
+    };
+  }, []);
 
   const scrollToBottom = useCallback(() => {
     virtuoso.current?.scrollToIndex({ index: 'LAST', align: 'end', behavior: 'auto' });
