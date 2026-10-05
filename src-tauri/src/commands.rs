@@ -319,6 +319,18 @@ pub fn storage_erase_all(storage: Storage<'_>, service: Svc<'_>, confirm: String
     Ok(EraseResult { status: with_live_vault_disabled(status, &service), failures })
 }
 
+/// Signs out of Signal on this computer (docs/ENCRYPTION.md, "Sign out"):
+/// removes this computer's signal-cli vault, but keeps `keys.json` and the
+/// keyring entry so storage stays set up. Like `storage_erase_all`, the
+/// webview must restart the app (`app_restart`) before storage is usable
+/// again.
+#[tauri::command]
+pub fn storage_sign_out(storage: Storage<'_>, service: Svc<'_>) -> Result<StorageStatus, Error> {
+    let mut storage = storage.lock().expect("storage lock");
+    let status = storage.sign_out()?;
+    Ok(with_live_vault_disabled(status, &service))
+}
+
 /// Restarts the whole Snowdrop process. Needed after `storage_erase_all`:
 /// the vault bridge and the single-instance lock (`snowdrop.lock`) are both
 /// one-shot per process, so the only way back to a clean `needsSetup` boot

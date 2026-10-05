@@ -26,6 +26,14 @@ const CategoryDialog = lazy(() => loadSpaces().then((m) => ({ default: m.Categor
 const loadShortcuts = () => import('./ShortcutsDialog');
 const ShortcutsDialog = lazy(() => loadShortcuts().then((m) => ({ default: m.ShortcutsDialog })));
 
+// Sign out/leave demo/disconnect: opened from the user panel's menu and the
+// command palette. Shares the settings chunk (architecture boundary: a
+// feature is reached only through its index.ts) — same chunk ConnectionPage
+// renders it from, so this never pulls in anything extra.
+const SignOutDialog = lazy(() =>
+  import('@/ui/features/settings').then((m) => ({ default: m.SignOutDialog })),
+);
+
 function stringProp(props: Record<string, unknown> | undefined, key: string): string | undefined {
   const value = props?.[key];
   return typeof value === 'string' ? value : undefined;
@@ -54,7 +62,9 @@ export function ModalHost() {
     stores.ui.getState().closeModal();
   };
   return (
-    <Suspense fallback={modal.type === 'settings' ? <SettingsFallback /> : null}>
+    <Suspense
+      fallback={modal.type === 'settings' || modal.type === 'signOut' ? <SettingsFallback /> : null}
+    >
       {modalElement(modal, close)}
     </Suspense>
   );
@@ -70,6 +80,8 @@ function modalElement(modal: Modal, close: () => void) {
       return <SettingsOverlay onClose={close} {...pageProp(modal.props)} />;
     case 'shortcuts':
       return <ShortcutsDialog onClose={close} />;
+    case 'signOut':
+      return <SignOutDialog onClose={close} />;
     case 'createSpace': {
       const ids = modal.props?.conversationIds;
       const conversationIds = Array.isArray(ids)

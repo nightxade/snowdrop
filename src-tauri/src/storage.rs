@@ -146,6 +146,13 @@ enum StorageState {
     /// fresh process can actually return to `NeedsSetup`
     /// (docs/ENCRYPTION.md, "Erase").
     Erased,
+    /// Terminal for this process: [`StorageService::sign_out`] has run.
+    /// Like `Erased`, every other command refuses until a restart — but
+    /// unlike `Erased`, `keys.json` and the keyring entry are left alone, so
+    /// a fresh process finds storage already set up (and, with a working
+    /// keyring, unlocks the same way it did before) around a freshly empty
+    /// vault (docs/ENCRYPTION.md, "Sign out").
+    SignedOut,
 }
 
 /// The one JSON shape every storage command returns (docs/ENCRYPTION.md;
@@ -273,6 +280,7 @@ impl<S: SecretStore> StorageService<S> {
             StorageState::Unlocked { .. } => ("unlocked", None, false),
             StorageState::Unavailable { reason } => ("unavailable", Some(reason.as_str()), false),
             StorageState::Erased => ("needsSetup", None, true),
+            StorageState::SignedOut => ("needsSetup", None, true),
         };
         StorageStatus {
             state,
@@ -291,10 +299,11 @@ impl<S: SecretStore> StorageService<S> {
         match &self.state {
             StorageState::Locked { locked, .. } => (locked.has_keyring(), locked.has_recovery(), locked.has_passphrase()),
             StorageState::Unlocked { unlocked } => (unlocked.has_keyring(), unlocked.has_recovery(), unlocked.has_passphrase()),
-            StorageState::NeedsSetup | StorageState::Unavailable { .. } | StorageState::Erased => {
+            StorageState::NeedsSetup | StorageState::Unavailable { .. } | StorageState::Erased | StorageState::SignedOut => {
                 // Best-effort: reading keys.json never needs the instance
                 // lock, so this stays accurate even while `Unavailable`
-                // (and, once erased, simply comes up empty).
+                // (and, once erased, simply comes up empty — while, once
+                // signed out, `keys.json` is still there to read).
                 match keyslots::load(&self.paths.keys_path) {
                     Ok(Some(locked)) => (locked.has_keyring(), locked.has_recovery(), locked.has_passphrase()),
                     _ => (false, false, false),
@@ -303,13 +312,15 @@ impl<S: SecretStore> StorageService<S> {
         }
     }
 
-    /// Every command but `status` refuses once storage has been erased in
-    /// this process — see [`StorageState::Erased`].
+    /// Every command but `status` refuses once storage has been erased or
+    /// signed out of in this process — see [`StorageState::Erased`] and
+    /// [`StorageState::SignedOut`].
     fn refuse_if_erased(&self) -> Result<(), Error> {
-        if matches!(self.state, StorageState::Erased) {
-            return Err(Error::new(ErrorKind::Config, "Local data was erased; restart Snowdrop to continue."));
+        match self.state {
+            StorageState::Erased => Err(Error::new(ErrorKind::Config, "Local data was erased; restart Snowdrop to continue.")),
+            StorageState::SignedOut => Err(Error::new(ErrorKind::Config, "Signed out; restart Snowdrop to continue.")),
+            _ => Ok(()),
         }
-        Ok(())
     }
 
     /// The keyring account currently referenced by `keys.json`, if any —
@@ -319,7 +330,7 @@ impl<S: SecretStore> StorageService<S> {
         match &self.state {
             StorageState::Locked { locked, .. } => locked.keyring_entry(),
             StorageState::Unlocked { unlocked } => unlocked.keyring_entry(),
-            StorageState::NeedsSetup | StorageState::Unavailable { .. } | StorageState::Erased => {
+            StorageState::NeedsSetup | StorageState::Unavailable { .. } | StorageState::Erased | StorageState::SignedOut => {
                 keyslots::load(&self.paths.keys_path).ok().flatten().and_then(|locked| locked.keyring_entry())
             }
         }
@@ -486,6 +497,42 @@ impl<S: SecretStore> StorageService<S> {
 
         self.state = StorageState::Erased;
         Ok((self.build_status(), failures))
+    }
+
+    /// `storage_sign_out` (docs/ENCRYPTION.md, "Sign out"): removes this
+    /// computer's signal-cli vault — its manifests, blobs and RAM-backed
+    /// runtime dir — but deliberately keeps `keys.json` and the keyring
+    /// entry, so storage stays set up and (with a working keyring) unlocks
+    /// the same way it did before, around a freshly empty vault. Reuses
+    /// [`erase_all`](Self::erase_all)'s own hooks ([`add_on_erase`](Self::add_on_erase)):
+    /// the same stop-signal-cli-then-discard-without-syncing ordering
+    /// applies here, since the vault bridge must never be allowed to
+    /// resurrect what this is about to delete. Like `erase_all`, this
+    /// latches a terminal, restart-required state — the vault bridge and
+    /// the single-instance lock are one-shot per process, so only a fresh
+    /// process can open a vault again.
+    pub fn sign_out(&mut self) -> Result<StorageStatus, Error> {
+        self.refuse_if_erased()?;
+        if !matches!(self.state, StorageState::Unlocked { .. }) {
+            return Err(Error::new(ErrorKind::Config, "Storage must be unlocked to sign out."));
+        }
+        for hook in &self.on_erase {
+            hook();
+        }
+
+        let mut failures = Vec::new();
+        remove_dir_best_effort(&self.paths.vault_dir, &mut failures);
+        if let Ok(runtime_dir) = (self.resolve_runtime_dir)() {
+            remove_dir_best_effort(&runtime_dir, &mut failures);
+        }
+        // keys.json and the keyring entry are left exactly as they are —
+        // the whole point of signing out rather than erasing.
+        for failure in &failures {
+            log::warn!("storage: sign out couldn't remove {failure}");
+        }
+
+        self.state = StorageState::SignedOut;
+        Ok(self.build_status())
     }
 
     /// Common tail of every path that reaches `Unlocked` (first-time setup,
@@ -1025,6 +1072,92 @@ mod tests {
         assert_eq!(svc.set_passphrase(Some("x")).unwrap_err().kind, ErrorKind::Config);
         assert_eq!(svc.enroll_keyring().unwrap_err().kind, ErrorKind::Config);
         assert_eq!(svc.erase_all("ERASE").unwrap_err().kind, ErrorKind::Config);
+    }
+
+    #[test]
+    fn sign_out_keeps_keys_json_and_the_keyring_entry_but_wipes_the_vault() {
+        let fx = Fixture::new("sign-out");
+        let store = Arc::new(FakeStore::new());
+        let mut svc = fx.service_with(store.clone());
+        svc.setup().unwrap();
+        svc.setup_new(SetupMode::Keyring, None).unwrap();
+
+        let paths = fx.paths();
+        fs::create_dir_all(&paths.vault_dir).unwrap();
+        fs::write(paths.vault_dir.join("manifest"), b"fake manifest").unwrap();
+        let runtime_dir = fx.base.path().join("runtime");
+        fs::create_dir_all(&runtime_dir).unwrap();
+        fs::write(runtime_dir.join("data"), b"live signal-cli data").unwrap();
+
+        let called = Arc::new(AtomicUsize::new(0));
+        let called2 = called.clone();
+        svc.add_on_erase(move || {
+            called2.fetch_add(1, Ordering::SeqCst);
+        });
+
+        let status = svc.sign_out().unwrap();
+        assert_eq!(status.state, "needsSetup");
+        assert!(status.restart_required);
+        assert_eq!(called.load(Ordering::SeqCst), 1, "the stop-signal-cli/discard hook must run, like erase_all's");
+
+        assert!(paths.keys_path.exists(), "keys.json must survive a sign-out");
+        assert_eq!(store.account_count(), 1, "the keyring entry must survive a sign-out");
+        assert!(!paths.vault_dir.exists(), "the vault (manifests and blobs) must be wiped");
+        assert!(!runtime_dir.exists(), "the runtime dir must be wiped");
+    }
+
+    #[test]
+    fn sign_out_latches_a_restart_required_state_that_refuses_every_other_command() {
+        let fx = Fixture::new("sign-out-latch");
+        let mut svc = fx.service();
+        svc.setup().unwrap();
+        svc.setup_new(SetupMode::Keyring, None).unwrap();
+
+        svc.sign_out().unwrap();
+        assert!(svc.status().restart_required);
+
+        assert_eq!(svc.unlock(UnlockMethod::Passphrase, "x", false).unwrap_err().kind, ErrorKind::Config);
+        assert_eq!(svc.create_recovery().unwrap_err().kind, ErrorKind::Config);
+        assert_eq!(svc.set_passphrase(Some("x")).unwrap_err().kind, ErrorKind::Config);
+        assert_eq!(svc.erase_all("ERASE").unwrap_err().kind, ErrorKind::Config);
+        assert_eq!(svc.sign_out().unwrap_err().kind, ErrorKind::Config);
+    }
+
+    #[test]
+    fn sign_out_requires_being_unlocked() {
+        let fx = Fixture::new("sign-out-requires-unlocked");
+        let mut svc = fx.service();
+        svc.setup().unwrap();
+        assert_eq!(svc.status().state, "needsSetup");
+        let err = svc.sign_out().unwrap_err();
+        assert_eq!(err.kind, ErrorKind::Config);
+    }
+
+    #[test]
+    fn a_new_empty_vault_works_after_signing_out_and_restarting() {
+        let fx = Fixture::new("sign-out-fresh-vault");
+        let store = Arc::new(FakeStore::new());
+
+        let mut first = fx.service_with(store.clone());
+        first.setup().unwrap();
+        first.setup_new(SetupMode::Keyring, None).unwrap();
+        let paths = fx.paths();
+        fs::create_dir_all(&paths.vault_dir).unwrap();
+        fs::write(paths.vault_dir.join("manifest"), b"old vault data").unwrap();
+        first.sign_out().unwrap();
+        drop(first); // the previous "process" exits, releasing the instance lock
+
+        // A brand new `StorageService`, same paths, same (still-populated)
+        // keyring: simulates relaunching the app after signing out.
+        let mut second = fx.service_with(store);
+        second.setup().unwrap();
+        let status = second.status();
+        assert_eq!(status.state, "unlocked", "keys.json survived, so the same keyring unlocks it again");
+        assert!(!status.restart_required);
+
+        let (vault, _runtime_dir, _lock) = second.vault_session_parts().unwrap();
+        let report = vault.restore(&fx.base.path().join("restore-check"), |_| true).unwrap();
+        assert_eq!(report.restored, 0, "the new vault must come up empty, not carry over the old manifest");
     }
 
     #[test]

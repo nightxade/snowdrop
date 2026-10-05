@@ -35,6 +35,7 @@ function fakeAdmin(overrides: Partial<StorageAdmin> = {}): StorageAdmin {
         status: { ...baseStatus, state: 'needsSetup', reason: null, hasRecovery: false, hasPassphrase: false },
         failures: [],
       }),
+    signOut: () => Promise.resolve({ ...baseStatus, state: 'unlocked', reason: null }),
     restart: () => Promise.resolve(),
     ...overrides,
   };

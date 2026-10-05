@@ -39,6 +39,7 @@ function fakeStorageAdmin(): StorageAdmin {
     enrollKeyring: () => Promise.resolve(status),
     webcacheKey: () => Promise.resolve('AAAA'),
     eraseAll: () => Promise.resolve({ status, failures: [] }),
+    signOut: () => Promise.resolve(status),
     restart: () => Promise.resolve(),
   };
 }

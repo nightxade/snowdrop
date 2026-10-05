@@ -1,8 +1,8 @@
-import { CircleCheck, CircleX, LoaderCircle, PlugZap, RefreshCw } from 'lucide-react';
+import { CircleCheck, CircleX, LoaderCircle, LogOut, PlugZap, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 import { useStore } from 'zustand';
 import type { BackendKind } from '@/core/backend';
-import type { DesktopConnection } from '@/core/stores';
+import { sessionSelectors, type DesktopConnection } from '@/core/stores';
 import { validateDaemonUrl } from '@/ui/features/onboarding';
 import { useSnowdrop, type DaemonProbe } from '@/ui/hooks';
 import { friendlyErrorMessage } from '@/ui/lib/connectionErrors';
@@ -11,6 +11,8 @@ import { SettingRow } from '../rows/SettingRow';
 import { SettingsSection } from '../rows/SettingsSection';
 import { useSettingsSection } from '../useSettingsSection';
 import { DesktopConnectionRows } from './DesktopConnectionRows';
+import { SignOutDialog } from './SignOutDialog';
+import { signOutFlowFor } from './signOutFlow';
 import styles from './pages.module.css';
 
 const STATUS_TEXT = {
@@ -24,6 +26,7 @@ export function ConnectionPage() {
   const app = useSnowdrop();
   const [saved, set] = useSettingsSection('connection');
   const status = useStore(app.stores.session, (s) => s.status);
+  const self = useStore(app.stores.session, sessionSelectors.self);
   const running = app.backend.kind;
   // Every registered transport (app/backends.ts), in registration order.
   const options = app.backends.options();
@@ -33,9 +36,13 @@ export function ConnectionPage() {
   const [account, setAccount] = useState(saved.account ?? '');
   const [probe, setProbe] = useState<DaemonProbe | 'testing' | null>(null);
   const [confirm, setConfirm] = useState(false);
+  const [signOutOpen, setSignOutOpen] = useState(false);
   // The desktop app runs signal-cli itself: no daemon URL, its own settings.
   const desktopAdmin = app.desktop;
   const [desktop, setDesktop] = useState<DesktopConnection>(saved.desktop);
+  const signOutFlow = signOutFlowFor(app);
+  const signOutLabel =
+    signOutFlow === 'demo' ? 'Leave demo…' : signOutFlow === 'browser' ? 'Disconnect…' : 'Sign out…';
 
   const urlError = backend === 'signal-cli' && !desktopAdmin ? validateDaemonUrl(url) : null;
   const desktopChanged = (Object.keys(desktop) as (keyof DesktopConnection)[]).some(
@@ -209,7 +216,40 @@ export function ConnectionPage() {
             )}
           />
         )}
+        <SettingRow
+          id="connection.signOut"
+          label={signOutFlow === 'demo' ? 'Leave the demo' : 'Sign out'}
+          description={
+            self?.name ? (
+              <>
+                Signed in as <strong className={styles.strong}>{self.name}</strong>.
+              </>
+            ) : signOutFlow === 'demo' ? (
+              'Return to the Welcome screen.'
+            ) : (
+              'Signed in; account unknown.'
+            )
+          }
+          control={
+            <Button
+              variant="danger"
+              icon={<LogOut size={16} />}
+              onClick={() => {
+                setSignOutOpen(true);
+              }}
+            >
+              {signOutLabel}
+            </Button>
+          }
+        />
       </SettingsSection>
+      {signOutOpen && (
+        <SignOutDialog
+          onClose={() => {
+            setSignOutOpen(false);
+          }}
+        />
+      )}
       {changed && (
         <div className={styles.applyBar} role="region" aria-label="Unapplied connection changes">
           <p>Connection changes take effect after Snowdrop reloads.</p>

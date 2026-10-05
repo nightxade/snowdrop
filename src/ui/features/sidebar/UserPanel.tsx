@@ -1,10 +1,10 @@
-import { Bell, BellOff, Settings } from 'lucide-react';
+import { Bell, BellOff, LogOut, MoreVertical, Settings } from 'lucide-react';
 import { useStore } from 'zustand';
 import { CoreCommand } from '@/core/commands';
 import { initialsFor, type ConnectionStatus } from '@/core/domain';
 import { sessionSelectors } from '@/core/stores';
 import { useSnowdrop, useKeybindLabel } from '@/ui/hooks';
-import { Avatar, IconButton } from '@/ui/primitives';
+import { Avatar, DropdownMenu, IconButton, type MenuEntry } from '@/ui/primitives';
 import styles from './UserPanel.module.css';
 
 const STATUS_TEXT: Record<ConnectionStatus, string> = {
@@ -21,6 +21,19 @@ export function UserPanel() {
   const backend = useStore(stores.session, (s) => s.backendKind);
   const notify = useStore(stores.settings, (s) => s.notifications.enabled);
   const settingsKey = useKeybindLabel(CoreCommand.OpenSettings);
+
+  const accountMenu = (): MenuEntry[] => [
+    {
+      kind: 'item',
+      id: 'signOut',
+      label: 'Sign out…',
+      icon: <LogOut size={16} />,
+      danger: true,
+      onSelect: () => {
+        void commands.execute('core.signOut');
+      },
+    },
+  ];
 
   const name = self?.name ?? 'You';
   const subtitle =
@@ -64,6 +77,9 @@ export function UserPanel() {
             void commands.execute(CoreCommand.OpenSettings);
           }}
         />
+        <DropdownMenu entries={accountMenu} align="end" label="Account menu">
+          <IconButton label="Account menu" icon={<MoreVertical />} />
+        </DropdownMenu>
       </div>
     </section>
   );

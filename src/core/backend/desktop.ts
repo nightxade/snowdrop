@@ -182,6 +182,16 @@ export interface StorageAdmin {
   webcacheKey(): Promise<string>;
   eraseAll(): Promise<EraseResult>;
   /**
+   * Signs out of Signal on this computer (docs/ENCRYPTION.md, "Sign out"):
+   * removes this computer's signal-cli vault (keys, sessions, contacts and
+   * message history), but keeps `keys.json`, the keyring entry and every
+   * Snowdrop setting — storage stays set up, so a restart finds it already
+   * unlocked. Only resolves while `signal-cli` and unlocked; the caller
+   * must flush its own settings first (they're kept) and restart
+   * afterwards (the vault bridge is one-shot per process, same as `eraseAll`).
+   */
+  signOut(): Promise<StorageStatus>;
+  /**
    * Restarts the whole app process. Only needed after `eraseAll`: the vault
    * bridge and the single-instance lock are one-shot per process
    * (docs/ENCRYPTION.md, "Erase").

@@ -315,6 +315,11 @@ export const SETTINGS_PAGES: SettingsPageDef[] = [
       { id: 'connection.account', label: 'Account', keywords: ['number', 'phone'] },
       { id: 'connection.test', label: 'Test connection' },
       { id: 'connection.liveliness', label: 'Simulated activity', keywords: ['demo'] },
+      {
+        id: 'connection.signOut',
+        label: 'Sign out',
+        keywords: ['leave demo', 'disconnect', 'log out', 'unlink'],
+      },
     ],
   },
   {

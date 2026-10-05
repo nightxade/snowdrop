@@ -122,6 +122,17 @@ export async function storageEraseAll(ipc: TauriIpc = tauriIpc): Promise<EraseRe
 }
 
 /**
+ * Signs out of Signal on this computer (docs/ENCRYPTION.md, "Sign out"):
+ * deletes the vault's manifests, blobs and runtime dir, but keeps
+ * `keys.json` and the keyring entry. Like `storageEraseAll`, this latches a
+ * restart-required state — call `appRestart` afterwards.
+ */
+export async function storageSignOut(ipc: TauriIpc = tauriIpc): Promise<StorageStatus> {
+  const raw = await ipc.invoke<unknown>('storage_sign_out');
+  return validateStorageStatus('storage_sign_out', raw);
+}
+
+/**
  * Restarts the whole app process (`AppHandle::restart`, src-tauri/src/commands.rs).
  * Only needed after `storageEraseAll`: the vault bridge and the
  * single-instance lock are one-shot per process (docs/ENCRYPTION.md, "Erase").
@@ -153,6 +164,7 @@ export function createStorageAdmin(ipc: TauriIpc = tauriIpc): StorageAdmin {
     enrollKeyring: () => storageEnrollKeyring(ipc),
     webcacheKey: () => storageWebcacheKey(ipc),
     eraseAll: () => storageEraseAll(ipc),
+    signOut: () => storageSignOut(ipc),
     restart: () => appRestart(ipc),
   };
 }

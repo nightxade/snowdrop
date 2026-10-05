@@ -106,6 +106,14 @@ export function registerCoreCommands(
     },
   });
   commands.register({
+    id: 'core.signOut',
+    title: 'Sign out…',
+    category: 'App',
+    run: () => {
+      ui().openModal({ type: 'signOut' });
+    },
+  });
+  commands.register({
     id: 'core.toggleDensity',
     title: 'Toggle compact mode',
     category: 'View',

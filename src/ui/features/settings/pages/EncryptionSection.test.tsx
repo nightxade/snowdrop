@@ -59,6 +59,9 @@ function makeSpies(overrides: Partial<StorageAdmin> = {}) {
     eraseAll: vi.fn<() => Promise<EraseResult>>(() =>
       Promise.resolve({ status: { ...baseStatus, state: 'needsSetup' }, failures: [] }),
     ),
+    signOut: vi.fn<() => Promise<StorageStatus>>(() =>
+      Promise.resolve({ ...baseStatus, state: 'needsSetup', restartRequired: true }),
+    ),
     restart: vi.fn<() => Promise<void>>(() => Promise.resolve()),
   };
   // Every override used by these tests is itself a `vi.fn()`, so this keeps

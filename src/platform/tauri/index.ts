@@ -19,6 +19,7 @@ export {
   storageRemoveRecovery,
   storageSetPassphrase,
   storageSetup,
+  storageSignOut,
   storageStatus,
   storageUnlock,
   storageWebcacheKey,

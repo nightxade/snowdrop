@@ -11,6 +11,7 @@ import {
   storageRemoveRecovery,
   storageSetPassphrase,
   storageSetup,
+  storageSignOut,
   storageStatus,
   storageUnlock,
   storageWebcacheKey,
@@ -163,5 +164,15 @@ describe('storageEraseAll', () => {
   it('decodes reported failures', async () => {
     const reply = { status: { ...okStatus, state: 'needsSetup' }, failures: ['keyring entry: oops'] };
     await expect(storageEraseAll(fakeIpc(reply))).resolves.toEqual(reply);
+  });
+});
+
+describe('storageSignOut', () => {
+  it('invokes storage_sign_out with no arguments and decodes the status', async () => {
+    const reply = { ...okStatus, state: 'needsSetup', restartRequired: true };
+    const invoke = vi.fn().mockResolvedValue(reply);
+    const result = await storageSignOut(fakeIpcWithInvoke(invoke));
+    expect(invoke).toHaveBeenCalledWith('storage_sign_out');
+    expect(result).toEqual(reply);
   });
 });

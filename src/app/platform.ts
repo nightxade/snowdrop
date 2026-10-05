@@ -43,6 +43,7 @@ export function desktopStorageAdmin(): StorageAdmin {
     enrollKeyring: async () => (await admin).enrollKeyring(),
     webcacheKey: async () => (await admin).webcacheKey(),
     eraseAll: async () => (await admin).eraseAll(),
+    signOut: async () => (await admin).signOut(),
     restart: async () => (await admin).restart(),
   };
 }

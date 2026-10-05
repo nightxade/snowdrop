@@ -193,6 +193,12 @@ docs/                 documentation
 - **If a device or key is ever compromised,** remove this computer in your
   phone's Signal app (Settings → Linked devices). That invalidates the
   stolen copy; it's the same remedy "Erase all local data" reminds you of.
+- **Signing out** (user menu, or Settings → Connection) removes this
+  computer's Signal keys, contacts and message history but keeps your
+  Snowdrop settings, themes and spaces. signal-cli can't unlink a linked
+  device from Signal's servers, so also remove it on your phone (Signal →
+  Settings → Linked devices). "Erase all local data" goes further and
+  deletes everything, including the encryption key.
 - **Desktop app:** the first run that needs signal-cli contacts `github.com`
   exactly once, to download the pinned, checksum-verified release — the same
   request your browser would make visiting its release page. Nothing else

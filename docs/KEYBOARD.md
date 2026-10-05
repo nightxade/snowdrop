@@ -29,8 +29,9 @@ These have no default keys but are in the quick switcher (type `>`) and can
 be bound in Settings → Keybinds: create a space, toggle compact mode, toggle
 desktop notifications, open plugins / themes / appearance / keybinds,
 **next / previous space**, **focus the composer**, **focus the message list**,
-**open the command palette**, and one **Theme: …** command per built-in theme
-(type `>theme`).
+**open the command palette**, **sign out…** (also in the user panel's menu,
+sidebar bottom-left, and Settings → Connection; docs/ENCRYPTION.md,
+"Sign out"), and one **Theme: …** command per built-in theme (type `>theme`).
 
 ## Everywhere
 

@@ -33,8 +33,14 @@ export interface AppAdmin {
   flush(): void;
   /**
    * Flushes and waits until persisted state has actually reached storage
-   * (encrypted writes finish asynchronously), then reloads — optionally
-   * with a new query string. Use this instead of `location.reload()`.
+   * (encrypted writes finish asynchronously) — without reloading. Use this
+   * when something after the flush (e.g. `storageAdmin.signOut()`) must not
+   * start until settings have actually landed.
+   */
+  persist(): Promise<void>;
+  /**
+   * `persist()`, then reloads — optionally with a new query string. Use
+   * this instead of `location.reload()`.
    */
   reload(search?: string): Promise<void>;
   /** Flushes, then unsubscribes every persistence binding (Settings → Privacy & security, Erase). */

@@ -299,11 +299,14 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     flush: () => {
       for (const binding of bindings) binding.flush();
     },
-    reload: async (search) => {
+    persist: async () => {
       for (const binding of bindings) binding.flush();
-      // An encrypted (hydrated) store writes through asynchronously; reloading
-      // before it finishes would lose exactly the change that needed a reload.
+      // An encrypted (hydrated) store writes through asynchronously; moving
+      // on before it finishes would lose exactly the change that needed it.
       if (hasPendingWrites(storage)) await storage.flush();
+    },
+    reload: async (search) => {
+      await admin.persist();
       if (search === undefined) window.location.reload();
       else window.location.search = search;
     },

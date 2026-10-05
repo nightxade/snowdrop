@@ -171,6 +171,55 @@ The message cache (IndexedDB) and the key-value store (localStorage) are encrypt
    2. Delete the vault, runtime dir, `keys.json`, the keyring entry `keys.json` referenced, and a legacy plaintext `signal-cli/` dir if one is still waiting to migrate. (Any other `keyslot-*` account for this service is left alone: the `keyring` crate has no cross-backend way to enumerate them, and an orphaned one is harmless — see "Keyring slot".)
    3. Restart the app (`app_restart`): the vault bridge and the single-instance lock (`snowdrop.lock`) are one-shot per process, so only a fresh process can return to a clean `needsSetup` boot.
    4. Until that restart happens, storage latches into a terminal "erased" state, distinct from `needsSetup`: `storage_status` still reports `state: "needsSetup"` (nothing is left to resume), but now also `restartRequired: true`, and every other storage command refuses with a clear error instead of quietly behaving as if nothing had ever been set up.
+6. **Sign out** (Settings → Connection, the user panel's menu — sidebar
+   bottom-left — and the `core.signOut` command): a lighter sibling of
+   Erase, for "I'm done with this account, not with Snowdrop." Which of
+   three flows runs is picked from the backend actually connected
+   (`app/backends.ts`'s `BackendKind` plus whether `app.storageAdmin` is
+   set), not from an unapplied Settings → Connection edit:
+   - **Demo** ("Leave demo"): no scary dialog, at most a light confirm.
+     `connection.backend` is set to `null` and Snowdrop reloads
+     (`app.admin.reload()`, which awaits the encrypted settings write).
+     Settings are kept. The demo's history is never persisted (it's
+     `MemoryMessageRepository`, not an IndexedDB-backed one — see
+     `HistoryStore` in `app/backends.ts`), so there's nothing shared with a
+     real backend to separately clear.
+   - **signal-cli through an external daemon** (the browser build, or the
+     desktop app pointed at one — `vaultDisabled`/no `app.storageAdmin`):
+     "Disconnect." Same as the demo — `connection.backend = null`, reload —
+     plus a line in the dialog that Snowdrop never owned that daemon's data,
+     so none of it is touched.
+   - **signal-cli run by the desktop app itself:** "Sign out," with a
+     confirm dialog in the style of Erase's but calmer (no type-to-confirm,
+     since nothing needs the extra friction): "Sign out of Signal on this
+     computer? This removes this computer's Signal keys, contacts and
+     message history. Your Snowdrop settings, themes and spaces stay,"
+     plus a note that signal-cli can't unlink a device from the server
+     itself, so the phone side needs doing by hand (Signal → Settings →
+     Linked devices). That's also why `unregister` — the one signal-cli
+     method that *could* unlink a device — must stay off
+     `commands.rs`'s `ALLOWED_METHODS`: it only stops delivery, so it would
+     look like it worked while leaving the device listed on the phone. The
+     steps here, strictly ordered:
+     1. clear the local message cache (the repository's `clear()`);
+     2. set `connection.backend` and `connection.account` to `null`;
+     3. flush settings to encrypted storage and await it (`app.admin.persist()` —
+        the same wait `reload()` does, factored out so this path doesn't also
+        reload the page);
+     4. `storage_sign_out` (below);
+     5. restart the app (`app_restart`) — same one-shot-per-process reason as Erase.
+
+   `storage_sign_out` (`storage.rs`'s `StorageService::sign_out`) reuses
+   Erase's own hooks (`add_on_erase`: stop signal-cli, then discard the
+   vault session *without* a final sync — see `VaultBridge::discard`) and
+   then deletes only the vault (manifests, blobs) and the runtime dir.
+   Unlike Erase, `keys.json` and the keyring entry are left exactly alone,
+   so storage stays set up: a restart finds `keys.json` right where it was
+   and, with a working keyring, unlocks the same way it did before — around
+   a vault with nothing in it yet. Like Erase, this latches a terminal,
+   restart-required state (`storage_status`'s `restartRequired: true`) for
+   the same reason: the vault bridge and the single-instance lock are
+   one-shot per process.
 
 ## Implementation plan
 

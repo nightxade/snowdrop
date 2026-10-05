@@ -25,6 +25,7 @@ fn main() {
             "storage_enroll_keyring",
             "storage_webcache_key",
             "storage_erase_all",
+            "storage_sign_out",
             "app_restart",
             "app_close_ready",
         ])),
