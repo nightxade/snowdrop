@@ -118,6 +118,13 @@ Vim mode has two halves, each can be switched off in the plugin's settings:
 2. **Modal editing in the composer** — Normal, Insert, Visual and Visual
    Line modes in the message box.
 
+Opening a conversation — a sidebar click, `J`/`K`, `]u`/`[u`, `gt`/`gT`, the
+switcher, a notification — always lands on the message list, never the
+composer; the "Focus the message box when opening a conversation" setting
+(Settings → Behaviour) is ignored. Use `i` `a` `I` `A` or `gi` to type.
+Stepping from a focused sidebar row with `J`/`K` is the one exception: focus
+follows to the new row instead, so you can keep stepping.
+
 Counts work everywhere they make sense: `5j`, `3J`, `d2w`, `3x`, `2u`.
 Multi-key sequences (`gg`, `]u`, `dd`, the leader) wait for the next key
 for the _sequence timeout_ (default 1000 ms, adjustable); Esc clears them.

@@ -1,4 +1,5 @@
 import type { ConversationId } from '@/core/domain';
+import { describeFocus } from './textSurfaces';
 
 /**
  * Where keyboard focus should land after navigating to a conversation (quick
@@ -12,6 +13,30 @@ export type ConversationFocusResolver = (id: ConversationId) => HTMLElement | nu
 
 let composerResolver: ConversationFocusResolver | null = null;
 let listResolver: ConversationFocusResolver | null = null;
+
+/**
+ * A plugin that wants every conversation-opening path to land focus
+ * predictably — the composer reachable only through its own explicit keys,
+ * never the "Focus the message box when opening a conversation" setting,
+ * never wherever a click or a space switch happened to leave focus —
+ * registers a policy here (Vim mode does, while its navigation keys are
+ * on). While none is registered, every function below keeps today's
+ * behaviour exactly.
+ */
+let focusPolicyActive: (() => boolean) | null = null;
+
+/** Registers a conversation-focus policy. Returns an unregister function. */
+export function setConversationFocusPolicy(isActive: () => boolean): () => void {
+  focusPolicyActive = isActive;
+  return () => {
+    if (focusPolicyActive === isActive) focusPolicyActive = null;
+  };
+}
+
+/** Whether a plugin's conversation-focus policy is currently active. */
+export function conversationFocusPolicyActive(): boolean {
+  return focusPolicyActive?.() ?? false;
+}
 
 /** Registers the composer as a focus target. Returns an unregister function. */
 export function setConversationFocusResolver(fn: ConversationFocusResolver): () => void {
@@ -45,9 +70,12 @@ export function conversationFocusTarget(
   id: ConversationId,
   preferComposer = false,
 ): HTMLElement | null {
-  const first = preferComposer ? composerResolver?.(id) : listResolver?.(id);
+  // A plugin's focus policy (Vim mode) always wins over "prefer the composer":
+  // the setting that asks for it is ignored while that policy is active.
+  const effective = preferComposer && !conversationFocusPolicyActive();
+  const first = effective ? composerResolver?.(id) : listResolver?.(id);
   if (first) return first;
-  const second = preferComposer ? listResolver?.(id) : composerResolver?.(id);
+  const second = effective ? listResolver?.(id) : composerResolver?.(id);
   if (second) return second;
   return sidebarRow(id);
 }
@@ -88,4 +116,23 @@ export function followConversationFocus(preferComposer = false): (id: Conversati
       conversationFocusTarget(id, preferComposer)?.focus();
     });
   };
+}
+
+/**
+ * For a trigger that doesn't manage focus itself — a sidebar click, a space
+ * switch — and only while a focus policy is active (see
+ * `setConversationFocusPolicy`): lands on the new conversation's message
+ * list, never the composer and never wherever the trigger left focus (the
+ * row just clicked, the previous list), so keyboard navigation works right
+ * away. A no-op when no policy is registered, so today's behaviour is
+ * untouched outside it, and it never steals focus from another input, a
+ * menu or a dialog.
+ */
+export function followConversationOpenFocus(id: ConversationId): void {
+  if (!conversationFocusPolicyActive()) return;
+  requestAnimationFrame(() => {
+    const focus = describeFocus(document, false);
+    if (focus.overlay || focus.target === 'input') return;
+    conversationFocusTarget(id, false)?.focus();
+  });
 }

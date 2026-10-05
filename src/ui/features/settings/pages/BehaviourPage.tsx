@@ -33,7 +33,7 @@ export function BehaviourPage() {
       <SettingRow
         id="behaviour.focusComposerOnOpen"
         label="Focus the message box when opening a conversation"
-        description="When you open a conversation from the switcher, a notification or a keyboard shortcut, put the cursor in the message box instead of on the newest message. Clicking or pressing Enter on a conversation in the sidebar always keeps focus there."
+        description="When you open a conversation from the switcher, a notification or a keyboard shortcut, put the cursor in the message box instead of on the newest message. Clicking or pressing Enter on a conversation in the sidebar always keeps focus there. Ignored in Vim mode, which always lands on the message list — use i/a/I/A/gi for the composer."
         control={(ids) => (
           <Switch
             id={ids.id}

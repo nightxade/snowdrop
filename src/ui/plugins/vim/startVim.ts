@@ -4,7 +4,7 @@
  * while the plugin is off.
  */
 import type { PluginContext } from '@/core/plugins';
-import { textSurfaceFor } from '@/ui/hooks';
+import { setConversationFocusPolicy, textSurfaceFor } from '@/ui/hooks';
 import { makeBlockCaret } from './caret/BlockCaret';
 import type { Mode } from './engine/engine';
 import { makeModePill } from './ModePill';
@@ -72,6 +72,13 @@ export function startVim(ctx: PluginContext<typeof settings>): void {
     modes,
   );
   ctx.keys.addLayer(vim.layer);
+
+  // Opening a conversation never leaves focus in the composer while
+  // navigation keys are on: the "Focus the message box when opening a
+  // conversation" setting is ignored, type-to-focus turns itself off, and a
+  // sidebar click or gt/gT lands on the message list instead of wherever
+  // the trigger left focus. i/a/I/A/gi (above) are the only way in.
+  ctx.onDispose(setConversationFocusPolicy(() => options().navigation));
 
   const subscribeOptions = (fn: () => void) => ctx.settings.subscribe(fn);
   ctx.composer.addAccessory(

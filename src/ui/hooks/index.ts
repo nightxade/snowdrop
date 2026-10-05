@@ -13,9 +13,12 @@ export { useNow } from './useNow';
 export { useRovingFocus, type RovingOrientation } from './useRovingFocus';
 export { ShellLayoutProvider, useShellLayout, type ShellLayout } from './ShellLayout';
 export {
+  conversationFocusPolicyActive,
   conversationFocusTarget,
   focusConversation,
   followConversationFocus,
+  followConversationOpenFocus,
+  setConversationFocusPolicy,
   setConversationFocusResolver,
   setConversationListFocusResolver,
   type ConversationFocusResolver,

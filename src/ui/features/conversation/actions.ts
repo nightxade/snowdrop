@@ -11,7 +11,7 @@ import {
   type MuteState,
 } from '@/core/domain';
 import { HOME, uiSelectors } from '@/core/stores';
-import type { AppServices } from '@/ui/hooks';
+import { followConversationOpenFocus, type AppServices } from '@/ui/hooks';
 
 export const MUTE_OPTIONS: readonly { id: string; label: string; ms: number | null }[] = [
   { id: '15m', label: 'For 15 minutes', ms: 15 * MINUTE },
@@ -31,6 +31,9 @@ export function openConversation(
   space: string = app.stores.ui.getState().selectedSpace,
 ): void {
   app.stores.ui.getState().selectConversation(id, space);
+  // A no-op unless a plugin's focus policy is active (Vim mode): otherwise
+  // today's behaviour — a click doesn't move focus — is unchanged.
+  followConversationOpenFocus(id);
 }
 
 /**

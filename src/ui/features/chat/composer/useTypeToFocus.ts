@@ -1,16 +1,22 @@
 import { useEffect, type RefObject } from 'react';
-import { describeFocus, useStores } from '@/ui/hooks';
+import { conversationFocusPolicyActive, describeFocus, useStores } from '@/ui/hooks';
 
 /**
  * Typing a printable character while nothing text-like has focus sends it
  * to the composer (PLAN §4.11). Menus, dialogs and listboxes keep their own
  * typeahead, and keys something else already handled are left alone.
+ *
+ * Off entirely while a conversation-focus policy is active (Vim mode's
+ * navigation keys): there, letters are commands, and a key the vim layer
+ * doesn't consume (an unmapped letter on a sidebar row, say) must stay
+ * inert rather than jump into the composer and type itself.
  */
 export function useTypeToFocus(target: RefObject<HTMLTextAreaElement | null>): void {
   const stores = useStores();
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.isComposing || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (conversationFocusPolicyActive()) return;
       // Printable = one character (named keys like "Shift" or "F1" are longer). Space stays with buttons.
       const printable =
         e.key.length === 1 || (e.key.length === 2 && (e.key.codePointAt(0) ?? 0) > 0xffff);

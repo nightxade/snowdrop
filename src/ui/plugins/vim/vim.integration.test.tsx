@@ -97,6 +97,29 @@ const composer = () =>
 const pill = () => document.querySelector('[data-snowdrop="vim-mode"]')?.textContent ?? null;
 const focused = () => document.activeElement as HTMLElement | null;
 
+const sidebarRowFor = (id: ConversationId) =>
+  document.querySelector<HTMLElement>(
+    `[data-snowdrop="sidebar"] [data-roving-item][data-conversation-id="${id}"]`,
+  )!;
+
+/** True once focus is on the message list: a rendered row or the scroller. */
+const onMessageList = (): boolean => {
+  const el = focused();
+  if (!el) return false;
+  if (el.hasAttribute('data-message-scroller')) return true;
+  return el.hasAttribute('data-roving-item') && el.hasAttribute('data-message-id');
+};
+
+/** Lets a requestAnimationFrame-deferred focus move (followConversationOpenFocus,
+ * followConversationFocus) land before assertions. */
+async function settleFrame(): Promise<void> {
+  await act(async () => {
+    await new Promise((r) => {
+      requestAnimationFrame(() => setTimeout(r, 0));
+    });
+  });
+}
+
 /** Dispatches a keydown at the focused element; returns whether it was prevented. */
 function press(key: string, init: KeyboardEventInit = {}): boolean {
   const target = document.activeElement ?? document.body;
@@ -311,6 +334,91 @@ describe('Vim mode: focus-composer keys from anywhere', () => {
     expect(press('i')).toBe(false);
     expect(focused()).toBe(input);
     expect(focused()).not.toBe(composer());
+  });
+});
+
+describe('Vim mode: opening a conversation never leaves focus in the composer', () => {
+  // Same space as 'Orchard · Engineering' (bootVim's conversation), so its row
+  // renders in the same sidebar view without switching spaces.
+  const otherConversation = (snowdrop: Snowdrop): ConversationId =>
+    Object.values(snowdrop.stores.conversations.getState().byId).find(
+      (c) => c.title === 'Orchard · Design Crit',
+    )!.id;
+
+  it('a sidebar click with the composer focused lands on the message list, not the composer', async () => {
+    const { snowdrop } = await bootVim();
+    blur();
+    press('i');
+    expect(focused()).toBe(composer());
+    const other = otherConversation(snowdrop);
+    act(() => {
+      fireEvent.click(sidebarRowFor(other));
+    });
+    await settleFrame();
+    expect(uiSelectors.selectedConversation(snowdrop.stores.ui.getState())).toBe(other);
+    expect(focused()).not.toBe(composer());
+    expect(focused()).not.toBe(document.body);
+    expect(onMessageList()).toBe(true);
+  });
+
+  it('J/K from the list lands on the list', async () => {
+    const { snowdrop, id } = await bootVim();
+    blur();
+    press('j');
+    expect(onMessageList()).toBe(true);
+    press('J', { shiftKey: true });
+    await settleFrame();
+    expect(uiSelectors.selectedConversation(snowdrop.stores.ui.getState())).not.toBe(id);
+    expect(onMessageList()).toBe(true);
+  });
+
+  it('J/K from a sidebar row stays on the sidebar (inert: not bound to i/a/I/A/gi)', async () => {
+    const { snowdrop, id } = await bootVim();
+    const row = sidebarRowFor(id);
+    act(() => {
+      row.focus();
+    });
+    press('J', { shiftKey: true });
+    expect(focused()).toBe(row);
+    expect(focused()).not.toBe(composer());
+    expect(uiSelectors.selectedConversation(snowdrop.stores.ui.getState())).toBe(id);
+  });
+
+  it('a printable key on a sidebar row does not focus the composer', async () => {
+    const { id } = await bootVim();
+    const row = sidebarRowFor(id);
+    act(() => {
+      row.focus();
+    });
+    expect(press('q')).toBe(false);
+    expect(focused()).toBe(row);
+    expect(focused()).not.toBe(composer());
+  });
+
+  it('outside Vim mode, a sidebar click leaves focus exactly as before', async () => {
+    const { snowdrop } = await bootVim(false);
+    act(() => {
+      composer().focus();
+    });
+    expect(focused()).toBe(composer());
+    const other = otherConversation(snowdrop);
+    act(() => {
+      fireEvent.click(sidebarRowFor(other));
+    });
+    await settleFrame();
+    expect(uiSelectors.selectedConversation(snowdrop.stores.ui.getState())).toBe(other);
+    // No focus policy is registered: today's behaviour (no explicit focus
+    // handling on a click) is untouched — the old composer's unmount drops
+    // focus to <body>, nothing claims the new message list.
+    expect(focused()).toBe(document.body);
+  });
+
+  it('outside Vim mode, type-to-focus still sends a stray letter to the composer', async () => {
+    const { snowdrop } = await bootVim(false);
+    blur();
+    expect(snowdrop.plugins.isEnabled('vim-mode')).toBe(false);
+    press('q');
+    expect(focused()).toBe(composer());
   });
 });
 
