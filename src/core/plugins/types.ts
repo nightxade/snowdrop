@@ -157,7 +157,7 @@ export interface PluginDefinition<S extends SettingsSchema = SettingsSchema> {
 }
 
 /** Identity helper giving full inference of the settings schema in `start`. */
-export function definePlugin<const S extends SettingsSchema = SettingsSchema>(
+export function defineExtension<const S extends SettingsSchema = SettingsSchema>(
   definition: PluginDefinition<S>,
 ): PluginDefinition<S> {
   return definition;

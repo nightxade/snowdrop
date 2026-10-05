@@ -5,7 +5,7 @@ import { createStores } from '@/core/stores';
 import { Registries } from './registries';
 import { PluginRuntime } from './runtime';
 import {
-  definePlugin,
+  defineExtension,
   type MessageArrival,
   type PluginContext,
   type PluginHost,
@@ -43,7 +43,7 @@ function setup(start: (ctx: PluginContext) => void) {
     onError(error, owner, where);
     runtime?.reportRuntimeError(owner, error, where);
   });
-  const plugin = definePlugin({
+  const plugin = defineExtension({
     id: 'p',
     name: 'P',
     description: '',

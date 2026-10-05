@@ -287,7 +287,7 @@ core features are themselves written against the same points where
 reasonable (dogfooding keeps them honest).
 
 ```ts
-definePlugin({
+defineExtension({
   id: 'clear-urls', name: 'Clear URLs', description: 'Strips tracking params from links you send.',
   authors: ['snowdrop'], tags: ['privacy'],
   settings: defineSettings({ extraParams: { type: 'string', label: 'Extra params', default: '' } }),

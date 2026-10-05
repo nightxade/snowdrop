@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { createStores } from '@/core/stores';
 import { Registries } from './registries';
 import { PluginRuntime } from './runtime';
-import { definePlugin, type PluginHost } from './types';
+import { defineExtension, type PluginHost } from './types';
 
 function host(): PluginHost {
   return {
@@ -25,8 +25,8 @@ describe('plugin runtime enable/retry (M5)', () => {
     const startB = vi.fn(() => {
       if (failB) throw new Error('B is broken');
     });
-    const a = definePlugin({ id: 'a', name: 'A', description: '', authors: [], start: startA });
-    const b = definePlugin({
+    const a = defineExtension({ id: 'a', name: 'A', description: '', authors: [], start: startA });
+    const b = defineExtension({
       id: 'b',
       name: 'B',
       description: '',
@@ -56,7 +56,7 @@ describe('plugin runtime enable/retry (M5)', () => {
 
   it('applies setEnabled before startAll too', async () => {
     const start = vi.fn();
-    const p = definePlugin({ id: 'p', name: 'P', description: '', authors: [], start });
+    const p = defineExtension({ id: 'p', name: 'P', description: '', authors: [], start });
     const runtime = new PluginRuntime(host(), new Registries(() => undefined), [p]);
     await runtime.setEnabled('p', true);
     expect(start).toHaveBeenCalledTimes(1);
@@ -65,7 +65,7 @@ describe('plugin runtime enable/retry (M5)', () => {
 
   it('retry does nothing for a disabled plugin', async () => {
     const start = vi.fn();
-    const p = definePlugin({ id: 'p', name: 'P', description: '', authors: [], start });
+    const p = defineExtension({ id: 'p', name: 'P', description: '', authors: [], start });
     const runtime = new PluginRuntime(host(), new Registries(() => undefined), [p]);
     await runtime.startAll();
     await runtime.retry('p');

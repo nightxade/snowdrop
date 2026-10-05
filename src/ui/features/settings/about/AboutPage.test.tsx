@@ -97,6 +97,9 @@ describe('About, desktop build (bundled)', () => {
     expect(
       screen.getByText(/ships with this app as a separate, unmodified program/u),
     ).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'THIRD_PARTY_NOTICES-rust.txt' }).getAttribute('href')).toBe(
+      '/THIRD_PARTY_NOTICES-rust.txt',
+    );
   });
 });
 
@@ -130,5 +133,6 @@ describe('About, browser build', () => {
     expect(
       screen.getByText(/which runs as a separate program on your computer; none of its code/u),
     ).toBeTruthy();
+    expect(screen.queryByRole('link', { name: 'THIRD_PARTY_NOTICES-rust.txt' })).toBeNull();
   });
 });

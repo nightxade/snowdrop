@@ -4,7 +4,7 @@ import react from '@vitejs/plugin-react';
 import { defineConfig, loadEnv, type Connect, type Plugin, type ProxyOptions } from 'vite';
 import { contentSecurityPolicy, isTauriBuild } from './devserver/csp.ts';
 import { emojibaseAssets } from './devserver/emojibase.ts';
-import { thirdPartyNotices } from './devserver/notices.ts';
+import { rustCrateNotices, thirdPartyNotices } from './devserver/notices.ts';
 import { checkSignalCliRequest } from './devserver/signalCliGuard.ts';
 
 const PROXY_PATH = '/signal-cli';
@@ -69,6 +69,7 @@ export default defineConfig(({ mode }) => {
       emojibaseAssets(),
       contentSecurityPolicy({ desktop }),
       thirdPartyNotices({ bundled }),
+      rustCrateNotices(),
       react(),
     ],
     // Tauri's CLI prints its own output in the same terminal.

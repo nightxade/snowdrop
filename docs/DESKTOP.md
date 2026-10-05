@@ -393,6 +393,37 @@ asset's checksum. Both files are declared as Tauri `resources` in
 
 signal-cli's data/log paths are shown on the About page in both builds.
 
+## Rust crate notices
+
+`src-tauri/THIRD_PARTY_NOTICES-rust.txt` is the attribution file for every
+Rust crate actually compiled into the desktop binary (`src-tauri/Cargo.lock`
+minus build- and dev-only dependencies) — licence texts, deduplicated by
+exact text, each followed by the crate(s) that use it. It's generated with
+[`cargo-about`](https://github.com/EmbarkStudios/cargo-about), not checked
+in, and regenerated with:
+
+```sh
+cargo install cargo-about --locked --features cli   # once
+npm run notices:rust                                 # scripts/gen-rust-notices.mjs
+```
+
+`src-tauri/about.toml` is the config: the accepted licence list, which
+build/dev dependencies to ignore, and a `[ring]` clarification. ring ships
+three separate licence files (`LICENSE`, `LICENSE-BoringSSL`,
+`LICENSE-other-bits` — its own `LICENSE` explains why), which cargo-about's
+default file-system scan would otherwise either miss or, worse, match
+against fragments of unrelated vendored source files; the clarification
+pins the three real files by checksum instead. `src-tauri/about.hbs` is the
+output template.
+
+At build time, `devserver/notices.ts`'s `rustCrateNotices()` Vite plugin
+copies the generated file into `dist/THIRD_PARTY_NOTICES-rust.txt`, next to
+the web notices (`dist/THIRD_PARTY_NOTICES.txt`) — same mechanism, so both
+are just static files the webview (or a browser) can fetch. A build without
+having run `npm run notices:rust` first still succeeds, with a Vite warning;
+the About page's link to it only renders for the desktop build (checked for
+in CI before a release, not enforced by the web build).
+
 ## Future: a native backend
 
 The backend registry (`app/backends.ts`, see

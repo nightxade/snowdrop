@@ -1,0 +1,47 @@
+# Config for `cargo about generate` (see package.json's `notices:rust` script
+# and docs/DESKTOP.md). Regenerates src-tauri/THIRD_PARTY_NOTICES-rust.txt.
+accepted = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Unlicense",
+    "0BSD",
+    "BSL-1.0",
+    "CC0-1.0",
+    "MIT-0",
+    "CDLA-Permissive-2.0",
+    "OpenSSL",
+]
+
+# Only what actually ends up in the compiled app: the normal build's
+# own dependency graph, not `tauri-build`/tests-only crates.
+ignore-build-dependencies = true
+ignore-dev-dependencies = true
+
+# cargo-about's built-in `ring` workaround is pinned to an older ring layout
+# (one combined LICENSE file); current ring (0.17.x) ships three separate
+# licence files instead, so the checksums below no longer match and this is
+# a no-op in practice. Harmless to keep as a first attempt; the `[ring]`
+# clarification below is what actually fires.
+workarounds = ["ring"]
+
+# ring's single Cargo.toml licence field ("Apache-2.0 AND ISC") covers code
+# with three distinct licence files (LICENSE, LICENSE-BoringSSL,
+# LICENSE-other-bits — see its own LICENSE for why). Without this, the
+# automatic file-system scan below `--threshold` would instead key off of
+# matching fragments buried in individual vendored source files. Pin the
+# three real licence files directly, by checksum, so they show up in the
+# notices verbatim and nothing else does.
+[ring]
+clarify.license = "Apache-2.0 AND ISC"
+clarify.files = [
+    { path = "LICENSE", checksum = "b3d734001a94efff3579978d953391aa7115f877657d25eb54037a43875d078a", license = "ISC" },
+    { path = "LICENSE-BoringSSL", checksum = "005fc765ddc5115da796cca915baa9557abae13ff35e0a47c47affc56f6c414d", license = "Apache-2.0" },
+    { path = "LICENSE-other-bits", checksum = "f025ccfb7dfb6bdfedc75ca0f67acc69e6fb4998143d834f7c2f38a29989680f", license = "ISC" },
+]

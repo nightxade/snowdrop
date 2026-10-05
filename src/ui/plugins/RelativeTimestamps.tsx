@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import { formatFullTimestamp, formatRelative, type Message } from '@/core/domain';
-import { definePlugin, defineSettings, type PluginContext } from '@/core/plugins';
+import { defineExtension, defineSettings, type PluginContext } from '@/core/plugins';
 import { useNow } from '@/ui/hooks';
 import { Tooltip } from '@/ui/primitives';
 import styles from './plugins.module.css';
@@ -40,7 +40,7 @@ function makeDecoration(ctx: PluginContext<typeof settings>) {
   };
 }
 
-export const relativeTimestampsPlugin = definePlugin({
+export const relativeTimestampsPlugin = defineExtension({
   id: 'relative-timestamps',
   name: 'Relative Timestamps',
   description: 'Shows “3m ago” next to names, with the exact time on hover. Updates every minute.',

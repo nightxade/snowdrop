@@ -1,6 +1,6 @@
 import { ClipboardCopy, Sigma } from 'lucide-react';
 import type { Message } from '@/core/domain';
-import { charCount, definePlugin, defineSettings, type PluginContext } from '@/core/plugins';
+import { charCount, defineExtension, defineSettings, type PluginContext } from '@/core/plugins';
 import { wordCount } from '@/core/plugins';
 import { UNKNOWN_CONTACT_NAME } from '@/core/stores';
 import { toMarkdown } from '@/ui/features/chat';
@@ -43,7 +43,7 @@ function announceCount(ctx: PluginContext<typeof settings>, m: Message): void {
   );
 }
 
-export const messageToolsPlugin = definePlugin({
+export const messageToolsPlugin = defineExtension({
   id: 'message-tools',
   name: 'Message Tools',
   description: 'Adds “Copy as Markdown” and a word count to the message hover bar and menu.',

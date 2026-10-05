@@ -1,4 +1,4 @@
-import { definePlugin } from '../types';
+import { defineExtension } from '../types';
 import { defineSettings } from '../settings';
 
 /** Case-insensitive whole-word match; returns the first keyword found. */
@@ -32,7 +32,7 @@ export interface KeywordAlertsUi {
  * app passes the UI half (a decoration component) so core stays React-free.
  */
 export function createKeywordAlertsPlugin(ui: KeywordAlertsUi = {}) {
-  return definePlugin({
+  return defineExtension({
     id: 'keyword-alerts',
     name: 'Keyword Alerts',
     description:

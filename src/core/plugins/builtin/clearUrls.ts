@@ -1,4 +1,4 @@
-import { definePlugin } from '../types';
+import { defineExtension } from '../types';
 import { defineSettings } from '../settings';
 
 /**
@@ -87,7 +87,7 @@ export function stripTrackingParams(text: string, extra: readonly string[] = [])
   });
 }
 
-export const clearUrlsPlugin = definePlugin({
+export const clearUrlsPlugin = defineExtension({
   id: 'clear-urls',
   name: 'Clear URLs',
   description: 'Strips tracking parameters (utm_*, fbclid, …) from links you send.',

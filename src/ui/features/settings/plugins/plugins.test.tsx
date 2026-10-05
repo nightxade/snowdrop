@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
-import { definePlugin, defineSettings } from '@/core/plugins';
+import { defineExtension, defineSettings } from '@/core/plugins';
 import { bootSnowdrop, renderWithSnowdrop, settle } from '@/test/renderWithSnowdrop';
 import type { Snowdrop } from '@/app/createSnowdrop';
 import { PluginSettingsForm } from './PluginSettingsForm';
@@ -105,7 +105,7 @@ describe('Plugins page', () => {
   });
 });
 
-const everything = definePlugin({
+const everything = defineExtension({
   id: 'form-demo',
   name: 'Form demo',
   description: 'Every setting type.',

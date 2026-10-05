@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import type { Message } from '@/core/domain';
-import { definePlugin, defineSettings, type PluginContext } from '@/core/plugins';
+import { defineExtension, defineSettings, type PluginContext } from '@/core/plugins';
 import { Tooltip } from '@/ui/primitives';
 import styles from './plugins.module.css';
 
@@ -72,7 +72,7 @@ function makeBadge(ctx: PluginContext<typeof settings>) {
   };
 }
 
-export const contactNotesBadgePlugin = definePlugin({
+export const contactNotesBadgePlugin = defineExtension({
   id: 'note-badge',
   name: 'Pronoun & Notes Badge',
   description:

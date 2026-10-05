@@ -22,9 +22,9 @@ Contents: [Anatomy](#anatomy) · [Settings](#settings) ·
 ## Anatomy
 
 ```ts
-import { definePlugin, defineSettings } from '@/core/plugins';
+import { defineExtension, defineSettings } from '@/core/plugins';
 
-export const clearUrlsPlugin = definePlugin({
+export const clearUrlsPlugin = defineExtension({
   id: 'clear-urls', // stable, kebab-case: the settings key
   name: 'Clear URLs',
   description: 'Strips tracking parameters (utm_*, fbclid, …) from links you send.',
@@ -66,7 +66,7 @@ elided. `PluginDefinition` fields:
 | `start(ctx)`        | Registers everything. May be `async`.                                                       |
 | `stop?(ctx)`        | Optional extra cleanup, run before the automatic disposal. Rarely needed.                   |
 
-`definePlugin` and `defineSettings` are identity functions. They exist for
+`defineExtension` and `defineSettings` are identity functions. They exist for
 type inference: with them, `ctx.settings.get('extraParams')` is typed `string`
 and a typo in a key is a compile error.
 
@@ -614,7 +614,7 @@ not shipped. To try it, save it as `src/ui/plugins/CapsGuard.tsx` and add
 import { CaseLower, Megaphone } from 'lucide-react';
 import { useSyncExternalStore } from 'react';
 import type { Message } from '@/core/domain';
-import { definePlugin, defineSettings, type PluginContext } from '@/core/plugins';
+import { defineExtension, defineSettings, type PluginContext } from '@/core/plugins';
 
 const settings = defineSettings({
   action: {
@@ -676,7 +676,7 @@ function makeBadge(ctx: Ctx) {
   };
 }
 
-export const capsGuardPlugin = definePlugin({
+export const capsGuardPlugin = defineExtension({
   id: 'caps-guard',
   name: 'Caps Guard',
   description: 'Lower-cases all-caps messages before they go out and badges shouting.',

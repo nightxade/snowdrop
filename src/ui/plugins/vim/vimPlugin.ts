@@ -9,10 +9,10 @@
  * engine, controller and UI load as their own chunk the first time the
  * plugin starts (`startVim.ts`).
  */
-import { definePlugin } from '@/core/plugins';
+import { defineExtension } from '@/core/plugins';
 import { settings } from './settings';
 
-export const vimPlugin = definePlugin({
+export const vimPlugin = defineExtension({
   id: 'vim-mode',
   name: 'Vim Mode',
   description:

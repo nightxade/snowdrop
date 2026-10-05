@@ -61,7 +61,17 @@ export function AboutPage() {
             <a href="/THIRD_PARTY_NOTICES.txt" target="_blank" rel="noopener noreferrer">
               THIRD_PARTY_NOTICES.txt
             </a>{' '}
-            (generated with each build).
+            (generated with each build)
+            {desktop && (
+              <>
+                , and the Rust crates in the desktop app itself (compiled into this binary, not
+                loaded in a browser) are listed separately in{' '}
+                <a href="/THIRD_PARTY_NOTICES-rust.txt" target="_blank" rel="noopener noreferrer">
+                  THIRD_PARTY_NOTICES-rust.txt
+                </a>
+              </>
+            )}
+            .
           </>
         }
       >

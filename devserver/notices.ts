@@ -4,8 +4,8 @@ import type { Plugin } from 'vite';
 
 /**
  * Emits dist/THIRD_PARTY_NOTICES.txt from the bundle graph: every package
- * with code in the build (transitive dependencies included), with its
- * licence text. Linked from Settings → About.
+ * with code *or assets* in the build (transitive dependencies included),
+ * with its licence text. Linked from Settings → About.
  */
 const LICENSE_FILES = [
   'LICENSE',
@@ -24,6 +24,23 @@ export function packageDirOf(id: string): string | null {
   const rest = id.slice(at + marker.length).split(path.sep);
   const name = rest[0]?.startsWith('@') ? rest.slice(0, 2).join(path.sep) : rest[0];
   return name ? id.slice(0, at + marker.length) + name : null;
+}
+
+/**
+ * Same as `packageDirOf`, but for an emitted asset's `originalFileNames`:
+ * project-root-relative paths with `/` separators regardless of platform
+ * (Rollup/Rolldown's convention), rather than the absolute, OS-separated
+ * module ids chunks carry. This is how fonts like `@fontsource-variable/*`
+ * show up: their CSS `@import` pulls in woff2 files as assets, never as JS
+ * modules, so they're invisible to `packageDirOf` alone.
+ */
+export function packageDirOfAsset(relPath: string, root: string): string | null {
+  const marker = 'node_modules/';
+  const at = relPath.lastIndexOf(marker);
+  if (at === -1) return null;
+  const rest = relPath.slice(at + marker.length).split('/');
+  const name = rest[0]?.startsWith('@') ? rest.slice(0, 2).join('/') : rest[0];
+  return name ? path.resolve(root, relPath.slice(0, at + marker.length) + name) : null;
 }
 
 /**
@@ -58,6 +75,40 @@ export function bundledProgramNotices(root: string): string {
   ].join('\n');
 }
 
+/**
+ * Serves the Rust side's notices (the crates compiled into the desktop
+ * binary, e.g. cssparser/selectors/ring — see src-tauri/about.toml) next to
+ * the web notices above, at the same dist root: `src-tauri/
+ * THIRD_PARTY_NOTICES-rust.txt` is generated separately (`npm run
+ * notices:rust`, docs/DESKTOP.md) since it needs `cargo about`, not Vite's
+ * own module graph. A desktop build without it still succeeds — this is
+ * attribution for a native dependency tree the web build doesn't even have
+ * — but logs a warning so it isn't forgotten before a release.
+ */
+/** Reads the generated Rust notices, or null if they haven't been (yet). */
+export function rustCrateNoticesFile(root: string): string | null {
+  const file = path.join(root, 'src-tauri', 'THIRD_PARTY_NOTICES-rust.txt');
+  return existsSync(file) ? readFileSync(file, 'utf8') : null;
+}
+
+export function rustCrateNotices(): Plugin {
+  return {
+    name: 'snowdrop:rust-crate-notices',
+    apply: 'build',
+    generateBundle() {
+      const text = rustCrateNoticesFile(process.cwd());
+      if (text === null) {
+        this.warn(
+          'src-tauri/THIRD_PARTY_NOTICES-rust.txt is missing (run `npm run notices:rust`); ' +
+            'the desktop build will ship without Rust crate attribution.',
+        );
+        return;
+      }
+      this.emitFile({ type: 'asset', fileName: 'THIRD_PARTY_NOTICES-rust.txt', source: text });
+    },
+  };
+}
+
 export function thirdPartyNotices({ bundled = false }: { bundled?: boolean } = {}): Plugin {
   return {
     name: 'snowdrop:third-party-notices',
@@ -65,10 +116,18 @@ export function thirdPartyNotices({ bundled = false }: { bundled?: boolean } = {
     generateBundle(_options, bundle) {
       const dirs = new Set<string>();
       for (const file of Object.values(bundle)) {
-        if (file.type !== 'chunk') continue;
-        for (const id of Object.keys(file.modules)) {
-          const dir = packageDirOf(id.replace(/^\0/u, '').split('?')[0] ?? '');
-          if (dir) dirs.add(dir);
+        if (file.type === 'chunk') {
+          for (const id of Object.keys(file.modules)) {
+            const dir = packageDirOf(id.replace(/^\0/u, '').split('?')[0] ?? '');
+            if (dir) dirs.add(dir);
+          }
+        } else {
+          // Assets (fonts, images, …) pulled in through CSS rather than JS:
+          // not part of any chunk's module graph, but still shipped.
+          for (const name of file.originalFileNames) {
+            const dir = packageDirOfAsset(name, process.cwd());
+            if (dir) dirs.add(dir);
+          }
         }
       }
       const entries = [...dirs]

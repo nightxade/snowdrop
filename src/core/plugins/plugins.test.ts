@@ -13,11 +13,11 @@ import { clearUrlsPlugin } from './builtin/clearUrls';
 import { parseSlash, Registries } from './registries';
 import { PluginRuntime } from './runtime';
 import { coerceSetting, defineSettings, resolveSettings } from './settings';
-import { definePlugin, type PluginDefinition, type PluginHost } from './types';
+import { defineExtension, type PluginDefinition, type PluginHost } from './types';
 
 // Typing guards are still a plugin capability; Silent Typing itself became a
 // Privacy setting (behaviour.sendTypingIndicators) in the P4 review.
-const silentTypingPlugin = definePlugin({
+const silentTypingPlugin = defineExtension({
   id: 'silent-typing',
   name: 'Silent Typing',
   description: 'Test plugin: suppresses typing indicators.',
@@ -95,7 +95,7 @@ describe('PluginRuntime lifecycle', () => {
   it('starts enabled plugins and disposes every registration on stop', async () => {
     const stop = vi.fn();
     const cleanup = vi.fn();
-    const plugin = definePlugin({
+    const plugin = defineExtension({
       id: 'p',
       name: 'P',
       description: '',
@@ -156,7 +156,7 @@ describe('PluginRuntime lifecycle', () => {
   });
 
   it('isolates a plugin that throws during start and undoes its partial registrations', async () => {
-    const good = definePlugin({
+    const good = defineExtension({
       id: 'good',
       name: 'Good',
       description: '',
@@ -166,7 +166,7 @@ describe('PluginRuntime lifecycle', () => {
         ctx.commands.register({ id: 'good.cmd', title: 'Good', run: () => undefined });
       },
     });
-    const bad = definePlugin({
+    const bad = defineExtension({
       id: 'bad',
       name: 'Bad',
       description: '',
@@ -177,7 +177,7 @@ describe('PluginRuntime lifecycle', () => {
         throw new Error('kaboom');
       },
     });
-    const asyncBad = definePlugin({
+    const asyncBad = defineExtension({
       id: 'async-bad',
       name: 'Async bad',
       description: '',
@@ -200,7 +200,7 @@ describe('PluginRuntime lifecycle', () => {
   });
 
   it('still disposes when stop() throws', async () => {
-    const plugin = definePlugin({
+    const plugin = defineExtension({
       id: 'p',
       name: 'P',
       description: '',
@@ -222,7 +222,7 @@ describe('PluginRuntime lifecycle', () => {
 
   it('persists enable state and follows external settings changes', async () => {
     const start = vi.fn();
-    const plugin = definePlugin({ id: 'p', name: 'P', description: '', authors: [], start });
+    const plugin = defineExtension({ id: 'p', name: 'P', description: '', authors: [], start });
     const { runtime, stores } = setup([plugin]);
     await runtime.startAll();
     expect(runtime.isEnabled('p')).toBe(false);
@@ -241,7 +241,7 @@ describe('PluginRuntime lifecycle', () => {
     const start = vi.fn(() => {
       throw new Error('boom');
     });
-    const bad = definePlugin({
+    const bad = defineExtension({
       id: 'bad',
       name: 'Bad',
       description: '',
@@ -249,7 +249,7 @@ describe('PluginRuntime lifecycle', () => {
       enabledByDefault: true,
       start,
     });
-    const other = definePlugin({
+    const other = defineExtension({
       id: 'other',
       name: 'O',
       description: '',
@@ -267,7 +267,7 @@ describe('PluginRuntime lifecycle', () => {
   });
 
   it('never disables required plugins', async () => {
-    const plugin = definePlugin({
+    const plugin = defineExtension({
       id: 'core',
       name: 'Core',
       description: '',
@@ -284,7 +284,7 @@ describe('PluginRuntime lifecycle', () => {
   it('serialises rapid toggles', async () => {
     let running = 0;
     let maxRunning = 0;
-    const plugin = definePlugin({
+    const plugin = defineExtension({
       id: 'p',
       name: 'P',
       description: '',
@@ -309,7 +309,7 @@ describe('PluginRuntime lifecycle', () => {
 
   it('exposes typed settings to the plugin and notifies on change', async () => {
     const seen: number[] = [];
-    const plugin = definePlugin({
+    const plugin = defineExtension({
       id: 'p',
       name: 'P',
       description: '',
@@ -331,7 +331,7 @@ describe('PluginRuntime lifecycle', () => {
   });
 
   it('notifies subscribers with a stable snapshot', async () => {
-    const plugin = definePlugin({
+    const plugin = defineExtension({
       id: 'p',
       name: 'P',
       description: '',
@@ -350,7 +350,7 @@ describe('PluginRuntime lifecycle', () => {
   });
 
   it('rejects duplicate plugin ids and duplicate slash names', async () => {
-    const a = definePlugin({
+    const a = defineExtension({
       id: 'a',
       name: 'A',
       description: '',
@@ -358,7 +358,7 @@ describe('PluginRuntime lifecycle', () => {
       start: () => undefined,
     });
     expect(() => setup([a, a])).toThrow(/Duplicate/u);
-    const s1 = definePlugin({
+    const s1 = defineExtension({
       id: 's1',
       name: 'S1',
       description: '',
@@ -367,7 +367,7 @@ describe('PluginRuntime lifecycle', () => {
       start: (ctx) =>
         void ctx.slash.register({ name: 'x', description: '', execute: () => ({ type: 'done' }) }),
     });
-    const s2 = definePlugin({
+    const s2 = defineExtension({
       id: 's2',
       name: 'S2',
       description: '',

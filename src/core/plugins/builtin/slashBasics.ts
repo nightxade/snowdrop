@@ -1,5 +1,5 @@
 import { escapeMarkdown } from '@/core/domain';
-import { definePlugin } from '../types';
+import { defineExtension } from '../types';
 
 // Escaped so the markdown pass doesn't eat the backslash or italicise "_(ツ)_".
 const SHRUG = escapeMarkdown('¯\\_(ツ)_/¯');
@@ -11,7 +11,7 @@ const withText = (args: string, face: string): string => (args ? `${args} ${face
 /** Our output is markdown (escaped faces, _me_, ||spoiler||) whatever the user's setting. */
 const send = (text: string) => ({ type: 'send', text, format: 'markdown' }) as const;
 
-export const slashBasicsPlugin = definePlugin({
+export const slashBasicsPlugin = defineExtension({
   id: 'slash-basics',
   name: 'Slash Basics',
   description: 'Adds /shrug, /tableflip, /unflip, /me and /spoiler.',
