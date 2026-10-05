@@ -3,6 +3,8 @@
 //! See docs/DESKTOP.md.
 
 pub mod aead;
+#[cfg(target_os = "linux")]
+mod appimage;
 pub mod commands;
 pub mod config;
 pub mod error;
@@ -89,6 +91,8 @@ fn focus_main(app: &AppHandle) {
 }
 
 pub fn run() {
+    #[cfg(target_os = "linux")]
+    appimage::fix_gstreamer_scanner();
     let app = tauri::Builder::default()
         // First, so a second launch hands over before anything else starts.
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| focus_main(app)))
