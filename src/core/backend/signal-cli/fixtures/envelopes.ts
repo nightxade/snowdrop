@@ -320,6 +320,15 @@ export const fixtures = {
     dataMessage: dataMessage({ timestamp: T0 + 80, groupInfo: groupInfo('UPDATE') }),
   }),
 
+  /** A group UPDATE that also carries real text (same author + timestamp as the system line it causes). */
+  groupUpdateWithText: receive('bob', {
+    dataMessage: dataMessage({
+      timestamp: T0 + 95,
+      message: 'also, bring snacks',
+      groupInfo: groupInfo('UPDATE'),
+    }),
+  }),
+
   groupCall: receive('bob', {
     dataMessage: dataMessage({
       timestamp: T0 + 81,

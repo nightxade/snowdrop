@@ -232,6 +232,61 @@ describe.each(implementations)('MessageRepository (%s)', (_name, create) => {
     expect(await repo.listOutbox()).toEqual([]);
   });
 
+  it('(regression) serialises concurrent mutations: unique seqs, no lost updates', async () => {
+    const concurrent = conversationIdFor('concurrent');
+    const base = incoming({ conversationId: concurrent, authorId: 'x', sentAt: 1, body: 'base' });
+    await repo.upsert(base, mergeDuplicate);
+
+    const input = { conversationId: concurrent, body: 'hi', ranges: [] };
+    const nonce = 'race-1';
+    const pendingSeq = await repo.allocateSeq();
+    const pending = incoming({
+      conversationId: concurrent,
+      authorId: 'me',
+      sentAt: 50,
+      id: pendingMessageId(nonce),
+      nonce,
+      seq: pendingSeq,
+    });
+    await repo.stageOutgoing(pending, { nonce, input, createdAt: 1 });
+
+    const fresh1 = incoming({ conversationId: concurrent, authorId: 'x', sentAt: 2, body: 'fresh1' });
+    const fresh2 = incoming({ conversationId: concurrent, authorId: 'x', sentAt: 3, body: 'fresh2' });
+    const final = incoming({
+      conversationId: concurrent,
+      authorId: 'me',
+      sentAt: 777,
+      nonce,
+      status: 'sent',
+    });
+
+    // Fired together, not awaited one at a time: two upserts of brand-new
+    // rows, a commitOutgoing allocating its own seq, and an update racing
+    // all three for the *same* existing row (`base`). Without serialising
+    // repository mutations, the read-then-write seq allocations can collide
+    // and the reaction below can be overwritten by one of the other writes.
+    const [r1, r2, commitResult, updated] = await Promise.all([
+      repo.upsert(fresh1, mergeDuplicate),
+      repo.upsert(fresh2, mergeDuplicate),
+      repo.commitOutgoing(nonce, final, mergeDuplicate),
+      repo.update(base.id, (m) => ({
+        ...m,
+        reactions: [{ emoji: '🔥', authorId: 'y', at: 9 }],
+      })),
+    ]);
+
+    const seqs = [r1.message.seq, r2.message.seq, commitResult.message.seq];
+    for (const s of seqs) expect(s).toBeDefined();
+    expect(new Set(seqs).size).toBe(seqs.length);
+
+    expect(updated?.reactions).toEqual([{ emoji: '🔥', authorId: 'y', at: 9 }]);
+    const reloaded = await repo.get(base.id);
+    expect(reloaded?.reactions).toEqual([{ emoji: '🔥', authorId: 'y', at: 9 }]);
+
+    expect(await repo.count(concurrent)).toBe(4); // base + fresh1 + fresh2 + final
+    expect(await repo.get(pendingMessageId(nonce))).toBeUndefined();
+  });
+
   it('stores the outbox, read cursors and clears everything', async () => {
     const input = { conversationId: a, body: 'x', ranges: [] };
     await repo.putOutbox({ nonce: 'n2', input, createdAt: 2 });

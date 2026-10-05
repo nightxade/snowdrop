@@ -236,11 +236,21 @@ export class SendService {
   async retry(conversationId: ConversationId, nonce: string): Promise<void> {
     const out = this.outgoing.get(nonce);
     if (!out || out.inFlight) return;
-    const setPending = (m: Message): Message => ({ ...m, status: 'pending' });
-    this.deps.stores.messages
-      .getState()
-      .update(conversationId, pendingMessageId(nonce), setPending);
-    await this.deps.repository.update(pendingMessageId(nonce), setPending);
+    // Set synchronously, before any await: two overlapping retry() calls
+    // (a double-click, or a manual retry racing an auto-retry) must not
+    // both pass the guard above and both call attempt().
+    out.inFlight = true;
+    try {
+      const setPending = (m: Message): Message => ({ ...m, status: 'pending' });
+      this.deps.stores.messages
+        .getState()
+        .update(conversationId, pendingMessageId(nonce), setPending);
+      await this.deps.repository.update(pendingMessageId(nonce), setPending);
+    } catch (error) {
+      // attempt() never ran, so it won't clear this itself.
+      out.inFlight = false;
+      throw error;
+    }
     await this.attempt(nonce);
   }
 

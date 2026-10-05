@@ -4,6 +4,7 @@ import {
   directConversationId,
   groupConversationId,
   messageId,
+  systemMessageId,
   type ConnectionStatus,
 } from '@/core/domain';
 import { ManualScheduler } from '@/core/lib';
@@ -314,7 +315,7 @@ describe('SignalCliBackend: directory', () => {
     expect(updates[0]).toMatchObject({ id: GROUP, title: 'Crux Collective' });
     expect(messages).toEqual([
       expect.objectContaining({
-        id: messageId(BOB, T0 + 80),
+        id: systemMessageId(BOB, T0 + 80, 'group'),
         kind: 'system',
         systemText:
           'Bob Ross changed the group name to "Crux Collective". Bob Ross joined the group.',
@@ -704,10 +705,27 @@ describe('SignalCliBackend: group change runs', () => {
     await backend.ingest(aliceUpdate);
     expect(messages).toEqual([
       expect.objectContaining({
-        id: messageId(ALICE, T0 + 90),
+        id: systemMessageId(ALICE, T0 + 90, 'group'),
         systemText: 'The group name was changed to "Crux Collective". Bob Ross joined the group.',
       }),
     ]);
+    await backend.disconnect();
+  });
+
+  it('keeps a group UPDATE with text and its system line as two distinct messages', async () => {
+    const { backend } = await connected();
+    const messages = collect(backend, 'message');
+    await backend.ingest(fixtures.groupUpdateWithText);
+    expect(messages).toHaveLength(2);
+    const [system, content] = messages;
+    expect(system).toMatchObject({ id: systemMessageId(BOB, T0 + 95, 'group'), kind: 'system' });
+    expect(content).toMatchObject({
+      id: messageId(BOB, T0 + 95),
+      kind: 'normal',
+      body: 'also, bring snacks',
+    });
+    // Same author and timestamp, but distinct ids: neither was dropped by mergeDuplicate.
+    expect(system?.id).not.toBe(content?.id);
     await backend.disconnect();
   });
 
@@ -737,7 +755,7 @@ describe('SignalCliBackend: own changes and edits', () => {
     await backend.updateConversation(directConversationId(ALICE), { expireTimerSec: 60 });
     expect(messages).toEqual([
       expect.objectContaining({
-        id: messageId(SELF_ACI, 1),
+        id: systemMessageId(SELF_ACI, 1, 'group'),
         kind: 'system',
         systemText: 'You changed the group name to "New".',
       }),

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { directConversationId, groupConversationId, messageId } from '@/core/domain';
+import { directConversationId, groupConversationId, messageId, systemMessageId } from '@/core/domain';
 import {
   ALICE,
   BOB,
@@ -228,7 +228,7 @@ describe('normaliseReceive: conversation state', () => {
       {
         kind: 'message',
         payload: expect.objectContaining({
-          id: messageId(ALICE, T0 + 70),
+          id: systemMessageId(ALICE, T0 + 70, 'timer'),
           kind: 'system',
           systemText: 'Alice set disappearing messages to 1 week.',
         }) as unknown,
@@ -258,6 +258,29 @@ describe('normaliseReceive: conversation state', () => {
         sentAt: T0 + 80,
       },
     ]);
+  });
+
+  it('keeps a group UPDATE with text as its own message, distinct from the system line it causes', () => {
+    const { events } = run(fixtures.groupUpdateWithText);
+    expect(events).toEqual([
+      {
+        kind: 'groupChanged',
+        groupId: GROUP_ID,
+        conversationId: GROUP,
+        actorId: BOB,
+        sentAt: T0 + 95,
+      },
+      {
+        kind: 'message',
+        payload: expect.objectContaining({
+          id: messageId(BOB, T0 + 95),
+          body: 'also, bring snacks',
+        }) as unknown,
+      },
+    ]);
+    // The system line the backend writes for the same (author, sentAt) uses a
+    // distinct, tagged id, so it can never collide with the content message above.
+    expect(systemMessageId(BOB, T0 + 95, 'group')).not.toBe(messageId(BOB, T0 + 95));
   });
 
   it('notes group calls as system messages', () => {
@@ -352,7 +375,7 @@ describe('normaliseReceive: review fixes', () => {
     };
     const { payload: m } = only(run(payload).events, 'message');
     expect(m).toMatchObject({
-      id: messageId(ALICE, T0 + 7),
+      id: systemMessageId(ALICE, T0 + 7, 'decrypt'),
       conversationId: DM_ALICE,
       kind: 'system',
       systemText:

@@ -609,18 +609,25 @@ export class SignalCliBackend implements ChatBackend {
         },
         event.sentAt,
         text,
+        'group',
       ),
     );
   }
 
   /** A local system line for a change we made from this device. */
-  private emitOwnSystem(conversationId: ConversationId, sentAt: number, text: string): void {
+  private emitOwnSystem(
+    conversationId: ConversationId,
+    sentAt: number,
+    text: string,
+    kind: string,
+  ): void {
     this.emitter.emit(
       'message',
       systemMessage(
         { conversationId, authorId: this.selfId, receivedAt: this.clock.now() },
         sentAt,
         text,
+        kind,
       ),
     );
   }
@@ -836,6 +843,7 @@ export class SignalCliBackend implements ChatBackend {
         dm,
         this.resultTimestamp(result),
         timerSentence('You', patch.expireTimerSec),
+        'timer',
       );
       return;
     }
@@ -854,7 +862,7 @@ export class SignalCliBackend implements ChatBackend {
     this.emitter.emit('conversationUpdated', next);
     const lines = describeGroupChange(current, next, 'You', (id) => this.nameOf(id));
     if (lines.length > 0) {
-      this.emitOwnSystem(conversationId, this.resultTimestamp(result), lines.join(' '));
+      this.emitOwnSystem(conversationId, this.resultTimestamp(result), lines.join(' '), 'group');
     }
   }
 

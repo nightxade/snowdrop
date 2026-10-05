@@ -7,6 +7,7 @@
  */
 import {
   messageId,
+  systemMessageId,
   type Attachment,
   type BodyRange,
   type ConversationId,
@@ -146,14 +147,20 @@ export function buildMessage(data: WireDataMessage, meta: MessageMeta): Message 
   return message;
 }
 
-/** A one-line system message (timer changes, group updates, calls). */
+/**
+ * A one-line system message (timer changes, group updates, calls). `kind`
+ * (e.g. 'timer', 'group', 'call') tags the id so it can't collide with a
+ * real content message sharing the same (authorId, sentAt) — see
+ * systemMessageId.
+ */
 export function systemMessage(
   meta: Pick<MessageMeta, 'conversationId' | 'authorId' | 'receivedAt'>,
   sentAt: number,
   text: string,
+  kind: string,
 ): Message {
   return {
-    id: messageId(meta.authorId, sentAt),
+    id: systemMessageId(meta.authorId, sentAt, kind),
     conversationId: meta.conversationId,
     authorId: meta.authorId,
     sentAt,

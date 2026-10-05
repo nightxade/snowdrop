@@ -100,6 +100,7 @@ function decryptionFailure(
       { conversationId: directConversationId(raw), authorId: raw, receivedAt: ctx.now },
       envelope.timestamp,
       `Couldn't decrypt a message from ${name}. ${hint}`,
+      'decrypt',
     ),
   };
 }
@@ -346,14 +347,14 @@ function fromData(
     const seconds = data.expiresInSeconds ?? 0;
     events.push({ kind: 'expirationChanged', conversationId, seconds });
     const text = timerSentence(origin.actorName, seconds);
-    events.push({ kind: 'message', payload: systemMessage(meta, data.timestamp, text) });
+    events.push({ kind: 'message', payload: systemMessage(meta, data.timestamp, text, 'timer') });
     // Expiration updates carry no content of their own.
     return events;
   }
 
   if (data.groupCallUpdate !== undefined) {
     const text = `${nameOf(authorId, origin.actorName)} started a group call.`;
-    events.push({ kind: 'message', payload: systemMessage(meta, data.timestamp, text) });
+    events.push({ kind: 'message', payload: systemMessage(meta, data.timestamp, text, 'call') });
     return events;
   }
 

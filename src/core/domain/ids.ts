@@ -51,6 +51,20 @@ export function messageId(authorId: string, sentAt: number): MessageId {
   return `${authorId}:${sentAt}` as MessageId;
 }
 
+/**
+ * Id for a one-line system message (group change, timer, group call…).
+ * These are written for the same (authorId, sentAt) pair as the envelope
+ * that caused them, which — for a group UPDATE that also carries text, or
+ * any other event sharing a timestamp with real content — would otherwise
+ * collide with `messageId(authorId, sentAt)` and lose one of the two to
+ * `mergeDuplicate`. `kind` keeps it distinct from that content message and
+ * from any other system line at the same moment, while staying
+ * deterministic so re-receiving the envelope still dedupes to the same row.
+ */
+export function systemMessageId(authorId: string, sentAt: number, kind: string): MessageId {
+  return `${authorId}:${sentAt}:sys:${kind}` as MessageId;
+}
+
 export function pendingMessageId(nonce: string): MessageId {
   return `pending:${nonce}` as MessageId;
 }

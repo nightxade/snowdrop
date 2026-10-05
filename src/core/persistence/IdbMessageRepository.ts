@@ -99,10 +99,35 @@ interface SnowdropDB extends DBSchema {
 const encodeJson = (value: unknown): Uint8Array => utf8Encode(JSON.stringify(value));
 
 export class IdbMessageRepository implements MessageRepository {
+  /**
+   * Serialises every mutation (upsert, update, commitOutgoing, …) behind a
+   * promise-chain mutex. Each of those reads a row, decrypts it, merges, and
+   * only then opens a (plain, synchronous) IDB transaction to write it back
+   * — crypto has to stay outside the transaction (see the file header), so
+   * the read and the write aren't atomic from IndexedDB's point of view.
+   * Two mutations racing on the same row would otherwise both read the old
+   * value and one write would clobber the other (a lost field update, or a
+   * duplicate seq). Reads that don't feed a write (get, page, search, …)
+   * aren't funnelled through this and stay concurrent.
+   */
+  private writeQueue: Promise<unknown> = Promise.resolve();
+
   private constructor(
     private readonly db: IDBPDatabase<SnowdropDB>,
     private readonly cipher: RecordCipher,
   ) {}
+
+  /** Runs `fn` only after every previously queued mutation has settled. */
+  private mutate<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.writeQueue.then(fn, fn);
+    // Keep the chain alive even if this mutation rejects; the rejection
+    // still propagates to this call's own caller via `run`.
+    this.writeQueue = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
 
   static async open(
     name = 'snowdrop',
@@ -213,89 +238,99 @@ export class IdbMessageRepository implements MessageRepository {
     return row ? this.fromRow(row) : undefined;
   }
 
-  async upsert(message: Message, merge: MergeFn): Promise<UpsertResult> {
-    const key = await this.cipher.blindId(message.id);
-    const existingRow = await this.db.get('messages', key);
-    if (existingRow) {
-      const existing = await this.fromRow(existingRow);
-      const merged = merge(existing, message);
-      await this.db.put('messages', await this.toRow(merged));
-      return { message: merged, created: false };
-    }
-    const seq = await this.seqStateOnce();
-    const stored = { ...message, seq: message.seq ?? seq.max + 1 };
-    const row = await this.toRow(stored);
-    const tx = this.db.transaction(['messages', 'meta'], 'readwrite');
-    await Promise.all([
-      tx.objectStore('messages').put(row),
-      tx.objectStore('meta').put({
-        ...seq,
-        max: Math.max(seq.max, stored.seq),
-        min: Math.min(seq.min, stored.seq),
-      }),
-      tx.done,
-    ]);
-    return { message: stored, created: true };
+  upsert(message: Message, merge: MergeFn): Promise<UpsertResult> {
+    return this.mutate(async () => {
+      const key = await this.cipher.blindId(message.id);
+      const existingRow = await this.db.get('messages', key);
+      if (existingRow) {
+        const existing = await this.fromRow(existingRow);
+        const merged = merge(existing, message);
+        await this.db.put('messages', await this.toRow(merged));
+        return { message: merged, created: false };
+      }
+      const seq = await this.seqStateOnce();
+      const stored = { ...message, seq: message.seq ?? seq.max + 1 };
+      const row = await this.toRow(stored);
+      const tx = this.db.transaction(['messages', 'meta'], 'readwrite');
+      await Promise.all([
+        tx.objectStore('messages').put(row),
+        tx.objectStore('meta').put({
+          ...seq,
+          max: Math.max(seq.max, stored.seq),
+          min: Math.min(seq.min, stored.seq),
+        }),
+        tx.done,
+      ]);
+      return { message: stored, created: true };
+    });
   }
 
-  async upsertMany(
+  upsertMany(
     messages: readonly Message[],
     { backfill, merge }: { backfill: boolean; merge: MergeFn },
   ): Promise<Message[]> {
-    const keys = await Promise.all(messages.map((m) => this.cipher.blindId(m.id)));
-    const existingRows = await Promise.all(keys.map((key) => this.db.get('messages', key)));
-    const existing = await Promise.all(
-      existingRows.map((row) => (row ? this.fromRow(row) : Promise.resolve(undefined))),
-    );
-    const freshCount = existing.filter((e) => e === undefined).length;
-    const seq = await this.seqStateOnce();
-    let next = backfill ? seq.min - freshCount : seq.max + 1;
-    const out: Message[] = [];
-    let min = seq.min;
-    let max = seq.max;
-    for (const [i, m] of messages.entries()) {
-      const found = existing[i];
-      const stored = found ? merge(found, m) : { ...m, seq: m.seq ?? next++ };
-      if (stored.seq !== undefined) {
-        min = Math.min(min, stored.seq);
-        max = Math.max(max, stored.seq);
+    return this.mutate(async () => {
+      const keys = await Promise.all(messages.map((m) => this.cipher.blindId(m.id)));
+      const existingRows = await Promise.all(keys.map((key) => this.db.get('messages', key)));
+      const existing = await Promise.all(
+        existingRows.map((row) => (row ? this.fromRow(row) : Promise.resolve(undefined))),
+      );
+      const freshCount = existing.filter((e) => e === undefined).length;
+      const seq = await this.seqStateOnce();
+      let next = backfill ? seq.min - freshCount : seq.max + 1;
+      const out: Message[] = [];
+      let min = seq.min;
+      let max = seq.max;
+      for (const [i, m] of messages.entries()) {
+        const found = existing[i];
+        const stored = found ? merge(found, m) : { ...m, seq: m.seq ?? next++ };
+        if (stored.seq !== undefined) {
+          min = Math.min(min, stored.seq);
+          max = Math.max(max, stored.seq);
+        }
+        out.push(stored);
       }
-      out.push(stored);
-    }
-    const rows = await Promise.all(out.map((m) => this.toRow(m)));
-    const tx = this.db.transaction(['messages', 'meta'], 'readwrite');
-    await Promise.all([
-      ...rows.map((row) => tx.objectStore('messages').put(row)),
-      tx.objectStore('meta').put({ key: SEQ_KEY, min, max }),
-      tx.done,
-    ]);
-    return out;
+      const rows = await Promise.all(out.map((m) => this.toRow(m)));
+      const tx = this.db.transaction(['messages', 'meta'], 'readwrite');
+      await Promise.all([
+        ...rows.map((row) => tx.objectStore('messages').put(row)),
+        tx.objectStore('meta').put({ key: SEQ_KEY, min, max }),
+        tx.done,
+      ]);
+      return out;
+    });
   }
 
-  async update(id: MessageId, fn: (message: Message) => Message): Promise<Message | undefined> {
-    const key = await this.cipher.blindId(id);
-    const currentRow = await this.db.get('messages', key);
-    if (!currentRow) return undefined;
-    const before = await this.fromRow(currentRow);
-    // Updates never move a message in the timeline.
-    const next: Message =
-      before.seq === undefined ? fn(before) : { ...fn(before), seq: before.seq };
-    await this.db.put('messages', await this.toRow(next));
-    return next;
+  update(id: MessageId, fn: (message: Message) => Message): Promise<Message | undefined> {
+    return this.mutate(async () => {
+      const key = await this.cipher.blindId(id);
+      const currentRow = await this.db.get('messages', key);
+      if (!currentRow) return undefined;
+      const before = await this.fromRow(currentRow);
+      // Updates never move a message in the timeline.
+      const next: Message =
+        before.seq === undefined ? fn(before) : { ...fn(before), seq: before.seq };
+      await this.db.put('messages', await this.toRow(next));
+      return next;
+    });
   }
 
-  async delete(id: MessageId): Promise<void> {
-    const key = await this.cipher.blindId(id);
-    await this.db.delete('messages', key);
+  delete(id: MessageId): Promise<void> {
+    return this.mutate(async () => {
+      const key = await this.cipher.blindId(id);
+      await this.db.delete('messages', key);
+    });
   }
 
-  async allocateSeq(): Promise<number> {
-    const tx = this.db.transaction(['messages', 'meta'], 'readwrite');
-    const seq = await this.seqState(tx);
-    const next = seq.max + 1;
-    await tx.objectStore('meta').put({ ...seq, max: next });
-    await tx.done;
-    return next;
+  allocateSeq(): Promise<number> {
+    return this.mutate(async () => {
+      const tx = this.db.transaction(['messages', 'meta'], 'readwrite');
+      const seq = await this.seqState(tx);
+      const next = seq.max + 1;
+      await tx.objectStore('meta').put({ ...seq, max: next });
+      await tx.done;
+      return next;
+    });
   }
 
   private range(
@@ -444,69 +479,77 @@ export class IdbMessageRepository implements MessageRepository {
     return new Map(entries.map((e) => [e.conversationId, e.seq]));
   }
 
-  async setReadCursor(conversationId: ConversationId, seq: number): Promise<void> {
-    const id = await this.cipher.blindId(conversationId);
-    const payload = await this.cipher.encrypt(encodeJson({ conversationId, seq }), id);
-    await this.db.put('readCursors', { id, payload });
+  setReadCursor(conversationId: ConversationId, seq: number): Promise<void> {
+    return this.mutate(async () => {
+      const id = await this.cipher.blindId(conversationId);
+      const payload = await this.cipher.encrypt(encodeJson({ conversationId, seq }), id);
+      await this.db.put('readCursors', { id, payload });
+    });
   }
 
-  async stageOutgoing(pending: Message, entry: OutboxEntry): Promise<void> {
-    const [messageRow, outboxRow] = await Promise.all([
-      this.toRow(pending),
-      this.toOutboxRow(entry),
-    ]);
-    const tx = this.db.transaction(['messages', 'outbox'], 'readwrite');
-    await Promise.all([
-      tx.objectStore('messages').put(messageRow),
-      tx.objectStore('outbox').put(outboxRow),
-      tx.done,
-    ]);
+  stageOutgoing(pending: Message, entry: OutboxEntry): Promise<void> {
+    return this.mutate(async () => {
+      const [messageRow, outboxRow] = await Promise.all([
+        this.toRow(pending),
+        this.toOutboxRow(entry),
+      ]);
+      const tx = this.db.transaction(['messages', 'outbox'], 'readwrite');
+      await Promise.all([
+        tx.objectStore('messages').put(messageRow),
+        tx.objectStore('outbox').put(outboxRow),
+        tx.done,
+      ]);
+    });
   }
 
-  async commitOutgoing(nonce: string, final: Message, merge: MergeFn): Promise<UpsertResult> {
-    const [pendingId, finalKey] = await Promise.all([
-      this.cipher.blindId(pendingMessageId(nonce)),
-      this.cipher.blindId(final.id),
-    ]);
-    const existingRow = await this.db.get('messages', finalKey);
-    let stored: Message;
-    let created: boolean;
-    if (existingRow) {
-      const existing = await this.fromRow(existingRow);
-      stored = merge(existing, final);
-      created = false;
-    } else {
-      const seq = await this.seqStateOnce();
-      stored = { ...final, seq: final.seq ?? seq.max + 1 };
-      created = true;
-    }
-    const finalRow = await this.toRow(stored);
-    const tx = this.db.transaction(['messages', 'meta', 'outbox'], 'readwrite');
-    const messages = tx.objectStore('messages');
-    await messages.delete(pendingId);
-    await tx.objectStore('outbox').delete(nonce);
-    await messages.put(finalRow);
-    if (created) {
-      const metaStore = tx.objectStore('meta');
-      const seq = (await metaStore.get(SEQ_KEY)) ?? { key: SEQ_KEY, min: 1, max: 0 };
-      await metaStore.put({
-        ...seq,
-        max: Math.max(seq.max, stored.seq as number),
-        min: Math.min(seq.min, stored.seq as number),
-      });
-    }
-    await tx.done;
-    return { message: stored, created };
+  commitOutgoing(nonce: string, final: Message, merge: MergeFn): Promise<UpsertResult> {
+    return this.mutate(async () => {
+      const [pendingId, finalKey] = await Promise.all([
+        this.cipher.blindId(pendingMessageId(nonce)),
+        this.cipher.blindId(final.id),
+      ]);
+      const existingRow = await this.db.get('messages', finalKey);
+      let stored: Message;
+      let created: boolean;
+      if (existingRow) {
+        const existing = await this.fromRow(existingRow);
+        stored = merge(existing, final);
+        created = false;
+      } else {
+        const seq = await this.seqStateOnce();
+        stored = { ...final, seq: final.seq ?? seq.max + 1 };
+        created = true;
+      }
+      const finalRow = await this.toRow(stored);
+      const tx = this.db.transaction(['messages', 'meta', 'outbox'], 'readwrite');
+      const messages = tx.objectStore('messages');
+      await messages.delete(pendingId);
+      await tx.objectStore('outbox').delete(nonce);
+      await messages.put(finalRow);
+      if (created) {
+        const metaStore = tx.objectStore('meta');
+        const seq = (await metaStore.get(SEQ_KEY)) ?? { key: SEQ_KEY, min: 1, max: 0 };
+        await metaStore.put({
+          ...seq,
+          max: Math.max(seq.max, stored.seq as number),
+          min: Math.min(seq.min, stored.seq as number),
+        });
+      }
+      await tx.done;
+      return { message: stored, created };
+    });
   }
 
-  async discardOutgoing(nonce: string): Promise<void> {
-    const pendingId = await this.cipher.blindId(pendingMessageId(nonce));
-    const tx = this.db.transaction(['messages', 'outbox'], 'readwrite');
-    await Promise.all([
-      tx.objectStore('messages').delete(pendingId),
-      tx.objectStore('outbox').delete(nonce),
-      tx.done,
-    ]);
+  discardOutgoing(nonce: string): Promise<void> {
+    return this.mutate(async () => {
+      const pendingId = await this.cipher.blindId(pendingMessageId(nonce));
+      const tx = this.db.transaction(['messages', 'outbox'], 'readwrite');
+      await Promise.all([
+        tx.objectStore('messages').delete(pendingId),
+        tx.objectStore('outbox').delete(nonce),
+        tx.done,
+      ]);
+    });
   }
 
   private async toOutboxRow(entry: OutboxEntry): Promise<OutboxRow> {
@@ -520,12 +563,16 @@ export class IdbMessageRepository implements MessageRepository {
     return { nonce: row.nonce, createdAt: row.createdAt, input };
   }
 
-  async putOutbox(entry: OutboxEntry): Promise<void> {
-    await this.db.put('outbox', await this.toOutboxRow(entry));
+  putOutbox(entry: OutboxEntry): Promise<void> {
+    return this.mutate(async () => {
+      await this.db.put('outbox', await this.toOutboxRow(entry));
+    });
   }
 
-  async deleteOutbox(nonce: string): Promise<void> {
-    await this.db.delete('outbox', nonce);
+  deleteOutbox(nonce: string): Promise<void> {
+    return this.mutate(async () => {
+      await this.db.delete('outbox', nonce);
+    });
   }
 
   async listOutbox(): Promise<OutboxEntry[]> {
@@ -534,14 +581,16 @@ export class IdbMessageRepository implements MessageRepository {
     return entries.sort((a, b) => a.createdAt - b.createdAt);
   }
 
-  async clear(): Promise<void> {
-    const tx = this.db.transaction(['messages', 'readCursors', 'meta', 'outbox'], 'readwrite');
-    await Promise.all([
-      tx.objectStore('messages').clear(),
-      tx.objectStore('readCursors').clear(),
-      tx.objectStore('meta').clear(),
-      tx.objectStore('outbox').clear(),
-      tx.done,
-    ]);
+  clear(): Promise<void> {
+    return this.mutate(async () => {
+      const tx = this.db.transaction(['messages', 'readCursors', 'meta', 'outbox'], 'readwrite');
+      await Promise.all([
+        tx.objectStore('messages').clear(),
+        tx.objectStore('readCursors').clear(),
+        tx.objectStore('meta').clear(),
+        tx.objectStore('outbox').clear(),
+        tx.done,
+      ]);
+    });
   }
 }

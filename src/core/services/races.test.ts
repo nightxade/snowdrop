@@ -184,6 +184,23 @@ describe('history loading races', () => {
 });
 
 describe('send races', () => {
+  it('(regression) two overlapping retry() calls send exactly once', async () => {
+    const repository = new MemoryMessageRepository();
+    const s = await setup({ repository });
+    const id = s.conv('books');
+    await s.history.open(id);
+    s.backend.failNext();
+    await s.send.send(draft(id, 'flaky'));
+    expect(s.stores.messages.getState().findByNonce(id, 'nonce-1')?.status).toBe('failed');
+
+    const sendSpy = vi.spyOn(s.backend, 'send');
+    // A double-click (or a manual retry racing an auto-retry): both calls
+    // see the same failed, not-yet-inFlight outgoing entry.
+    await Promise.all([s.send.retry(id, 'nonce-1'), s.send.retry(id, 'nonce-1')]);
+    expect(sendSpy).toHaveBeenCalledTimes(1);
+    expect(s.list(id).at(-1)?.status).toBe('sent');
+  });
+
   it('(C2 / N4) applies receipts that race the commit of an acknowledged send', async () => {
     for (const when of ['before', 'after'] as const) {
       const repository = new MemoryMessageRepository();
