@@ -680,12 +680,11 @@ mod tests {
     use super::*;
     use crate::secrets::{FakeStore, SecretStore};
     use std::sync::Arc;
+    use tempfile::TempDir;
 
-    fn temp_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("snowdrop-keyslots-test-{}-{name}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        dir
+    /// Removed on drop (rather than left under `/tmp/snowdrop-*` forever).
+    fn temp_dir(name: &str) -> TempDir {
+        tempfile::Builder::new().prefix(&format!("snowdrop-keyslots-test-{}-{name}-", std::process::id())).tempdir().unwrap()
     }
 
     fn keyring_slot() -> KeyringSlot<FakeStore> {
@@ -694,7 +693,8 @@ mod tests {
 
     #[test]
     fn init_and_unlock_through_keyring() {
-        let path = temp_dir("keyring").join("keys.json");
+        let _dir = temp_dir("keyring");
+        let path = _dir.path().join("keys.json");
         let slot = keyring_slot();
         let unlocked = init_with_keyring(&path, &slot).unwrap();
         let vault_key = unlocked.vault_key();
@@ -706,7 +706,8 @@ mod tests {
 
     #[test]
     fn init_and_unlock_through_passphrase() {
-        let path = temp_dir("passphrase-init").join("keys.json");
+        let _dir = temp_dir("passphrase-init");
+        let path = _dir.path().join("keys.json");
         let unlocked = init_with_passphrase(&path, "correct horse battery staple").unwrap();
         let vault_key = unlocked.vault_key();
 
@@ -717,7 +718,8 @@ mod tests {
 
     #[test]
     fn init_and_unlock_through_recovery() {
-        let path = temp_dir("recovery-init").join("keys.json");
+        let _dir = temp_dir("recovery-init");
+        let path = _dir.path().join("keys.json");
         let slot = keyring_slot();
         let mut unlocked = init_with_keyring(&path, &slot).unwrap();
         let code = unlocked.add_recovery().unwrap();
@@ -731,7 +733,8 @@ mod tests {
 
     #[test]
     fn wrong_passphrase_is_an_auth_failure() {
-        let path = temp_dir("wrong-pass").join("keys.json");
+        let _dir = temp_dir("wrong-pass");
+        let path = _dir.path().join("keys.json");
         init_with_passphrase(&path, "right one").unwrap();
         let locked = load(&path).unwrap().unwrap();
         let err = locked.unlock_passphrase("wrong one").unwrap_err();
@@ -740,7 +743,8 @@ mod tests {
 
     #[test]
     fn wrong_recovery_code_is_an_auth_failure() {
-        let path = temp_dir("wrong-recovery").join("keys.json");
+        let _dir = temp_dir("wrong-recovery");
+        let path = _dir.path().join("keys.json");
         let slot = keyring_slot();
         let mut unlocked = init_with_keyring(&path, &slot).unwrap();
         unlocked.add_recovery().unwrap();
@@ -754,7 +758,8 @@ mod tests {
 
     #[test]
     fn tampered_kdf_param_fails() {
-        let path = temp_dir("tamper-param").join("keys.json");
+        let _dir = temp_dir("tamper-param");
+        let path = _dir.path().join("keys.json");
         init_with_passphrase(&path, "a passphrase").unwrap();
         let mut locked = load(&path).unwrap().unwrap();
         match locked.file.slots.get_mut(0).unwrap() {
@@ -767,7 +772,8 @@ mod tests {
 
     #[test]
     fn tampered_salt_fails() {
-        let path = temp_dir("tamper-salt").join("keys.json");
+        let _dir = temp_dir("tamper-salt");
+        let path = _dir.path().join("keys.json");
         init_with_passphrase(&path, "a passphrase").unwrap();
         let mut locked = load(&path).unwrap().unwrap();
         match locked.file.slots.get_mut(0).unwrap() {
@@ -784,7 +790,8 @@ mod tests {
 
     #[test]
     fn tampered_vault_id_fails() {
-        let path = temp_dir("tamper-vault-id").join("keys.json");
+        let _dir = temp_dir("tamper-vault-id");
+        let path = _dir.path().join("keys.json");
         init_with_passphrase(&path, "a passphrase").unwrap();
         let mut locked = load(&path).unwrap().unwrap();
         let mut id = b64_decode(&locked.file.vault_id).unwrap();
@@ -796,7 +803,8 @@ mod tests {
 
     #[test]
     fn swapping_a_wrapped_blob_between_slot_types_fails() {
-        let path = temp_dir("swap-slots").join("keys.json");
+        let _dir = temp_dir("swap-slots");
+        let path = _dir.path().join("keys.json");
         let slot = keyring_slot();
         let mut unlocked = init_with_keyring(&path, &slot).unwrap();
         unlocked.set_passphrase(Some("a passphrase")).unwrap();
@@ -851,7 +859,8 @@ mod tests {
 
     #[test]
     fn reenrolling_the_keyring_after_the_secret_is_lost_then_unlocking_via_recovery() {
-        let path = temp_dir("reenroll").join("keys.json");
+        let _dir = temp_dir("reenroll");
+        let path = _dir.path().join("keys.json");
         let original_store = keyring_slot();
         let mut unlocked = init_with_keyring(&path, &original_store).unwrap();
         let code = unlocked.add_recovery().unwrap();
@@ -876,7 +885,8 @@ mod tests {
 
     #[test]
     fn missing_slot_is_distinct_from_missing_keyring_secret() {
-        let path = temp_dir("missing-slot").join("keys.json");
+        let _dir = temp_dir("missing-slot");
+        let path = _dir.path().join("keys.json");
         init_with_passphrase(&path, "a passphrase").unwrap();
         let locked = load(&path).unwrap().unwrap();
         let err = locked.unlock_keyring(&keyring_slot()).unwrap_err();
@@ -885,7 +895,8 @@ mod tests {
 
     #[test]
     fn removing_the_recovery_slot() {
-        let path = temp_dir("remove-recovery").join("keys.json");
+        let _dir = temp_dir("remove-recovery");
+        let path = _dir.path().join("keys.json");
         let slot = keyring_slot();
         let mut unlocked = init_with_keyring(&path, &slot).unwrap();
         let code = unlocked.add_recovery().unwrap();
@@ -900,7 +911,8 @@ mod tests {
     #[test]
     fn save_load_round_trip_and_file_mode() {
         use std::os::unix::fs::PermissionsExt;
-        let path = temp_dir("round-trip").join("keys.json");
+        let _dir = temp_dir("round-trip");
+        let path = _dir.path().join("keys.json");
         let slot = keyring_slot();
         let mut unlocked = init_with_keyring(&path, &slot).unwrap();
         unlocked.set_passphrase(Some("extra")).unwrap();
@@ -914,7 +926,8 @@ mod tests {
 
     #[test]
     fn init_refuses_if_the_file_already_exists() {
-        let path = temp_dir("refuse-exists").join("keys.json");
+        let _dir = temp_dir("refuse-exists");
+        let path = _dir.path().join("keys.json");
         init_with_passphrase(&path, "first").unwrap();
         let err = init_with_passphrase(&path, "second").unwrap_err();
         assert_eq!(err.kind, ErrorKind::Config);
@@ -924,13 +937,15 @@ mod tests {
 
     #[test]
     fn load_of_a_missing_file_is_none() {
-        let path = temp_dir("load-missing").join("keys.json");
+        let _dir = temp_dir("load-missing");
+        let path = _dir.path().join("keys.json");
         assert!(load(&path).unwrap().is_none());
     }
 
     #[test]
     fn load_rejects_a_malformed_file() {
-        let path = temp_dir("malformed").join("keys.json");
+        let _dir = temp_dir("malformed");
+        let path = _dir.path().join("keys.json");
         fs::write(&path, b"not json").unwrap();
         let err = load(&path).unwrap_err();
         assert_eq!(err.kind, ErrorKind::KeysFileCorrupt);
@@ -938,7 +953,8 @@ mod tests {
 
     #[test]
     fn load_rejects_an_unknown_format_version() {
-        let path = temp_dir("future-format").join("keys.json");
+        let _dir = temp_dir("future-format");
+        let path = _dir.path().join("keys.json");
         fs::write(&path, r#"{"format":99,"vault_id":"AAAA","slots":[]}"#).unwrap();
         let err = load(&path).unwrap_err();
         assert_eq!(err.kind, ErrorKind::KeysFileCorrupt);
@@ -946,7 +962,8 @@ mod tests {
 
     #[test]
     fn init_with_keyring_leaves_an_unrelated_keyring_secret_alone() {
-        let path = temp_dir("keyring-orphaned-secret").join("keys.json");
+        let _dir = temp_dir("keyring-orphaned-secret");
+        let path = _dir.path().join("keys.json");
         let slot = keyring_slot();
         let (stale_entry, stale_key) = slot.create_new().unwrap();
         let unlocked = init_with_keyring(&path, &slot).unwrap();
@@ -960,7 +977,8 @@ mod tests {
     #[test]
     fn enrolling_again_returns_the_superseded_entry_without_deleting_it() {
         let store = Arc::new(FakeStore::new());
-        let path = temp_dir("enroll-returns-old").join("keys.json");
+        let _dir = temp_dir("enroll-returns-old");
+        let path = _dir.path().join("keys.json");
         let slot = KeyringSlot::new(store);
         let mut unlocked = init_with_keyring(&path, &slot).unwrap();
         let first_entry = unlocked.keyring_entry().unwrap();
@@ -983,7 +1001,8 @@ mod tests {
     #[test]
     fn tampered_keyring_entry_id_fails_even_with_the_same_underlying_secret() {
         let store = Arc::new(FakeStore::new());
-        let path = temp_dir("tamper-entry-same-secret").join("keys.json");
+        let _dir = temp_dir("tamper-entry-same-secret");
+        let path = _dir.path().join("keys.json");
         let slot = KeyringSlot::new(store.clone());
         init_with_keyring(&path, &slot).unwrap();
 
@@ -1010,7 +1029,8 @@ mod tests {
 
     #[test]
     fn passphrase_only_cannot_remove_its_last_unlock_method() {
-        let path = temp_dir("last-slot-passphrase-only").join("keys.json");
+        let _dir = temp_dir("last-slot-passphrase-only");
+        let path = _dir.path().join("keys.json");
         let mut unlocked = init_with_passphrase(&path, "the only way in").unwrap();
         let err = unlocked.set_passphrase(None).unwrap_err();
         assert_eq!(err.kind, ErrorKind::LastUnlockMethod);
@@ -1020,7 +1040,8 @@ mod tests {
 
     #[test]
     fn recovery_plus_passphrase_only_the_very_last_slot_is_refused() {
-        let path = temp_dir("last-slot-recovery-plus-passphrase").join("keys.json");
+        let _dir = temp_dir("last-slot-recovery-plus-passphrase");
+        let path = _dir.path().join("keys.json");
         let mut unlocked = init_with_passphrase(&path, "a passphrase").unwrap();
         unlocked.add_recovery().unwrap();
 
@@ -1036,7 +1057,8 @@ mod tests {
 
         // And symmetrically, starting over with recovery as the survivor:
         // once it's the last slot, removing it is refused too.
-        let path2 = temp_dir("last-slot-recovery-plus-passphrase-2").join("keys.json");
+        let _dir2 = temp_dir("last-slot-recovery-plus-passphrase-2");
+        let path2 = _dir2.path().join("keys.json");
         let mut unlocked2 = init_with_passphrase(&path2, "a passphrase").unwrap();
         unlocked2.add_recovery().unwrap();
         unlocked2.set_passphrase(None).unwrap();
@@ -1046,7 +1068,8 @@ mod tests {
 
     #[test]
     fn a_keyring_slot_means_removing_recovery_or_passphrase_is_never_the_last_slot() {
-        let path = temp_dir("last-slot-with-keyring").join("keys.json");
+        let _dir = temp_dir("last-slot-with-keyring");
+        let path = _dir.path().join("keys.json");
         let slot = keyring_slot();
         let mut unlocked = init_with_keyring(&path, &slot).unwrap();
         unlocked.add_recovery().unwrap();

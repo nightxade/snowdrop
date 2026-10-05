@@ -58,24 +58,23 @@ mod tests {
 
     #[test]
     fn appends_and_rotates() {
-        let dir = std::env::temp_dir().join(format!("snowdrop-log-test-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        let log = LogFile::new(dir.join("signal-cli.log"));
+        // Removed on drop (rather than left under `/tmp/snowdrop-*` forever).
+        let dir = tempfile::Builder::new().prefix(&format!("snowdrop-log-test-{}-", std::process::id())).tempdir().unwrap();
+        let log = LogFile::new(dir.path().join("signal-cli.log"));
         log.append("first");
-        assert_eq!(fs::read_to_string(dir.join("signal-cli.log")).unwrap(), "first\n");
+        assert_eq!(fs::read_to_string(dir.path().join("signal-cli.log")).unwrap(), "first\n");
         log.inner.lock().unwrap().written = MAX_BYTES + 1;
         log.append("second");
-        assert_eq!(fs::read_to_string(dir.join("signal-cli.log")).unwrap(), "second\n");
-        assert_eq!(fs::read_to_string(dir.join("signal-cli.log.1")).unwrap(), "first\n");
+        assert_eq!(fs::read_to_string(dir.path().join("signal-cli.log")).unwrap(), "second\n");
+        assert_eq!(fs::read_to_string(dir.path().join("signal-cli.log.1")).unwrap(), "first\n");
     }
 
     #[cfg(unix)]
     #[test]
     fn creates_the_log_file_private_to_its_owner() {
         use std::os::unix::fs::PermissionsExt;
-        let dir = std::env::temp_dir().join(format!("snowdrop-log-mode-test-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        let path = dir.join("signal-cli.log");
+        let dir = tempfile::Builder::new().prefix(&format!("snowdrop-log-mode-test-{}-", std::process::id())).tempdir().unwrap();
+        let path = dir.path().join("signal-cli.log");
         LogFile::new(path.clone()).append("hello");
         assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
     }

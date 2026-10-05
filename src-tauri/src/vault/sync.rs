@@ -201,22 +201,22 @@ mod tests {
     use super::*;
     use crate::aead::Key32;
     use crate::vault::VAULT_ID_LEN;
+    use tempfile::TempDir;
 
-    fn temp_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("snowdrop-vault-sync-test-{}-{name}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        dir
+    /// Removed on drop (rather than left under `/tmp/snowdrop-*` forever).
+    fn temp_dir(name: &str) -> TempDir {
+        tempfile::Builder::new().prefix(&format!("snowdrop-vault-sync-test-{}-{name}-", std::process::id())).tempdir().unwrap()
     }
 
     #[test]
     fn walk_skips_sqlite_sidecars() {
         let dir = temp_dir("sidecars");
+        let dir = dir.path();
         fs::write(dir.join("account.db"), b"db").unwrap();
         fs::write(dir.join("account.db-wal"), b"wal").unwrap();
         fs::write(dir.join("account.db-shm"), b"shm").unwrap();
         fs::write(dir.join("account.db-journal"), b"journal").unwrap();
-        let entries = walk(&dir).unwrap();
+        let entries = walk(dir).unwrap();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].relpath, "account.db");
     }
@@ -224,6 +224,7 @@ mod tests {
     #[test]
     fn json_retry_exhaustion_skips_the_file_and_keeps_no_entry() {
         let base = temp_dir("json-retry");
+        let base = base.path();
         let vault_dir = base.join("vault");
         let key = Key32::random();
         let vault = Vault::open(&vault_dir, key, [5u8; VAULT_ID_LEN]).unwrap();
@@ -244,6 +245,7 @@ mod tests {
     #[test]
     fn syncs_a_wal_mode_database_with_an_open_writer() {
         let base = temp_dir("sqlite-wal");
+        let base = base.path();
         let vault_dir = base.join("vault");
         let key = Key32::random();
         let vault = Vault::open(&vault_dir, key, [6u8; VAULT_ID_LEN]).unwrap();

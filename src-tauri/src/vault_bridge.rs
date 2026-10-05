@@ -285,12 +285,11 @@ mod tests {
     use crate::aead::Key32;
     use crate::vault::{InstanceLock, Vault, VAULT_ID_LEN};
     use std::fs;
+    use tempfile::TempDir;
 
-    fn temp_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("snowdrop-vault-bridge-test-{}-{name}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        dir
+    /// Removed on drop (rather than left under `/tmp/snowdrop-*` forever).
+    fn temp_dir(name: &str) -> TempDir {
+        tempfile::Builder::new().prefix(&format!("snowdrop-vault-bridge-test-{}-{name}-", std::process::id())).tempdir().unwrap()
     }
 
     fn write_file(dir: &Path, relpath: &str, contents: &[u8]) {
@@ -303,17 +302,21 @@ mod tests {
     /// the `(Vault, PathBuf, InstanceLock)` triple a real
     /// `StorageService::vault_session_parts()` would hand over — built
     /// straight from `Vault`/`InstanceLock`, so these tests never need a
-    /// real `StorageService` or keyring.
-    fn fixture(name: &str) -> VaultSessionParts {
+    /// real `StorageService` or keyring. The `TempDir` guard is returned
+    /// alongside the parts: it must outlive every use of the paths inside
+    /// them (in particular the runtime dir a `VaultSession` restores into),
+    /// so callers keep it bound for the rest of the test rather than letting
+    /// it drop here.
+    fn fixture(name: &str) -> (TempDir, VaultSessionParts) {
         let base = temp_dir(name);
-        let seed = base.join("seed");
+        let seed = base.path().join("seed");
         write_file(&seed, "data/account", b"account data");
         write_file(&seed, "attachments/photo.jpg", b"fake jpeg bytes");
-        let vault = Vault::open(&base.join("vault"), Key32::random(), [1u8; VAULT_ID_LEN]).unwrap();
+        let vault = Vault::open(&base.path().join("vault"), Key32::random(), [1u8; VAULT_ID_LEN]).unwrap();
         vault.sync(&seed).unwrap();
-        let runtime_dir = base.join("runtime");
-        let lock = InstanceLock::acquire(&base.join("app-data")).unwrap();
-        (vault, runtime_dir, lock)
+        let runtime_dir = base.path().join("runtime");
+        let lock = InstanceLock::acquire(&base.path().join("app-data")).unwrap();
+        (base, (vault, runtime_dir, lock))
     }
 
     fn always_unlocked() -> IsUnlocked {
@@ -325,10 +328,12 @@ mod tests {
     }
 
     /// Hands `parts` out exactly once, like the real
-    /// `StorageService::vault_session_parts`.
-    fn once(parts: VaultSessionParts) -> TakeSessionParts {
+    /// `StorageService::vault_session_parts` — and passes the fixture's
+    /// `TempDir` guard through unchanged, for the caller to keep alive.
+    fn once(fixture: (TempDir, VaultSessionParts)) -> (TempDir, TakeSessionParts) {
+        let (guard, parts) = fixture;
         let slot = Mutex::new(Some(parts));
-        Box::new(move || slot.lock().expect("fixture lock").take())
+        (guard, Box::new(move || slot.lock().expect("fixture lock").take()))
     }
 
     #[test]
@@ -358,7 +363,8 @@ mod tests {
 
     #[test]
     fn spawn_dir_restores_non_media_excludes_media_and_is_reused() {
-        let (bridge, _rx) = VaultBridge::new(false, always_unlocked(), once(fixture("restore")));
+        let (_guard, take_parts) = once(fixture("restore"));
+        let (bridge, _rx) = VaultBridge::new(false, always_unlocked(), take_parts);
         let fallback = PathBuf::from("/should-not-be-used");
         let dir = bridge.spawn_config_dir(&fallback).unwrap();
         assert!(dir.join("data/account").exists());
@@ -374,7 +380,8 @@ mod tests {
 
     #[test]
     fn ensure_attachment_rejects_a_traversal_id() {
-        let (bridge, _rx) = VaultBridge::new(false, always_unlocked(), once(fixture("traversal")));
+        let (_guard, take_parts) = once(fixture("traversal"));
+        let (bridge, _rx) = VaultBridge::new(false, always_unlocked(), take_parts);
         bridge.spawn_config_dir(Path::new("/fallback")).unwrap();
         // ".." has no characters `attachment_relpath` replaces, so it must be
         // `ensure_media`'s own `validate_relpath` that catches it.
@@ -384,7 +391,8 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn debounce_coalesces_a_burst_of_triggers_into_one_sync() {
-        let (bridge, rx) = VaultBridge::new(false, always_unlocked(), once(fixture("debounce")));
+        let (_guard, take_parts) = once(fixture("debounce"));
+        let (bridge, rx) = VaultBridge::new(false, always_unlocked(), take_parts);
         bridge.spawn_config_dir(Path::new("/fallback")).unwrap();
         let handle = tokio::spawn(run_sync_loop(bridge.clone(), rx));
 
@@ -405,7 +413,8 @@ mod tests {
 
     #[tokio::test]
     async fn shutdown_does_a_final_sync_then_wipes_the_runtime_dir() {
-        let (bridge, _rx) = VaultBridge::new(false, always_unlocked(), once(fixture("shutdown")));
+        let (_guard, take_parts) = once(fixture("shutdown"));
+        let (bridge, _rx) = VaultBridge::new(false, always_unlocked(), take_parts);
         let dir = bridge.spawn_config_dir(Path::new("/fallback")).unwrap();
         fs::write(dir.join("data/account"), b"changed just before shutdown").unwrap();
 
@@ -415,7 +424,8 @@ mod tests {
 
     #[tokio::test]
     async fn discard_wipes_without_syncing_and_cant_rebuild() {
-        let (bridge, _rx) = VaultBridge::new(false, always_unlocked(), once(fixture("erase")));
+        let (_guard, take_parts) = once(fixture("erase"));
+        let (bridge, _rx) = VaultBridge::new(false, always_unlocked(), take_parts);
         let dir = bridge.spawn_config_dir(Path::new("/fallback")).unwrap();
         fs::write(dir.join("data/account"), b"unsynced change, must be discarded").unwrap();
 

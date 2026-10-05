@@ -114,14 +114,14 @@ mod tests {
     use super::*;
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
+    use tempfile::TempDir;
 
-    fn temp_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("snowdrop-vault-runtime-test-{}-{name}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        let mut perm = fs::metadata(&dir).unwrap().permissions();
+    /// Removed on drop (rather than left under `/tmp/snowdrop-*` forever).
+    fn temp_dir(name: &str) -> TempDir {
+        let dir = tempfile::Builder::new().prefix(&format!("snowdrop-vault-runtime-test-{}-{name}-", std::process::id())).tempdir().unwrap();
+        let mut perm = fs::metadata(dir.path()).unwrap().permissions();
         perm.set_mode(0o700);
-        fs::set_permissions(&dir, perm).unwrap();
+        fs::set_permissions(dir.path(), perm).unwrap();
         dir
     }
 
@@ -140,7 +140,7 @@ mod tests {
         let base = temp_dir("disk-backed");
         // A made-up magic that isn't tmpfs or ramfs: simulates an ordinary
         // disk filesystem without depending on the test host's real /tmp.
-        let err = resolve_with(Some(base), always(0x1234_5678)).unwrap_err();
+        let err = resolve_with(Some(base.path().to_path_buf()), always(0x1234_5678)).unwrap_err();
         assert_eq!(err.kind, ErrorKind::NoRamDir);
     }
 
@@ -148,11 +148,11 @@ mod tests {
     fn tmpfs_and_ramfs_are_both_accepted() {
         for magic in [TMPFS_MAGIC, RAMFS_MAGIC] {
             let base = temp_dir(&format!("accepted-{magic:x}"));
-            let dir = resolve_with(Some(base.clone()), always(magic)).unwrap();
-            assert_eq!(dir, base.join("snowdrop").join("signal-cli"));
+            let dir = resolve_with(Some(base.path().to_path_buf()), always(magic)).unwrap();
+            assert_eq!(dir, base.path().join("snowdrop").join("signal-cli"));
             assert!(dir.is_dir());
             assert_eq!(fs::metadata(&dir).unwrap().permissions().mode() & 0o777, 0o700);
-            assert_eq!(fs::metadata(base.join("snowdrop")).unwrap().permissions().mode() & 0o777, 0o700);
+            assert_eq!(fs::metadata(base.path().join("snowdrop")).unwrap().permissions().mode() & 0o777, 0o700);
         }
     }
 
@@ -162,7 +162,7 @@ mod tests {
         let mut perm = fs::metadata(&base).unwrap().permissions();
         perm.set_mode(0o755);
         fs::set_permissions(&base, perm).unwrap();
-        let err = resolve_with(Some(base), always(TMPFS_MAGIC)).unwrap_err();
+        let err = resolve_with(Some(base.path().to_path_buf()), always(TMPFS_MAGIC)).unwrap_err();
         assert_eq!(err.kind, ErrorKind::NoRamDir);
     }
 

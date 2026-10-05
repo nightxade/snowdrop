@@ -111,10 +111,9 @@ mod tests {
 
     #[test]
     fn set_mtime_round_trips() {
-        let dir = std::env::temp_dir().join(format!("snowdrop-vault-restore-mtime-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("a.txt");
+        // Removed on drop (rather than left under `/tmp/snowdrop-*` forever).
+        let dir = tempfile::Builder::new().prefix(&format!("snowdrop-vault-restore-mtime-{}-", std::process::id())).tempdir().unwrap();
+        let path = dir.path().join("a.txt");
         fs::write(&path, b"content").unwrap();
 
         let target_ns: u64 = 1_700_000_000_123_456_789;

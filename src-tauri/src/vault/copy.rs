@@ -190,17 +190,17 @@ pub(crate) fn gc_stray_tmp(vault_dir: &Path) -> Result<usize, crate::error::Erro
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::TempDir;
 
-    fn temp_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("snowdrop-vault-copy-test-{}-{name}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        dir
+    /// Removed on drop (rather than left under `/tmp/snowdrop-*` forever).
+    fn temp_dir(name: &str) -> TempDir {
+        tempfile::Builder::new().prefix(&format!("snowdrop-vault-copy-test-{}-{name}-", std::process::id())).tempdir().unwrap()
     }
 
     #[test]
     fn copy_locked_round_trips_plain_bytes() {
         let dir = temp_dir("plain");
+        let dir = dir.path();
         let path = dir.join("a.txt");
         fs::write(&path, b"not json at all").unwrap();
         assert_eq!(copy_locked(&path).unwrap(), b"not json at all");
@@ -209,6 +209,7 @@ mod tests {
     #[test]
     fn copy_locked_accepts_valid_json() {
         let dir = temp_dir("valid-json");
+        let dir = dir.path();
         let path = dir.join("a.json");
         fs::write(&path, br#"  { "a": 1 }  "#).unwrap();
         assert_eq!(copy_locked(&path).unwrap(), br#"  { "a": 1 }  "#);
@@ -217,6 +218,7 @@ mod tests {
     #[test]
     fn copy_locked_rejects_invalid_json() {
         let dir = temp_dir("invalid-json");
+        let dir = dir.path();
         let path = dir.join("a.json");
         fs::write(&path, b"{ not valid").unwrap();
         assert!(matches!(copy_locked(&path), Err(Retry::InvalidJson)));
@@ -225,6 +227,7 @@ mod tests {
     #[test]
     fn copy_locked_ignores_array_json_too() {
         let dir = temp_dir("array-json");
+        let dir = dir.path();
         let path = dir.join("a.json");
         fs::write(&path, b"[1, 2, 3]").unwrap();
         assert_eq!(copy_locked(&path).unwrap(), b"[1, 2, 3]");
@@ -234,6 +237,7 @@ mod tests {
     #[test]
     fn a_shared_lock_from_another_thread_does_not_block_us() {
         let dir = temp_dir("shared-ok");
+        let dir = dir.path();
         let path = dir.join("a.txt");
         fs::write(&path, b"shared readers are fine").unwrap();
         let other = fs::File::open(&path).unwrap();
@@ -247,6 +251,7 @@ mod tests {
     fn waits_out_a_brief_exclusive_lock_then_succeeds() {
         use std::os::unix::io::AsRawFd;
         let dir = temp_dir("wait-exclusive");
+        let dir = dir.path();
         let path = dir.join("a.txt");
         fs::write(&path, b"content after the writer lets go").unwrap();
 
@@ -275,9 +280,10 @@ mod tests {
     #[test]
     fn gc_stray_tmp_removes_leftover_backup_files_only() {
         let dir = temp_dir("stray");
+        let dir = dir.path();
         fs::write(dir.join(format!("{SQLITE_TMP_PREFIX}1234-5678.tmp")), b"x").unwrap();
         fs::write(dir.join("manifest"), b"keep").unwrap();
-        let removed = gc_stray_tmp(&dir).unwrap();
+        let removed = gc_stray_tmp(dir).unwrap();
         assert_eq!(removed, 1);
         assert!(dir.join("manifest").exists());
     }

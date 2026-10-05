@@ -253,11 +253,9 @@ mod tests {
     use super::*;
     use std::fs;
 
-    fn temp_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("snowdrop-config-test-{}-{name}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        dir
+    /// Removed on drop (rather than left under `/tmp/snowdrop-*` forever).
+    fn temp_dir(name: &str) -> tempfile::TempDir {
+        tempfile::Builder::new().prefix(&format!("snowdrop-config-test-{}-{name}-", std::process::id())).tempdir().unwrap()
     }
 
     #[cfg(unix)]
@@ -271,6 +269,7 @@ mod tests {
     #[test]
     fn resolves_configured_then_downloaded_then_bundled_then_path() {
         let dir = temp_dir("resolve");
+        let dir = dir.path();
         let configured = dir.join("configured").join("signal-cli");
         let downloaded = dir.join("downloaded").join("signal-cli");
         let bundled = dir.join("bundled").join("signal-cli");
@@ -303,6 +302,7 @@ mod tests {
     #[test]
     fn rejects_paths_that_are_not_signal_cli() {
         let dir = temp_dir("validate");
+        let dir = dir.path();
         let shell = dir.join("sh");
         make_exec(&shell);
         assert_eq!(validate_binary_path(shell.to_str().unwrap()).unwrap_err().kind, ErrorKind::Config);
@@ -379,9 +379,10 @@ mod tests {
     fn secure_dir_locks_a_directory_to_its_owner() {
         use std::os::unix::fs::PermissionsExt;
         let dir = temp_dir("secure-new");
+        let dir = dir.path();
         // Freshly created directories are rarely 0700 by default (umask).
-        fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).unwrap();
-        secure_dir(&dir).unwrap();
+        fs::set_permissions(dir, fs::Permissions::from_mode(0o755)).unwrap();
+        secure_dir(dir).unwrap();
         assert_eq!(dir.metadata().unwrap().permissions().mode() & 0o777, 0o700);
     }
 
@@ -393,8 +394,9 @@ mod tests {
     fn secure_dir_fixes_a_directory_left_over_from_an_earlier_install() {
         use std::os::unix::fs::PermissionsExt;
         let dir = temp_dir("secure-existing");
-        fs::set_permissions(&dir, fs::Permissions::from_mode(0o777)).unwrap();
-        secure_dir(&dir).unwrap();
+        let dir = dir.path();
+        fs::set_permissions(dir, fs::Permissions::from_mode(0o777)).unwrap();
+        secure_dir(dir).unwrap();
         assert_eq!(dir.metadata().unwrap().permissions().mode() & 0o777, 0o700);
     }
 }

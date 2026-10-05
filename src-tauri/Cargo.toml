@@ -75,6 +75,10 @@ zbus = "4"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["io-util", "macros", "process", "rt-multi-thread", "sync", "time", "test-util"] }
+# Test-only temp directories that are removed on drop (src/*'s own `temp_dir`
+# test helpers, plus tests/vault_e2e.rs's runtime dir), instead of leftovers
+# under /tmp/snowdrop-* that `std::env::temp_dir()` alone never cleans up.
+tempfile = "3"
 
 [profile.release]
 codegen-units = 1

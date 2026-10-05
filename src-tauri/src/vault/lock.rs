@@ -57,18 +57,18 @@ impl InstanceLock {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::TempDir;
 
-    fn temp_dir(name: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("snowdrop-vault-lock-test-{}-{name}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        dir
+    /// Removed on drop (rather than left under `/tmp/snowdrop-*` forever).
+    fn temp_dir(name: &str) -> TempDir {
+        tempfile::Builder::new().prefix(&format!("snowdrop-vault-lock-test-{}-{name}-", std::process::id())).tempdir().unwrap()
     }
 
     #[test]
     fn first_acquisition_succeeds() {
         let dir = temp_dir("first");
-        let _lock = InstanceLock::acquire(&dir).unwrap();
+        let dir = dir.path();
+        let _lock = InstanceLock::acquire(dir).unwrap();
         assert!(dir.join(LOCK_FILE_NAME).exists());
     }
 
@@ -79,27 +79,30 @@ mod tests {
     #[test]
     fn a_second_acquisition_with_the_first_still_held_fails() {
         let dir = temp_dir("contended");
-        let _first = InstanceLock::acquire(&dir).unwrap();
-        let err = InstanceLock::acquire(&dir).unwrap_err();
+        let dir = dir.path();
+        let _first = InstanceLock::acquire(dir).unwrap();
+        let err = InstanceLock::acquire(dir).unwrap_err();
         assert_eq!(err.kind, ErrorKind::AlreadyRunning);
     }
 
     #[test]
     fn the_lock_is_released_on_drop() {
         let dir = temp_dir("released");
+        let dir = dir.path();
         {
-            let _first = InstanceLock::acquire(&dir).unwrap();
+            let _first = InstanceLock::acquire(dir).unwrap();
         }
         // The first lock's fd closed when it dropped, releasing the flock.
-        let _second = InstanceLock::acquire(&dir).unwrap();
+        let _second = InstanceLock::acquire(dir).unwrap();
     }
 
     #[test]
     fn three_sequential_contentions_all_fail_while_held() {
         let dir = temp_dir("triple");
-        let _held = InstanceLock::acquire(&dir).unwrap();
+        let dir = dir.path();
+        let _held = InstanceLock::acquire(dir).unwrap();
         for _ in 0..3 {
-            assert_eq!(InstanceLock::acquire(&dir).unwrap_err().kind, ErrorKind::AlreadyRunning);
+            assert_eq!(InstanceLock::acquire(dir).unwrap_err().kind, ErrorKind::AlreadyRunning);
         }
     }
 }

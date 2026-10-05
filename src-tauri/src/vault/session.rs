@@ -297,12 +297,11 @@ mod tests {
     use crate::error::ErrorKind;
     use crate::vault::VAULT_ID_LEN;
     use std::fs;
+    use tempfile::TempDir;
 
-    fn temp_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("snowdrop-vault-session-test-{}-{name}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        dir
+    /// Removed on drop (rather than left under `/tmp/snowdrop-*` forever).
+    fn temp_dir(name: &str) -> TempDir {
+        tempfile::Builder::new().prefix(&format!("snowdrop-vault-session-test-{}-{name}-", std::process::id())).tempdir().unwrap()
     }
 
     fn new_vault(base: &Path, vault_id: [u8; VAULT_ID_LEN]) -> Vault {
@@ -322,13 +321,14 @@ mod tests {
     #[test]
     fn fresh_start_restores_and_writes_a_marker() {
         let base = temp_dir("fresh");
-        let vault = new_vault(&base, [1u8; VAULT_ID_LEN]);
+        let base = base.path();
+        let vault = new_vault(base, [1u8; VAULT_ID_LEN]);
         let runtime = base.join("runtime");
         write_file(&runtime, "data/account", b"account data");
         vault.sync(&runtime).unwrap();
         fs::remove_dir_all(&runtime).unwrap();
 
-        let session = VaultSession::start(vault, runtime.clone(), lock(&base)).unwrap();
+        let session = VaultSession::start(vault, runtime.clone(), lock(base)).unwrap();
         assert_eq!(session.last_start(), StartKind::Fresh);
         assert_eq!(fs::read(runtime.join("data/account")).unwrap(), b"account data");
         assert!(read_marker(&runtime).is_some());
@@ -337,14 +337,15 @@ mod tests {
     #[test]
     fn media_is_excluded_from_restore_then_hydrated_on_demand() {
         let base = temp_dir("media");
-        let vault = new_vault(&base, [2u8; VAULT_ID_LEN]);
+        let base = base.path();
+        let vault = new_vault(base, [2u8; VAULT_ID_LEN]);
         let runtime = base.join("runtime");
         write_file(&runtime, "data/account", b"account data");
         write_file(&runtime, "attachments/photo.jpg", b"fake jpeg bytes");
         vault.sync(&runtime).unwrap();
         fs::remove_dir_all(&runtime).unwrap();
 
-        let mut session = VaultSession::start(vault, runtime.clone(), lock(&base)).unwrap();
+        let mut session = VaultSession::start(vault, runtime.clone(), lock(base)).unwrap();
         assert!(runtime.join("data/account").exists());
         assert!(!runtime.join("attachments/photo.jpg").exists(), "media must not be restored up front");
 
@@ -364,6 +365,7 @@ mod tests {
     #[test]
     fn crash_recovery_syncs_the_modification_and_keeps_the_runtime_dir() {
         let base = temp_dir("crash");
+        let base = base.path();
         let vault_id = [3u8; VAULT_ID_LEN];
         let vault_dir = base.join("vault");
         let key = Key32::random();
@@ -374,7 +376,7 @@ mod tests {
         vault1.sync(&runtime).unwrap();
         fs::remove_dir_all(&runtime).unwrap();
 
-        let session1 = VaultSession::start(vault1, runtime.clone(), lock(&base)).unwrap();
+        let session1 = VaultSession::start(vault1, runtime.clone(), lock(base)).unwrap();
         assert_eq!(session1.last_start(), StartKind::Fresh);
 
         // signal-cli (simulated) keeps writing; the process then "crashes":
@@ -384,7 +386,7 @@ mod tests {
         drop(session1);
 
         let vault2 = Vault::open(&vault_dir, Key32::from_slice(key.as_bytes()).unwrap(), vault_id).unwrap();
-        let session2 = VaultSession::start(vault2, runtime.clone(), lock(&base)).unwrap();
+        let session2 = VaultSession::start(vault2, runtime.clone(), lock(base)).unwrap();
         assert_eq!(session2.last_start(), StartKind::Recovered);
         assert_eq!(fs::read(runtime.join("data/account")).unwrap(), b"modified after start, never synced");
 
@@ -392,14 +394,16 @@ mod tests {
         // a fresh restore elsewhere must see the modification too.
         let check_vault = Vault::open(&vault_dir, Key32::from_slice(key.as_bytes()).unwrap(), vault_id).unwrap();
         let restored_elsewhere = temp_dir("crash-restored-elsewhere");
-        check_vault.restore(&restored_elsewhere, |_| true).unwrap();
+        let restored_elsewhere = restored_elsewhere.path();
+        check_vault.restore(restored_elsewhere, |_| true).unwrap();
         assert_eq!(fs::read(restored_elsewhere.join("data/account")).unwrap(), b"modified after start, never synced");
     }
 
     #[test]
     fn a_foreign_marker_gets_wiped_not_recovered() {
         let base = temp_dir("foreign");
-        let vault = new_vault(&base, [4u8; VAULT_ID_LEN]);
+        let base = base.path();
+        let vault = new_vault(base, [4u8; VAULT_ID_LEN]);
         let runtime = base.join("runtime");
         write_file(&runtime, "data/account", b"vault content");
         vault.sync(&runtime).unwrap();
@@ -409,7 +413,7 @@ mod tests {
         write_marker(&runtime, &[0xffu8; VAULT_ID_LEN], 1).unwrap();
         write_file(&runtime, "stray.txt", b"leftover from somewhere else");
 
-        let session = VaultSession::start(vault, runtime.clone(), lock(&base)).unwrap();
+        let session = VaultSession::start(vault, runtime.clone(), lock(base)).unwrap();
         assert_eq!(session.last_start(), StartKind::Wiped);
         assert!(!runtime.join("stray.txt").exists());
         assert_eq!(fs::read(runtime.join("data/account")).unwrap(), b"vault content");
@@ -418,7 +422,8 @@ mod tests {
     #[test]
     fn a_runtime_dir_with_no_marker_at_all_gets_wiped() {
         let base = temp_dir("no-marker");
-        let vault = new_vault(&base, [5u8; VAULT_ID_LEN]);
+        let base = base.path();
+        let vault = new_vault(base, [5u8; VAULT_ID_LEN]);
         let runtime = base.join("runtime");
         write_file(&runtime, "data/account", b"vault content");
         vault.sync(&runtime).unwrap();
@@ -426,7 +431,7 @@ mod tests {
         // does) — this directory is exactly "content with no marker at all".
         write_file(&runtime, "stray.txt", b"no marker, no trust");
 
-        let session = VaultSession::start(vault, runtime.clone(), lock(&base)).unwrap();
+        let session = VaultSession::start(vault, runtime.clone(), lock(base)).unwrap();
         assert_eq!(session.last_start(), StartKind::Wiped);
         assert!(!runtime.join("stray.txt").exists());
     }
@@ -434,14 +439,15 @@ mod tests {
     #[test]
     fn eviction_respects_budget_idle_and_the_unsynced_rule() {
         let base = temp_dir("evict");
-        let vault = new_vault(&base, [6u8; VAULT_ID_LEN]);
+        let base = base.path();
+        let vault = new_vault(base, [6u8; VAULT_ID_LEN]);
         let runtime = base.join("runtime");
 
         // Start with nothing to restore, then write media straight into the
         // running session's runtime dir and sync it: that's the only way to
         // get a manifest entry whose recorded mtime exactly matches the
         // real file's mtime, which `is_synced` requires.
-        let mut session = VaultSession::start(vault, runtime.clone(), lock(&base)).unwrap();
+        let mut session = VaultSession::start(vault, runtime.clone(), lock(base)).unwrap();
         write_file(&runtime, "attachments/old.bin", &[0u8; 100]);
         write_file(&runtime, "attachments/recent.bin", &[0u8; 100]);
         session.sync().unwrap();
@@ -463,10 +469,11 @@ mod tests {
     #[test]
     fn eviction_is_a_no_op_under_budget() {
         let base = temp_dir("evict-under-budget");
-        let vault = new_vault(&base, [7u8; VAULT_ID_LEN]);
+        let base = base.path();
+        let vault = new_vault(base, [7u8; VAULT_ID_LEN]);
         let runtime = base.join("runtime");
 
-        let mut session = VaultSession::start(vault, runtime.clone(), lock(&base)).unwrap();
+        let mut session = VaultSession::start(vault, runtime.clone(), lock(base)).unwrap();
         write_file(&runtime, "attachments/a.bin", &[0u8; 10]);
         session.sync().unwrap();
 
@@ -478,32 +485,34 @@ mod tests {
     #[test]
     fn shutdown_syncs_then_wipes_and_releases_the_lock() {
         let base = temp_dir("shutdown-ok");
-        let vault = new_vault(&base, [8u8; VAULT_ID_LEN]);
+        let base = base.path();
+        let vault = new_vault(base, [8u8; VAULT_ID_LEN]);
         let runtime = base.join("runtime");
         write_file(&runtime, "data/account", b"v1");
         vault.sync(&runtime).unwrap();
         fs::remove_dir_all(&runtime).unwrap();
 
-        let session = VaultSession::start(vault, runtime.clone(), lock(&base)).unwrap();
+        let session = VaultSession::start(vault, runtime.clone(), lock(base)).unwrap();
         fs::write(runtime.join("data/account"), b"v2, synced on shutdown").unwrap();
         session.shutdown().unwrap();
 
         assert!(!runtime.exists(), "runtime dir must be wiped after a clean shutdown");
         // The lock was released: a new acquisition over the same app data
         // dir must succeed.
-        let _relocked = lock(&base);
+        let _relocked = lock(base);
     }
 
     #[test]
     fn shutdown_keeps_the_runtime_dir_when_the_final_sync_fails() {
         let base = temp_dir("shutdown-fail");
-        let vault = new_vault(&base, [9u8; VAULT_ID_LEN]);
+        let base = base.path();
+        let vault = new_vault(base, [9u8; VAULT_ID_LEN]);
         let vault_dir = base.join("vault");
         let runtime = base.join("runtime");
         write_file(&runtime, "data/account", b"v1");
         vault.sync(&runtime).unwrap();
 
-        let session = VaultSession::start(vault, runtime.clone(), lock(&base)).unwrap();
+        let session = VaultSession::start(vault, runtime.clone(), lock(base)).unwrap();
 
         // Corrupt both manifest generations so the final sync's own
         // `load_with_fallback` fails with `VaultCorrupt`.
@@ -519,6 +528,7 @@ mod tests {
     #[test]
     fn the_marker_is_never_synced_into_the_vault() {
         let base = temp_dir("marker-not-synced");
+        let base = base.path();
         let vault_id = [10u8; VAULT_ID_LEN];
         let key = Key32::random();
         let vault_dir = base.join("vault");
@@ -528,7 +538,7 @@ mod tests {
         vault.sync(&runtime).unwrap();
         fs::remove_dir_all(&runtime).unwrap();
 
-        let session = VaultSession::start(vault, runtime.clone(), lock(&base)).unwrap();
+        let session = VaultSession::start(vault, runtime.clone(), lock(base)).unwrap();
         assert!(read_marker(&runtime).is_some(), "sanity: the marker really is on disk");
         session.sync().unwrap();
 
@@ -536,7 +546,8 @@ mod tests {
         // since `session` now owns the original `Vault` value.
         let check_vault = Vault::open(&vault_dir, Key32::from_slice(key.as_bytes()).unwrap(), vault_id).unwrap();
         let restored = temp_dir("marker-not-synced-restored");
-        check_vault.restore(&restored, |_| true).unwrap();
+        let restored = restored.path();
+        check_vault.restore(restored, |_| true).unwrap();
         assert!(!restored.join(MARKER_FILE_NAME).exists());
     }
 }

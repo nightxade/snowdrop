@@ -489,11 +489,9 @@ mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
 
-    fn temp_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("snowdrop-install-test-{}-{name}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        dir
+    /// Removed on drop (rather than left under `/tmp/snowdrop-*` forever).
+    fn temp_dir(name: &str) -> tempfile::TempDir {
+        tempfile::Builder::new().prefix(&format!("snowdrop-install-test-{}-{name}-", std::process::id())).tempdir().unwrap()
     }
 
     fn noop_progress() -> ProgressSink {
@@ -681,12 +679,13 @@ mod tests {
         let sha = sha256_bytes(&archive);
         let server = TestServer::start(archive, false).await;
         let app_data = temp_dir("good");
+        let app_data = app_data.path();
 
         let binary = download_and_install(
             &client(),
             &server.url(),
             &sha,
-            &app_data,
+            app_data,
             "9.9.9",
             noop_progress(),
             CancelToken::new(),
@@ -694,11 +693,11 @@ mod tests {
         .await
         .unwrap();
 
-        assert_eq!(binary, install_dir(&app_data, "9.9.9").join("signal-cli"));
+        assert_eq!(binary, install_dir(app_data, "9.9.9").join("signal-cli"));
         assert!(is_executable(&binary));
         assert_eq!(fs::read(&binary).unwrap(), b"fake signal-cli binary");
         // No leftover partial-download file.
-        assert!(!work_dir(&app_data).join("9.9.9.part").exists());
+        assert!(!work_dir(app_data).join("9.9.9.part").exists());
     }
 
     #[tokio::test]
@@ -706,12 +705,13 @@ mod tests {
         let archive = make_archive(b"fake signal-cli binary");
         let server = TestServer::start(archive, false).await;
         let app_data = temp_dir("bad-checksum");
+        let app_data = app_data.path();
 
         let err = download_and_install(
             &client(),
             &server.url(),
             "0000000000000000000000000000000000000000000000000000000000000000",
-            &app_data,
+            app_data,
             "9.9.9",
             noop_progress(),
             CancelToken::new(),
@@ -721,13 +721,14 @@ mod tests {
 
         assert_eq!(err.kind, ErrorKind::Config);
         assert!(err.message.contains("checksum mismatch"), "{}", err.message);
-        assert!(!work_dir(&app_data).join("9.9.9.part").exists());
-        assert!(!install_dir(&app_data, "9.9.9").exists());
+        assert!(!work_dir(app_data).join("9.9.9.part").exists());
+        assert!(!install_dir(app_data, "9.9.9").exists());
     }
 
     #[test]
     fn rejects_tar_entries_that_escape_the_extraction_directory() {
         let app_data = temp_dir("traversal");
+        let app_data = app_data.path();
         let archive_path = app_data.join("evil.tar.gz");
         fs::write(&archive_path, make_traversal_archive()).unwrap();
         let dest = app_data.join("dest");
@@ -743,6 +744,7 @@ mod tests {
     #[test]
     fn rejects_tar_entries_with_an_absolute_path() {
         let app_data = temp_dir("absolute");
+        let app_data = app_data.path();
         let archive_path = app_data.join("evil.tar.gz");
         fs::write(&archive_path, make_absolute_path_archive()).unwrap();
         let dest = app_data.join("dest");
@@ -757,6 +759,7 @@ mod tests {
     #[test]
     fn rejects_tar_entries_that_are_symlinks() {
         let app_data = temp_dir("symlink");
+        let app_data = app_data.path();
         let archive_path = app_data.join("evil.tar.gz");
         fs::write(&archive_path, make_symlink_archive()).unwrap();
         let dest = app_data.join("dest");
@@ -772,6 +775,7 @@ mod tests {
     #[test]
     fn rejects_tar_entries_that_are_hard_links() {
         let app_data = temp_dir("hardlink");
+        let app_data = app_data.path();
         let archive_path = app_data.join("evil.tar.gz");
         fs::write(&archive_path, make_hard_link_archive()).unwrap();
         let dest = app_data.join("dest");
@@ -786,6 +790,7 @@ mod tests {
     #[test]
     fn rejects_a_symlinked_directory_followed_by_a_file_under_it() {
         let app_data = temp_dir("symlinked-dir");
+        let app_data = app_data.path();
         let archive_path = app_data.join("evil.tar.gz");
         fs::write(&archive_path, make_symlinked_dir_archive()).unwrap();
         let dest = app_data.join("dest");
@@ -803,6 +808,7 @@ mod tests {
     #[test]
     fn a_failed_extraction_leaves_no_install_directory() {
         let app_data = temp_dir("extract-fail");
+        let app_data = app_data.path();
         // An archive with no signal-cli executable inside it at all.
         let mut builder = tar::Builder::new(Vec::new());
         let mut header = tar::Header::new_gnu();
@@ -816,12 +822,12 @@ mod tests {
         let archive = encoder.finish().unwrap();
         let archive_path = app_data.join("broken.tar.gz");
         fs::write(&archive_path, &archive).unwrap();
-        let work = work_dir(&app_data);
+        let work = work_dir(app_data);
         fs::create_dir_all(&work).unwrap();
 
-        let err = extract_and_install(&archive_path, &work, &app_data, "9.9.9").unwrap_err();
+        let err = extract_and_install(&archive_path, &work, app_data, "9.9.9").unwrap_err();
         assert_eq!(err.kind, ErrorKind::Config);
-        assert!(!install_dir(&app_data, "9.9.9").exists());
+        assert!(!install_dir(app_data, "9.9.9").exists());
         // No leftover scratch directories either.
         assert!(!work.join("9.9.9.extract").exists());
         assert!(!work.join("9.9.9.staged").exists());
@@ -843,12 +849,13 @@ mod tests {
         let sha = sha256_bytes(&archive);
         let server = TestServer::start(archive, false).await;
         let app_data = temp_dir("download-extract-fail");
+        let app_data = app_data.path();
 
         let err = download_and_install(
             &client(),
             &server.url(),
             &sha,
-            &app_data,
+            app_data,
             "9.9.9",
             noop_progress(),
             CancelToken::new(),
@@ -857,11 +864,11 @@ mod tests {
         .unwrap_err();
 
         assert_eq!(err.kind, ErrorKind::Config);
-        let work = work_dir(&app_data);
+        let work = work_dir(app_data);
         assert!(!work.join("9.9.9.part").exists());
         assert!(!work.join("9.9.9.extract").exists());
         assert!(!work.join("9.9.9.staged").exists());
-        assert!(!install_dir(&app_data, "9.9.9").exists());
+        assert!(!install_dir(app_data, "9.9.9").exists());
     }
 
     #[tokio::test]
@@ -870,9 +877,10 @@ mod tests {
         let sha = sha256_bytes(&archive);
         let server = TestServer::start(archive, false).await;
         let app_data = temp_dir("atomic");
+        let app_data = app_data.path();
 
         // A stale, half-written install already "exists" at this version.
-        let stale_dir = install_dir(&app_data, "9.9.9");
+        let stale_dir = install_dir(app_data, "9.9.9");
         fs::create_dir_all(&stale_dir).unwrap();
         fs::write(stale_dir.join("signal-cli"), b"old, broken").unwrap();
 
@@ -880,7 +888,7 @@ mod tests {
             &client(),
             &server.url(),
             &sha,
-            &app_data,
+            app_data,
             "9.9.9",
             noop_progress(),
             CancelToken::new(),
@@ -897,15 +905,16 @@ mod tests {
         let sha = sha256_bytes(&archive);
         let server = TestServer::start(archive.clone(), true).await;
         let app_data = temp_dir("resume");
+        let app_data = app_data.path();
 
         // Simulate a previous attempt that only got partway through.
-        let work = work_dir(&app_data);
+        let work = work_dir(app_data);
         fs::create_dir_all(&work).unwrap();
         let half = archive.len() / 2;
         fs::write(work.join("9.9.9.part"), &archive[..half]).unwrap();
 
         let binary =
-            download_and_install(&client(), &server.url(), &sha, &app_data, "9.9.9", noop_progress(), CancelToken::new())
+            download_and_install(&client(), &server.url(), &sha, app_data, "9.9.9", noop_progress(), CancelToken::new())
                 .await
                 .unwrap();
 
@@ -918,29 +927,31 @@ mod tests {
         let sha = sha256_bytes(&archive);
         let server = TestServer::start(archive, false).await;
         let app_data = temp_dir("cancel");
+        let app_data = app_data.path();
 
         let cancel = CancelToken::new();
         cancel.cancel(); // already cancelled: the very first check should stop it
 
-        let err = download_and_install(&client(), &server.url(), &sha, &app_data, "9.9.9", noop_progress(), cancel)
+        let err = download_and_install(&client(), &server.url(), &sha, app_data, "9.9.9", noop_progress(), cancel)
             .await
             .unwrap_err();
 
         assert_eq!(err.kind, ErrorKind::Cancelled);
-        assert!(!install_dir(&app_data, "9.9.9").exists());
+        assert!(!install_dir(app_data, "9.9.9").exists());
     }
 
     #[test]
     fn status_reports_not_installed_until_the_binary_is_in_place() {
         let app_data = temp_dir("status");
-        let before = status(&app_data);
+        let app_data = app_data.path();
+        let before = status(app_data);
         assert!(!before.installed);
         if let Ok(asset) = pinned() {
-            let path = binary_path(&app_data, &asset.version);
+            let path = binary_path(app_data, &asset.version);
             fs::create_dir_all(path.parent().unwrap()).unwrap();
             fs::write(&path, b"fake").unwrap();
             make_executable(&path).unwrap();
-            let after = status(&app_data);
+            let after = status(app_data);
             assert!(after.installed);
             assert_eq!(after.version.as_deref(), Some(asset.version.as_str()));
             assert_eq!(after.path, Some(path));

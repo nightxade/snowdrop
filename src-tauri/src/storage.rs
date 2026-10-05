@@ -667,11 +667,9 @@ mod tests {
     // lets two `StorageService`s in the same test share one fake keyring,
     // simulating "the same OS keyring, a different process".
 
-    fn temp_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("snowdrop-storage-test-{}-{name}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        dir
+    /// Removed on drop (rather than left under `/tmp/snowdrop-*` forever).
+    fn temp_dir(name: &str) -> tempfile::TempDir {
+        tempfile::Builder::new().prefix(&format!("snowdrop-storage-test-{}-{name}-", std::process::id())).tempdir().unwrap()
     }
 
     /// A runtime-dir resolver backed by an ordinary temp dir (not real
@@ -689,7 +687,7 @@ mod tests {
     }
 
     struct Fixture {
-        base: PathBuf,
+        base: tempfile::TempDir,
     }
 
     impl Fixture {
@@ -702,7 +700,7 @@ mod tests {
         }
 
         fn paths_with_override(&self, external_override: bool) -> StoragePaths {
-            StoragePaths::new(self.base.join("app-data"), Some(self.base.join("signal-cli.log")), external_override)
+            StoragePaths::new(self.base.path().join("app-data"), Some(self.base.path().join("signal-cli.log")), external_override)
         }
 
         fn service(&self) -> StorageService<Arc<FakeStore>> {
@@ -710,12 +708,12 @@ mod tests {
         }
 
         fn service_with(&self, store: Arc<FakeStore>) -> StorageService<Arc<FakeStore>> {
-            let runtime = self.base.join("runtime");
+            let runtime = self.base.path().join("runtime");
             StorageService::new(self.paths(), store, fake_runtime_resolver(runtime))
         }
 
         fn service_with_override(&self) -> StorageService<Arc<FakeStore>> {
-            let runtime = self.base.join("runtime");
+            let runtime = self.base.path().join("runtime");
             StorageService::new(self.paths_with_override(true), Arc::new(FakeStore::new()), fake_runtime_resolver(runtime))
         }
 
@@ -899,7 +897,7 @@ mod tests {
         // And it's really in the vault, not just deleted: a session started
         // fresh against the same paths restores it.
         let (vault, runtime_dir, _lock) = svc.vault_session_parts().unwrap();
-        let restored = fx.base.join("migration-check");
+        let restored = fx.base.path().join("migration-check");
         vault.restore(&restored, |_| true).unwrap();
         assert_eq!(fs::read(restored.join("data")).unwrap(), b"the account file");
         assert_eq!(fs::read(restored.join("attachments/one.jpg")).unwrap(), b"fake jpeg bytes");

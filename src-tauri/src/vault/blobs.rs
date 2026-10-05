@@ -94,56 +94,61 @@ pub(crate) fn gc(vault_dir: &Path, keep: &HashSet<BlobId>) -> Result<usize, Erro
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::TempDir;
 
-    fn temp_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("snowdrop-vault-blobs-test-{}-{name}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(dir.join("blobs")).unwrap();
+    /// Removed on drop (rather than left under `/tmp/snowdrop-*` forever).
+    fn temp_dir(name: &str) -> TempDir {
+        let dir = tempfile::Builder::new().prefix(&format!("snowdrop-vault-blobs-test-{}-{name}-", std::process::id())).tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("blobs")).unwrap();
         dir
     }
 
     #[test]
     fn write_then_read_round_trips() {
         let dir = temp_dir("round-trip");
+        let dir = dir.path();
         let key = Key32::random();
         let vault_id = [1u8; VAULT_ID_LEN];
-        let id = write(&dir, &key, &vault_id, b"hello blob").unwrap();
-        assert_eq!(read(&dir, &key, &vault_id, &id).unwrap(), b"hello blob");
+        let id = write(dir, &key, &vault_id, b"hello blob").unwrap();
+        assert_eq!(read(dir, &key, &vault_id, &id).unwrap(), b"hello blob");
     }
 
     #[test]
     fn wrong_vault_id_fails_to_open() {
         let dir = temp_dir("wrong-id");
+        let dir = dir.path();
         let key = Key32::random();
-        let id = write(&dir, &key, &[1u8; VAULT_ID_LEN], b"data").unwrap();
-        let err = read(&dir, &key, &[2u8; VAULT_ID_LEN], &id).unwrap_err();
+        let id = write(dir, &key, &[1u8; VAULT_ID_LEN], b"data").unwrap();
+        let err = read(dir, &key, &[2u8; VAULT_ID_LEN], &id).unwrap_err();
         assert_eq!(err.kind, ErrorKind::VaultBlobCorrupt);
     }
 
     #[test]
     fn missing_blob_is_vault_blob_corrupt() {
         let dir = temp_dir("missing");
+        let dir = dir.path();
         let key = Key32::random();
-        let err = read(&dir, &key, &[1u8; VAULT_ID_LEN], &[0u8; BLOB_ID_LEN]).unwrap_err();
+        let err = read(dir, &key, &[1u8; VAULT_ID_LEN], &[0u8; BLOB_ID_LEN]).unwrap_err();
         assert_eq!(err.kind, ErrorKind::VaultBlobCorrupt);
     }
 
     #[test]
     fn gc_removes_unreferenced_blobs_and_stray_files() {
         let dir = temp_dir("gc");
+        let dir = dir.path();
         let key = Key32::random();
         let vault_id = [1u8; VAULT_ID_LEN];
-        let keep_id = write(&dir, &key, &vault_id, b"keep me").unwrap();
-        let drop_id = write(&dir, &key, &vault_id, b"drop me").unwrap();
-        fs::write(blobs_dir(&dir).join("not-a-hex-id.tmp"), b"stray").unwrap();
+        let keep_id = write(dir, &key, &vault_id, b"keep me").unwrap();
+        let drop_id = write(dir, &key, &vault_id, b"drop me").unwrap();
+        fs::write(blobs_dir(dir).join("not-a-hex-id.tmp"), b"stray").unwrap();
 
         let mut keep = HashSet::new();
         keep.insert(keep_id);
-        let removed = gc(&dir, &keep).unwrap();
+        let removed = gc(dir, &keep).unwrap();
         assert_eq!(removed, 2); // drop_id's blob + the stray file
 
-        assert!(path(&dir, &keep_id).exists());
-        assert!(!path(&dir, &drop_id).exists());
+        assert!(path(dir, &keep_id).exists());
+        assert!(!path(dir, &drop_id).exists());
     }
 
     #[test]

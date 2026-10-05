@@ -206,21 +206,22 @@ mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
     use std::time::{SystemTime, UNIX_EPOCH};
+    use tempfile::TempDir;
 
-    pub(crate) fn temp_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("snowdrop-vault-test-{}-{name}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        dir
+    /// Removed on drop (rather than left under `/tmp/snowdrop-*` forever).
+    pub(crate) fn temp_dir(name: &str) -> TempDir {
+        tempfile::Builder::new().prefix(&format!("snowdrop-vault-test-{}-{name}-", std::process::id())).tempdir().unwrap()
     }
 
-    pub(crate) fn open_vault(name: &str) -> (Vault, PathBuf, Key32, [u8; VAULT_ID_LEN]) {
-        let base = temp_dir(name);
-        let vault_dir = base.join("vault");
+    /// The returned `TempDir` *is* the vault directory itself (not its
+    /// parent): `vault.dir()` and the guard's path are the same, so tests
+    /// that compare or reuse it don't need any extra indirection.
+    pub(crate) fn open_vault(name: &str) -> (Vault, TempDir, Key32, [u8; VAULT_ID_LEN]) {
+        let dir = temp_dir(name);
         let key = Key32::random();
         let vault_id = [7u8; VAULT_ID_LEN];
-        let vault = Vault::open(&vault_dir, Key32::from_slice(key.as_bytes()).unwrap(), vault_id).unwrap();
-        (vault, vault_dir, key, vault_id)
+        let vault = Vault::open(dir.path(), Key32::from_slice(key.as_bytes()).unwrap(), vault_id).unwrap();
+        (vault, dir, key, vault_id)
     }
 
     pub(crate) fn write_file(dir: &Path, relpath: &str, contents: &[u8]) {
@@ -244,8 +245,9 @@ mod tests {
     #[test]
     fn open_creates_secure_directories() {
         let (vault, dir, _key, _id) = open_vault("open-dirs");
-        assert_eq!(fs::metadata(&dir).unwrap().permissions().mode() & 0o777, 0o700);
-        assert_eq!(fs::metadata(blobs_dir(&dir)).unwrap().permissions().mode() & 0o777, 0o700);
+        let dir = dir.path();
+        assert_eq!(fs::metadata(dir).unwrap().permissions().mode() & 0o777, 0o700);
+        assert_eq!(fs::metadata(blobs_dir(dir)).unwrap().permissions().mode() & 0o777, 0o700);
         assert_eq!(vault.dir(), dir);
     }
 
@@ -253,7 +255,8 @@ mod tests {
     fn empty_vault_restores_to_nothing() {
         let (vault, _dir, _key, _id) = open_vault("empty-restore");
         let runtime = temp_dir("empty-restore-runtime");
-        let report = vault.restore(&runtime, |_| true).unwrap();
+        let runtime = runtime.path();
+        let report = vault.restore(runtime, |_| true).unwrap();
         assert_eq!(report.restored, 0);
         assert_eq!(report.source, ManifestSource::Empty);
     }
@@ -261,143 +264,160 @@ mod tests {
     #[test]
     fn unchanged_sync_writes_nothing() {
         let (vault, dir, _key, _id) = open_vault("unchanged");
+        let dir = dir.path();
         let runtime = temp_dir("unchanged-runtime");
-        write_file(&runtime, "a.txt", b"hello");
+        let runtime = runtime.path();
+        write_file(runtime, "a.txt", b"hello");
 
-        let first = vault.sync(&runtime).unwrap();
+        let first = vault.sync(runtime).unwrap();
         assert!(first.wrote);
         assert_eq!(first.generation, 1);
 
-        let manifest_mtime = fs::metadata(manifest_path(&dir)).unwrap().modified().unwrap();
-        let second = vault.sync(&runtime).unwrap();
+        let manifest_mtime = fs::metadata(manifest_path(dir)).unwrap().modified().unwrap();
+        let second = vault.sync(runtime).unwrap();
         assert!(!second.wrote);
         assert_eq!(second.generation, 1);
-        assert_eq!(fs::metadata(manifest_path(&dir)).unwrap().modified().unwrap(), manifest_mtime);
+        assert_eq!(fs::metadata(manifest_path(dir)).unwrap().modified().unwrap(), manifest_mtime);
     }
 
     #[test]
     fn round_trip_with_nested_dirs() {
         let (vault, _dir, _key, _id) = open_vault("round-trip");
         let runtime = temp_dir("round-trip-runtime");
-        write_file(&runtime, "a.txt", b"top level");
-        write_file(&runtime, "data/account", b"account data");
-        write_file(&runtime, "attachments/img/one.jpg", b"fake jpeg bytes");
+        let runtime = runtime.path();
+        write_file(runtime, "a.txt", b"top level");
+        write_file(runtime, "data/account", b"account data");
+        write_file(runtime, "attachments/img/one.jpg", b"fake jpeg bytes");
 
-        let report = vault.sync(&runtime).unwrap();
+        let report = vault.sync(runtime).unwrap();
         assert!(report.wrote);
         assert_eq!(report.changed, 3);
 
         let restored = temp_dir("round-trip-restored");
-        let r = vault.restore(&restored, |_| true).unwrap();
+        let restored = restored.path();
+        let r = vault.restore(restored, |_| true).unwrap();
         assert_eq!(r.restored, 3);
         assert_eq!(r.source, ManifestSource::Current);
-        assert_eq!(read_file(&restored, "a.txt"), b"top level");
-        assert_eq!(read_file(&restored, "data/account"), b"account data");
-        assert_eq!(read_file(&restored, "attachments/img/one.jpg"), b"fake jpeg bytes");
+        assert_eq!(read_file(restored, "a.txt"), b"top level");
+        assert_eq!(read_file(restored, "data/account"), b"account data");
+        assert_eq!(read_file(restored, "attachments/img/one.jpg"), b"fake jpeg bytes");
     }
 
     #[test]
     fn modify_delete_and_add_files_across_generations() {
         let (vault, _dir, _key, _id) = open_vault("mutate");
         let runtime = temp_dir("mutate-runtime");
-        write_file(&runtime, "keep.txt", b"unchanged forever");
-        write_file(&runtime, "change.txt", b"v1");
-        write_file(&runtime, "remove.txt", b"going away");
-        let r1 = vault.sync(&runtime).unwrap();
+        let runtime = runtime.path();
+        write_file(runtime, "keep.txt", b"unchanged forever");
+        write_file(runtime, "change.txt", b"v1");
+        write_file(runtime, "remove.txt", b"going away");
+        let r1 = vault.sync(runtime).unwrap();
         assert_eq!(r1.generation, 1);
 
         fs::remove_file(runtime.join("remove.txt")).unwrap();
         fs::write(runtime.join("change.txt"), b"v2, longer content").unwrap();
         touch_mtime_forward(&runtime.join("change.txt"));
-        write_file(&runtime, "added.txt", b"brand new");
-        let r2 = vault.sync(&runtime).unwrap();
+        write_file(runtime, "added.txt", b"brand new");
+        let r2 = vault.sync(runtime).unwrap();
         assert!(r2.wrote);
         assert_eq!(r2.generation, 2);
         assert_eq!(r2.deleted, 1);
         assert_eq!(r2.changed, 2); // change.txt + added.txt
 
         let restored = temp_dir("mutate-restored");
-        let report = vault.restore(&restored, |_| true).unwrap();
+        let restored = restored.path();
+        let report = vault.restore(restored, |_| true).unwrap();
         assert_eq!(report.restored, 3);
-        assert_eq!(read_file(&restored, "keep.txt"), b"unchanged forever");
-        assert_eq!(read_file(&restored, "change.txt"), b"v2, longer content");
-        assert_eq!(read_file(&restored, "added.txt"), b"brand new");
+        assert_eq!(read_file(restored, "keep.txt"), b"unchanged forever");
+        assert_eq!(read_file(restored, "change.txt"), b"v2, longer content");
+        assert_eq!(read_file(restored, "added.txt"), b"brand new");
         assert!(!restored.join("remove.txt").exists());
     }
 
     #[test]
     fn manifest_prev_fallback_when_current_is_corrupted() {
         let (vault, dir, _key, _id) = open_vault("prev-fallback");
+        let dir = dir.path();
         let runtime = temp_dir("prev-fallback-runtime");
-        write_file(&runtime, "a.txt", b"gen1");
-        vault.sync(&runtime).unwrap();
+        let runtime = runtime.path();
+        write_file(runtime, "a.txt", b"gen1");
+        vault.sync(runtime).unwrap();
 
         fs::write(runtime.join("a.txt"), b"gen2, different length").unwrap();
         touch_mtime_forward(&runtime.join("a.txt"));
-        vault.sync(&runtime).unwrap();
+        vault.sync(runtime).unwrap();
 
         // Corrupt only the current manifest; manifest.prev (gen1) should still work.
-        let mut bytes = fs::read(manifest_path(&dir)).unwrap();
+        let mut bytes = fs::read(manifest_path(dir)).unwrap();
         let last = bytes.len() - 1;
         bytes[last] ^= 0xFF;
-        fs::write(manifest_path(&dir), bytes).unwrap();
+        fs::write(manifest_path(dir), bytes).unwrap();
 
         let restored = temp_dir("prev-fallback-restored");
-        let report = vault.restore(&restored, |_| true).unwrap();
+        let restored = restored.path();
+        let report = vault.restore(restored, |_| true).unwrap();
         assert_eq!(report.source, ManifestSource::Previous);
-        assert_eq!(read_file(&restored, "a.txt"), b"gen1");
+        assert_eq!(read_file(restored, "a.txt"), b"gen1");
     }
 
     #[test]
     fn both_manifests_corrupt_is_vault_corrupt_and_deletes_nothing() {
         let (vault, dir, _key, _id) = open_vault("both-corrupt");
+        let dir = dir.path();
         let runtime = temp_dir("both-corrupt-runtime");
-        write_file(&runtime, "a.txt", b"gen1");
-        vault.sync(&runtime).unwrap();
+        let runtime = runtime.path();
+        write_file(runtime, "a.txt", b"gen1");
+        vault.sync(runtime).unwrap();
         fs::write(runtime.join("a.txt"), b"gen2 content here").unwrap();
         touch_mtime_forward(&runtime.join("a.txt"));
-        vault.sync(&runtime).unwrap();
+        vault.sync(runtime).unwrap();
 
-        fs::write(manifest_path(&dir), b"not a sealed manifest").unwrap();
-        fs::write(manifest_prev_path(&dir), b"also not a sealed manifest").unwrap();
+        fs::write(manifest_path(dir), b"not a sealed manifest").unwrap();
+        fs::write(manifest_prev_path(dir), b"also not a sealed manifest").unwrap();
 
-        let blobs_before: Vec<_> = fs::read_dir(blobs_dir(&dir)).unwrap().map(|e| e.unwrap().path()).collect();
+        let blobs_before: Vec<_> = fs::read_dir(blobs_dir(dir)).unwrap().map(|e| e.unwrap().path()).collect();
 
         let restored = temp_dir("both-corrupt-restored");
-        let err = vault.restore(&restored, |_| true).unwrap_err();
+        let restored = restored.path();
+        let err = vault.restore(restored, |_| true).unwrap_err();
         assert_eq!(err.kind, ErrorKind::VaultCorrupt);
 
-        let blobs_after: Vec<_> = fs::read_dir(blobs_dir(&dir)).unwrap().map(|e| e.unwrap().path()).collect();
+        let blobs_after: Vec<_> = fs::read_dir(blobs_dir(dir)).unwrap().map(|e| e.unwrap().path()).collect();
         assert_eq!(blobs_before.len(), blobs_after.len(), "nothing should be deleted on VaultCorrupt");
     }
 
     #[test]
     fn tampered_blob_fails_distinctly() {
         let (vault, dir, _key, _id) = open_vault("tampered-blob");
+        let dir = dir.path();
         let runtime = temp_dir("tampered-blob-runtime");
-        write_file(&runtime, "a.txt", b"original content");
-        vault.sync(&runtime).unwrap();
+        let runtime = runtime.path();
+        write_file(runtime, "a.txt", b"original content");
+        vault.sync(runtime).unwrap();
 
-        let blob_path = fs::read_dir(blobs_dir(&dir)).unwrap().next().unwrap().unwrap().path();
+        let blob_path = fs::read_dir(blobs_dir(dir)).unwrap().next().unwrap().unwrap().path();
         let mut bytes = fs::read(&blob_path).unwrap();
         let last = bytes.len() - 1;
         bytes[last] ^= 0xFF;
         fs::write(&blob_path, bytes).unwrap();
 
         let restored = temp_dir("tampered-blob-restored");
-        let err = vault.restore(&restored, |_| true).unwrap_err();
+        let restored = restored.path();
+        let err = vault.restore(restored, |_| true).unwrap_err();
         assert_eq!(err.kind, ErrorKind::VaultBlobCorrupt);
     }
 
     #[test]
     fn blob_contents_swapped_between_paths_fails_distinctly() {
         let (vault, dir, _key, _id) = open_vault("swapped-blob");
+        let dir = dir.path();
         let runtime = temp_dir("swapped-blob-runtime");
-        write_file(&runtime, "a.txt", b"content A");
-        write_file(&runtime, "b.txt", b"content B, different size");
-        vault.sync(&runtime).unwrap();
+        let runtime = runtime.path();
+        write_file(runtime, "a.txt", b"content A");
+        write_file(runtime, "b.txt", b"content B, different size");
+        vault.sync(runtime).unwrap();
 
-        let mut blob_paths: Vec<_> = fs::read_dir(blobs_dir(&dir)).unwrap().map(|e| e.unwrap().path()).collect();
+        let mut blob_paths: Vec<_> = fs::read_dir(blobs_dir(dir)).unwrap().map(|e| e.unwrap().path()).collect();
         blob_paths.sort();
         assert_eq!(blob_paths.len(), 2);
         let a = fs::read(&blob_paths[0]).unwrap();
@@ -409,34 +429,40 @@ mod tests {
         fs::write(&blob_paths[1], &a).unwrap();
 
         let restored = temp_dir("swapped-blob-restored");
-        let err = vault.restore(&restored, |_| true).unwrap_err();
+        let restored = restored.path();
+        let err = vault.restore(restored, |_| true).unwrap_err();
         assert_eq!(err.kind, ErrorKind::VaultBlobCorrupt);
     }
 
     #[test]
     fn wrong_vault_id_fails() {
         let (vault, dir, key, _id) = open_vault("wrong-vault-id");
+        let dir = dir.path();
         let runtime = temp_dir("wrong-vault-id-runtime");
-        write_file(&runtime, "a.txt", b"secret stuff");
-        vault.sync(&runtime).unwrap();
+        let runtime = runtime.path();
+        write_file(runtime, "a.txt", b"secret stuff");
+        vault.sync(runtime).unwrap();
 
-        let other = Vault::open(&dir, key, [9u8; VAULT_ID_LEN]).unwrap();
+        let other = Vault::open(dir, key, [9u8; VAULT_ID_LEN]).unwrap();
         let restored = temp_dir("wrong-vault-id-restored");
-        let err = other.restore(&restored, |_| true).unwrap_err();
+        let restored = restored.path();
+        let err = other.restore(restored, |_| true).unwrap_err();
         assert_eq!(err.kind, ErrorKind::VaultCorrupt);
     }
 
     #[test]
     fn gc_keeps_the_previous_generations_blobs() {
         let (vault, dir, _key, _id) = open_vault("gc-prev");
+        let dir = dir.path();
         let runtime = temp_dir("gc-prev-runtime");
-        write_file(&runtime, "a.txt", b"gen1 content");
-        vault.sync(&runtime).unwrap();
-        let gen1_blob = fs::read_dir(blobs_dir(&dir)).unwrap().next().unwrap().unwrap().path();
+        let runtime = runtime.path();
+        write_file(runtime, "a.txt", b"gen1 content");
+        vault.sync(runtime).unwrap();
+        let gen1_blob = fs::read_dir(blobs_dir(dir)).unwrap().next().unwrap().unwrap().path();
 
         fs::write(runtime.join("a.txt"), b"gen2 content, different").unwrap();
         touch_mtime_forward(&runtime.join("a.txt"));
-        vault.sync(&runtime).unwrap();
+        vault.sync(runtime).unwrap();
 
         assert!(gen1_blob.exists(), "gen1's blob is still referenced by manifest.prev");
 
@@ -444,44 +470,49 @@ mod tests {
         // blob is referenced by neither and gc should finally remove it.
         fs::write(runtime.join("a.txt"), b"gen3 content, also different").unwrap();
         touch_mtime_forward(&runtime.join("a.txt"));
-        vault.sync(&runtime).unwrap();
+        vault.sync(runtime).unwrap();
         assert!(!gen1_blob.exists(), "gen1's blob should be gc'd once it's unreferenced");
     }
 
     #[test]
     fn crash_between_blob_write_and_manifest_commit_keeps_old_generation_restorable() {
         let (vault, dir, key, vault_id) = open_vault("crash-mid-sync");
+        let dir = dir.path();
         let runtime = temp_dir("crash-mid-sync-runtime");
-        write_file(&runtime, "a.txt", b"generation one content");
-        vault.sync(&runtime).unwrap();
+        let runtime = runtime.path();
+        write_file(runtime, "a.txt", b"generation one content");
+        vault.sync(runtime).unwrap();
 
-        let before_manifest = fs::read(manifest_path(&dir)).unwrap();
+        let before_manifest = fs::read(manifest_path(dir)).unwrap();
 
         // Simulate a crash between "new blob written" and "manifest
         // committed": write an orphan blob directly, bypassing `sync`'s
         // commit step entirely.
         let key_copy = Key32::from_slice(key.as_bytes()).unwrap();
-        blobs::write(&dir, &key_copy, &vault_id, b"never-committed content").unwrap();
+        blobs::write(dir, &key_copy, &vault_id, b"never-committed content").unwrap();
 
-        assert_eq!(fs::read(manifest_path(&dir)).unwrap(), before_manifest, "manifest must be untouched by the orphan blob write");
+        assert_eq!(fs::read(manifest_path(dir)).unwrap(), before_manifest, "manifest must be untouched by the orphan blob write");
 
         let restored = temp_dir("crash-mid-sync-restored");
-        let report = vault.restore(&restored, |_| true).unwrap();
+        let restored = restored.path();
+        let report = vault.restore(restored, |_| true).unwrap();
         assert_eq!(report.source, ManifestSource::Current);
         assert_eq!(report.restored, 1);
-        assert_eq!(read_file(&restored, "a.txt"), b"generation one content");
+        assert_eq!(read_file(restored, "a.txt"), b"generation one content");
     }
 
     #[test]
     fn restore_filter_excludes_entries() {
         let (vault, _dir, _key, _id) = open_vault("filter");
         let runtime = temp_dir("filter-runtime");
-        write_file(&runtime, "keep/me.txt", b"keep");
-        write_file(&runtime, "media/skip.jpg", b"skip");
-        vault.sync(&runtime).unwrap();
+        let runtime = runtime.path();
+        write_file(runtime, "keep/me.txt", b"keep");
+        write_file(runtime, "media/skip.jpg", b"skip");
+        vault.sync(runtime).unwrap();
 
         let restored = temp_dir("filter-restored");
-        let report = vault.restore(&restored, |relpath| !relpath.starts_with("media/")).unwrap();
+        let restored = restored.path();
+        let report = vault.restore(restored, |relpath| !relpath.starts_with("media/")).unwrap();
         assert_eq!(report.restored, 1);
         assert!(restored.join("keep/me.txt").exists());
         assert!(!restored.join("media/skip.jpg").exists());
@@ -491,16 +522,19 @@ mod tests {
     fn symlinks_in_the_runtime_dir_are_skipped() {
         let (vault, _dir, _key, _id) = open_vault("symlink");
         let runtime = temp_dir("symlink-runtime");
-        write_file(&runtime, "real.txt", b"real content");
+        let runtime = runtime.path();
+        write_file(runtime, "real.txt", b"real content");
         let target = temp_dir("symlink-target");
-        write_file(&target, "secret.txt", b"outside the runtime dir");
+        let target = target.path();
+        write_file(target, "secret.txt", b"outside the runtime dir");
         std::os::unix::fs::symlink(target.join("secret.txt"), runtime.join("linked.txt")).unwrap();
 
-        let report = vault.sync(&runtime).unwrap();
+        let report = vault.sync(runtime).unwrap();
         assert_eq!(report.changed, 1);
 
         let restored = temp_dir("symlink-restored");
-        vault.restore(&restored, |_| true).unwrap();
+        let restored = restored.path();
+        vault.restore(restored, |_| true).unwrap();
         assert!(restored.join("real.txt").exists());
         assert!(!restored.join("linked.txt").exists());
     }
@@ -531,18 +565,21 @@ mod tests {
     #[test]
     fn file_modes_after_sync_and_restore() {
         let (vault, dir, _key, _id) = open_vault("modes");
+        let dir = dir.path();
         let runtime = temp_dir("modes-runtime");
-        write_file(&runtime, "a/b.txt", b"content");
-        vault.sync(&runtime).unwrap();
+        let runtime = runtime.path();
+        write_file(runtime, "a/b.txt", b"content");
+        vault.sync(runtime).unwrap();
 
-        let manifest_mode = fs::metadata(manifest_path(&dir)).unwrap().permissions().mode() & 0o777;
+        let manifest_mode = fs::metadata(manifest_path(dir)).unwrap().permissions().mode() & 0o777;
         assert_eq!(manifest_mode, 0o600);
-        let blob_path = fs::read_dir(blobs_dir(&dir)).unwrap().next().unwrap().unwrap().path();
+        let blob_path = fs::read_dir(blobs_dir(dir)).unwrap().next().unwrap().unwrap().path();
         assert_eq!(fs::metadata(&blob_path).unwrap().permissions().mode() & 0o777, 0o600);
 
         let restored = temp_dir("modes-restored");
-        vault.restore(&restored, |_| true).unwrap();
-        assert_eq!(fs::metadata(&restored).unwrap().permissions().mode() & 0o777, 0o700);
+        let restored = restored.path();
+        vault.restore(restored, |_| true).unwrap();
+        assert_eq!(fs::metadata(restored).unwrap().permissions().mode() & 0o777, 0o700);
         assert_eq!(fs::metadata(restored.join("a")).unwrap().permissions().mode() & 0o777, 0o700);
         assert_eq!(fs::metadata(restored.join("a/b.txt")).unwrap().permissions().mode() & 0o777, 0o600);
     }

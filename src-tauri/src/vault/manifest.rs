@@ -131,28 +131,29 @@ pub(crate) fn commit(vault_dir: &Path, key: &Key32, vault_id: &[u8; VAULT_ID_LEN
 mod tests {
     use super::*;
     use crate::aead::Key32;
+    use tempfile::TempDir;
 
-    fn temp_dir(name: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("snowdrop-vault-manifest-test-{}-{name}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        dir
+    /// Removed on drop (rather than left under `/tmp/snowdrop-*` forever).
+    fn temp_dir(name: &str) -> TempDir {
+        tempfile::Builder::new().prefix(&format!("snowdrop-vault-manifest-test-{}-{name}-", std::process::id())).tempdir().unwrap()
     }
 
     #[test]
     fn missing_manifests_with_remaining_blobs_are_corrupt_not_empty() {
         let dir = temp_dir("missing-with-blobs");
-        fs::create_dir_all(blobs_dir(&dir)).unwrap();
-        fs::write(blobs_dir(&dir).join("00112233445566778899aabbccddeeff"), b"x").unwrap();
-        let err = load_with_fallback(&dir, &Key32::random(), &[1u8; VAULT_ID_LEN]).unwrap_err();
+        let dir = dir.path();
+        fs::create_dir_all(blobs_dir(dir)).unwrap();
+        fs::write(blobs_dir(dir).join("00112233445566778899aabbccddeeff"), b"x").unwrap();
+        let err = load_with_fallback(dir, &Key32::random(), &[1u8; VAULT_ID_LEN]).unwrap_err();
         assert_eq!(err.kind, ErrorKind::VaultCorrupt);
     }
 
     #[test]
     fn missing_manifests_are_a_valid_empty_vault() {
         let dir = temp_dir("missing");
+        let dir = dir.path();
         let key = Key32::random();
-        let (manifest, source) = load_with_fallback(&dir, &key, &[1u8; VAULT_ID_LEN]).unwrap();
+        let (manifest, source) = load_with_fallback(dir, &key, &[1u8; VAULT_ID_LEN]).unwrap();
         assert_eq!(source, ManifestSource::Empty);
         assert_eq!(manifest.generation, 0);
         assert!(manifest.entries.is_empty());
@@ -161,14 +162,15 @@ mod tests {
     #[test]
     fn commit_then_load_round_trips_and_increments_generation() {
         let dir = temp_dir("round-trip");
+        let dir = dir.path();
         let key = Key32::random();
         let vault_id = [2u8; VAULT_ID_LEN];
         let mut entries = BTreeMap::new();
         entries.insert("a.txt".into(), ManifestEntry { blob: "aa".into(), size: 1, mtime_ns: 1, sha256: "bb".into() });
         let manifest = Manifest { generation: 1, entries };
-        commit(&dir, &key, &vault_id, &manifest).unwrap();
+        commit(dir, &key, &vault_id, &manifest).unwrap();
 
-        let (loaded, source) = load_with_fallback(&dir, &key, &vault_id).unwrap();
+        let (loaded, source) = load_with_fallback(dir, &key, &vault_id).unwrap();
         assert_eq!(source, ManifestSource::Current);
         assert_eq!(loaded, manifest);
     }
@@ -176,15 +178,16 @@ mod tests {
     #[test]
     fn commit_moves_the_previous_manifest_to_prev() {
         let dir = temp_dir("prev-rotation");
+        let dir = dir.path();
         let key = Key32::random();
         let vault_id = [3u8; VAULT_ID_LEN];
         let gen1 = Manifest { generation: 1, entries: BTreeMap::new() };
-        commit(&dir, &key, &vault_id, &gen1).unwrap();
+        commit(dir, &key, &vault_id, &gen1).unwrap();
         let gen2 = Manifest { generation: 2, entries: BTreeMap::new() };
-        commit(&dir, &key, &vault_id, &gen2).unwrap();
+        commit(dir, &key, &vault_id, &gen2).unwrap();
 
-        assert!(manifest_prev_path(&dir).exists());
-        let (current, _) = load_with_fallback(&dir, &key, &vault_id).unwrap();
+        assert!(manifest_prev_path(dir).exists());
+        let (current, _) = load_with_fallback(dir, &key, &vault_id).unwrap();
         assert_eq!(current.generation, 2);
     }
 }
