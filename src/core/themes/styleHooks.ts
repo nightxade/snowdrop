@@ -6,6 +6,7 @@
  */
 export const STYLE_HOOKS = [
   { hook: 'app', what: 'The whole shell' },
+  { hook: 'demo-banner', what: 'Persistent demo-mode banner above the shell' },
   { hook: 'rail', what: 'Spaces rail' },
   { hook: 'drawer', what: 'Rail + sidebar slide-over on narrow screens' },
   { hook: 'sidebar', what: 'Conversation sidebar' },

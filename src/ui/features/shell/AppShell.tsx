@@ -12,6 +12,7 @@ import { ChatColumn } from '@/ui/features/chat';
 import { Rail } from '@/ui/features/rail';
 import { Sidebar } from '@/ui/features/sidebar';
 import { Drawer, TooltipProvider } from '@/ui/primitives';
+import { DemoBanner } from './DemoBanner';
 import { ModalHost } from './ModalHost';
 import { ToastBridge } from './ToastBridge';
 import { useConversationLifecycle } from './useConversationLifecycle';
@@ -49,29 +50,32 @@ export function AppShell() {
     <ShellLayoutProvider value={layout}>
       <TooltipProvider>
         <div
-          className={styles.shell}
+          className={styles.root}
           data-snowdrop="app"
           data-layout={drawer ? 'drawer' : narrow ? 'narrow' : 'wide'}
         >
-          {drawer ? (
-            <Drawer
-              open={navOpen}
-              onOpenChange={setNavOpen}
-              label="Navigation"
-              returnFocus={navToggle}
-            >
-              <div className={styles.nav} data-snowdrop="drawer">
+          <DemoBanner />
+          <div className={styles.shell}>
+            {drawer ? (
+              <Drawer
+                open={navOpen}
+                onOpenChange={setNavOpen}
+                label="Navigation"
+                returnFocus={navToggle}
+              >
+                <div className={styles.nav} data-snowdrop="drawer">
+                  <Rail />
+                  <Sidebar />
+                </div>
+              </Drawer>
+            ) : (
+              <div className={styles.nav}>
                 <Rail />
                 <Sidebar />
               </div>
-            </Drawer>
-          ) : (
-            <div className={styles.nav}>
-              <Rail />
-              <Sidebar />
-            </div>
-          )}
-          <ChatColumn />
+            )}
+            <ChatColumn />
+          </div>
         </div>
         <ModalHost />
         <ToastBridge />

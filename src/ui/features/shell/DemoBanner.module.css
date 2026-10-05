@@ -1,0 +1,26 @@
+.banner {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--snowdrop-space-3);
+  min-height: 32px;
+  padding: var(--snowdrop-space-2) var(--snowdrop-space-5);
+  background: var(--snowdrop-accent-soft);
+  color: var(--snowdrop-text-strong);
+  font-size: var(--snowdrop-font-size-sm);
+  font-weight: var(--snowdrop-font-weight-medium);
+}
+
+.banner svg {
+  flex: none;
+  color: var(--snowdrop-accent);
+}
+
+.text {
+  flex: 1;
+  min-width: 0;
+}
+
+.action {
+  flex: none;
+}

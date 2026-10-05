@@ -397,6 +397,7 @@ instead.
 | Hook                   | Element                                     |
 | ---------------------- | ------------------------------------------- |
 | `app`                  | The whole shell                             |
+| `demo-banner`          | Persistent demo-mode banner above the shell |
 | `rail`                 | Spaces rail                                 |
 | `drawer`               | Rail + sidebar slide-over on narrow screens |
 | `sidebar`              | Conversation sidebar                        |

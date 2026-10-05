@@ -41,21 +41,11 @@ export function Welcome({ onDemo, onConnect, defaultDaemonUrl, probe, desktop }:
                 computer.
               </p>
               <div className={styles.choices}>
-                <button type="button" className={styles.choice} data-primary onClick={onDemo}>
-                  <span className={styles.choiceIcon}>
-                    <Sparkles size={20} aria-hidden />
-                  </span>
-                  <span className={styles.choiceText}>
-                    <span className={styles.choiceTitle}>Try the demo</span>
-                    <span className={styles.choiceBody}>
-                      Explore a made-up world of friends, groups and spaces. Nothing is sent
-                      anywhere.
-                    </span>
-                  </span>
-                </button>
                 <button
                   type="button"
                   className={styles.choice}
+                  data-primary
+                  autoFocus
                   onClick={() => {
                     if (desktop) onConnect(defaultDaemonUrl);
                     else setStep('connect');
@@ -79,6 +69,13 @@ export function Welcome({ onDemo, onConnect, defaultDaemonUrl, probe, desktop }:
                     </span>
                   </span>
                 </button>
+                <div className={styles.demoPrompt}>
+                  <button type="button" className={styles.demoLink} onClick={onDemo}>
+                    <Sparkles size={14} aria-hidden />
+                    Not ready to link? Try the demo first
+                  </button>
+                  <p className={styles.demoHint}>Nothing is sent anywhere.</p>
+                </div>
               </div>
             </>
           ) : (
