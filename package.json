@@ -2,7 +2,7 @@
   "name": "snowdrop",
   "private": true,
   "version": "0.1.0",
-  "description": "A community-style chat UI for the Signal network, driven by a local signal-cli daemon.",
+  "description": "An unofficial, community-style desktop chat client that works with Signal via signal-cli.",
   "license": "MIT",
   "type": "module",
   "engines": {

@@ -1,13 +1,15 @@
 # Snowdrop
 
-Snowdrop is a desktop-class chat client for the Signal network that runs in your
-browser and talks to a local [signal-cli](https://github.com/AsamK/signal-cli)
-daemon. It organises conversations the way community chat apps do (a rail of
-spaces, a channel-style sidebar, the chat, a member list), with deep theming,
-full keyboard control and a typed plugin system. It stays honest to Signal:
-spaces, categories and folders are local organisation only, and it never
-invents what the protocol can't back, such as online presence. Everything
-stays on your machine.
+Snowdrop is an unofficial, independent desktop chat client that works with
+the Signal network through [signal-cli](https://github.com/AsamK/signal-cli).
+It's primarily a Tauri desktop app that runs signal-cli itself, with a
+browser/dev mode available as a secondary option (see
+[docs/DESKTOP.md](docs/DESKTOP.md)). It organises conversations the way
+community chat apps do (a rail of spaces, a channel-style sidebar, the chat,
+a member list), with deep theming, full keyboard control and a typed plugin
+system. It stays honest to Signal: spaces, categories and folders are local
+organisation only, and it never invents what the protocol can't back, such
+as online presence. Everything stays on your machine.
 
 It is named after the snowdrop, the small white flower that comes up through
 the snow: quiet, fresh and early. The logo is a single nodding snowdrop, and
@@ -208,7 +210,11 @@ docs/                 documentation
 
 ## Legal
 
-Inspired by Discord's layout. Not affiliated with or endorsed by Signal or Discord.
+Snowdrop is an independent project. It is not affiliated with, endorsed by,
+or sponsored by Signal Messenger, LLC or Discord Inc. Signal is a trademark
+of Signal Messenger, LLC; Discord is a trademark of Discord Inc. The
+interface layout is inspired by community chat apps such as Discord; no
+Discord code, assets or branding are used.
 
 ## Licence
 

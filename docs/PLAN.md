@@ -460,7 +460,7 @@ results panel), toggle member list (groups), inbox (mentions across convos).
 - **New messages divider** (accent line, "NEW" tag) at the first unread on
   open; a top bar "N new messages since 14:02 · Mark as read" when the divider
   is off-screen.
-- **Jump to present** pill appears when scrolled up > 1 screen; new messages
+- **Jump to latest** pill appears when scrolled up > 1 screen; new messages
   while scrolled up increment a counter on that pill instead of auto-scrolling.
 - **Message anatomy (comfortable):** 40px avatar, author name (contact colour) +
   decorations + timestamp (hover: full date tooltip), body with native
@@ -562,7 +562,7 @@ surface as a slim banner at the top of the chat column, with retry.
 | Toggle member list | Ctrl+Shift+M |
 | Settings | Ctrl+, |
 | Search in conversation | Ctrl+F |
-| Jump to present | Shift+PageDown |
+| Jump to latest | Shift+PageDown |
 | Keyboard shortcut help | Ctrl+/ |
 
 The complete keyboard reference (lists, composer, dialogs, Vim mode) is

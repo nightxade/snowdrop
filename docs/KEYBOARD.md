@@ -22,7 +22,7 @@ press the new keys; Esc or Tab cancels, Backspace or Delete removes it).
 | Toggle member list                  | Mod+Shift+M                      |
 | Settings                            | Mod+,                            |
 | Search in conversation              | Mod+F                            |
-| Jump to present                     | Shift+PageDown                   |
+| Jump to latest                      | Shift+PageDown                   |
 | Keyboard shortcuts                  | Mod+/                            |
 
 These have no default keys but are in the quick switcher (type `>`) and can
@@ -135,7 +135,7 @@ The keys typed so far show in the composer's mode pill, like Vim's showcmd.
 | Keys                  | Action                                                                                                                                  |
 | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | `j` / `k`             | Next / previous message (from outside the list, the first press lands on its tab stop: the newest message, or the last one you were on) |
-| `gg` / `G`            | First loaded message (and load older) / latest message (jump to present)                                                                |
+| `gg` / `G`            | First loaded message (and load older) / latest message (jump to latest)                                                                 |
 | `Ctrl+d` / `Ctrl+u` ◆ | Half a page down / up (focus follows)                                                                                                   |
 | `Ctrl+e` / `Ctrl+y` ◆ | Scroll one line down / up                                                                                                               |
 | `zz`                  | Centre the focused message                                                                                                              |

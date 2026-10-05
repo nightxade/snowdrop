@@ -19,10 +19,10 @@ export function JumpToPresent({
   const label =
     count > 0
       ? `${count > 99 ? '99+' : count} new message${count === 1 ? '' : 's'}`
-      : 'Jump to present';
+      : 'Jump to latest';
   return (
     <div className={styles.jumpWrap} data-snowdrop="jump-to-present">
-      <Tooltip label="Jump to present" {...(shortcut ? { shortcut } : {})}>
+      <Tooltip label="Jump to latest" {...(shortcut ? { shortcut } : {})}>
         <button
           type="button"
           className={styles.jump}

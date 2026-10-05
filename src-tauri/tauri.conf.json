@@ -34,8 +34,8 @@
     "active": true,
     "targets": ["appimage", "deb"],
     "category": "SocialNetworking",
-    "shortDescription": "A quiet, private chat client for Signal, driven by signal-cli",
-    "longDescription": "Snowdrop organises your Signal conversations into spaces, with a sidebar, full keyboard control, theming and plugins. It downloads signal-cli the first time it runs and keeps everything else on this computer. Not affiliated with Signal.",
+    "shortDescription": "An unofficial, independent desktop chat client that works with Signal via signal-cli",
+    "longDescription": "Snowdrop is an unofficial, independent desktop chat client that works with the Signal network through signal-cli. It organises your Signal conversations into spaces, with a sidebar, full keyboard control, theming and plugins. It downloads signal-cli the first time it runs and keeps everything else on this computer. Snowdrop is not affiliated with, endorsed by, or sponsored by Signal Messenger, LLC.",
     "icon": [
       "icons/32x32.png",
       "icons/64x64.png",

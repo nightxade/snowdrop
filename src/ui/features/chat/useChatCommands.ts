@@ -46,7 +46,7 @@ export function useChatCommands(): void {
     const disposers = [
       commands.register({
         id: CoreCommand.JumpToPresent,
-        title: 'Jump to present',
+        title: 'Jump to latest',
         category: 'Conversation',
         keybind: DEFAULT_KEYBINDS[CoreCommand.JumpToPresent],
         allowInInputs: true,
