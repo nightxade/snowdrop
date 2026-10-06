@@ -47,9 +47,12 @@ export async function discardUnreadableWebCache({
   if (typeof indexedDB === 'undefined') return;
   await new Promise<void>((resolve) => {
     const request = indexedDB.deleteDatabase(dbName);
-    request.onsuccess = request.onerror = request.onblocked = () => {
-      resolve();
-    };
+    request.onsuccess =
+      request.onerror =
+      request.onblocked =
+        () => {
+          resolve();
+        };
   });
 }
 

@@ -32,7 +32,13 @@ function fakeAdmin(overrides: Partial<StorageAdmin> = {}): StorageAdmin {
     webcacheKey: () => Promise.resolve('AAAA'),
     eraseAll: () =>
       Promise.resolve({
-        status: { ...baseStatus, state: 'needsSetup', reason: null, hasRecovery: false, hasPassphrase: false },
+        status: {
+          ...baseStatus,
+          state: 'needsSetup',
+          reason: null,
+          hasRecovery: false,
+          hasPassphrase: false,
+        },
         failures: [],
       }),
     signOut: () => Promise.resolve({ ...baseStatus, state: 'unlocked', reason: null }),
@@ -44,21 +50,33 @@ function fakeAdmin(overrides: Partial<StorageAdmin> = {}): StorageAdmin {
 describe('UnlockScreen: reason copy', () => {
   it('explains a missing keyring service', () => {
     render(
-      <UnlockScreen status={{ ...baseStatus, reason: 'keyringUnavailable' }} admin={fakeAdmin()} onStatusChange={() => undefined} />,
+      <UnlockScreen
+        status={{ ...baseStatus, reason: 'keyringUnavailable' }}
+        admin={fakeAdmin()}
+        onStatusChange={() => undefined}
+      />,
     );
     expect(screen.getByRole('heading', { name: /No keyring is available/u })).toBeTruthy();
   });
 
   it('explains a locked keyring', () => {
     render(
-      <UnlockScreen status={{ ...baseStatus, reason: 'keyringLocked' }} admin={fakeAdmin()} onStatusChange={() => undefined} />,
+      <UnlockScreen
+        status={{ ...baseStatus, reason: 'keyringLocked' }}
+        admin={fakeAdmin()}
+        onStatusChange={() => undefined}
+      />,
     );
     expect(screen.getByRole('heading', { name: /Your keyring is locked/u })).toBeTruthy();
   });
 
   it('explains a missing keyring secret (after switching keyrings)', () => {
     render(
-      <UnlockScreen status={{ ...baseStatus, reason: 'keyringSecretMissing' }} admin={fakeAdmin()} onStatusChange={() => undefined} />,
+      <UnlockScreen
+        status={{ ...baseStatus, reason: 'keyringSecretMissing' }}
+        admin={fakeAdmin()}
+        onStatusChange={() => undefined}
+      />,
     );
     expect(
       screen.getByRole('heading', { name: /keyring doesn.t have Snowdrop.s key/u }),
@@ -84,13 +102,20 @@ describe('UnlockScreen: reason copy', () => {
     ).toBeTruthy();
     // Never points at a method that doesn't exist.
     expect(screen.queryByText(/unlock with your recovery key or passphrase/iu)).toBeNull();
-    expect(screen.getByText(/without a recovery key, the data on this computer can.t be opened/iu)).toBeTruthy();
+    expect(
+      screen.getByText(/without a recovery key, the data on this computer can.t be opened/iu),
+    ).toBeTruthy();
   });
 
   it('explains passphrase mode', () => {
     render(
       <UnlockScreen
-        status={{ ...baseStatus, reason: 'passphraseRequired', hasRecovery: false, hasPassphrase: true }}
+        status={{
+          ...baseStatus,
+          reason: 'passphraseRequired',
+          hasRecovery: false,
+          hasPassphrase: true,
+        }}
         admin={fakeAdmin()}
         onStatusChange={() => undefined}
       />,
@@ -104,14 +129,21 @@ describe('UnlockScreen: wrong secret vs typo', () => {
     const onStatusChange = vi.fn();
     const unlock = vi.fn().mockRejectedValue({ kind: 'recovery-code-typo', message: 'bad' });
     render(
-      <UnlockScreen status={baseStatus} admin={fakeAdmin({ unlock })} onStatusChange={onStatusChange} />,
+      <UnlockScreen
+        status={baseStatus}
+        admin={fakeAdmin({ unlock })}
+        onStatusChange={onStatusChange}
+      />,
     );
     fireEvent.change(screen.getByLabelText('Recovery key'), { target: { value: 'AAAA-BBBB' } });
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Unlock' }));
       await Promise.resolve();
     });
-    expect(await screen.findByRole('alert')).toHaveProperty('textContent', expect.stringMatching(/typo/iu));
+    expect(await screen.findByRole('alert')).toHaveProperty(
+      'textContent',
+      expect.stringMatching(/typo/iu),
+    );
     expect(onStatusChange).not.toHaveBeenCalled();
   });
 
@@ -138,7 +170,13 @@ describe('UnlockScreen: wrong secret vs typo', () => {
 describe('UnlockScreen: remember on this device', () => {
   it('is on by default when a keyring is available, and passed through to unlock()', async () => {
     const unlock = vi.fn().mockResolvedValue({ ...baseStatus, state: 'unlocked', reason: null });
-    render(<UnlockScreen status={baseStatus} admin={fakeAdmin({ unlock })} onStatusChange={() => undefined} />);
+    render(
+      <UnlockScreen
+        status={baseStatus}
+        admin={fakeAdmin({ unlock })}
+        onStatusChange={() => undefined}
+      />,
+    );
     const checkbox = screen.getByRole('checkbox', { name: 'Remember on this device' });
     expect(checkbox).toHaveProperty('checked', true);
     fireEvent.change(screen.getByLabelText('Recovery key'), { target: { value: 'AAAA-BBBB' } });
@@ -174,9 +212,10 @@ describe('UnlockScreen: remember on this device', () => {
 describe('UnlockScreen: no recovery and no passphrase', () => {
   it('offers only Start fresh when there is truly no keyring angle left', async () => {
     const onStatusChange = vi.fn();
-    const eraseAll = vi
-      .fn()
-      .mockResolvedValue({ status: { ...baseStatus, state: 'needsSetup', reason: null }, failures: [] });
+    const eraseAll = vi.fn().mockResolvedValue({
+      status: { ...baseStatus, state: 'needsSetup', reason: null },
+      failures: [],
+    });
     const restart = vi.fn().mockResolvedValue(undefined);
     render(
       <UnlockScreen
@@ -210,9 +249,7 @@ describe('UnlockScreen: no recovery and no passphrase', () => {
       await Promise.resolve();
     });
     expect(eraseAll).toHaveBeenCalledTimes(1);
-    expect(onStatusChange).toHaveBeenCalledWith(
-      expect.objectContaining({ state: 'needsSetup' }),
-    );
+    expect(onStatusChange).toHaveBeenCalledWith(expect.objectContaining({ state: 'needsSetup' }));
     // Matches EncryptionSection's erase flow: the app restarts afterwards
     // (docs/ENCRYPTION.md, "Erase").
     expect(restart).toHaveBeenCalledTimes(1);
@@ -271,16 +308,20 @@ describe('UnlockScreen: try again', () => {
   it('names the secondary action "Check keyring again" for a keyring-related reason, and re-checks status', async () => {
     const onStatusChange = vi.fn();
     const status = vi.fn().mockResolvedValue({ ...baseStatus, state: 'unlocked', reason: null });
-    render(<UnlockScreen status={baseStatus} admin={fakeAdmin({ status })} onStatusChange={onStatusChange} />);
+    render(
+      <UnlockScreen
+        status={baseStatus}
+        admin={fakeAdmin({ status })}
+        onStatusChange={onStatusChange}
+      />,
+    );
     expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Check keyring again' }));
       await Promise.resolve();
     });
     expect(status).toHaveBeenCalledTimes(1);
-    expect(onStatusChange).toHaveBeenCalledWith(
-      expect.objectContaining({ state: 'unlocked' }),
-    );
+    expect(onStatusChange).toHaveBeenCalledWith(expect.objectContaining({ state: 'unlocked' }));
   });
 
   it('keeps the generic "Try again" label for a non-keyring reason', () => {

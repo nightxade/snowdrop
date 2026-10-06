@@ -77,7 +77,9 @@ export async function storageUnlock(
 }
 
 /** Creates a recovery code, returned in plaintext exactly once. Never log it. */
-export async function storageCreateRecovery(ipc: TauriIpc = tauriIpc): Promise<CreateRecoveryResult> {
+export async function storageCreateRecovery(
+  ipc: TauriIpc = tauriIpc,
+): Promise<CreateRecoveryResult> {
   const raw = await ipc.invoke<unknown>('storage_create_recovery');
   return validateCreateRecoveryResult('storage_create_recovery', raw);
 }

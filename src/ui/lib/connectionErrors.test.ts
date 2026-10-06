@@ -18,9 +18,7 @@ describe('friendlyErrorMessage', () => {
     expect(friendlyErrorMessage('internal', 'No space left on device')).toBe(
       "Couldn't save signal-cli: the disk may be full.",
     );
-    expect(friendlyErrorMessage('http', 'Daemon rejected the Host header')).toMatch(
-      /Host header/u,
-    );
+    expect(friendlyErrorMessage('http', 'Daemon rejected the Host header')).toMatch(/Host header/u);
     expect(friendlyErrorMessage('config', 'checksum mismatch: expected a, got b')).toMatch(
       /a checksum mismatch/u,
     );

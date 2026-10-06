@@ -107,24 +107,24 @@ see [docs/DESKTOP.md](docs/DESKTOP.md).
 
 ## Scripts
 
-| Command                         | What it does                                                                             |
-| ------------------------------- | ---------------------------------------------------------------------------------------- |
-| `npm run dev`                   | Vite dev server with hot reload and the signal-cli proxy.                                |
-| `npm run build`                 | Type-checks (`tsc -b`) and builds to `dist/` (with CSP and `THIRD_PARTY_NOTICES.txt`).   |
-| `npm run preview`               | Serves the production build locally, with the same proxy.                                |
-| `npm run typecheck`             | TypeScript only, no output.                                                              |
-| `npm run lint`                  | ESLint, then `scripts/verify-boundaries.mjs` (proves the architecture rules still fire). |
-| `npm test`                      | All Vitest suites once.                                                                  |
-| `npm run test:watch`            | Vitest in watch mode.                                                                    |
-| `npm run format`                | Prettier, writing changes.                                                               |
-| `npm run format:check`          | Prettier, check only.                                                                    |
-| `node scripts/gen-licences.mjs` | Regenerates the About page's licence list after dependency changes (then run Prettier).  |
-| `npm run tauri:dev`             | Runs the desktop app in dev mode (signal-cli downloads on first launch, inside the app). |
-| `npm run tauri:build`           | Builds the desktop app (AppImage, .deb); no bundled signal-cli.                          |
+| Command                         | What it does                                                                                                         |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `npm run dev`                   | Vite dev server with hot reload and the signal-cli proxy.                                                            |
+| `npm run build`                 | Type-checks (`tsc -b`) and builds to `dist/` (with CSP and `THIRD_PARTY_NOTICES.txt`).                               |
+| `npm run preview`               | Serves the production build locally, with the same proxy.                                                            |
+| `npm run typecheck`             | TypeScript only, no output.                                                                                          |
+| `npm run lint`                  | ESLint, then `scripts/verify-boundaries.mjs` (proves the architecture rules still fire).                             |
+| `npm test`                      | All Vitest suites once.                                                                                              |
+| `npm run test:watch`            | Vitest in watch mode.                                                                                                |
+| `npm run format`                | Prettier, writing changes.                                                                                           |
+| `npm run format:check`          | Prettier, check only.                                                                                                |
+| `node scripts/gen-licences.mjs` | Regenerates the About page's licence list after dependency changes (then run Prettier).                              |
+| `npm run tauri:dev`             | Runs the desktop app in dev mode (signal-cli downloads on first launch, inside the app).                             |
+| `npm run tauri:build`           | Builds the desktop app (AppImage, .deb); no bundled signal-cli.                                                      |
 | `npm run tauri:build:bundled`   | Optional: fetches and bundles signal-cli into the app package instead (GPL obligations apply — see docs/DESKTOP.md). |
 
 The full quality gate is
-`npm run typecheck && npm run lint && npm test && npm run build`. See
+`npm run typecheck && npm run lint && npm run format:check && npm test && npm run build`. See
 [docs/DESKTOP.md](docs/DESKTOP.md) for the desktop app's own build and gates.
 
 Environment: `SNOWDROP_SIGNAL_CLI_URL` (shell or `.env.local`) points the dev
@@ -188,7 +188,7 @@ docs/                 documentation
   Credential Manager) or a passphrase. Switching keyrings or reinstalling
   doesn't mean starting over, as long as you've set up a recovery key in
   Settings → Privacy & security. See [ENCRYPTION.md](docs/ENCRYPTION.md) for
-  the full threat model — including what's *not* protected (malware running
+  the full threat model — including what's _not_ protected (malware running
   as you, or memory on unencrypted swap).
 - **If a device or key is ever compromised,** remove this computer in your
   phone's Signal app (Settings → Linked devices). That invalidates the

@@ -42,7 +42,10 @@ export function App({ onBackendChange }: AppProps) {
   const errorKind = useStore(snowdrop.stores.session, (s) => s.errorKind);
   const errorMessage = useStore(snowdrop.stores.session, (s) => s.error);
   const ready = useStore(snowdrop.stores.session, (s) => s.ready);
-  const desktopBinaryPath = useStore(snowdrop.stores.settings, (s) => s.connection.desktop.binaryPath);
+  const desktopBinaryPath = useStore(
+    snowdrop.stores.settings,
+    (s) => s.connection.desktop.binaryPath,
+  );
 
   useEffect(() => {
     if (choice === null) return;
@@ -112,7 +115,10 @@ export function App({ onBackendChange }: AppProps) {
                   configured: desktopBinaryPath.trim() !== '',
                   onInstalled: () => {
                     snowdrop.start().catch((error: unknown) => {
-                      console.error('[snowdrop] failed to start after installing signal-cli', error);
+                      console.error(
+                        '[snowdrop] failed to start after installing signal-cli',
+                        error,
+                      );
                     });
                   },
                 }

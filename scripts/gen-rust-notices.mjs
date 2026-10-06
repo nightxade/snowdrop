@@ -53,4 +53,6 @@ const header = [
 ].join('\n');
 
 writeFileSync(out, header + body.trimStart());
-console.log(`[gen-rust-notices] wrote ${path.relative(root, out)} (${crateCount} crates, ${licenceCount} licence texts).`);
+console.log(
+  `[gen-rust-notices] wrote ${path.relative(root, out)} (${crateCount} crates, ${licenceCount} licence texts).`,
+);

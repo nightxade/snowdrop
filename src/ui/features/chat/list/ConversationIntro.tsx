@@ -25,7 +25,9 @@ export function ConversationIntro({ conversationId }: { conversationId: Conversa
       <h2 className={styles.title}>{conversation.title}</h2>
       <p className={styles.lede}>
         {isGroup ? (
-          <>This is the start of your history in <bdi>{conversation.title}</bdi> on this device.</>
+          <>
+            This is the start of your history in <bdi>{conversation.title}</bdi> on this device.
+          </>
         ) : (
           <>
             This is the start of your history with <bdi>{peer?.name ?? conversation.title}</bdi> on

@@ -3,7 +3,13 @@ import { toBase64, utf8Encode } from './crypto/bytes';
 import { plaintextCipher } from './crypto/plaintextCipher';
 import { webCryptoCipher } from './crypto/webCryptoCipher';
 import { BOOTSTRAP_ALLOW_LIST, hydrateKeyValue } from './hydratedKeyValue';
-import { createMemoryStorage, saveVersioned, loadVersioned, isRecord, type VersionedSchema } from './keyValue';
+import {
+  createMemoryStorage,
+  saveVersioned,
+  loadVersioned,
+  isRecord,
+  type VersionedSchema,
+} from './keyValue';
 
 const randomKey = (): Uint8Array => crypto.getRandomValues(new Uint8Array(32));
 

@@ -105,6 +105,9 @@ describe('useAttachmentUrl: no URL cache that can outlive the backend resolver',
         <Probe />
       </SnowdropContextProvider>,
     );
-    expect(await screen.findByTestId('state')).toHaveProperty('textContent', 'error:Download failed');
+    expect(await screen.findByTestId('state')).toHaveProperty(
+      'textContent',
+      'error:Download failed',
+    );
   });
 });

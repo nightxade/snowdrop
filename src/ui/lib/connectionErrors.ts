@@ -59,7 +59,7 @@ const GENERIC_MESSAGES: Record<string, DetailMessage> = {
   'last-unlock-method': () =>
     "That's the only way left to unlock Snowdrop. Set up another method first.",
   'keys-file-corrupt': () => "Snowdrop's key file isn't valid.",
-  'recovery-code-typo': () => "That recovery key has a typo — check it against what you saved.",
+  'recovery-code-typo': () => 'That recovery key has a typo — check it against what you saved.',
   'vault-corrupt': () => "Snowdrop's local data is unreadable.",
   'vault-blob-corrupt': () => 'A piece of local data is unreadable.',
   'no-ram-dir': () => 'No RAM-backed storage is available on this computer.',

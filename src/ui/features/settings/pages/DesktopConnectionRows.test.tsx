@@ -14,7 +14,12 @@ function fakeAdmin(overrides: Partial<DesktopAdmin> = {}): DesktopAdmin {
       Promise.resolve({ ok: true, accounts: 1, version: '0.14.8', program: null }),
     locate: (value): Promise<LocateResult> => {
       const path = value.binaryPath.trim();
-      if (!path) return Promise.resolve({ ok: true, path: '/data/signal-cli/0.14.8/signal-cli', source: 'downloaded' });
+      if (!path)
+        return Promise.resolve({
+          ok: true,
+          path: '/data/signal-cli/0.14.8/signal-cli',
+          source: 'downloaded',
+        });
       if (!path.endsWith('signal-cli'))
         return Promise.resolve({
           ok: false,
@@ -40,7 +45,11 @@ function fakeAdmin(overrides: Partial<DesktopAdmin> = {}): DesktopAdmin {
         downloadSizeBytes: 114_000_000,
       }),
     installStatus: (): Promise<InstallStatus> =>
-      Promise.resolve({ installed: true, version: '0.14.8', path: '/data/signal-cli/0.14.8/signal-cli' }),
+      Promise.resolve({
+        installed: true,
+        version: '0.14.8',
+        path: '/data/signal-cli/0.14.8/signal-cli',
+      }),
     install: () =>
       Promise.resolve({
         ok: true,
@@ -75,7 +84,10 @@ describe('DesktopConnectionRows', () => {
       install: () =>
         new Promise((resolve) => {
           resolveInstall = () => {
-            resolve({ ok: true, status: { installed: true, version: '0.14.9', path: '/x/signal-cli' } });
+            resolve({
+              ok: true,
+              status: { installed: true, version: '0.14.9', path: '/x/signal-cli' },
+            });
           };
         }),
     });
@@ -94,7 +106,8 @@ describe('DesktopConnectionRows', () => {
 
   it('reports a failed download with plain-language copy, not the raw error', async () => {
     const admin = fakeAdmin({
-      install: () => Promise.resolve({ ok: false, kind: 'unreachable', message: "Couldn't reach github.com." }),
+      install: () =>
+        Promise.resolve({ ok: false, kind: 'unreachable', message: "Couldn't reach github.com." }),
     });
     render(<Controlled admin={admin} />);
     const button = await screen.findByRole('button', { name: 'Re-download' });
@@ -119,9 +132,13 @@ describe('DesktopConnectionRows', () => {
       fireEvent.change(input, { target: { value: '/usr/local/bin/signal-cli' } });
     });
     expect(
-      await screen.findByText(/Snowdrop will run \/usr\/local\/bin\/signal-cli\./u, {}, {
-        timeout: 1000,
-      }),
+      await screen.findByText(
+        /Snowdrop will run \/usr\/local\/bin\/signal-cli\./u,
+        {},
+        {
+          timeout: 1000,
+        },
+      ),
     ).toBeTruthy();
   });
 
@@ -139,9 +156,7 @@ describe('DesktopConnectionRows', () => {
     act(() => {
       fireEvent.click(screen.getByRole('button', { name: 'Test' }));
     });
-    expect(
-      await screen.findByText(/signal-cli 0\.14\.8 .*works, with 1 account\./u),
-    ).toBeTruthy();
+    expect(await screen.findByText(/signal-cli 0\.14\.8 .*works, with 1 account\./u)).toBeTruthy();
   });
 
   it('falls back to a safe note for a program source it does not recognise', async () => {

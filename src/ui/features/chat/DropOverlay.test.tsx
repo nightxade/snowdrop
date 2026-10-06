@@ -15,7 +15,11 @@ const filesTransfer = { types: ['Files'], files: [] as File[] };
 
 function Harness({ onFiles }: { onFiles: (files: File[]) => void }) {
   const { dragging, handlers } = useFileDrop(onFiles);
-  return <div data-testid="drop-zone" {...handlers}>{dragging ? 'dragging' : 'idle'}</div>;
+  return (
+    <div data-testid="drop-zone" {...handlers}>
+      {dragging ? 'dragging' : 'idle'}
+    </div>
+  );
 }
 
 describe('useFileDrop: recovering a desynced depth counter', () => {

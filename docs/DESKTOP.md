@@ -4,7 +4,7 @@ Snowdrop's desktop app is the same React UI running inside a [Tauri
 v2](https://v2.tauri.app/) shell (app identifier `local.snowdrop.desktop`,
 window "Snowdrop", 1280×800, minimum 360×560). The Rust side owns the
 signal-cli process. Snowdrop itself ships with **no signal-cli binary at
-all** — the app stays around 10 MB, and nobody has to trust *us* with a
+all** — the app stays around 10 MB, and nobody has to trust _us_ with a
 redistributed copy of someone else's GPL program. Instead, the first time it
 needs signal-cli and doesn't already have one, the app downloads the pinned
 release straight from [AsamK/signal-cli's own GitHub
@@ -65,7 +65,7 @@ launch and attachments didn't play.
 
 Fix: `bundle.linux.appimage.bundleMediaFramework: true`
 (`src-tauri/tauri.conf.json`) tells `tauri build` to bundle GStreamer's own
-base/good/bad/ugly plugins and libav *inside* the AppImage, next to the
+base/good/bad/ugly plugins and libav _inside_ the AppImage, next to the
 bundled WebKitGTK, so playback works regardless of what's on the host. This
 is why the AppImage is noticeably bigger — about **100 MB without it, ~168
 MB with it** (0.1.0, x86_64) — the GStreamer plugin set and its codec
@@ -73,7 +73,7 @@ libraries dominate the difference. `tauri.bundled.conf.json` (the
 `tauri:build:bundled` overlay) doesn't touch `bundle.linux`, so it inherits
 the same setting.
 
-The `.deb` doesn't bundle anything (it links the *system* WebKitGTK and
+The `.deb` doesn't bundle anything (it links the _system_ WebKitGTK and
 GStreamer), so it instead declares the plugin packages as dependencies —
 `gstreamer1.0-plugins-base`, `gstreamer1.0-plugins-good`,
 `gstreamer1.0-libav` — in `bundle.linux.deb.depends`, alongside the
@@ -168,7 +168,7 @@ located in this order:
 
 If none resolve, the UI shows a screen in onboarding: the first-run download
 screen (`DownloadSignalCli.tsx`) when nothing is configured and nothing was
-found at all, or `MissingSignalCli.tsx` (asks for a path) when a *configured*
+found at all, or `MissingSignalCli.tsx` (asks for a path) when a _configured_
 path turned out bad. Settings → Connection can also just **locate** a binary
 (`signal_cli_locate` → `ResolvedBinary { path, source }`) without connecting,
 to show which one would be used, and has its own "Installed signal-cli" row
@@ -375,7 +375,7 @@ linked into Snowdrop, and the About page says so and links to its release
 page.
 
 The **optional bundled build** (`npm run tauri:build:bundled`) is different:
-it *does* redistribute signal-cli's binary, inside the app package, so
+it _does_ redistribute signal-cli's binary, inside the app package, so
 whoever ships that build takes on the obligation to make the corresponding
 source available alongside it. `fetch-signal-cli.mjs` downloads and
 checksum-verifies the exact tag's `LICENSE` file into

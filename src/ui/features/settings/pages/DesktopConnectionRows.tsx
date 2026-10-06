@@ -91,7 +91,8 @@ export function DesktopConnectionRows({
     // Debounced: typing a path shouldn't hit the disk per keystroke.
     const timer = setTimeout(() => {
       void admin.locate({ binaryPath }).then((result) => {
-        if (!result.ok) console.error('[snowdrop] signal-cli locate failed', result.kind, result.message);
+        if (!result.ok)
+          console.error('[snowdrop] signal-cli locate failed', result.kind, result.message);
         if (live) setLocated(result);
       });
     }, 250);
@@ -109,16 +110,21 @@ export function DesktopConnectionRows({
 
   const redownload = () => {
     setDownload('downloading');
-    void admin.install(() => {
-      // The settings row only shows a spinner; the full progress bar lives
-      // in onboarding's first-run screen (DownloadSignalCli).
-    }).then((result) => {
-      if (!result.ok) console.error('[snowdrop] signal-cli install failed', result.kind, result.message);
-      setDownload(
-        result.ok ? { ok: true, status: result.status } : { ok: false, kind: result.kind, message: result.message },
-      );
-      if (result.ok) setInstalled(result.status);
-    });
+    void admin
+      .install(() => {
+        // The settings row only shows a spinner; the full progress bar lives
+        // in onboarding's first-run screen (DownloadSignalCli).
+      })
+      .then((result) => {
+        if (!result.ok)
+          console.error('[snowdrop] signal-cli install failed', result.kind, result.message);
+        setDownload(
+          result.ok
+            ? { ok: true, status: result.status }
+            : { ok: false, kind: result.kind, message: result.message },
+        );
+        if (result.ok) setInstalled(result.status);
+      });
   };
 
   return (
@@ -157,7 +163,8 @@ export function DesktopConnectionRows({
                 </>
               ) : typeof download === 'object' && !download.ok ? (
                 <>
-                  <CircleX size={14} aria-hidden /> {friendlyErrorMessage(download.kind, download.message)}
+                  <CircleX size={14} aria-hidden />{' '}
+                  {friendlyErrorMessage(download.kind, download.message)}
                 </>
               ) : installed ? (
                 installed.installed ? (
@@ -172,7 +179,13 @@ export function DesktopConnectionRows({
             }
             control={
               <Button
-                icon={download === 'downloading' ? <LoaderCircle size={16} className={styles.spin} /> : <DownloadCloud size={16} />}
+                icon={
+                  download === 'downloading' ? (
+                    <LoaderCircle size={16} className={styles.spin} />
+                  ) : (
+                    <DownloadCloud size={16} />
+                  )
+                }
                 disabled={download === 'downloading'}
                 onClick={redownload}
               >
@@ -263,7 +276,8 @@ export function DesktopConnectionRows({
             onClick={() => {
               setProbe('testing');
               void admin.probe(value).then((result) => {
-                if (!result.ok) console.error('[snowdrop] signal-cli probe failed', result.kind, result.message);
+                if (!result.ok)
+                  console.error('[snowdrop] signal-cli probe failed', result.kind, result.message);
                 setProbe(result);
               });
             }}

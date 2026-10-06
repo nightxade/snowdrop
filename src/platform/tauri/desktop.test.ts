@@ -69,7 +69,12 @@ describe('storageStatus', () => {
   });
 
   it('decodes a locked reply with a reason', async () => {
-    const locked = { ...okStatus, state: 'locked', reason: 'passphraseRequired', hasKeyring: false };
+    const locked = {
+      ...okStatus,
+      state: 'locked',
+      reason: 'passphraseRequired',
+      hasKeyring: false,
+    };
     await expect(storageStatus(fakeIpc(locked))).resolves.toEqual(locked);
   });
 
@@ -155,14 +160,19 @@ describe('storageWebcacheKey', () => {
 
 describe('storageEraseAll', () => {
   it('always confirms with the literal ERASE', async () => {
-    const invoke = vi.fn().mockResolvedValue({ status: { ...okStatus, state: 'needsSetup' }, failures: [] });
+    const invoke = vi
+      .fn()
+      .mockResolvedValue({ status: { ...okStatus, state: 'needsSetup' }, failures: [] });
     const result = await storageEraseAll(fakeIpcWithInvoke(invoke));
     expect(invoke).toHaveBeenCalledWith('storage_erase_all', { confirm: 'ERASE' });
     expect(result).toEqual({ status: { ...okStatus, state: 'needsSetup' }, failures: [] });
   });
 
   it('decodes reported failures', async () => {
-    const reply = { status: { ...okStatus, state: 'needsSetup' }, failures: ['keyring entry: oops'] };
+    const reply = {
+      status: { ...okStatus, state: 'needsSetup' },
+      failures: ['keyring entry: oops'],
+    };
     await expect(storageEraseAll(fakeIpc(reply))).resolves.toEqual(reply);
   });
 });

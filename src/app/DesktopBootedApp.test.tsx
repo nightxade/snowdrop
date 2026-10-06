@@ -19,7 +19,11 @@ describe('DesktopBootedApp: close handshake', () => {
     const registerFlusher = vi.fn();
 
     const { unmount } = render(
-      <DesktopBootedApp storage={storage} repository={repository} registerFlusher={registerFlusher} />,
+      <DesktopBootedApp
+        storage={storage}
+        repository={repository}
+        registerFlusher={registerFlusher}
+      />,
     );
 
     expect(registerFlusher).toHaveBeenCalledTimes(1);

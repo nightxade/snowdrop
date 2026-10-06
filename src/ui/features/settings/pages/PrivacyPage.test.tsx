@@ -73,7 +73,9 @@ describe('Settings → Privacy & security', () => {
     expect(snowdrop.storageAdmin).not.toBeNull();
     renderWithSnowdrop(snowdrop, <PrivacyPage />);
 
-    await waitFor(() => { expect(screen.queryByText('Checking…')).toBeNull(); });
+    await waitFor(() => {
+      expect(screen.queryByText('Checking…')).toBeNull();
+    });
     expect(screen.getByRole('heading', { name: 'Encryption' })).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'Recovery key' })).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'Passphrase' })).toBeTruthy();

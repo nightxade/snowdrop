@@ -26,7 +26,8 @@ function fakeAdmin(overrides: Partial<DesktopAdmin> = {}): DesktopAdmin {
         downloadSizeBytes: 114_000_000,
       }),
     installStatus: () => Promise.resolve({ installed: false, version: null, path: null }),
-    install: () => Promise.resolve({ ok: true, status: { installed: true, version: '0.14.8', path: '/x' } }),
+    install: () =>
+      Promise.resolve({ ok: true, status: { installed: true, version: '0.14.8', path: '/x' } }),
     cancelInstall: () => Promise.resolve(),
     ...overrides,
   };

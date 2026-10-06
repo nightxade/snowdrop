@@ -98,12 +98,15 @@ describe('TauriTransport', () => {
     ['a non-object', 'nope'],
     ['an object with neither result nor error', { id: 1 }],
     ['an error without a code/message', { error: { oops: true } }],
-  ] as const)('turns a malformed IPC reply (%s) into an invalid-response error', async (_label, raw) => {
-    ipc.invoke.mockResolvedValue(raw);
-    await expect(
-      new TauriTransport({ desktop: spawn }).request('listGroups', undefined, call),
-    ).rejects.toMatchObject({ name: 'SignalCliError', kind: 'invalid-response' });
-  });
+  ] as const)(
+    'turns a malformed IPC reply (%s) into an invalid-response error',
+    async (_label, raw) => {
+      ipc.invoke.mockResolvedValue(raw);
+      await expect(
+        new TauriTransport({ desktop: spawn }).request('listGroups', undefined, call),
+      ).rejects.toMatchObject({ name: 'SignalCliError', kind: 'invalid-response' });
+    },
+  );
 
   it('maps command errors onto SignalCliError kinds', async () => {
     const transport = new TauriTransport({ desktop: spawn });

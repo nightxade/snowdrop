@@ -117,7 +117,8 @@ async function main() {
   })
     .split('\n')
     .filter(Boolean);
-  if (listing.length !== 1) throw new Error(`Expected one signal-cli binary, found ${listing.length}`);
+  if (listing.length !== 1)
+    throw new Error(`Expected one signal-cli binary, found ${listing.length}`);
   mkdirSync(binDir, { recursive: true });
   copyFileSync(listing[0], target);
   chmodSync(target, 0o755);
@@ -126,7 +127,10 @@ async function main() {
   // GPL-3.0: ship the licence text and say exactly where the source is.
   mkdirSync(licenceDir, { recursive: true });
   const licence = path.join(licenceDir, 'COPYING');
-  await download(`https://raw.githubusercontent.com/AsamK/signal-cli/v${SIGNAL_CLI.version}/LICENSE`, licence);
+  await download(
+    `https://raw.githubusercontent.com/AsamK/signal-cli/v${SIGNAL_CLI.version}/LICENSE`,
+    licence,
+  );
   if (SIGNAL_CLI.licenseSha256 && (await sha256Of(licence)) !== SIGNAL_CLI.licenseSha256) {
     throw new Error('signal-cli LICENSE checksum mismatch');
   }

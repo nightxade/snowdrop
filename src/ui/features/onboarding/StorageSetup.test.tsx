@@ -33,7 +33,10 @@ function fakeAdmin(overrides: Partial<StorageAdmin> = {}): StorageAdmin {
     setup: () => Promise.resolve(unlocked),
     unlock: () => Promise.resolve(unlocked),
     createRecovery: () =>
-      Promise.resolve({ code: 'AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHHIIII', status: { ...unlocked, hasRecovery: true } }),
+      Promise.resolve({
+        code: 'AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHHIIII',
+        status: { ...unlocked, hasRecovery: true },
+      }),
     removeRecovery: () => Promise.resolve(unlocked),
     setPassphrase: () => Promise.resolve(unlocked),
     enrollKeyring: () => Promise.resolve(unlocked),
@@ -53,12 +56,17 @@ Object.defineProperty(navigator, 'clipboard', {
 describe('StorageSetup: keyring detected', () => {
   it('offers Continue, then a recovery key that can be created, confirmed and continued', async () => {
     const onDone = vi.fn();
-    const createRecovery = vi
-      .fn()
-      .mockResolvedValue({ code: 'AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHHIIII', status: { ...unlocked, hasRecovery: true } });
+    const createRecovery = vi.fn().mockResolvedValue({
+      code: 'AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHHIIII',
+      status: { ...unlocked, hasRecovery: true },
+    });
     const setup = vi.fn().mockResolvedValue(unlocked);
     render(
-      <StorageSetup status={needsSetup} admin={fakeAdmin({ setup, createRecovery })} onDone={onDone} />,
+      <StorageSetup
+        status={needsSetup}
+        admin={fakeAdmin({ setup, createRecovery })}
+        onDone={onDone}
+      />,
     );
 
     expect(await screen.findByText(/The key is kept in/u)).toBeTruthy();
@@ -114,7 +122,11 @@ describe('StorageSetup: keyring detected', () => {
 
   it('mentions encrypting existing plaintext data when legacyPlaintext is set', async () => {
     render(
-      <StorageSetup status={{ ...needsSetup, legacyPlaintext: true }} admin={fakeAdmin()} onDone={() => undefined} />,
+      <StorageSetup
+        status={{ ...needsSetup, legacyPlaintext: true }}
+        admin={fakeAdmin()}
+        onDone={() => undefined}
+      />,
     );
     expect(await screen.findByText(/earlier, unencrypted copy/u)).toBeTruthy();
   });

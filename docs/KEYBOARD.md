@@ -144,7 +144,7 @@ The keys typed so far show in the composer's mode pill, like Vim's showcmd.
 | `]u` / `[u` ◆         | Next / previous unread conversation                                                                                                     |
 | `gt` / `gT` ◆         | Next / previous space                                                                                                                   |
 | `i` `a` `I` `A`       | Focus the composer in Insert mode (`A` at the end, `I` at the start)                                                                    |
-| `gi`                  | "Go to insert": the composer, caret at the end of the draft — from anywhere, not just the list                                           |
+| `gi`                  | "Go to insert": the composer, caret at the end of the draft — from anywhere, not just the list                                          |
 | `Esc`                 | Clear a pending sequence (otherwise the usual Esc: close popovers, mark read)                                                           |
 
 ### Focused message

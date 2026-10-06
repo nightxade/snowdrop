@@ -56,12 +56,7 @@ describe('unlockReasonCopy', () => {
   });
 
   it('never points at a recovery key or passphrase when neither exists, for every reason', () => {
-    const reasons = [
-      'keyringUnavailable',
-      'keyringLocked',
-      'keyringSecretMissing',
-      null,
-    ] as const;
+    const reasons = ['keyringUnavailable', 'keyringLocked', 'keyringSecretMissing', null] as const;
     for (const reason of reasons) {
       const { body } = unlockReasonCopy(reason, false);
       expect(body).not.toMatch(/unlock with your recovery key or passphrase/iu);

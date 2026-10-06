@@ -6,24 +6,25 @@ Status: **implemented** (desktop app only). This document is the contract the im
 
 1. Nothing sensitive is written to disk in plaintext. That covers Signal keys and sessions, contacts and groups, message history, drafts and attachments.
 2. Unlocking is automatic in normal use and needs no typing, as with Signal Desktop.
-3. Changing keyrings doesn't have to mean starting over. With an (optional, recommended) recovery key, moving from KWallet to GNOME Keyring or KeePassXC, or recovering from a wiped keyring, takes one prompt. Without one, the worst case is a fresh start: see *What a fresh start loses*.
+3. Changing keyrings doesn't have to mean starting over. With an (optional, recommended) recovery key, moving from KWallet to GNOME Keyring or KeePassXC, or recovering from a wiped keyring, takes one prompt. Without one, the worst case is a fresh start: see _What a fresh start loses_.
 4. Failures are loud. Snowdrop never silently falls back to plaintext and never silently creates a key that orphans existing data.
 5. "Erase all local data" really erases it.
 
 ## Threat model
 
-| Threat | Protected? |
-|---|---|
-| Stolen laptop or copied disk/backup, keyring locked or machine off | **Yes.** Everything on disk is ciphertext. |
-| Another local user account | **Yes.** The data is encrypted, and the directories are `0700`. |
-| Malware running as you while you're logged in | **No.** It can ask the keyring for the secret or read process memory. Signal Desktop has the same limit. |
-| Memory paged to an unencrypted swap partition | **No.** Mitigate with encrypted swap or zram. Signal Desktop has the same limit. |
-| A compromised webview calls `storage_erase_all` | **Accepted.** It's reachable from the webview (see "UX" §5), but a compromised webview could already read everything decrypted and send it anywhere, so this adds no new exposure. Erasing is also recoverable: re-link and your phone resyncs contacts and groups (see "What a fresh start loses"). |
-| Signal's servers | Out of scope here. Signal's end-to-end encryption covers this. |
+| Threat                                                             | Protected?                                                                                                                                                                                                                                                                                           |
+| ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Stolen laptop or copied disk/backup, keyring locked or machine off | **Yes.** Everything on disk is ciphertext.                                                                                                                                                                                                                                                           |
+| Another local user account                                         | **Yes.** The data is encrypted, and the directories are `0700`.                                                                                                                                                                                                                                      |
+| Malware running as you while you're logged in                      | **No.** It can ask the keyring for the secret or read process memory. Signal Desktop has the same limit.                                                                                                                                                                                             |
+| Memory paged to an unencrypted swap partition                      | **No.** Mitigate with encrypted swap or zram. Signal Desktop has the same limit.                                                                                                                                                                                                                     |
+| A compromised webview calls `storage_erase_all`                    | **Accepted.** It's reachable from the webview (see "UX" §5), but a compromised webview could already read everything decrypted and send it anywhere, so this adds no new exposure. Erasing is also recoverable: re-link and your phone resyncs contacts and groups (see "What a fresh start loses"). |
+| Signal's servers                                                   | Out of scope here. Signal's end-to-end encryption covers this.                                                                                                                                                                                                                                       |
 
 If the keys are ever compromised, remove the device in your phone's Signal (Settings → Linked devices). That invalidates the stolen copy.
 
-**Rollback is out of scope.** Someone who can *write* to your home directory could restore an older `keys.json` or vault generation. That attacker is effectively "malware running as you", and a rollback reveals nothing new:
+**Rollback is out of scope.** Someone who can _write_ to your home directory could restore an older `keys.json` or vault generation. That attacker is effectively "malware running as you", and a rollback reveals nothing new:
+
 - An old vault only makes signal-cli's sessions stale, which can cause decryption failures.
 - An old `keys.json` can only reinstate a recovery key you already held.
 - After a suspected compromise, the remedy is the same as above: erase, re-link and remove the old device.
@@ -31,6 +32,7 @@ If the keys are ever compromised, remove the device in your phone's Signal (Sett
 ### What a fresh start loses
 
 You get here by losing the keyring secret with no recovery key and no passphrase. The data can't be decrypted by anyone, including you. "Start fresh" erases it and you re-link.
+
 - **Comes back:** your Signal identity on this computer (as a new linked device), plus contacts and groups, which sync from your phone.
 - **Gone:**
   - This computer's copy of message history. Your phone keeps its own, but Signal doesn't resend old messages to a new linked device.
@@ -53,7 +55,7 @@ You get here by losing the keyring secret with no recovery key and no passphrase
   - A random 32-byte secret stored through the **freedesktop Secret Service API** (`org.freedesktop.secrets`), under service `local.snowdrop.desktop`.
   - This isn't tied to KWallet. KWallet, GNOME Keyring, KeePassXC (Secret Service integration) and oo7 all implement the API. macOS Keychain and Windows Credential Manager are used on those platforms.
   - **Every enrolment gets its own keyring account**, `keyslot-<entry>`, where `entry` is a fresh random id generated at setup or re-enrolment time — never a single fixed account. `entry` is recorded alongside the slot in `keys.json` and bound into that slot's AAD, so repointing a slot at a different (even valid) account fails authentication loudly rather than silently accepting the wrong secret.
-  - Enrolling (first setup, or "Remember on this device"/"Re-save key to this keyring" later) generates a new entry id and secret, writes it to the keyring, saves `keys.json` pointing at it, and only *then* best-effort deletes the old entry's keyring account. A write from a call that already timed out can therefore only ever land on an account nothing references — never overwrite the one `keys.json` currently points at.
+  - Enrolling (first setup, or "Remember on this device"/"Re-save key to this keyring" later) generates a new entry id and secret, writes it to the keyring, saves `keys.json` pointing at it, and only _then_ best-effort deletes the old entry's keyring account. A write from a call that already timed out can therefore only ever land on an account nothing references — never overwrite the one `keys.json` currently points at.
   - Orphaned accounts (an interrupted setup, a timed-out zombie write, a superseded entry whose best-effort delete itself failed) are harmless: nothing references them, and "Erase all local data" deletes whichever account is currently referenced regardless.
 - **Recovery slot (optional, recommended):**
   - A random recovery key with 160 bits of entropy, displayed as 8 groups of 4 Crockford-base32 characters, plus one checksum group of 4 that catches typos before any KDF runs.
@@ -64,11 +66,11 @@ You get here by losing the keyring secret with no recovery key and no passphrase
   - For people who don't want a keyring at all; they're asked at every launch.
   - Uses Argon2id with m = 64 MiB, t = 3, p = 1, stored per slot so it can be tuned.
 - **Wrapping:** XChaCha20-Poly1305, with 24-byte random nonces.
-  - The AAD is the canonical encoding of the slot's *entire* metadata: type, version, keyring entry id (for the keyring slot) or KDF algorithm/parameters (for recovery/passphrase), and salt.
+  - The AAD is the canonical encoding of the slot's _entire_ metadata: type, version, keyring entry id (for the keyring slot) or KDF algorithm/parameters (for recovery/passphrase), and salt.
   - So editing a slot's KDF parameters, repointing a keyring slot at a different account, or swapping slots, fails authentication loudly instead of silently changing behaviour.
   - `keys.json` also records a random `vault_id` that is bound into every vault AAD.
 - **The last unlock method can't be removed.** Removing the recovery slot, or the passphrase slot, is refused if doing so would leave `keys.json` with zero slots at all (no keyring, recovery or passphrase left). This is checked dynamically against whatever's actually left, not just "is there a keyring" — e.g. with only a recovery and a passphrase slot, removing either one is fine, but removing the second is refused.
-- **Keyring availability:** a fast probe (about 2 s) checks whether `org.freedesktop.secrets` is even owned on the session bus before every real call; if not, Snowdrop reports "no keyring service" immediately rather than waiting. Once something answers, the real get/set/delete gets a generous timeout (about 120 s), because a *locked* wallet shows its own unlock prompt, which can legitimately take a while to answer — that's different from "nothing is there at all", and the two are never confused with each other (a locked keyring is never misreported as "no Snowdrop secret", which would otherwise incorrectly route to "Start fresh"). The probe itself only runs on Linux; macOS Keychain and Windows Credential Manager have no equivalent question to ask first.
+- **Keyring availability:** a fast probe (about 2 s) checks whether `org.freedesktop.secrets` is even owned on the session bus before every real call; if not, Snowdrop reports "no keyring service" immediately rather than waiting. Once something answers, the real get/set/delete gets a generous timeout (about 120 s), because a _locked_ wallet shows its own unlock prompt, which can legitimately take a while to answer — that's different from "nothing is there at all", and the two are never confused with each other (a locked keyring is never misreported as "no Snowdrop secret", which would otherwise incorrectly route to "Start fresh"). The probe itself only runs on Linux; macOS Keychain and Windows Credential Manager have no equivalent question to ask first.
 - **Changing keyring providers:** the new keyring has no secret, so Snowdrop shows the unlock screen. Enter the recovery key or passphrase, and Snowdrop offers to "Remember on this device", which enrols a brand-new keyring slot (new entry id, new secret) as described above. No data is re-encrypted.
 
 ## signal-cli vault
@@ -76,25 +78,30 @@ You get here by losing the keyring secret with no recovery key and no passphrase
 signal-cli has no encryption of its own. So Snowdrop never lets its folder exist on disk in plaintext: it lives in a RAM-backed runtime dir while the app runs, and only an encrypted vault is persisted.
 
 **Locations:**
+
 - Vault: `<app data>/vault/`, containing `manifest`, `manifest.prev` and `blobs/<random-id>`.
 - Runtime: `$XDG_RUNTIME_DIR/snowdrop/signal-cli/` on Linux. That directory is tmpfs, `0700`, and cleared at logout and shutdown.
   - If no RAM-backed dir is available (e.g. macOS or Windows, for now), the vault is unavailable and the app says so. It never decrypts to a disk path.
 
 **Format:**
+
 - Each file is a separate blob at `blobs/<random 16-byte hex id>`, encrypted with the vault key under AAD `"snowdrop/vault/blob/v1" || vault_id || blob id`, so blobs can't be swapped or replayed between vaults or between each other's paths.
 - The manifest is encrypted under AAD `"snowdrop/vault/manifest/v1" || vault_id`; the generation number lives in the plaintext, not the AAD. It maps each relative path to `{ blob, size, mtime_ns, sha256 }`, so file names and sizes stay hidden too.
 
 **Restore (on launch, after unlock):**
+
 1. Take an exclusive lock on `<app data>/snowdrop.lock`, so only one instance runs.
 2. Decrypt the manifest and its blobs into the runtime dir. Verify every hash and write a `.restored-from` marker.
 3. Spawn signal-cli with `--config <runtime dir>`.
 
 **What signal-cli writes** (from its source):
+
 - **`account.db`:** SQLite in WAL mode, with `-wal` and `-shm` sidecars.
 - **`data/<account>`:** the main account file. It holds the device password, identity keys, profile key, storage key and so on. It's rewritten **in place** (seek, write, truncate, fsync) under a file lock, not via a temp file and rename.
 - **`attachments/`, `avatars/`, `stickers/`:** media.
 
 **Sync (runtime → vault):**
+
 1. Find changed files by size, mtime and hash.
 2. Copy each file in the way that's safe for it:
    - **SQLite databases:** use the **SQLite online backup API**. It produces a consistent snapshot while signal-cli is writing, folding in any WAL content, so the `-wal` and `-shm` sidecars are never copied. On restore, only the `.db` file is written.
@@ -107,6 +114,7 @@ signal-cli has no encryption of its own. So Snowdrop never lets its folder exist
 A crash at any point leaves either the old or the new generation fully intact. `manifest.prev` is a one-generation fallback if the current one is unreadable.
 
 **When to sync:**
+
 - About 2 s, debounced, after a receive batch is acknowledged or a send succeeds.
 - After linking finishes.
 - Every 60 s while there are unsynced changes.
@@ -115,18 +123,21 @@ A crash at any point leaves either the old or the new generation fully intact. `
 **Close handshake:** closing the main window doesn't exit immediately. Rust intercepts the close, emits `snowdrop://flush-before-close`, and waits for the frontend to answer with the `app_close_ready` command (the frontend's own cap on that wait is about 2 s) before actually exiting — with a 3 s fallback that exits anyway if nothing ever answers, so a stuck or absent frontend can never make the app unclosable. Either path still runs the same shutdown sequence afterwards (stop signal-cli, then the vault's own final sync).
 
 **Attachment budget:**
+
 - Restore hydrates everything except media; media is restored on demand.
 - Snowdrop already proxies signal-cli requests. When a `getAttachment` names a file missing from the runtime dir but present in the vault, it's decrypted into place first, then the request continues.
 - After each sync, media not read for 10 minutes is evicted from the runtime dir, oldest first, once the runtime media total exceeds 256 MiB. That's safe because every evicted file is already in the vault.
 - **If the RAM-backed folder fills up mid-write:** signal-cli's write fails and Snowdrop surfaces a "Storage full" error. Eviction then runs immediately.
 
 **Crash recovery:**
+
 - If the runtime dir exists at launch and the lock is free, the previous session crashed, and the runtime copy is newer. Sync it into the vault first, then reuse it.
 - After a reboot the runtime copy is gone, so at most the last few seconds are lost. That can mean a handful of messages from that window fail to decrypt.
 
 **Migration:** an existing plaintext `<app data>/signal-cli/` is imported into the vault, verified, and then deleted.
 
 **Not covered:**
+
 - External-daemon mode, where you run signal-cli yourself.
 - The `SNOWDROP_SIGNAL_CLI_DATA` override.
 
@@ -135,6 +146,7 @@ You own that data. The app shows a notice that it's unencrypted.
 ## Web cache
 
 The message cache (IndexedDB) and the key-value store (localStorage) are encrypted with the web cache key, which is fetched once over IPC after unlock.
+
 - It's imported as a non-extractable WebCrypto key, and the raw bytes are dropped.
 - If code in the webview were compromised, it could read the decrypted cache anyway, so handing over the key adds no exposure.
 
@@ -150,7 +162,7 @@ The message cache (IndexedDB) and the key-value store (localStorage) are encrypt
 
 1. **First run:** a "Protect your data" step before linking.
    - It shows the detected keyring ("Protected by GNOME Keyring" / "KWallet" / …). With no keyring, it explains the options: install one, or use a passphrase.
-   - It **suggests** a recovery key, with one sentence on why (see *Recovery slot*).
+   - It **suggests** a recovery key, with one sentence on why (see _Recovery slot_).
      - **Create recovery key** shows the key with Copy and Save to file buttons. You confirm by typing its last group.
      - **Skip for now** continues, and leaves a dismissible reminder in Settings.
    - An advanced toggle lets you use a passphrase instead of the keyring.
@@ -159,7 +171,7 @@ The message cache (IndexedDB) and the key-value store (localStorage) are encrypt
    - Fields for the recovery key or passphrase.
    - A "Remember on this device" checkbox, which enrols a keyring slot.
    - Clear copy about why the screen appeared (no keyring service / locked / secret missing).
-   - When there's no recovery key or passphrase to offer, the only action is **Start fresh**, with the *What a fresh start loses* list.
+   - When there's no recovery key or passphrase to offer, the only action is **Start fresh**, with the _What a fresh start loses_ list.
 4. **Settings → Privacy & security** (desktop only):
    - **Status:** "Encrypted on this computer", with the key location (the keyring's friendly name, or "a passphrase"). If `vaultDisabled` (an external daemon, or `SNOWDROP_SIGNAL_CLI_DATA`), a clear warning that signal-cli's data is managed outside Snowdrop and isn't encrypted by it.
    - **Recovery key:** create it, or replace it (a confirm step notes the old key stops working immediately), or remove it (confirm). The reveal-and-confirm step is the same component the first-run flow uses. With no recovery key, a gentle, dismissible reminder explains why one helps.
@@ -197,7 +209,7 @@ The message cache (IndexedDB) and the key-value store (localStorage) are encrypt
      plus a note that signal-cli can't unlink a device from the server
      itself, so the phone side needs doing by hand (Signal → Settings →
      Linked devices). That's also why `unregister` — the one signal-cli
-     method that *could* unlink a device — must stay off
+     method that _could_ unlink a device — must stay off
      `commands.rs`'s `ALLOWED_METHODS`: it only stops delivery, so it would
      look like it worked while leaving the device listed on the phone. The
      steps here, strictly ordered:
@@ -211,7 +223,7 @@ The message cache (IndexedDB) and the key-value store (localStorage) are encrypt
 
    `storage_sign_out` (`storage.rs`'s `StorageService::sign_out`) reuses
    Erase's own hooks (`add_on_erase`: stop signal-cli, then discard the
-   vault session *without* a final sync — see `VaultBridge::discard`) and
+   vault session _without_ a final sync — see `VaultBridge::discard`) and
    then deletes only the vault (manifests, blobs) and the runtime dir.
    Unlike Erase, `keys.json` and the keyring entry are left exactly alone,
    so storage stays set up: a restart finds `keys.json` right where it was

@@ -16,7 +16,7 @@ function fakeIpc(): {
   const ipc: TauriIpc = {
     invoke,
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters
-    listen: <T,>(event: string, h: (payload: T) => void) => {
+    listen: <T>(event: string, h: (payload: T) => void) => {
       if (event === EVENT_FLUSH_BEFORE_CLOSE) handler = h as (payload: unknown) => void;
       return Promise.resolve(() => {
         handler = null;
@@ -56,7 +56,7 @@ describe('onFlushBeforeClose', () => {
     expect(warn).toHaveBeenCalled();
   });
 
-  it("answers app_close_ready after its own timeout, even if the handler never settles", async () => {
+  it('answers app_close_ready after its own timeout, even if the handler never settles', async () => {
     vi.useFakeTimers();
     const { ipc, invoke, emit } = fakeIpc();
     await onFlushBeforeClose(() => new Promise<void>(() => {}), ipc);

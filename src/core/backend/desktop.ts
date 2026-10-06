@@ -104,8 +104,7 @@ export interface KeyringStatus {
 }
 
 export type InstallResult =
-  | { ok: true; status: InstallStatus }
-  | { ok: false; kind: DesktopErrorKind; message: string };
+  { ok: true; status: InstallStatus } | { ok: false; kind: DesktopErrorKind; message: string };
 
 /** `storage_setup`'s `mode` (src-tauri/src/storage.rs). */
 export type StorageSetupMode = 'keyring' | 'passphrase';

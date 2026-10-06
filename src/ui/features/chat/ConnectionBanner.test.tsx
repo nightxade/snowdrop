@@ -23,9 +23,7 @@ describe('ConnectionBanner', () => {
 
     act(() => {
       snowdrop!.stores.session.getState().setReady(true);
-      snowdrop!.stores.session
-        .getState()
-        .setError('boom (NullPointerException)', 'internal');
+      snowdrop!.stores.session.getState().setError('boom (NullPointerException)', 'internal');
       snowdrop!.stores.session.getState().setStatus('error');
     });
     await settle(snowdrop);

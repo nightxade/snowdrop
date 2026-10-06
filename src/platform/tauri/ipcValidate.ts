@@ -154,7 +154,10 @@ const createRecoveryResultShape: Decoder<CreateRecoveryResult> = object({
   status: storageStatusShape,
 });
 
-export function validateCreateRecoveryResult(command: string, value: unknown): CreateRecoveryResult {
+export function validateCreateRecoveryResult(
+  command: string,
+  value: unknown,
+): CreateRecoveryResult {
   return validated(command, createRecoveryResultShape, value);
 }
 
@@ -208,8 +211,5 @@ export function validateRpcReply(method: string, payload: unknown): RpcReply {
     return { error: { code: error.code, message: error.message, data: error.data } };
   }
   if ('result' in payload) return { result: payload.result };
-  throw invalidResponse(
-    'signal_cli_request',
-    `${method}: reply has neither a result nor an error`,
-  );
+  throw invalidResponse('signal_cli_request', `${method}: reply has neither a result nor an error`);
 }

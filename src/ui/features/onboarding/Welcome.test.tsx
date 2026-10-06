@@ -8,7 +8,12 @@ describe('Welcome (desktop)', () => {
   it('leads with "Use your Signal account" as the primary, focused choice', () => {
     const onConnect = vi.fn();
     render(
-      <Welcome desktop defaultDaemonUrl="/signal-cli" onDemo={() => undefined} onConnect={onConnect} />,
+      <Welcome
+        desktop
+        defaultDaemonUrl="/signal-cli"
+        onDemo={() => undefined}
+        onConnect={onConnect}
+      />,
     );
     const choice = screen.getByRole('button', { name: /Use your Signal account/u });
     expect(choice.textContent).toContain('Link this computer to your phone with a QR code');
@@ -31,7 +36,12 @@ describe('Welcome (desktop)', () => {
   it('demotes the demo to a small secondary link below the primary choice', () => {
     const onDemo = vi.fn();
     render(
-      <Welcome desktop defaultDaemonUrl="/signal-cli" onDemo={onDemo} onConnect={() => undefined} />,
+      <Welcome
+        desktop
+        defaultDaemonUrl="/signal-cli"
+        onDemo={onDemo}
+        onConnect={() => undefined}
+      />,
     );
     const demo = screen.getByRole('button', { name: /Not ready to link\? Try the demo first/u });
     expect(screen.getByText(/Nothing is sent anywhere\./u)).toBeTruthy();

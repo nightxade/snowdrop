@@ -39,9 +39,19 @@ function fakeDesktopAdmin(): DesktopAdmin {
       Promise.resolve({ ok: true, path: '/opt/snowdrop/signal-cli', source: 'bundled' }),
     info: () => Promise.resolve(desktopInfo),
     pinnedRelease: () =>
-      Promise.resolve({ version: '0.14.8', repo: 'https://github.com/AsamK/signal-cli', assetName: 'signal-cli-0.14.8-Linux-native.tar.gz', downloadSizeBytes: 114_000_000 }),
-    installStatus: () => Promise.resolve({ installed: true, version: '0.14.8', path: '/x/signal-cli' }),
-    install: () => Promise.resolve({ ok: true, status: { installed: true, version: '0.14.8', path: '/x/signal-cli' } }),
+      Promise.resolve({
+        version: '0.14.8',
+        repo: 'https://github.com/AsamK/signal-cli',
+        assetName: 'signal-cli-0.14.8-Linux-native.tar.gz',
+        downloadSizeBytes: 114_000_000,
+      }),
+    installStatus: () =>
+      Promise.resolve({ installed: true, version: '0.14.8', path: '/x/signal-cli' }),
+    install: () =>
+      Promise.resolve({
+        ok: true,
+        status: { installed: true, version: '0.14.8', path: '/x/signal-cli' },
+      }),
     cancelInstall: () => Promise.resolve(),
   };
 }
@@ -94,12 +104,10 @@ describe('About, desktop build (bundled)', () => {
     expect(screen.getByText(BUNDLED_INFO.dataDir)).toBeTruthy();
     const summary = screen.getByText('GNU General Public License v3 (signal-cli)');
     expect(summary.closest('details')?.textContent).toContain('Version 3');
+    expect(screen.getByText(/ships with this app as a separate, unmodified program/u)).toBeTruthy();
     expect(
-      screen.getByText(/ships with this app as a separate, unmodified program/u),
-    ).toBeTruthy();
-    expect(screen.getByRole('link', { name: 'THIRD_PARTY_NOTICES-rust.txt' }).getAttribute('href')).toBe(
-      '/THIRD_PARTY_NOTICES-rust.txt',
-    );
+      screen.getByRole('link', { name: 'THIRD_PARTY_NOTICES-rust.txt' }).getAttribute('href'),
+    ).toBe('/THIRD_PARTY_NOTICES-rust.txt');
   });
 });
 
@@ -115,10 +123,14 @@ describe('About, desktop build (downloaded, the default)', () => {
     const link = screen.getByRole('link', {
       name: /github\.com\/AsamK\/signal-cli\/releases\/tag\/v0\.14\.8/u,
     });
-    expect(link.getAttribute('href')).toBe('https://github.com/AsamK/signal-cli/releases/tag/v0.14.8');
+    expect(link.getAttribute('href')).toBe(
+      'https://github.com/AsamK/signal-cli/releases/tag/v0.14.8',
+    );
     expect(screen.queryByText('GNU General Public License v3 (signal-cli)')).toBeNull();
     expect(
-      screen.getByText(/The first time it runs, Snowdrop downloads it directly from its own authors/u),
+      screen.getByText(
+        /The first time it runs, Snowdrop downloads it directly from its own authors/u,
+      ),
     ).toBeTruthy();
   });
 });

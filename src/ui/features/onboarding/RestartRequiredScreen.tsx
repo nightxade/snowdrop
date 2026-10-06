@@ -32,14 +32,15 @@ export function RestartRequiredScreen({ onRestart }: RestartRequiredScreenProps)
           Restart Snowdrop to finish
         </h2>
         <p className={setupStyles.lede}>
-          Your local data was erased. Snowdrop needs to restart once before it can be set up
-          again.
+          Your local data was erased. Snowdrop needs to restart once before it can be set up again.
         </p>
         <div className={setupStyles.actions}>
           <Button
             type="button"
             variant="primary"
-            icon={busy ? <RotateCw size={16} className={setupStyles.spin} /> : <RotateCw size={16} />}
+            icon={
+              busy ? <RotateCw size={16} className={setupStyles.spin} /> : <RotateCw size={16} />
+            }
             autoFocus
             disabled={busy}
             onClick={() => {

@@ -394,57 +394,57 @@ instead.
 
 **Regions: `[data-snowdrop='…']`.** Every value used in the app:
 
-| Hook                   | Element                                     |
-| ---------------------- | ------------------------------------------- |
-| `app`                  | The whole shell                             |
-| `demo-banner`          | Persistent demo-mode banner above the shell |
-| `rail`                 | Spaces rail                                 |
-| `drawer`               | Rail + sidebar slide-over on narrow screens |
-| `sidebar`              | Conversation sidebar                        |
-| `sidebar-header`       | Sidebar title bar                           |
-| `conversation-list`    | Conversation list                           |
-| `conversation-row`     | One conversation in the sidebar             |
-| `section-header`       | Sidebar section / category header           |
-| `user-panel`           | Your profile at the bottom of the sidebar   |
-| `chat`                 | Chat column                                 |
-| `chat-header`          | Chat title bar                              |
-| `member-toggle`        | Member-list button in the chat header       |
-| `connection-banner`    | Connection-problem banner above the chat    |
-| `message-pane`         | Message area                                |
-| `message-log`          | The message list                            |
-| `conversation-intro`   | "Beginning of your conversation" block      |
-| `history-skeleton`     | Loading placeholder rows                    |
-| `message`              | One message row (see attributes below)      |
-| `message-body`         | The text of a message                       |
-| `hover-bar`            | Message hover actions                       |
-| `message-action-sheet` | Long-press action sheet (touch)             |
-| `system-message`       | Joined / renamed / timer lines              |
-| `new-divider`          | The "New" line at the first unread message  |
-| `new-messages-bar`     | "N new messages since …" bar                |
-| `jump-to-present`      | Jump-to-present pill                        |
-| `composer`             | Message composer                            |
-| `composer-input`       | The composer's textarea                     |
-| `attachment-tray`      | Attachments waiting to be sent              |
-| `reply-bar`            | "Replying to …" bar                         |
-| `autocomplete`         | @ / : / slash suggestions                   |
-| `typing-line`          | "… is typing" strip                         |
-| `drop-overlay`         | Drag-and-drop overlay                       |
-| `search-panel`         | In-conversation search results              |
-| `members`              | Member list                                 |
-| `member-row`           | One member                                  |
-| `settings`             | Settings screen                             |
-| `plugin-card`          | A plugin in Settings → Plugins              |
-| `welcome`              | Welcome / connection setup screens          |
-| `link-device`          | Device-linking screen                       |
+| Hook                   | Element                                            |
+| ---------------------- | -------------------------------------------------- |
+| `app`                  | The whole shell                                    |
+| `demo-banner`          | Persistent demo-mode banner above the shell        |
+| `rail`                 | Spaces rail                                        |
+| `drawer`               | Rail + sidebar slide-over on narrow screens        |
+| `sidebar`              | Conversation sidebar                               |
+| `sidebar-header`       | Sidebar title bar                                  |
+| `conversation-list`    | Conversation list                                  |
+| `conversation-row`     | One conversation in the sidebar                    |
+| `section-header`       | Sidebar section / category header                  |
+| `user-panel`           | Your profile at the bottom of the sidebar          |
+| `chat`                 | Chat column                                        |
+| `chat-header`          | Chat title bar                                     |
+| `member-toggle`        | Member-list button in the chat header              |
+| `connection-banner`    | Connection-problem banner above the chat           |
+| `message-pane`         | Message area                                       |
+| `message-log`          | The message list                                   |
+| `conversation-intro`   | "Beginning of your conversation" block             |
+| `history-skeleton`     | Loading placeholder rows                           |
+| `message`              | One message row (see attributes below)             |
+| `message-body`         | The text of a message                              |
+| `hover-bar`            | Message hover actions                              |
+| `message-action-sheet` | Long-press action sheet (touch)                    |
+| `system-message`       | Joined / renamed / timer lines                     |
+| `new-divider`          | The "New" line at the first unread message         |
+| `new-messages-bar`     | "N new messages since …" bar                       |
+| `jump-to-present`      | Jump-to-present pill                               |
+| `composer`             | Message composer                                   |
+| `composer-input`       | The composer's textarea                            |
+| `attachment-tray`      | Attachments waiting to be sent                     |
+| `reply-bar`            | "Replying to …" bar                                |
+| `autocomplete`         | @ / : / slash suggestions                          |
+| `typing-line`          | "… is typing" strip                                |
+| `drop-overlay`         | Drag-and-drop overlay                              |
+| `search-panel`         | In-conversation search results                     |
+| `members`              | Member list                                        |
+| `member-row`           | One member                                         |
+| `settings`             | Settings screen                                    |
+| `plugin-card`          | A plugin in Settings → Plugins                     |
+| `welcome`              | Welcome / connection setup screens                 |
+| `link-device`          | Device-linking screen                              |
 | `storage-setup`        | "Protect your data" encrypted-storage setup screen |
-| `recovery-key`         | Recovery-key suggestion / creation screen   |
-| `unlock`               | Encrypted-storage unlock screen             |
-| `storage-unavailable`  | Encrypted-storage unavailable screen        |
-| `restart-required`     | Restart-Snowdrop-to-finish screen, after an erase |
-| `note-badge`           | Pronoun & Notes Badge plugin's badge        |
-| `vim-mode`             | Vim Mode plugin's mode pill                 |
-| `vim-caret`            | Vim Mode plugin's block cursor              |
-| `vim-caret-layer`      | Clipping layer that holds the block cursor  |
+| `recovery-key`         | Recovery-key suggestion / creation screen          |
+| `unlock`               | Encrypted-storage unlock screen                    |
+| `storage-unavailable`  | Encrypted-storage unavailable screen               |
+| `restart-required`     | Restart-Snowdrop-to-finish screen, after an erase  |
+| `note-badge`           | Pronoun & Notes Badge plugin's badge               |
+| `vim-mode`             | Vim Mode plugin's mode pill                        |
+| `vim-caret`            | Vim Mode plugin's block cursor                     |
+| `vim-caret-layer`      | Clipping layer that holds the block cursor         |
 
 **Attributes on those elements:**
 

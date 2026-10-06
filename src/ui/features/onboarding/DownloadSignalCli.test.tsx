@@ -32,7 +32,8 @@ function fakeAdmin(overrides: Partial<DesktopAdmin> = {}): DesktopAdmin {
         downloadSizeBytes: 114_000_000,
       }),
     installStatus: () => Promise.resolve({ installed: false, version: null, path: null }),
-    install: () => Promise.resolve({ ok: true, status: { installed: true, version: '0.14.8', path: '/x' } }),
+    install: () =>
+      Promise.resolve({ ok: true, status: { installed: true, version: '0.14.8', path: '/x' } }),
     cancelInstall: () => Promise.resolve(),
     ...overrides,
   };
@@ -42,7 +43,9 @@ describe('DownloadSignalCli: idle', () => {
   it('names the version, source and size, with a download button', async () => {
     render(<DownloadSignalCli admin={fakeAdmin()} onInstalled={() => undefined} />);
     expect(
-      await screen.findByText(/signal-cli 0\.14\.8 from github\.com\/AsamK\/signal-cli \(about 114 MB\)/u),
+      await screen.findByText(
+        /signal-cli 0\.14\.8 from github\.com\/AsamK\/signal-cli \(about 114 MB\)/u,
+      ),
     ).toBeTruthy();
     expect(screen.getByRole('button', { name: /Download and continue/u })).toBeTruthy();
     expect(screen.queryByRole('progressbar')).toBeNull();
@@ -136,7 +139,8 @@ describe('DownloadSignalCli: error and retry', () => {
         Promise.resolve({
           ok: false,
           kind: 'config',
-          message: 'The download didn’t match what Snowdrop expected (checksum mismatch: expected a, got b).',
+          message:
+            'The download didn’t match what Snowdrop expected (checksum mismatch: expected a, got b).',
         }),
     });
     render(<DownloadSignalCli admin={admin} onInstalled={() => undefined} />);
@@ -153,7 +157,11 @@ describe('DownloadSignalCli: success', () => {
     render(
       <DownloadSignalCli
         admin={fakeAdmin({
-          install: () => Promise.resolve({ ok: true, status: { installed: true, version: '0.14.8', path: '/x' } }),
+          install: () =>
+            Promise.resolve({
+              ok: true,
+              status: { installed: true, version: '0.14.8', path: '/x' },
+            }),
         })}
         onInstalled={onInstalled}
       />,

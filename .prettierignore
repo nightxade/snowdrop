@@ -3,3 +3,11 @@ dist
 coverage
 package-lock.json
 docs/PLAN.md
+# Rust build output and generated/downloaded files
+src-tauri/target
+src-tauri/gen
+src-tauri/binaries
+src-tauri/licenses
+# cargo-about Handlebars template: whitespace is part of the output
+src-tauri/about.hbs
+.vitest

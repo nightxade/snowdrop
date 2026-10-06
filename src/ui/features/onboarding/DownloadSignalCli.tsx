@@ -42,7 +42,9 @@ export function DownloadSignalCli({
   const start = () => {
     setPhase({ step: 'downloading', received: 0, total: null });
     const onProgress = (p: InstallProgress) => {
-      setPhase((prev) => (prev.step === 'downloading' ? { ...prev, received: p.received, total: p.total } : prev));
+      setPhase((prev) =>
+        prev.step === 'downloading' ? { ...prev, received: p.received, total: p.total } : prev,
+      );
     };
     void admin.install(onProgress).then((result) => {
       if (result.ok) {
@@ -61,8 +63,11 @@ export function DownloadSignalCli({
     void admin.cancelInstall();
   };
 
-  const repoName = release ? release.repo.replace(/^https?:\/\//u, '') : 'github.com/AsamK/signal-cli';
-  const size = release?.downloadSizeBytes != null ? megabytes(release.downloadSizeBytes) : '~114 MB';
+  const repoName = release
+    ? release.repo.replace(/^https?:\/\//u, '')
+    : 'github.com/AsamK/signal-cli';
+  const size =
+    release?.downloadSizeBytes != null ? megabytes(release.downloadSizeBytes) : '~114 MB';
 
   return (
     <section className={styles.card} aria-labelledby="download-title">
@@ -72,15 +77,20 @@ export function DownloadSignalCli({
       {phase.step !== 'downloading' && (
         <p className={styles.lede}>
           Snowdrop talks to Signal through <code>signal-cli</code>, an independent, open-source
-          program. It isn’t included in Snowdrop itself — the app stays small, and signal-cli
-          always comes straight from its own authors — so the first time, Snowdrop downloads{' '}
-          {release ? `signal-cli ${release.version}` : 'it'} from {repoName} (about {size}). It
-          only runs on this computer, as a separate program Snowdrop starts and stops for you.
+          program. It isn’t included in Snowdrop itself — the app stays small, and signal-cli always
+          comes straight from its own authors — so the first time, Snowdrop downloads{' '}
+          {release ? `signal-cli ${release.version}` : 'it'} from {repoName} (about {size}). It only
+          runs on this computer, as a separate program Snowdrop starts and stops for you.
         </p>
       )}
       {phase.step === 'idle' && (
         <div className={styles.actions}>
-          <Button type="button" variant="primary" icon={<CloudDownload size={16} />} onClick={start}>
+          <Button
+            type="button"
+            variant="primary"
+            icon={<CloudDownload size={16} />}
+            onClick={start}
+          >
             Download and continue
           </Button>
         </div>
@@ -99,7 +109,11 @@ export function DownloadSignalCli({
             <div
               className={styles.progressFill}
               data-indeterminate={phase.total === null ? '' : undefined}
-              style={phase.total !== null ? { width: `${Math.min(100, (phase.received / phase.total) * 100)}%` } : undefined}
+              style={
+                phase.total !== null
+                  ? { width: `${Math.min(100, (phase.received / phase.total) * 100)}%` }
+                  : undefined
+              }
             />
           </div>
           <p className={styles.progressMeta}>
