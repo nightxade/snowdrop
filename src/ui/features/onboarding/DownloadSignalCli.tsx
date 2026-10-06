@@ -1,4 +1,4 @@
-import { CloudDownload, RotateCw, TriangleAlert } from 'lucide-react';
+import { CloudDownload, LoaderCircle, RotateCw, TriangleAlert } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { DesktopAdmin, InstallProgress, PinnedRelease } from '@/core/backend';
 import { friendlyErrorMessage } from '@/ui/lib/connectionErrors';
@@ -8,6 +8,9 @@ import styles from './Setup.module.css';
 type Phase =
   | { step: 'idle' }
   | { step: 'downloading'; received: number; total: number | null }
+  // signal-cli itself starting can take a few seconds after the download
+  // finishes installing; shown until the parent swaps this screen away.
+  | { step: 'starting' }
   | { step: 'error'; message: string; detail: string };
 
 function megabytes(bytes: number): string {
@@ -48,6 +51,7 @@ export function DownloadSignalCli({
     };
     void admin.install(onProgress).then((result) => {
       if (result.ok) {
+        setPhase({ step: 'starting' });
         onInstalled();
       } else {
         setPhase({
@@ -74,7 +78,7 @@ export function DownloadSignalCli({
       <h2 id="download-title" className={styles.title}>
         Get signal-cli
       </h2>
-      {phase.step !== 'downloading' && (
+      {(phase.step === 'idle' || phase.step === 'error') && (
         <p className={styles.lede}>
           Snowdrop talks to Signal through <code>signal-cli</code>, an independent, open-source
           program. It isn’t included in Snowdrop itself — the app stays small, and signal-cli always
@@ -127,6 +131,14 @@ export function DownloadSignalCli({
               Cancel
             </Button>
           </div>
+        </div>
+      )}
+      {phase.step === 'starting' && (
+        <div className={styles.waiting}>
+          <p className={styles.status} role="status">
+            <LoaderCircle className={styles.spin} size={16} aria-hidden />
+            Starting signal-cli…
+          </p>
         </div>
       )}
       {phase.step === 'error' && (

@@ -1,4 +1,4 @@
-// CommandPalette (cmdk), QrCode (qrcode) and CodeEditor are imported by path
+// CommandPalette (cmdk), QrCode (uqr) and CodeEditor are imported by path
 // (e.g. '@/ui/primitives/QrCode'), not from this barrel: their CSS side
 // effects would otherwise pull them into every chunk that uses the barrel.
 export { Avatar, type AvatarProps, type AvatarSize } from './Avatar';

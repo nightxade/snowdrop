@@ -214,6 +214,7 @@ pub fn run() {
             commands::storage_sign_out,
             commands::app_restart,
             commands::app_close_ready,
+            commands::frontend_log,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Snowdrop");

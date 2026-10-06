@@ -137,12 +137,6 @@ export const LICENCES: readonly LicenceEntry[] = [
     url: 'https://lucide.dev',
   },
   {
-    name: 'qrcode',
-    version: '1.5.4',
-    license: 'MIT',
-    url: 'http://github.com/soldair/node-qrcode',
-  },
-  {
     name: 'react',
     version: '19.3.0',
     license: 'MIT',
@@ -165,6 +159,12 @@ export const LICENCES: readonly LicenceEntry[] = [
     version: '2.0.8',
     license: 'MIT',
     url: 'https://sonner.emilkowal.ski/',
+  },
+  {
+    name: 'uqr',
+    version: '0.1.3',
+    license: 'MIT',
+    url: 'https://github.com/unjs/uqr#readme',
   },
   {
     name: 'zustand',

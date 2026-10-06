@@ -1,3 +1,4 @@
+/// <reference types="node" />
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { ACCENT_PRESETS, BUILTIN_THEMES, DUSK_BASE } from './builtin';

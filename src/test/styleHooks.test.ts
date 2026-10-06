@@ -1,3 +1,4 @@
+/// <reference types="node" />
 /**
  * Every `data-snowdrop` value in the source is a documented style hook, and
  * every documented hook exists: Settings → Custom CSS and THEMING.md both

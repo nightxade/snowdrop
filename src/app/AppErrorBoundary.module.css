@@ -1,0 +1,18 @@
+/* AppErrorBoundary's fallback card builds on Setup.module.css's .card,
+ * .title, .lede, .actions, .muted and Storage.module.css's .disclosure —
+ * this file only adds the scrollable stack trace. */
+
+.stack {
+  max-height: 220px;
+  margin: 0;
+  overflow: auto;
+  padding: var(--snowdrop-space-4);
+  border-radius: var(--snowdrop-radius-sm);
+  background: var(--snowdrop-code-bg);
+  color: var(--snowdrop-text-muted);
+  font-family: var(--snowdrop-font-mono);
+  font-size: var(--snowdrop-font-size-xs);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

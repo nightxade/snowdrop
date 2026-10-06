@@ -433,3 +433,19 @@ mod tests {
         }
     }
 }
+
+/// A frontend error (uncaught render error, unhandled rejection) written to
+/// stderr, so a blank window run from a terminal still says what failed.
+/// Capped so a runaway page can't flood the terminal.
+#[tauri::command]
+pub fn frontend_log(message: String) {
+    let mut message = message;
+    if message.len() > 4000 {
+        let mut end = 4000;
+        while !message.is_char_boundary(end) {
+            end -= 1;
+        }
+        message.truncate(end);
+    }
+    eprintln!("[snowdrop:frontend] {message}");
+}

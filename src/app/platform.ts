@@ -104,3 +104,41 @@ export function installFlushBeforeClose(handler: () => Promise<void>): void {
       console.error('[snowdrop] failed to register the close handshake', error);
     });
 }
+
+function describeError(error: unknown): string {
+  if (error instanceof Error) return error.stack ?? `${error.name}: ${error.message}`;
+  return String(error);
+}
+
+/**
+ * Desktop: copies uncaught page errors and unhandled rejections to the
+ * terminal (stderr). Returns the same reporter for React's root error
+ * callbacks. A no-op reporter in the browser build.
+ */
+export function installTerminalErrorLog(): (error: unknown, where: string) => void {
+  if (!isTauri()) return () => {};
+  const report = (error: unknown, where: string) => {
+    const message = `${where}: ${describeError(error)}`;
+    void platform()
+      .then((m) => {
+        m.logToTerminal(message);
+      })
+      .catch(() => {});
+  };
+  window.addEventListener('error', (event) => {
+    report(event.error ?? event.message, 'uncaught error');
+  });
+  window.addEventListener('unhandledrejection', (event) => {
+    report(event.reason, 'unhandled rejection');
+  });
+  // The app's own failure logs ("failed to start", connection errors) too.
+  const consoleError = console.error.bind(console);
+  console.error = (...args: unknown[]) => {
+    consoleError(...args);
+    report(
+      args.map((a) => (typeof a === 'string' ? a : describeError(a))).join(' '),
+      'console.error',
+    );
+  };
+  return report;
+}

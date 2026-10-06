@@ -1,3 +1,4 @@
+export { AppErrorBoundary, type AppErrorBoundaryProps } from './AppErrorBoundary';
 export { createSnowdrop, type Snowdrop, type SnowdropOptions } from './createSnowdrop';
 export { SnowdropProvider, useSnowdrop } from './SnowdropProvider';
 export { App } from './App';
@@ -5,4 +6,4 @@ export { createPersistence, type CreatePersistenceOptions, type Persistence } fr
 export { DesktopBootedApp, type DesktopBootedAppProps } from './DesktopBootedApp';
 export { installBootHelpers, type InstallBootHelpersOptions } from './installBootHelpers';
 export { StorageGate, type StorageGateProps } from './StorageGate';
-export { desktopStorageAdmin, isTauri } from './platform';
+export { desktopStorageAdmin, installTerminalErrorLog, isTauri } from './platform';

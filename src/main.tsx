@@ -2,10 +2,12 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   App,
+  AppErrorBoundary,
   createSnowdrop,
   desktopStorageAdmin,
   DesktopBootedApp,
   installBootHelpers,
+  installTerminalErrorLog,
   isTauri,
   SnowdropProvider,
   StorageGate,
@@ -15,22 +17,35 @@ import '@/ui/styles/global.css';
 const container = document.getElementById('root');
 if (!container) throw new Error('Missing #root element');
 
+// A no-op: without it, React additionally logs every error AppErrorBoundary
+// catches via its own default (console.error), double-reporting it next to
+// `report`'s explicit call in AppErrorBoundary.componentDidCatch below.
+const onCaughtError = () => {};
+
 if (isTauri()) {
   // The desktop app's data is encrypted at rest (docs/ENCRYPTION.md):
   // `StorageGate` owns everything that has to happen before a Snowdrop
   // instance — needing setup, locked, or unavailable — can even exist.
-  createRoot(container).render(
+  const report = installTerminalErrorLog();
+  createRoot(container, {
+    onUncaughtError: (error, info) => {
+      report(error, `uncaught render error${info.componentStack ?? ''}`);
+    },
+    onCaughtError,
+  }).render(
     <StrictMode>
-      <StorageGate admin={desktopStorageAdmin()} document={document}>
-        {({ storage, repository }, registerFlusher) => (
-          <DesktopBootedApp
-            storage={storage}
-            repository={repository}
-            document={document}
-            registerFlusher={registerFlusher}
-          />
-        )}
-      </StorageGate>
+      <AppErrorBoundary report={report}>
+        <StorageGate admin={desktopStorageAdmin()} document={document}>
+          {({ storage, repository }, registerFlusher) => (
+            <DesktopBootedApp
+              storage={storage}
+              repository={repository}
+              document={document}
+              registerFlusher={registerFlusher}
+            />
+          )}
+        </StorageGate>
+      </AppErrorBoundary>
     </StrictMode>,
   );
 } else {
@@ -57,16 +72,23 @@ function bootBrowser(container: HTMLElement): void {
   // per instance.
   installBootHelpers({ snowdrop, safeMode });
 
-  createRoot(container).render(
+  // A no-op reporter outside Tauri (nothing to send to a terminal), but
+  // AppErrorBoundary still wraps the tree so a render error doesn't blank
+  // the window here either.
+  const report = installTerminalErrorLog();
+
+  createRoot(container, { onCaughtError }).render(
     <StrictMode>
-      <SnowdropProvider snowdrop={snowdrop}>
-        <App
-          onBackendChange={() => {
-            // createSnowdrop picks the transport once; a new choice needs a fresh instance.
-            void snowdrop.admin.reload();
-          }}
-        />
-      </SnowdropProvider>
+      <AppErrorBoundary report={report}>
+        <SnowdropProvider snowdrop={snowdrop}>
+          <App
+            onBackendChange={() => {
+              // createSnowdrop picks the transport once; a new choice needs a fresh instance.
+              void snowdrop.admin.reload();
+            }}
+          />
+        </SnowdropProvider>
+      </AppErrorBoundary>
     </StrictMode>,
   );
 }

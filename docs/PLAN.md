@@ -76,7 +76,7 @@ where it is more detailed than §3–§5, §8 is right. Developer-facing guides:
 | Emoji picker/data  | `frimousse` (MIT, unstyled, themeable) + `emojibase-data` | picker + `:shortcode:` autocomplete |
 | Toasts             | `sonner` (MIT)                                      | notifications/errors |
 | Floating UI        | `@floating-ui/react` (MIT)                          | autocomplete popover anchored to caret |
-| QR                 | `qrcode` (MIT)                                      | device linking |
+| QR                 | `uqr` (MIT)                                          | device linking |
 | Tests              | Vitest + Testing Library + happy-dom                | |
 | Lint/format        | ESLint (typescript-eslint, react-hooks, import boundaries) + Prettier | |
 
@@ -1243,10 +1243,12 @@ filter context, `pages/`, `plugins/`, `themes/`, `keybinds/`, `about/`),
 `core/backend/signal-cli/probe.ts`, `app/deferredBackend.ts`. Primitives:
 `CommandPalette` (cmdk wrapper; filtering always ours), `Select` (native),
 `Slider`, `Segmented` (radio pattern), `Checkbox`, `ColorField`,
-`CodeEditor`, `QrCode` (qrcode → one SVG path, no innerHTML),
+`CodeEditor`, `QrCode` (uqr → one SVG path, no innerHTML),
 `FullScreenDialog`; `Modal` gained `flush` and `size="xl"`, `Switch` an
 external `id`, `IconButton` a `data-icon-button` hook. New deps: `cmdk`,
-`qrcode` (MIT), dev `@types/qrcode` (MIT).
+`uqr` (MIT). (Originally `qrcode`, swapped in 2026-10 after it crashed under
+Tauri's `freezePrototype` by assigning to `exports.toString` at module init;
+`uqr` has no runtime deps and never touches `Object.prototype`.)
 
 **Quick switcher.** `switcher/model.ts` ranks with `fuzzyMatch` (+2 mention,
 +1 unread nudges; commands −6 when unscoped). Prefixes `>` `@` `#` `*`

@@ -1,5 +1,5 @@
-import { create as createQr } from 'qrcode';
 import { useMemo } from 'react';
+import { encode as encodeQr } from 'uqr';
 import styles from './QrCode.module.css';
 
 export interface QrCodeProps {
@@ -16,11 +16,11 @@ export interface QrCodeProps {
  */
 export function QrCode({ value, size = 220, label }: QrCodeProps) {
   const { path, count } = useMemo(() => {
-    const qr = createQr(value, { errorCorrectionLevel: 'M' });
-    const n = qr.modules.size;
+    const qr = encodeQr(value, { ecc: 'M', border: 0 });
+    const n = qr.size;
     let d = '';
     for (let y = 0; y < n; y++)
-      for (let x = 0; x < n; x++) if (qr.modules.get(y, x)) d += `M${x} ${y}h1v1h-1z`;
+      for (let x = 0; x < n; x++) if (qr.data[y]?.[x]) d += `M${x} ${y}h1v1h-1z`;
     return { path: d, count: n };
   }, [value]);
   const quiet = 4;

@@ -28,6 +28,7 @@ fn main() {
             "storage_sign_out",
             "app_restart",
             "app_close_ready",
+            "frontend_log",
         ])),
     )
     .expect("failed to run tauri-build");

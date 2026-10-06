@@ -50,6 +50,7 @@ export const STYLE_HOOKS = [
   { hook: 'unlock', what: 'Encrypted-storage unlock screen' },
   { hook: 'storage-unavailable', what: 'Encrypted-storage unavailable screen' },
   { hook: 'restart-required', what: 'Restart-Snowdrop-to-finish screen, after an erase' },
+  { hook: 'app-error', what: 'App-level error boundary’s fallback card' },
   { hook: 'note-badge', what: 'Pronoun & Notes Badge plugin’s badge' },
   { hook: 'vim-mode', what: 'Vim Mode plugin’s mode pill' },
   { hook: 'vim-caret', what: 'Vim Mode plugin’s block cursor (has data-vim-mode, data-focused)' },

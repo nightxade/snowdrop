@@ -33,6 +33,7 @@
     "allow-storage-erase-all",
     "allow-storage-sign-out",
     "allow-app-restart",
-    "allow-app-close-ready"
+    "allow-app-close-ready",
+    "allow-frontend-log"
   ]
 }

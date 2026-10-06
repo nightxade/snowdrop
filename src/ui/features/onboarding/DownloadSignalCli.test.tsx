@@ -152,7 +152,7 @@ describe('DownloadSignalCli: error and retry', () => {
 });
 
 describe('DownloadSignalCli: success', () => {
-  it('continues straight on, with no extra screen', async () => {
+  it('moves to a starting phase and calls onInstalled, without the progress bar lingering', async () => {
     const onInstalled = vi.fn();
     render(
       <DownloadSignalCli
@@ -172,6 +172,27 @@ describe('DownloadSignalCli: success', () => {
     await act(async () => {
       await Promise.resolve();
     });
+    expect(onInstalled).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('progressbar')).toBeNull();
+  });
+});
+
+describe('DownloadSignalCli: starting', () => {
+  it('shows a spinner and "Starting signal-cli…" once install resolves, before the parent moves on', async () => {
+    const onInstalled = vi.fn();
+    const admin = fakeAdmin({
+      install: () =>
+        Promise.resolve({ ok: true, status: { installed: true, version: '0.14.8', path: '/x' } }),
+    });
+    render(<DownloadSignalCli admin={admin} onInstalled={onInstalled} />);
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: /Download and continue/u }));
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const status = screen.getByRole('status');
+    expect(status.textContent).toContain('Starting signal-cli…');
     expect(onInstalled).toHaveBeenCalledTimes(1);
   });
 });
