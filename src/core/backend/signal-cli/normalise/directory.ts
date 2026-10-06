@@ -37,6 +37,9 @@ export function toContact(c: WireContact, selfId: string): Contact | null {
   if (c.profile?.about) contact.about = c.profile.about;
   if (c.profile?.aboutEmoji) contact.aboutEmoji = c.profile.aboutEmoji;
   if (c.isBlocked) contact.blocked = true;
+  if (c.isHidden) contact.hidden = true;
+  if (c.unregistered) contact.unregistered = true;
+  if (c.profileSharing) contact.profileSharing = true;
   if (id === selfId) contact.isSelf = true;
   return contact;
 }

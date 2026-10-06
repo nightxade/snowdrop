@@ -249,6 +249,8 @@ export const wireContact = object({
   isHidden: withDefault(bool, false),
   messageExpirationTime: withDefault(num, 0),
   unregistered: withDefault(bool, false),
+  /** Signal's "you've chatted, or accepted their message request" flag. */
+  profileSharing: withDefault(bool, false),
   profile: maybe(
     object({
       givenName: optStr,

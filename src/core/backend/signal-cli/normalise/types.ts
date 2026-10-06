@@ -48,5 +48,5 @@ export type AdapterEvent =
       actorId: string;
       sentAt: number;
     }
-  /** Contacts or block list were synced from the primary device. */
+  /** Contacts, groups, or the block list were synced from the primary device: re-list both. */
   | { kind: 'contactsChanged' };

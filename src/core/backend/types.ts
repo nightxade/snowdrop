@@ -222,6 +222,14 @@ export interface ChatBackend {
   updateConversation?(conversationId: ConversationId, patch: ConversationPatch): Promise<void>;
 
   /**
+   * Asks the primary device to resend contacts, groups and the block list,
+   * when the protocol supports it (signal-cli: `sendSyncRequest`). Settings
+   * → Connection's "Sync contacts and groups" is the only caller; adapters
+   * without an equivalent (the mock) omit it.
+   */
+  syncContactsAndGroups?(): Promise<void>;
+
+  /**
    * Server-side history, when the transport has any. signal-cli keeps no
    * history (we persist everything we see), so only the mock implements this
    * to provide a rich seeded world. Callers must treat it as optional.

@@ -32,6 +32,12 @@
   font-size: var(--snowdrop-font-size-sm);
 }
 
+/* signal-cli only: there's no history before this device was linked. */
+.historyNote {
+  color: var(--snowdrop-text-faint);
+  font-size: var(--snowdrop-font-size-sm);
+}
+
 .skeleton {
   display: flex;
   flex-direction: column;

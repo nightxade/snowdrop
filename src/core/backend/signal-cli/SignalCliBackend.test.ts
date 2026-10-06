@@ -111,6 +111,7 @@ function daemonWithAccount() {
     .reply('sendReceipt', { timestamp: 1, results: [] })
     .reply('updateGroup', { timestamp: 1, results: [] })
     .reply('updateContact', {})
+    .reply('sendSyncRequest', {})
     .reply('getAttachment', { data: 'aGVsbG8=' });
   return { daemon, groups, contacts };
 }
@@ -275,6 +276,9 @@ describe('SignalCliBackend: directory', () => {
     const contacts = await backend.listContacts();
     expect(contacts.map((c) => c.name)).toEqual(['Alice Liddell', 'Bob Ross']);
 
+    // Alice and Bob both have profileSharing (Signal's "you've chatted, or
+    // accepted their message request"), so they're listed even though
+    // neither has any recorded local activity yet.
     const before = await backend.listConversations();
     expect(before).toEqual([
       {
@@ -287,6 +291,18 @@ describe('SignalCliBackend: directory', () => {
         expireTimerSec: 0,
         lastActivityAt: 0,
       },
+      expect.objectContaining({
+        id: directConversationId(ALICE),
+        title: 'Alice Liddell',
+        expireTimerSec: 3600,
+        lastActivityAt: 0,
+      }),
+      expect.objectContaining({
+        id: directConversationId(BOB),
+        title: 'Bob Ross',
+        expireTimerSec: 0,
+        lastActivityAt: 0,
+      }),
     ]);
 
     const updates = collect(backend, 'conversationUpdated');
@@ -298,8 +314,17 @@ describe('SignalCliBackend: directory', () => {
         expireTimerSec: 3600,
       }),
     ]);
+    // Activity promotes Alice above her lastActivityAt-0 placement; Bob
+    // (no activity) still shows up from profileSharing alone.
     const after = await backend.listConversations();
-    expect(after.map((c) => c.id)).toEqual([GROUP, directConversationId(ALICE)]);
+    expect(after.map((c) => c.id)).toEqual([
+      GROUP,
+      directConversationId(ALICE),
+      directConversationId(BOB),
+    ]);
+    expect(after.find((c) => c.id === directConversationId(ALICE))?.lastActivityAt).toBeGreaterThan(
+      0,
+    );
     await backend.disconnect();
   });
 
@@ -357,6 +382,147 @@ describe('SignalCliBackend: directory', () => {
     const updated = collect(backend, 'contactUpdated');
     await backend.ingest(fixtures.contactsSync);
     expect(updated.map((c) => c.name)).toEqual(['Robert Ross']);
+    await backend.disconnect();
+  });
+
+  it('re-lists groups too (not just contacts) after a contacts/groups sync, announcing new ones', async () => {
+    const { backend, groups, daemon } = await connected();
+    const NEW_GROUP_ID = 'bmV3Z3JvdXA=';
+    groups.push(
+      group({
+        id: NEW_GROUP_ID,
+        name: 'New Group',
+        members: [{ number: SELF_NUMBER, uuid: SELF_ACI, isAdmin: true }],
+        admins: [{ number: SELF_NUMBER, uuid: SELF_ACI }],
+      }),
+    );
+    const updates = collect(backend, 'conversationUpdated');
+    const before = daemon.callsTo('listGroups').length;
+    // A GROUPS_SYNC lands just as plausibly as a CONTACTS_SYNC right after
+    // linking; either bypasses the cache TTL for both lists.
+    await backend.ingest(fixtures.groupsSync);
+    expect(daemon.callsTo('listGroups')).toHaveLength(before + 1);
+    expect(updates).toContainEqual(
+      expect.objectContaining({ id: groupConversationId(NEW_GROUP_ID), title: 'New Group' }),
+    );
+    await backend.disconnect();
+  });
+
+  it('keeps re-checking groups post-connect while the count is still changing, then stops', async () => {
+    const { backend, groups, daemon, scheduler } = await connected();
+    const before = daemon.callsTo('listGroups').length;
+    // 5s check: a new group showed up, so the chain keeps going.
+    groups.push(
+      group({
+        id: 'bmV3MQ==',
+        name: 'New 1',
+        members: [{ number: SELF_NUMBER, uuid: SELF_ACI, isAdmin: true }],
+      }),
+    );
+    scheduler.advance(5_000);
+    await flush();
+    expect(daemon.callsTo('listGroups')).toHaveLength(before + 1);
+    // 20s check: another new group, still changing.
+    groups.push(
+      group({
+        id: 'bmV3Mg==',
+        name: 'New 2',
+        members: [{ number: SELF_NUMBER, uuid: SELF_ACI, isAdmin: true }],
+      }),
+    );
+    scheduler.advance(15_000);
+    await flush();
+    expect(daemon.callsTo('listGroups')).toHaveLength(before + 2);
+    // 60s check: nothing new this time -> the chain stops.
+    scheduler.advance(40_000);
+    await flush();
+    expect(daemon.callsTo('listGroups')).toHaveLength(before + 3);
+    // The 180s check never happens.
+    scheduler.advance(120_000);
+    await flush();
+    expect(daemon.callsTo('listGroups')).toHaveLength(before + 3);
+    await backend.disconnect();
+  });
+
+  it('(regression) keeps checking while there are no groups yet, so a late sync still lands', async () => {
+    const { backend, groups, daemon, scheduler } = await connected();
+    // Freshly linked: the phone's sync hasn't arrived, so no groups at first.
+    groups.splice(0);
+    const updates = collect(backend, 'conversationUpdated');
+    const before = daemon.callsTo('listGroups').length;
+    scheduler.advance(5_000);
+    await flush();
+    scheduler.advance(15_000);
+    await flush();
+    // Two empty checks in a row must not end the chain.
+    expect(daemon.callsTo('listGroups')).toHaveLength(before + 2);
+    groups.push(
+      group({
+        id: 'bGF0ZQ==',
+        name: 'Late Group',
+        members: [{ number: SELF_NUMBER, uuid: SELF_ACI, isAdmin: true }],
+      }),
+    );
+    scheduler.advance(40_000);
+    await flush();
+    expect(updates).toContainEqual(
+      expect.objectContaining({ id: groupConversationId('bGF0ZQ=='), title: 'Late Group' }),
+    );
+    await backend.disconnect();
+  });
+
+  it('lists profileSharing contacts as DMs without activity, excluding self/blocked/hidden/unregistered/un-shared', async () => {
+    const HIDDEN = 'c3333333-3333-4333-8333-333333333333';
+    const GONE = 'd4444444-4444-4444-8444-444444444444';
+    const QUIET = 'e5555555-5555-4555-8555-555555555555';
+    const daemon = new FakeDaemon()
+      .reply('listAccounts', [{ number: SELF_NUMBER, aci: SELF_ACI }])
+      .handle('listGroups', () => ({ result: [] }))
+      .handle('listContacts', () => ({
+        result: [
+          contact(SELF_ACI, SELF_NUMBER, 'Me Myself'),
+          contact(ALICE, ALICE_NUMBER, 'Alice Liddell'),
+          contact(BOB, BOB_NUMBER, 'Bob Ross', { isBlocked: true }),
+          contact(HIDDEN, '+15550003333', 'Hidden Helen', { isHidden: true }),
+          contact(GONE, '+15550004444', 'Gone Gary', { unregistered: true }),
+          contact(QUIET, '+15550005555', 'No Sharing Nancy', { profileSharing: false }),
+        ],
+      }));
+    const { backend } = setup({ daemon });
+    await backend.connect();
+    await flush();
+    expect((await backend.listConversations()).map((c) => c.id)).toEqual([
+      directConversationId(ALICE),
+    ]);
+    await backend.disconnect();
+  });
+
+  it('does not duplicate a profileSharing contact already tracked as an active DM under an alias', async () => {
+    const s = setup();
+    // Alice's recorded activity lives under her number (DirectPeers, see peers.ts).
+    s.storage.setItem(
+      `snowdrop.signal-cli.peers.${SELF_ACI}`,
+      JSON.stringify({ peers: { [ALICE_NUMBER]: T0 }, aliases: {} }),
+    );
+    await s.backend.connect();
+    await flush();
+    const convs = await s.backend.listConversations();
+    const aliceConvs = convs.filter(
+      (c) => c.kind === 'direct' && c.memberIds.includes(ALICE_NUMBER),
+    );
+    expect(aliceConvs).toHaveLength(1);
+    expect(aliceConvs[0]).toMatchObject({ lastActivityAt: T0 });
+    await s.backend.disconnect();
+  });
+
+  it('syncContactsAndGroups asks the daemon to resend contacts/groups and force-re-lists', async () => {
+    const { backend, daemon } = await connected();
+    const beforeGroups = daemon.callsTo('listGroups').length;
+    const beforeContacts = daemon.callsTo('listContacts').length;
+    await backend.syncContactsAndGroups();
+    expect(daemon.callsTo('sendSyncRequest')).toHaveLength(1);
+    expect(daemon.callsTo('listGroups').length).toBeGreaterThan(beforeGroups);
+    expect(daemon.callsTo('listContacts').length).toBeGreaterThan(beforeContacts);
     await backend.disconnect();
   });
 

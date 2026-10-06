@@ -35,6 +35,7 @@ export function ConnectionPage() {
   const [url, setUrl] = useState(saved.daemonUrl);
   const [account, setAccount] = useState(saved.account ?? '');
   const [probe, setProbe] = useState<DaemonProbe | 'testing' | null>(null);
+  const [syncState, setSyncState] = useState<'idle' | 'busy' | 'done'>('idle');
   const [confirm, setConfirm] = useState(false);
   const [signOutOpen, setSignOutOpen] = useState(false);
   // The desktop app runs signal-cli itself: no daemon URL, its own settings.
@@ -236,6 +237,43 @@ export function ConnectionPage() {
                 }}
               />
             )}
+          />
+        )}
+        {running === 'signal-cli' && self && (
+          <SettingRow
+            id="connection.syncContactsAndGroups"
+            label="Sync contacts and groups"
+            description="Asks your phone to resend your contacts, groups and block list. Useful right after linking, while Snowdrop is still catching up."
+            control={
+              <Button
+                icon={
+                  syncState === 'busy' ? (
+                    <LoaderCircle size={16} className={styles.spin} />
+                  ) : (
+                    <RefreshCw size={16} />
+                  )
+                }
+                disabled={syncState === 'busy'}
+                onClick={() => {
+                  setSyncState('busy');
+                  void app.admin
+                    .syncContactsAndGroups()
+                    .then(() => {
+                      setSyncState('done');
+                    })
+                    .catch((error: unknown) => {
+                      setSyncState('idle');
+                      app.stores.ui.getState().pushToast({
+                        message: `Sync failed: ${error instanceof Error ? error.message : String(error)}`,
+                        kind: 'error',
+                        source: 'core',
+                      });
+                    });
+                }}
+              >
+                {syncState === 'busy' ? 'Syncing…' : syncState === 'done' ? 'Synced' : 'Sync now'}
+              </Button>
+            }
           />
         )}
         <SettingRow

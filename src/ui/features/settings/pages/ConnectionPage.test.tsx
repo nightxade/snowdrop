@@ -226,3 +226,77 @@ describe('Settings → Connection, browser build: switching signal-cli accounts'
     }
   });
 });
+
+describe('Settings → Connection: sync contacts and groups', () => {
+  async function bootConnectedSignalCli(daemon: FakeDaemon): Promise<Snowdrop> {
+    const storage = createMemoryStorage({
+      'snowdrop.settings': JSON.stringify({
+        v: 2,
+        data: {
+          connection: { backend: 'signal-cli', daemonUrl: '/signal-cli', account: SELF_ACI },
+        },
+      }),
+    });
+    const s = createSnowdrop({
+      storage,
+      fetch: daemon.fetch,
+      repository: new MemoryMessageRepository(),
+    });
+    await act(async () => {
+      await s.start();
+      await flush();
+    });
+    return s;
+  }
+
+  it('is hidden for the demo backend', async () => {
+    snowdrop = await bootSnowdrop();
+    renderWithSnowdrop(snowdrop, <ConnectionPage />);
+    expect(screen.queryByText('Sync contacts and groups')).toBeNull();
+  });
+
+  it('calls sendSyncRequest, then re-lists, with busy/done states', async () => {
+    const daemon = new FakeDaemon()
+      .reply('listAccounts', [{ number: SELF_NUMBER, aci: SELF_ACI }])
+      .reply('listContacts', [])
+      .reply('listGroups', [])
+      .reply('sendSyncRequest', {});
+    snowdrop = await bootConnectedSignalCli(daemon);
+    renderWithSnowdrop(snowdrop, <ConnectionPage />);
+
+    const button = screen.getByRole('button', { name: 'Sync now' });
+    act(() => {
+      fireEvent.click(button);
+    });
+    expect(screen.getByRole('button', { name: 'Syncing…' })).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Synced' })).toBeTruthy();
+    });
+    expect(daemon.callsTo('sendSyncRequest')).toHaveLength(1);
+  });
+
+  it('shows an error toast when the sync request fails', async () => {
+    const daemon = new FakeDaemon()
+      .reply('listAccounts', [{ number: SELF_NUMBER, aci: SELF_ACI }])
+      .reply('listContacts', [])
+      .reply('listGroups', [])
+      .handle('sendSyncRequest', () => ({ error: { code: -1, message: 'no primary device' } }));
+    snowdrop = await bootConnectedSignalCli(daemon);
+    renderWithSnowdrop(snowdrop, <ConnectionPage />);
+
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: 'Sync now' }));
+    });
+    // No <Toaster/> is mounted by renderWithSnowdrop; the toast store is the
+    // source of truth that an error toast (not a crash) was raised.
+    await waitFor(() => {
+      expect(snowdrop!.stores.ui.getState().toasts).toEqual([
+        expect.objectContaining({
+          kind: 'error',
+          message: expect.stringContaining('Sync failed') as unknown,
+        }),
+      ]);
+    });
+    expect(screen.getByRole('button', { name: 'Sync now' })).toBeTruthy();
+  });
+});

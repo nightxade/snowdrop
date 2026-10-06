@@ -190,8 +190,13 @@ export function normaliseEnvelope(envelope: WireEnvelope, ctx: NormaliseContext)
         },
       });
     }
+    // Right after linking, signal-cli is still receiving the contacts/groups
+    // sync it requested from the phone automatically; CONTACTS_SYNC and
+    // GROUPS_SYNC (and a non-empty block list) are the daemon's signal that
+    // there's fresh directory data to re-list, bypassing the cache TTL.
     if (
       sync.type === 'CONTACTS_SYNC' ||
+      sync.type === 'GROUPS_SYNC' ||
       sync.blockedNumbers.length > 0 ||
       sync.blockedGroupIds.length > 0
     ) {

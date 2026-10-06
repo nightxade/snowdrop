@@ -429,6 +429,14 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
       persistenceStopped = true;
       for (const binding of currentBindings()) binding.dispose();
     },
+    syncContactsAndGroups: async () => {
+      // Optional capability: backends without an equivalent (the mock) just
+      // don't implement it. The resulting contacts/groups land through the
+      // adapter's own conversationUpdated/contactUpdated events, which
+      // SyncService already turns into store updates — nothing further to
+      // do here.
+      await backend.syncContactsAndGroups?.();
+    },
   };
 
   return {

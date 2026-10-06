@@ -386,6 +386,8 @@ export const fixtures = {
 
   contactsSync: receive('self', { syncMessage: { type: 'CONTACTS_SYNC' } }),
 
+  groupsSync: receive('self', { syncMessage: { type: 'GROUPS_SYNC' } }),
+
   sticker: receive('alice', {
     dataMessage: dataMessage({ sticker: { packId: 'a1b2c3d4', stickerId: 3 } }),
   }),

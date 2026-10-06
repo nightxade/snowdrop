@@ -18,6 +18,16 @@ export interface Contact {
   avatarUrl?: string;
   isSelf?: boolean;
   blocked?: boolean;
+  /** signal-cli: contact is hidden on the primary device (user removed it from their list). */
+  hidden?: boolean;
+  /** signal-cli: contact is no longer a registered Signal user. */
+  unregistered?: boolean;
+  /**
+   * Signal's "you've chatted, or accepted their message request" flag.
+   * Lets a contact we haven't messaged *from this device* still be listed
+   * as a direct conversation (see SignalCliBackend.listConversations).
+   */
+  profileSharing?: boolean;
 }
 
 /** `true` = muted indefinitely; `{ until }` = epoch ms when the mute lapses. */

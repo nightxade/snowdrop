@@ -51,6 +51,9 @@ const ALLOWED_METHODS: &[&str] = &[
     // Directory (directory.ts).
     "listContacts",
     "listGroups",
+    // Asks the primary device to resend contacts/groups/the block list
+    // (SignalCliBackend.ts: syncContactsAndGroups, Settings → Connection).
+    "sendSyncRequest",
     // Attachments (attachments.ts).
     "getAttachment",
     // Linking and accounts (SignalCliBackend.ts, probe.ts). Never
@@ -395,6 +398,13 @@ mod tests {
         for method in ALLOWED_METHODS {
             assert!(is_allowed_method(method), "{method} should be allowed");
         }
+    }
+
+    /// Settings → Connection → "Sync contacts and groups" (SignalCliBackend.ts:
+    /// syncContactsAndGroups) goes through this exact method.
+    #[test]
+    fn allows_the_contacts_and_groups_sync_request() {
+        assert!(is_allowed_method("sendSyncRequest"));
     }
 
     /// Account-destroying and config methods must never be reachable from the

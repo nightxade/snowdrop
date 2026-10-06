@@ -60,6 +60,13 @@ export interface AppAdmin {
   reload(search?: string): Promise<void>;
   /** Flushes, then unsubscribes every persistence binding (Settings → Privacy & security, Erase). */
   stopPersistence(): void;
+  /**
+   * Settings → Connection → "Sync contacts and groups": asks the primary
+   * device to resend contacts/groups/the block list, when the backend
+   * supports it (signal-cli only). A no-op otherwise, so the caller never
+   * needs to check which backend is running.
+   */
+  syncContactsAndGroups(): Promise<void>;
 }
 
 export interface AppServices {

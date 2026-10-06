@@ -32,6 +32,8 @@ export interface DirectoryDeps {
   peers: () => DirectPeers | null;
   /** A contact appeared or changed after a (re)load. */
   onContactChanged: (contact: Contact) => void;
+  /** A group appeared or changed after a (re)load (not from a group-update envelope). */
+  onGroupChanged: (conversation: Conversation) => void;
   debug: (message: string, detail?: unknown) => void;
 }
 
@@ -215,6 +217,7 @@ export class Directory {
     const raw = await this.deps.rpc.call('listGroups', undefined, wireGroups);
     if (epoch !== this.epoch) return;
     const resolve = this.resolveMember(raw);
+    const before = new Map(this.groups);
     this.groups.clear();
     for (const g of raw) {
       if (!g.isMember) continue;
@@ -222,5 +225,13 @@ export class Directory {
       this.groups.set(conv.id, conv);
     }
     this.groupsLoadedAt = this.deps.now();
+    // New or changed groups (e.g. the groups sync landing right after
+    // linking) are announced live, same as fetchContacts does for contacts.
+    for (const conv of this.groups.values()) {
+      const prev = before.get(conv.id);
+      if (!prev || JSON.stringify(prev) !== JSON.stringify(conv)) {
+        this.deps.onGroupChanged(conv);
+      }
+    }
   }
 }

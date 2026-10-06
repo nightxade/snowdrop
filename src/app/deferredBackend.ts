@@ -23,6 +23,7 @@ export const OPTIONAL_METHODS = [
   'resolveAttachmentUrl',
   'acknowledge',
   'link',
+  'syncContactsAndGroups',
 ] as const;
 
 export type OptionalMethod = (typeof OPTIONAL_METHODS)[number];
@@ -126,5 +127,10 @@ export function deferredBackend(
       finish: (uri, name) =>
         call((b) => (b.link ? b.link.finish(uri, name) : missing('link.finish'))),
     };
+  if (caps.has('syncContactsAndGroups'))
+    backend.syncContactsAndGroups = () =>
+      call((b) =>
+        b.syncContactsAndGroups ? b.syncContactsAndGroups() : missing('syncContactsAndGroups'),
+      );
   return backend;
 }

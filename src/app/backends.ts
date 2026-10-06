@@ -203,6 +203,7 @@ const signalCliBackend: BackendRegistration = {
     'resolveAttachmentUrl',
     'acknowledge',
     'link',
+    'syncContactsAndGroups',
   ]),
   // The daemon keeps no history.
   history: { kind: 'indexeddb', name: 'snowdrop-signal-cli' },

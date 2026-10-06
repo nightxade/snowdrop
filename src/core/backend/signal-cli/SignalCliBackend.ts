@@ -119,6 +119,16 @@ const SENT_QUOTES_MAX = 500;
 /** For commands whose result we don't need (it varies across daemon versions). */
 const ignoreResult = unknownValue;
 
+/**
+ * Right after linking, signal-cli may still be receiving the groups sync it
+ * requested from the phone at link time; these are the offsets (from a
+ * successful connect) at which the group list is force-re-listed to pick it
+ * up, without waiting for the long cache TTL or a message from an unknown
+ * group. Each check stops the remaining ones once the group count is no
+ * longer changing (see scheduleGroupBackoff).
+ */
+const GROUP_BACKOFF_DELAYS_MS = [5_000, 20_000, 60_000, 180_000];
+
 type GroupChanged = Extract<AdapterEvent, { kind: 'groupChanged' }>;
 
 export class SignalCliBackend implements ChatBackend {
@@ -181,9 +191,12 @@ export class SignalCliBackend implements ChatBackend {
       debug: this.debugLog,
       onContactChanged: (contact) => {
         this.emitter.emit('contactUpdated', contact);
-        if (this.peers?.has(contact.id)) {
+        if (this.peers?.has(contact.id) || this.isDmEligible(contact)) {
           this.emitter.emit('conversationUpdated', this.directConversation(contact.id, 0));
         }
+      },
+      onGroupChanged: (conv) => {
+        this.emitter.emit('conversationUpdated', conv);
       },
     });
     this.link = {
@@ -236,6 +249,7 @@ export class SignalCliBackend implements ChatBackend {
       // Signal's servers for stale profiles, so it loads in the background.
       await this.directory.loadGroups(true);
       void this.directory.loadContacts(true);
+      this.scheduleGroupBackoff();
     } catch (error) {
       await this.closeStream();
       this.setStatus('error');
@@ -266,6 +280,36 @@ export class SignalCliBackend implements ChatBackend {
         : { aci: undefined, number: configured, multi: false };
     }
     return { ...this.chooseAccount(accounts), multi: true };
+  }
+
+  /**
+   * Force-re-lists groups at GROUP_BACKOFF_DELAYS_MS after a successful
+   * connect, so the groups sync landing shortly after linking shows up
+   * without waiting for the long cache TTL. Stops scheduling further checks
+   * once one finds the group count unchanged (dedupes with `groupsLoading`
+   * via the ordinary `loadGroups` path, so this never doubles up a listGroups
+   * already in flight).
+   */
+  private scheduleGroupBackoff(): void {
+    const session = this.session;
+    let lastCount = this.directory.allGroups().length;
+    let stopped = false;
+    for (const delayMs of GROUP_BACKOFF_DELAYS_MS) {
+      this.scheduler.setTimeout(() => {
+        if (stopped || session !== this.session) return;
+        void this.directory.loadGroups(true).then(() => {
+          if (stopped || session !== this.session) return;
+          const count = this.directory.allGroups().length;
+          // Still none: the phone's sync usually hasn't landed yet, so keep
+          // checking. Once groups exist and the count settles, stop early.
+          if (count > 0 && count === lastCount) {
+            stopped = true;
+            return;
+          }
+          lastCount = count;
+        });
+      }, delayMs);
+    }
   }
 
   async disconnect(): Promise<void> {
@@ -531,7 +575,10 @@ export class SignalCliBackend implements ChatBackend {
         await this.applyGroupChange(event);
         return;
       case 'contactsChanged':
-        await this.directory.loadContacts(true);
+        // Contacts and groups syncs often arrive together (and either can
+        // land first right after linking), so a sync of either kind
+        // refreshes both, bypassing the cache TTL.
+        await Promise.all([this.directory.loadContacts(true), this.directory.loadGroups(true)]);
         return;
       case 'messageEdited':
         this.emitter.emit('messageEdited', event.payload);
@@ -701,11 +748,36 @@ export class SignalCliBackend implements ChatBackend {
 
   async listConversations(): Promise<Conversation[]> {
     this.assertAccount();
-    const groups = await this.directory.loadGroups();
-    const dms = (this.peers?.entries() ?? []).map(([peer, at]) =>
-      this.directConversation(peer, at),
+    const [groups, contacts] = await Promise.all([
+      this.directory.loadGroups(),
+      this.directory.loadContacts(),
+    ]);
+    // Contacts we've "chatted with" (Signal's profileSharing) are listed even
+    // without local activity, so linking a real account doesn't hide people
+    // you've already exchanged message requests with. Keyed by canonical id
+    // (DirectPeers) so a contact can never appear twice under an alias.
+    const dms = new Map<string, Conversation>();
+    for (const contact of contacts) {
+      if (!this.isDmEligible(contact)) continue;
+      dms.set(contact.id, this.directConversation(contact.id, 0));
+    }
+    // Recorded activity always wins and promotes a contact above lastActivityAt 0.
+    for (const [peer, at] of this.peers?.entries() ?? []) {
+      dms.set(peer, this.directConversation(peer, at));
+    }
+    return [...groups, ...dms.values()];
+  }
+
+  /** Eligible for a DM to be listed without local activity (see listConversations). */
+  private isDmEligible(contact: Contact): boolean {
+    return (
+      !contact.isSelf &&
+      contact.id !== this.selfId &&
+      !contact.blocked &&
+      !contact.hidden &&
+      !contact.unregistered &&
+      contact.profileSharing === true
     );
-    return [...groups, ...dms];
   }
 
   async resolveAttachmentUrl(
@@ -714,6 +786,19 @@ export class SignalCliBackend implements ChatBackend {
   ): Promise<string> {
     this.assertAccount();
     return this.attachments.resolve(attachment);
+  }
+
+  /**
+   * Asks the primary device to resend contacts, groups and the block list
+   * (Settings → Connection → "Sync contacts and groups"), then force-re-lists
+   * both so anything already known lands immediately; anything the phone
+   * sends afterwards arrives as an ordinary contacts/groups sync (see `apply`,
+   * case 'contactsChanged') and needs no further action here.
+   */
+  async syncContactsAndGroups(): Promise<void> {
+    this.assertAccount();
+    await this.rpc.call('sendSyncRequest', undefined, ignoreResult);
+    await Promise.all([this.directory.loadContacts(true), this.directory.loadGroups(true)]);
   }
 
   // ─── Commands ──────────────────────────────────────────────────────────

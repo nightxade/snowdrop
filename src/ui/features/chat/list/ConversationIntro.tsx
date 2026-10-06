@@ -3,13 +3,14 @@ import { useMemo } from 'react';
 import { useStore } from 'zustand';
 import type { ConversationId, ConversationView } from '@/core/domain';
 import { DEFAULT_LOCAL_CONVERSATION } from '@/core/stores';
-import { useStores } from '@/ui/hooks';
+import { useSnowdrop, useStores } from '@/ui/hooks';
 import { ConversationAvatar, usePeer } from '@/ui/features/conversation';
 import styles from './ListChrome.module.css';
 
 /** The top of a conversation's history (shown once there's nothing older). */
 export function ConversationIntro({ conversationId }: { conversationId: ConversationId }) {
   const stores = useStores();
+  const { backend } = useSnowdrop();
   // Protocol state only: local state (the draft) changes on every keystroke.
   const protocol = useStore(stores.conversations, (s) => s.byId[conversationId]);
   const conversation = useMemo<ConversationView | undefined>(
@@ -39,6 +40,11 @@ export function ConversationIntro({ conversationId }: { conversationId: Conversa
         <p className={styles.hint}>
           <ShieldCheck size={14} aria-hidden />
           Compare safety numbers in the Signal app on your phone to be sure it’s really them.
+        </p>
+      )}
+      {backend.kind === 'signal-cli' && (
+        <p className={styles.historyNote}>
+          Messages from before you linked Snowdrop aren’t available on this computer.
         </p>
       )}
     </div>
