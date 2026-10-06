@@ -20,10 +20,10 @@
     "test:watch": "vitest",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "npm run notices:rust && tauri build",
+    "tauri:build": "npm run notices:rust && node scripts/tauri-build.mjs",
     "notices:rust": "node scripts/gen-rust-notices.mjs",
     "tauri:fetch:bundled": "node scripts/fetch-signal-cli.mjs",
-    "tauri:build:bundled": "npm run notices:rust && node scripts/fetch-signal-cli.mjs && SNOWDROP_BUNDLED=1 tauri build --config tauri.bundled.conf.json --features bundled-sidecar"
+    "tauri:build:bundled": "npm run notices:rust && node scripts/fetch-signal-cli.mjs && SNOWDROP_BUNDLED=1 node scripts/tauri-build.mjs --config tauri.bundled.conf.json --features bundled-sidecar"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
