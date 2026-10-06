@@ -80,7 +80,8 @@ export const SETTINGS_PAGES: SettingsPageDef[] = [
     group: 'you',
     icon: Shield,
     title: 'Privacy & security',
-    description: 'What others can learn from you, what Snowdrop keeps on this device, and (desktop) its encryption.',
+    description:
+      'What others can learn from you, what Snowdrop keeps on this device, and (desktop) its encryption.',
     keywords: ['security', 'tracking', 'encryption'],
     entries: [
       {
@@ -174,6 +175,12 @@ export const SETTINGS_PAGES: SettingsPageDef[] = [
         keywords: ['compact', 'comfortable', 'spacing'],
       },
       { id: 'appearance.compactAvatars', section: 'layout', label: 'Show avatars in compact mode' },
+      {
+        id: 'appearance.splitHome',
+        section: 'layout',
+        label: 'Separate groups and direct messages',
+        keywords: ['home', 'sidebar', 'dms', 'groups', 'split', 'sections'],
+      },
       {
         id: 'appearance.clock',
         section: 'layout',

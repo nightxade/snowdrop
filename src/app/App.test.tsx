@@ -52,8 +52,9 @@ describe('<App />', () => {
     expect(snowdrop.stores.settings.getState().connection.backend).toBe('mock');
     expect(document.querySelector('[data-snowdrop="rail"]')).not.toBeNull();
     const sidebar = document.querySelector<HTMLElement>('[data-snowdrop="sidebar"]')!;
-    expect(within(sidebar).getByRole('region', { name: 'Direct Messages' })).toBeTruthy();
-    expect(within(sidebar).getByRole('region', { name: 'Groups' })).toBeTruthy();
+    // DMs and groups share one list by default.
+    expect(within(sidebar).getByRole('region', { name: 'Conversations' })).toBeTruthy();
+    expect(within(sidebar).queryByRole('region', { name: 'Groups' })).toBeNull();
     // Every seeded space has a rail tile.
     const rail = document.querySelector<HTMLElement>('[data-snowdrop="rail"]')!;
     for (const id of spacesSelectors.orderedIds(snowdrop.stores.spaces.getState())) {

@@ -131,6 +131,21 @@ export function AppearancePage() {
           )}
         />
         <SettingRow
+          id="appearance.splitHome"
+          label="Separate groups and direct messages"
+          description="Home lists them in two sections instead of one, most recent first."
+          control={(ids) => (
+            <Switch
+              id={ids.id}
+              aria-describedby={ids.descriptionId}
+              checked={a.splitHomeByType}
+              onCheckedChange={(v) => {
+                set({ splitHomeByType: v });
+              }}
+            />
+          )}
+        />
+        <SettingRow
           id="appearance.clock"
           label="Time format"
           control={(ids) => (

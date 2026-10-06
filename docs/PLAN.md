@@ -425,14 +425,16 @@ swipe/Escape to close). Min supported width 360px.
 ### 4.3 Sidebar
 - Header: space name + chevron (space menu) or "Home" with search button
   "Find or start a conversation" that opens the quick switcher.
-- In Home: sections **Pinned**, **Direct Messages**, **Groups**, each
-  collapsible, sorted by last activity. Rows: avatar (DMs) / group glyph,
+- In Home: sections **Pinned** and **Conversations** (DMs and groups in one
+  list), each collapsible, sorted by last activity. Settings → Appearance →
+  "Separate groups and direct messages" splits the list into **Direct
+  Messages** and **Groups** instead. Rows: avatar (DMs) / group glyph,
   title, one-line preview (DMs only when hovered? → no: show a muted last-message
   preview for DMs and groups in Home; hidden in Spaces for a cleaner channel feel),
   unread = bold title + strong text and a flat-sided 4×12 tab
   (`border-radius: 0 2px 2px 0`, `--snowdrop-text-strong`) on the sidebar edge,
   mention badge, muted = 50% opacity, typing = animated dots replacing preview.
-  Section labels are sentence case ("Direct Messages", "Archived · 3").
+  Section labels are sentence case ("Conversations", "Archived · 3").
 - In a Space: collapsible **categories** (user-created; default "Chats") with
   channel-style rows: `#` glyph, title, badges. Drag rows between categories.
 - Row hover shows a `⋯` button (the row menu) on every row, plus an archive

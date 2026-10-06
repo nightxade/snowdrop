@@ -24,21 +24,30 @@ export interface SidebarSection {
 
 export const HOME_SECTION_TITLES: Record<HomeSection, string> = {
   pinned: 'Pinned',
+  conversations: 'Conversations',
   direct: 'Direct Messages',
   groups: 'Groups',
 };
 
+export interface HomeLayout {
+  /** Separate "Direct Messages" and "Groups" sections instead of one list. */
+  splitByType: boolean;
+}
+
 /**
  * Home: every DM plus groups not placed in a space; pinned ones float into
- * their own section. `views` arrive sorted by last activity (selectors do
- * that), so each section inherits the order. Archived conversations are
- * excluded here and listed separately.
+ * their own section. The rest is one list by default, or split into DMs and
+ * groups. `views` arrive sorted by last activity (selectors do that), so each
+ * section inherits the order. Archived conversations are excluded here and
+ * listed separately.
  */
 export function buildHomeSections(
   views: readonly ConversationView[],
   spaces: Pick<SpacesData, 'spaces' | 'homeCollapsed'>,
+  layout: HomeLayout = { splitByType: false },
 ): SidebarSection[] {
   const pinned: ConversationId[] = [];
+  const all: ConversationId[] = [];
   const direct: ConversationId[] = [];
   const groups: ConversationId[] = [];
   const assigned = new Set<string>();
@@ -49,6 +58,7 @@ export function buildHomeSections(
   for (const view of views) {
     if (view.archived || !inHome(view)) continue;
     if (view.pinned) pinned.push(view.id);
+    else if (!layout.splitByType) all.push(view.id);
     else if (view.kind === 'direct') direct.push(view.id);
     else groups.push(view.id);
   }
@@ -58,9 +68,10 @@ export function buildHomeSections(
     collapsed: spaces.homeCollapsed[id],
     ids,
   });
-  return [section('pinned', pinned), section('direct', direct), section('groups', groups)].filter(
-    (s) => s.ids.length > 0,
-  );
+  const rest = layout.splitByType
+    ? [section('direct', direct), section('groups', groups)]
+    : [section('conversations', all)];
+  return [section('pinned', pinned), ...rest].filter((s) => s.ids.length > 0);
 }
 
 export function archivedIds(views: readonly ConversationView[]): ConversationId[] {

@@ -123,7 +123,7 @@ describe('conversation menu', () => {
     const snowdrop = await bootDemo();
     const { local } = snowdrop.stores;
     const row = sidebar().querySelector<HTMLElement>(
-      'section[aria-label="Direct Messages"] [data-conversation-id]',
+      'section[aria-label="Conversations"] [data-conversation-id^="dm:"]',
     )!;
     const id = row.getAttribute('data-conversation-id') as ConversationId;
     const openMenu = async () => {

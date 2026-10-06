@@ -46,7 +46,7 @@ const spaces = (assigned: Record<string, string[]> = {}): SpacesData => ({
     ]),
   ),
   rail: Object.keys(assigned).map((spaceId) => ({ type: 'space' as const, id: spaceId })),
-  homeCollapsed: { pinned: false, direct: false, groups: false },
+  homeCollapsed: { pinned: false, conversations: false, direct: false, groups: false },
   seeded: true,
 });
 
@@ -61,8 +61,18 @@ describe('buildHomeSections', () => {
     view('g3', { pinned: true }),
   ];
 
-  it('splits pinned, DMs and groups, keeping recency order and skipping archived', () => {
+  const split = { splitByType: true };
+
+  it('by default lists DMs and groups together after pinned, in recency order', () => {
     const sections = buildHomeSections(views, spaces());
+    expect(sections.map((s) => [s.id, s.title, s.ids])).toEqual([
+      ['pinned', 'Pinned', [id('d2'), id('g3')]],
+      ['conversations', 'Conversations', [id('d1'), id('g1'), id('g2')]],
+    ]);
+  });
+
+  it('splits pinned, DMs and groups, keeping recency order and skipping archived', () => {
+    const sections = buildHomeSections(views, spaces(), split);
     expect(sections.map((s) => [s.id, s.ids])).toEqual([
       ['pinned', [id('d2'), id('g3')]],
       ['direct', [id('d1')]],
@@ -71,15 +81,18 @@ describe('buildHomeSections', () => {
   });
 
   it('hides groups that live in a space but keeps DMs in Home', () => {
-    const sections = buildHomeSections(views, spaces({ work: ['g1', 'd1', 'g3'] }));
+    const sections = buildHomeSections(views, spaces({ work: ['g1', 'd1', 'g3'] }), split);
     expect(sections.find((s) => s.id === 'groups')?.ids).toEqual([id('g2')]);
     expect(sections.find((s) => s.id === 'direct')?.ids).toEqual([id('d1')]);
     expect(sections.find((s) => s.id === 'pinned')?.ids).toEqual([id('d2')]);
   });
 
   it('omits empty sections and carries the persisted collapse state', () => {
-    const data = { ...spaces(), homeCollapsed: { pinned: false, direct: true, groups: false } };
-    const sections = buildHomeSections([view('d1')], data);
+    const data = {
+      ...spaces(),
+      homeCollapsed: { pinned: false, conversations: false, direct: true, groups: false },
+    };
+    const sections = buildHomeSections([view('d1')], data, split);
     expect(sections).toEqual([
       { id: 'direct', title: 'Direct Messages', collapsed: true, ids: [id('d1')] },
     ]);

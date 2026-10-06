@@ -31,6 +31,8 @@ export interface AppearanceSettings {
   strongFocus: boolean;
   /** Larger rows and buttons for touch / motor accessibility. */
   largeTargets: boolean;
+  /** Home lists direct messages and groups in separate sections, instead of one list. */
+  splitHomeByType: boolean;
 }
 
 export interface NotificationSettings {
@@ -150,6 +152,7 @@ export function defaultSettings(): Settings {
       clock24h: true,
       strongFocus: false,
       largeTargets: false,
+      splitHomeByType: false,
     },
     notifications: { enabled: true, mode: 'all', sound: true, showPreview: true },
     behaviour: {
@@ -335,6 +338,7 @@ export function parseSettings(data: unknown, options: SettingsParseOptions = {})
       clock24h: bool(a.clock24h, d.appearance.clock24h),
       strongFocus: bool(a.strongFocus, d.appearance.strongFocus),
       largeTargets: bool(a.largeTargets, d.appearance.largeTargets),
+      splitHomeByType: bool(a.splitHomeByType, d.appearance.splitHomeByType),
     },
     notifications: {
       enabled: bool(n.enabled, d.notifications.enabled),

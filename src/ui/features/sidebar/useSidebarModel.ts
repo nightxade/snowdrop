@@ -16,6 +16,7 @@ import {
   buildSpaceSections,
   globalOrder,
   navigationOrder,
+  type HomeLayout,
   type Location,
   type SidebarSection,
 } from './model';
@@ -33,13 +34,18 @@ function indexViews(views: readonly ConversationView[]): Record<string, Conversa
   return out;
 }
 
+function homeLayout(stores: Stores): HomeLayout {
+  return { splitByType: stores.settings.getState().appearance.splitHomeByType };
+}
+
 function sectionsFor(
   space: SpaceSelection,
   views: readonly ConversationView[],
   spaces: SpacesData,
+  layout: HomeLayout,
 ): SidebarSection[] {
   return space === HOME
-    ? buildHomeSections(views, spaces)
+    ? buildHomeSections(views, spaces, layout)
     : buildSpaceSections(space, spaces, indexViews(views));
 }
 
@@ -52,14 +58,15 @@ export function useSidebarModel(): SidebarModel {
   const local = useStore(stores.local, (s) => s.conversations);
   const spaces = useStore(stores.spaces, (s) => s.spaces);
   const homeCollapsed = useStore(stores.spaces, (s) => s.homeCollapsed);
+  const splitByType = useStore(stores.settings, (s) => s.appearance.splitHomeByType);
   return useMemo(() => {
     const views = selectConversationViews(byId, local);
     const sections =
       space === HOME
-        ? buildHomeSections(views, { spaces, homeCollapsed })
+        ? buildHomeSections(views, { spaces, homeCollapsed }, { splitByType })
         : buildSpaceSections(space, { spaces }, indexViews(views));
     return { space, sections, archived: space === HOME ? archivedIds(views) : [], selected };
-  }, [byId, local, spaces, homeCollapsed, space, selected]);
+  }, [byId, local, spaces, homeCollapsed, splitByType, space, selected]);
 }
 
 /** Non-React access for keyboard commands: the rendered order of the current sidebar. */
@@ -69,7 +76,12 @@ export function currentNavigationOrder(stores: Stores): ConversationId[] {
     stores.conversations.getState().byId,
     stores.local.getState().conversations,
   );
-  const sections = sectionsFor(ui.selectedSpace, views, stores.spaces.getState());
+  const sections = sectionsFor(
+    ui.selectedSpace,
+    views,
+    stores.spaces.getState(),
+    homeLayout(stores),
+  );
   return navigationOrder(
     sections,
     uiSelectors.selectedConversation(ui),
@@ -84,5 +96,9 @@ export function currentGlobalOrder(stores: Stores): Location[] {
     stores.local.getState().conversations,
   );
   const spaces = stores.spaces.getState();
-  return globalOrder(buildHomeSections(views, spaces), spaces, indexViews(views));
+  return globalOrder(
+    buildHomeSections(views, spaces, homeLayout(stores)),
+    spaces,
+    indexViews(views),
+  );
 }

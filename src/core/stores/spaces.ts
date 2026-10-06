@@ -42,7 +42,8 @@ export type RailEntry =
       hue?: number;
     };
 
-export type HomeSection = 'pinned' | 'direct' | 'groups';
+/** `conversations` is the combined list; `direct`/`groups` when Home is split by type. */
+export type HomeSection = 'pinned' | 'conversations' | 'direct' | 'groups';
 
 export interface SpacesData {
   spaces: Record<SpaceId, Space>;
@@ -109,7 +110,7 @@ export function defaultSpacesData(): SpacesData {
   return {
     spaces: {},
     rail: [],
-    homeCollapsed: { pinned: false, direct: false, groups: false },
+    homeCollapsed: { pinned: false, conversations: false, direct: false, groups: false },
     seeded: false,
   };
 }
@@ -628,6 +629,7 @@ export const spacesSchema: VersionedSchema<SpacesData> = {
       rail,
       homeCollapsed: {
         pinned: home.pinned === true,
+        conversations: home.conversations === true,
         direct: home.direct === true,
         groups: home.groups === true,
       },
