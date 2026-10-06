@@ -1,9 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ManualScheduler } from '@/core/lib';
-import { createMemoryStorage, loadVersioned } from '@/core/persistence';
-import { settingsSchema, spacesSchema, spacesSelectors } from '@/core/stores';
+import { createMemoryStorage, loadVersioned, saveVersioned } from '@/core/persistence';
+import { localSchema, settingsSchema, spacesSchema, spacesSelectors } from '@/core/stores';
 import { STYLE_IDS } from '@/core/themes';
 import { createSnowdrop } from './createSnowdrop';
+import { scopedSchema } from './dataScope';
+
+/** The demo's own scope (src/app/dataScope.ts); every test here runs on the mock backend. */
+const demoSpaces = scopedSchema(spacesSchema, 'demo');
+const demoLocal = scopedSchema(localSchema, 'demo');
 
 const NOW = Date.UTC(2026, 8, 30, 15, 30);
 
@@ -23,9 +28,11 @@ describe('createSnowdrop', () => {
     const { stores } = snowdrop;
     expect(stores.session.getState().ready).toBe(true);
     expect(Object.keys(stores.conversations.getState().byId)).toHaveLength(22);
-    // Default spaces were seeded and persisted.
+    // Default spaces were seeded and persisted, under the demo's own scope
+    // (src/app/dataScope.ts) — never the bare, unscoped key.
     expect(spacesSelectors.orderedIds(stores.spaces.getState())).toHaveLength(3);
-    expect(Object.keys(loadVersioned(storage, spacesSchema).spaces)).toHaveLength(3);
+    expect(Object.keys(loadVersioned(storage, demoSpaces).spaces)).toHaveLength(3);
+    expect(storage.getItem(spacesSchema.key)).toBeNull();
     // Default-on plugins are running and feed the send pipeline.
     expect(snowdrop.plugins.get('clear-urls')?.status).toBe('running');
     expect(snowdrop.registries.findSlash('shrug')).toBeDefined();
@@ -70,6 +77,50 @@ describe('createSnowdrop', () => {
     await second.dispose();
   });
 
+  it('migrates legacy (pre-scoping) unseeded data to the active scope, once', async () => {
+    const storage = createMemoryStorage();
+    saveVersioned(storage, spacesSchema, {
+      spaces: {},
+      rail: [],
+      homeCollapsed: { conversations: false, direct: false, groups: false },
+      seeded: false,
+    });
+    const snowdrop = createSnowdrop({ storage, mockLatencyMs: 0 });
+    // The legacy key is gone immediately (migrated at construction, before start()).
+    expect(storage.getItem(spacesSchema.key)).toBeNull();
+    await snowdrop.start();
+    // The demo still seeds on top of (not instead of) the migrated data.
+    expect(spacesSelectors.orderedIds(snowdrop.stores.spaces.getState())).toHaveLength(3);
+    await snowdrop.dispose();
+
+    // A second boot does not try to migrate again (no legacy key left).
+    const again = createSnowdrop({ storage, mockLatencyMs: 0 });
+    await again.start();
+    expect(spacesSelectors.orderedIds(again.stores.spaces.getState())).toHaveLength(3);
+    await again.dispose();
+  });
+
+  it('migrates legacy seeded data to the demo scope even if a different backend is active', () => {
+    const storage = createMemoryStorage();
+    storage.setItem(
+      settingsSchema.key,
+      JSON.stringify({
+        v: settingsSchema.version,
+        data: { connection: { backend: 'signal-cli', daemonUrl: '/signal-cli', account: 'acc1' } },
+      }),
+    );
+    saveVersioned(storage, spacesSchema, {
+      spaces: {},
+      rail: [],
+      homeCollapsed: { conversations: false, direct: false, groups: false },
+      seeded: true,
+    });
+    createSnowdrop({ storage, mockLatencyMs: 0 });
+    expect(storage.getItem(spacesSchema.key)).toBeNull();
+    expect(loadVersioned(storage, demoSpaces).seeded).toBe(true);
+    expect(storage.getItem(scopedSchema(spacesSchema, 'signal-cli:acc1').key)).toBeNull();
+  });
+
   it('keeps running when a plugin fails', async () => {
     const snowdrop = createSnowdrop({ storage: createMemoryStorage(), mockLatencyMs: 0 });
     const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -102,13 +153,13 @@ describe('createSnowdrop', () => {
     snowdrop.stores.local.getState().setDraft(conv, 'unsaved draft');
 
     snowdrop.admin.stopPersistence();
-    const afterStop = storage.getItem('snowdrop.local');
+    const afterStop = storage.getItem(demoLocal.key);
     expect(afterStop).toContain('unsaved draft'); // flushed, not dropped
 
     // A later change must not reach storage: persistence is stopped, not just flushed once.
     snowdrop.stores.local.getState().setDraft(conv, 'should never be saved');
     snowdrop.admin.flush();
-    expect(storage.getItem('snowdrop.local')).toBe(afterStop);
+    expect(storage.getItem(demoLocal.key)).toBe(afterStop);
 
     await snowdrop.dispose();
   });

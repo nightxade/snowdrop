@@ -139,6 +139,30 @@ export function selectLocalData(s: LocalState): LocalData {
   };
 }
 
+/**
+ * Folds `incoming` into `existing` the same way `mergeSpacesData` does (see
+ * there): `existing` wins on a key conflict, anything only `incoming` has
+ * is added. Reaction counts are summed rather than overwritten, then
+ * re-trimmed to the same cap `noteReactionUsed` keeps.
+ */
+export function mergeLocalData(existing: LocalData, incoming: LocalData): LocalData {
+  const reactionUsage: Record<string, number> = { ...incoming.reactionUsage };
+  for (const [emoji, count] of Object.entries(existing.reactionUsage)) {
+    reactionUsage[emoji] = (reactionUsage[emoji] ?? 0) + count;
+  }
+  const trimmed = Object.fromEntries(
+    Object.entries(reactionUsage)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, MAX_TRACKED_REACTIONS),
+  );
+  return {
+    conversations: { ...incoming.conversations, ...existing.conversations },
+    contactNotes: { ...incoming.contactNotes, ...existing.contactNotes },
+    reactionUsage: trimmed,
+    seeded: existing.seeded || incoming.seeded,
+  };
+}
+
 function parseMute(value: unknown): MuteState {
   if (typeof value === 'boolean') return value;
   if (isRecord(value) && typeof value.until === 'number') return { until: value.until };

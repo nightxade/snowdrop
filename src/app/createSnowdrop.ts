@@ -41,6 +41,8 @@ import {
   createSettingsSchema,
   createStores,
   localSchema,
+  mergeLocalData,
+  mergeSpacesData,
   selectLocalData,
   selectSettingsData,
   selectSpacesData,
@@ -58,6 +60,7 @@ import {
   type BackendRegistration,
 } from './backends';
 import { registerCoreCommands } from './coreCommands';
+import { migrateLegacyScope, rebindScopedStore, scopedSchema, scopeFor } from './dataScope';
 import { createPluginHost } from './pluginHost';
 import {
   desktopAdmin,
@@ -144,21 +147,103 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
   const backends = options.backends ?? new BackendRegistry(BUILTIN_BACKENDS);
   // A stored kind this build doesn't register parses as "not chosen yet".
   const settingsSchema = createSettingsSchema({ isBackendKind: (kind) => backends.has(kind) });
+  const settings = loadVersioned(storage, settingsSchema);
+
+  // Spaces and local state (core/stores/spaces.ts, core/stores/local.ts) are
+  // scoped per backend/account (src/app/dataScope.ts): the demo seeds its
+  // own example spaces, and without scoping they — and anything the user
+  // did locally while trying it out — would reappear under a real signal-cli
+  // account once connected (and vice versa). The registration, not the
+  // stored `connection.backend`, decides the scope: an unregistered kind
+  // falls back to the demo (`pickBackend`), and the scope must match.
+  // `connection.account` is set once signal-cli reports it; `desktop.account`
+  // (the spawn-mode `-a` flag) is a usable hint before that, in the common
+  // case where it's already configured to the account that will connect.
+  const registration = pickBackend(backends, settings.connection.backend);
+  let currentScope = scopeFor(
+    registration.kind,
+    settings.connection.account ?? (settings.connection.desktop.account || null),
+  );
+  // Runs once: moves data written before scoping existed to the right scope.
+  migrateLegacyScope(storage, spacesSchema, currentScope, mergeSpacesData);
+  migrateLegacyScope(storage, localSchema, currentScope, mergeLocalData);
+
   const stores = createStores({
-    settings: loadVersioned(storage, settingsSchema),
-    spaces: loadVersioned(storage, spacesSchema),
-    local: loadVersioned(storage, localSchema),
+    settings,
+    spaces: loadVersioned(storage, scopedSchema(spacesSchema, currentScope)),
+    local: loadVersioned(storage, scopedSchema(localSchema, currentScope)),
   });
   // Drafts change per keystroke: coalesce those writes.
   const debounce = {
     ms: 400,
     schedule: (fn: () => void, ms: number) => scheduler.setTimeout(fn, ms),
   };
-  const bindings: PersistenceBinding[] = [
-    bindPersistence(stores.settings, storage, settingsSchema, selectSettingsData),
-    bindPersistence(stores.spaces, storage, spacesSchema, selectSpacesData),
-    bindPersistence(stores.local, storage, localSchema, selectLocalData, debounce),
+  const settingsBinding = bindPersistence(
+    stores.settings,
+    storage,
+    settingsSchema,
+    selectSettingsData,
+  );
+  let spacesBinding = bindPersistence(
+    stores.spaces,
+    storage,
+    scopedSchema(spacesSchema, currentScope),
+    selectSpacesData,
+  );
+  let localBinding = bindPersistence(
+    stores.local,
+    storage,
+    scopedSchema(localSchema, currentScope),
+    selectLocalData,
+    debounce,
+  );
+  // Replaced wholesale by `rebindToAccount` below when a signal-cli account
+  // becomes known after boot; `currentBindings()` always reads whichever
+  // binding is current, so admin.flush/persist/stopPersistence need no
+  // special-casing for that.
+  let persistenceStopped = false;
+  const currentBindings = (): PersistenceBinding[] => [
+    settingsBinding,
+    spacesBinding,
+    localBinding,
   ];
+
+  /**
+   * Runtime account discovery: signal-cli reports the account asynchronously
+   * (`onAccountSelected` in app/backends.ts), which can be after spaces/local
+   * were already loaded under a pending placeholder scope (`dataScope.ts`).
+   * When that happens, this moves their persistence to the account's own
+   * scope, folding in anything written under the placeholder in the
+   * meantime rather than losing it (`rebindScopedStore`'s doc comment has
+   * the merge rule). A no-op if the account matches the scope already in
+   * use (e.g. `desktop.account` already hinted it correctly at boot).
+   */
+  const rebindToAccount = (accountId: string): void => {
+    if (persistenceStopped) return;
+    const nextScope = scopeFor(registration.kind, accountId);
+    if (nextScope === currentScope) return;
+    const previousScope = currentScope;
+    currentScope = nextScope;
+    spacesBinding = rebindScopedStore({
+      store: stores.spaces,
+      storage,
+      schema: spacesSchema,
+      select: selectSpacesData,
+      scope: nextScope,
+      previousScope,
+      merge: mergeSpacesData,
+    });
+    localBinding = rebindScopedStore({
+      store: stores.local,
+      storage,
+      schema: localSchema,
+      select: selectLocalData,
+      scope: nextScope,
+      previousScope,
+      merge: mergeLocalData,
+      debounce,
+    });
+  };
 
   // A plaintext mirror of theme/density (the encrypted-storage bootstrap
   // allow-list, docs/ENCRYPTION.md "Web cache"): the setup/unlock screens
@@ -182,8 +267,9 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     console.error(`[snowdrop] ${context}`, error);
   };
 
-  // The transport is chosen once per instance; switching means a new instance (a reload).
-  const registration = pickBackend(backends, stores.settings.getState().connection.backend);
+  // The transport is chosen once per instance; switching means a new instance
+  // (a reload) — `registration` was already resolved above, to pick spaces/
+  // local's initial scope before loading them.
   const { backend, ready, repository } = connectBackend(
     registration,
     {
@@ -193,6 +279,9 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
       connection: stores.settings.getState().connection,
       updateConnection: (patch) => {
         stores.settings.getState().update('connection', patch);
+        // The only patch signal-cli sends through here is the account it
+        // discovered (`onAccountSelected`); rebind spaces/local to it.
+        if (patch.account) rebindToAccount(patch.account);
       },
       overrides: {
         ...(options.fetch ? { fetch: options.fetch } : {}),
@@ -318,10 +407,10 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
       if (hasPendingWrites(storage)) await storage.flush();
     },
     flush: () => {
-      for (const binding of bindings) binding.flush();
+      for (const binding of currentBindings()) binding.flush();
     },
     persist: async () => {
-      for (const binding of bindings) binding.flush();
+      for (const binding of currentBindings()) binding.flush();
       // An encrypted (hydrated) store writes through asynchronously; moving
       // on before it finishes would lose exactly the change that needed it.
       if (hasPendingWrites(storage)) await storage.flush();
@@ -335,8 +424,10 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
       // Flushes each binding, then unsubscribes it: nothing writes to
       // storage again after this (Settings → Privacy & security, Erase —
       // docs/ENCRYPTION.md, "Erase" — must not let a later debounced write
-      // or pagehide flush re-create what was just cleared).
-      for (const binding of bindings.splice(0)) binding.dispose();
+      // or pagehide flush re-create what was just cleared). Also stops a
+      // later `rebindToAccount` from creating a fresh binding.
+      persistenceStopped = true;
+      for (const binding of currentBindings()) binding.dispose();
     },
   };
 
@@ -387,12 +478,13 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     },
 
     flush() {
-      for (const binding of bindings) binding.flush();
+      for (const binding of currentBindings()) binding.flush();
     },
 
     async dispose() {
       for (const off of cleanups.splice(0)) off();
-      for (const binding of bindings.splice(0)) binding.dispose();
+      persistenceStopped = true;
+      for (const binding of currentBindings()) binding.dispose();
       notifications.stop();
       await runtime.stopAll();
       await sync.stop();

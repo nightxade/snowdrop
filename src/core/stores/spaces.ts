@@ -642,3 +642,39 @@ export const spacesSchema: VersionedSchema<SpacesData> = {
 export function selectSpacesData(s: SpacesState): SpacesData {
   return { spaces: s.spaces, rail: s.rail, homeCollapsed: s.homeCollapsed, seeded: s.seeded };
 }
+
+/**
+ * Folds `incoming` into `existing` when a store is rebound to a different
+ * persisted scope at runtime (`src/app/dataScope.ts`): `existing` is the
+ * scope's own prior data and wins on a conflict (ids are nonces, so a real
+ * collision is exceptionally unlikely); anything only `incoming` has is
+ * added, so nothing a user did before the scope resolved is silently
+ * dropped.
+ */
+export function mergeSpacesData(existing: SpacesData, incoming: SpacesData): SpacesData {
+  const usedIds = new Set(flattenRail(existing.rail));
+  const rail = [...existing.rail];
+  for (const entry of incoming.rail) {
+    if (entry.type === 'space') {
+      if (usedIds.has(entry.id)) continue;
+      usedIds.add(entry.id);
+      rail.push(entry);
+      continue;
+    }
+    const spaceIds = entry.spaceIds.filter((id) => !usedIds.has(id));
+    for (const id of spaceIds) usedIds.add(id);
+    const [only] = spaceIds;
+    if (spaceIds.length === 1 && only !== undefined) rail.push({ type: 'space', id: only });
+    else if (spaceIds.length > 1) rail.push({ ...entry, spaceIds });
+  }
+  return {
+    spaces: { ...incoming.spaces, ...existing.spaces },
+    rail,
+    homeCollapsed: {
+      conversations: existing.homeCollapsed.conversations || incoming.homeCollapsed.conversations,
+      direct: existing.homeCollapsed.direct || incoming.homeCollapsed.direct,
+      groups: existing.homeCollapsed.groups || incoming.homeCollapsed.groups,
+    },
+    seeded: existing.seeded || incoming.seeded,
+  };
+}
