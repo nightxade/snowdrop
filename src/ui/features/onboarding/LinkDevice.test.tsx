@@ -19,6 +19,7 @@ describe('LinkDevice', () => {
   it('defaults the device name to plain "Snowdrop" in the desktop app', () => {
     render(<LinkDevice link={undefined} onLinked={() => undefined} desktop />);
     const input = screen.getByLabelText('Device name');
-    expect(input.value).toBe('Snowdrop');
+    expect(input).toBeInstanceOf(HTMLInputElement);
+    expect((input as HTMLInputElement).value).toBe('Snowdrop');
   });
 });
