@@ -199,5 +199,5 @@ export function StorageGate({ admin, document, children }: StorageGateProps) {
   if (status.state === 'locked') {
     return <UnlockScreen status={status} admin={admin} onStatusChange={route} />;
   }
-  return <StorageUnavailable reason={status.reason} onRetry={() => admin.status().then(route)} />;
+  return <StorageUnavailable reason={status.reason} onRetry={checkStatus} />;
 }

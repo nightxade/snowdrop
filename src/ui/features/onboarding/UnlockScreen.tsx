@@ -56,6 +56,8 @@ export function UnlockScreen({ status, admin, onStatusChange }: UnlockScreenProp
     setError(null);
     try {
       onStatusChange(await admin.status());
+    } catch (e) {
+      setError(friendlyErrorMessage(errorKind(e), e instanceof Error ? e.message : String(e)));
     } finally {
       setChecking(false);
     }
