@@ -97,6 +97,7 @@ export function App({ onBackendChange }: AppProps) {
       <Suspense fallback={null}>
         <ConnectionSetup
           reason={errorKind}
+          desktop={snowdrop.desktop !== null}
           errorMessage={friendlyErrorMessage(errorKind, errorMessage)}
           onProgramPath={(binaryPath) => {
             const { connection } = snowdrop.stores.settings.getState();

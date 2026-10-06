@@ -76,8 +76,14 @@ export function linkReducer(state: LinkState, action: LinkAction): LinkState {
   }
 }
 
-/** A default device name people will recognise in Signal → Linked devices. */
-export function defaultDeviceName(userAgent: string): string {
+/**
+ * A default device name people will recognise in Signal → Linked devices.
+ * The desktop app always runs WebKitGTK, which reports itself as Safari, so
+ * a user-agent-derived name would be misleading there; the browser build
+ * keeps it, since it helps tell multiple linked browsers apart.
+ */
+export function defaultDeviceName(userAgent: string, desktop = false): string {
+  if (desktop) return 'Snowdrop';
   const browser = /Firefox\//u.test(userAgent)
     ? 'Firefox'
     : /Edg\//u.test(userAgent)

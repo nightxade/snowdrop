@@ -11,14 +11,20 @@ export interface LinkDeviceProps {
   link: LinkFlow | undefined;
   /** Linking finished; the app reconnects with the new account. */
   onLinked: (accountId: string) => void;
+  /**
+   * The desktop app: no browser tab, so copy says "window" instead, and the
+   * default device name is plain "Snowdrop" (WebKitGTK reports itself as
+   * Safari, which would otherwise leak into the default name).
+   */
+  desktop?: boolean;
 }
 
 /**
- * Link this browser to a Signal account as a secondary device: a QR code
+ * Link this device to a Signal account as a secondary device: a QR code
  * from signal-cli, scanned in the Signal app (PLAN §4.10).
  */
-export function LinkDevice({ link, onLinked }: LinkDeviceProps) {
-  const flow = useLinkFlow(link, onLinked);
+export function LinkDevice({ link, onLinked, desktop = false }: LinkDeviceProps) {
+  const flow = useLinkFlow(link, onLinked, desktop);
   const { state } = flow;
   const busy = state.step === 'starting' || state.step === 'waiting';
   const retryRef = useRef<HTMLButtonElement>(null);
@@ -72,7 +78,10 @@ export function LinkDevice({ link, onLinked }: LinkDeviceProps) {
             <li>
               Go to <strong>Settings → Linked devices → Link new device</strong>.
             </li>
-            <li>Point your phone at the code. Keep this tab open until it finishes.</li>
+            <li>
+              Point your phone at the code. Keep this {desktop ? 'window' : 'tab'} open until it
+              finishes.
+            </li>
           </ol>
           {state.step === 'naming' || state.step === 'failed' ? (
             <form

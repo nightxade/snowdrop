@@ -9,10 +9,14 @@ import {
 } from './linkFlow';
 
 /** Drives `link.start/finish` through the link state machine. */
-export function useLinkFlow(link: LinkFlow | undefined, onLinked: (accountId: string) => void) {
+export function useLinkFlow(
+  link: LinkFlow | undefined,
+  onLinked: (accountId: string) => void,
+  desktop = false,
+) {
   const [state, dispatch] = useReducer(linkReducer, undefined, () =>
     initialLinkState(
-      defaultDeviceName(typeof navigator === 'undefined' ? '' : navigator.userAgent),
+      defaultDeviceName(typeof navigator === 'undefined' ? '' : navigator.userAgent, desktop),
     ),
   );
   const linked = useRef(onLinked);

@@ -80,6 +80,15 @@ describe('link flow state machine', () => {
     expect(defaultDeviceName('')).toBe('Snowdrop');
   });
 
+  it('is plain "Snowdrop" in the desktop app, whatever the user agent says', () => {
+    // WebKitGTK (the desktop app's webview) reports itself as Safari/Linux,
+    // which would otherwise produce a misleading "Snowdrop (Safari on Linux)".
+    expect(
+      defaultDeviceName('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1 Safari/605.1', true),
+    ).toBe('Snowdrop');
+    expect(defaultDeviceName('', true)).toBe('Snowdrop');
+  });
+
   it('recognises an expired code', () => {
     expect(isExpiry(Object.assign(new Error('x'), { kind: 'timeout' }))).toBe(true);
     expect(isExpiry(new Error('Link request timed out'))).toBe(true);

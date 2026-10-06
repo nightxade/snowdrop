@@ -35,6 +35,8 @@ export interface ConnectionSetupProps {
   onAccount: (account: string) => void;
   /** Leave signal-cli (back to the welcome screen). */
   onBack: () => void;
+  /** The desktop app: affects LinkDevice's default device name and copy. */
+  desktop?: boolean;
 }
 
 export function ConnectionSetup({
@@ -46,6 +48,7 @@ export function ConnectionSetup({
   onLinked,
   onAccount,
   onBack,
+  desktop = false,
 }: ConnectionSetupProps) {
   return (
     <TooltipProvider>
@@ -58,7 +61,7 @@ export function ConnectionSetup({
           </div>
           {reason === 'no-account' ? (
             <Suspense fallback={<div className={setup.card} aria-busy="true" />}>
-              <LinkDevice link={link} onLinked={onLinked} />
+              <LinkDevice link={link} onLinked={onLinked} desktop={desktop} />
             </Suspense>
           ) : reason === 'not-installed' ? (
             install && !install.configured ? (
