@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import type { Message } from '@/core/domain';
 import { defineExtension, defineSettings, type PluginContext } from '@/core/plugins';
+import { splitGraphemes } from '@/ui/lib/graphemes';
 import { Tooltip } from '@/ui/primitives';
 import styles from './plugins.module.css';
 
@@ -30,8 +31,6 @@ const settings = defineSettings({
   },
 });
 
-const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
-
 /** First non-empty line of a note, trimmed to `max` characters (grapheme clusters). */
 export function noteBadgeText(note: string, max: number): string {
   const line =
@@ -39,7 +38,7 @@ export function noteBadgeText(note: string, max: number): string {
       .split('\n')
       .map((l) => l.trim())
       .find(Boolean) ?? '';
-  const chars = Array.from(graphemes.segment(line), (s) => s.segment);
+  const chars = splitGraphemes(line);
   return chars.length > max ? `${chars.slice(0, max - 1).join('')}…` : line;
 }
 

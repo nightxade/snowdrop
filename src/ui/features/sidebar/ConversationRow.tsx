@@ -84,7 +84,11 @@ export const ConversationRow = memo(function ConversationRow({
                 }
               : undefined
           }
-          onClick={() => {
+          onClick={(e) => {
+            // WebKitGTK doesn't focus a button on click (unlike other
+            // engines): without this, roving focus and arrow-key stepping
+            // would silently stop following the clicked row.
+            e.currentTarget.focus();
             openConversation(app, id);
           }}
         >

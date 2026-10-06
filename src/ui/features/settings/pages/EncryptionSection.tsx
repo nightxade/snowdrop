@@ -9,6 +9,7 @@ import {
   CircleCheck,
   KeyRound,
   LoaderCircle,
+  RotateCw,
   ShieldAlert,
   Trash2,
   X,
@@ -230,7 +231,7 @@ function RecoverySection({
           label="Remove recovery key"
           description={
             isLastMethod
-              ? "This is the only way left to unlock Snowdrop — add a keyring or passphrase first."
+              ? 'This is the only way left to unlock Snowdrop — add a keyring or passphrase first.'
               : "You won't be able to use it to unlock your data any more."
           }
           control={
@@ -422,14 +423,16 @@ function PassphraseSection({
         label="Passphrase"
         description={
           status.hasPassphrase && isLastMethod
-            ? "This is the only way left to unlock Snowdrop — add a keyring or recovery key first to remove it."
+            ? 'This is the only way left to unlock Snowdrop — add a keyring or recovery key first to remove it.'
             : status.hasPassphrase
               ? 'Snowdrop asks for this passphrase at every launch, instead of (or alongside) the keyring.'
               : 'Off. Add one to unlock with a passphrase instead of (or alongside) the keyring.'
         }
         control={
           <div className={styles.rowActions}>
-            <Button onClick={openEdit}>{status.hasPassphrase ? 'Change…' : 'Add passphrase'}</Button>
+            <Button onClick={openEdit}>
+              {status.hasPassphrase ? 'Change…' : 'Add passphrase'}
+            </Button>
             {status.hasPassphrase && (
               <Button
                 variant="danger"
@@ -459,11 +462,7 @@ function PassphraseSection({
           description="Snowdrop will ask for this passphrase every time it starts."
           footer={
             <>
-              <Button
-                variant="ghost"
-                disabled={busy}
-                onClick={closeEdit}
-              >
+              <Button variant="ghost" disabled={busy} onClick={closeEdit}>
                 Cancel
               </Button>
               <Button
@@ -621,11 +620,29 @@ function DangerZone({ admin }: { admin: StorageAdmin }) {
   const [typed, setTyped] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Set once `eraseAll()` has actually succeeded: from then on the only
+  // thing left to do is restart, so the destructive action must never be
+  // offered again — even if that restart itself fails (the generic error
+  // path below would otherwise just re-enable it).
+  const [erased, setErased] = useState(false);
 
   const close = () => {
+    // Nothing to cancel back to once the data is already gone.
+    if (erased) return;
     setOpen(false);
     setTyped('');
     setError(null);
+  };
+
+  const retryRestart = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await admin.restart();
+    } catch (e) {
+      setError(describeError(e));
+      setBusy(false);
+    }
   };
 
   const confirmErase = async () => {
@@ -640,11 +657,13 @@ function DangerZone({ admin }: { admin: StorageAdmin }) {
       // discardUnreadableWebCache.
       await admin.eraseAll();
       app.admin.stopPersistence();
-      await admin.restart();
+      setErased(true);
     } catch (e) {
       setError(describeError(e));
       setBusy(false);
+      return;
     }
+    await retryRestart();
   };
 
   return (
@@ -672,52 +691,85 @@ function DangerZone({ admin }: { admin: StorageAdmin }) {
           onOpenChange={(next) => {
             if (!next && !busy) close();
           }}
-          title="Erase all local data?"
-          description="This can't be undone."
+          title={erased ? 'Restart Snowdrop to finish' : 'Erase all local data?'}
+          description={
+            erased
+              ? 'Your local data was erased. Snowdrop needs to restart once before it can be set up again.'
+              : "This can't be undone."
+          }
           footer={
-            <>
-              <Button variant="ghost" disabled={busy} onClick={close}>
-                Cancel
-              </Button>
+            erased ? (
               <Button
-                variant="danger"
-                disabled={busy || typed !== ERASE_WORD}
-                onClick={() => void confirmErase()}
+                variant="primary"
+                icon={
+                  busy ? <RotateCw size={16} className={styles.spin} /> : <RotateCw size={16} />
+                }
+                autoFocus
+                disabled={busy}
+                onClick={() => void retryRestart()}
               >
-                {busy ? 'Erasing…' : 'Erase and restart'}
+                Restart Snowdrop
               </Button>
-            </>
+            ) : (
+              <>
+                <Button variant="ghost" disabled={busy} onClick={close}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="danger"
+                  disabled={busy || typed !== ERASE_WORD}
+                  onClick={() => void confirmErase()}
+                >
+                  {busy ? 'Erasing…' : 'Erase and restart'}
+                </Button>
+              </>
+            )
           }
         >
-          <ul className={styles.list} style={{ marginBottom: 'var(--snowdrop-space-5)' }}>
-            <li>
-              <strong>Deleted:</strong> this computer&rsquo;s encrypted signal-cli vault (keys,
-              sessions, contacts and message history), your recovery key, passphrase and keyring
-              entry, and Snowdrop&rsquo;s own settings, spaces and drafts in this browser.
-            </li>
-            <li>
-              <strong>Not deleted:</strong> your Signal account. This computer stays listed as a
-              linked device until you remove it yourself — on your phone, Signal → Settings →
-              Linked devices.
-            </li>
-          </ul>
-          <TextInput
-            label={`Type ${ERASE_WORD} to confirm`}
-            data-autofocus
-            autoComplete="off"
-            spellCheck={false}
-            disabled={busy}
-            value={typed}
-            onChange={(e) => {
-              setTyped(e.target.value);
-            }}
-          />
-          {error && (
-            <p className={styles.error} role="alert">
-              {error}
-            </p>
+          {erased ? (
+            <>
+              {error && (
+                <p className={styles.error} role="alert">
+                  {error}
+                </p>
+              )}
+              <p className={styles.muted}>
+                If this keeps happening, close Snowdrop and reopen it yourself.
+              </p>
+            </>
+          ) : (
+            <>
+              <ul className={styles.list} style={{ marginBottom: 'var(--snowdrop-space-5)' }}>
+                <li>
+                  <strong>Deleted:</strong> this computer&rsquo;s encrypted signal-cli vault (keys,
+                  sessions, contacts and message history), your recovery key, passphrase and keyring
+                  entry, and Snowdrop&rsquo;s own settings, spaces and drafts in this browser.
+                </li>
+                <li>
+                  <strong>Not deleted:</strong> your Signal account. This computer stays listed as a
+                  linked device until you remove it yourself — on your phone, Signal → Settings →
+                  Linked devices.
+                </li>
+              </ul>
+              <TextInput
+                label={`Type ${ERASE_WORD} to confirm`}
+                data-autofocus
+                autoComplete="off"
+                spellCheck={false}
+                disabled={busy}
+                value={typed}
+                onChange={(e) => {
+                  setTyped(e.target.value);
+                }}
+              />
+              {error && (
+                <p className={styles.error} role="alert">
+                  {error}
+                </p>
+              )}
+              <p className={styles.muted}>Snowdrop will restart once this finishes.</p>
+            </>
           )}
-          <p className={styles.muted}>Snowdrop will restart once this finishes.</p>
         </Modal>
       )}
     </SettingsSection>

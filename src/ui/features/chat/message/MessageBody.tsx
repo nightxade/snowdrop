@@ -1,5 +1,6 @@
 import { memo, useState, type KeyboardEvent, type ReactElement, type ReactNode } from 'react';
 import { MENTION_PLACEHOLDER, rangesToSegments, type BodyRange, type Segment } from '@/core/domain';
+import { splitGraphemes } from '@/ui/lib/graphemes';
 import styles from './MessageBody.module.css';
 
 export interface MessageBodyProps {
@@ -166,9 +167,7 @@ const JUMBO = /^(?:\p{Extended_Pictographic}|\p{Emoji_Component}|‍|️|\s)+$/u
 /** Up to 10 emoji and nothing else are shown large, as in most chat apps. */
 export function isJumbo(body: string, ranges: readonly BodyRange[]): boolean {
   if (ranges.length > 0 || body.trim() === '' || !JUMBO.test(body)) return false;
-  const count = [
-    ...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(body.trim()),
-  ].filter((g) => g.segment.trim() !== '').length;
+  const count = splitGraphemes(body.trim()).filter((g) => g.trim() !== '').length;
   return count <= 10;
 }
 

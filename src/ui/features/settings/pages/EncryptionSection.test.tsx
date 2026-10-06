@@ -123,9 +123,7 @@ describe('EncryptionSection: status', () => {
       status: () => Promise.resolve({ ...baseStatus, vaultDisabled: true }),
     });
     await mount(admin);
-    expect(
-      await screen.findByText(/signal-cli’s data is managed outside Snowdrop/u),
-    ).toBeTruthy();
+    expect(await screen.findByText(/signal-cli’s data is managed outside Snowdrop/u)).toBeTruthy();
   });
 
   it('shows an error instead of crashing when status fails', async () => {
@@ -234,15 +232,18 @@ describe('EncryptionSection: recovery key', () => {
   it('disables removing the recovery key when it is the only unlock method', async () => {
     const { admin, spies } = makeAdmin({
       status: () =>
-        Promise.resolve({ ...baseStatus, hasKeyring: false, hasRecovery: true, hasPassphrase: false }),
+        Promise.resolve({
+          ...baseStatus,
+          hasKeyring: false,
+          hasRecovery: true,
+          hasPassphrase: false,
+        }),
     });
     await mount(admin);
 
     const remove = screen.getByRole('button', { name: 'Remove…' });
     expect(remove).toHaveProperty('disabled', true);
-    expect(
-      screen.getByText(/only way left to unlock Snowdrop/iu),
-    ).toBeTruthy();
+    expect(screen.getByText(/only way left to unlock Snowdrop/iu)).toBeTruthy();
 
     act(() => {
       fireEvent.click(remove);
@@ -364,15 +365,18 @@ describe('EncryptionSection: passphrase', () => {
   it('disables removing the passphrase when it is the only unlock method', async () => {
     const { admin } = makeAdmin({
       status: () =>
-        Promise.resolve({ ...baseStatus, hasKeyring: false, hasRecovery: false, hasPassphrase: true }),
+        Promise.resolve({
+          ...baseStatus,
+          hasKeyring: false,
+          hasRecovery: false,
+          hasPassphrase: true,
+        }),
     });
     await mount(admin);
 
     const remove = screen.getByRole('button', { name: 'Remove…' });
     expect(remove).toHaveProperty('disabled', true);
-    expect(
-      screen.getByText(/only way left to unlock Snowdrop/iu),
-    ).toBeTruthy();
+    expect(screen.getByText(/only way left to unlock Snowdrop/iu)).toBeTruthy();
 
     act(() => {
       fireEvent.click(remove);
@@ -477,5 +481,38 @@ describe('EncryptionSection: erase all local data', () => {
     // never ran, and the app never restarted into the half-erased state.
     expect(stopPersistence).not.toHaveBeenCalled();
     expect(spies.restart.mock.calls.length).toBe(0);
+  });
+
+  it('offers an explicit restart retry, never the destructive button again, if restart fails after erase succeeds', async () => {
+    const { admin, spies } = makeAdmin({
+      restart: vi.fn(() => Promise.reject(commandError('internal', 'IPC timed out'))),
+    });
+    await mount(admin);
+    vi.spyOn(snowdrop!.admin, 'stopPersistence').mockImplementation(() => undefined);
+
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: 'Erase…' }));
+    });
+    const confirmField = await screen.findByLabelText('Type ERASE to confirm');
+    act(() => {
+      fireEvent.change(confirmField, { target: { value: 'ERASE' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Erase and restart' }));
+    });
+
+    expect(await screen.findByText('signal-cli ran into an internal problem.')).toBeTruthy();
+    // The data is already gone: never re-offer the destructive action.
+    expect(screen.queryByRole('button', { name: 'Erase and restart' })).toBeNull();
+    expect(screen.queryByLabelText('Type ERASE to confirm')).toBeNull();
+    expect(screen.getByText('Restart Snowdrop to finish')).toBeTruthy();
+    expect(screen.getByText(/close Snowdrop and reopen it yourself/u)).toBeTruthy();
+
+    const retry = screen.getByRole('button', { name: 'Restart Snowdrop' });
+    spies.restart.mockImplementationOnce(() => Promise.resolve());
+    act(() => {
+      fireEvent.click(retry);
+    });
+    await waitFor(() => {
+      expect(spies.restart.mock.calls.length).toBe(2);
+    });
   });
 });

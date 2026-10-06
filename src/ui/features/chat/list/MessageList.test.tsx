@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Snowdrop } from '@/app/createSnowdrop';
 import { mergeDuplicate, messageId, type Message } from '@/core/domain';
 import { messagesSelectors } from '@/core/stores';
+import { conversationFocusTarget } from '@/ui/hooks';
 import { bootSnowdrop, renderWithSnowdrop, settle } from '@/test/renderWithSnowdrop';
 import { ChatController, ChatControllerProvider } from '../ChatController';
 import { MessagePane } from '../MessagePane';
@@ -247,5 +248,74 @@ describe('reactions', () => {
     });
     await settle(snowdrop);
     expect(current().reactions.some((r) => r.authorId === selfId && r.emoji === '🦊')).toBe(false);
+  });
+});
+
+describe('the list focus resolver', () => {
+  it('never reports success (e.g. a stale <body>) when navigation.focus() fails to actually move focus', async () => {
+    const snowdrop = await bootSnowdrop();
+    snowdrops.push(snowdrop);
+    const conv = Object.values(snowdrop.stores.conversations.getState().byId).find(
+      (c) => c.title === 'Orchard · Engineering',
+    )!;
+    await act(async () => {
+      snowdrop.stores.ui.getState().selectConversation(conv.id);
+      await snowdrop.history.open(conv.id);
+    });
+    const chat = new ChatController();
+    renderWithSnowdrop(
+      snowdrop,
+      <VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 48 }}>
+        <ChatControllerProvider value={chat}>
+          <MessagePane conversationId={conv.id} />
+        </ChatControllerProvider>
+      </VirtuosoMockContext.Provider>,
+    );
+    await settle(snowdrop);
+
+    // Something outside the list has focus (e.g. the sidebar row just
+    // clicked) before the resolver runs.
+    const outside = document.createElement('button');
+    document.body.appendChild(outside);
+    outside.focus();
+    expect(document.activeElement).toBe(outside);
+
+    // Simulate the race the fix guards against: asking an element to focus
+    // doesn't actually move focus (the scroller's tabIndex hasn't landed
+    // yet, a WebKit quirk, or no row mounted at all). The resolver must
+    // report that as a miss, not echo back whatever was focused before.
+    const focusSpy = vi.spyOn(HTMLElement.prototype, 'focus').mockImplementation(() => undefined);
+    try {
+      expect(conversationFocusTarget(conv.id)).toBeNull();
+    } finally {
+      focusSpy.mockRestore();
+    }
+    outside.remove();
+  });
+
+  it('reports the scroller itself as success once focus actually lands inside it', async () => {
+    const snowdrop = await bootSnowdrop();
+    snowdrops.push(snowdrop);
+    const conv = Object.values(snowdrop.stores.conversations.getState().byId).find(
+      (c) => c.title === 'Orchard · Engineering',
+    )!;
+    await act(async () => {
+      snowdrop.stores.ui.getState().selectConversation(conv.id);
+      await snowdrop.history.open(conv.id);
+    });
+    const chat = new ChatController();
+    renderWithSnowdrop(
+      snowdrop,
+      <VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 48 }}>
+        <ChatControllerProvider value={chat}>
+          <MessagePane conversationId={conv.id} />
+        </ChatControllerProvider>
+      </VirtuosoMockContext.Provider>,
+    );
+    await settle(snowdrop);
+
+    const target = conversationFocusTarget(conv.id);
+    expect(target).not.toBeNull();
+    expect(document.querySelector('[data-message-scroller]')?.contains(target)).toBe(true);
   });
 });

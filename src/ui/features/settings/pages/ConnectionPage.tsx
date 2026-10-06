@@ -42,18 +42,30 @@ export function ConnectionPage() {
   const [desktop, setDesktop] = useState<DesktopConnection>(saved.desktop);
   const signOutFlow = signOutFlowFor(app);
   const signOutLabel =
-    signOutFlow === 'demo' ? 'Leave demo…' : signOutFlow === 'browser' ? 'Disconnect…' : 'Sign out…';
+    signOutFlow === 'demo'
+      ? 'Leave demo…'
+      : signOutFlow === 'browser'
+        ? 'Disconnect…'
+        : 'Sign out…';
 
   const urlError = backend === 'signal-cli' && !desktopAdmin ? validateDaemonUrl(url) : null;
   const desktopChanged = (Object.keys(desktop) as (keyof DesktopConnection)[]).some(
     (key) => desktop[key] !== saved.desktop[key],
   );
+  // Specifically the account or daemon address, not e.g. a binary path edit:
+  // this computer's cached history (the shared IDB name in app/backends.ts)
+  // belongs to whichever signal-cli account last used it, and switching to
+  // a different one would otherwise show that account's messages under the
+  // new one.
+  const signalCliTargetChanged =
+    backend === 'signal-cli' &&
+    (desktopAdmin
+      ? desktop.account !== saved.desktop.account ||
+        desktop.externalUrl !== saved.desktop.externalUrl
+      : url.trim() !== saved.daemonUrl || (account.trim() || null) !== saved.account);
   const changed =
     backend !== running ||
-    (backend === 'signal-cli' &&
-      (desktopAdmin
-        ? desktopChanged
-        : url.trim() !== saved.daemonUrl || (account.trim() || null) !== saved.account));
+    (backend === 'signal-cli' && (desktopAdmin ? desktopChanged : signalCliTargetChanged));
 
   const apply = () => {
     set({
@@ -64,7 +76,12 @@ export function ConnectionPage() {
           : { daemonUrl: url.trim(), account: account.trim() || null }
         : {}),
     });
-    void app.admin.reload();
+    void (async () => {
+      // Clear before reloading: never let the next account's first paint
+      // show messages that belonged to the previous one.
+      if (signalCliTargetChanged) await app.admin.clearHistory();
+      await app.admin.reload();
+    })();
   };
 
   return (
@@ -276,7 +293,9 @@ export function ConnectionPage() {
           description={
             backend === 'mock'
               ? `Snowdrop will reload into the demo. Your signal-cli history stays stored ${desktopAdmin ? 'on this computer' : 'in this browser'}.`
-              : 'Snowdrop will reload and connect to signal-cli. Unsent drafts are kept.'
+              : signalCliTargetChanged
+                ? "Snowdrop will reload and connect to signal-cli. Switching accounts clears this computer's cached history for the previous one."
+                : 'Snowdrop will reload and connect to signal-cli. Unsent drafts are kept.'
           }
           footer={
             <>

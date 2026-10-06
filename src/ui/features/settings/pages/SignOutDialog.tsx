@@ -6,6 +6,7 @@
  * Settings → Connection, and the `core.signOut` command, so there's one
  * place that gets the copy and the ordering right.
  */
+import { RotateCw } from 'lucide-react';
 import { useState } from 'react';
 import { useStore } from 'zustand';
 import { sessionSelectors } from '@/core/stores';
@@ -15,6 +16,7 @@ import {
   disconnectExternalDaemon,
   leaveDemo,
   signOutDesktop,
+  SignOutRestartFailed,
   signOutFlowFor,
 } from './signOutFlow';
 import styles from './pages.module.css';
@@ -29,6 +31,10 @@ export function SignOutDialog({ onClose }: SignOutDialogProps) {
   const self = useStore(app.stores.session, sessionSelectors.self);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Set only by `SignOutRestartFailed`: sign-out itself already went
+  // through, so from here the only thing left to retry is the restart —
+  // never re-offer "Sign out" on an account that's already gone.
+  const [restartFailed, setRestartFailed] = useState(false);
 
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
@@ -39,14 +45,66 @@ export function SignOutDialog({ onClose }: SignOutDialogProps) {
       // process on success, so there's nothing left for this component to
       // do — it's about to be torn down either way.
     } catch (e) {
+      if (e instanceof SignOutRestartFailed) {
+        setRestartFailed(true);
+        setError(e.message);
+        setBusy(false);
+        return;
+      }
+      setError(e instanceof Error ? e.message : String(e));
+      setBusy(false);
+    }
+  };
+
+  const retryRestart = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await app.storageAdmin?.restart();
+    } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setBusy(false);
     }
   };
 
   const close = () => {
-    if (!busy) onClose();
+    // Nothing to cancel back to: the desktop vault is already signed out.
+    if (!busy && !restartFailed) onClose();
   };
+
+  if (restartFailed) {
+    return (
+      <Modal
+        open
+        size="sm"
+        onOpenChange={() => {
+          // No dismiss: there's nothing left to go back to.
+        }}
+        title="Restart Snowdrop to finish"
+        description="You're signed out on this computer. Snowdrop needs to restart once before it can be used again."
+        footer={
+          <Button
+            variant="primary"
+            icon={busy ? <RotateCw size={16} className={styles.spin} /> : <RotateCw size={16} />}
+            autoFocus
+            disabled={busy}
+            onClick={() => void retryRestart()}
+          >
+            Restart Snowdrop
+          </Button>
+        }
+      >
+        {error && (
+          <p className={styles.error} role="alert">
+            {error}
+          </p>
+        )}
+        <p className={styles.muted}>
+          If this keeps happening, close Snowdrop and reopen it yourself.
+        </p>
+      </Modal>
+    );
+  }
 
   if (flow === 'demo') {
     return (
@@ -63,7 +121,11 @@ export function SignOutDialog({ onClose }: SignOutDialogProps) {
             <Button variant="ghost" data-autofocus disabled={busy} onClick={close}>
               Cancel
             </Button>
-            <Button variant="primary" disabled={busy} onClick={() => void run(() => leaveDemo(app))}>
+            <Button
+              variant="primary"
+              disabled={busy}
+              onClick={() => void run(() => leaveDemo(app))}
+            >
               {busy ? 'Leaving…' : 'Leave demo'}
             </Button>
           </>
@@ -126,7 +188,11 @@ export function SignOutDialog({ onClose }: SignOutDialogProps) {
           <Button variant="ghost" data-autofocus disabled={busy} onClick={close}>
             Cancel
           </Button>
-          <Button variant="danger" disabled={busy} onClick={() => void run(() => signOutDesktop(app))}>
+          <Button
+            variant="danger"
+            disabled={busy}
+            onClick={() => void run(() => signOutDesktop(app))}
+          >
             {busy ? 'Signing out…' : 'Sign out'}
           </Button>
         </>

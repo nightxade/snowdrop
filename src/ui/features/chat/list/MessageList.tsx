@@ -168,9 +168,7 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
 
   // The latest scheduled focus-after-scroll, so a second "jump to" within
   // 350ms can cancel the first one instead of letting it land on a stale row.
-  const pendingFocus = useRef<{ id: MessageId; timer: ReturnType<typeof setTimeout> } | null>(
-    null,
-  );
+  const pendingFocus = useRef<{ id: MessageId; timer: ReturnType<typeof setTimeout> } | null>(null);
 
   // A pending jump whose target is now loaded: scroll to it, flash it, maybe focus it.
   useEffect(() => {
@@ -277,7 +275,13 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
       setConversationListFocusResolver((id) => {
         if (id !== conversationId) return null;
         navigation.focus();
-        return document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        // `navigation.focus()` can be a no-op (the scroller itself hasn't
+        // mounted yet — this runs on a rAF, before Virtuoso's rows do):
+        // only report success if focus actually landed inside this list,
+        // never whatever was focused before (possibly `<body>`), so a
+        // caller can tell the difference and fall back or retry.
+        const active = document.activeElement;
+        return active instanceof HTMLElement && scroller.current?.contains(active) ? active : null;
       }),
     [conversationId, navigation],
   );

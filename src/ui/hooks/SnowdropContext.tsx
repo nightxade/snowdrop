@@ -29,6 +29,15 @@ export interface AppAdmin {
   exportHistory(onProgress?: (done: number, total: number) => void): Promise<HistoryExport>;
   /** Deletes all stored messages and outbox entries (settings are kept). */
   clearHistory(): Promise<void>;
+  /**
+   * Marks (or clears) a flag the next boot honours by clearing history
+   * before starting. Set when `clearHistory()` fails partway through
+   * sign-out (the vault is already signed out and the next boot unlocks
+   * with the same key, so the old account's cache must still go) — cleared
+   * once a later `clearHistory()` actually succeeds. Awaiting it guarantees
+   * the flag itself reaches storage, even if the process restarts right after.
+   */
+  setPendingHistoryClear(pending: boolean): Promise<void>;
   /** Writes debounced persisted state now (before a reload). */
   flush(): void;
   /**

@@ -5,15 +5,7 @@
  * UTF-16 offsets for the textarea. Pure, no DOM.
  */
 
-const segmenter =
-  typeof Intl !== 'undefined' && 'Segmenter' in Intl
-    ? new Intl.Segmenter(undefined, { granularity: 'grapheme' })
-    : null;
-
-function splitGraphemes(text: string): string[] {
-  if (segmenter) return Array.from(segmenter.segment(text), (s) => s.segment);
-  return Array.from(text);
-}
+import { splitGraphemes } from '@/ui/lib/graphemes';
 
 export type CharClass = 0 | 1 | 2;
 

@@ -395,22 +395,24 @@ describe('Vim mode: opening a conversation never leaves focus in the composer', 
     expect(focused()).not.toBe(composer());
   });
 
-  it('outside Vim mode, a sidebar click leaves focus exactly as before', async () => {
+  it('outside Vim mode, a sidebar click leaves focus on the clicked row', async () => {
     const { snowdrop } = await bootVim(false);
     act(() => {
       composer().focus();
     });
     expect(focused()).toBe(composer());
     const other = otherConversation(snowdrop);
+    const row = sidebarRowFor(other);
     act(() => {
-      fireEvent.click(sidebarRowFor(other));
+      fireEvent.click(row);
     });
     await settleFrame();
     expect(uiSelectors.selectedConversation(snowdrop.stores.ui.getState())).toBe(other);
-    // No focus policy is registered: today's behaviour (no explicit focus
-    // handling on a click) is untouched — the old composer's unmount drops
-    // focus to <body>, nothing claims the new message list.
-    expect(focused()).toBe(document.body);
+    // No focus policy is registered, so `followConversationOpenFocus` is a
+    // no-op; but `ConversationRow`'s own click handler still focuses the
+    // row it was given (WebKitGTK doesn't do this on click natively), so
+    // roving focus and arrow-key stepping keep following it.
+    expect(focused()).toBe(row);
   });
 
   it('outside Vim mode, type-to-focus still sends a stray letter to the composer', async () => {

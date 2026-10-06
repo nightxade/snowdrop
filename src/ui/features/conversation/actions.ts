@@ -25,11 +25,16 @@ export function muteState(ms: number | null, now: number): MuteState {
   return ms === null ? true : { until: now + ms };
 }
 
+export interface OpenConversationOptions {
+  space?: string;
+}
+
 export function openConversation(
   app: AppServices,
   id: ConversationId,
-  space: string = app.stores.ui.getState().selectedSpace,
+  options: OpenConversationOptions = {},
 ): void {
+  const space = options.space ?? app.stores.ui.getState().selectedSpace;
   app.stores.ui.getState().selectConversation(id, space);
   // A no-op unless a plugin's focus policy is active (Vim mode): otherwise
   // today's behaviour — a click doesn't move focus — is unchanged.

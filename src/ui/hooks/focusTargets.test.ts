@@ -4,6 +4,8 @@ import {
   conversationFocusTarget,
   focusConversation,
   followConversationFocus,
+  followConversationOpenFocus,
+  setConversationFocusPolicy,
   setConversationFocusResolver,
   setConversationListFocusResolver,
 } from './focusTargets';
@@ -18,6 +20,10 @@ function nextFrame(): Promise<void> {
       resolve();
     });
   });
+}
+
+async function frames(n: number): Promise<void> {
+  for (let i = 0; i < n; i++) await nextFrame();
 }
 
 function makeFocusable(): HTMLElement {
@@ -147,6 +153,69 @@ describe('focusTargets', () => {
       await nextFrame();
       expect(document.activeElement).not.toBe(document.body);
       expect(document.activeElement).toBe(listEl);
+    });
+  });
+
+  describe('followConversationOpenFocus', () => {
+    it('is a no-op when no focus policy is active', async () => {
+      const before = makeFocusable();
+      before.focus();
+      const listEl = makeFocusable();
+      unregisters.push(setConversationListFocusResolver((i) => (i === id ? listEl : null)));
+      followConversationOpenFocus(id);
+      await frames(6);
+      expect(document.activeElement).toBe(before);
+    });
+
+    it('a pointer open moves focus to the list once a policy is active', async () => {
+      unregisters.push(setConversationFocusPolicy(() => true));
+      const listEl = makeFocusable();
+      unregisters.push(setConversationListFocusResolver((i) => (i === id ? listEl : null)));
+      followConversationOpenFocus(id);
+      await frames(1);
+      expect(document.activeElement).toBe(listEl);
+    });
+
+    it('retries a few frames before falling back, when the list has not rendered a row yet', async () => {
+      unregisters.push(setConversationFocusPolicy(() => true));
+      let calls = 0;
+      const listEl = makeFocusable();
+      unregisters.push(
+        setConversationListFocusResolver((i) => {
+          if (i !== id) return null;
+          calls += 1;
+          // Not mounted on the first couple of frames (Virtuoso hasn't rendered rows yet).
+          return calls >= 3 ? listEl : null;
+        }),
+      );
+      followConversationOpenFocus(id);
+      await frames(1);
+      expect(document.activeElement).not.toBe(listEl); // too soon — still retrying
+      await frames(4);
+      expect(document.activeElement).toBe(listEl);
+      expect(calls).toBeGreaterThanOrEqual(3);
+    });
+
+    it('falls back to the sidebar row if the list never renders within the retry window', async () => {
+      unregisters.push(setConversationFocusPolicy(() => true));
+      const row = makeSidebarRow(id);
+      unregisters.push(setConversationListFocusResolver(() => null));
+      followConversationOpenFocus(id);
+      await frames(8);
+      expect(document.activeElement).toBe(row);
+    });
+
+    it('never steals focus from an overlay or a text input', async () => {
+      unregisters.push(setConversationFocusPolicy(() => true));
+      const input = document.createElement('input');
+      document.body.appendChild(input);
+      input.focus();
+      const listEl = makeFocusable();
+      unregisters.push(setConversationListFocusResolver((i) => (i === id ? listEl : null)));
+      followConversationOpenFocus(id);
+      await frames(6);
+      expect(document.activeElement).toBe(input);
+      input.remove();
     });
   });
 });

@@ -4,11 +4,13 @@
  * it — isTauri() true, @/platform/tauri mocked — rather than mocking globals
  * the component reads directly.
  */
-import { act, cleanup, fireEvent, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { DesktopAdmin, DesktopInfo, DesktopProbeResult, LocateResult } from '@/core/backend';
+import { SELF_ACI, SELF_NUMBER } from '@/core/backend/signal-cli/fixtures/envelopes';
+import { FakeDaemon, flush } from '@/core/backend/signal-cli/testing';
 import { createSnowdrop, type Snowdrop } from '@/app/createSnowdrop';
-import { createMemoryStorage } from '@/core/persistence';
+import { createMemoryStorage, MemoryMessageRepository } from '@/core/persistence';
 import { bootSnowdrop, renderWithSnowdrop, settle } from '@/test/renderWithSnowdrop';
 import { ConnectionPage } from './ConnectionPage';
 
@@ -134,5 +136,93 @@ describe('Settings → Connection, browser build', () => {
     const details = await screen.findByText('Details', {}, { timeout: 3000 });
     expect(screen.queryByText(/Failed to fetch|ECONNREFUSED|TypeError/u)).toBeNull();
     expect(details.closest('details')).toBeTruthy();
+  });
+});
+
+describe('Settings → Connection, browser build: switching signal-cli accounts', () => {
+  async function bootSignalCliSnowdrop(account: string): Promise<Snowdrop> {
+    const storage = createMemoryStorage({
+      'snowdrop.settings': JSON.stringify({
+        v: 2,
+        data: { connection: { backend: 'signal-cli', daemonUrl: '/signal-cli', account } },
+      }),
+    });
+    const daemon = new FakeDaemon()
+      .reply('listAccounts', [{ number: SELF_NUMBER, aci: SELF_ACI }])
+      .reply('listContacts', [])
+      .reply('listGroups', []);
+    const s = createSnowdrop({
+      storage,
+      fetch: daemon.fetch,
+      repository: new MemoryMessageRepository(),
+    });
+    await act(async () => {
+      await s.start();
+      await flush();
+    });
+    return s;
+  }
+
+  it('clears this computer’s cached history before reloading, with a note in the confirm dialog', async () => {
+    snowdrop = await bootSignalCliSnowdrop(SELF_ACI);
+    const clearHistory = vi.spyOn(snowdrop.admin, 'clearHistory');
+    const reload = vi.fn();
+    vi.stubGlobal('location', { reload });
+    try {
+      renderWithSnowdrop(snowdrop, <ConnectionPage />);
+
+      act(() => {
+        fireEvent.change(screen.getByLabelText('Account'), {
+          target: { value: 'a-different-account' },
+        });
+      });
+      act(() => {
+        fireEvent.click(screen.getByRole('button', { name: 'Apply and reload' }));
+      });
+      expect(
+        await screen.findByText(/Switching accounts clears this computer.s cached history/u),
+      ).toBeTruthy();
+
+      act(() => {
+        fireEvent.click(screen.getByRole('button', { name: 'Reload now' }));
+      });
+      await waitFor(() => {
+        expect(reload).toHaveBeenCalledTimes(1);
+      });
+      expect(clearHistory).toHaveBeenCalledTimes(1);
+      // Cleared before the reload that would otherwise show it under the new account.
+      expect(clearHistory.mock.invocationCallOrder[0]).toBeLessThan(
+        reload.mock.invocationCallOrder[0]!,
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('does not clear history when nothing about the account or daemon changed', async () => {
+    snowdrop = await bootSignalCliSnowdrop(SELF_ACI);
+    const clearHistory = vi.spyOn(snowdrop.admin, 'clearHistory');
+    const reload = vi.fn();
+    vi.stubGlobal('location', { reload });
+    try {
+      renderWithSnowdrop(snowdrop, <ConnectionPage />);
+
+      // Switching to the demo and back doesn't touch the account/daemon fields.
+      act(() => {
+        fireEvent.click(screen.getByRole('radio', { name: 'Demo' }));
+      });
+      act(() => {
+        fireEvent.click(screen.getByRole('button', { name: 'Apply and reload' }));
+      });
+      act(() => {
+        fireEvent.click(screen.getByRole('button', { name: 'Reload now' }));
+      });
+      await waitFor(() => {
+        expect(reload).toHaveBeenCalledTimes(1);
+      });
+      expect(clearHistory).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

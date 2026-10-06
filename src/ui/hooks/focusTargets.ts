@@ -118,6 +118,11 @@ export function followConversationFocus(preferComposer = false): (id: Conversati
   };
 }
 
+/** How many animation frames to give the message list to actually mount a
+ * row before settling for `conversationFocusTarget`'s own fallback chain
+ * (composer, then the sidebar row) — see `followConversationOpenFocus`. */
+const FOCUS_RETRY_FRAMES = 5;
+
 /**
  * For a trigger that doesn't manage focus itself — a sidebar click, a space
  * switch — and only while a focus policy is active (see
@@ -127,12 +132,32 @@ export function followConversationFocus(preferComposer = false): (id: Conversati
  * away. A no-op when no policy is registered, so today's behaviour is
  * untouched outside it, and it never steals focus from another input, a
  * menu or a dialog.
+ *
+ * Keyboard stepping between conversations from a sidebar row (Vim's J/K)
+ * goes through `followConversationFocus` instead, which deliberately keeps
+ * focus on the row so stepping continues — this is never called for that.
  */
 export function followConversationOpenFocus(id: ConversationId): void {
   if (!conversationFocusPolicyActive()) return;
-  requestAnimationFrame(() => {
+  let attempt = 0;
+  const tryFocus = (): void => {
     const focus = describeFocus(document, false);
     if (focus.overlay || focus.target === 'input') return;
+    attempt += 1;
+    // The message list for the new conversation may not have mounted any
+    // rows yet (this runs on a rAF, Virtuoso's rows render on a later one):
+    // give it a few more frames rather than settling immediately for
+    // `conversationFocusTarget`'s composer/sidebar-row fallback.
+    const fromList = listResolver?.(id);
+    if (fromList) {
+      fromList.focus();
+      return;
+    }
+    if (attempt < FOCUS_RETRY_FRAMES) {
+      requestAnimationFrame(tryFocus);
+      return;
+    }
     conversationFocusTarget(id, false)?.focus();
-  });
+  };
+  requestAnimationFrame(tryFocus);
 }

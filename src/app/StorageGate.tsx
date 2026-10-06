@@ -15,10 +15,12 @@ import type { ThemeDocument } from '@/core/themes';
 // import of the barrel here would pull all of it into the main bundle.
 import { OnboardingShell } from '@/ui/features/onboarding/OnboardingShell';
 import { RestartRequiredScreen } from '@/ui/features/onboarding/RestartRequiredScreen';
+import setupStyles from '@/ui/features/onboarding/Setup.module.css';
 import { StorageSetup } from '@/ui/features/onboarding/StorageSetup';
 import storageStyles from '@/ui/features/onboarding/Storage.module.css';
 import { StorageUnavailable } from '@/ui/features/onboarding/StorageUnavailable';
 import { UnlockScreen } from '@/ui/features/onboarding/UnlockScreen';
+import { Button } from '@/ui/primitives';
 import { applyBootAppearance } from './bootAppearance';
 import { createPersistence, discardUnreadableWebCache, type Persistence } from './persistence';
 import { installFlushBeforeClose } from './platform';
@@ -61,6 +63,9 @@ export function StorageGate({ admin, document, children }: StorageGateProps) {
   // only ever written from an effect and read from an event handler, never
   // during render.
   const [flusherState, setFlusher] = useState<() => Promise<void>>(() => NOOP_FLUSHER);
+  // Only touched by the 'failed' screen's "Try again" button, to disable it
+  // while a fresh `admin.status()` round-trip is in flight.
+  const [retryingAfterFailure, setRetryingAfterFailure] = useState(false);
   const flusherRef = useRef(flusherState);
   useEffect(() => {
     flusherRef.current = flusherState;
@@ -105,9 +110,23 @@ export function StorageGate({ admin, document, children }: StorageGateProps) {
     } else setPhase({ kind: 'blocked', status });
   };
 
+  // A status query that itself fails (the IPC rejected) lands on the same
+  // "Try again" screen as a failed boot, rather than hanging on "Checking…".
+  const checkStatus = () =>
+    admin
+      .status()
+      .then(route)
+      .catch((error: unknown) => {
+        console.error('[snowdrop] failed to query encrypted storage', error);
+        setPhase({
+          kind: 'failed',
+          message: error instanceof Error ? error.message : String(error),
+        });
+      });
+
   useEffect(() => {
     if (document) applyBootAppearance(document);
-    void admin.status().then(route);
+    void checkStatus();
     // Intentionally runs once: every later transition comes from a screen
     // calling `route` with a fresh status, not from re-polling here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -137,9 +156,35 @@ export function StorageGate({ admin, document, children }: StorageGateProps) {
   if (phase.kind === 'failed') {
     return (
       <OnboardingShell>
-        <p className={storageStyles.checking} role="alert">
-          Snowdrop couldn&rsquo;t open its encrypted storage: {phase.message}
-        </p>
+        <section className={setupStyles.card} aria-labelledby="storage-failed-title">
+          <h2 id="storage-failed-title" className={setupStyles.title}>
+            Snowdrop couldn&rsquo;t open its encrypted storage
+          </h2>
+          <p className={setupStyles.lede} role="alert">
+            Something went wrong while opening local storage. Try again — if it keeps happening,
+            restarting Snowdrop may help.
+          </p>
+          <details className={storageStyles.disclosure}>
+            <summary>Details</summary>
+            <p>{phase.message}</p>
+          </details>
+          <div className={setupStyles.actions}>
+            <Button
+              type="button"
+              variant="primary"
+              autoFocus
+              disabled={retryingAfterFailure}
+              onClick={() => {
+                setRetryingAfterFailure(true);
+                void checkStatus().finally(() => {
+                  setRetryingAfterFailure(false);
+                });
+              }}
+            >
+              Try again
+            </Button>
+          </div>
+        </section>
       </OnboardingShell>
     );
   }

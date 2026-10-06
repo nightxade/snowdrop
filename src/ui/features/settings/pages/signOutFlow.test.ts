@@ -1,10 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import {
-  disconnectExternalDaemon,
-  leaveDemo,
-  signOutDesktop,
-  signOutFlowFor,
-} from './signOutFlow';
+import { disconnectExternalDaemon, leaveDemo, signOutDesktop, signOutFlowFor } from './signOutFlow';
 
 function fakeSettingsStore() {
   const update = vi.fn();
@@ -68,7 +63,7 @@ describe('disconnectExternalDaemon', () => {
 });
 
 describe('signOutDesktop', () => {
-  it('clears history, then the backend/account choice, then persists, then signs out, then restarts', async () => {
+  it('clears the backend/account choice, then persists, then signs out, then clears history, then restarts', async () => {
     const order: string[] = [];
     const { store, update } = fakeSettingsStore();
     update.mockImplementation(() => order.push('update'));
@@ -78,6 +73,40 @@ describe('signOutDesktop', () => {
     });
     const persist = vi.fn(() => {
       order.push('persist');
+      return Promise.resolve();
+    });
+    const setPendingHistoryClear = vi.fn(() => Promise.resolve());
+    const signOut = vi.fn(() => {
+      order.push('signOut');
+      return Promise.resolve();
+    });
+    const restart = vi.fn(() => {
+      order.push('restart');
+      return Promise.resolve();
+    });
+
+    await signOutDesktop({
+      stores: { settings: store } as never,
+      admin: { clearHistory, persist, setPendingHistoryClear },
+      storageAdmin: { signOut, restart } as never,
+    });
+
+    expect(update).toHaveBeenCalledWith('connection', { backend: null, account: null });
+    expect(order).toEqual(['update', 'persist', 'signOut', 'clearHistory', 'restart']);
+    // The happy path never needed the fallback flag.
+    expect(setPendingHistoryClear).not.toHaveBeenCalled();
+  });
+
+  it('still restarts, and records a pending-clear flag, if clearHistory fails after signOut', async () => {
+    const order: string[] = [];
+    const { store } = fakeSettingsStore();
+    const clearHistory = vi.fn(() => {
+      order.push('clearHistory');
+      return Promise.reject(new Error('IDB is busy'));
+    });
+    const persist = vi.fn(() => Promise.resolve());
+    const setPendingHistoryClear = vi.fn((pending: boolean) => {
+      order.push(`setPendingHistoryClear(${pending})`);
       return Promise.resolve();
     });
     const signOut = vi.fn(() => {
@@ -91,12 +120,12 @@ describe('signOutDesktop', () => {
 
     await signOutDesktop({
       stores: { settings: store } as never,
-      admin: { clearHistory, persist },
+      admin: { clearHistory, persist, setPendingHistoryClear },
       storageAdmin: { signOut, restart } as never,
     });
 
-    expect(update).toHaveBeenCalledWith('connection', { backend: null, account: null });
-    expect(order).toEqual(['clearHistory', 'update', 'persist', 'signOut', 'restart']);
+    expect(order).toEqual(['signOut', 'clearHistory', 'setPendingHistoryClear(true)', 'restart']);
+    expect(restart).toHaveBeenCalledTimes(1);
   });
 
   it('refuses without a desktop storage admin', async () => {
@@ -104,7 +133,7 @@ describe('signOutDesktop', () => {
     await expect(
       signOutDesktop({
         stores: { settings: store } as never,
-        admin: { clearHistory: vi.fn(), persist: vi.fn() },
+        admin: { clearHistory: vi.fn(), persist: vi.fn(), setPendingHistoryClear: vi.fn() },
         storageAdmin: null,
       }),
     ).rejects.toThrow();

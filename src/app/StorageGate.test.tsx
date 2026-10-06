@@ -31,8 +31,17 @@ const needsSetup: StorageStatus = {
   restartRequired: false,
 };
 
-const locked: StorageStatus = { ...needsSetup, state: 'locked', reason: 'keyringLocked', hasRecovery: true };
-const unavailable: StorageStatus = { ...needsSetup, state: 'unavailable', reason: 'alreadyRunning' };
+const locked: StorageStatus = {
+  ...needsSetup,
+  state: 'locked',
+  reason: 'keyringLocked',
+  hasRecovery: true,
+};
+const unavailable: StorageStatus = {
+  ...needsSetup,
+  state: 'unavailable',
+  reason: 'alreadyRunning',
+};
 const unlocked: StorageStatus = { ...needsSetup, state: 'unlocked' };
 const restartRequired: StorageStatus = { ...needsSetup, restartRequired: true };
 
@@ -93,7 +102,9 @@ describe('StorageGate: routes every state', () => {
       ) => <div data-testid="booted">{typeof persistence.storage}</div>,
     );
     render(
-      <StorageGate admin={fakeAdmin({ status: () => Promise.resolve(unlocked) })}>{children}</StorageGate>,
+      <StorageGate admin={fakeAdmin({ status: () => Promise.resolve(unlocked) })}>
+        {children}
+      </StorageGate>,
     );
     expect(await screen.findByTestId('booted')).toBeTruthy();
     expect(children).toHaveBeenCalledTimes(1);
@@ -112,7 +123,9 @@ describe('StorageGate: routes every state', () => {
         {() => <div>never</div>}
       </StorageGate>,
     );
-    expect(await screen.findByRole('heading', { name: /Restart Snowdrop to finish/u })).toBeTruthy();
+    expect(
+      await screen.findByRole('heading', { name: /Restart Snowdrop to finish/u }),
+    ).toBeTruthy();
     expect(screen.queryByRole('heading', { name: 'Protect your data' })).toBeNull();
 
     act(() => {
@@ -121,6 +134,36 @@ describe('StorageGate: routes every state', () => {
     await waitFor(() => {
       expect(restart).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it('failed shows the error detail behind a disclosure, and retries boot on click', async () => {
+    const webcacheKey = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('keyring secret missing'))
+      .mockResolvedValue(randomKeyBase64());
+    render(
+      <StorageGate admin={fakeAdmin({ status: () => Promise.resolve(unlocked), webcacheKey })}>
+        {() => <div data-testid="booted">ready</div>}
+      </StorageGate>,
+    );
+    expect(
+      await screen.findByRole('heading', { name: /couldn.t open its encrypted storage/u }),
+    ).toBeTruthy();
+    // The raw detail lives behind the "Details" disclosure, not the calm
+    // lede paragraph (collapsed <details> content is still in the DOM —
+    // see StorageSetup.test.tsx's note on the same pattern — so this checks
+    // containment, not a query miss).
+    const detail = screen.getByText('keyring secret missing');
+    expect(detail.closest('details')).toBeTruthy();
+    expect(screen.getByRole('alert').textContent).not.toContain('keyring secret missing');
+    fireEvent.click(screen.getByText('Details'));
+    expect(screen.getByText('keyring secret missing')).toBeTruthy();
+
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    });
+    expect(await screen.findByTestId('booted')).toBeTruthy();
+    expect(webcacheKey).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -146,7 +189,9 @@ describe('StorageGate: re-routes when a screen reports a new status', () => {
   it('retrying from the unavailable screen can boot the app once storage is unlocked', async () => {
     const status = vi.fn().mockResolvedValueOnce(unavailable).mockResolvedValueOnce(unlocked);
     render(
-      <StorageGate admin={fakeAdmin({ status })}>{() => <div data-testid="booted">ready</div>}</StorageGate>,
+      <StorageGate admin={fakeAdmin({ status })}>
+        {() => <div data-testid="booted">ready</div>}
+      </StorageGate>,
     );
     await screen.findByRole('heading', { name: /Snowdrop is already open/u });
     await act(async () => {
