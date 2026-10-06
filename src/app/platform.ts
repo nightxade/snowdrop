@@ -7,8 +7,10 @@ import type { DesktopAdmin, StorageAdmin } from '@/core/backend';
 import { addLogSink, createLogger, type LogAdmin } from '@/core/lib';
 import type { NotificationApi } from '@/core/services';
 import { isTauri } from '@/platform/detect';
+import type { LastIpcCommand } from '@/platform/tauri';
 
 export { isTauri };
+export type { LastIpcCommand };
 
 // Cached: several callers (desktop admin, storage admin, notifications,
 // external links) each reach for this module, and it must resolve to the
@@ -68,6 +70,30 @@ export function desktopNotificationApi(): NotificationApi {
     },
     show: (content, onClick) => api?.show(content, onClick) ?? null,
   };
+}
+
+/**
+ * The most recently started real IPC command, for the main-thread stall
+ * detector (`src/app/perf.ts`) to report as context. Best-effort: until
+ * `@/platform/tauri` has actually finished loading (normally already true
+ * by the time the UI is interactive, since several other desktop services
+ * above trigger it at boot), this returns null rather than waiting — a
+ * missing command in one stall's log line is a fine trade for never
+ * blocking on it. Always null outside Tauri, where there's no IPC at all.
+ */
+let ipcDiagnostics: Pick<Awaited<ReturnType<typeof importPlatform>>, 'getLastIpcCommand'> | null =
+  null;
+export function desktopLastIpcCommand(): LastIpcCommand | null {
+  if (!isTauri()) return null;
+  if (!ipcDiagnostics) {
+    void platform()
+      .then((m) => {
+        ipcDiagnostics = m;
+      })
+      .catch(() => {});
+    return null;
+  }
+  return ipcDiagnostics.getLastIpcCommand();
 }
 
 export function desktopAdmin(): DesktopAdmin {

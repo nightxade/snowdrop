@@ -14,6 +14,7 @@ pub mod external;
 pub mod jsonrpc;
 pub mod keyslots;
 pub mod logfile;
+pub mod perf;
 pub mod process;
 pub mod redact;
 pub mod secrets;

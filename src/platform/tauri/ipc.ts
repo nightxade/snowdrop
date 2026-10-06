@@ -6,6 +6,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { DesktopErrorKind } from '@/core/backend';
+import { createLogger } from '@/core/lib';
 import type { DesktopConnection } from '@/core/stores';
 
 export interface TauriIpc {
@@ -16,8 +17,48 @@ export interface TauriIpc {
   listen<T>(event: string, handler: (payload: T) => void): Promise<() => void>;
 }
 
+const perfLog = createLogger('perf');
+
+/** A command slower than this logs a `perf` warning (never its args or result). */
+const SLOW_IPC_MS = 200;
+
+/** A command's name and when it started, in `performance.now()` units. */
+export interface LastIpcCommand {
+  command: string;
+  startedAt: number;
+}
+
+let lastIpcCommand: LastIpcCommand | null = null;
+
+/**
+ * The most recently *started* real IPC command, whether or not it has
+ * resolved yet — command name only, never args or results. Read by the
+ * main-thread stall detector (`src/app/perf.ts`) to report, as context for
+ * a stall, whichever command was in flight when the gap began.
+ */
+export function getLastIpcCommand(): LastIpcCommand | null {
+  return lastIpcCommand;
+}
+
 export const tauriIpc: TauriIpc = {
-  invoke: (command, args) => invoke(command, args),
+  invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+    const startedAt = performance.now();
+    lastIpcCommand = { command, startedAt };
+    const reportIfSlow = (): void => {
+      const ms = performance.now() - startedAt;
+      if (ms > SLOW_IPC_MS) perfLog.warn(`slow IPC ${command} ${Math.round(ms)} ms`);
+    };
+    return invoke<T>(command, args).then(
+      (value) => {
+        reportIfSlow();
+        return value;
+      },
+      (error: unknown) => {
+        reportIfSlow();
+        throw error;
+      },
+    );
+  },
   listen: (event, handler) =>
     listen(event, (e) => {
       handler(e.payload as never);

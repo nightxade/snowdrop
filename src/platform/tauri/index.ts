@@ -25,4 +25,5 @@ export {
   storageUnlock,
   storageWebcacheKey,
 } from './desktop';
-export type { TauriIpc } from './ipc';
+export { getLastIpcCommand } from './ipc';
+export type { LastIpcCommand, TauriIpc } from './ipc';

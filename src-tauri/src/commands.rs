@@ -11,6 +11,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::config::{ConnectConfig, ResolvedBinary};
 use crate::error::{Error, ErrorKind};
+use crate::perf::CommandTimer;
 use crate::secrets::{self, KeyringStatus, KeyringStore};
 use crate::service::{ConnectInfo, ProbeResult, Service};
 use crate::signal_cli_install::{self, InstallState, InstallStatus, PinnedAsset};
@@ -19,7 +20,6 @@ use crate::CloseGate;
 
 type Svc<'a> = State<'a, Arc<Service>>;
 type Install<'a> = State<'a, Arc<InstallState>>;
-type Storage<'a> = State<'a, Mutex<StorageService>>;
 type CloseLatch<'a> = State<'a, Arc<CloseGate>>;
 
 /// Longest a single call may wait (finishLink waits for the phone to scan).
@@ -70,6 +70,7 @@ fn is_allowed_method(method: &str) -> bool {
 
 #[tauri::command]
 pub async fn signal_cli_connect(service: Svc<'_>, config: ConnectConfig) -> Result<ConnectInfo, Error> {
+    let _t = CommandTimer::start("signal_cli_connect");
     service.connect(config).await
 }
 
@@ -80,6 +81,7 @@ pub async fn signal_cli_request(
     params: Option<Map<String, Value>>,
     timeout_ms: Option<u64>,
 ) -> Result<Value, Error> {
+    let _t = CommandTimer::start("signal_cli_request");
     if !is_allowed_method(&method) {
         return Err(Error::new(ErrorKind::Config, format!("{method} is not a method Snowdrop's UI may call.")));
     }
@@ -89,35 +91,61 @@ pub async fn signal_cli_request(
 
 #[tauri::command]
 pub async fn signal_cli_subscribe(service: Svc<'_>, account: Option<String>, resume_from: Option<String>) -> Result<String, Error> {
+    let _t = CommandTimer::start("signal_cli_subscribe");
     service.subscribe(account, resume_from.unwrap_or_default()).await
 }
 
+// Kept sync and trivial: an in-memory cursor bump, no lock contention or IO.
 #[tauri::command]
 pub fn signal_cli_ack(service: Svc<'_>, cursor: String) {
+    let _t = CommandTimer::start("signal_cli_ack");
     service.acknowledge(&cursor);
 }
 
 #[tauri::command]
 pub async fn signal_cli_probe(service: Svc<'_>, config: ConnectConfig) -> Result<ProbeResult, Error> {
+    let _t = CommandTimer::start("signal_cli_probe");
     service.probe(config).await
 }
 
+/// Resolves the signal-cli binary to run: walks `PATH` and stats candidate
+/// files, which can block on a slow or network filesystem — run off the
+/// main (GTK) thread.
 #[tauri::command]
-pub fn signal_cli_locate(service: Svc<'_>, binary_path: Option<String>) -> Result<ResolvedBinary, Error> {
-    service.locate(binary_path.as_deref())
+pub async fn signal_cli_locate(service: Svc<'_>, binary_path: Option<String>) -> Result<ResolvedBinary, Error> {
+    let _t = CommandTimer::start("signal_cli_locate");
+    let service = service.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || service.locate(binary_path.as_deref()))
+        .await
+        .expect("signal_cli_locate: blocking task panicked")
 }
 
 /// The release this build would download (version, repo, approximate size),
-/// for the first-run onboarding screen and Settings → Connection.
+/// for the first-run onboarding screen and Settings → Connection. Kept
+/// sync: it only parses an already-cached, compiled-in JSON string.
 #[tauri::command]
 pub fn signal_cli_pinned_release() -> Result<PinnedAsset, Error> {
+    let _t = CommandTimer::start("signal_cli_pinned_release");
     signal_cli_install::pinned()
 }
 
-/// Whether the pinned signal-cli is already downloaded.
+/// Whether the pinned signal-cli is already downloaded: stats the install
+/// path, which can block — run off the main thread.
+///
+/// Takes `app: AppHandle` rather than `Install<'_>`: an async command whose
+/// inputs borrow from the invoke (a `State`) must return a `Result`
+/// (a Tauri requirement), and this one has nothing to fail with — looking
+/// the state up again from an owned, `'static` handle sidesteps that
+/// instead of inventing an error case that can never happen.
 #[tauri::command]
-pub fn signal_cli_install_status(install: Install<'_>) -> InstallStatus {
-    signal_cli_install::status(&install.app_data_dir)
+pub async fn signal_cli_install_status(app: AppHandle) -> InstallStatus {
+    let _t = CommandTimer::start("signal_cli_install_status");
+    tauri::async_runtime::spawn_blocking(move || {
+        let install = app.state::<Arc<InstallState>>();
+        signal_cli_install::status(&install.app_data_dir)
+    })
+    .await
+    .expect("signal_cli_install_status: blocking task panicked")
 }
 
 /// Downloads and installs the pinned signal-cli release, reporting progress
@@ -126,6 +154,7 @@ pub fn signal_cli_install_status(install: Install<'_>) -> InstallStatus {
 /// was cancelled with `signal_cli_install_cancel`).
 #[tauri::command]
 pub async fn signal_cli_install(app: AppHandle, install: Install<'_>) -> Result<InstallStatus, Error> {
+    let _t = CommandTimer::start("signal_cli_install");
     let handle = app.clone();
     let on_progress: signal_cli_install::ProgressSink = Arc::new(move |progress| {
         let _ = handle.emit_to("main", crate::EVENT_INSTALL_PROGRESS, progress);
@@ -133,9 +162,11 @@ pub async fn signal_cli_install(app: AppHandle, install: Install<'_>) -> Result<
     signal_cli_install::install_pinned(&install, on_progress).await
 }
 
-/// Cancels a signal-cli download/install in progress, if any.
+/// Cancels a signal-cli download/install in progress, if any. Kept sync: it
+/// only flips a shared cancel flag.
 #[tauri::command]
 pub fn signal_cli_install_cancel(install: Install<'_>) {
+    let _t = CommandTimer::start("signal_cli_install_cancel");
     install.cancel();
 }
 
@@ -159,36 +190,51 @@ pub struct DesktopInfo {
     log_file: Option<String>,
 }
 
+/// Reads the install status and (in a bundled build) a couple of licence
+/// files off disk — run off the main thread. Takes `app: AppHandle` only
+/// (see `signal_cli_install_status`'s doc comment for why), looking
+/// `Service`/`InstallState` up again from it inside the blocking closure.
 #[tauri::command]
-pub fn desktop_info(app: AppHandle, service: Svc<'_>, install: Install<'_>) -> DesktopInfo {
-    let downloaded = signal_cli_install::status(&install.app_data_dir);
-    let pinned = signal_cli_install::pinned().ok();
-    let bundled_present = service.bundled().is_some();
-    let managed_signal_cli =
-        downloaded.version.or_else(|| bundled_present.then(|| pinned.as_ref().map(|p| p.version.clone())).flatten());
-    let signal_cli_release_url =
-        managed_signal_cli.is_some().then(|| pinned.as_ref().map(|p| format!("{}/releases/tag/v{}", p.repo, p.version))).flatten();
+pub async fn desktop_info(app: AppHandle) -> DesktopInfo {
+    let _t = CommandTimer::start("desktop_info");
+    tauri::async_runtime::spawn_blocking(move || {
+        let service = app.state::<Arc<Service>>();
+        let install = app.state::<Arc<InstallState>>();
+        let downloaded = signal_cli_install::status(&install.app_data_dir);
+        let pinned = signal_cli_install::pinned().ok();
+        let bundled_present = service.bundled().is_some();
+        let managed_signal_cli = downloaded
+            .version
+            .or_else(|| bundled_present.then(|| pinned.as_ref().map(|p| p.version.clone())).flatten());
+        let signal_cli_release_url = managed_signal_cli
+            .is_some()
+            .then(|| pinned.as_ref().map(|p| format!("{}/releases/tag/v{}", p.repo, p.version)))
+            .flatten();
 
-    // Only a bundled build ships these (fetch-signal-cli.mjs writes them as Tauri resources).
-    let dir = app.path().resource_dir().ok().map(|d| d.join("licenses").join("signal-cli"));
-    let read = |name: &str| dir.as_ref().and_then(|d| std::fs::read_to_string(d.join(name)).ok());
-    let (signal_cli_license, signal_cli_source) =
-        if bundled_present { (read("COPYING"), read("SOURCE.txt")) } else { (None, None) };
+        // Only a bundled build ships these (fetch-signal-cli.mjs writes them as Tauri resources).
+        let dir = app.path().resource_dir().ok().map(|d| d.join("licenses").join("signal-cli"));
+        let read = |name: &str| dir.as_ref().and_then(|d| std::fs::read_to_string(d.join(name)).ok());
+        let (signal_cli_license, signal_cli_source) =
+            if bundled_present { (read("COPYING"), read("SOURCE.txt")) } else { (None, None) };
 
-    let paths = app.state::<crate::AppPaths>();
-    DesktopInfo {
-        managed_signal_cli,
-        signal_cli_release_url,
-        signal_cli_license,
-        signal_cli_source,
-        data_dir: paths.data_dir.display().to_string(),
-        log_file: paths.log_file.as_ref().map(|p| p.display().to_string()),
-    }
+        let paths = app.state::<crate::AppPaths>();
+        DesktopInfo {
+            managed_signal_cli,
+            signal_cli_release_url,
+            signal_cli_license,
+            signal_cli_source,
+            data_dir: paths.data_dir.display().to_string(),
+            log_file: paths.log_file.as_ref().map(|p| p.display().to_string()),
+        }
+    })
+    .await
+    .expect("desktop_info: blocking task panicked")
 }
 
 /// Opens a link in the system browser (links never navigate the app window).
 #[tauri::command]
 pub fn open_external(url: String) -> Result<(), Error> {
+    let _t = CommandTimer::start("open_external");
     if !is_external_url(&url) {
         return Err(Error::new(ErrorKind::Config, "Only web and email links can be opened."));
     }
@@ -197,10 +243,15 @@ pub fn open_external(url: String) -> Result<(), Error> {
 
 /// Whether the OS keyring is reachable and already holds a slot secret, for
 /// the unlock screen and Settings → Privacy & security. Never returns the
-/// secret itself — see `secrets::KeyringStatus`.
+/// secret itself — see `secrets::KeyringStatus`. Talks to the Secret
+/// Service over D-Bus, which can block for a while (a locked keyring, or
+/// none running at all) — run off the main thread.
 #[tauri::command]
-pub fn storage_keyring_status() -> KeyringStatus {
-    secrets::status(&KeyringStore::new())
+pub async fn storage_keyring_status() -> KeyringStatus {
+    let _t = CommandTimer::start("storage_keyring_status");
+    tauri::async_runtime::spawn_blocking(|| secrets::status(&KeyringStore::new()))
+        .await
+        .expect("storage_keyring_status: blocking task panicked")
 }
 
 /// `vaultDisabled` has two halves: `SNOWDROP_SIGNAL_CLI_DATA` (static,
@@ -213,35 +264,62 @@ fn with_live_vault_disabled(mut status: StorageStatus, service: &Service) -> Sto
     status
 }
 
+/// `storage_status`/`storage_setup`/`storage_unlock`/.../`storage_sign_out`
+/// below all take `app: AppHandle` rather than a `State<Mutex<...>>`
+/// parameter: the actual work (Argon2 hashing, keyring/D-Bus calls, file
+/// IO) runs inside `tauri::async_runtime::spawn_blocking`, whose closure
+/// must be `Send + 'static` — `AppHandle` is (and is cheap to clone), a
+/// borrowed `State` isn't. Each closure looks the managed state up again
+/// from the handle and locks it only for its own, brief critical section;
+/// no lock is ever held across an `.await`.
 #[tauri::command]
-pub fn storage_status(storage: Storage<'_>, service: Svc<'_>) -> StorageStatus {
-    let mut storage = storage.lock().expect("storage lock");
-    with_live_vault_disabled(storage.status(), &service)
+pub async fn storage_status(app: AppHandle) -> StorageStatus {
+    let _t = CommandTimer::start("storage_status");
+    tauri::async_runtime::spawn_blocking(move || {
+        let storage = app.state::<Mutex<StorageService>>();
+        let service = app.state::<Arc<Service>>();
+        let mut storage = storage.lock().expect("storage lock");
+        with_live_vault_disabled(storage.status(), &service)
+    })
+    .await
+    .expect("storage_status: blocking task panicked")
 }
 
 #[tauri::command]
-pub fn storage_setup(
-    storage: Storage<'_>,
-    service: Svc<'_>,
+pub async fn storage_setup(
+    app: AppHandle,
     mode: SetupMode,
     passphrase: Option<String>,
 ) -> Result<StorageStatus, Error> {
-    let mut storage = storage.lock().expect("storage lock");
-    let status = storage.setup_new(mode, passphrase.as_deref())?;
-    Ok(with_live_vault_disabled(status, &service))
+    let _t = CommandTimer::start("storage_setup");
+    tauri::async_runtime::spawn_blocking(move || {
+        let storage = app.state::<Mutex<StorageService>>();
+        let service = app.state::<Arc<Service>>();
+        let mut storage = storage.lock().expect("storage lock");
+        let status = storage.setup_new(mode, passphrase.as_deref())?;
+        Ok(with_live_vault_disabled(status, &service))
+    })
+    .await
+    .expect("storage_setup: blocking task panicked")
 }
 
 #[tauri::command]
-pub fn storage_unlock(
-    storage: Storage<'_>,
-    service: Svc<'_>,
+pub async fn storage_unlock(
+    app: AppHandle,
     method: UnlockMethod,
     secret: String,
     remember: bool,
 ) -> Result<StorageStatus, Error> {
-    let mut storage = storage.lock().expect("storage lock");
-    let status = storage.unlock(method, &secret, remember)?;
-    Ok(with_live_vault_disabled(status, &service))
+    let _t = CommandTimer::start("storage_unlock");
+    tauri::async_runtime::spawn_blocking(move || {
+        let storage = app.state::<Mutex<StorageService>>();
+        let service = app.state::<Arc<Service>>();
+        let mut storage = storage.lock().expect("storage lock");
+        let status = storage.unlock(method, &secret, remember)?;
+        Ok(with_live_vault_disabled(status, &service))
+    })
+    .await
+    .expect("storage_unlock: blocking task panicked")
 }
 
 #[derive(Serialize)]
@@ -253,35 +331,59 @@ pub struct CreateRecoveryResult {
 }
 
 #[tauri::command]
-pub fn storage_create_recovery(storage: Storage<'_>, service: Svc<'_>) -> Result<CreateRecoveryResult, Error> {
-    let mut storage = storage.lock().expect("storage lock");
-    let (code, status) = storage.create_recovery()?;
-    Ok(CreateRecoveryResult { code: code.to_string(), status: with_live_vault_disabled(status, &service) })
+pub async fn storage_create_recovery(app: AppHandle) -> Result<CreateRecoveryResult, Error> {
+    let _t = CommandTimer::start("storage_create_recovery");
+    tauri::async_runtime::spawn_blocking(move || {
+        let storage = app.state::<Mutex<StorageService>>();
+        let service = app.state::<Arc<Service>>();
+        let mut storage = storage.lock().expect("storage lock");
+        let (code, status) = storage.create_recovery()?;
+        Ok(CreateRecoveryResult { code: code.to_string(), status: with_live_vault_disabled(status, &service) })
+    })
+    .await
+    .expect("storage_create_recovery: blocking task panicked")
 }
 
 #[tauri::command]
-pub fn storage_remove_recovery(storage: Storage<'_>, service: Svc<'_>) -> Result<StorageStatus, Error> {
-    let mut storage = storage.lock().expect("storage lock");
-    let status = storage.remove_recovery()?;
-    Ok(with_live_vault_disabled(status, &service))
+pub async fn storage_remove_recovery(app: AppHandle) -> Result<StorageStatus, Error> {
+    let _t = CommandTimer::start("storage_remove_recovery");
+    tauri::async_runtime::spawn_blocking(move || {
+        let storage = app.state::<Mutex<StorageService>>();
+        let service = app.state::<Arc<Service>>();
+        let mut storage = storage.lock().expect("storage lock");
+        let status = storage.remove_recovery()?;
+        Ok(with_live_vault_disabled(status, &service))
+    })
+    .await
+    .expect("storage_remove_recovery: blocking task panicked")
 }
 
 #[tauri::command]
-pub fn storage_set_passphrase(
-    storage: Storage<'_>,
-    service: Svc<'_>,
-    passphrase: Option<String>,
-) -> Result<StorageStatus, Error> {
-    let mut storage = storage.lock().expect("storage lock");
-    let status = storage.set_passphrase(passphrase.as_deref())?;
-    Ok(with_live_vault_disabled(status, &service))
+pub async fn storage_set_passphrase(app: AppHandle, passphrase: Option<String>) -> Result<StorageStatus, Error> {
+    let _t = CommandTimer::start("storage_set_passphrase");
+    tauri::async_runtime::spawn_blocking(move || {
+        let storage = app.state::<Mutex<StorageService>>();
+        let service = app.state::<Arc<Service>>();
+        let mut storage = storage.lock().expect("storage lock");
+        let status = storage.set_passphrase(passphrase.as_deref())?;
+        Ok(with_live_vault_disabled(status, &service))
+    })
+    .await
+    .expect("storage_set_passphrase: blocking task panicked")
 }
 
 #[tauri::command]
-pub fn storage_enroll_keyring(storage: Storage<'_>, service: Svc<'_>) -> Result<StorageStatus, Error> {
-    let mut storage = storage.lock().expect("storage lock");
-    let status = storage.enroll_keyring()?;
-    Ok(with_live_vault_disabled(status, &service))
+pub async fn storage_enroll_keyring(app: AppHandle) -> Result<StorageStatus, Error> {
+    let _t = CommandTimer::start("storage_enroll_keyring");
+    tauri::async_runtime::spawn_blocking(move || {
+        let storage = app.state::<Mutex<StorageService>>();
+        let service = app.state::<Arc<Service>>();
+        let mut storage = storage.lock().expect("storage lock");
+        let status = storage.enroll_keyring()?;
+        Ok(with_live_vault_disabled(status, &service))
+    })
+    .await
+    .expect("storage_enroll_keyring: blocking task panicked")
 }
 
 #[derive(Serialize)]
@@ -298,12 +400,18 @@ pub struct WebcacheKeyResult {
 /// over the key itself exposes nothing a compromised webview doesn't already
 /// have.
 #[tauri::command]
-pub fn storage_webcache_key(storage: Storage<'_>) -> Result<WebcacheKeyResult, Error> {
-    let storage = storage.lock().expect("storage lock");
-    let key = storage
-        .webcache_key()
-        .ok_or_else(|| Error::new(ErrorKind::Config, "Storage must be unlocked to read the web cache key."))?;
-    Ok(WebcacheKeyResult { key_base64: STANDARD.encode(key) })
+pub async fn storage_webcache_key(app: AppHandle) -> Result<WebcacheKeyResult, Error> {
+    let _t = CommandTimer::start("storage_webcache_key");
+    tauri::async_runtime::spawn_blocking(move || {
+        let storage = app.state::<Mutex<StorageService>>();
+        let storage = storage.lock().expect("storage lock");
+        let key = storage
+            .webcache_key()
+            .ok_or_else(|| Error::new(ErrorKind::Config, "Storage must be unlocked to read the web cache key."))?;
+        Ok(WebcacheKeyResult { key_base64: STANDARD.encode(key) })
+    })
+    .await
+    .expect("storage_webcache_key: blocking task panicked")
 }
 
 #[derive(Serialize)]
@@ -324,13 +432,20 @@ pub struct EraseResult {
 /// `connect` (docs/ENCRYPTION.md, "Erase"; see `storage.rs`'s
 /// `begin_erase` for the full account).
 #[tauri::command]
-pub fn storage_erase_all(storage: Storage<'_>, service: Svc<'_>, confirm: String) -> Result<EraseResult, Error> {
-    let prep = storage.lock().expect("storage lock").begin_erase(&confirm)?;
-    for hook in &prep.hooks {
-        hook();
-    }
-    let (status, failures) = storage.lock().expect("storage lock").finish_erase(prep)?;
-    Ok(EraseResult { status: with_live_vault_disabled(status, &service), failures })
+pub async fn storage_erase_all(app: AppHandle, confirm: String) -> Result<EraseResult, Error> {
+    let _t = CommandTimer::start("storage_erase_all");
+    tauri::async_runtime::spawn_blocking(move || {
+        let storage = app.state::<Mutex<StorageService>>();
+        let service = app.state::<Arc<Service>>();
+        let prep = storage.lock().expect("storage lock").begin_erase(&confirm)?;
+        for hook in &prep.hooks {
+            hook();
+        }
+        let (status, failures) = storage.lock().expect("storage lock").finish_erase(prep)?;
+        Ok(EraseResult { status: with_live_vault_disabled(status, &service), failures })
+    })
+    .await
+    .expect("storage_erase_all: blocking task panicked")
 }
 
 /// Signs out of Signal on this computer (docs/ENCRYPTION.md, "Sign out"):
@@ -342,13 +457,20 @@ pub fn storage_erase_all(storage: Storage<'_>, service: Svc<'_>, confirm: String
 /// Split into locking phases the same way, and for the same reason, as
 /// `storage_erase_all` above: see `storage::StorageService::begin_sign_out`.
 #[tauri::command]
-pub fn storage_sign_out(storage: Storage<'_>, service: Svc<'_>) -> Result<StorageStatus, Error> {
-    let hooks = storage.lock().expect("storage lock").begin_sign_out()?;
-    for hook in &hooks {
-        hook();
-    }
-    let status = storage.lock().expect("storage lock").finish_sign_out()?;
-    Ok(with_live_vault_disabled(status, &service))
+pub async fn storage_sign_out(app: AppHandle) -> Result<StorageStatus, Error> {
+    let _t = CommandTimer::start("storage_sign_out");
+    tauri::async_runtime::spawn_blocking(move || {
+        let storage = app.state::<Mutex<StorageService>>();
+        let service = app.state::<Arc<Service>>();
+        let hooks = storage.lock().expect("storage lock").begin_sign_out()?;
+        for hook in &hooks {
+            hook();
+        }
+        let status = storage.lock().expect("storage lock").finish_sign_out()?;
+        Ok(with_live_vault_disabled(status, &service))
+    })
+    .await
+    .expect("storage_sign_out: blocking task panicked")
 }
 
 /// Restarts the whole Snowdrop process. Needed after `storage_erase_all`:
@@ -368,6 +490,7 @@ pub fn app_restart(app: AppHandle) {
 /// went through via `lib.rs`'s fallback timer.
 #[tauri::command]
 pub fn app_close_ready(app: AppHandle, gate: CloseLatch<'_>) {
+    let _t = CommandTimer::start("app_close_ready");
     if gate.fire() {
         app.exit(0);
     }
@@ -482,32 +605,46 @@ fn parse_frontend_level(level: &str) -> log::Level {
 /// `scope` falls back to the generic `ui` target rather than dropping the
 /// line, since the frontend is the one source this command can't fully
 /// trust to format its own target correctly.
+// Kept sync: a format! and one buffered log write, not worth a thread hop.
 #[tauri::command]
 pub fn frontend_log(level: String, scope: String, message: String) {
+    let _t = CommandTimer::start("frontend_log");
     let scope = if valid_log_scope(&scope) { scope } else { "ui".to_string() };
     let target = format!("ui:{scope}");
     log::log!(target: target.as_str(), parse_frontend_level(&level), "{message}");
 }
 
 /// Raises the running app's log floor to Debug, or back down, from a
-/// developer toggle in Settings (`crate::applog::set_verbose`).
+/// developer toggle in Settings (`crate::applog::set_verbose`). Kept sync:
+/// an atomic flag flip.
 #[tauri::command]
 pub fn log_set_verbose(verbose: bool) {
+    let _t = CommandTimer::start("log_set_verbose");
     crate::applog::set_verbose(verbose);
 }
 
 /// The tail of `snowdrop.log` (plus `.1` if needed), already redacted
 /// because it was written redacted. `max_bytes` is capped server-side
-/// (`applog::recent`) regardless of what's asked.
+/// (`applog::recent`) regardless of what's asked. Reads the log file(s)
+/// from disk — run off the main thread.
 #[tauri::command]
-pub fn log_recent(max_bytes: u32) -> String {
-    crate::applog::recent(max_bytes as usize)
+pub async fn log_recent(max_bytes: u32) -> String {
+    let _t = CommandTimer::start("log_recent");
+    tauri::async_runtime::spawn_blocking(move || crate::applog::recent(max_bytes as usize))
+        .await
+        .expect("log_recent: blocking task panicked")
 }
 
 /// Opens the log directory in the system file manager. The path is always
 /// the fixed app log dir Tauri resolves — never one the frontend supplies.
+/// Spawning the file manager can block for a bit — run off the main thread.
 #[tauri::command]
-pub fn log_open_folder(app: AppHandle) -> Result<(), Error> {
-    let dir = app.path().app_log_dir().map_err(|e| Error::new(ErrorKind::Internal, e.to_string()))?;
-    tauri_plugin_opener::open_path(&dir, None::<&str>).map_err(|e| Error::new(ErrorKind::Internal, e.to_string()))
+pub async fn log_open_folder(app: AppHandle) -> Result<(), Error> {
+    let _t = CommandTimer::start("log_open_folder");
+    tauri::async_runtime::spawn_blocking(move || {
+        let dir = app.path().app_log_dir().map_err(|e| Error::new(ErrorKind::Internal, e.to_string()))?;
+        tauri_plugin_opener::open_path(&dir, None::<&str>).map_err(|e| Error::new(ErrorKind::Internal, e.to_string()))
+    })
+    .await
+    .expect("log_open_folder: blocking task panicked")
 }

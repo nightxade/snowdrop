@@ -63,6 +63,7 @@ import {
 } from './backends';
 import { registerCoreCommands } from './coreCommands';
 import { migrateLegacyScope, rebindScopedStore, scopedSchema, scopeFor } from './dataScope';
+import { installStallDetector } from './perf';
 import { createPluginHost } from './pluginHost';
 import {
   desktopAdmin,
@@ -429,6 +430,10 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
       }),
       registries.styles.subscribe(apply),
     );
+    // Freeze diagnostics: watches for a stalled main thread. Only with a
+    // real `document` — never in headless tests — covering desktop and
+    // browser alike.
+    cleanups.push(installStallDetector(stores));
   }
 
   let started = false;
