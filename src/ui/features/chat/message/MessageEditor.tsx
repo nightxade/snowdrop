@@ -9,8 +9,11 @@ import { toMarkdown } from '../lib/toMarkdown';
 import { nameResolver } from './actions';
 import styles from './MessageEditor.module.css';
 
-/** Edit sessions that already took focus: a row virtualised away and back mustn't steal it again. */
-const focusedSessions = new Set<string>();
+/**
+ * The edit session that already took focus: a row virtualised away and back
+ * mustn't steal it again. Only one edit is open at a time, so one key does.
+ */
+let focusedSession: string | null = null;
 
 /**
  * In-place editor inside a message row. The text lives in the ui store
@@ -51,8 +54,8 @@ export function MessageEditor({ message, onDone }: { message: Message; onDone: (
 
   useEffect(() => {
     const key = `${message.id}#${session}`;
-    if (focusedSessions.has(key)) return;
-    focusedSessions.add(key);
+    if (focusedSession === key) return;
+    focusedSession = key;
     const el = ref.current;
     if (!el) return;
     el.focus();

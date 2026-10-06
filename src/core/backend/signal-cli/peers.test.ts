@@ -56,7 +56,7 @@ describe('DirectPeers aliasing', () => {
     expect(peers.entries()).toEqual([['+15550000000', 5]]);
   });
 
-  it('(regression) an already-forked DM routes to the more recent side and keeps both histories listed', () => {
+  it('(regression) an already-forked DM folds into the more recent side, leaving one writable conversation', () => {
     const peers = new DirectPeers(createMemoryStorage(), ACCOUNT);
     peers.touch('+15550001', 100);
     peers.touch('aci-1', 50);
@@ -66,7 +66,7 @@ describe('DirectPeers aliasing', () => {
     // New traffic folds to the more recently active form, not blindly the ACI...
     expect(peers.resolve('aci-1')).toBe('+15550001');
     expect(peers.resolve('+15550001')).toBe('+15550001');
-    // ...and the older fork stays listed, so its messages remain reachable.
-    expect(new Map(peers.entries()).get('aci-1')).toBe(50);
+    // ...and the older fork is folded away, so replies can't land in a dead thread.
+    expect(peers.entries()).toEqual([['+15550001', 100]]);
   });
 });

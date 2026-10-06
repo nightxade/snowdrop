@@ -38,7 +38,7 @@ export class DirectPeers {
     this.load();
   }
 
-  /** peerId → last activity (epoch ms). A pre-alias fork keeps both ids (see learnPair). */
+  /** peerId → last activity (epoch ms), canonical ids only. */
   entries(): [string, number][] {
     return [...this.peers.entries()];
   }
@@ -58,10 +58,12 @@ export class DirectPeers {
    * activity recorded as canonical — so no message needs to move — and
    * otherwise prefers the ACI, same as `addressId`.
    *
-   * If both forms already have activity (a DM that forked before aliases
-   * were tracked), new traffic goes to the more recently active one, and the
-   * other keeps its own entry: its messages are stored under its own
-   * conversation id, so dropping the entry would hide that history.
+   * If both forms already have activity (a DM that forked before the pair
+   * was known), the more recently active one becomes canonical and the other
+   * entry is folded into it, so only one conversation stays listed and
+   * writable. Messages stored under the folded id stay in storage but aren't
+   * listed: merging them would mean rewriting their ids, authors, quotes and
+   * reactions, and a writable second thread would route replies wrongly.
    */
   learnPair(uuid: string | undefined, number: string | undefined): void {
     if (!uuid || !number || uuid === number) return;
@@ -70,6 +72,12 @@ export class DirectPeers {
     if (this.aliases.get(uuid) === canonical && this.aliases.get(number) === canonical) return;
     this.aliases.set(uuid, canonical);
     this.aliases.set(number, canonical);
+    const other = canonical === uuid ? number : uuid;
+    const otherAt = this.peers.get(other);
+    if (otherAt !== undefined) {
+      this.peers.delete(other);
+      this.peers.set(canonical, Math.max(otherAt, this.peers.get(canonical) ?? -Infinity));
+    }
     this.save();
   }
 

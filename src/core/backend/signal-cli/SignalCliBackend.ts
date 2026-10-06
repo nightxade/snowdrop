@@ -578,7 +578,9 @@ export class SignalCliBackend implements ChatBackend {
     }
   }
 
-  private directConversation(peerId: string, lastActivityAt: number): Conversation {
+  private directConversation(rawPeerId: string, lastActivityAt: number): Conversation {
+    // Always the canonical form, so a conversation is never announced under a folded alias.
+    const peerId = this.peers?.resolve(rawPeerId) ?? rawPeerId;
     return toDirectConversation(
       peerId,
       this.selfId,
