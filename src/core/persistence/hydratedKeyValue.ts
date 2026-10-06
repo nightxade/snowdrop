@@ -15,9 +15,12 @@
  * a value that predates encryption — is migrated to the encrypted format the
  * first time it's read here.
  */
+import { createLogger } from '@/core/lib';
 import { fromBase64, toBase64, utf8Decode, utf8Encode } from './crypto/bytes';
 import type { RecordCipher } from './crypto/RecordCipher';
 import { defaultStorage, type KeyValueStorage } from './keyValue';
+
+const log = createLogger('storage');
 
 /**
  * A tiny plaintext mirror of `{ themeId, density }`, kept in sync by a
@@ -66,7 +69,7 @@ export async function hydrateKeyValue(
       // Sealed, but not by this key (e.g. left over from erased data) or
       // tampered with: unreadable, so drop it rather than feed ciphertext to
       // the stores as if it were a setting.
-      console.warn('[snowdrop] dropped an unreadable encrypted value');
+      log.warn('dropped an unreadable encrypted value');
       underlying.removeItem(key);
     }
   }
@@ -76,7 +79,7 @@ export async function hydrateKeyValue(
   let queue = Promise.resolve();
   const enqueue = (task: () => Promise<void>): void => {
     queue = queue.then(task).catch((error: unknown) => {
-      console.warn('[snowdrop] could not persist to encrypted storage', error);
+      log.warn('could not persist to encrypted storage', error);
     });
   };
   const writeThrough = (key: string, value: string): void => {

@@ -31,6 +31,7 @@ import {
   type Quote,
 } from '@/core/domain';
 import {
+  createLogger,
   Emitter,
   stripBidiControls,
   systemClock,
@@ -119,6 +120,8 @@ const SENT_QUOTES_MAX = 500;
 /** For commands whose result we don't need (it varies across daemon versions). */
 const ignoreResult = unknownValue;
 
+const log = createLogger('signal-cli');
+
 /**
  * Right after linking, signal-cli may still be receiving the groups sync it
  * requested from the phone at link time; these are the offsets (from a
@@ -166,7 +169,7 @@ export class SignalCliBackend implements ChatBackend {
     this.debugLog =
       options.debug ??
       ((message, detail) => {
-        console.debug(`[snowdrop] signal-cli: ${message}`, detail ?? '');
+        log.debug(message, detail);
       });
     this.transport =
       options.transport ??

@@ -6,7 +6,7 @@
 export { TauriTransport, toSignalCliError, type TauriTransportOptions } from './TauriTransport';
 export { tauriNotificationApi } from './notifications';
 export { installExternalLinks } from './links';
-export { logToTerminal } from './frontendLog';
+export { logOpenFolder, logRecent, logSetVerbose, sendFrontendLog } from './frontendLog';
 export { EVENT_FLUSH_BEFORE_CLOSE, onFlushBeforeClose } from './closeHandshake';
 export {
   appCloseReady,

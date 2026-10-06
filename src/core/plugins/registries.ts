@@ -9,7 +9,7 @@
  */
 import { CommandRegistry, KeyLayerStack } from '@/core/commands';
 import type { Contact, Conversation, ConversationId, Message } from '@/core/domain';
-import { ObservableList } from '@/core/lib';
+import { createLogger, ObservableList } from '@/core/lib';
 import { isValidDraft, type DraftPipeline, type OutgoingDraft } from '@/core/services';
 import type { SpaceId } from '@/core/stores';
 
@@ -289,7 +289,7 @@ export class Registries implements DraftPipeline {
 }
 
 function defaultOnError(error: unknown, owner: string, where: string): void {
-  console.error(`[snowdrop] plugin "${owner}" failed in ${where}`, error);
+  createLogger(`plugins:${owner}`).error(`failed in ${where}`, error);
 }
 
 /** Parses composer text into a slash invocation, or null if it isn't one. */

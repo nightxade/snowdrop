@@ -17,18 +17,42 @@
  */
 import { Copy, RotateCw } from 'lucide-react';
 import { Component, useEffect, useRef, useState, type ErrorInfo, type ReactNode } from 'react';
+import { createLogger, recentLogLines } from '@/core/lib';
 import { OnboardingShell } from '@/ui/features/onboarding/OnboardingShell';
 import setupStyles from '@/ui/features/onboarding/Setup.module.css';
 import storageStyles from '@/ui/features/onboarding/Storage.module.css';
 import { Button } from '@/ui/primitives';
 import stackStyles from './AppErrorBoundary.module.css';
+import { desktopLogAdmin, isTauri } from './platform';
+
+/** Last ~40 lines appended to "Copy details" — enough context without being unwieldy. */
+const LOG_TAIL_LINES = 40;
+
+/**
+ * Best-effort, failure-tolerant: the desktop log (`log_recent`) first, since
+ * it has every source (Rust and frontend); the in-memory ring buffer
+ * (`src/core/lib/log.ts`) as a fallback, which is always available (even in
+ * the browser build, and even if the Tauri call itself fails).
+ */
+async function recentLogTail(maxLines: number): Promise<string[]> {
+  if (isTauri()) {
+    try {
+      const text = await desktopLogAdmin().recent(65536);
+      const lines = text.split('\n').filter((line) => line.length > 0);
+      if (lines.length > 0) return lines.slice(-maxLines);
+    } catch {
+      // Fall through to the ring buffer below.
+    }
+  }
+  return [...recentLogLines()].slice(-maxLines);
+}
 
 export interface AppErrorBoundaryProps {
   children: ReactNode;
   /**
-   * Reports the caught error to the terminal. Defaults to `console.error`
-   * (still fine standalone: the desktop app's `installTerminalErrorLog`
-   * already overrides `console.error` to reach the terminal from anywhere).
+   * Reports the caught error to the terminal. Defaults to the scoped
+   * logger at scope `app` (still fine standalone: `installTerminalErrorLog`
+   * just wires the same logger up to the desktop app's own log too).
    */
   report?: (error: unknown, where: string) => void;
 }
@@ -56,7 +80,7 @@ export class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorB
     const report =
       this.props.report ??
       ((e: unknown, where: string) => {
-        console.error(`[snowdrop] ${where}`, e);
+        createLogger('app').error(where, e);
       });
     report(error, `caught render error${info.componentStack ?? ''}`);
   }
@@ -79,8 +103,15 @@ function ErrorFallback({ error }: { error: Error }) {
   }, []);
 
   const copy = async () => {
+    let text = detailsText(error);
     try {
-      await navigator.clipboard.writeText(detailsText(error));
+      const lines = await recentLogTail(LOG_TAIL_LINES);
+      if (lines.length > 0) text += `\n\n--- recent log ---\n${lines.join('\n')}`;
+    } catch {
+      // Best effort: the error details alone are still worth copying.
+    }
+    try {
+      await navigator.clipboard.writeText(text);
       setCopied(true);
     } catch {
       // Clipboard access denied or unavailable; nothing more to do about it.

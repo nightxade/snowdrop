@@ -4,7 +4,7 @@
  * throws while starting is marked failed and cleaned up; others carry on).
  */
 import { parseConversationId } from '@/core/domain';
-import { DisposableStore, type Disposer, type Unsubscribe } from '@/core/lib';
+import { createLogger, DisposableStore, type Disposer, type Unsubscribe } from '@/core/lib';
 import type { Registries } from './registries';
 import {
   coerceSetting,
@@ -244,7 +244,7 @@ export class PluginRuntime {
       try {
         fn();
       } catch (error) {
-        console.error('[snowdrop] plugin runtime listener failed', error);
+        createLogger('plugins').error('plugin runtime listener failed', error);
       }
     }
   }
@@ -264,7 +264,7 @@ export class PluginRuntime {
 
   private report(error: unknown, id: string, where: string): void {
     if (this.host.onError) this.host.onError(error, id, where);
-    else console.error(`[snowdrop] plugin "${id}" failed during ${where}`, error);
+    else createLogger(`plugins:${id}`).error(`failed during ${where}`, error);
   }
 
   // ─── Context ──────────────────────────────────────────────────────────
@@ -278,15 +278,16 @@ export class PluginRuntime {
     const read = (): SettingsValues<SettingsSchema> =>
       resolveSettings(schema, settingsStore.getState().plugins[id]?.settings ?? {});
 
+    const pluginLog = createLogger(`plugins:${id}`);
     const log: PluginLogger = {
       info: (...args) => {
-        console.info(`[plugin:${id}]`, ...args);
+        pluginLog.info(joinLogArgs(args));
       },
       warn: (...args) => {
-        console.warn(`[plugin:${id}]`, ...args);
+        pluginLog.warn(joinLogArgs(args));
       },
       error: (...args) => {
-        console.error(`[plugin:${id}]`, ...args);
+        pluginLog.error(joinLogArgs(args));
       },
     };
 
@@ -391,4 +392,19 @@ export class PluginRuntime {
       onDispose: (fn) => track(fn),
     };
   }
+}
+
+/** Plugin `log.*(...args)` calls joined into one line for the scoped logger. */
+function joinLogArgs(args: readonly unknown[]): string {
+  return args
+    .map((a) => {
+      if (typeof a === 'string') return a;
+      if (a instanceof Error) return a.stack ?? `${a.name}: ${a.message}`;
+      try {
+        return JSON.stringify(a);
+      } catch {
+        return String(a);
+      }
+    })
+    .join(' ');
 }

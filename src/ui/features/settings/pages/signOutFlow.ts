@@ -5,7 +5,10 @@
  * running backend (`app/backends.ts`), the same way `ConnectionPage` and
  * `EncryptionSection` decide what to show.
  */
+import { createLogger } from '@/core/lib';
 import type { AppAdmin, AppServices } from '@/ui/hooks';
+
+const log = createLogger('app');
 
 /** Which confirm copy and which steps apply. */
 export type SignOutFlow =
@@ -100,10 +103,7 @@ export async function signOutDesktop(app: DesktopSignOutApp): Promise<void> {
     await app.admin.disconnect();
     await app.admin.clearHistory();
   } catch (error) {
-    console.error(
-      '[snowdrop] clearHistory failed during sign-out; the next boot will retry',
-      error,
-    );
+    log.error('clearHistory failed during sign-out; the next boot will retry', error);
     await app.admin.setPendingHistoryClear(true);
   }
   try {

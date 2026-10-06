@@ -1,5 +1,6 @@
 import type { OutgoingAttachment } from '@/core/backend';
 import type { ConversationId, Quote } from '@/core/domain';
+import { createLogger } from '@/core/lib';
 
 /**
  * What the composer hands to the send pipeline: raw markdown text with a
@@ -52,6 +53,9 @@ export const PASSTHROUGH_PIPELINE: DraftPipeline = {
 
 export type ErrorReporter = (error: unknown, context: string) => void;
 
+const log = createLogger('app');
+
+/** The default `onError` for services that don't get one: logs at scope `app`. */
 export const consoleReporter: ErrorReporter = (error, context) => {
-  console.error(`[snowdrop] ${context}`, error);
+  log.error(context, error);
 };

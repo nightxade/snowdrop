@@ -1,10 +1,13 @@
 import { RotateCw, WifiOff, LoaderCircle } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useStore } from 'zustand';
+import { createLogger } from '@/core/lib';
 import { sessionSelectors } from '@/core/stores';
 import { useSnowdrop } from '@/ui/hooks';
 import { friendlyErrorMessage } from '@/ui/lib/connectionErrors';
 import styles from './ConnectionBanner.module.css';
+
+const log = createLogger('ui');
 
 /** Slim banner at the top of the chat column when the connection degrades (PLAN §4.10). */
 export function ConnectionBanner() {
@@ -18,7 +21,7 @@ export function ConnectionBanner() {
 
   // The raw detail is never shown; it only ever goes to the console.
   useEffect(() => {
-    if (status === 'error' && error) console.error('[snowdrop] connection error', error);
+    if (status === 'error' && error) log.error('connection error', error);
   }, [status, error]);
 
   // Before the first sync, "offline"/"connecting" is just booting; the shell shows skeletons.

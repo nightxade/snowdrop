@@ -3,9 +3,11 @@
  * system browser through the `open_external` command (which re-checks the
  * scheme on the Rust side).
  */
+import { createLogger } from '@/core/lib';
 import { tauriIpc, type TauriIpc } from './ipc';
 
 const EXTERNAL = /^(https?:|mailto:)/iu;
+const log = createLogger('app');
 
 export function installExternalLinks(
   doc: Document = document,
@@ -20,7 +22,7 @@ export function installExternalLinks(
     if (!EXTERNAL.test(href) || new URL(href, doc.baseURI).origin === doc.location.origin) return;
     event.preventDefault();
     void ipc.invoke('open_external', { url: href }).catch((error: unknown) => {
-      console.warn('[snowdrop] could not open link', error);
+      log.warn('could not open link', error);
     });
   };
   doc.addEventListener('click', onClick, true);

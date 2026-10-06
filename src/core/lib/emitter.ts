@@ -5,6 +5,7 @@
  * never prevent other subscribers from seeing the event, and must never bubble
  * into the code that emitted it.
  */
+import { createLogger } from './log';
 
 export type Unsubscribe = () => void;
 
@@ -50,6 +51,8 @@ export class Emitter<Events extends object> {
   }
 }
 
+const log = createLogger('app');
+
 function reportError(error: unknown): void {
-  console.error('[snowdrop] event listener failed', error);
+  log.error('event listener failed', error);
 }

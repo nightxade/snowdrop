@@ -6,6 +6,9 @@
  * several releases still gets their settings. Corrupt or future-version data
  * falls back to defaults rather than crashing the app on boot.
  */
+import { createLogger } from '@/core/lib';
+
+const log = createLogger('storage');
 
 /** The subset of the Web Storage API we need; lets tests use an in-memory map. */
 export interface KeyValueStorage {
@@ -96,7 +99,7 @@ export const backupKey = (key: string): string => `${key}.backup`;
  * recover it instead of the user silently losing their settings.
  */
 function backup(storage: KeyValueStorage, key: string, raw: string, reason: string): void {
-  console.warn(`[snowdrop] could not load "${key}" (${reason}); backed up to "${backupKey(key)}"`);
+  log.warn(`could not load "${key}" (${reason}); backed up to "${backupKey(key)}"`);
   try {
     storage.setItem(backupKey(key), raw);
   } catch {
@@ -149,7 +152,7 @@ export function saveVersioned<T>(
     storage.setItem(schema.key, JSON.stringify({ v: schema.version, data: value }));
   } catch (error) {
     // Quota exceeded or storage disabled: keep running with in-memory state.
-    console.warn(`[snowdrop] could not save "${schema.key}"`, error);
+    log.warn(`could not save "${schema.key}"`, error);
   }
 }
 

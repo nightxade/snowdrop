@@ -5,6 +5,7 @@
  * Every disposer runs at most once, whether it's triggered through its own
  * handle, through `dispose()`, or both.
  */
+import { createLogger } from './log';
 
 export type Disposer = () => void;
 
@@ -60,6 +61,8 @@ export class DisposableStore {
   }
 }
 
+const log = createLogger('app');
+
 function defaultOnError(error: unknown): void {
-  console.error('[snowdrop] disposer failed', error);
+  log.error('disposer failed', error);
 }

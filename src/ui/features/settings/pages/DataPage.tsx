@@ -1,10 +1,12 @@
-import { Download, LoaderCircle, RotateCcw, Trash2 } from 'lucide-react';
+import { Copy, Download, FolderOpen, LoaderCircle, RotateCcw, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { recentLogLines } from '@/core/lib';
 import { useSnowdrop } from '@/ui/hooks';
-import { Button, Modal } from '@/ui/primitives';
+import { Button, Modal, Switch } from '@/ui/primitives';
 import { downloadText } from '../download';
 import { SettingRow } from '../rows/SettingRow';
 import { SettingsSection } from '../rows/SettingsSection';
+import { useSettingsSection } from '../useSettingsSection';
 import styles from './pages.module.css';
 
 export function formatBytes(bytes: number): string {
@@ -49,10 +51,101 @@ function useStorageEstimate(): { usage: number; quota: number } | 'unavailable' 
   return estimate;
 }
 
+/**
+ * Settings → Data & storage → Diagnostics: a verbose-logging switch and
+ * ways to get at the log itself. Desktop has an actual on-disk log
+ * (`app.logs`); the browser build falls back to the in-memory ring buffer
+ * (`recentLogLines`, `src/core/lib/log.ts`) and has no folder to open.
+ */
+function DiagnosticsSection() {
+  const app = useSnowdrop();
+  const [b, set] = useSettingsSection('behaviour');
+  const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState<string | null>(null);
+
+  const copyRecentLog = async () => {
+    setCopied(false);
+    setCopyError(null);
+    try {
+      const text = app.logs
+        ? await app.logs.recent(65536)
+        : recentLogLines().join('\n') || 'No log lines yet.';
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+    } catch {
+      setCopyError('Could not copy the log.');
+    }
+  };
+
+  return (
+    <SettingsSection
+      id="diagnostics"
+      title="Diagnostics"
+      rowIds={['data.diagnosticsVerbose', 'data.diagnosticsCopyLog', 'data.diagnosticsOpenFolder']}
+    >
+      <SettingRow
+        id="data.diagnosticsVerbose"
+        label="Verbose logging"
+        description="Keeps a more detailed log for a while, to help track down a problem. Turn it off again once you're done — it uses a little more disk and battery."
+        control={(ids) => (
+          <Switch
+            id={ids.id}
+            aria-describedby={ids.descriptionId}
+            checked={b.verboseLogging}
+            onCheckedChange={(v) => {
+              set({ verboseLogging: v });
+            }}
+          />
+        )}
+      />
+      <SettingRow
+        id="data.diagnosticsCopyLog"
+        label="Copy recent log"
+        description="Copies the last part of the log to your clipboard — handy when reporting a problem."
+        noteTone={copyError ? 'danger' : 'success'}
+        note={copyError ?? (copied ? 'Copied.' : undefined)}
+        control={
+          <Button
+            icon={<Copy size={16} />}
+            onClick={() => {
+              void copyRecentLog();
+            }}
+          >
+            Copy
+          </Button>
+        }
+      />
+      {app.logs && (
+        <SettingRow
+          id="data.diagnosticsOpenFolder"
+          label="Open log folder"
+          description="Opens the folder holding snowdrop.log in your file manager."
+          control={
+            <Button
+              icon={<FolderOpen size={16} />}
+              onClick={() => {
+                app.logs?.openFolder();
+              }}
+            >
+              Open
+            </Button>
+          }
+        />
+      )}
+      <p className={styles.muted}>
+        Logs stay on this computer, never contain message text, phone numbers or account IDs, and
+        are deleted by Settings → Privacy &amp; security → Erase all local data.
+      </p>
+    </SettingsSection>
+  );
+}
+
 type Danger = 'clear' | 'reset' | null;
 
 export function DataPage() {
   const app = useSnowdrop();
+  // The desktop app keeps history in its encrypted store on disk, not a browser.
+  const here = app.storageAdmin ? 'on this computer' : 'in this browser';
   const estimate = useStorageEstimate();
   const [exporting, setExporting] = useState<string | null>(null);
   const [danger, setDanger] = useState<Danger>(null);
@@ -111,8 +204,8 @@ export function DataPage() {
             estimate === null
               ? 'Measuring…'
               : estimate === 'unavailable'
-                ? 'This browser doesn’t report storage use.'
-                : `${formatBytes(estimate.usage)} of about ${formatBytes(estimate.quota)} available to Snowdrop in this browser.`
+                ? 'Storage use isn’t available here.'
+                : `${formatBytes(estimate.usage)} of about ${formatBytes(estimate.quota)} available to Snowdrop ${here}.`
           }
           stacked
         >
@@ -136,7 +229,7 @@ export function DataPage() {
             exporting ??
             (demo
               ? 'Downloads the demo’s messages as JSON (the demo regenerates its history each launch). Disappearing messages and attachment files are left out.'
-              : 'Downloads the messages stored in this browser as a JSON file; signal-cli keeps no history, so this is your backup. Disappearing messages are left out, and attachments are listed by name and type only.')
+              : `Downloads the messages stored ${here} as a JSON file; signal-cli keeps no history, so this is your backup. Disappearing messages are left out, and attachments are listed by name and type only.`)
           }
           control={
             <Button
@@ -157,11 +250,12 @@ export function DataPage() {
           }
         />
       </SettingsSection>
+      <DiagnosticsSection />
       <SettingsSection title="Danger zone" rowIds={['data.clear', 'data.reset']}>
         <SettingRow
           id="data.clear"
           label="Clear history"
-          description="Deletes every stored message from this browser. Your phone and other devices keep theirs; spaces, notes and settings stay."
+          description={`Deletes every message stored ${here}. Your phone and other devices keep theirs; spaces, notes and settings stay.`}
           control={
             <Button
               variant="danger"
@@ -201,7 +295,7 @@ export function DataPage() {
           title={danger === 'clear' ? 'Clear all message history?' : 'Reset all settings?'}
           description={
             danger === 'clear'
-              ? 'Messages stored in this browser are deleted for good, unless you exported them. Snowdrop reloads afterwards.'
+              ? `Messages stored ${here} are deleted for good, unless you exported them. Snowdrop reloads afterwards.`
               : 'Your theme, keybinds, plugin choices and Custom CSS are reset. Snowdrop reloads afterwards.'
           }
           footer={

@@ -31,10 +31,7 @@ describe('ConnectionBanner', () => {
     const banner = screen.getByRole('status');
     expect(banner.textContent).toMatch(/signal-cli ran into an internal problem/u);
     expect(banner.textContent).not.toMatch(/NullPointerException/u);
-    expect(consoleError).toHaveBeenCalledWith(
-      '[snowdrop] connection error',
-      'boom (NullPointerException)',
-    );
+    expect(consoleError).toHaveBeenCalledWith('[ui] connection error boom (NullPointerException)');
 
     consoleError.mockRestore();
   });

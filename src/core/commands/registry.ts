@@ -3,7 +3,9 @@
  * from the palette, a keybind, a menu or a plugin. Framework-agnostic and
  * observable so the palette/keybind settings can re-render on change.
  */
-import { ObservableList, type Disposer, type Unsubscribe } from '@/core/lib';
+import { createLogger, ObservableList, type Disposer, type Unsubscribe } from '@/core/lib';
+
+const log = createLogger('app');
 import {
   matchesKeybind,
   parseKeybind,
@@ -78,7 +80,7 @@ export class CommandRegistry {
 }
 
 function defaultOnError(error: unknown, command: Command): void {
-  console.error(`[snowdrop] command "${command.id}" failed`, error);
+  log.error(`command "${command.id}" failed`, error);
 }
 
 /**

@@ -8,9 +8,11 @@
  * exponential backoff + jitter, resume with `Last-Event-ID`, and treat a
  * silent connection (no keep-alive comment for `idleTimeoutMs`) as dead.
  */
-import { systemScheduler, type Cancel, type Scheduler } from '@/core/lib';
+import { createLogger, systemScheduler, type Cancel, type Scheduler } from '@/core/lib';
 import { SignalCliError } from './errors';
 import type { EventStreamState, EventSubscription, FetchLike } from './transport';
+
+const log = createLogger('signal-cli');
 
 export type { EventStreamState } from './transport';
 
@@ -232,7 +234,7 @@ export class EventStream implements EventSubscription {
     try {
       this.options.onState?.(state);
     } catch (error) {
-      console.error('[snowdrop] signal-cli stream state listener failed', error);
+      log.error('stream state listener failed', error);
     }
   }
 

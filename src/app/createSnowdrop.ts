@@ -10,9 +10,11 @@ import type { ChatBackend, DesktopAdmin, StorageAdmin } from '@/core/backend';
 import type { FetchLike } from '@/core/backend/signal-cli';
 import { type CommandRegistry, isMacPlatform, KeybindDispatcher } from '@/core/commands';
 import {
+  createLogger,
   systemClock,
   systemScheduler,
   type Clock,
+  type LogAdmin,
   type Scheduler,
   type Unsubscribe,
 } from '@/core/lib';
@@ -64,6 +66,7 @@ import { migrateLegacyScope, rebindScopedStore, scopedSchema, scopeFor } from '.
 import { createPluginHost } from './pluginHost';
 import {
   desktopAdmin,
+  desktopLogAdmin,
   desktopNotificationApi,
   desktopStorageAdmin,
   installDesktopLinks,
@@ -129,6 +132,8 @@ export interface Snowdrop {
    * browser, where there's no vault.
    */
   storageAdmin: StorageAdmin | null;
+  /** Settings → Data & storage → Diagnostics (the on-disk log + verbose floor); null in the browser. */
+  logs: LogAdmin | null;
   /** True when started in safe mode (custom themes and Custom CSS off). */
   readonly safeMode: boolean;
   /** Connects, syncs and starts plugins. Safe to call again after a failed start (retry). */
@@ -263,8 +268,23 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     }),
   );
 
+  // Settings → Data & storage → Diagnostics: desktop-only (null in the
+  // browser, where there's no on-disk log or Rust-side verbose floor).
+  const logs: LogAdmin | null = isTauri() ? desktopLogAdmin() : null;
+  // Applied at boot with whatever was persisted, and again on every change
+  // below — covers a toggle from the Diagnostics page as well as settings
+  // arriving from an import or a reset.
+  void logs?.setVerbose(stores.settings.getState().behaviour.verboseLogging);
+  cleanups.push(
+    stores.settings.subscribe((s, prev) => {
+      if (s.behaviour.verboseLogging !== prev.behaviour.verboseLogging)
+        void logs?.setVerbose(s.behaviour.verboseLogging);
+    }),
+  );
+
+  const appLog = createLogger('app');
   const reportError = (error: unknown, context: string): void => {
-    console.error(`[snowdrop] ${context}`, error);
+    appLog.error(context, error);
   };
 
   // The transport is chosen once per instance; switching means a new instance
@@ -295,11 +315,19 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
   const receipts = new ReceiptBuffer();
   const pendingOps = new PendingOpsBuffer();
 
+  // Per-concern scopes (Settings → Diagnostics): send/sync/history errors
+  // land under their own `ui:<scope>`, separate from the generic `app` one
+  // `reportError`/`consoleReporter` use.
+  const sendLog = createLogger('send');
+  const syncLog = createLogger('sync');
+  const historyLog = createLogger('history');
+
   // Plugin errors outside start/stop (commands, transforms, hover actions…)
-  // are logged and recorded on the plugin, so its card shows them with Retry.
+  // are logged under `plugins:<id>` and recorded on the plugin, so its card
+  // shows them with Retry.
   let plugins: PluginRuntime | null = null;
   const registries = new Registries((error, owner, where) => {
-    reportError(error, `plugin "${owner}" failed in ${where}`);
+    createLogger(`plugins:${owner}`).error(`failed in ${where}`, error);
     plugins?.reportRuntimeError(owner, error, where);
   });
   const commands = registries.commands;
@@ -311,7 +339,9 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     pipeline: registries,
     receipts,
     pendingOps,
-    onError: reportError,
+    onError: (error, context) => {
+      sendLog.error(context, error);
+    },
   });
   const sync = new SyncService({
     backend,
@@ -321,9 +351,18 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     scheduler,
     receipts,
     pendingOps,
-    onError: reportError,
+    onError: (error, context) => {
+      syncLog.error(context, error);
+    },
   });
-  const history = new HistoryService({ backend, repository, stores, onError: reportError });
+  const history = new HistoryService({
+    backend,
+    repository,
+    stores,
+    onError: (error, context) => {
+      historyLog.error(context, error);
+    },
+  });
 
   const host = createPluginHost({
     stores,
@@ -331,7 +370,7 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     send,
     sync,
     onError: (error, pluginId, where) => {
-      reportError(error, `plugin "${pluginId}" failed during ${where}`);
+      createLogger(`plugins:${pluginId}`).error(`failed during ${where}`, error);
     },
   });
   const runtime = new PluginRuntime(host, registries, withUiPlugins(BUILTIN_PLUGINS));
@@ -457,6 +496,7 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     admin,
     desktop: isTauri() ? desktopAdmin() : null,
     storageAdmin: isTauri() ? desktopStorageAdmin() : null,
+    logs,
 
     async start() {
       if (started) return;

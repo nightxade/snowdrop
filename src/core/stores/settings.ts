@@ -57,6 +57,13 @@ export interface BehaviourSettings {
    * of the composer. On restores putting it straight in the composer.
    */
   focusComposerOnOpen: boolean;
+  /**
+   * Settings → Data & storage → Diagnostics: raises the app's own log floor
+   * to Debug (desktop: `log_set_verbose`; the console sink always shows
+   * every level regardless). Off by default — Debug lines are only useful
+   * while actually diagnosing something.
+   */
+  verboseLogging: boolean;
 }
 
 export interface ConnectionSettings {
@@ -162,6 +169,7 @@ export function defaultSettings(): Settings {
       markdown: true,
       linkPreviews: false,
       focusComposerOnOpen: false,
+      verboseLogging: false,
     },
     connection: {
       backend: null,
@@ -353,6 +361,7 @@ export function parseSettings(data: unknown, options: SettingsParseOptions = {})
       markdown: bool(b.markdown, d.behaviour.markdown),
       linkPreviews: bool(b.linkPreviews, d.behaviour.linkPreviews),
       focusComposerOnOpen: bool(b.focusComposerOnOpen, d.behaviour.focusComposerOnOpen),
+      verboseLogging: bool(b.verboseLogging, d.behaviour.verboseLogging),
     },
     connection: {
       backend:

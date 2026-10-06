@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useStore } from 'zustand';
 import { fuzzyFilter, type Contact } from '@/core/domain';
+import { createLogger } from '@/core/lib';
 import { contactsSelectors, sessionSelectors } from '@/core/stores';
 import { useSnowdrop, useObservableList } from '@/ui/hooks';
 import { loadEmojiIndex, searchEmoji, type EmojiEntry } from './emojiIndex';
 import type { MentionToken } from './mentionTokens';
 import { findTrigger, type Trigger } from './triggers';
+
+const log = createLogger('ui');
 
 export type Suggestion =
   | { kind: 'mention'; key: string; contact: Contact; insert: string; token: MentionToken }
@@ -64,7 +67,7 @@ export function useAutocomplete(
         if (!cancelled) setEmojiIndex(index);
       })
       .catch((error: unknown) => {
-        console.warn('[snowdrop] emoji shortcodes unavailable', error);
+        log.warn('emoji shortcodes unavailable', error);
       });
     return () => {
       cancelled = true;

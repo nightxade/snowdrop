@@ -32,6 +32,7 @@ import {
   type Message,
   type MessageId,
 } from '@/core/domain';
+import { createLogger } from '@/core/lib';
 import { plaintextCipher, utf8Decode, utf8Encode, type RecordCipher } from './crypto';
 import {
   matchesSearch,
@@ -46,6 +47,7 @@ import {
 
 const DB_VERSION = 3;
 const SEQ_KEY = 'seq';
+const log = createLogger('storage');
 
 interface SeqState {
   key: typeof SEQ_KEY;
@@ -248,7 +250,7 @@ export class IdbMessageRepository implements MessageRepository {
       else dropped++;
     }
     if (dropped > 0) {
-      console.warn(`[snowdrop] dropped ${dropped} unreadable ${what} row(s)`);
+      log.warn(`dropped ${dropped} unreadable ${what} row(s)`);
     }
     return out;
   }

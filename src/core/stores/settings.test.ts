@@ -92,6 +92,16 @@ describe('settingsStore', () => {
     );
   });
 
+  it('defaults verboseLogging to off and parses it as a plain boolean', () => {
+    const d = defaultSettings();
+    expect(d.behaviour.verboseLogging).toBe(false);
+    expect(parseSettings({ behaviour: { verboseLogging: true } }).behaviour).toEqual({
+      ...d.behaviour,
+      verboseLogging: true,
+    });
+    expect(parseSettings({ behaviour: { verboseLogging: 'yes' } }).behaviour).toEqual(d.behaviour);
+  });
+
   it('parses the desktop connection, falling back field by field', () => {
     const parsed = parseSettings({
       connection: {

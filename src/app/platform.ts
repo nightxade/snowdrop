@@ -4,6 +4,7 @@
  * build and the tests never load `@tauri-apps/*`.
  */
 import type { DesktopAdmin, StorageAdmin } from '@/core/backend';
+import { addLogSink, createLogger, type LogAdmin } from '@/core/lib';
 import type { NotificationApi } from '@/core/services';
 import { isTauri } from '@/platform/detect';
 
@@ -57,7 +58,7 @@ export function desktopNotificationApi(): NotificationApi {
       api = loaded;
     })
     .catch((error: unknown) => {
-      console.error('[snowdrop] native notifications unavailable', error);
+      createLogger('app').error('native notifications unavailable', error);
     });
   return {
     permission: () => api?.permission() ?? 'default',
@@ -101,29 +102,84 @@ export function installFlushBeforeClose(handler: () => Promise<void>): void {
   void platform()
     .then((m) => m.onFlushBeforeClose(handler))
     .catch((error: unknown) => {
-      console.error('[snowdrop] failed to register the close handshake', error);
+      createLogger('app').error('failed to register the close handshake', error);
     });
 }
 
-function describeError(error: unknown): string {
-  if (error instanceof Error) return error.stack ?? `${error.name}: ${error.message}`;
-  return String(error);
+/**
+ * Whether the desktop app's own log floor is currently raised to Debug
+ * (Settings → Data & storage → Diagnostics → "Verbose logging"). Read by
+ * the Tauri sink below, so info/debug lines don't make the IPC round trip
+ * at all when nobody's asked for them — Rust would drop them anyway
+ * (`log_set_verbose` raises the same floor on that side).
+ */
+let verboseLogging = false;
+let desktopLogSinkInstalled = false;
+
+/**
+ * Routes the scoped logger's lines (`src/core/lib/log.ts`) to the desktop
+ * app's own log via `frontend_log`: warn/error always, info/debug only
+ * while verbose logging is on. Installed once, unconditionally (a no-op
+ * outside Tauri) — so logging reaches the terminal/log file even for
+ * errors that happen before a Snowdrop instance exists.
+ */
+function installDesktopLogSink(): void {
+  if (!isTauri() || desktopLogSinkInstalled) return;
+  desktopLogSinkInstalled = true;
+  addLogSink({
+    write: (level, scope, message) => {
+      if ((level === 'info' || level === 'debug') && !verboseLogging) return;
+      void platform()
+        .then((m) => {
+          m.sendFrontendLog(level, scope, message);
+        })
+        .catch(() => {});
+    },
+  });
 }
 
 /**
- * Desktop: copies uncaught page errors and unhandled rejections to the
- * terminal (stderr). Returns the same reporter for React's root error
- * callbacks. A no-op reporter in the browser build.
+ * Settings → Data & storage → Diagnostics (desktop only; null in the
+ * browser build via `AppServices.logs`). `setVerbose` updates both the
+ * Rust-side floor and this module's own gating flag above, so the sink's
+ * behaviour follows it immediately — `createSnowdrop` calls it once at
+ * boot with the persisted setting, and again whenever
+ * `behaviour.verboseLogging` changes (including from the Diagnostics
+ * switch, which just updates that setting).
+ */
+export function desktopLogAdmin(): LogAdmin {
+  return {
+    recent: (maxBytes) =>
+      platform()
+        .then((m) => m.logRecent(maxBytes))
+        .catch(() => ''),
+    setVerbose: (verbose) => {
+      verboseLogging = verbose;
+      return platform()
+        .then((m) => m.logSetVerbose(verbose))
+        .catch(() => {});
+    },
+    openFolder: () => {
+      void platform()
+        .then((m) => m.logOpenFolder())
+        .catch(() => {});
+    },
+  };
+}
+
+/**
+ * Desktop and browser alike: an uncaught window error, an unhandled
+ * rejection, or (via the returned reporter) a caught render error is logged
+ * at scope `app` — console always (dev visibility), the desktop sink too
+ * once `installDesktopLogSink` has registered it, so a blank window run
+ * from a terminal still says what failed. Returns the reporter for React's
+ * root error callbacks (`main.tsx`, `AppErrorBoundary`).
  */
 export function installTerminalErrorLog(): (error: unknown, where: string) => void {
-  if (!isTauri()) return () => {};
-  const report = (error: unknown, where: string) => {
-    const message = `${where}: ${describeError(error)}`;
-    void platform()
-      .then((m) => {
-        m.logToTerminal(message);
-      })
-      .catch(() => {});
+  installDesktopLogSink();
+  const log = createLogger('app');
+  const report = (error: unknown, where: string): void => {
+    log.error(where, error);
   };
   window.addEventListener('error', (event) => {
     report(event.error ?? event.message, 'uncaught error');
@@ -131,14 +187,5 @@ export function installTerminalErrorLog(): (error: unknown, where: string) => vo
   window.addEventListener('unhandledrejection', (event) => {
     report(event.reason, 'unhandled rejection');
   });
-  // The app's own failure logs ("failed to start", connection errors) too.
-  const consoleError = console.error.bind(console);
-  console.error = (...args: unknown[]) => {
-    consoleError(...args);
-    report(
-      args.map((a) => (typeof a === 'string' ? a : describeError(a))).join(' '),
-      'console.error',
-    );
-  };
   return report;
 }

@@ -8,7 +8,10 @@
 import { LoaderCircle } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { StorageAdmin, StorageStatus } from '@/core/backend';
+import { createLogger } from '@/core/lib';
 import { fromBase64, webCryptoCipher } from '@/core/persistence';
+
+const log = createLogger('storage');
 import type { ThemeDocument } from '@/core/themes';
 // Imported by file, not the onboarding barrel: the barrel also re-exports
 // Welcome/ConnectionSetup/LinkDevice, which App.tsx loads lazily — a static
@@ -87,7 +90,7 @@ export function StorageGate({ admin, document, children }: StorageGateProps) {
       })
       .catch((error: unknown) => {
         booting.current = false;
-        console.error('[snowdrop] failed to open encrypted storage', error);
+        log.error('failed to open encrypted storage', error);
         setPhase({
           kind: 'failed',
           message: error instanceof Error ? error.message : String(error),
@@ -117,7 +120,7 @@ export function StorageGate({ admin, document, children }: StorageGateProps) {
       .status()
       .then(route)
       .catch((error: unknown) => {
-        console.error('[snowdrop] failed to query encrypted storage', error);
+        log.error('failed to query encrypted storage', error);
         setPhase({
           kind: 'failed',
           message: error instanceof Error ? error.message : String(error),

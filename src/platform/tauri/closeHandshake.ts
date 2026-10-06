@@ -9,11 +9,13 @@
  *
  * Not wired into the app UI here — that's a later task's job.
  */
+import { createLogger } from '@/core/lib';
 import { appCloseReady } from './desktop';
 import { tauriIpc, type TauriIpc } from './ipc';
 
 /** Emitted by the Rust side (src-tauri/src/lib.rs) at `CloseRequested`. */
 export const EVENT_FLUSH_BEFORE_CLOSE = 'snowdrop://flush-before-close';
+const log = createLogger('app');
 
 const HANDLER_TIMEOUT_MS = 2_000;
 
@@ -47,7 +49,7 @@ export async function onFlushBeforeClose(
   return ipc.listen<unknown>(EVENT_FLUSH_BEFORE_CLOSE, () => {
     void withTimeout(handler, HANDLER_TIMEOUT_MS)
       .catch((error: unknown) => {
-        console.warn('[snowdrop] flush before close failed', error);
+        log.warn('flush before close failed', error);
       })
       .finally(() => {
         void appCloseReady(ipc);

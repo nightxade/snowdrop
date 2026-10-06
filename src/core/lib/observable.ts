@@ -7,6 +7,9 @@
  */
 import type { Disposer } from './disposables';
 import type { Unsubscribe } from './emitter';
+import { createLogger } from './log';
+
+const log = createLogger('app');
 
 export class ObservableList<T> {
   private items: readonly T[] = [];
@@ -40,7 +43,7 @@ export class ObservableList<T> {
       try {
         fn();
       } catch (error) {
-        console.error('[snowdrop] registry subscriber failed', error);
+        log.error('registry subscriber failed', error);
       }
     }
   }

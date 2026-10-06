@@ -10,6 +10,7 @@
  * and a timeout ("gg", "]u", "3j"), so layers needn't re-implement it.
  */
 import {
+  createLogger,
   ObservableList,
   systemScheduler,
   type Cancel,
@@ -18,6 +19,8 @@ import {
   type Unsubscribe,
 } from '@/core/lib';
 import type { KeyEventLike } from './keybind';
+
+const log = createLogger('app');
 
 /** Where keyboard focus is, as far as key layers care. */
 export type FocusTarget =
@@ -113,7 +116,7 @@ export class KeyLayerStack {
 
   constructor(
     private readonly onError: (error: unknown, layer: RegisteredKeyLayer) => void = (e, l) => {
-      console.error(`[snowdrop] key layer "${l.layer.id}" (${l.owner}) failed`, e);
+      log.error(`key layer "${l.layer.id}" (${l.owner}) failed`, e);
     },
   ) {}
 

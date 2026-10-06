@@ -1,3 +1,4 @@
+import { createLogger } from '@/core/lib';
 import type { MenuItem, Registries } from '@/core/plugins';
 import { isRenderableComponent, type MenuEntry } from '@/ui/primitives';
 
@@ -27,7 +28,7 @@ export function pluginMenuEntries<T>(
     .map((item): MenuEntry => {
       const Icon = isRenderableComponent<{ size?: number }>(item.icon) ? item.icon : null;
       const report = (error: unknown) => {
-        console.error(`[snowdrop] plugin "${item.owner}" menu item failed`, error);
+        createLogger(`plugins:${item.owner}`).error('menu item failed', error);
       };
       return {
         kind: 'item',

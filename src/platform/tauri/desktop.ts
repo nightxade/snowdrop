@@ -20,8 +20,11 @@ import type {
   StorageStatus,
   StorageUnlockMethod,
 } from '@/core/backend';
+import { createLogger } from '@/core/lib';
 import type { DesktopConnection } from '@/core/stores';
 import { asCommandError, connectConfig, tauriIpc, type TauriIpc } from './ipc';
+
+const log = createLogger('app');
 import {
   tryValidateInstallProgress,
   validateCreateRecoveryResult,
@@ -202,7 +205,7 @@ export function createDesktopAdmin(ipc: TauriIpc = tauriIpc): DesktopAdmin {
         .then((raw) => validateDesktopInfo('desktop_info', raw))
         .catch((error: unknown): DesktopInfo => {
           info = null;
-          if (import.meta.env.DEV) console.error('desktop_info failed', error);
+          if (import.meta.env.DEV) log.error('desktop_info failed', error);
           return {
             managedSignalCli: null,
             signalCliReleaseUrl: null,

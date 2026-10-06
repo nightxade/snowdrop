@@ -7,11 +7,14 @@ import type {
   LocateResult,
   ResolvedProgram,
 } from '@/core/backend';
+import { createLogger } from '@/core/lib';
 import type { DesktopConnection } from '@/core/stores';
 import { friendlyErrorMessage } from '@/ui/lib/connectionErrors';
 import { Button, Segmented, TextInput } from '@/ui/primitives';
 import { SettingRow } from '../rows/SettingRow';
 import styles from './pages.module.css';
+
+const log = createLogger('signal-cli');
 
 /** `satisfies` keeps this exhaustive against `ResolvedProgram['source']` at the type level. */
 const SOURCE_TEXT = {
@@ -91,8 +94,7 @@ export function DesktopConnectionRows({
     // Debounced: typing a path shouldn't hit the disk per keystroke.
     const timer = setTimeout(() => {
       void admin.locate({ binaryPath }).then((result) => {
-        if (!result.ok)
-          console.error('[snowdrop] signal-cli locate failed', result.kind, result.message);
+        if (!result.ok) log.error('signal-cli locate failed', { kind: result.kind });
         if (live) setLocated(result);
       });
     }, 250);
@@ -116,8 +118,7 @@ export function DesktopConnectionRows({
         // in onboarding's first-run screen (DownloadSignalCli).
       })
       .then((result) => {
-        if (!result.ok)
-          console.error('[snowdrop] signal-cli install failed', result.kind, result.message);
+        if (!result.ok) log.error('signal-cli install failed', { kind: result.kind });
         setDownload(
           result.ok
             ? { ok: true, status: result.status }
@@ -276,8 +277,7 @@ export function DesktopConnectionRows({
             onClick={() => {
               setProbe('testing');
               void admin.probe(value).then((result) => {
-                if (!result.ok)
-                  console.error('[snowdrop] signal-cli probe failed', result.kind, result.message);
+                if (!result.ok) log.error('signal-cli probe failed', { kind: result.kind });
                 setProbe(result);
               });
             }}

@@ -7,6 +7,7 @@
  */
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createLogger } from '@/core/lib';
 import { AppErrorBoundary } from './AppErrorBoundary';
 
 afterEach(cleanup);
@@ -70,11 +71,35 @@ describe('AppErrorBoundary', () => {
     );
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Copy details' }));
-      await Promise.resolve();
+      await new Promise((r) => setTimeout(r, 0));
     });
     expect(writeText).toHaveBeenCalledTimes(1);
     expect(writeText.mock.calls[0]?.[0]).toContain('boom');
     expect(screen.getByRole('status').textContent).toContain('Copied');
+    error.mockRestore();
+  });
+
+  it('appends the recent log tail to the copied details, best effort', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    });
+    createLogger('app-error-boundary-test').error('a marker line for this test');
+    render(
+      <AppErrorBoundary>
+        <Boom />
+      </AppErrorBoundary>,
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Copy details' }));
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(writeText).toHaveBeenCalledTimes(1);
+    const text = writeText.mock.calls[0]?.[0] as string;
+    expect(text).toContain('--- recent log ---');
+    expect(text).toContain('a marker line for this test');
     error.mockRestore();
   });
 

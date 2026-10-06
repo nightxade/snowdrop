@@ -6,6 +6,7 @@
 import { createContext, use, type ReactNode } from 'react';
 import type { BackendOption, ChatBackend, DesktopAdmin, StorageAdmin } from '@/core/backend';
 import type { CommandRegistry, KeybindDispatcher } from '@/core/commands';
+import type { LogAdmin } from '@/core/lib';
 import type { MessageRepository } from '@/core/persistence';
 import type { PluginRuntime, Registries } from '@/core/plugins';
 import type {
@@ -93,6 +94,8 @@ export interface AppServices {
   desktop: DesktopAdmin | null;
   /** Encrypted storage (Settings → Privacy & security, docs/ENCRYPTION.md); null in the browser. */
   storageAdmin: StorageAdmin | null;
+  /** Settings → Data & storage → Diagnostics (the on-disk log + verbose floor); null in the browser. */
+  logs: LogAdmin | null;
   /** Started in safe mode: imported themes and Custom CSS are not applied. */
   readonly safeMode: boolean;
   /** Read-only history queries (search, mentions inbox, pins). */
