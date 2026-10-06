@@ -98,7 +98,6 @@ pub fn run() {
     let app = tauri::Builder::default()
         // First, so a second launch hands over before anything else starts.
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| focus_main(app)))
-        .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
@@ -119,6 +118,22 @@ pub fn run() {
             // Holds a downloaded signal-cli and (below) its own data dir; no
             // other local account should be able to read either.
             config::secure_dir(&app_data_dir)?;
+            // One-time move of any signal-cli install left at the pre-fix
+            // location (`<app_data_dir>/signal-cli/<version>/`), which used
+            // to share a folder with signal-cli's own data dir — see
+            // `signal_cli_install`'s module docs. Best-effort: a failure here
+            // just means the next download re-fetches it.
+            if let Err(e) = signal_cli_install::migrate_old_installs(&app_data_dir) {
+                log::warn!("signal-cli-install: couldn't migrate an old install to its new location: {e}");
+            }
+            // Best-effort cleanup of the stale window-state file left behind
+            // by the now-removed `tauri_plugin_window_state` plugin: on
+            // tiling compositors it restored a "maximized" flag the
+            // compositor itself had set for tiling purposes, which made the
+            // window come back maximized and cover other tiles.
+            if let Ok(config_dir) = app.path().app_config_dir() {
+                let _ = std::fs::remove_file(config_dir.join(".window-state.json"));
+            }
             let signal_cli_data_override = std::env::var_os("SNOWDROP_SIGNAL_CLI_DATA");
             let data_dir = signal_cli_data_override.clone().map(PathBuf::from).unwrap_or(app_data_dir.join("signal-cli"));
             let paths = Paths {

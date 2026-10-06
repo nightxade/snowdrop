@@ -46,6 +46,40 @@ use crate::error::{Error, ErrorKind};
 pub const VAULT_ID_LEN: usize = 16;
 pub(crate) const BLOB_ID_LEN: usize = 16;
 
+/// signal-cli's own top-level data directories — `PathConfig.createDefault`
+/// upstream (AsamK/signal-cli): exactly `data/`, `attachments/`, `avatars/`,
+/// `stickers/`, nothing else. [`sync`](sync::sync)/[`restore`](restore::restore)
+/// only ever write or read paths under one of these, and
+/// [`storage::legacy_signal_cli_dir`](crate::storage) only treats a
+/// `<app data>/signal-cli/` folder as signal-cli's own plaintext data if it
+/// has a `data/` subdirectory.
+///
+/// This exists because of a real bug: before it, `signal_cli_install.rs`
+/// installed a downloaded signal-cli *binary* at this exact same path
+/// (`<app data>/signal-cli/<version>/signal-cli`), which made every install
+/// look exactly like legacy signal-cli data. `migrate_legacy` synced the
+/// ~370 MB binary into the vault as if it were account data, garbage-
+/// collected the *real* account data's now-unreferenced blobs, and deleted
+/// the "legacy dir" — taking the just-installed binary with it. Restricting
+/// every vault read/write to these four names, rather than trusting
+/// "whatever's in the directory", means a stray file next to signal-cli's
+/// real data (an installed binary, a leftover from some other bug) is
+/// simply never synced, never restored, and never counted as legacy data,
+/// no matter what else ends up sharing that directory.
+pub(crate) const ALLOWED_TOP_DIRS: &[&str] = &["data", "attachments", "avatars", "stickers"];
+
+/// Whether `relpath`'s top-level component is one of [`ALLOWED_TOP_DIRS`].
+pub(crate) fn is_allowlisted(relpath: &str) -> bool {
+    Path::new(relpath)
+        .components()
+        .next()
+        .and_then(|c| match c {
+            Component::Normal(s) => s.to_str(),
+            _ => None,
+        })
+        .is_some_and(|top| ALLOWED_TOP_DIRS.contains(&top))
+}
+
 /// The crash-recovery marker's file name, written directly in the runtime
 /// dir by `session::VaultSession::start` (docs/ENCRYPTION.md, "Crash
 /// recovery"). Named here, not in `session`, so `sync`'s walk can skip it
@@ -91,6 +125,20 @@ impl Vault {
     /// e.g. task 3b's instance lock file, next to it).
     pub fn dir(&self) -> &Path {
         &self.dir
+    }
+
+    /// Drops any manifest entry outside [`ALLOWED_TOP_DIRS`] and garbage-
+    /// collects its now-unreferenced blob immediately (see `sync::
+    /// purge_non_allowlisted` for why two manifest generations are committed
+    /// rather than one). Called at every [`VaultSession::start`], so a vault
+    /// manifest left over from before `ALLOWED_TOP_DIRS` existed — in
+    /// particular one referencing an installed signal-cli binary instead of
+    /// its data (see [`ALLOWED_TOP_DIRS`]'s docs) — is cleaned up on the very
+    /// next unlock rather than waiting on ordinary sync activity. Returns how
+    /// many entries were dropped; `0` (and nothing written) if the manifest
+    /// was already clean.
+    pub fn purge_non_allowlisted(&self) -> Result<usize, Error> {
+        sync::purge_non_allowlisted(self)
     }
 }
 
@@ -267,7 +315,7 @@ mod tests {
         let dir = dir.path();
         let runtime = temp_dir("unchanged-runtime");
         let runtime = runtime.path();
-        write_file(runtime, "a.txt", b"hello");
+        write_file(runtime, "data/a.txt", b"hello");
 
         let first = vault.sync(runtime).unwrap();
         assert!(first.wrote);
@@ -285,7 +333,7 @@ mod tests {
         let (vault, _dir, _key, _id) = open_vault("round-trip");
         let runtime = temp_dir("round-trip-runtime");
         let runtime = runtime.path();
-        write_file(runtime, "a.txt", b"top level");
+        write_file(runtime, "data/a.txt", b"top level");
         write_file(runtime, "data/account", b"account data");
         write_file(runtime, "attachments/img/one.jpg", b"fake jpeg bytes");
 
@@ -298,7 +346,7 @@ mod tests {
         let r = vault.restore(restored, |_| true).unwrap();
         assert_eq!(r.restored, 3);
         assert_eq!(r.source, ManifestSource::Current);
-        assert_eq!(read_file(restored, "a.txt"), b"top level");
+        assert_eq!(read_file(restored, "data/a.txt"), b"top level");
         assert_eq!(read_file(restored, "data/account"), b"account data");
         assert_eq!(read_file(restored, "attachments/img/one.jpg"), b"fake jpeg bytes");
     }
@@ -308,16 +356,16 @@ mod tests {
         let (vault, _dir, _key, _id) = open_vault("mutate");
         let runtime = temp_dir("mutate-runtime");
         let runtime = runtime.path();
-        write_file(runtime, "keep.txt", b"unchanged forever");
-        write_file(runtime, "change.txt", b"v1");
-        write_file(runtime, "remove.txt", b"going away");
+        write_file(runtime, "data/keep.txt", b"unchanged forever");
+        write_file(runtime, "data/change.txt", b"v1");
+        write_file(runtime, "data/remove.txt", b"going away");
         let r1 = vault.sync(runtime).unwrap();
         assert_eq!(r1.generation, 1);
 
-        fs::remove_file(runtime.join("remove.txt")).unwrap();
-        fs::write(runtime.join("change.txt"), b"v2, longer content").unwrap();
-        touch_mtime_forward(&runtime.join("change.txt"));
-        write_file(runtime, "added.txt", b"brand new");
+        fs::remove_file(runtime.join("data/remove.txt")).unwrap();
+        fs::write(runtime.join("data/change.txt"), b"v2, longer content").unwrap();
+        touch_mtime_forward(&runtime.join("data/change.txt"));
+        write_file(runtime, "data/added.txt", b"brand new");
         let r2 = vault.sync(runtime).unwrap();
         assert!(r2.wrote);
         assert_eq!(r2.generation, 2);
@@ -328,10 +376,10 @@ mod tests {
         let restored = restored.path();
         let report = vault.restore(restored, |_| true).unwrap();
         assert_eq!(report.restored, 3);
-        assert_eq!(read_file(restored, "keep.txt"), b"unchanged forever");
-        assert_eq!(read_file(restored, "change.txt"), b"v2, longer content");
-        assert_eq!(read_file(restored, "added.txt"), b"brand new");
-        assert!(!restored.join("remove.txt").exists());
+        assert_eq!(read_file(restored, "data/keep.txt"), b"unchanged forever");
+        assert_eq!(read_file(restored, "data/change.txt"), b"v2, longer content");
+        assert_eq!(read_file(restored, "data/added.txt"), b"brand new");
+        assert!(!restored.join("data/remove.txt").exists());
     }
 
     #[test]
@@ -340,11 +388,11 @@ mod tests {
         let dir = dir.path();
         let runtime = temp_dir("prev-fallback-runtime");
         let runtime = runtime.path();
-        write_file(runtime, "a.txt", b"gen1");
+        write_file(runtime, "data/a.txt", b"gen1");
         vault.sync(runtime).unwrap();
 
-        fs::write(runtime.join("a.txt"), b"gen2, different length").unwrap();
-        touch_mtime_forward(&runtime.join("a.txt"));
+        fs::write(runtime.join("data/a.txt"), b"gen2, different length").unwrap();
+        touch_mtime_forward(&runtime.join("data/a.txt"));
         vault.sync(runtime).unwrap();
 
         // Corrupt only the current manifest; manifest.prev (gen1) should still work.
@@ -357,7 +405,7 @@ mod tests {
         let restored = restored.path();
         let report = vault.restore(restored, |_| true).unwrap();
         assert_eq!(report.source, ManifestSource::Previous);
-        assert_eq!(read_file(restored, "a.txt"), b"gen1");
+        assert_eq!(read_file(restored, "data/a.txt"), b"gen1");
     }
 
     #[test]
@@ -366,10 +414,10 @@ mod tests {
         let dir = dir.path();
         let runtime = temp_dir("both-corrupt-runtime");
         let runtime = runtime.path();
-        write_file(runtime, "a.txt", b"gen1");
+        write_file(runtime, "data/a.txt", b"gen1");
         vault.sync(runtime).unwrap();
-        fs::write(runtime.join("a.txt"), b"gen2 content here").unwrap();
-        touch_mtime_forward(&runtime.join("a.txt"));
+        fs::write(runtime.join("data/a.txt"), b"gen2 content here").unwrap();
+        touch_mtime_forward(&runtime.join("data/a.txt"));
         vault.sync(runtime).unwrap();
 
         fs::write(manifest_path(dir), b"not a sealed manifest").unwrap();
@@ -392,7 +440,7 @@ mod tests {
         let dir = dir.path();
         let runtime = temp_dir("tampered-blob-runtime");
         let runtime = runtime.path();
-        write_file(runtime, "a.txt", b"original content");
+        write_file(runtime, "data/a.txt", b"original content");
         vault.sync(runtime).unwrap();
 
         let blob_path = fs::read_dir(blobs_dir(dir)).unwrap().next().unwrap().unwrap().path();
@@ -413,8 +461,8 @@ mod tests {
         let dir = dir.path();
         let runtime = temp_dir("swapped-blob-runtime");
         let runtime = runtime.path();
-        write_file(runtime, "a.txt", b"content A");
-        write_file(runtime, "b.txt", b"content B, different size");
+        write_file(runtime, "data/a.txt", b"content A");
+        write_file(runtime, "data/b.txt", b"content B, different size");
         vault.sync(runtime).unwrap();
 
         let mut blob_paths: Vec<_> = fs::read_dir(blobs_dir(dir)).unwrap().map(|e| e.unwrap().path()).collect();
@@ -440,7 +488,7 @@ mod tests {
         let dir = dir.path();
         let runtime = temp_dir("wrong-vault-id-runtime");
         let runtime = runtime.path();
-        write_file(runtime, "a.txt", b"secret stuff");
+        write_file(runtime, "data/a.txt", b"secret stuff");
         vault.sync(runtime).unwrap();
 
         let other = Vault::open(dir, key, [9u8; VAULT_ID_LEN]).unwrap();
@@ -456,20 +504,20 @@ mod tests {
         let dir = dir.path();
         let runtime = temp_dir("gc-prev-runtime");
         let runtime = runtime.path();
-        write_file(runtime, "a.txt", b"gen1 content");
+        write_file(runtime, "data/a.txt", b"gen1 content");
         vault.sync(runtime).unwrap();
         let gen1_blob = fs::read_dir(blobs_dir(dir)).unwrap().next().unwrap().unwrap().path();
 
-        fs::write(runtime.join("a.txt"), b"gen2 content, different").unwrap();
-        touch_mtime_forward(&runtime.join("a.txt"));
+        fs::write(runtime.join("data/a.txt"), b"gen2 content, different").unwrap();
+        touch_mtime_forward(&runtime.join("data/a.txt"));
         vault.sync(runtime).unwrap();
 
         assert!(gen1_blob.exists(), "gen1's blob is still referenced by manifest.prev");
 
         // A third sync makes manifest.prev into gen2, at which point gen1's
         // blob is referenced by neither and gc should finally remove it.
-        fs::write(runtime.join("a.txt"), b"gen3 content, also different").unwrap();
-        touch_mtime_forward(&runtime.join("a.txt"));
+        fs::write(runtime.join("data/a.txt"), b"gen3 content, also different").unwrap();
+        touch_mtime_forward(&runtime.join("data/a.txt"));
         vault.sync(runtime).unwrap();
         assert!(!gen1_blob.exists(), "gen1's blob should be gc'd once it's unreferenced");
     }
@@ -480,7 +528,7 @@ mod tests {
         let dir = dir.path();
         let runtime = temp_dir("crash-mid-sync-runtime");
         let runtime = runtime.path();
-        write_file(runtime, "a.txt", b"generation one content");
+        write_file(runtime, "data/a.txt", b"generation one content");
         vault.sync(runtime).unwrap();
 
         let before_manifest = fs::read(manifest_path(dir)).unwrap();
@@ -498,7 +546,7 @@ mod tests {
         let report = vault.restore(restored, |_| true).unwrap();
         assert_eq!(report.source, ManifestSource::Current);
         assert_eq!(report.restored, 1);
-        assert_eq!(read_file(restored, "a.txt"), b"generation one content");
+        assert_eq!(read_file(restored, "data/a.txt"), b"generation one content");
     }
 
     #[test]
@@ -506,16 +554,16 @@ mod tests {
         let (vault, _dir, _key, _id) = open_vault("filter");
         let runtime = temp_dir("filter-runtime");
         let runtime = runtime.path();
-        write_file(runtime, "keep/me.txt", b"keep");
-        write_file(runtime, "media/skip.jpg", b"skip");
+        write_file(runtime, "data/keep/me.txt", b"keep");
+        write_file(runtime, "attachments/skip.jpg", b"skip");
         vault.sync(runtime).unwrap();
 
         let restored = temp_dir("filter-restored");
         let restored = restored.path();
-        let report = vault.restore(restored, |relpath| !relpath.starts_with("media/")).unwrap();
+        let report = vault.restore(restored, |relpath| !relpath.starts_with("attachments/")).unwrap();
         assert_eq!(report.restored, 1);
-        assert!(restored.join("keep/me.txt").exists());
-        assert!(!restored.join("media/skip.jpg").exists());
+        assert!(restored.join("data/keep/me.txt").exists());
+        assert!(!restored.join("attachments/skip.jpg").exists());
     }
 
     #[test]
@@ -523,11 +571,11 @@ mod tests {
         let (vault, _dir, _key, _id) = open_vault("symlink");
         let runtime = temp_dir("symlink-runtime");
         let runtime = runtime.path();
-        write_file(runtime, "real.txt", b"real content");
+        write_file(runtime, "data/real.txt", b"real content");
         let target = temp_dir("symlink-target");
         let target = target.path();
         write_file(target, "secret.txt", b"outside the runtime dir");
-        std::os::unix::fs::symlink(target.join("secret.txt"), runtime.join("linked.txt")).unwrap();
+        std::os::unix::fs::symlink(target.join("secret.txt"), runtime.join("data/linked.txt")).unwrap();
 
         let report = vault.sync(runtime).unwrap();
         assert_eq!(report.changed, 1);
@@ -535,8 +583,33 @@ mod tests {
         let restored = temp_dir("symlink-restored");
         let restored = restored.path();
         vault.restore(restored, |_| true).unwrap();
-        assert!(restored.join("real.txt").exists());
-        assert!(!restored.join("linked.txt").exists());
+        assert!(restored.join("data/real.txt").exists());
+        assert!(!restored.join("data/linked.txt").exists());
+    }
+
+    #[test]
+    fn a_stray_non_allowlisted_file_is_never_synced_or_restored() {
+        // The exact shape of the real bug this allowlist fixes: an
+        // installed signal-cli binary sitting next to real account data at
+        // a path like `<legacy dir>/0.14.8/signal-cli` — outside every one
+        // of `ALLOWED_TOP_DIRS` — must never be synced into the vault, and
+        // (defense in depth) could never be restored even if it somehow
+        // ended up in a manifest.
+        let (vault, _dir, _key, _id) = open_vault("stray-top-level");
+        let runtime = temp_dir("stray-top-level-runtime");
+        let runtime = runtime.path();
+        write_file(runtime, "data/account", b"real account data");
+        write_file(runtime, "0.14.8/signal-cli", &vec![0xABu8; 4096]);
+
+        let report = vault.sync(runtime).unwrap();
+        assert_eq!(report.changed, 1, "only data/account should ever be synced");
+
+        let restored = temp_dir("stray-top-level-restored");
+        let restored = restored.path();
+        let r = vault.restore(restored, |_| true).unwrap();
+        assert_eq!(r.restored, 1);
+        assert_eq!(read_file(restored, "data/account"), b"real account data");
+        assert!(!restored.join("0.14.8").exists(), "the stray top-level entry must never be restored");
     }
 
     #[test]
@@ -568,7 +641,7 @@ mod tests {
         let dir = dir.path();
         let runtime = temp_dir("modes-runtime");
         let runtime = runtime.path();
-        write_file(runtime, "a/b.txt", b"content");
+        write_file(runtime, "data/a/b.txt", b"content");
         vault.sync(runtime).unwrap();
 
         let manifest_mode = fs::metadata(manifest_path(dir)).unwrap().permissions().mode() & 0o777;
@@ -580,7 +653,47 @@ mod tests {
         let restored = restored.path();
         vault.restore(restored, |_| true).unwrap();
         assert_eq!(fs::metadata(restored).unwrap().permissions().mode() & 0o777, 0o700);
-        assert_eq!(fs::metadata(restored.join("a")).unwrap().permissions().mode() & 0o777, 0o700);
-        assert_eq!(fs::metadata(restored.join("a/b.txt")).unwrap().permissions().mode() & 0o777, 0o600);
+        assert_eq!(fs::metadata(restored.join("data/a")).unwrap().permissions().mode() & 0o777, 0o700);
+        assert_eq!(fs::metadata(restored.join("data/a/b.txt")).unwrap().permissions().mode() & 0o777, 0o600);
+    }
+
+    #[test]
+    fn purge_non_allowlisted_drops_stray_entries_and_gcs_their_blobs_immediately() {
+        let (vault, dir, _key, _id) = open_vault("purge");
+        let dir = dir.path();
+        let runtime = temp_dir("purge-runtime");
+        let runtime = runtime.path();
+        write_file(runtime, "data/account", b"real account data");
+        vault.sync(runtime).unwrap();
+
+        // Simulate a manifest left over from before `ALLOWED_TOP_DIRS`
+        // existed: a stray entry pointing at its own (large) blob, written
+        // directly so this test doesn't depend on `sync` ever having
+        // allowed it through in the first place.
+        let key_copy = Key32::from_slice(_key.as_bytes()).unwrap();
+        let stray_blob = blobs::write(dir, &key_copy, &_id, &vec![0xCDu8; 4096]).unwrap();
+        let (mut manifest, _source) = manifest::load_with_fallback(dir, &key_copy, &_id).unwrap();
+        manifest.entries.insert(
+            "0.14.8/signal-cli".to_string(),
+            manifest::ManifestEntry { blob: blobs::id_to_hex(&stray_blob), size: 4096, mtime_ns: 0, sha256: to_hex(&[0u8; 32]) },
+        );
+        manifest.generation += 1;
+        manifest::commit(dir, &key_copy, &_id, &manifest).unwrap();
+
+        let stray_blob_path = blobs_dir(dir).join(blobs::id_to_hex(&stray_blob));
+        assert!(stray_blob_path.exists(), "sanity: the stray blob was actually written");
+
+        let removed = vault.purge_non_allowlisted().unwrap();
+        assert_eq!(removed, 1);
+        assert!(!stray_blob_path.exists(), "the stray entry's blob must be gc'd immediately, not after two more real syncs");
+
+        // The real account data must be completely unaffected.
+        let restored = temp_dir("purge-restored");
+        let restored = restored.path();
+        vault.restore(restored, |_| true).unwrap();
+        assert_eq!(read_file(restored, "data/account"), b"real account data");
+
+        // Idempotent: nothing left to purge the second time.
+        assert_eq!(vault.purge_non_allowlisted().unwrap(), 0);
     }
 }

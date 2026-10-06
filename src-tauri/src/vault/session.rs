@@ -77,8 +77,47 @@ fn wipe_runtime_dir(runtime_dir: &Path) -> Result<(), Error> {
 
 fn do_restore(vault: &Vault, runtime_dir: &Path) -> Result<(), Error> {
     vault.restore(runtime_dir, |relpath| !is_media(relpath))?;
+    sweep_non_allowlisted(runtime_dir)?;
     let (manifest, _source) = manifest::load_with_fallback(&vault.dir, &vault.key, &vault.vault_id)?;
     write_marker(runtime_dir, &vault.vault_id, manifest.generation)
+}
+
+/// Removes anything directly under `runtime_dir` that isn't one of
+/// [`super::ALLOWED_TOP_DIRS`] (or the crash-recovery marker) — a restore
+/// itself can never write such a thing (`Vault::restore` never restores a
+/// non-allowlisted manifest entry), but this also covers the `Recovered`
+/// path, where the runtime dir is reused as-is rather than restored into,
+/// and any stray leftover from before `ALLOWED_TOP_DIRS` existed.
+fn sweep_non_allowlisted(runtime_dir: &Path) -> Result<(), Error> {
+    let entries = match fs::read_dir(runtime_dir) {
+        Ok(e) => e,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(io_err(runtime_dir, e)),
+    };
+    for entry in entries {
+        let entry = entry.map_err(|e| io_err(runtime_dir, e))?;
+        let name = entry.file_name();
+        if name == MARKER_FILE_NAME {
+            continue;
+        }
+        let Some(name) = name.to_str() else {
+            log::warn!("vault: sweep: skipping a non-UTF-8 entry under {}", runtime_dir.display());
+            continue;
+        };
+        if super::ALLOWED_TOP_DIRS.contains(&name) {
+            continue;
+        }
+        let path = entry.path();
+        let result = if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) { fs::remove_dir_all(&path) } else { fs::remove_file(&path) };
+        if let Err(e) = result {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                log::warn!("vault: couldn't remove a stray non-allowlisted entry {}: {e}", path.display());
+            }
+        } else {
+            log::warn!("vault: removed a stray non-allowlisted entry from the runtime dir: {}", path.display());
+        }
+    }
+    Ok(())
 }
 
 /// What [`VaultSession::start`] found the runtime dir in. Exposed mainly for
@@ -135,6 +174,17 @@ impl VaultSession {
     /// Either way, media (`MEDIA_PREFIXES`) is excluded from the restore
     /// and left to [`ensure_media`](Self::ensure_media).
     pub fn start(vault: Vault, runtime_dir: PathBuf, lock: InstanceLock) -> Result<Self, Error> {
+        // Clean up any manifest entry left over from before `ALLOWED_TOP_DIRS`
+        // existed — in particular one pointing at an installed signal-cli
+        // binary rather than its data (docs/ENCRYPTION.md, "Migration") —
+        // right at the start of every session rather than waiting on
+        // ordinary sync activity to notice it's gone from the runtime dir.
+        match vault.purge_non_allowlisted() {
+            Ok(0) => {}
+            Ok(removed) => log::info!("vault: purged {removed} non-allowlisted manifest entr(y/ies) and their blobs."),
+            Err(e) => log::warn!("vault: couldn't purge non-allowlisted manifest entries: {e}"),
+        }
+
         let marker = read_marker(&runtime_dir);
         let matches_vault =
             marker.as_ref().and_then(|m| from_hex(&m.vault_id)).is_some_and(|id| id.as_slice() == vault.vault_id.as_slice());
@@ -150,6 +200,7 @@ impl VaultSession {
         match kind {
             StartKind::Recovered => {
                 vault.sync(&runtime_dir)?;
+                sweep_non_allowlisted(&runtime_dir)?;
                 let (manifest, _source) = manifest::load_with_fallback(&vault.dir, &vault.key, &vault.vault_id)?;
                 write_marker(&runtime_dir, &vault.vault_id, manifest.generation)?;
             }

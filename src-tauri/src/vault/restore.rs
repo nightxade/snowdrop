@@ -9,7 +9,7 @@ use std::path::Path;
 use crate::error::{Error, ErrorKind};
 
 use super::manifest::{self, ManifestSource};
-use super::{blobs, create_secure_dir, to_hex, validate_relpath, write_secure_file, Vault};
+use super::{blobs, create_secure_dir, is_allowlisted, to_hex, validate_relpath, write_secure_file, Vault};
 
 /// What a [`Vault::restore`] did.
 #[derive(Debug, Clone)]
@@ -28,7 +28,10 @@ pub(crate) fn restore(vault: &Vault, runtime_dir: &Path, filter: impl Fn(&str) -
     let mut restored = 0usize;
     for (relpath, entry) in &manifest.entries {
         validate_relpath(relpath)?;
-        if !filter(relpath) {
+        // Never restore a manifest entry outside signal-cli's own data dirs
+        // (`super::ALLOWED_TOP_DIRS`) — defense in depth against a manifest
+        // left over from before that allowlist existed (see its docs).
+        if !is_allowlisted(relpath) || !filter(relpath) {
             continue;
         }
         restore_entry(vault, runtime_dir, relpath, entry)?;
@@ -44,6 +47,9 @@ pub(crate) fn restore(vault: &Vault, runtime_dir: &Path, filter: impl Fn(&str) -
 /// isn't tracked in the current manifest at all; nothing is written then.
 pub(crate) fn restore_one(vault: &Vault, runtime_dir: &Path, relpath: &str) -> Result<bool, Error> {
     validate_relpath(relpath)?;
+    if !is_allowlisted(relpath) {
+        return Ok(false);
+    }
     let (manifest, _source) = manifest::load_with_fallback(&vault.dir, &vault.key, &vault.vault_id)?;
     let Some(entry) = manifest.entries.get(relpath) else {
         return Ok(false);

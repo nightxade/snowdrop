@@ -9,7 +9,10 @@ redistributed copy of someone else's GPL program. Instead, the first time it
 needs signal-cli and doesn't already have one, the app downloads the pinned
 release straight from [AsamK/signal-cli's own GitHub
 releases](https://github.com/AsamK/signal-cli/releases) over HTTPS,
-checksum-verifies it, and installs it into its own data directory. Browser
+checksum-verifies it, and installs it under its own `bin/` directory — kept
+apart from signal-cli's own _data_ directory (see "Data directory" below),
+so an installed binary can never be mistaken for signal-cli's plaintext
+account data. Browser
 mode (talking to a signal-cli daemon you run yourself — see
 [SIGNAL_CLI.md](SIGNAL_CLI.md)) remains available and is what `npm run dev`
 gives you.
@@ -107,21 +110,30 @@ both the Rust downloader and (for the optional bundled build only)
 
 **To bump the version:** update `version`, the asset `name` and its `sha256`
 together (the GitHub release page gives you the asset's checksum), then
-delete any previous install under `<app data dir>/signal-cli/` and relaunch
-(or, for the bundled build, run `node scripts/fetch-signal-cli.mjs --force`).
-Both sides refuse to install anything whose hash doesn't match.
+delete any previous install under `<app data dir>/bin/signal-cli/` and
+relaunch (or, for the bundled build, run `node scripts/fetch-signal-cli.mjs
+--force`). Both sides refuse to install anything whose hash doesn't match.
 
 ### How it works (`src-tauri/src/signal_cli_install.rs`)
 
+Everything this module installs or stages lives under `<app_data_dir>/bin/`
+— deliberately a sibling of, not inside, `<app_data_dir>/signal-cli/`, which
+is reserved for signal-cli's own _data_ (see "Data directory" below and
+docs/ENCRYPTION.md's "Migration"). Before this separation existed, an
+installed binary and signal-cli's plaintext data dir shared one folder,
+which made every install look exactly like a legacy plaintext data dir to
+the encrypted-storage migration — and get synced into the vault, then
+deleted, on every unlock.
+
 1. The UI calls `signal_cli_install_status` to check whether the pinned
-   version is already at `<app_data_dir>/signal-cli/<version>/signal-cli`.
+   version is already at `<app_data_dir>/bin/signal-cli/<version>/signal-cli`.
 2. If not, onboarding's first-run screen
    (`ui/features/onboarding/DownloadSignalCli.tsx`) names the version, size
    (≈114 MB) and source, and a "Download and continue" button calls
    `signal_cli_install`.
 3. The Rust side streams the asset over HTTPS with `reqwest` (`rustls-tls` —
    no OpenSSL anywhere in this app) into a `.part` file under
-   `<app_data_dir>/signal-cli/.install-tmp/`, emitting
+   `<app_data_dir>/bin/.install-tmp/`, emitting
    `signal-cli-install-progress` events (`{ received, total }`) as bytes
    arrive. A partial download can be resumed with an HTTP `Range` request on
    a later attempt, and `signal_cli_install_cancel` stops it mid-flight.
@@ -135,14 +147,20 @@ Both sides refuse to install anything whose hash doesn't match.
    archive).
 6. The `signal-cli` binary is marked executable and the whole result is
    built in a staged sibling directory, then **atomically** `rename`d into
-   `<app_data_dir>/signal-cli/<version>/` — that directory is either absent
-   or complete, never half-written, even if Snowdrop crashes or is killed
-   mid-install.
+   `<app_data_dir>/bin/signal-cli/<version>/` — that directory is either
+   absent or complete, never half-written, even if Snowdrop crashes or is
+   killed mid-install.
+
+At startup, `lib.rs`'s `setup()` also calls `migrate_old_installs`: a
+one-time, best-effort move of any install still sitting at the pre-fix
+location (`<app_data_dir>/signal-cli/<version>/signal-cli`) into its new
+home under `bin/`, so an existing download survives an upgrade past this
+fix without being re-fetched.
 
 A verified run installs:
 
-- `<app_data_dir>/signal-cli/<version>/signal-cli` — on Linux, under
-  `~/.local/share/local.snowdrop.desktop/signal-cli/0.14.8/signal-cli`
+- `<app_data_dir>/bin/signal-cli/<version>/signal-cli` — on Linux, under
+  `~/.local/share/local.snowdrop.desktop/bin/signal-cli/0.14.8/signal-cli`
   (≈371 MB uncompressed; the download itself is ≈114 MB).
 
 Only `linux`/`x64` has a pinned native (GraalVM, no JRE) asset today — see
@@ -158,7 +176,7 @@ located in this order:
    `signal-cli` (or `.exe`/`.bat`), including through a symlink, and be
    executable; anything else is rejected before it's ever spawned.
 2. **Downloaded** — the pinned version Snowdrop downloaded into
-   `<app_data_dir>/signal-cli/<version>/` (above), if present.
+   `<app_data_dir>/bin/signal-cli/<version>/` (above), if present.
 3. **Bundled** — a sidecar Tauri installed next to the app's own executable,
    only in a build made with `npm run tauri:build:bundled` (the
    `bundled-sidecar` Cargo feature; see below). The default build has no
@@ -219,8 +237,13 @@ anyone is listening.
 Signal-cli's `--config` directory defaults to
 `<Tauri app_data_dir>/signal-cli` (on Linux, under
 `~/.local/share/local.snowdrop.desktop/`), kept apart from any signal-cli you
-run yourself from a terminal. Override it with the `SNOWDROP_SIGNAL_CLI_DATA`
-environment variable (useful for tests or running more than one profile).
+run yourself from a terminal — and, just as deliberately, apart from
+`<app_data_dir>/bin/`, where a _downloaded_ signal-cli binary lives (above).
+The two used to share one folder, which is exactly what let an installed
+binary be mistaken for signal-cli's own plaintext data (see
+docs/ENCRYPTION.md's "Migration"). Override the data directory with the
+`SNOWDROP_SIGNAL_CLI_DATA` environment variable (useful for tests or running
+more than one profile).
 
 ## Transport layer
 
@@ -322,8 +345,14 @@ unknown (replay everything currently held/available).
   `tauri = { version = "2", features = [] }` — the `devtools` feature isn't
   enabled, so devtools are compiled out of release builds.
 - **One instance.** `tauri-plugin-single-instance` focuses the existing
-  window instead of starting a second signal-cli process. Window size and
-  position are restored by `tauri-plugin-window-state`.
+  window instead of starting a second signal-cli process. Window size comes
+  from `tauri.conf.json`'s default; Snowdrop deliberately carries no
+  window-position/state plugin at all — `tauri-plugin-window-state` was
+  removed because on tiling compositors it restored a "maximized" flag the
+  compositor itself had set for tiling purposes, which made the window come
+  back maximized and cover other tiles. `lib.rs`'s `setup()` also
+  best-effort deletes any `.window-state.json` left in the app config dir
+  by a previous build that still had the plugin.
 
 ## Logs and troubleshooting
 
@@ -364,11 +393,11 @@ unknown (replay everything currently held/available).
 - `SNOWDROP_SIGNAL_CLI_DATA` overrides signal-cli's own `--config` data
   directory (its linked account and keys), which is useful for isolating a
   test run. It does not move the download: that always lives under the real
-  `<app_data_dir>/signal-cli/<version>/`, which `SNOWDROP_SIGNAL_CLI_DATA`
+  `<app_data_dir>/bin/signal-cli/<version>/`, which `SNOWDROP_SIGNAL_CLI_DATA`
   doesn't affect.
 - A failed or cancelled download leaves no partial install directory (only,
-  possibly, a resumable `.part` file under `.install-tmp/` — safe to delete
-  by hand if you want a completely fresh attempt).
+  possibly, a resumable `.part` file under `bin/.install-tmp/` — safe to
+  delete by hand if you want a completely fresh attempt).
 
 ## Other platforms
 

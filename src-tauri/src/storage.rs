@@ -81,6 +81,35 @@ fn legacy_signal_cli_dir(app_data_dir: &Path) -> PathBuf {
     app_data_dir.join("signal-cli")
 }
 
+/// `<app data>/bin/`: where `signal_cli_install.rs` installs a downloaded
+/// signal-cli (and stages one mid-download) — removed by
+/// [`StorageService::finish_erase`], but never by sign-out: erasing wipes
+/// everything Snowdrop manages here, while signing out only ends an account
+/// session and must leave the installed binary alone so the next sign-in
+/// doesn't have to re-download ~114 MB.
+fn bin_dir(app_data_dir: &Path) -> PathBuf {
+    app_data_dir.join("bin")
+}
+
+/// Whether `<app data>/signal-cli/` looks like signal-cli's own plaintext
+/// *data* dir, left by a build that predates the vault
+/// (docs/ENCRYPTION.md, "Migration") — not just any directory happening to
+/// exist at that path. signal-cli's own layout is exactly `data/`,
+/// `attachments/`, `avatars/`, `stickers/` (`PathConfig.createDefault`
+/// upstream), so this requires a `data/` *subdirectory* specifically.
+///
+/// This distinction used to matter a lot: before `signal_cli_install.rs`
+/// moved its installs under `<app data>/bin/`, a downloaded-but-never-yet-
+/// run signal-cli binary lived at this exact same path
+/// (`<app data>/signal-cli/<version>/signal-cli`) and had no `data/`
+/// subdirectory at all — but the old, cruder check (any directory at all)
+/// still treated it as legacy data, synced the ~370 MB binary into the
+/// vault, garbage-collected the real account data's blobs out from under
+/// it, and then deleted the "legacy dir" — taking the binary with it.
+fn is_legacy_signal_cli_dir(app_data_dir: &Path) -> bool {
+    legacy_signal_cli_dir(app_data_dir).join("data").is_dir()
+}
+
 /// Why storage is [`StorageState::Locked`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LockedReason {
@@ -298,7 +327,7 @@ impl<S: SecretStore> StorageService<S> {
 
     fn build_status(&self) -> StorageStatus {
         let (has_keyring, has_recovery, has_passphrase) = self.flags();
-        let legacy_plaintext = legacy_signal_cli_dir(&self.paths.app_data_dir).is_dir();
+        let legacy_plaintext = is_legacy_signal_cli_dir(&self.paths.app_data_dir);
         let (state, reason, restart_required) = match &self.state {
             StorageState::NeedsSetup => ("needsSetup", None, false),
             StorageState::Locked { reason, .. } => ("locked", Some(reason.as_str()), false),
@@ -531,6 +560,10 @@ impl<S: SecretStore> StorageService<S> {
             }
         }
         remove_dir_best_effort(&legacy_signal_cli_dir(&self.paths.app_data_dir), &mut failures);
+        // The installed signal-cli binary (and any in-progress download) —
+        // sign-out deliberately leaves this alone (see `bin_dir`'s docs), but
+        // an erase wipes everything Snowdrop manages in the app data dir.
+        remove_dir_best_effort(&bin_dir(&self.paths.app_data_dir), &mut failures);
         if let Some(log_file) = self.paths.log_file.clone() {
             remove_log_files_best_effort(&log_file, &mut failures);
         }
@@ -643,16 +676,33 @@ impl<S: SecretStore> StorageService<S> {
 
     /// docs/ENCRYPTION.md, "Migration": syncs the legacy dir straight into
     /// the vault (`Vault::sync` takes any dir, not just the real runtime
-    /// one), verifies by restoring into a scratch spot under the real
-    /// RAM-backed runtime dir and comparing hashes, and only then deletes
-    /// the legacy dir. Skipped entirely when `SNOWDROP_SIGNAL_CLI_DATA`
-    /// points signal-cli somewhere outside Snowdrop's management.
+    /// one, and only ever reads `ALLOWED_TOP_DIRS` out of it — see that
+    /// constant's docs), verifies by restoring into a scratch spot under the
+    /// real RAM-backed runtime dir and comparing hashes, and only then
+    /// deletes the four subtrees it imported. Skipped entirely when
+    /// `SNOWDROP_SIGNAL_CLI_DATA` points signal-cli somewhere outside
+    /// Snowdrop's management, when `legacy_dir` doesn't actually look like
+    /// signal-cli's own data (no `data/` subdirectory —
+    /// `is_legacy_signal_cli_dir`), or when the vault already has a
+    /// manifest.
     fn migrate_legacy(&self, vault_key: Key32, vault_id: [u8; 16]) -> Result<(), Error> {
         if self.paths.external_override {
             return Ok(());
         }
         let legacy_dir = legacy_signal_cli_dir(&self.paths.app_data_dir);
-        if !legacy_dir.is_dir() {
+        if !is_legacy_signal_cli_dir(&self.paths.app_data_dir) {
+            return Ok(());
+        }
+        // Never migrate into a vault that already has a manifest: that
+        // means an account was already linked and synced through Snowdrop,
+        // and blindly importing a second, unrelated plaintext directory on
+        // top of it could only corrupt or shadow real data. Leave the
+        // legacy dir exactly as it is.
+        if self.paths.vault_dir.join("manifest").exists() || self.paths.vault_dir.join("manifest.prev").exists() {
+            log::warn!(
+                "storage: a legacy plaintext signal-cli directory exists at {} but the vault already has a manifest; leaving it untouched.",
+                legacy_dir.display()
+            );
             return Ok(());
         }
 
@@ -666,7 +716,15 @@ impl<S: SecretStore> StorageService<S> {
         verify_migration(&legacy_dir, &verify_dir)?;
         fs::remove_dir_all(&verify_dir).map_err(|e| io_err(&verify_dir, e))?;
 
-        fs::remove_dir_all(&legacy_dir).map_err(|e| io_err(&legacy_dir, e))?;
+        // Only the subtrees `Vault::sync` actually imported are removed —
+        // never the whole `legacy_dir` — since it may hold something else
+        // Snowdrop doesn't manage, and migration must never delete that.
+        for name in crate::vault::ALLOWED_TOP_DIRS {
+            let subtree = legacy_dir.join(name);
+            if subtree.exists() {
+                fs::remove_dir_all(&subtree).map_err(|e| io_err(&subtree, e))?;
+            }
+        }
         log::info!("storage: migrated a legacy plaintext signal-cli directory into the vault.");
         Ok(())
     }
@@ -724,14 +782,18 @@ fn is_sync_sidecar(name: &str) -> bool {
     name.ends_with("-wal") || name.ends_with("-shm") || name.ends_with("-journal")
 }
 
-/// Confirms every file under `legacy_dir` made it into `restored_dir` with
-/// the same content. SQLite databases are exempted from the byte-for-byte
-/// check: the online backup API (docs/ENCRYPTION.md, "Sync") folds in any
-/// WAL content, so a `.db` file's bytes can legitimately differ from the
-/// original even though the data is unchanged. Every other file must match
-/// exactly.
+/// Confirms every file under `legacy_dir`'s allowlisted subtrees
+/// (`vault::ALLOWED_TOP_DIRS` — the only ones `Vault::sync` ever reads) made
+/// it into `restored_dir` with the same content. SQLite databases are
+/// exempted from the byte-for-byte check: the online backup API
+/// (docs/ENCRYPTION.md, "Sync") folds in any WAL content, so a `.db` file's
+/// bytes can legitimately differ from the original even though the data is
+/// unchanged. Every other file must match exactly.
 fn verify_migration(legacy_dir: &Path, restored_dir: &Path) -> Result<(), Error> {
-    let legacy = collect_file_hashes(legacy_dir)?;
+    let legacy = collect_allowlisted_file_hashes(legacy_dir)?;
+    // `restored_dir` only ever holds allowlisted entries in the first place
+    // (`Vault::restore` never restores anything else), so this needs no
+    // equivalent filtering.
     let restored = collect_file_hashes(restored_dir)?;
     let mismatch = || {
         Error::new(ErrorKind::Internal, "signal-cli migration verification failed: the restored data doesn't match the legacy directory.")
@@ -748,6 +810,19 @@ fn verify_migration(legacy_dir: &Path, restored_dir: &Path) -> Result<(), Error>
         }
     }
     Ok(())
+}
+
+/// Like [`collect_file_hashes`], but only descends into `dir`'s allowlisted
+/// subtrees (`vault::ALLOWED_TOP_DIRS`) — so anything else `legacy_dir`
+/// happens to hold (an installed binary, unrelated leftovers) never makes
+/// migration's verification look like data loss, since it was never
+/// migrated in the first place.
+fn collect_allowlisted_file_hashes(dir: &Path) -> Result<BTreeMap<String, String>, Error> {
+    let mut out = BTreeMap::new();
+    for name in crate::vault::ALLOWED_TOP_DIRS {
+        collect_file_hashes_into(dir, &dir.join(name), &mut out)?;
+    }
+    Ok(out)
 }
 
 fn collect_file_hashes(dir: &Path) -> Result<BTreeMap<String, String>, Error> {
@@ -1033,7 +1108,8 @@ mod tests {
         let paths = fx.paths();
         let legacy_dir = legacy_signal_cli_dir(&paths.app_data_dir);
         fs::create_dir_all(legacy_dir.join("attachments")).unwrap();
-        fs::write(legacy_dir.join("data"), b"the account file").unwrap();
+        fs::create_dir_all(legacy_dir.join("data")).unwrap();
+        fs::write(legacy_dir.join("data/account"), b"the account file").unwrap();
         fs::write(legacy_dir.join("attachments/one.jpg"), b"fake jpeg bytes").unwrap();
 
         let mut svc = fx.service();
@@ -1042,14 +1118,17 @@ mod tests {
 
         assert_eq!(status.state, "unlocked");
         assert!(!status.legacy_plaintext, "the legacy dir must be gone once migration succeeds");
-        assert!(!legacy_dir.exists());
+        // Only the allowlisted subtrees are removed, not necessarily the
+        // (now-empty) legacy dir itself.
+        assert!(!legacy_dir.join("data").exists());
+        assert!(!legacy_dir.join("attachments").exists());
 
         // And it's really in the vault, not just deleted: a session started
         // fresh against the same paths restores it.
         let (vault, runtime_dir, _lock) = svc.vault_session_parts().unwrap();
         let restored = fx.base.path().join("migration-check");
         vault.restore(&restored, |_| true).unwrap();
-        assert_eq!(fs::read(restored.join("data")).unwrap(), b"the account file");
+        assert_eq!(fs::read(restored.join("data/account")).unwrap(), b"the account file");
         assert_eq!(fs::read(restored.join("attachments/one.jpg")).unwrap(), b"fake jpeg bytes");
         let _ = runtime_dir; // just proving it resolved
     }
@@ -1059,8 +1138,8 @@ mod tests {
         let fx = Fixture::new("migration-skip");
         let paths = fx.paths_with_override(true);
         let legacy_dir = legacy_signal_cli_dir(&paths.app_data_dir);
-        fs::create_dir_all(&legacy_dir).unwrap();
-        fs::write(legacy_dir.join("data"), b"left alone").unwrap();
+        fs::create_dir_all(legacy_dir.join("data")).unwrap();
+        fs::write(legacy_dir.join("data/account"), b"left alone").unwrap();
 
         let mut svc = fx.service_with_override();
         svc.setup().unwrap();
@@ -1088,8 +1167,8 @@ mod tests {
         let fx = Fixture::new("no-ram-dir");
         let paths = fx.paths();
         let legacy_dir = legacy_signal_cli_dir(&paths.app_data_dir);
-        fs::create_dir_all(&legacy_dir).unwrap();
-        fs::write(legacy_dir.join("data"), b"stuck").unwrap();
+        fs::create_dir_all(legacy_dir.join("data")).unwrap();
+        fs::write(legacy_dir.join("data/account"), b"stuck").unwrap();
 
         let mut svc = fx.service_no_ram_dir();
         svc.setup().unwrap();
@@ -1234,6 +1313,144 @@ mod tests {
         assert_eq!(svc.set_passphrase(Some("x")).unwrap_err().kind, ErrorKind::Config);
         assert_eq!(svc.erase_all("ERASE").unwrap_err().kind, ErrorKind::Config);
         assert_eq!(svc.sign_out().unwrap_err().kind, ErrorKind::Config);
+    }
+
+    #[test]
+    fn an_installed_binary_survives_two_unlocks_and_the_account_data_stays_restorable() {
+        // Reproduces the real data-loss bug this task fixes: before it,
+        // `signal_cli_install.rs` installed a downloaded binary at the exact
+        // path (`<app data>/signal-cli/<version>/signal-cli`) that
+        // `legacy_signal_cli_dir` treated as a legacy plaintext signal-cli
+        // data dir. Every unlock synced the binary into the vault,
+        // garbage-collected the real account data's now-unreferenced blobs,
+        // and deleted the "legacy dir" — taking the just-installed binary
+        // with it. Net effect: the account was lost and the binary had to
+        // be re-downloaded, every single launch.
+        let fx = Fixture::new("regression-binary-survives-unlock");
+        let paths = fx.paths();
+
+        // An installed signal-cli binary, at its real (post-fix) location
+        // under `bin/` — a sibling of, not inside, `<app data>/signal-cli/`.
+        let installed_binary = crate::signal_cli_install::install_dir(&paths.app_data_dir, "0.14.8").join("signal-cli");
+        fs::create_dir_all(installed_binary.parent().unwrap()).unwrap();
+        fs::write(&installed_binary, vec![0xABu8; 4096]).unwrap(); // stands in for the real ~370 MB binary
+
+        let store = Arc::new(FakeStore::new());
+
+        // ---- First "launch": set up storage, build a vault session, and
+        // have "signal-cli" write some real account data into the runtime
+        // dir, then shut down (final sync, then wipe). ----
+        let mut first = fx.service_with(store.clone());
+        first.setup().unwrap();
+        first.setup_new(SetupMode::Keyring, None).unwrap();
+        assert!(installed_binary.exists(), "sanity: setup must not touch the installed binary");
+
+        let (vault, runtime_dir, lock) = first.vault_session_parts().unwrap();
+        let session = crate::vault::VaultSession::start(vault, runtime_dir, lock).unwrap();
+        fs::create_dir_all(session.runtime_dir().join("data")).unwrap();
+        fs::write(session.runtime_dir().join("data/account"), b"the account file").unwrap();
+        session.shutdown().unwrap();
+
+        assert!(installed_binary.exists(), "the installed binary must survive the first unlock/session");
+        drop(first); // the "process" exits, releasing the instance lock
+
+        // ---- Second "launch": a brand new process, same app data dir,
+        // same keyring secret — unlocking (and building a vault session)
+        // a second time. ----
+        let mut second = fx.service_with(store);
+        second.setup().unwrap();
+        assert_eq!(second.status().state, "unlocked");
+        assert!(installed_binary.exists(), "the installed binary must survive the second unlock too");
+
+        let (vault2, runtime_dir2, lock2) = second.vault_session_parts().unwrap();
+        let session2 = crate::vault::VaultSession::start(vault2, runtime_dir2, lock2).unwrap();
+        assert_eq!(
+            fs::read(session2.runtime_dir().join("data/account")).unwrap(),
+            b"the account file",
+            "the account data must still be restorable after two unlocks"
+        );
+        assert!(installed_binary.exists(), "restoring the second session must not touch the installed binary either");
+    }
+
+    #[test]
+    fn sign_out_keeps_the_installed_signal_cli_binary() {
+        let fx = Fixture::new("sign-out-bin-dir");
+        let paths = fx.paths();
+        let bin = bin_dir(&paths.app_data_dir);
+        let installed_binary = bin.join("signal-cli/0.14.8/signal-cli");
+        fs::create_dir_all(installed_binary.parent().unwrap()).unwrap();
+        fs::write(&installed_binary, b"installed binary").unwrap();
+
+        let mut svc = fx.service();
+        svc.setup().unwrap();
+        svc.setup_new(SetupMode::Keyring, None).unwrap();
+
+        svc.sign_out().unwrap();
+        assert!(installed_binary.exists(), "sign-out must not remove the installed signal-cli binary");
+    }
+
+    #[test]
+    fn erase_removes_the_installed_signal_cli_binary() {
+        let fx = Fixture::new("erase-bin-dir");
+        let paths = fx.paths();
+        let bin = bin_dir(&paths.app_data_dir);
+        let installed_binary = bin.join("signal-cli/0.14.8/signal-cli");
+        fs::create_dir_all(installed_binary.parent().unwrap()).unwrap();
+        fs::write(&installed_binary, b"installed binary").unwrap();
+
+        let mut svc = fx.service();
+        svc.setup().unwrap();
+        svc.setup_new(SetupMode::Keyring, None).unwrap();
+
+        svc.erase_all("ERASE").unwrap();
+        assert!(!bin.exists(), "erase must remove the installed signal-cli binary along with everything else it manages");
+    }
+
+    #[test]
+    fn legacy_detection_requires_a_data_subdirectory() {
+        let fx = Fixture::new("legacy-detection-needs-data-dir");
+        let paths = fx.paths();
+        let legacy_dir = legacy_signal_cli_dir(&paths.app_data_dir);
+        // Exactly what `signal_cli_install.rs` used to put at this same path
+        // before it moved installs under `bin/`: a version directory with a
+        // `signal-cli` executable inside, no `data/` anywhere.
+        fs::create_dir_all(legacy_dir.join("0.14.8")).unwrap();
+        fs::write(legacy_dir.join("0.14.8/signal-cli"), vec![0u8; 1024]).unwrap();
+
+        let mut svc = fx.service();
+        svc.setup().unwrap();
+        assert!(!svc.status().legacy_plaintext, "a directory with no data/ subdirectory must never be treated as legacy signal-cli data");
+
+        let status = svc.setup_new(SetupMode::Keyring, None).unwrap();
+        assert_eq!(status.state, "unlocked");
+        assert!(legacy_dir.join("0.14.8/signal-cli").exists(), "the installed binary must survive unlock untouched");
+        assert!(!svc.status().legacy_plaintext);
+    }
+
+    #[test]
+    fn migration_is_skipped_when_the_vault_already_has_a_manifest() {
+        let fx = Fixture::new("migration-existing-manifest");
+        let paths = fx.paths();
+        let legacy_dir = legacy_signal_cli_dir(&paths.app_data_dir);
+        fs::create_dir_all(legacy_dir.join("data")).unwrap();
+        fs::write(legacy_dir.join("data/account"), b"should never be imported").unwrap();
+
+        // A vault that already has a manifest — as if an account had
+        // already been linked and synced through Snowdrop.
+        fs::create_dir_all(&paths.vault_dir).unwrap();
+        fs::write(paths.vault_dir.join("manifest"), b"an existing sealed manifest").unwrap();
+
+        let mut svc = fx.service();
+        svc.setup().unwrap();
+        let status = svc.setup_new(SetupMode::Keyring, None).unwrap();
+
+        assert_eq!(status.state, "unlocked");
+        assert!(legacy_dir.join("data/account").exists(), "the legacy dir must be left untouched when the vault already has a manifest");
+        assert_eq!(
+            fs::read(paths.vault_dir.join("manifest")).unwrap(),
+            b"an existing sealed manifest",
+            "the existing manifest must not be overwritten by the skipped migration"
+        );
     }
 
     #[test]

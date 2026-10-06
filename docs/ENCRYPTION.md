@@ -100,6 +100,12 @@ signal-cli has no encryption of its own. So Snowdrop never lets its folder exist
 - **`data/<account>`:** the main account file. It holds the device password, identity keys, profile key, storage key and so on. It's rewritten **in place** (seek, write, truncate, fsync) under a file lock, not via a temp file and rename.
 - **`attachments/`, `avatars/`, `stickers/`:** media.
 
+`data/`, `attachments/`, `avatars/` and `stickers/` are the _only_ top-level
+directories `PathConfig.createDefault` (AsamK/signal-cli) ever writes, and
+they're the only ones `sync`/`restore` ever read or write: anything else
+under the runtime (or a legacy) dir is never synced, never restored, and
+never counted as legacy data (see "Migration" below for why this matters).
+
 **Sync (runtime → vault):**
 
 1. Find changed files by size, mtime and hash.
@@ -134,7 +140,13 @@ A crash at any point leaves either the old or the new generation fully intact. `
 - If the runtime dir exists at launch and the lock is free, the previous session crashed, and the runtime copy is newer. Sync it into the vault first, then reuse it.
 - After a reboot the runtime copy is gone, so at most the last few seconds are lost. That can mean a handful of messages from that window fail to decrypt.
 
-**Migration:** an existing plaintext `<app data>/signal-cli/` is imported into the vault, verified, and then deleted.
+**Migration:** `<app data>/signal-cli/` is signal-cli's own plaintext data dir, left by a build that predates the vault — but only once it actually looks like signal-cli's data, not just any directory happening to exist at that path. Snowdrop requires a `data/` subdirectory specifically (signal-cli's own layout is exactly `data/`, `attachments/`, `avatars/`, `stickers/` — see above) before treating it as legacy data at all.
+
+This distinction exists because of a real bug: a downloaded-but-never-yet-run signal-cli _binary_ used to be installed at this exact same path (`<app data>/signal-cli/<version>/signal-cli`, before `signal_cli_install.rs` moved installs under `<app data>/bin/`), and the old, cruder check — any directory at all — still treated it as legacy data. Every unlock synced the ~370 MB binary into the vault as if it were account data, garbage-collected the real account data's now-unreferenced blobs, and then deleted the "legacy dir" — taking the just-installed binary with it. Net effect: the linked account was lost and signal-cli had to be re-downloaded, every single launch.
+
+Once a directory is confirmed legacy, only its allowlisted subtrees (`data/`, `attachments/`, `avatars/`, `stickers/`) are imported into the vault, verified by restoring into a scratch spot under the real RAM-backed runtime dir and comparing hashes, and only then deleted — never the whole legacy dir, which may hold something else Snowdrop doesn't manage. Migration is also skipped (leaving the legacy dir untouched, with a logged warning) if the vault already has a manifest: that would mean an account was already linked and synced through Snowdrop, and blindly importing a second, unrelated plaintext directory on top of it could only corrupt or shadow real data.
+
+As defense in depth against a vault manifest left over from before this allowlist existed, `VaultSession::start` purges any manifest entry outside `data/`/`attachments/`/`avatars/`/`stickers/` (and garbage-collects its blob) on every unlock, and a restore sweeps any stray non-allowlisted entry out of the runtime dir afterwards. `sync` and `restore` themselves only ever read or write those four subtrees in the first place, so this is belt-and-suspenders rather than the primary fix.
 
 **Not covered:**
 
@@ -180,7 +192,7 @@ The message cache (IndexedDB) and the key-value store (localStorage) are encrypt
    - **Erase all local data:** a danger-zone button opens a modal listing exactly what's deleted (the encrypted vault, recovery key, passphrase, keyring entry, and Snowdrop's own settings, spaces and drafts) and what isn't (your Signal account — remove this computer in your phone's Signal → Settings → Linked devices). Typing `ERASE` enables the confirm button.
 5. **Erase:**
    1. Stop signal-cli, and stop this process's own buffered writes (nothing may re-create what's about to be deleted).
-   2. Delete the vault, runtime dir, `keys.json`, the keyring entry `keys.json` referenced, the app log (`snowdrop.log` and its `.1` rotation — redacted, but still this account's history), and a legacy plaintext `signal-cli/` dir if one is still waiting to migrate. (Any other `keyslot-*` account for this service is left alone: the `keyring` crate has no cross-backend way to enumerate them, and an orphaned one is harmless — see "Keyring slot".)
+   2. Delete the vault, runtime dir, `keys.json`, the keyring entry `keys.json` referenced, the app log (`snowdrop.log` and its `.1` rotation — redacted, but still this account's history), a legacy plaintext `signal-cli/` dir if one is still waiting to migrate, and `bin/` — the installed signal-cli binary (and anything mid-download), kept there precisely so erase can wipe it without touching signal-cli's own data dir (`signal_cli_install.rs`; docs/DESKTOP.md). (Any other `keyslot-*` account for this service is left alone: the `keyring` crate has no cross-backend way to enumerate them, and an orphaned one is harmless — see "Keyring slot".)
    3. Restart the app (`app_restart`): the vault bridge and the single-instance lock (`snowdrop.lock`) are one-shot per process, so only a fresh process can return to a clean `needsSetup` boot.
    4. Until that restart happens, storage latches into a terminal "erased" state, distinct from `needsSetup`: `storage_status` still reports `state: "needsSetup"` (nothing is left to resume), but now also `restartRequired: true`, and every other storage command refuses with a clear error instead of quietly behaving as if nothing had ever been set up.
 6. **Sign out** (Settings → Connection, the user panel's menu — sidebar
@@ -226,8 +238,11 @@ The message cache (IndexedDB) and the key-value store (localStorage) are encrypt
    vault session _without_ a final sync — see `VaultBridge::discard`) and
    then deletes the vault (manifests, blobs), the runtime dir, and (like
    Erase) the app log, `snowdrop.log` and its `.1` rotation. Unlike Erase,
-   `keys.json` and the keyring entry are left exactly alone,
-   so storage stays set up: a restart finds `keys.json` right where it was
+   `keys.json` and the keyring entry are left exactly alone, and so is
+   `bin/` — the installed signal-cli binary: signing out ends this
+   account's session, not Snowdrop's relationship with the copy of
+   signal-cli it downloaded, so the next sign-in doesn't have to
+   re-download it — so storage stays set up: a restart finds `keys.json` right where it was
    and, with a working keyring, unlocks the same way it did before — around
    a vault with nothing in it yet. Like Erase, this latches a terminal,
    restart-required state (`storage_status`'s `restartRequired: true`) for

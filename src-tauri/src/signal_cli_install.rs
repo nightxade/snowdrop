@@ -20,13 +20,26 @@
 //!    rejecting any entry with an absolute path or a `..` component.
 //! 4. Mark the `signal-cli` executable, build it in a fully-staged sibling
 //!    directory, then `rename` that into place: the final
-//!    `<app_data_dir>/signal-cli/<version>/` either doesn't exist yet or is
-//!    already complete, never half-written.
+//!    `<app_data_dir>/bin/signal-cli/<version>/` either doesn't exist yet or
+//!    is already complete, never half-written.
 //!
 //! The partial download can be cancelled (`CancelToken`) or resumed with an
 //! HTTP `Range` request if the server supports it; a verification failure or
 //! an extraction failure always leaves no partial *install* behind (the
 //! `.part` download file may remain so a subsequent attempt can resume it).
+//!
+//! **Install location:** everything this module writes lives under
+//! `<app_data_dir>/bin/` — a sibling of, not inside, `<app_data_dir>/signal-
+//! cli/`, which is reserved for signal-cli's own *data* (see
+//! `storage::legacy_signal_cli_dir`). Before the fix this module and
+//! signal-cli's data dir shared the same `<app_data_dir>/signal-cli/`
+//! folder, which made every installed binary look exactly like a legacy
+//! plaintext signal-cli data directory: `storage::migrate_legacy` would sync
+//! the ~370 MB binary into the vault, garbage-collect the *real* account
+//! data's blobs (since they'd just been overwritten by the binary's
+//! contents), and then delete the "legacy dir" — taking the binary with it.
+//! [`migrate_old_installs`] moves any install left at the old location into
+//! the new one, once, so an existing download survives this fix.
 
 use std::collections::HashMap;
 use std::fs::{self, File};
@@ -117,12 +130,19 @@ pub fn pinned() -> Result<PinnedAsset, Error> {
     })
 }
 
-/// `<app_data_dir>/signal-cli/<version>/`.
-pub fn install_dir(app_data_dir: &Path, version: &str) -> PathBuf {
-    app_data_dir.join("signal-cli").join(version)
+/// `<app_data_dir>/bin/`: everything this module installs or stages, kept
+/// apart from `<app_data_dir>/signal-cli/`, which is signal-cli's own *data*
+/// dir (see the module docs and `storage::legacy_signal_cli_dir`).
+fn bin_dir(app_data_dir: &Path) -> PathBuf {
+    app_data_dir.join("bin")
 }
 
-/// `<app_data_dir>/signal-cli/<version>/signal-cli`.
+/// `<app_data_dir>/bin/signal-cli/<version>/`.
+pub fn install_dir(app_data_dir: &Path, version: &str) -> PathBuf {
+    bin_dir(app_data_dir).join("signal-cli").join(version)
+}
+
+/// `<app_data_dir>/bin/signal-cli/<version>/signal-cli`.
 pub fn binary_path(app_data_dir: &Path, version: &str) -> PathBuf {
     install_dir(app_data_dir, version).join("signal-cli")
 }
@@ -130,7 +150,48 @@ pub fn binary_path(app_data_dir: &Path, version: &str) -> PathBuf {
 /// Scratch space for in-progress downloads/extractions, kept apart from any
 /// completed `<version>/` install directory so a crash never looks installed.
 fn work_dir(app_data_dir: &Path) -> PathBuf {
-    app_data_dir.join("signal-cli").join(".install-tmp")
+    bin_dir(app_data_dir).join(".install-tmp")
+}
+
+/// One-time move of any install(s) left at the pre-fix location
+/// (`<app_data_dir>/signal-cli/<version>/signal-cli`) into their new home
+/// under `bin/` (see the module docs). Called once at startup, best-effort:
+/// a version whose new location already exists is left exactly where it is
+/// — nothing to gain by moving it, and the stray old copy is harmless, since
+/// it's never treated as a signal-cli *data* dir (`storage::
+/// legacy_signal_cli_dir` now requires a `data/` subdirectory) and so is
+/// never synced into the vault.
+pub fn migrate_old_installs(app_data_dir: &Path) -> Result<(), Error> {
+    let old_root = app_data_dir.join("signal-cli");
+    let entries = match fs::read_dir(&old_root) {
+        Ok(e) => e,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(io_err(e)),
+    };
+    for entry in entries {
+        let entry = entry.map_err(io_err)?;
+        if entry.file_name() == ".install-tmp" {
+            continue;
+        }
+        let old_dir = entry.path();
+        if !old_dir.is_dir() {
+            continue;
+        }
+        let Some(version) = old_dir.file_name().and_then(|n| n.to_str()).map(str::to_owned) else { continue };
+        if !old_dir.join("signal-cli").is_file() {
+            continue; // not a completed install (e.g. a version dir with no binary at all)
+        }
+        let new_dir = install_dir(app_data_dir, &version);
+        if new_dir.exists() {
+            continue; // the new location already has this version; leave the old copy alone
+        }
+        if let Some(parent) = new_dir.parent() {
+            fs::create_dir_all(parent).map_err(io_err)?;
+        }
+        fs::rename(&old_dir, &new_dir).map_err(io_err)?;
+        log::info!("signal-cli-install: moved an existing install of {version} from the old location to {}", new_dir.display());
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -956,5 +1017,50 @@ mod tests {
             assert_eq!(after.version.as_deref(), Some(asset.version.as_str()));
             assert_eq!(after.path, Some(path));
         }
+    }
+
+    #[test]
+    fn migrate_old_installs_moves_an_install_from_the_pre_fix_location() {
+        let app_data = temp_dir("migrate-old");
+        let app_data = app_data.path();
+        let old_dir = app_data.join("signal-cli").join("9.9.9");
+        fs::create_dir_all(&old_dir).unwrap();
+        fs::write(old_dir.join("signal-cli"), b"old binary bytes").unwrap();
+        make_executable(&old_dir.join("signal-cli")).unwrap();
+
+        migrate_old_installs(app_data).unwrap();
+
+        let new_path = binary_path(app_data, "9.9.9");
+        assert!(new_path.is_file(), "the binary must now be at the new bin/ location");
+        assert_eq!(fs::read(&new_path).unwrap(), b"old binary bytes");
+        assert!(is_executable(&new_path), "the moved binary must stay executable");
+        assert!(!old_dir.exists(), "the old version dir must be gone, moved rather than copied");
+    }
+
+    #[test]
+    fn migrate_old_installs_leaves_an_already_migrated_version_alone() {
+        let app_data = temp_dir("migrate-skip");
+        let app_data = app_data.path();
+        let old_dir = app_data.join("signal-cli").join("9.9.9");
+        fs::create_dir_all(&old_dir).unwrap();
+        fs::write(old_dir.join("signal-cli"), b"stale copy").unwrap();
+
+        let new_dir = install_dir(app_data, "9.9.9");
+        fs::create_dir_all(&new_dir).unwrap();
+        fs::write(new_dir.join("signal-cli"), b"current install").unwrap();
+
+        migrate_old_installs(app_data).unwrap();
+
+        assert_eq!(fs::read(new_dir.join("signal-cli")).unwrap(), b"current install", "the new location must be untouched");
+        assert!(old_dir.join("signal-cli").exists(), "the stale old copy is left alone, not deleted, when the new location already exists");
+    }
+
+    #[test]
+    fn migrate_old_installs_is_a_no_op_with_nothing_to_migrate() {
+        let app_data = temp_dir("migrate-nothing");
+        let app_data = app_data.path();
+        migrate_old_installs(app_data).unwrap(); // no `signal-cli/` dir at all
+        fs::create_dir_all(app_data.join("signal-cli").join(".install-tmp")).unwrap();
+        migrate_old_installs(app_data).unwrap(); // only scratch space, no version dirs
     }
 }

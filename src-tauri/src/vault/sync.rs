@@ -5,7 +5,7 @@
 //! if nothing changed.
 
 use sha2::{Digest, Sha256};
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, UNIX_EPOCH};
@@ -15,7 +15,7 @@ use crate::error::Error;
 use super::blobs::{self, BlobId};
 use super::copy;
 use super::manifest::{self, Manifest, ManifestEntry};
-use super::{io_err, to_hex, validate_relpath, Vault};
+use super::{io_err, is_allowlisted, to_hex, validate_relpath, Vault};
 
 /// A file `sync` couldn't copy after exhausting its retries. The previous
 /// manifest entry for it (if any) was left unchanged this round, so it'll
@@ -60,8 +60,10 @@ fn mtime_ns(meta: &fs::Metadata) -> u64 {
 
 /// Recursively walks `runtime_dir`, skipping `*-wal`/`*-shm`/`*-journal`
 /// sidecars, the crash-recovery marker (`MARKER_FILE_NAME`; it must never
-/// become a tracked manifest entry), symlinks (warned, never followed) and
-/// non-UTF-8 names (warned).
+/// become a tracked manifest entry), symlinks (warned, never followed),
+/// non-UTF-8 names (warned), and anything outside
+/// [`super::ALLOWED_TOP_DIRS`] (an entire non-allowlisted subtree is skipped
+/// without descending into it, rather than filtered file by file).
 pub(crate) fn walk(runtime_dir: &Path) -> Result<Vec<WalkEntry>, Error> {
     let mut out = Vec::new();
     walk_into(runtime_dir, runtime_dir, &mut out)?;
@@ -86,6 +88,13 @@ fn walk_into(root: &Path, dir: &Path, out: &mut Vec<WalkEntry>) -> Result<(), Er
             log::warn!("vault: sync: skipping a non-UTF-8 path under {}", root.display());
             continue;
         };
+        if !is_allowlisted(&relpath) {
+            // Not one of signal-cli's own data dirs (`super::ALLOWED_TOP_DIRS`):
+            // never synced, and — for a directory — never even descended
+            // into, so an install's worth of files under it costs nothing
+            // more than this one check.
+            continue;
+        }
         if file_type.is_dir() {
             walk_into(root, &path, out)?;
             continue;
@@ -196,6 +205,49 @@ pub(crate) fn sync(vault: &Vault, runtime_dir: &Path) -> Result<SyncReport, Erro
     })
 }
 
+/// Drops any manifest entry outside [`super::ALLOWED_TOP_DIRS`] and garbage-
+/// collects its blob right away. `0` (and nothing committed) when the
+/// manifest is already clean.
+///
+/// An ordinary [`sync`] only ever *adds* such an entry's relpath to
+/// `deleted_keys` once it's absent from a (now allowlist-filtered) walk of
+/// the runtime dir — so a stray entry does eventually disappear on its own,
+/// but its blob stays in `keep` for one extra generation (the
+/// `manifest.prev` fallback's usual grace period), and `keep` is computed
+/// fresh from whatever's on disk *right then*, which a caller who just wants
+/// the stray gone immediately (`VaultSession::start`, right after unlock)
+/// has no way to force by waiting. This commits the already-filtered
+/// manifest twice in a row instead: the first commit demotes the
+/// stray-containing manifest to `manifest.prev`, and the second (identical)
+/// commit demotes *that* one out of `manifest.prev` too, so gc's `keep` set
+/// — built from the current and previous generations, same as [`sync`]'s —
+/// contains no reference to the stray entry's blob at all, on this very
+/// call.
+pub(crate) fn purge_non_allowlisted(vault: &Vault) -> Result<usize, Error> {
+    let (manifest, _source) = manifest::load_with_fallback(&vault.dir, &vault.key, &vault.vault_id)?;
+    let filtered: BTreeMap<String, ManifestEntry> =
+        manifest.entries.iter().filter(|(relpath, _)| is_allowlisted(relpath)).map(|(k, v)| (k.clone(), v.clone())).collect();
+    let removed = manifest.entries.len() - filtered.len();
+    if removed == 0 {
+        return Ok(0);
+    }
+
+    let first = Manifest { generation: manifest.generation + 1, entries: filtered.clone() };
+    manifest::commit(&vault.dir, &vault.key, &vault.vault_id, &first)?;
+    let second = Manifest { generation: first.generation + 1, entries: filtered };
+    manifest::commit(&vault.dir, &vault.key, &vault.vault_id, &second)?;
+
+    let mut keep: HashSet<BlobId> = HashSet::new();
+    for e in second.entries.values().chain(first.entries.values()) {
+        if let Some(id) = blobs::id_from_hex(&e.blob) {
+            keep.insert(id);
+        }
+    }
+    blobs::gc(&vault.dir, &keep)?;
+
+    Ok(removed)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -211,14 +263,31 @@ mod tests {
     #[test]
     fn walk_skips_sqlite_sidecars() {
         let dir = temp_dir("sidecars");
-        let dir = dir.path();
+        let dir = dir.path().join("data");
+        fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("account.db"), b"db").unwrap();
         fs::write(dir.join("account.db-wal"), b"wal").unwrap();
         fs::write(dir.join("account.db-shm"), b"shm").unwrap();
         fs::write(dir.join("account.db-journal"), b"journal").unwrap();
+        let entries = walk(dir.parent().unwrap()).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].relpath, "data/account.db");
+    }
+
+    #[test]
+    fn walk_skips_entries_outside_the_allowlisted_top_dirs() {
+        let dir = temp_dir("non-allowlisted");
+        let dir = dir.path();
+        fs::create_dir_all(dir.join("data")).unwrap();
+        fs::write(dir.join("data/account"), b"real data").unwrap();
+        // An installed signal-cli binary, the exact shape of the real bug
+        // `ALLOWED_TOP_DIRS` fixes.
+        fs::create_dir_all(dir.join("0.14.8")).unwrap();
+        fs::write(dir.join("0.14.8/signal-cli"), b"not real signal-cli data").unwrap();
+
         let entries = walk(dir).unwrap();
         assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].relpath, "account.db");
+        assert_eq!(entries[0].relpath, "data/account");
     }
 
     #[test]
@@ -229,13 +298,13 @@ mod tests {
         let key = Key32::random();
         let vault = Vault::open(&vault_dir, key, [5u8; VAULT_ID_LEN]).unwrap();
         let runtime = base.join("runtime");
-        fs::create_dir_all(&runtime).unwrap();
-        fs::write(runtime.join("bad.json"), b"{ this never parses").unwrap();
+        fs::create_dir_all(runtime.join("data")).unwrap();
+        fs::write(runtime.join("data/bad.json"), b"{ this never parses").unwrap();
 
         let report = sync(&vault, &runtime).unwrap();
         assert_eq!(report.changed, 0);
         assert_eq!(report.skipped.len(), 1);
-        assert_eq!(report.skipped[0].relpath, "bad.json");
+        assert_eq!(report.skipped[0].relpath, "data/bad.json");
         assert!(!report.wrote); // nothing ever successfully copied, so nothing to commit
     }
 
@@ -250,16 +319,16 @@ mod tests {
         let key = Key32::random();
         let vault = Vault::open(&vault_dir, key, [6u8; VAULT_ID_LEN]).unwrap();
         let runtime = base.join("runtime");
-        fs::create_dir_all(&runtime).unwrap();
+        fs::create_dir_all(runtime.join("data")).unwrap();
 
-        let db_path = runtime.join("account.db");
+        let db_path = runtime.join("data/account.db");
         let writer = rusqlite::Connection::open(&db_path).unwrap();
         writer.execute_batch("PRAGMA journal_mode=WAL; CREATE TABLE msgs (id INTEGER PRIMARY KEY, body TEXT);").unwrap();
         writer.execute("INSERT INTO msgs (body) VALUES (?1)", ["hello"]).unwrap();
         writer.execute("INSERT INTO msgs (body) VALUES (?1)", ["world"]).unwrap();
         // Committed via autocommit above; WAL content hasn't been checkpointed
         // into account.db yet, so a plain file copy would lose it.
-        assert!(runtime.join("account.db-wal").exists());
+        assert!(runtime.join("data/account.db-wal").exists());
 
         let report = sync(&vault, &runtime).unwrap();
         assert!(report.wrote);
@@ -271,9 +340,9 @@ mod tests {
 
         let restored = base.join("restored");
         vault.restore(&restored, |_| true).unwrap();
-        let restored_db = restored.join("account.db");
+        let restored_db = restored.join("data/account.db");
         assert!(restored_db.exists());
-        assert!(!restored.join("account.db-wal").exists(), "only the .db file is ever written on restore");
+        assert!(!restored.join("data/account.db-wal").exists(), "only the .db file is ever written on restore");
 
         let check = rusqlite::Connection::open(&restored_db).unwrap();
         let integrity: String = check.query_row("PRAGMA integrity_check", [], |row| row.get(0)).unwrap();
