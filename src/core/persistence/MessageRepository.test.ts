@@ -250,8 +250,18 @@ describe.each(implementations)('MessageRepository (%s)', (_name, create) => {
     });
     await repo.stageOutgoing(pending, { nonce, input, createdAt: 1 });
 
-    const fresh1 = incoming({ conversationId: concurrent, authorId: 'x', sentAt: 2, body: 'fresh1' });
-    const fresh2 = incoming({ conversationId: concurrent, authorId: 'x', sentAt: 3, body: 'fresh2' });
+    const fresh1 = incoming({
+      conversationId: concurrent,
+      authorId: 'x',
+      sentAt: 2,
+      body: 'fresh1',
+    });
+    const fresh2 = incoming({
+      conversationId: concurrent,
+      authorId: 'x',
+      sentAt: 3,
+      body: 'fresh2',
+    });
     const final = incoming({
       conversationId: concurrent,
       authorId: 'me',
@@ -303,5 +313,27 @@ describe.each(implementations)('MessageRepository (%s)', (_name, create) => {
     expect((await repo.getReadCursors()).size).toBe(0);
     expect(await repo.listOutbox()).toEqual([]);
     expect(await repo.allocateSeq()).toBe(1);
+  });
+
+  it('(regression) round-trips outbox attachment bytes across persistence', async () => {
+    const bytes = new Uint8Array([1, 2, 3, 4, 5]);
+    const file = new File([bytes], 'photo.png', { type: 'image/png' });
+    const input = {
+      conversationId: a,
+      body: 'see attached',
+      ranges: [],
+      attachments: [{ fileName: 'photo.png', contentType: 'image/png', data: file }],
+    };
+    await repo.putOutbox({ nonce: 'att-1', input, createdAt: 1 });
+
+    const [entry] = await repo.listOutbox();
+    expect(entry?.attachmentsLost).toBeFalsy();
+    const restored = entry?.input.attachments?.[0];
+    expect(restored).toMatchObject({ fileName: 'photo.png', contentType: 'image/png' });
+    expect(new Uint8Array(await restored!.data.arrayBuffer())).toEqual(bytes);
+
+    // Committing (or discarding) drops the attachment bytes along with the entry.
+    await repo.deleteOutbox('att-1');
+    expect(await repo.listOutbox()).toEqual([]);
   });
 });

@@ -111,7 +111,10 @@ export function normaliseEnvelope(envelope: WireEnvelope, ctx: NormaliseContext)
     ctx.debug('ignored envelope without a source', envelope.timestamp);
     return [];
   }
-  const resolve = (id: string): string => (ctx.selfAliases.has(id) ? ctx.selfId : id);
+  // Self first (an alias of ours always wins), then fold the id to whichever
+  // form is canonical for that peer — see NormaliseContext.resolvePeer.
+  const resolve = (id: string): string =>
+    ctx.selfAliases.has(id) ? ctx.selfId : ctx.resolvePeer(id);
   const source = resolve(rawSource);
   // Stripped here, once, since the result is interpolated into plain-text
   // system sentences (timerSentence, the group-call line) that no later CSS

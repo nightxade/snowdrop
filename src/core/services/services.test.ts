@@ -20,7 +20,7 @@ import {
 } from '@/core/stores';
 import { HistoryService } from './HistoryService';
 import { ReceiptBuffer } from './ReceiptBuffer';
-import { SendService } from './SendService';
+import { ATTACHMENTS_LOST_ERROR, SendService } from './SendService';
 import { SyncService } from './SyncService';
 import type { DraftPipeline, OutgoingDraft } from './types';
 
@@ -245,6 +245,40 @@ describe('SyncService: events', () => {
     expect(stores.conversations.getState().unread[id]?.count).toBe(before + 1);
     expect((await repository.get(m.id))?.reactions).toHaveLength(1);
     expect(onMessage).toHaveBeenCalledOnce();
+  });
+
+  it('(regression) buffers a reaction that arrives before its target message', async () => {
+    const { backend, sync, repository, conv, memberOf } = await setup();
+    const id = conv('books');
+    const author = memberOf(id);
+    const m = incoming(id, author, NOW + 1000);
+    // Out of order: the reaction lands before the message it targets.
+    backend.emit('reaction', {
+      conversationId: id,
+      targetAuthorId: author,
+      targetSentAt: NOW + 1000,
+      reaction: { emoji: '🎯', authorId: author, at: NOW },
+      remove: false,
+    });
+    backend.emit('message', m);
+    await sync.idle();
+    expect((await repository.get(m.id))?.reactions).toHaveLength(1);
+  });
+
+  it('(regression) buffers a delete that arrives before its target message', async () => {
+    const { backend, sync, repository, conv, memberOf } = await setup();
+    const id = conv('books');
+    const author = memberOf(id);
+    const m = incoming(id, author, NOW + 1000);
+    // Out of order: the remote delete lands before the message it targets.
+    backend.emit('messageDeleted', {
+      conversationId: id,
+      authorId: author,
+      targetSentAt: NOW + 1000,
+    });
+    backend.emit('message', m);
+    await sync.idle();
+    expect((await repository.get(m.id))?.deleted).toBe(true);
   });
 
   it('(J) counts a message from a sender with a skewed clock', async () => {
@@ -589,6 +623,46 @@ describe('SendService', () => {
     expect(second.list(id).at(-1)).toMatchObject({
       status: 'sent',
       body: 'written before the crash',
+    });
+  });
+
+  it('(regression) marks a restored message failed with a clear reason when its attachments were lost', async () => {
+    const repository = new MemoryMessageRepository();
+    const first = await setup({ repository });
+    const id = first.conv('orchard-eng');
+    // Simulates what IdbMessageRepository.listOutbox returns for a pre-fix
+    // outbox row: the attachment bytes are gone, but the entry is flagged
+    // rather than silently dropped or resent with junk attachments.
+    await repository.stageOutgoing(
+      {
+        id: pendingMessageId('nonce-lost'),
+        conversationId: id,
+        authorId: first.selfId,
+        sentAt: 1,
+        receivedAt: 1,
+        seq: await repository.allocateSeq(),
+        body: 'photo attached',
+        ranges: [],
+        attachments: [],
+        reactions: [],
+        status: 'pending',
+        kind: 'normal',
+        nonce: 'nonce-lost',
+      },
+      {
+        nonce: 'nonce-lost',
+        input: { conversationId: id, body: 'photo attached', ranges: [], attachments: [] },
+        createdAt: 1,
+        attachmentsLost: true,
+      },
+    );
+
+    const second = await setup({ repository });
+    expect(await second.send.restoreOutbox()).toBe(1);
+    await second.history.open(id);
+    expect(second.stores.messages.getState().findByNonce(id, 'nonce-lost')).toMatchObject({
+      status: 'failed',
+      failureReason: ATTACHMENTS_LOST_ERROR,
     });
   });
 

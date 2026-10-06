@@ -10,7 +10,7 @@ import { openDB } from 'idb';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mergeDuplicate, messageId } from '@/core/domain';
 import { conversationIdFor, makeMessage } from '@/core/domain/testing';
-import { webCryptoCipher } from './crypto';
+import { utf8Encode, webCryptoCipher } from './crypto';
 import { IdbMessageRepository } from './IdbMessageRepository';
 
 const randomKey = (): Uint8Array => crypto.getRandomValues(new Uint8Array(32));
@@ -38,7 +38,7 @@ describe('IdbMessageRepository encryption', () => {
     await repo.setReadCursor(conversationId, 1);
 
     // Inspect the raw rows, bypassing the repository entirely.
-    const raw = await openDB(name, 2);
+    const raw = await openDB(name, 3);
     const messageRows = await raw.getAll('messages');
     const cursorRows = await raw.getAll('readCursors');
     raw.close();
@@ -99,7 +99,10 @@ describe('IdbMessageRepository encryption', () => {
     // The repository is fully usable afterwards, on the new (encrypted) schema.
     const seq = await repo.allocateSeq();
     expect(seq).toBe(1);
-    await repo.upsert(makeMessage({ conversationId, body: 'fresh after migration' }), mergeDuplicate);
+    await repo.upsert(
+      makeMessage({ conversationId, body: 'fresh after migration' }),
+      mergeDuplicate,
+    );
     expect((await repo.latest(conversationId))?.body).toBe('fresh after migration');
   });
 
@@ -130,7 +133,7 @@ describe('IdbMessageRepository encryption', () => {
     // Tamper with the middle row's ciphertext directly, bypassing the
     // repository — the AEAD tag no longer matches, so decrypting it throws.
     const badKey = await cipher.blindId(bad.id);
-    const raw = await openDB(name, 2);
+    const raw = await openDB(name, 3);
     const row = (await raw.get('messages', badKey)) as Record<string, unknown>;
     expect(row).toBeDefined();
     const payload = new Uint8Array(row.payload as Uint8Array);
@@ -149,5 +152,33 @@ describe('IdbMessageRepository encryption', () => {
     } finally {
       warn.mockRestore();
     }
+  });
+
+  it('(regression) flags attachments as lost for a pre-fix outbox row instead of losing the message', async () => {
+    const name = nextDbName();
+    const cipher = await webCryptoCipher(randomKey());
+    repo = await IdbMessageRepository.open(name, cipher);
+
+    // A row written before attachment persistence existed: `JSON.stringify(Blob)`
+    // serialised to `{}`, and there's no `attachmentCount` to say bytes live
+    // elsewhere — exactly what a pre-fix outbox entry looked like on disk.
+    const nonce = 'legacy-1';
+    const legacyInput = {
+      conversationId: conversationIdFor('legacy'),
+      body: 'hi, with a photo',
+      ranges: [],
+      attachments: [{}],
+    };
+    const payload = await cipher.encrypt(utf8Encode(JSON.stringify({ input: legacyInput })), nonce);
+    const raw = await openDB(name, 3);
+    await raw.put('outbox', { nonce, createdAt: 1, payload });
+    raw.close();
+
+    const [entry] = await repo.listOutbox();
+    expect(entry).toMatchObject({
+      nonce,
+      attachmentsLost: true,
+      input: { body: 'hi, with a photo', attachments: [] },
+    });
   });
 });

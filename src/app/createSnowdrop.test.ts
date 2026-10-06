@@ -137,3 +137,40 @@ describe('admin.reload', () => {
     expect(order).toEqual(['flushed', 'reloaded']);
   });
 });
+
+describe('start() and a pending history clear (sign-out fallback)', () => {
+  const PENDING_KEY = 'snowdrop.pendingHistoryClear';
+
+  it('clears history before connecting when the flag is set, then clears the flag', async () => {
+    const storage = createMemoryStorage();
+    storage.setItem(PENDING_KEY, '1');
+    const snowdrop = createSnowdrop({ storage, mockLatencyMs: 0 });
+    const clearHistory = vi.spyOn(snowdrop.admin, 'clearHistory');
+    await snowdrop.start();
+    expect(clearHistory).toHaveBeenCalledTimes(1);
+    expect(storage.getItem(PENDING_KEY)).toBeNull();
+    await snowdrop.dispose();
+  });
+
+  it('leaves the flag set, and keeps booting, if the retry fails too', async () => {
+    const storage = createMemoryStorage();
+    storage.setItem(PENDING_KEY, '1');
+    const snowdrop = createSnowdrop({ storage, mockLatencyMs: 0 });
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.spyOn(snowdrop.admin, 'clearHistory').mockRejectedValueOnce(new Error('boom'));
+    await snowdrop.start();
+    expect(storage.getItem(PENDING_KEY)).toBe('1');
+    expect(error).toHaveBeenCalled();
+    expect(snowdrop.stores.session.getState().ready).toBe(true);
+    await snowdrop.dispose();
+  });
+
+  it('does nothing extra when no flag was left behind', async () => {
+    const storage = createMemoryStorage();
+    const snowdrop = createSnowdrop({ storage, mockLatencyMs: 0 });
+    const clearHistory = vi.spyOn(snowdrop.admin, 'clearHistory');
+    await snowdrop.start();
+    expect(clearHistory).not.toHaveBeenCalled();
+    await snowdrop.dispose();
+  });
+});

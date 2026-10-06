@@ -160,6 +160,8 @@ export interface Message {
   pinned?: boolean;
   /** Recipients the send failed for (partial group sends); status stays 'sent'. */
   failedRecipients?: string[];
+  /** Why a `failed` status happened, when it's more specific than "send failed". */
+  failureReason?: string;
   /**
    * Client nonce of an outgoing message. Kept after acknowledgement (in memory
    * and storage) so render keys survive the pending → acknowledged id swap.

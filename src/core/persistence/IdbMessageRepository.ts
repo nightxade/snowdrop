@@ -24,6 +24,7 @@
  * this is a resyncable local cache, that trade is the right one.
  */
 import { openDB, type DBSchema, type IDBPDatabase, type IDBPTransaction } from 'idb';
+import type { OutgoingAttachment, SendInput } from '@/core/backend';
 import {
   mentionsOf,
   pendingMessageId,
@@ -43,7 +44,7 @@ import {
   type UpsertResult,
 } from './MessageRepository';
 
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const SEQ_KEY = 'seq';
 
 interface SeqState {
@@ -77,9 +78,35 @@ interface OutboxRow {
   /** Plaintext: a random client nonce, not user data — nothing to blind. */
   nonce: string;
   createdAt: number;
-  /** AES-GCM of `{ input }`, AAD = `nonce`. */
+  /**
+   * How many `outboxAttachments` rows (keyed `${nonce}:0` … `${nonce}:${n-1}`)
+   * go with this entry. `undefined` means this row predates attachment
+   * persistence (DB_VERSION < 3): any attachments it names were serialised
+   * as `JSON.stringify(Blob)` (`{}`) and their bytes are gone for good.
+   */
+  attachmentCount?: number;
+  /** AES-GCM of `{ input }` (attachments reduced to name/type metadata), AAD = `nonce`. */
   payload: Uint8Array;
 }
+
+/**
+ * One outgoing attachment's raw bytes, stored apart from `OutboxRow` because
+ * `JSON.stringify(Blob)` is `{}` — a Blob simply can't ride along in the
+ * same encrypted JSON payload as the rest of the send input.
+ */
+interface OutboxAttachmentRow {
+  /** `${nonce}:${index}` — the primary key, and the AAD binding it to that slot. */
+  id: string;
+  fileName: string;
+  contentType: string;
+  /** AES-GCM of the raw attachment bytes, AAD = `id`. */
+  payload: Uint8Array;
+}
+
+/** `SendInput` as actually stored: each attachment's Blob replaced by its metadata. */
+type StoredSendInput = Omit<SendInput, 'attachments'> & {
+  attachments?: { fileName: string; contentType: string }[];
+};
 
 interface SnowdropDB extends DBSchema {
   messages: {
@@ -94,9 +121,11 @@ interface SnowdropDB extends DBSchema {
   readCursors: { key: string; value: CursorRow };
   meta: { key: string; value: SeqState };
   outbox: { key: string; value: OutboxRow };
+  outboxAttachments: { key: string; value: OutboxAttachmentRow };
 }
 
 const encodeJson = (value: unknown): Uint8Array => utf8Encode(JSON.stringify(value));
+const outboxAttachmentId = (nonce: string, index: number): string => `${nonce}:${index}`;
 
 export class IdbMessageRepository implements MessageRepository {
   /**
@@ -160,6 +189,12 @@ export class IdbMessageRepository implements MessageRepository {
           database.createObjectStore('readCursors', { keyPath: 'id' });
           database.createObjectStore('meta', { keyPath: 'key' });
           database.createObjectStore('outbox', { keyPath: 'nonce' });
+        }
+        if (oldVersion < 3) {
+          // Additive: existing outbox rows are left as-is (they predate
+          // `attachmentCount` and are handled as "attachments lost" on
+          // read — see fromOutboxRow); nothing here needs re-encrypting.
+          database.createObjectStore('outboxAttachments', { keyPath: 'id' });
         }
       },
     });
@@ -404,7 +439,8 @@ export class IdbMessageRepository implements MessageRepository {
   async search(text: string, { conversationId, limit }: SearchQuery): Promise<Message[]> {
     const terms = searchTerms(text);
     if (terms.length === 0) return [];
-    const key = conversationId === undefined ? undefined : await this.cipher.blindId(conversationId);
+    const key =
+      conversationId === undefined ? undefined : await this.cipher.blindId(conversationId);
     const rows: MessageRow[] = [];
     const tx = this.db.transaction('messages');
     let cursor =
@@ -489,16 +525,16 @@ export class IdbMessageRepository implements MessageRepository {
 
   stageOutgoing(pending: Message, entry: OutboxEntry): Promise<void> {
     return this.mutate(async () => {
-      const [messageRow, outboxRow] = await Promise.all([
+      const [messageRow, { row: outboxRow, attachmentRows }] = await Promise.all([
         this.toRow(pending),
         this.toOutboxRow(entry),
       ]);
-      const tx = this.db.transaction(['messages', 'outbox'], 'readwrite');
-      await Promise.all([
-        tx.objectStore('messages').put(messageRow),
-        tx.objectStore('outbox').put(outboxRow),
-        tx.done,
-      ]);
+      const tx = this.db.transaction(['messages', 'outbox', 'outboxAttachments'], 'readwrite');
+      await tx.objectStore('messages').put(messageRow);
+      await tx.objectStore('outbox').put(outboxRow);
+      const attachments = tx.objectStore('outboxAttachments');
+      for (const row of attachmentRows) await attachments.put(row);
+      await tx.done;
     });
   }
 
@@ -521,10 +557,18 @@ export class IdbMessageRepository implements MessageRepository {
         created = true;
       }
       const finalRow = await this.toRow(stored);
-      const tx = this.db.transaction(['messages', 'meta', 'outbox'], 'readwrite');
+      const tx = this.db.transaction(
+        ['messages', 'meta', 'outbox', 'outboxAttachments'],
+        'readwrite',
+      );
       const messages = tx.objectStore('messages');
+      const outboxRow = await tx.objectStore('outbox').get(nonce);
       await messages.delete(pendingId);
       await tx.objectStore('outbox').delete(nonce);
+      const attachments = tx.objectStore('outboxAttachments');
+      for (let i = 0; i < (outboxRow?.attachmentCount ?? 0); i++) {
+        await attachments.delete(outboxAttachmentId(nonce, i));
+      }
       await messages.put(finalRow);
       if (created) {
         const metaStore = tx.objectStore('meta');
@@ -543,35 +587,126 @@ export class IdbMessageRepository implements MessageRepository {
   discardOutgoing(nonce: string): Promise<void> {
     return this.mutate(async () => {
       const pendingId = await this.cipher.blindId(pendingMessageId(nonce));
-      const tx = this.db.transaction(['messages', 'outbox'], 'readwrite');
-      await Promise.all([
-        tx.objectStore('messages').delete(pendingId),
-        tx.objectStore('outbox').delete(nonce),
-        tx.done,
-      ]);
+      const tx = this.db.transaction(['messages', 'outbox', 'outboxAttachments'], 'readwrite');
+      const outboxRow = await tx.objectStore('outbox').get(nonce);
+      await tx.objectStore('messages').delete(pendingId);
+      await tx.objectStore('outbox').delete(nonce);
+      const attachments = tx.objectStore('outboxAttachments');
+      for (let i = 0; i < (outboxRow?.attachmentCount ?? 0); i++) {
+        await attachments.delete(outboxAttachmentId(nonce, i));
+      }
+      await tx.done;
     });
   }
 
-  private async toOutboxRow(entry: OutboxEntry): Promise<OutboxRow> {
-    const payload = await this.cipher.encrypt(encodeJson({ input: entry.input }), entry.nonce);
-    return { nonce: entry.nonce, createdAt: entry.createdAt, payload };
+  /**
+   * Splits an outbox entry into its JSON-safe row and the encrypted bytes of
+   * each attachment (keyed by nonce+index, AAD bound to that same key — see
+   * the file header on why crypto never happens inside an open transaction).
+   */
+  private async toOutboxRow(
+    entry: OutboxEntry,
+  ): Promise<{ row: OutboxRow; attachmentRows: OutboxAttachmentRow[] }> {
+    const attachments = entry.input.attachments ?? [];
+    const attachmentRows = await Promise.all(
+      attachments.map(async (a, i): Promise<OutboxAttachmentRow> => {
+        const id = outboxAttachmentId(entry.nonce, i);
+        const bytes = new Uint8Array(await a.data.arrayBuffer());
+        const payload = await this.cipher.encrypt(bytes, id);
+        return { id, fileName: a.fileName, contentType: a.contentType, payload };
+      }),
+    );
+    const stored: StoredSendInput = {
+      ...entry.input,
+      ...(attachments.length > 0
+        ? {
+            attachments: attachments.map((a) => ({
+              fileName: a.fileName,
+              contentType: a.contentType,
+            })),
+          }
+        : {}),
+    };
+    const payload = await this.cipher.encrypt(encodeJson({ input: stored }), entry.nonce);
+    const row: OutboxRow = {
+      nonce: entry.nonce,
+      createdAt: entry.createdAt,
+      attachmentCount: attachments.length,
+      payload,
+    };
+    return { row, attachmentRows };
   }
 
   private async fromOutboxRow(row: OutboxRow): Promise<OutboxEntry> {
     const plain = await this.cipher.decrypt(row.payload, row.nonce);
-    const { input } = JSON.parse(utf8Decode(plain)) as { input: OutboxEntry['input'] };
-    return { nonce: row.nonce, createdAt: row.createdAt, input };
+    const { input } = JSON.parse(utf8Decode(plain)) as { input: StoredSendInput };
+    const storedAttachments = input.attachments ?? [];
+    if (row.attachmentCount === undefined) {
+      // Pre-fix row (DB_VERSION < 3): any attachments were serialised as
+      // `{}` and their bytes are gone; surface that rather than resending junk.
+      const { attachments: _lost, ...rest } = input;
+      return {
+        nonce: row.nonce,
+        createdAt: row.createdAt,
+        input: { ...rest, attachments: [] },
+        ...(storedAttachments.length > 0 ? { attachmentsLost: true } : {}),
+      };
+    }
+    const attachments: OutgoingAttachment[] = [];
+    let lost = false;
+    for (let i = 0; i < storedAttachments.length; i++) {
+      const meta = storedAttachments[i];
+      if (!meta) continue;
+      try {
+        const id = outboxAttachmentId(row.nonce, i);
+        const attRow = await this.db.get('outboxAttachments', id);
+        if (!attRow) throw new Error('missing outbox attachment row');
+        const bytes = await this.cipher.decrypt(attRow.payload, id);
+        attachments.push({
+          fileName: meta.fileName,
+          contentType: meta.contentType,
+          data: new File([new Uint8Array(bytes)], meta.fileName, { type: meta.contentType }),
+        });
+      } catch {
+        lost = true;
+      }
+    }
+    const resultInput: SendInput = { ...input, attachments };
+    return {
+      nonce: row.nonce,
+      createdAt: row.createdAt,
+      input: resultInput,
+      ...(lost ? { attachmentsLost: true } : {}),
+    };
   }
 
   putOutbox(entry: OutboxEntry): Promise<void> {
     return this.mutate(async () => {
-      await this.db.put('outbox', await this.toOutboxRow(entry));
+      const { row, attachmentRows } = await this.toOutboxRow(entry);
+      const tx = this.db.transaction(['outbox', 'outboxAttachments'], 'readwrite');
+      const previous = await tx.objectStore('outbox').get(entry.nonce);
+      await tx.objectStore('outbox').put(row);
+      const attachments = tx.objectStore('outboxAttachments');
+      // Replace any previous attachment bytes for this nonce: edits only
+      // rewrite body/ranges today, but this stays correct if that changes.
+      for (let i = 0; i < (previous?.attachmentCount ?? 0); i++) {
+        await attachments.delete(outboxAttachmentId(entry.nonce, i));
+      }
+      for (const attRow of attachmentRows) await attachments.put(attRow);
+      await tx.done;
     });
   }
 
   deleteOutbox(nonce: string): Promise<void> {
     return this.mutate(async () => {
-      await this.db.delete('outbox', nonce);
+      const tx = this.db.transaction(['outbox', 'outboxAttachments'], 'readwrite');
+      const outboxRow = await tx.objectStore('outbox').get(nonce);
+      await tx.objectStore('outbox').delete(nonce);
+      const attachments = tx.objectStore('outboxAttachments');
+      for (let i = 0; i < (outboxRow?.attachmentCount ?? 0); i++) {
+        await attachments.delete(outboxAttachmentId(nonce, i));
+      }
+      await tx.done;
     });
   }
 
@@ -583,12 +718,16 @@ export class IdbMessageRepository implements MessageRepository {
 
   clear(): Promise<void> {
     return this.mutate(async () => {
-      const tx = this.db.transaction(['messages', 'readCursors', 'meta', 'outbox'], 'readwrite');
+      const tx = this.db.transaction(
+        ['messages', 'readCursors', 'meta', 'outbox', 'outboxAttachments'],
+        'readwrite',
+      );
       await Promise.all([
         tx.objectStore('messages').clear(),
         tx.objectStore('readCursors').clear(),
         tx.objectStore('meta').clear(),
         tx.objectStore('outbox').clear(),
+        tx.objectStore('outboxAttachments').clear(),
         tx.done,
       ]);
     });

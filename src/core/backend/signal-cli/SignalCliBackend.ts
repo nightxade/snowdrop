@@ -177,6 +177,7 @@ export class SignalCliBackend implements ChatBackend {
       now: () => this.clock.now(),
       scheduler: this.scheduler,
       identity: () => this.identity,
+      peers: () => this.peers,
       debug: this.debugLog,
       onContactChanged: (contact) => {
         this.emitter.emit('contactUpdated', contact);
@@ -397,6 +398,7 @@ export class SignalCliBackend implements ChatBackend {
         const payload: unknown =
           typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
         this.learnSelf(payload);
+        this.learnPeers(payload);
         events = normaliseReceive(payload, this.normaliseContext());
       } catch {
         // Never log the data itself: it can be (or embed) raw message text.
@@ -420,10 +422,41 @@ export class SignalCliBackend implements ChatBackend {
     }
   }
 
+  /**
+   * Learns peer number↔ACI aliases (DirectPeers) from any raw payload: every
+   * wire shape names an address pair the same way — a `<prefix>Uuid` field
+   * alongside a `<prefix>Number` one (`source*`, `destination*`,
+   * `targetAuthor*`, `sender*`, the legacy quote `author*`, …) — so walking
+   * the tree for that shape, rather than hand-listing every field, keeps
+   * this learning everywhere an alias could show up.
+   */
+  private learnPeers(payload: unknown): void {
+    if (!this.peers) return;
+    const seen = new Set<unknown>();
+    const walk = (value: unknown): void => {
+      if (!isRecord(value) || seen.has(value)) return;
+      seen.add(value);
+      for (const key of Object.keys(value)) {
+        if (!key.endsWith('Uuid')) continue;
+        const uuid = value[key];
+        const number = value[`${key.slice(0, -4)}Number`];
+        if (typeof uuid === 'string' && typeof number === 'string') {
+          this.peers?.learnPair(uuid, number);
+        }
+      }
+      for (const v of Object.values(value)) {
+        if (Array.isArray(v)) v.forEach(walk);
+        else walk(v);
+      }
+    };
+    walk(payload);
+  }
+
   private normaliseContext(): NormaliseContext {
     return {
       selfId: this.selfId,
       selfAliases: this.identity.aliases,
+      resolvePeer: (id) => this.peers?.resolve(id) ?? id,
       now: this.clock.now(),
       nameOf: (id) => this.directory.contact(id)?.name,
       debug: this.debugLog,
@@ -433,6 +466,7 @@ export class SignalCliBackend implements ChatBackend {
   /** Test hook: feeds a raw `receive` payload as if it came from the stream. */
   ingest(payload: unknown, cursor?: string): Promise<void> {
     this.learnSelf(payload);
+    this.learnPeers(payload);
     this.enqueue(normaliseReceive(payload, this.normaliseContext()), cursor);
     return this.queue;
   }

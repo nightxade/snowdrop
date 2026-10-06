@@ -14,6 +14,13 @@ export interface NormaliseContext {
   selfId: string;
   /** Every identifier that means "us" (ACI, number) — mapped to `selfId`. */
   selfAliases: ReadonlySet<string>;
+  /**
+   * Maps a peer's number or ACI to whichever form is canonical for them
+   * (DirectPeers), so a DM doesn't fork when the daemon starts addressing
+   * someone by their other identifier. Identity on `id` not found as an
+   * alias of anyone.
+   */
+  resolvePeer(id: string): string;
   /** Local receive time (epoch ms). */
   now: number;
   /** Display name for system texts, when known. */

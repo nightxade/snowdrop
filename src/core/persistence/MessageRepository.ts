@@ -42,6 +42,14 @@ export interface OutboxEntry {
   nonce: string;
   input: SendInput;
   createdAt: number;
+  /**
+   * True when `input.attachments` could not be reconstructed on read (data
+   * written before attachment persistence existed, or storage that lost the
+   * bytes some other way). `input.attachments` is then empty rather than
+   * carrying unusable entries; callers should surface this rather than
+   * attempt — and fail opaquely — to resend them.
+   */
+  attachmentsLost?: boolean;
 }
 
 export interface MessageRepository {

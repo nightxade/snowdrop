@@ -12,6 +12,7 @@ import type { Contact, Conversation, ConversationId } from '@/core/domain';
 import type { Cancel, Scheduler } from '@/core/lib';
 import type { SelfIdentity } from './identity';
 import { toContact, toGroupConversation } from './normalise/directory';
+import type { DirectPeers } from './peers';
 import type { JsonRpcClient } from './rpc';
 import { wireContacts, wireGroups } from './wire';
 
@@ -27,6 +28,8 @@ export interface DirectoryDeps {
   now: () => number;
   scheduler: Scheduler;
   identity: () => SelfIdentity;
+  /** Learns number↔ACI peer aliases and resolves a peer to its canonical id. */
+  peers: () => DirectPeers | null;
   /** A contact appeared or changed after a (re)load. */
   onContactChanged: (contact: Contact) => void;
   debug: (message: string, detail?: unknown) => void;
@@ -155,14 +158,23 @@ export class Directory {
     }
     if (epoch !== this.epoch) return;
     const identity = this.deps.identity();
+    const peers = this.deps.peers();
     const next = new Map<string, Contact>();
     this.dmTimers.clear();
     for (const c of raw) {
       identity.learnPair(c.uuid, c.number);
+      peers?.learnPair(c.uuid, c.number);
       const contact = toContact(c, identity.selfId);
       if (!contact) continue;
-      const id = identity.resolve(contact.id);
-      next.set(id, id === contact.id ? contact : { ...contact, id, isSelf: true });
+      // Self-aliases first (isSelf), then fold to whichever form DirectPeers
+      // already has history under — same precedence as the normaliser.
+      const selfResolved = identity.resolve(contact.id);
+      const id =
+        selfResolved === contact.id ? (peers?.resolve(contact.id) ?? contact.id) : selfResolved;
+      next.set(
+        id,
+        id === contact.id ? contact : { ...contact, id, isSelf: selfResolved !== contact.id },
+      );
       if (c.messageExpirationTime > 0) this.dmTimers.set(id, c.messageExpirationTime);
     }
     const before = new Map(this.contacts);

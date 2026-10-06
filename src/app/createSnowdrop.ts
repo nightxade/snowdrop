@@ -31,6 +31,7 @@ import {
   exportHistory,
   HistoryService,
   NotificationService,
+  PendingOpsBuffer,
   ReceiptBuffer,
   SendService,
   SyncService,
@@ -65,6 +66,16 @@ import {
   installDesktopLinks,
   isTauri,
 } from './platform';
+
+/**
+ * A plaintext-named, but storage-encrypted (it goes through the same
+ * `storage` every other persisted key does — see `HydratedKeyValue`), flag
+ * set when sign-out's `clearHistory()` fails after the vault has already
+ * been signed out of (docs/ENCRYPTION.md, "Sign out"): the next boot unlocks
+ * with the same key, so the old account's cache would otherwise survive.
+ * `start()` below honours it before connecting.
+ */
+const PENDING_HISTORY_CLEAR_KEY = 'snowdrop.pendingHistoryClear';
 
 export interface SnowdropOptions {
   storage?: KeyValueStorage;
@@ -190,8 +201,10 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     },
     options.repository,
   );
-  // Shared so a receipt that beats the send's acknowledgement isn't lost.
+  // Shared so a receipt, or a delete/reaction/edit/pin, that beats the send's
+  // acknowledgement isn't lost.
   const receipts = new ReceiptBuffer();
+  const pendingOps = new PendingOpsBuffer();
 
   // Plugin errors outside start/stop (commands, transforms, hover actions…)
   // are logged and recorded on the plugin, so its card shows them with Retry.
@@ -208,6 +221,7 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     clock,
     pipeline: registries,
     receipts,
+    pendingOps,
     onError: reportError,
   });
   const sync = new SyncService({
@@ -217,6 +231,7 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     clock,
     scheduler,
     receipts,
+    pendingOps,
     onError: reportError,
   });
   const history = new HistoryService({ backend, repository, stores, onError: reportError });
@@ -296,6 +311,11 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     },
     exportHistory: (onProgress) => exportHistory(repository, stores, new Date(), onProgress),
     clearHistory: () => repository.clear(),
+    setPendingHistoryClear: async (pending) => {
+      if (pending) storage.setItem(PENDING_HISTORY_CLEAR_KEY, '1');
+      else storage.removeItem(PENDING_HISTORY_CLEAR_KEY);
+      if (hasPendingWrites(storage)) await storage.flush();
+    },
     flush: () => {
       for (const binding of bindings) binding.flush();
     },
@@ -340,6 +360,19 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
 
     async start() {
       if (started) return;
+      // Sign-out (signOutFlow.ts) sets this when its own `clearHistory()`
+      // failed after the vault was already signed out of: honour it now,
+      // before connecting, so the previous account's cache is never shown
+      // under whatever runs next. Left set (and retried next boot) if this
+      // attempt fails too, rather than blocking boot on it.
+      if (storage.getItem(PENDING_HISTORY_CLEAR_KEY) !== null) {
+        try {
+          await admin.clearHistory();
+          await admin.setPendingHistoryClear(false);
+        } catch (error) {
+          reportError(error, 'retrying a pending history clear from sign-out');
+        }
+      }
       // A failure (e.g. signal-cli has no account yet) leaves `started` false so a retry runs everything.
       await sync.start();
       await send.restoreOutbox();
@@ -374,6 +407,8 @@ function pickBackend(backends: BackendRegistry, chosen: string | null): BackendR
 }
 
 /** A storage whose writes complete asynchronously (`HydratedKeyValue`). */
-function hasPendingWrites(storage: KeyValueStorage): storage is KeyValueStorage & { flush(): Promise<void> } {
+function hasPendingWrites(
+  storage: KeyValueStorage,
+): storage is KeyValueStorage & { flush(): Promise<void> } {
   return typeof (storage as { flush?: unknown }).flush === 'function';
 }

@@ -97,6 +97,29 @@ export function mergeDuplicate(existing: Message, incoming: Message): Message {
   return merged;
 }
 
+/**
+ * Merge for `MessageRepository.commitOutgoing`: `final` is our own send's
+ * authoritative result — its reserved seq (so the message keeps the spot the
+ * optimistic row held, however long the round trip took), its nonce, and
+ * attachment preview fields already reconciled by `withLocalUrls`. If a
+ * sync-transcript echo of our own send created the row first, plain
+ * `mergeDuplicate` would let *that* row's independently-allocated seq and
+ * attachments win instead, moving the message in the timeline and dropping
+ * the local preview. Everything else a duplicate delivery should still keep
+ * — edits, reactions, deletion, pinning, and the max of both statuses —
+ * still comes from `mergeDuplicate`, unchanged for every other caller.
+ */
+export function mergeOutgoingCommit(existing: Message, final: Message): Message {
+  const merged = mergeDuplicate(existing, final);
+  const { nonce: _nonce, ...rest } = merged;
+  return {
+    ...rest,
+    attachments: final.attachments,
+    ...(final.nonce === undefined ? {} : { nonce: final.nonce }),
+    ...(final.seq === undefined ? {} : { seq: final.seq }),
+  };
+}
+
 /** Summarises reactions into pills: emoji → authors, in first-seen order. */
 export function summarizeReactions(
   reactions: readonly Reaction[],

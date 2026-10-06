@@ -76,11 +76,14 @@ export function isPendingMessageId(id: MessageId): boolean {
 /**
  * Splits a message id at the *last* colon: author ids never contain one
  * (ACIs are UUIDs, numbers are E.164) but being defensive costs nothing.
+ * A system message id (`${authorId}:${sentAt}:sys:${kind}`) has its suffix
+ * stripped first, so it still parses back to the envelope's (authorId, sentAt).
  */
 export function parseMessageId(id: MessageId): { authorId: string; sentAt: number } | null {
-  const at = id.lastIndexOf(':');
+  const withoutSysSuffix = id.replace(/:sys:[^:]*$/u, '');
+  const at = withoutSysSuffix.lastIndexOf(':');
   if (at <= 0) return null;
-  const sentAt = Number(id.slice(at + 1));
+  const sentAt = Number(withoutSysSuffix.slice(at + 1));
   if (!Number.isSafeInteger(sentAt)) return null;
-  return { authorId: id.slice(0, at), sentAt };
+  return { authorId: withoutSysSuffix.slice(0, at), sentAt };
 }

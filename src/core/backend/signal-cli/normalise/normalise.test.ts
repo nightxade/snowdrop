@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { directConversationId, groupConversationId, messageId, systemMessageId } from '@/core/domain';
+import {
+  directConversationId,
+  groupConversationId,
+  messageId,
+  systemMessageId,
+} from '@/core/domain';
+import { createMemoryStorage } from '@/core/persistence';
 import {
   ALICE,
+  ALICE_NUMBER,
   BOB,
   dataMessage,
   fixtures,
@@ -11,6 +18,7 @@ import {
   SELF_NUMBER,
   T0,
 } from '../fixtures/envelopes';
+import { DirectPeers } from '../peers';
 import { describeGroupChange } from './directory';
 import { normaliseReceive } from './envelope';
 import type { AdapterEvent, NormaliseContext } from './types';
@@ -24,6 +32,7 @@ function ctx(overrides: Partial<NormaliseContext> = {}) {
   const context: NormaliseContext = {
     selfId: SELF_ACI,
     selfAliases: new Set([SELF_ACI, SELF_NUMBER]),
+    resolvePeer: (id) => id,
     now: NOW,
     nameOf: (id) => ({ [ALICE]: 'Alice', [BOB]: 'Bob' })[id],
     debug: (message) => debug.push(message),
@@ -409,6 +418,45 @@ describe('normaliseReceive: review fixes', () => {
     });
     const { payload } = only(run(replay).events, 'message');
     expect(payload.expiresAt).toBe(T0 - 3_600_000);
+  });
+
+  it('(regression) does not fork a DM when a peer is later addressed by their other identifier', () => {
+    const peers = new DirectPeers(createMemoryStorage(), 'self');
+    const resolvePeer = (id: string) => peers.resolve(id);
+
+    // First message: Alice is addressed by number only (an older-style
+    // wrapper, or simply what the daemon reported first).
+    const byNumber = {
+      account: SELF_NUMBER,
+      envelope: {
+        sourceNumber: ALICE_NUMBER,
+        timestamp: T0,
+        serverReceivedTimestamp: T0 + 1,
+        dataMessage: dataMessage({ message: 'hi, by number' }),
+      },
+    };
+    const first = only(run(byNumber, { resolvePeer }).events, 'message');
+    expect(first.payload.conversationId).toBe(directConversationId(ALICE_NUMBER));
+    peers.touch(ALICE_NUMBER, T0);
+
+    // The daemon (or a contact listing) later reveals Alice's ACI alongside
+    // her number — e.g. the envelope above's `account` learning, or a sync.
+    peers.learnPair(ALICE, ALICE_NUMBER);
+
+    // A later message addresses her by ACI only: without resolution this
+    // would land in a brand-new `dm:<aci>` conversation.
+    const byAci = {
+      account: SELF_NUMBER,
+      envelope: {
+        sourceUuid: ALICE,
+        timestamp: T0 + 10,
+        serverReceivedTimestamp: T0 + 11,
+        dataMessage: dataMessage({ timestamp: T0 + 10, message: 'hi, by aci' }),
+      },
+    };
+    const second = only(run(byAci, { resolvePeer }).events, 'message');
+    expect(second.payload.conversationId).toBe(directConversationId(ALICE_NUMBER));
+    expect(second.payload.authorId).toBe(ALICE_NUMBER);
   });
 });
 

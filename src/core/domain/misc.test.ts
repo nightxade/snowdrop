@@ -10,6 +10,7 @@ import {
   parseMessageId,
   pendingMessageId,
   isPendingMessageId,
+  systemMessageId,
 } from './ids';
 import { attachMentions, mentionsContact } from './mentions';
 import {
@@ -18,6 +19,7 @@ import {
   applyEdit,
   applyReaction,
   mergeDuplicate,
+  mergeOutgoingCommit,
   summarizeReactions,
 } from './messageOps';
 import { makeMessage } from './testing';
@@ -44,6 +46,12 @@ describe('ids', () => {
     expect(parseMessageId(id)).toEqual({ authorId: 'aci-1', sentAt: 1700000000000 });
     expect(isPendingMessageId(pendingMessageId('n'))).toBe(true);
     expect(isPendingMessageId(id)).toBe(false);
+  });
+
+  it('(regression) round-trips a system message id through parseMessageId', () => {
+    const sys = systemMessageId('aci-1', 1700000000000, 'timer');
+    expect(sys).toBe('aci-1:1700000000000:sys:timer');
+    expect(parseMessageId(sys)).toEqual({ authorId: 'aci-1', sentAt: 1700000000000 });
   });
 });
 
@@ -222,6 +230,40 @@ describe('messageOps', () => {
     });
     const newer = makeMessage({ body: 'newer', editedAt: 60, edits: 2 });
     expect(mergeDuplicate(stored, newer)).toMatchObject({ body: 'newer', edits: 2, seq: 7 });
+  });
+
+  it('(regression) commitOutgoing merge keeps our seq, nonce and attachment preview over a sync echo', () => {
+    // A sync-transcript echo of our own send landed first and created the row
+    // under the final (author:sentAt) id, with its own independently
+    // allocated seq and no nonce (backend events never carry one) or local
+    // preview url.
+    const echo = makeMessage({
+      authorId: 'me',
+      sentAt: 100,
+      seq: 42,
+      status: 'read',
+      reactions: [r('👍', 'friend')],
+      attachments: [{ id: 'att-1', contentType: 'image/png' }],
+    });
+    // Our own send's result: the seq reserved when it was optimistically
+    // shown, its nonce, and the attachment's local preview url.
+    const final = makeMessage({
+      authorId: 'me',
+      sentAt: 100,
+      seq: 7,
+      status: 'sent',
+      nonce: 'nonce-1',
+      attachments: [{ id: 'att-1', contentType: 'image/png', url: 'blob:preview' }],
+    });
+    expect(mergeOutgoingCommit(echo, final)).toMatchObject({
+      seq: 7,
+      nonce: 'nonce-1',
+      attachments: [{ id: 'att-1', contentType: 'image/png', url: 'blob:preview' }],
+      // Still keeps what a duplicate delivery should: the max status and
+      // whatever already landed on the stored row (reactions, here).
+      status: 'read',
+      reactions: [r('👍', 'friend')],
+    });
   });
 
   it('summarises reactions by emoji', () => {

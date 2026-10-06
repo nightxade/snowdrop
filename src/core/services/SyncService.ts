@@ -32,6 +32,7 @@ import {
 import { Emitter, type Cancel, type Clock, type Scheduler, type Unsubscribe } from '@/core/lib';
 import type { MessageRepository } from '@/core/persistence';
 import { computeUnread, uiSelectors, type Stores } from '@/core/stores';
+import { PendingOpsBuffer } from './PendingOpsBuffer';
 import { ReceiptBuffer } from './ReceiptBuffer';
 import { consoleReporter, type ErrorReporter } from './types';
 
@@ -43,6 +44,8 @@ export interface SyncServiceDeps {
   scheduler: Scheduler;
   /** Shared with SendService so early receipts reach reconciled sends. */
   receipts?: ReceiptBuffer;
+  /** Shared with SendService so ops that beat their target message aren't lost. */
+  pendingOps?: PendingOpsBuffer;
   onError?: ErrorReporter;
   /** Newest messages copied from backend history per conversation on first sync. */
   seedPageSize?: number;
@@ -73,6 +76,7 @@ const PURGED_TOMBSTONES = 2_000;
 export class SyncService {
   private readonly events = new Emitter<SyncEvents>();
   private readonly receipts: ReceiptBuffer;
+  private readonly pendingOps: PendingOpsBuffer;
   private readonly onError: ErrorReporter;
   private unsubscribers: Unsubscribe[] = [];
   private queue: Promise<void> = Promise.resolve();
@@ -93,6 +97,7 @@ export class SyncService {
 
   constructor(private readonly deps: SyncServiceDeps) {
     this.receipts = deps.receipts ?? new ReceiptBuffer();
+    this.pendingOps = deps.pendingOps ?? new PendingOpsBuffer();
     this.onError = deps.onError ?? consoleReporter;
   }
 
@@ -392,7 +397,12 @@ export class SyncService {
       this.rememberPurged(incoming.id);
       return;
     }
-    const { message, created } = await repository.upsert(incoming, mergeDuplicate);
+    // A delete/reaction/edit/pin that beat this message (out of order, or a
+    // race with our own send) is replayed before the message is ever stored
+    // or emitted, so it never has a window to show up "undone".
+    const queued = this.pendingOps.take(incoming.id, this.deps.clock.now());
+    const toStore = queued.reduce((m, op) => op(m), incoming);
+    const { message, created } = await repository.upsert(toStore, mergeDuplicate);
     const id = message.conversationId;
     stores.messages.getState().appendLive(message);
     stores.conversations.getState().bumpActivity(id, message.receivedAt);
@@ -459,7 +469,15 @@ export class SyncService {
     id: MessageId,
     fn: (m: Message) => Message,
   ): Promise<void> {
-    await this.deps.repository.update(id, fn);
+    const updated = await this.deps.repository.update(id, fn);
+    if (!updated) {
+      // The target isn't stored yet (out of order, or a race with our own
+      // send before commitOutgoing): park it instead of dropping it, unless
+      // it's a disappearing message we already purged — that tombstone must
+      // not be undone by a late op.
+      if (!this.purged.has(id)) this.pendingOps.hold(id, fn, this.deps.clock.now());
+      return;
+    }
     this.deps.stores.messages.getState().update(conversationId, id, fn);
     // Keep the sidebar preview in step with edits/deletions of the newest message.
     const conversations = this.deps.stores.conversations.getState();
@@ -473,7 +491,12 @@ export class SyncService {
     deletedBy?: string,
   ): Promise<void> {
     const before = await this.deps.repository.get(id);
-    if (!before) return;
+    if (!before) {
+      if (!this.purged.has(id)) {
+        this.pendingOps.hold(id, (m) => applyDelete(m, deletedBy), this.deps.clock.now());
+      }
+      return;
+    }
     await this.updateMessage(conversationId, id, (m) => applyDelete(m, deletedBy));
     const selfId = this.selfId();
     if (selfId) this.deps.stores.conversations.getState().applyRemoval(before, selfId);

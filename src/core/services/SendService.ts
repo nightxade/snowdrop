@@ -20,7 +20,7 @@ import {
   applyReaction,
   attachMentions,
   isPendingMessageId,
-  mergeDuplicate,
+  mergeOutgoingCommit,
   messageId,
   parseMarkdownToRanges,
   pendingMessageId,
@@ -33,6 +33,7 @@ import { createNonce, type Clock } from '@/core/lib';
 import type { MessageRepository } from '@/core/persistence';
 import type { Stores } from '@/core/stores';
 import { localAttachment, withLocalUrls } from './localAttachments';
+import { PendingOpsBuffer } from './PendingOpsBuffer';
 import { ReceiptBuffer } from './ReceiptBuffer';
 import {
   consoleReporter,
@@ -45,6 +46,9 @@ import {
 /** Signal clients resend "typing" about every 10 s; more often is noise. */
 export const TYPING_REFRESH_MS = 10_000;
 
+/** Shown instead of an opaque "send failed" when an outbox entry's attachment bytes are gone. */
+export const ATTACHMENTS_LOST_ERROR = 'attachment lost — re-attach to retry';
+
 export interface SendServiceDeps {
   backend: ChatBackend;
   repository: MessageRepository;
@@ -53,6 +57,8 @@ export interface SendServiceDeps {
   pipeline?: DraftPipeline;
   /** Shared with SyncService so receipts that beat our send's ack aren't lost. */
   receipts?: ReceiptBuffer;
+  /** Shared with SyncService so ops that beat our send's ack aren't lost. */
+  pendingOps?: PendingOpsBuffer;
   newNonce?: () => string;
   onError?: ErrorReporter;
 }
@@ -81,12 +87,14 @@ export class SendService {
   private readonly typingSentAt = new Map<ConversationId, number>();
   private readonly pipeline: DraftPipeline;
   private readonly receipts: ReceiptBuffer;
+  private readonly pendingOps: PendingOpsBuffer;
   private readonly newNonce: () => string;
   private readonly onError: ErrorReporter;
 
   constructor(private readonly deps: SendServiceDeps) {
     this.pipeline = deps.pipeline ?? PASSTHROUGH_PIPELINE;
     this.receipts = deps.receipts ?? new ReceiptBuffer();
+    this.pendingOps = deps.pendingOps ?? new PendingOpsBuffer();
     this.newNonce = deps.newNonce ?? (() => createNonce('msg'));
     this.onError = deps.onError ?? consoleReporter;
   }
@@ -196,7 +204,12 @@ export class SendService {
         inFlight: false,
         queue: [],
       });
-      const markFailed = (m: Message): Message => ({ ...m, status: 'failed' });
+      const failureReason = entry.attachmentsLost ? ATTACHMENTS_LOST_ERROR : undefined;
+      const markFailed = (m: Message): Message => ({
+        ...m,
+        status: 'failed',
+        ...(failureReason ? { failureReason } : {}),
+      });
       const existing = await repository.update(id, markFailed);
       if (existing) {
         stores.messages.getState().update(conversationId, id, markFailed);
@@ -225,6 +238,7 @@ export class SendService {
         kind: 'normal',
         nonce: entry.nonce,
         ...(entry.input.quote ? { quote: entry.input.quote } : {}),
+        ...(failureReason ? { failureReason } : {}),
       };
       await repository.stageOutgoing(row, entry);
       stores.messages.getState().appendLive(row);
@@ -308,7 +322,9 @@ export class SendService {
     };
 
     // Merge (not overwrite): a sync echo or receipts may have landed already.
-    let { message: stored } = await repository.commitOutgoing(nonce, final, mergeDuplicate);
+    // mergeOutgoingCommit (not plain mergeDuplicate) keeps *our* seq, nonce and
+    // attachment preview even if a sync-transcript echo created the row first.
+    let { message: stored } = await repository.commitOutgoing(nonce, final, mergeOutgoingCommit);
     this.outgoing.delete(nonce);
     // A receipt handled while we were committing found no row and was parked; claim it now.
     const late = this.receipts.take(result.sentAt, clock.now());
@@ -318,6 +334,15 @@ export class SendService {
           ...m,
           status: advanceStatus(m.status, late),
         }))) ?? stored;
+    }
+    // A delete/reaction/edit/pin that targeted this message before the send
+    // was acknowledged (it only has an id to target once the backend echoes
+    // or the peer reacts) was parked by SyncService; claim it now.
+    const queuedOps = this.pendingOps.take(stored.id, clock.now());
+    if (queuedOps.length > 0) {
+      stored =
+        (await repository.update(stored.id, (m) => queuedOps.reduce((x, op) => op(x), m))) ??
+        stored;
     }
     // Re-read right before showing it: receipts applied to the stored row after
     // the commit never reached the store (it still held the pending row).
