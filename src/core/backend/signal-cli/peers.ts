@@ -38,7 +38,7 @@ export class DirectPeers {
     this.load();
   }
 
-  /** peerId → last activity (epoch ms), canonical ids only. */
+  /** peerId → last activity (epoch ms). A pre-alias fork keeps both ids (see learnPair). */
   entries(): [string, number][] {
     return [...this.peers.entries()];
   }
@@ -57,25 +57,28 @@ export class DirectPeers {
    * contact listing, a sync transcript). Picks whichever form already has
    * activity recorded as canonical — so no message needs to move — and
    * otherwise prefers the ACI, same as `addressId`.
+   *
+   * If both forms already have activity (a DM that forked before aliases
+   * were tracked), new traffic goes to the more recently active one, and the
+   * other keeps its own entry: its messages are stored under its own
+   * conversation id, so dropping the entry would hide that history.
    */
   learnPair(uuid: string | undefined, number: string | undefined): void {
     if (!uuid || !number || uuid === number) return;
     const existing = this.aliases.get(uuid) ?? this.aliases.get(number);
-    const canonical = existing ?? (this.peers.has(number) && !this.peers.has(uuid) ? number : uuid);
+    const canonical = existing ?? this.pickCanonical(uuid, number);
     if (this.aliases.get(uuid) === canonical && this.aliases.get(number) === canonical) return;
     this.aliases.set(uuid, canonical);
     this.aliases.set(number, canonical);
-    // The non-canonical alias may already hold activity (and conversation)
-    // history under its own entry; fold it into the canonical one so a
-    // lookup under either form sees the same, most up-to-date conversation.
-    const other = canonical === uuid ? number : uuid;
-    const otherAt = this.peers.get(other);
-    if (otherAt !== undefined) {
-      this.peers.delete(other);
-      const at = Math.max(otherAt, this.peers.get(canonical) ?? -Infinity);
-      this.peers.set(canonical, at);
-    }
     this.save();
+  }
+
+  private pickCanonical(uuid: string, number: string): string {
+    const uuidAt = this.peers.get(uuid);
+    const numberAt = this.peers.get(number);
+    if (numberAt === undefined) return uuid;
+    if (uuidAt === undefined) return number;
+    return numberAt > uuidAt ? number : uuid;
   }
 
   /** Records activity; returns true when the peer is new. */

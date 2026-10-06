@@ -79,7 +79,12 @@ export function ConnectionPage() {
     void (async () => {
       // Clear before reloading: never let the next account's first paint
       // show messages that belonged to the previous one.
-      if (signalCliTargetChanged) await app.admin.clearHistory();
+      // Disconnect first so a straggler event from the old account can't be
+      // written after the clear.
+      if (signalCliTargetChanged) {
+        await app.admin.disconnect();
+        await app.admin.clearHistory();
+      }
       await app.admin.reload();
     })();
   };

@@ -303,6 +303,33 @@ describe('SignalCliBackend: directory', () => {
     await backend.disconnect();
   });
 
+  it('(regression) folds group member and admin ids to the form DM history uses', async () => {
+    const s = setup();
+    // Alice's DM history lives under her number (from before her ACI was known).
+    s.storage.setItem(
+      `snowdrop.signal-cli.peers.${SELF_ACI}`,
+      JSON.stringify({ peers: { [ALICE_NUMBER]: T0 }, aliases: {} }),
+    );
+    s.groups[0] = group({
+      members: [
+        { number: SELF_NUMBER, uuid: SELF_ACI, isAdmin: true },
+        { number: ALICE_NUMBER, uuid: ALICE, isAdmin: true },
+      ],
+      admins: [
+        { number: SELF_NUMBER, uuid: SELF_ACI },
+        { number: ALICE_NUMBER, uuid: ALICE },
+      ],
+    });
+    await s.backend.connect();
+    await flush();
+    await s.backend.listContacts();
+
+    const [conv] = await s.backend.listConversations();
+    expect(conv?.memberIds).toEqual([SELF_ACI, ALICE_NUMBER]);
+    expect(conv?.adminIds).toEqual([SELF_ACI, ALICE_NUMBER]);
+    await s.backend.disconnect();
+  });
+
   it('diffs group updates into conversationUpdated + a system line', async () => {
     const { backend, groups } = await connected();
     groups[0] = group({

@@ -311,6 +311,7 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     },
     exportHistory: (onProgress) => exportHistory(repository, stores, new Date(), onProgress),
     clearHistory: () => repository.clear(),
+    disconnect: () => sync.stop(),
     setPendingHistoryClear: async (pending) => {
       if (pending) storage.setItem(PENDING_HISTORY_CLEAR_KEY, '1');
       else storage.removeItem(PENDING_HISTORY_CLEAR_KEY);

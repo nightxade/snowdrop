@@ -64,7 +64,7 @@ export class SignOutRestartFailed extends Error {
 }
 
 type DesktopSignOutApp = Pick<AppServices, 'stores' | 'storageAdmin'> & {
-  admin: Pick<AppAdmin, 'clearHistory' | 'persist' | 'setPendingHistoryClear'>;
+  admin: Pick<AppAdmin, 'clearHistory' | 'disconnect' | 'persist' | 'setPendingHistoryClear'>;
 };
 
 /**
@@ -96,6 +96,8 @@ export async function signOutDesktop(app: DesktopSignOutApp): Promise<void> {
   await app.admin.persist();
   await storageAdmin.signOut();
   try {
+    // Stop syncing first so nothing from the old account lands after the clear.
+    await app.admin.disconnect();
     await app.admin.clearHistory();
   } catch (error) {
     console.error(

@@ -30,6 +30,12 @@ export interface AppAdmin {
   /** Deletes all stored messages and outbox entries (settings are kept). */
   clearHistory(): Promise<void>;
   /**
+   * Stops syncing and disconnects the backend, so nothing from the current
+   * account can land in storage after a following `clearHistory()`. Only
+   * for flows that reload or restart right after (account switch, sign-out).
+   */
+  disconnect(): Promise<void>;
+  /**
    * Marks (or clears) a flag the next boot honours by clearing history
    * before starting. Set when `clearHistory()` fails partway through
    * sign-out (the vault is already signed out and the next boot unlocks

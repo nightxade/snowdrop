@@ -71,6 +71,10 @@ describe('signOutDesktop', () => {
       order.push('clearHistory');
       return Promise.resolve();
     });
+    const disconnect = vi.fn(() => {
+      order.push('disconnect');
+      return Promise.resolve();
+    });
     const persist = vi.fn(() => {
       order.push('persist');
       return Promise.resolve();
@@ -87,12 +91,19 @@ describe('signOutDesktop', () => {
 
     await signOutDesktop({
       stores: { settings: store } as never,
-      admin: { clearHistory, persist, setPendingHistoryClear },
+      admin: { clearHistory, disconnect, persist, setPendingHistoryClear },
       storageAdmin: { signOut, restart } as never,
     });
 
     expect(update).toHaveBeenCalledWith('connection', { backend: null, account: null });
-    expect(order).toEqual(['update', 'persist', 'signOut', 'clearHistory', 'restart']);
+    expect(order).toEqual([
+      'update',
+      'persist',
+      'signOut',
+      'disconnect',
+      'clearHistory',
+      'restart',
+    ]);
     // The happy path never needed the fallback flag.
     expect(setPendingHistoryClear).not.toHaveBeenCalled();
   });
@@ -105,6 +116,7 @@ describe('signOutDesktop', () => {
       return Promise.reject(new Error('IDB is busy'));
     });
     const persist = vi.fn(() => Promise.resolve());
+    const disconnect = vi.fn(() => Promise.resolve());
     const setPendingHistoryClear = vi.fn((pending: boolean) => {
       order.push(`setPendingHistoryClear(${pending})`);
       return Promise.resolve();
@@ -120,7 +132,7 @@ describe('signOutDesktop', () => {
 
     await signOutDesktop({
       stores: { settings: store } as never,
-      admin: { clearHistory, persist, setPendingHistoryClear },
+      admin: { clearHistory, disconnect, persist, setPendingHistoryClear },
       storageAdmin: { signOut, restart } as never,
     });
 
@@ -133,7 +145,12 @@ describe('signOutDesktop', () => {
     await expect(
       signOutDesktop({
         stores: { settings: store } as never,
-        admin: { clearHistory: vi.fn(), persist: vi.fn(), setPendingHistoryClear: vi.fn() },
+        admin: {
+          clearHistory: vi.fn(),
+          disconnect: vi.fn(() => Promise.resolve()),
+          persist: vi.fn(),
+          setPendingHistoryClear: vi.fn(),
+        },
         storageAdmin: null,
       }),
     ).rejects.toThrow();

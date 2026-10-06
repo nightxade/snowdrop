@@ -14,7 +14,7 @@ import type { SelfIdentity } from './identity';
 import { toContact, toGroupConversation } from './normalise/directory';
 import type { DirectPeers } from './peers';
 import type { JsonRpcClient } from './rpc';
-import { wireContacts, wireGroups } from './wire';
+import { wireContacts, wireGroups, type WireGroup } from './wire';
 
 /** Cached directory data is reused this long before a call re-lists it. */
 export const DIRECTORY_TTL_MS = 10 * 60_000;
@@ -134,12 +134,33 @@ export class Directory {
     return this.allGroups();
   }
 
+  /**
+   * Self-aliases first, then fold a peer to whichever form DirectPeers has
+   * history under — the same precedence as the normaliser, so group member
+   * and admin ids match message authors and the contacts store.
+   */
+  private resolveMember(groups: readonly WireGroup[]): (id: string) => string {
+    const identity = this.deps.identity();
+    const peers = this.deps.peers();
+    // Members carry both identifiers: learn the pairs first, since groups can
+    // load before the contact listing that would otherwise teach them.
+    for (const g of groups) {
+      for (const m of [...g.members, ...g.admins]) {
+        identity.learnPair(m.uuid ?? undefined, m.number ?? undefined);
+        peers?.learnPair(m.uuid ?? undefined, m.number ?? undefined);
+      }
+    }
+    return (id) => {
+      const self = identity.resolve(id);
+      return self === id ? (peers?.resolve(id) ?? id) : self;
+    };
+  }
+
   /** Lists one group now (after a group update). */
   async fetchGroup(groupId: string): Promise<Conversation | null> {
-    const identity = this.deps.identity();
     const [raw] = await this.deps.rpc.call('listGroups', { groupId: [groupId] }, wireGroups);
     if (!raw?.isMember) return null;
-    const conv = toGroupConversation(raw, (id) => identity.resolve(id), 0);
+    const conv = toGroupConversation(raw, this.resolveMember([raw]), 0);
     this.groups.set(conv.id, conv);
     return conv;
   }
@@ -193,11 +214,11 @@ export class Directory {
     const epoch = this.epoch;
     const raw = await this.deps.rpc.call('listGroups', undefined, wireGroups);
     if (epoch !== this.epoch) return;
-    const identity = this.deps.identity();
+    const resolve = this.resolveMember(raw);
     this.groups.clear();
     for (const g of raw) {
       if (!g.isMember) continue;
-      const conv = toGroupConversation(g, (id) => identity.resolve(id), 0);
+      const conv = toGroupConversation(g, resolve, 0);
       this.groups.set(conv.id, conv);
     }
     this.groupsLoadedAt = this.deps.now();
