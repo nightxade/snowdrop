@@ -46,7 +46,7 @@ const spaces = (assigned: Record<string, string[]> = {}): SpacesData => ({
     ]),
   ),
   rail: Object.keys(assigned).map((spaceId) => ({ type: 'space' as const, id: spaceId })),
-  homeCollapsed: { pinned: false, conversations: false, direct: false, groups: false },
+  homeCollapsed: { conversations: false, direct: false, groups: false },
   seeded: true,
 });
 
@@ -63,38 +63,35 @@ describe('buildHomeSections', () => {
 
   const split = { splitByType: true };
 
-  it('by default lists DMs and groups together after pinned, in recency order', () => {
+  it('by default lists DMs and groups together, pinned first, each by recency', () => {
     const sections = buildHomeSections(views, spaces());
-    expect(sections.map((s) => [s.id, s.title, s.ids])).toEqual([
-      ['pinned', 'Pinned', [id('d2'), id('g3')]],
-      ['conversations', 'Conversations', [id('d1'), id('g1'), id('g2')]],
+    expect(sections.map((s) => [s.id, s.title, s.ids, s.pinnedCount])).toEqual([
+      ['conversations', 'Conversations', [id('d2'), id('g3'), id('d1'), id('g1'), id('g2')], 2],
     ]);
   });
 
-  it('splits pinned, DMs and groups, keeping recency order and skipping archived', () => {
+  it('splits DMs and groups, each pinned first, keeping recency order and skipping archived', () => {
     const sections = buildHomeSections(views, spaces(), split);
-    expect(sections.map((s) => [s.id, s.ids])).toEqual([
-      ['pinned', [id('d2'), id('g3')]],
-      ['direct', [id('d1')]],
-      ['groups', [id('g1'), id('g2')]],
+    expect(sections.map((s) => [s.id, s.ids, s.pinnedCount])).toEqual([
+      ['direct', [id('d2'), id('d1')], 1],
+      ['groups', [id('g3'), id('g1'), id('g2')], 1],
     ]);
   });
 
   it('hides groups that live in a space but keeps DMs in Home', () => {
     const sections = buildHomeSections(views, spaces({ work: ['g1', 'd1', 'g3'] }), split);
     expect(sections.find((s) => s.id === 'groups')?.ids).toEqual([id('g2')]);
-    expect(sections.find((s) => s.id === 'direct')?.ids).toEqual([id('d1')]);
-    expect(sections.find((s) => s.id === 'pinned')?.ids).toEqual([id('d2')]);
+    expect(sections.find((s) => s.id === 'direct')?.ids).toEqual([id('d2'), id('d1')]);
   });
 
   it('omits empty sections and carries the persisted collapse state', () => {
     const data = {
       ...spaces(),
-      homeCollapsed: { pinned: false, conversations: false, direct: true, groups: false },
+      homeCollapsed: { conversations: false, direct: true, groups: false },
     };
     const sections = buildHomeSections([view('d1')], data, split);
     expect(sections).toEqual([
-      { id: 'direct', title: 'Direct Messages', collapsed: true, ids: [id('d1')] },
+      { id: 'direct', title: 'Direct Messages', collapsed: true, ids: [id('d1')], pinnedCount: 0 },
     ]);
   });
 });
@@ -118,6 +115,18 @@ describe('visibility and navigation order', () => {
   it('shows the open and unread rows of a collapsed section only', () => {
     expect(visibleIds(sections[1]!, null, unread)).toEqual([id('g2')]);
     expect(visibleIds(sections[1]!, id('g3'), unread)).toEqual([id('g2'), id('g3')]);
+  });
+
+  it('also shows the pinned rows of a collapsed section, even unselected and read', () => {
+    const withPinned: SidebarSection = {
+      id: 'b',
+      title: 'B',
+      collapsed: true,
+      ids: [id('g1'), id('g2'), id('g3')],
+      pinnedCount: 1,
+    };
+    expect(visibleIds(withPinned, null, {})).toEqual([id('g1')]);
+    expect(visibleIds(withPinned, id('g3'), {})).toEqual([id('g1'), id('g3')]);
   });
 
   it('walks exactly the rendered rows and clamps at the ends', () => {

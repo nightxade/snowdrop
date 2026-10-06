@@ -82,8 +82,22 @@
   min-width: 0;
 }
 
+.titleRow {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: var(--snowdrop-space-1);
+}
+
+.pinIcon {
+  flex: none;
+  color: var(--snowdrop-text-faint);
+}
+
 .title {
   overflow: hidden;
+  flex: 1;
+  min-width: 0;
   font-size: var(--snowdrop-font-size-ui);
   font-weight: var(--snowdrop-font-weight-medium);
   line-height: 1.3;

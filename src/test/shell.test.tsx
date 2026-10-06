@@ -122,12 +122,13 @@ describe('conversation menu', () => {
   it('opens from the keyboard and applies pin, mute and archive', async () => {
     const snowdrop = await bootDemo();
     const { local } = snowdrop.stores;
+    // Not already pinned, so the menu offers "Pin to top" rather than "Unpin".
     const row = sidebar().querySelector<HTMLElement>(
-      'section[aria-label="Conversations"] [data-conversation-id^="dm:"]',
+      'section[aria-label="Conversations"] li:not([data-pinned]) [data-conversation-id^="dm:"]',
     )!;
     const id = row.getAttribute('data-conversation-id') as ConversationId;
     const openMenu = async () => {
-      // Re-query: pinning moves the row to another section (a new element).
+      // Re-query: pinning reorders the row within the section (a new element).
       const current = sidebar().querySelector<HTMLElement>(`[data-conversation-id="${id}"]`)!;
       act(() => {
         current.focus();
@@ -141,6 +142,9 @@ describe('conversation menu', () => {
       fireEvent.click(within(menu).getByRole('menuitem', { name: /Pin to top/u }));
     });
     expect(local.getState().conversations[id]?.pinned).toBe(true);
+    // Pinning just reordered the row to the top of the same section; let that
+    // settle before reopening, or the next menu's close/focus-return races it.
+    await settle();
 
     menu = await openMenu();
     act(() => {

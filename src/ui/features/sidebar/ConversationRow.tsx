@@ -1,4 +1,4 @@
-import { BellOff, Ellipsis, Hash, AtSign, X } from 'lucide-react';
+import { BellOff, Ellipsis, Hash, AtSign, Pin, X } from 'lucide-react';
 import { memo, useState } from 'react';
 import type { ConversationId } from '@/core/domain';
 import { startConversationDrag, useSnowdrop } from '@/ui/hooks';
@@ -44,6 +44,7 @@ export const ConversationRow = memo(function ConversationRow({
     view.title,
     mentions > 0 ? `${mentions} mention${mentions === 1 ? '' : 's'}` : hasUnread ? 'unread' : '',
     muted ? 'muted' : '',
+    view.pinned ? 'pinned' : '',
   ]
     .filter(Boolean)
     .join(', ');
@@ -55,6 +56,7 @@ export const ConversationRow = memo(function ConversationRow({
       data-selected={selected ? '' : undefined}
       data-unread={hasUnread ? '' : undefined}
       data-muted={muted ? '' : undefined}
+      data-pinned={view.pinned ? '' : undefined}
       data-snowdrop="conversation-row"
       data-row-id={id}
       data-dragging={dragging ? '' : undefined}
@@ -98,7 +100,10 @@ export const ConversationRow = memo(function ConversationRow({
             <Glyph className={styles.glyph} size={18} aria-hidden />
           )}
           <span className={styles.text}>
-            <span className={styles.title}>{view.title}</span>
+            <span className={styles.titleRow}>
+              {view.pinned && <Pin className={styles.pinIcon} size={12} aria-hidden />}
+              <span className={styles.title}>{view.title}</span>
+            </span>
             {variant === 'home' && secondary && (
               <span className={styles.preview} data-typing={typing ? '' : undefined}>
                 {typing && <TypingDots />}

@@ -43,7 +43,7 @@ export type RailEntry =
     };
 
 /** `conversations` is the combined list; `direct`/`groups` when Home is split by type. */
-export type HomeSection = 'pinned' | 'conversations' | 'direct' | 'groups';
+export type HomeSection = 'conversations' | 'direct' | 'groups';
 
 export interface SpacesData {
   spaces: Record<SpaceId, Space>;
@@ -110,7 +110,7 @@ export function defaultSpacesData(): SpacesData {
   return {
     spaces: {},
     rail: [],
-    homeCollapsed: { pinned: false, conversations: false, direct: false, groups: false },
+    homeCollapsed: { conversations: false, direct: false, groups: false },
     seeded: false,
   };
 }
@@ -623,12 +623,13 @@ export const spacesSchema: VersionedSchema<SpacesData> = {
     }
     // Any space missing from the rail is appended so it can't become unreachable.
     for (const id of Object.keys(spaces)) if (!onRail.has(id)) rail.push({ type: 'space', id });
+    // `home.pinned` may still be present from before Pinned was its own
+    // section; it's simply ignored now.
     const home = isRecord(data.homeCollapsed) ? data.homeCollapsed : {};
     return {
       spaces,
       rail,
       homeCollapsed: {
-        pinned: home.pinned === true,
         conversations: home.conversations === true,
         direct: home.direct === true,
         groups: home.groups === true,

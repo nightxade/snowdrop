@@ -20,10 +20,11 @@ export interface SidebarSection {
   collapsed: boolean;
   /** Everything in the section, in display order. */
   ids: ConversationId[];
+  /** How many of the leading `ids` are pinned (0 outside Home). */
+  pinnedCount?: number;
 }
 
 export const HOME_SECTION_TITLES: Record<HomeSection, string> = {
-  pinned: 'Pinned',
   conversations: 'Conversations',
   direct: 'Direct Messages',
   groups: 'Groups',
@@ -35,21 +36,24 @@ export interface HomeLayout {
 }
 
 /**
- * Home: every DM plus groups not placed in a space; pinned ones float into
- * their own section. The rest is one list by default, or split into DMs and
- * groups. `views` arrive sorted by last activity (selectors do that), so each
- * section inherits the order. Archived conversations are excluded here and
- * listed separately.
+ * Home: every DM plus groups not placed in a space. Each section lists its
+ * pinned conversations first (in recency order among themselves), then the
+ * rest (also by recency). The rest is one list by default, or split into
+ * DMs and groups. `views` arrive sorted by last activity (selectors do
+ * that), so each bucket inherits the order. Archived conversations are
+ * excluded here and listed separately.
  */
 export function buildHomeSections(
   views: readonly ConversationView[],
   spaces: Pick<SpacesData, 'spaces' | 'homeCollapsed'>,
   layout: HomeLayout = { splitByType: false },
 ): SidebarSection[] {
-  const pinned: ConversationId[] = [];
-  const all: ConversationId[] = [];
-  const direct: ConversationId[] = [];
-  const groups: ConversationId[] = [];
+  const allPinned: ConversationId[] = [];
+  const allRest: ConversationId[] = [];
+  const directPinned: ConversationId[] = [];
+  const directRest: ConversationId[] = [];
+  const groupsPinned: ConversationId[] = [];
+  const groupsRest: ConversationId[] = [];
   const assigned = new Set<string>();
   for (const space of Object.values(spaces.spaces))
     for (const category of space.categories)
@@ -57,21 +61,25 @@ export function buildHomeSections(
   const inHome = (v: ConversationView) => v.kind === 'direct' || !assigned.has(v.id);
   for (const view of views) {
     if (view.archived || !inHome(view)) continue;
-    if (view.pinned) pinned.push(view.id);
-    else if (!layout.splitByType) all.push(view.id);
-    else if (view.kind === 'direct') direct.push(view.id);
-    else groups.push(view.id);
+    if (!layout.splitByType) (view.pinned ? allPinned : allRest).push(view.id);
+    else if (view.kind === 'direct') (view.pinned ? directPinned : directRest).push(view.id);
+    else (view.pinned ? groupsPinned : groupsRest).push(view.id);
   }
-  const section = (id: HomeSection, ids: ConversationId[]): SidebarSection => ({
+  const section = (
+    id: HomeSection,
+    pinnedIds: ConversationId[],
+    restIds: ConversationId[],
+  ): SidebarSection => ({
     id,
     title: HOME_SECTION_TITLES[id],
     collapsed: spaces.homeCollapsed[id],
-    ids,
+    ids: [...pinnedIds, ...restIds],
+    pinnedCount: pinnedIds.length,
   });
-  const rest = layout.splitByType
-    ? [section('direct', direct), section('groups', groups)]
-    : [section('conversations', all)];
-  return [section('pinned', pinned), ...rest].filter((s) => s.ids.length > 0);
+  const sections = layout.splitByType
+    ? [section('direct', directPinned, directRest), section('groups', groupsPinned, groupsRest)]
+    : [section('conversations', allPinned, allRest)];
+  return sections.filter((s) => s.ids.length > 0);
 }
 
 export function archivedIds(views: readonly ConversationView[]): ConversationId[] {
@@ -98,9 +106,9 @@ export function buildSpaceSections(
 }
 
 /**
- * Rows actually rendered for a section. A collapsed section still shows the
- * open conversation and anything unread, so collapsing never hides where you
- * are or what needs attention.
+ * Rows actually rendered for a section. A collapsed section still shows its
+ * pinned rows, the open conversation, and anything unread, so collapsing
+ * never hides what's pinned, where you are, or what needs attention.
  */
 export function visibleIds(
   section: SidebarSection,
@@ -108,7 +116,10 @@ export function visibleIds(
   unread: Readonly<Record<string, UnreadState | undefined>>,
 ): ConversationId[] {
   if (!section.collapsed) return section.ids;
-  return section.ids.filter((id) => id === selected || (unread[id]?.count ?? 0) > 0);
+  const pinnedCount = section.pinnedCount ?? 0;
+  return section.ids.filter(
+    (id, i) => i < pinnedCount || id === selected || (unread[id]?.count ?? 0) > 0,
+  );
 }
 
 /** The flat, rendered order of rows (what Alt+↑/↓ walks). */
