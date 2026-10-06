@@ -34,6 +34,9 @@
     "allow-storage-sign-out",
     "allow-app-restart",
     "allow-app-close-ready",
-    "allow-frontend-log"
+    "allow-frontend-log",
+    "allow-log-set-verbose",
+    "allow-log-recent",
+    "allow-log-open-folder"
   ]
 }

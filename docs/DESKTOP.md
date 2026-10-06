@@ -327,14 +327,34 @@ unknown (replay everything currently held/available).
 
 ## Logs and troubleshooting
 
-- signal-cli's stderr is written to `<app log dir>/signal-cli.log`
-  (`src-tauri/src/logfile.rs`), capped at 2 MB with one rotation
-  (`signal-cli.log.1`). The exact path is shown on the About page and from
-  `desktop_info`.
+- Everything Snowdrop logs — its own Rust code (`log::warn!`/`info!`/…),
+  the frontend (`frontend_log`, target `ui:<scope>`) and signal-cli's
+  stderr (target `signal-cli`) — goes through one app-wide logger
+  (`src-tauri/src/applog.rs`) to a single file, `<app log dir>/snowdrop.log`
+  (`src-tauri/src/logfile.rs`), capped at 1 MB with one rotation
+  (`snowdrop.log.1`). The exact path is shown on the About page and from
+  `desktop_info`, and a "Open log folder" action (`log_open_folder`) opens
+  it directly.
+  - **Redaction guarantee.** Every message is scrubbed
+    (`src-tauri/src/redact.rs`) before it's written anywhere, stderr
+    included: phone numbers, UUIDs/ACIs, `sgnl://` link URIs and long
+    base64 runs (group ids, keys) are replaced with placeholders, control
+    characters and embedded newlines are stripped, and each line is capped
+    at 2000 characters. Message bodies, contact names and raw JSON-RPC
+    payloads are never logged in the first place (lengths and types
+    instead) — redaction is a second line of defence, not the only one.
+  - **Level.** Default is Warn. `SNOWDROP_LOG=error|warn|info|debug|trace`
+    overrides that at startup; a runtime "verbose logging" toggle
+    (`log_set_verbose`) raises the floor to Debug without restarting
+    (noisy dependencies — tao, wry, zbus, hyper, reqwest, … — stay at Warn
+    either way). `log_recent` returns the tail of the current log (plus
+    `.1` if needed) for in-app display, capped at 256 KiB.
 - A harmless GraalVM "Fatal error: InterruptedException" dump (exit code 99)
   lands in that log whenever Snowdrop stops signal-cli (it closes stdin,
   waits 5 s, then kills) — see "Known issues" in the handoff notes; it does
-  not indicate a real crash.
+  not indicate a real crash. A JVM native crash dump's register/stack-frame
+  lines (`  |0x...`) are collapsed into one summary line rather than logged
+  one by one.
 - Settings → Connection can **locate** or **probe** a configuration
   (`signal_cli_locate` / `signal_cli_probe`) without connecting, to check
   which binary resolves, its version, and (if a matching child is already

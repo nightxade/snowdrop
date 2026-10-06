@@ -180,7 +180,7 @@ The message cache (IndexedDB) and the key-value store (localStorage) are encrypt
    - **Erase all local data:** a danger-zone button opens a modal listing exactly what's deleted (the encrypted vault, recovery key, passphrase, keyring entry, and Snowdrop's own settings, spaces and drafts) and what isn't (your Signal account — remove this computer in your phone's Signal → Settings → Linked devices). Typing `ERASE` enables the confirm button.
 5. **Erase:**
    1. Stop signal-cli, and stop this process's own buffered writes (nothing may re-create what's about to be deleted).
-   2. Delete the vault, runtime dir, `keys.json`, the keyring entry `keys.json` referenced, and a legacy plaintext `signal-cli/` dir if one is still waiting to migrate. (Any other `keyslot-*` account for this service is left alone: the `keyring` crate has no cross-backend way to enumerate them, and an orphaned one is harmless — see "Keyring slot".)
+   2. Delete the vault, runtime dir, `keys.json`, the keyring entry `keys.json` referenced, the app log (`snowdrop.log` and its `.1` rotation — redacted, but still this account's history), and a legacy plaintext `signal-cli/` dir if one is still waiting to migrate. (Any other `keyslot-*` account for this service is left alone: the `keyring` crate has no cross-backend way to enumerate them, and an orphaned one is harmless — see "Keyring slot".)
    3. Restart the app (`app_restart`): the vault bridge and the single-instance lock (`snowdrop.lock`) are one-shot per process, so only a fresh process can return to a clean `needsSetup` boot.
    4. Until that restart happens, storage latches into a terminal "erased" state, distinct from `needsSetup`: `storage_status` still reports `state: "needsSetup"` (nothing is left to resume), but now also `restartRequired: true`, and every other storage command refuses with a clear error instead of quietly behaving as if nothing had ever been set up.
 6. **Sign out** (Settings → Connection, the user panel's menu — sidebar
@@ -224,8 +224,9 @@ The message cache (IndexedDB) and the key-value store (localStorage) are encrypt
    `storage_sign_out` (`storage.rs`'s `StorageService::sign_out`) reuses
    Erase's own hooks (`add_on_erase`: stop signal-cli, then discard the
    vault session _without_ a final sync — see `VaultBridge::discard`) and
-   then deletes only the vault (manifests, blobs) and the runtime dir.
-   Unlike Erase, `keys.json` and the keyring entry are left exactly alone,
+   then deletes the vault (manifests, blobs), the runtime dir, and (like
+   Erase) the app log, `snowdrop.log` and its `.1` rotation. Unlike Erase,
+   `keys.json` and the keyring entry are left exactly alone,
    so storage stays set up: a restart finds `keys.json` right where it was
    and, with a working keyring, unlocks the same way it did before — around
    a vault with nothing in it yet. Like Erase, this latches a terminal,

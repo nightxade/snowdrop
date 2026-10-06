@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-log-open-folder"
+description = "Enables the log_open_folder command without any pre-configured scope."
+commands.allow = ["log_open_folder"]
+
+[[permission]]
+identifier = "deny-log-open-folder"
+description = "Denies the log_open_folder command without any pre-configured scope."
+commands.deny = ["log_open_folder"]

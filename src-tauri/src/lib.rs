@@ -5,6 +5,7 @@
 pub mod aead;
 #[cfg(target_os = "linux")]
 mod appimage;
+pub mod applog;
 pub mod commands;
 pub mod config;
 pub mod error;
@@ -14,6 +15,7 @@ pub mod jsonrpc;
 pub mod keyslots;
 pub mod logfile;
 pub mod process;
+pub mod redact;
 pub mod secrets;
 pub mod service;
 pub mod signal_cli_install;
@@ -100,6 +102,15 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
+            // First thing: `app_log_dir()` needs the `AppHandle`, which
+            // doesn't exist before `.setup()` runs, so this is as early as
+            // the app-wide logger can be installed. Every `log::` call
+            // before this point (none, today) would otherwise go nowhere,
+            // same as before this logger existed at all.
+            let log_file = app.path().app_log_dir().ok().map(|d| d.join("snowdrop.log"));
+            if let Some(log_file) = log_file.clone() {
+                applog::install(log_file);
+            }
             let handle = app.handle().clone();
             // signal-cli keeps Snowdrop's own data (linked account, keys) apart
             // from any signal-cli you use on the command line.
@@ -110,11 +121,9 @@ pub fn run() {
             config::secure_dir(&app_data_dir)?;
             let signal_cli_data_override = std::env::var_os("SNOWDROP_SIGNAL_CLI_DATA");
             let data_dir = signal_cli_data_override.clone().map(PathBuf::from).unwrap_or(app_data_dir.join("signal-cli"));
-            let log_file = app.path().app_log_dir().ok().map(|d| d.join("signal-cli.log"));
             let paths = Paths {
                 app_data_dir: app_data_dir.clone(),
                 data_dir: data_dir.clone(),
-                log_file: log_file.clone(),
                 bundled: config::bundled_sidecar(),
             };
             app.manage(AppPaths { data_dir, log_file: log_file.clone() });
@@ -215,6 +224,9 @@ pub fn run() {
             commands::app_restart,
             commands::app_close_ready,
             commands::frontend_log,
+            commands::log_set_verbose,
+            commands::log_recent,
+            commands::log_open_folder,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Snowdrop");

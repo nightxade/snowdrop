@@ -107,7 +107,6 @@ fn build_session(
             // (docs/ENCRYPTION.md: "Snowdrop never lets its folder exist on
             // disk in plaintext").
             data_dir: app_data_dir.join("plaintext-should-not-be-used"),
-            log_file: Some(log_file.to_path_buf()),
             bundled: None,
         },
         recorder,
@@ -160,7 +159,7 @@ fn collect_files(dir: &Path, except: &[&str], out: &mut Vec<PathBuf>) {
 fn assert_no_plaintext(app_data_dir: &Path) {
     let markers: [&[u8]; 3] = [b"\"accounts\"", b"\"version\"", b"SQLite format 3"];
     let mut files = Vec::new();
-    collect_files(app_data_dir, &["keys.json", "signal-cli.log"], &mut files);
+    collect_files(app_data_dir, &["keys.json", "snowdrop.log"], &mut files);
     assert!(!files.is_empty(), "expected at least the vault's manifest/blobs under {}", app_data_dir.display());
     for path in files {
         let bytes = std::fs::read(&path).unwrap_or_default();
@@ -199,7 +198,7 @@ async fn real_signal_cli_round_trips_through_the_vault() {
     // the real XDG app-data location.
     let app_data = tempfile::Builder::new().prefix("snowdrop-e2e-appdata-").tempdir().expect("temp app data dir");
     let app_data_dir = app_data.path().to_path_buf();
-    let log_file = app_data_dir.join("signal-cli.log");
+    let log_file = app_data_dir.join("snowdrop.log");
     let store = Arc::new(FakeStore::new());
 
     // ---- First session: set up storage, connect, do some offline work ----

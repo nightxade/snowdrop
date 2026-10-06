@@ -379,7 +379,7 @@ pub fn is_external_url(url: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_allowed_method, is_external_url, ALLOWED_METHODS};
+    use super::{is_allowed_method, is_external_url, valid_log_scope, ALLOWED_METHODS};
 
     #[test]
     fn opens_only_web_and_mail_links() {
@@ -432,20 +432,72 @@ mod tests {
             assert!(!is_allowed_method(method), "{method} should be rejected");
         }
     }
+
+    #[test]
+    fn accepts_well_formed_log_scopes() {
+        for scope in ["ui", "settings", "render-tree", "a:b:c", "0", &"a".repeat(32)] {
+            assert!(valid_log_scope(scope), "{scope} should be accepted");
+        }
+    }
+
+    #[test]
+    fn rejects_malformed_log_scopes() {
+        for scope in ["", &"a".repeat(33), "Settings", "has space", "has_underscore", "emoji😀"] {
+            assert!(!valid_log_scope(scope), "{scope} should be rejected");
+        }
+    }
 }
 
-/// A frontend error (uncaught render error, unhandled rejection) written to
-/// stderr, so a blank window run from a terminal still says what failed.
-/// Capped so a runaway page can't flood the terminal.
-#[tauri::command]
-pub fn frontend_log(message: String) {
-    let mut message = message;
-    if message.len() > 4000 {
-        let mut end = 4000;
-        while !message.is_char_boundary(end) {
-            end -= 1;
-        }
-        message.truncate(end);
+/// `[a-z0-9:-]{1,32}`: short enough, and plain enough, that a `ui:<scope>`
+/// log target can never be mistaken for anything else routed through
+/// [`crate::applog`] (`rust:<module>`, `signal-cli`).
+fn valid_log_scope(scope: &str) -> bool {
+    (1..=32).contains(&scope.len()) && scope.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b':' || b == b'-')
+}
+
+fn parse_frontend_level(level: &str) -> log::Level {
+    match level {
+        "error" => log::Level::Error,
+        "warn" => log::Level::Warn,
+        "debug" => log::Level::Debug,
+        // "info", and anything unrecognised: still worth keeping, at Info.
+        _ => log::Level::Info,
     }
-    eprintln!("[snowdrop:frontend] {message}");
+}
+
+/// A frontend log line (uncaught render error, unhandled rejection, or the
+/// app's own diagnostic logging — `src/platform/tauri/frontendLog.ts`),
+/// routed through the app-wide logger at target `ui:<scope>`: redacted and
+/// written to `snowdrop.log` exactly like every other source. An invalid
+/// `scope` falls back to the generic `ui` target rather than dropping the
+/// line, since the frontend is the one source this command can't fully
+/// trust to format its own target correctly.
+#[tauri::command]
+pub fn frontend_log(level: String, scope: String, message: String) {
+    let scope = if valid_log_scope(&scope) { scope } else { "ui".to_string() };
+    let target = format!("ui:{scope}");
+    log::log!(target: target.as_str(), parse_frontend_level(&level), "{message}");
+}
+
+/// Raises the running app's log floor to Debug, or back down, from a
+/// developer toggle in Settings (`crate::applog::set_verbose`).
+#[tauri::command]
+pub fn log_set_verbose(verbose: bool) {
+    crate::applog::set_verbose(verbose);
+}
+
+/// The tail of `snowdrop.log` (plus `.1` if needed), already redacted
+/// because it was written redacted. `max_bytes` is capped server-side
+/// (`applog::recent`) regardless of what's asked.
+#[tauri::command]
+pub fn log_recent(max_bytes: u32) -> String {
+    crate::applog::recent(max_bytes as usize)
+}
+
+/// Opens the log directory in the system file manager. The path is always
+/// the fixed app log dir Tauri resolves — never one the frontend supplies.
+#[tauri::command]
+pub fn log_open_folder(app: AppHandle) -> Result<(), Error> {
+    let dir = app.path().app_log_dir().map_err(|e| Error::new(ErrorKind::Internal, e.to_string()))?;
+    tauri_plugin_opener::open_path(&dir, None::<&str>).map_err(|e| Error::new(ErrorKind::Internal, e.to_string()))
 }

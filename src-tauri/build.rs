@@ -29,6 +29,9 @@ fn main() {
             "app_restart",
             "app_close_ready",
             "frontend_log",
+            "log_set_verbose",
+            "log_recent",
+            "log_open_folder",
         ])),
     )
     .expect("failed to run tauri-build");

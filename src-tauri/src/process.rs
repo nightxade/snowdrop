@@ -21,7 +21,6 @@ use tokio::task::JoinHandle;
 
 use crate::error::{Error, ErrorKind};
 use crate::jsonrpc::{parse_line, request_line, FrameError, Incoming};
-use crate::logfile::LogFile;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "state", rename_all = "camelCase")]
@@ -62,8 +61,6 @@ impl Backoff {
 pub struct ProcessOptions {
     pub program: PathBuf,
     pub args: Vec<OsString>,
-    /// Where signal-cli's stderr goes (None: discarded).
-    pub log: Option<PathBuf>,
     pub backoff: Backoff,
     /// How long `shutdown` waits after closing stdin before killing.
     pub grace: Duration,
@@ -192,7 +189,6 @@ impl Drop for RpcProcess {
 async fn supervise(shared: Arc<Shared>, options: ProcessOptions, mut shutdown: watch::Receiver<bool>) {
     let mut attempt: u32 = 0;
     let mut generation: u64 = 0;
-    let log = options.log.clone().map(LogFile::new);
     loop {
         if *shutdown.borrow() {
             break;
@@ -224,7 +220,7 @@ async fn supervise(shared: Arc<Shared>, options: ProcessOptions, mut shutdown: w
         *shared.writer.lock().expect("writer lock") = Some(tx);
         let writer = tokio::spawn(write_loop(stdin, rx));
         let reader = tokio::spawn(read_loop(stdout, shared.clone()));
-        let drain = tokio::spawn(drain_stderr(stderr, log.clone()));
+        let drain = tokio::spawn(drain_stderr(stderr));
         shared.set_state(ProcessState::Running { generation });
         let started = Instant::now();
 
@@ -305,18 +301,55 @@ async fn read_loop(stdout: impl AsyncRead + Unpin, shared: Arc<Shared>) {
             }
             Ok(Incoming::Notification { method, params }) => (shared.on_notification)(method, params),
             Err(FrameError::ForeignId(id)) => log::warn!("signal-cli answered an unknown request id {id}"),
-            Err(_) => log::warn!("unexpected output from signal-cli: {}", truncate(&line, 200)),
+            Err(_) => log::warn!("unexpected output from signal-cli ({} bytes, not a JSON-RPC frame)", line.len()),
         }
     }
 }
 
-async fn drain_stderr(stderr: impl AsyncRead + Unpin, log: Option<LogFile>) {
+/// signal-cli's stderr, one line at a time, through the app-wide logger
+/// (`crate::applog`) at target `signal-cli`. A JVM crash dump's native
+/// memory map is huge (one line per register/stack slot, each starting
+/// `  |0x...`); a run of those is collapsed into one summary line instead
+/// of logging each one.
+async fn drain_stderr(stderr: impl AsyncRead + Unpin) {
     let mut lines = BufReader::new(stderr).lines();
+    let mut crash_dump_run: u32 = 0;
     while let Ok(Some(line)) = lines.next_line().await {
-        match &log {
-            Some(log) => log.append(&line),
-            None => log::debug!("signal-cli: {}", truncate(&line, 500)),
+        if line.starts_with("  |0x") {
+            crash_dump_run += 1;
+            continue;
         }
+        flush_crash_dump_run(&mut crash_dump_run);
+        if line.trim().is_empty() {
+            continue;
+        }
+        let level = stderr_level(&line);
+        log::log!(target: "signal-cli", level, "{}", truncate(&line, 500));
+    }
+    flush_crash_dump_run(&mut crash_dump_run);
+}
+
+fn flush_crash_dump_run(run: &mut u32) {
+    if *run > 0 {
+        log::warn!(target: "signal-cli", "collapsed {run} crash-dump line(s)");
+        *run = 0;
+    }
+}
+
+/// signal-cli (logback) lines start with a level word, e.g. `WARN  Foo: …`
+/// or `21:03:45.123 [main] WARN  Foo - …`. Only the first few
+/// whitespace-separated tokens are checked (not the whole line, which may
+/// go on to contain the word "error" as ordinary text): WARN/ERROR there
+/// are kept at Warn; anything else, including no recognisable level word at
+/// all, is Info.
+fn stderr_level(line: &str) -> log::Level {
+    let is_level_word = |token: &str| {
+        matches!(token.trim_matches(|c: char| !c.is_ascii_alphabetic()), "ERROR" | "WARN" | "WARNING")
+    };
+    if line.split_whitespace().take(4).any(is_level_word) {
+        log::Level::Warn
+    } else {
+        log::Level::Info
     }
 }
 
@@ -343,5 +376,20 @@ mod tests {
     fn truncates_on_char_boundaries() {
         assert_eq!(truncate("héllo", 2), "hé");
         assert_eq!(truncate("hi", 5), "hi");
+    }
+
+    #[test]
+    fn stderr_level_recognises_a_leading_level_word() {
+        assert_eq!(stderr_level("INFO  fake signal-cli started (account +15550001)"), log::Level::Info);
+        assert_eq!(stderr_level("WARN  something's off"), log::Level::Warn);
+        assert_eq!(stderr_level("ERROR couldn't open the database"), log::Level::Warn);
+        assert_eq!(stderr_level("21:03:45.123 [main] WARN  org.asamk.signal - retrying"), log::Level::Warn);
+    }
+
+    #[test]
+    fn stderr_level_defaults_to_info_with_no_recognisable_level() {
+        assert_eq!(stderr_level("just some plain output"), log::Level::Info);
+        // The word appearing later in the line, as ordinary text, doesn't count.
+        assert_eq!(stderr_level("connection reset: no error code available"), log::Level::Info);
     }
 }

@@ -13,8 +13,39 @@ use snowdrop_lib::vault_bridge::VaultBridge;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Once, OnceLock};
 use std::time::{Duration, Instant};
+
+/// A `log::Log` that just remembers every record, so
+/// `process::drain_stderr`'s routing of signal-cli's stderr through the
+/// `log` crate (target `signal-cli`) can be checked without going through
+/// the real app-wide logger (`applog`, which this test binary never
+/// installs — that's `applog`'s own unit tests' job). Installed once, since
+/// `log::set_logger` only accepts one logger per process and every test in
+/// this file shares one.
+struct CapturingLogger(Mutex<Vec<String>>);
+
+static CAPTURE: OnceLock<CapturingLogger> = OnceLock::new();
+
+impl log::Log for CapturingLogger {
+    fn enabled(&self, _: &log::Metadata) -> bool {
+        true
+    }
+    fn log(&self, record: &log::Record) {
+        self.0.lock().unwrap().push(format!("{}|{}|{}", record.target(), record.level(), record.args()));
+    }
+    fn flush(&self) {}
+}
+
+fn capturing_logger() -> &'static CapturingLogger {
+    let logger = CAPTURE.get_or_init(|| CapturingLogger(Mutex::new(Vec::new())));
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        log::set_max_level(log::LevelFilter::Trace);
+        let _ = log::set_logger(logger);
+    });
+    logger
+}
 
 fn fake() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../scripts/fake-signal-cli/signal-cli").canonicalize().unwrap()
@@ -85,12 +116,7 @@ fn spawn_config() -> ConnectConfig {
 
 fn service(dir: &Path, recorder: Arc<Recorder>) -> Arc<Service> {
     Service::with_timeouts(
-        Paths {
-            app_data_dir: dir.to_path_buf(),
-            data_dir: dir.to_path_buf(),
-            log_file: Some(dir.join("signal-cli.log")),
-            bundled: None,
-        },
+        Paths { app_data_dir: dir.to_path_buf(), data_dir: dir.to_path_buf(), bundled: None },
         recorder,
         Timeouts { backoff: fast_backoff(), grace: Duration::from_secs(2), ..Timeouts::default() },
         VaultBridge::disabled(),
@@ -101,13 +127,13 @@ fn service(dir: &Path, recorder: Arc<Recorder>) -> Arc<Service> {
 async fn process_matches_responses_and_forwards_notifications() {
     require_node!();
     let dir = temp_dir("process");
+    let logger = capturing_logger();
     let notes = Arc::new(Mutex::new(Vec::<(String, Value)>::new()));
     let sink = notes.clone();
     let process = RpcProcess::start(
         ProcessOptions {
             program: fake(),
             args: snowdrop_lib::config::spawn_args(&dir, None),
-            log: Some(dir.join("err.log")),
             backoff: fast_backoff(),
             grace: Duration::from_secs(2),
         },
@@ -134,8 +160,11 @@ async fn process_matches_responses_and_forwards_notifications() {
     assert_eq!(params["subscription"], 0);
     assert_eq!(params["result"]["account"], "+15550001");
     assert_eq!(process.pending_count(), 0);
-    // stderr went to the log.
-    eventually("stderr in the log", || std::fs::read_to_string(dir.join("err.log")).is_ok_and(|l| l.contains("fake signal-cli started"))).await;
+    // stderr was routed through the log crate at target "signal-cli".
+    eventually("stderr reached the logger", || {
+        logger.0.lock().unwrap().iter().any(|l| l.starts_with("signal-cli|") && l.contains("fake signal-cli started"))
+    })
+    .await;
     process.shutdown().await;
     assert_eq!(process.state(), ProcessState::Stopped);
     assert_eq!(process.request("version", None, Duration::from_secs(1)).await.unwrap_err().kind, ErrorKind::Unreachable);
@@ -152,7 +181,6 @@ async fn process_restarts_after_a_crash() {
         ProcessOptions {
             program: fake(),
             args: snowdrop_lib::config::spawn_args(&dir, None),
-            log: None,
             backoff: fast_backoff(),
             grace: Duration::from_secs(2),
         },
@@ -342,12 +370,7 @@ async fn real_signal_cli_speaks_json_rpc_over_stdio() {
     let dir = temp_dir("real");
     let recorder = Arc::new(Recorder::default());
     let svc = Service::with_timeouts(
-        Paths {
-            app_data_dir: dir.clone(),
-            data_dir: dir.join("data"),
-            log_file: Some(dir.join("signal-cli.log")),
-            bundled: Some(program),
-        },
+        Paths { app_data_dir: dir.clone(), data_dir: dir.join("data"), bundled: Some(program) },
         recorder.clone(),
         Timeouts { backoff: fast_backoff(), grace: Duration::from_secs(5), ..Timeouts::default() },
         VaultBridge::disabled(),
@@ -401,12 +424,7 @@ async fn vault_backed_service_spawns_into_the_runtime_dir_and_stops_signal_cli_b
 
     let recorder = Arc::new(Recorder::default());
     let svc = Service::with_timeouts(
-        Paths {
-            app_data_dir: dir.clone(),
-            data_dir: dir.join("plaintext-should-not-be-used"),
-            log_file: Some(dir.join("signal-cli.log")),
-            bundled: None,
-        },
+        Paths { app_data_dir: dir.clone(), data_dir: dir.join("plaintext-should-not-be-used"), bundled: None },
         recorder,
         Timeouts { backoff: fast_backoff(), grace: Duration::from_secs(2), ..Timeouts::default() },
         vault,
@@ -470,7 +488,7 @@ async fn connect_and_erase_run_concurrently_without_deadlocking() {
 
     let recorder = Arc::new(Recorder::default());
     let svc = Service::with_timeouts(
-        Paths { app_data_dir: dir.clone(), data_dir: dir.join("plaintext-should-not-be-used"), log_file: None, bundled: None },
+        Paths { app_data_dir: dir.clone(), data_dir: dir.join("plaintext-should-not-be-used"), bundled: None },
         recorder,
         Timeouts { backoff: fast_backoff(), grace: Duration::from_secs(2), ..Timeouts::default() },
         vault.clone(),

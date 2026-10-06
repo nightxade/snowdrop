@@ -40,8 +40,11 @@ pub type RuntimeDirResolver = Box<dyn Fn() -> Result<PathBuf, Error> + Send + Sy
 /// this is the deadlock `begin_erase`/`finish_erase` avoid).
 pub type EraseHook = Arc<dyn Fn() + Send + Sync>;
 
-/// Where `keys.json` and the vault live, plus the signal-cli log (deleted by
-/// [`StorageService::erase_all`]). All under the Tauri app data dir.
+/// Where `keys.json` and the vault live, plus `snowdrop.log` (deleted,
+/// along with its `.1` rotation, by both [`StorageService::erase_all`] and
+/// sign-out: an erase or a sign-out that leaves the old log behind would
+/// leave this account's history sitting in plaintext next to a vault that's
+/// otherwise gone). All under the Tauri app data dir.
 #[derive(Debug, Clone)]
 pub struct StoragePaths {
     pub app_data_dir: PathBuf,
@@ -529,7 +532,7 @@ impl<S: SecretStore> StorageService<S> {
         }
         remove_dir_best_effort(&legacy_signal_cli_dir(&self.paths.app_data_dir), &mut failures);
         if let Some(log_file) = self.paths.log_file.clone() {
-            remove_file_best_effort(&log_file, &mut failures);
+            remove_log_files_best_effort(&log_file, &mut failures);
         }
 
         // Erase and sign-out release the lock while their hooks run, so the
@@ -581,8 +584,13 @@ impl<S: SecretStore> StorageService<S> {
         if let Ok(runtime_dir) = (self.resolve_runtime_dir)() {
             remove_dir_best_effort(&runtime_dir, &mut failures);
         }
-        // keys.json and the keyring entry are left exactly as they are —
-        // the whole point of signing out rather than erasing.
+        // Like erase, the log is wiped too (it may hold a redacted trace of
+        // this account's history) — only keys.json and the keyring entry
+        // are left exactly as they are, the whole point of signing out
+        // rather than erasing.
+        if let Some(log_file) = self.paths.log_file.clone() {
+            remove_log_files_best_effort(&log_file, &mut failures);
+        }
         for failure in &failures {
             log::warn!("storage: sign out couldn't remove {failure}");
         }
@@ -694,6 +702,18 @@ fn remove_file_best_effort(path: &Path, failures: &mut Vec<String>) {
             failures.push(format!("{}: {e}", path.display()));
         }
     }
+}
+
+/// Removes `log_file` and its rotated `.1` sibling (`logfile::LogFile`'s own
+/// rotation scheme), best-effort. Shared by erase and sign-out: both must
+/// leave no trace of this account's (possibly months of) history sitting
+/// in the log, even though only erase also touches `keys.json` and the
+/// keyring entry.
+fn remove_log_files_best_effort(log_file: &Path, failures: &mut Vec<String>) {
+    remove_file_best_effort(log_file, failures);
+    let mut rotated = log_file.as_os_str().to_owned();
+    rotated.push(".1");
+    remove_file_best_effort(Path::new(&rotated), failures);
 }
 
 /// signal-cli's own sidecars, skipped on both sides of the comparison
@@ -967,7 +987,14 @@ mod tests {
         let paths = fx.paths();
         assert!(paths.keys_path.exists(), "sanity: setup_new already wrote it");
         fs::create_dir_all(&paths.vault_dir).unwrap();
-        fs::write(paths.log_file.as_ref().unwrap(), b"log").unwrap();
+        let log_file = paths.log_file.as_ref().unwrap();
+        fs::write(log_file, b"log").unwrap();
+        let rotated_log = {
+            let mut p = log_file.as_os_str().to_owned();
+            p.push(".1");
+            PathBuf::from(p)
+        };
+        fs::write(&rotated_log, b"older log").unwrap();
         let legacy_dir = legacy_signal_cli_dir(&paths.app_data_dir);
         fs::create_dir_all(&legacy_dir).unwrap();
         fs::write(legacy_dir.join("data"), b"legacy").unwrap();
@@ -985,7 +1012,8 @@ mod tests {
         assert!(!paths.keys_path.exists());
         assert!(!paths.vault_dir.exists());
         assert!(!legacy_dir.exists());
-        assert!(!paths.log_file.as_ref().unwrap().exists());
+        assert!(!log_file.exists());
+        assert!(!rotated_log.exists(), "the rotated .1 log must be removed too");
     }
 
     #[test]
@@ -1163,6 +1191,14 @@ mod tests {
         let runtime_dir = fx.base.path().join("runtime");
         fs::create_dir_all(&runtime_dir).unwrap();
         fs::write(runtime_dir.join("data"), b"live signal-cli data").unwrap();
+        let log_file = paths.log_file.as_ref().unwrap();
+        fs::write(log_file, b"log").unwrap();
+        let rotated_log = {
+            let mut p = log_file.as_os_str().to_owned();
+            p.push(".1");
+            PathBuf::from(p)
+        };
+        fs::write(&rotated_log, b"older log").unwrap();
 
         let called = Arc::new(AtomicUsize::new(0));
         let called2 = called.clone();
@@ -1179,6 +1215,8 @@ mod tests {
         assert_eq!(store.account_count(), 1, "the keyring entry must survive a sign-out");
         assert!(!paths.vault_dir.exists(), "the vault (manifests and blobs) must be wiped");
         assert!(!runtime_dir.exists(), "the runtime dir must be wiped");
+        assert!(!log_file.exists(), "the log must be wiped on sign-out too, not just erase");
+        assert!(!rotated_log.exists(), "the rotated .1 log must be wiped too");
     }
 
     #[test]

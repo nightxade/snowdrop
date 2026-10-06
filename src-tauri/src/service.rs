@@ -46,8 +46,6 @@ pub struct Paths {
     pub app_data_dir: PathBuf,
     /// signal-cli's data directory for the managed child (`--config`).
     pub data_dir: PathBuf,
-    /// signal-cli's stderr.
-    pub log_file: Option<PathBuf>,
     /// The bundled sidecar, if this build has one (`bundled-sidecar` feature only).
     pub bundled: Option<PathBuf>,
 }
@@ -256,7 +254,6 @@ impl Service {
                 let options = ProcessOptions {
                     program: binary.path.clone(),
                     args: config::spawn_args(&config_dir, account.as_deref()),
-                    log: self.paths.log_file.clone(),
                     backoff: self.timeouts.backoff.clone(),
                     grace: self.timeouts.grace,
                 };
@@ -608,7 +605,7 @@ mod tests {
     fn service_with_sink() -> (Arc<Service>, Arc<FakeSink>) {
         let sink = Arc::new(FakeSink::default());
         let svc = Service::new(
-            Paths { app_data_dir: PathBuf::new(), data_dir: PathBuf::new(), log_file: None, bundled: None },
+            Paths { app_data_dir: PathBuf::new(), data_dir: PathBuf::new(), bundled: None },
             sink.clone(),
             VaultBridge::disabled(),
         );

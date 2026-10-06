@@ -1,12 +1,13 @@
-//! A small append-only log with one rotation (`signal-cli.log` →
-//! `signal-cli.log.1` past `MAX_BYTES`), for signal-cli's stderr.
+//! A small append-only log with one rotation (`<name>` → `<name>.1` past
+//! `MAX_BYTES`). Used by [`crate::applog`] for `snowdrop.log`, the one log
+//! file the whole app writes to.
 
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-pub const MAX_BYTES: u64 = 2 * 1024 * 1024;
+pub const MAX_BYTES: u64 = 1024 * 1024;
 
 #[derive(Clone)]
 pub struct LogFile {
