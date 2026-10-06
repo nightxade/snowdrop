@@ -21,7 +21,7 @@ import {
 import { HistoryService } from './HistoryService';
 import { ReceiptBuffer } from './ReceiptBuffer';
 import { ATTACHMENTS_LOST_ERROR, SendService } from './SendService';
-import { SyncService } from './SyncService';
+import { SyncService, wasConnectionErrorReported } from './SyncService';
 import type { DraftPipeline, OutgoingDraft } from './types';
 
 const NOW = Date.UTC(2026, 8, 30, 15, 30);
@@ -488,6 +488,69 @@ describe('SyncService: events', () => {
       error: 'boom',
       ready: false,
     });
+  });
+
+  it('logs an expected setup state once, at info, instead of as an error', async () => {
+    const scheduler = new ManualScheduler(NOW);
+    const backend = new MockBackend({ seed: 7, clock: scheduler, scheduler });
+    vi.spyOn(backend, 'connect').mockRejectedValue(
+      Object.assign(new Error('signal-cli has no account yet.'), { kind: 'no-account' }),
+    );
+    const stores = createStores();
+    const onError = vi.fn();
+    const sync = new SyncService({
+      backend,
+      repository: new MemoryMessageRepository(),
+      stores,
+      clock: scheduler,
+      scheduler,
+      onError,
+    });
+    const consoleInfo = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    let caught: unknown;
+    await sync.start().catch((e: unknown) => {
+      caught = e;
+    });
+
+    expect(stores.session.getState()).toMatchObject({ status: 'error', errorKind: 'no-account' });
+    // Not logged as an error at all: an expected first-run state, not a failure.
+    expect(onError).not.toHaveBeenCalled();
+    expect(consoleError).not.toHaveBeenCalled();
+    // Logged exactly once, at info, with a clear message (not the raw exception text).
+    expect(consoleInfo).toHaveBeenCalledTimes(1);
+    expect(String(consoleInfo.mock.calls[0]?.[0])).toMatch(/no linked account yet/u);
+    // Tagged so other call sites that see the same rejection (App.tsx) skip it.
+    expect(wasConnectionErrorReported(caught)).toBe(true);
+
+    consoleInfo.mockRestore();
+    consoleError.mockRestore();
+  });
+
+  it('logs a real connection failure once, at error, not three times', async () => {
+    const scheduler = new ManualScheduler(NOW);
+    const backend = new MockBackend({ seed: 7, clock: scheduler, scheduler });
+    vi.spyOn(backend, 'connect').mockRejectedValue(new Error('connection refused'));
+    const stores = createStores();
+    const onError = vi.fn();
+    const sync = new SyncService({
+      backend,
+      repository: new MemoryMessageRepository(),
+      stores,
+      clock: scheduler,
+      scheduler,
+      onError,
+    });
+    let caught: unknown;
+    await sync.start().catch((e: unknown) => {
+      caught = e;
+    });
+
+    // Exactly once: SyncService is the sole logger of this failure (App.tsx
+    // and ConnectionBanner, which also see it, must not log it again).
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledWith(expect.any(Error), 'initial sync failed');
+    expect(wasConnectionErrorReported(caught)).toBe(true);
   });
 
   it('emits processed (new) messages after they are stored', async () => {

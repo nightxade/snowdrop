@@ -1,10 +1,11 @@
 // @vitest-environment node
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { SELF_ACI, SELF_NUMBER } from '@/core/backend/signal-cli/fixtures/envelopes';
 import { FakeDaemon, flush } from '@/core/backend/signal-cli/testing';
 import { ManualScheduler } from '@/core/lib';
 import { createMemoryStorage, loadVersioned, MemoryMessageRepository } from '@/core/persistence';
 import { settingsSchema, spacesSchema, spacesSelectors } from '@/core/stores';
+import { startOnce } from './App';
 import { createSnowdrop } from './createSnowdrop';
 import { scopedSchema } from './dataScope';
 import { deferredRepository } from './deferredRepository';
@@ -127,6 +128,71 @@ describe('createSnowdrop with signal-cli', () => {
     // The pending placeholder's key is cleaned up, not left as stale data.
     expect(storage.getItem(scopedSchema(spacesSchema, 'signal-cli:pending').key)).toBeNull();
 
+    await snowdrop.dispose();
+  });
+
+  it('logs "no account yet" once, at info, not three times (sync, App effect, startOnce)', async () => {
+    const storage = createMemoryStorage({
+      'snowdrop.settings': JSON.stringify({
+        v: 2,
+        data: { connection: { backend: 'signal-cli', daemonUrl: '/signal-cli', account: null } },
+      }),
+    });
+    // No accounts at all: SignalCliBackend.chooseAccount throws 'no-account',
+    // the same expected first-run state as the real user log this fixes.
+    const daemon = new FakeDaemon().reply('listAccounts', []);
+    const snowdrop = createSnowdrop({
+      storage,
+      fetch: daemon.fetch,
+      repository: new MemoryMessageRepository(),
+    });
+    const consoleInfo = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    // Exercises the exact three spots the real app funnels this failure
+    // through: SyncService (inside start()), and startOnce's own catch
+    // (which stands in for App.tsx's effect + its startOnce catch).
+    startOnce(snowdrop);
+    await flush();
+
+    expect(snowdrop.stores.session.getState().errorKind).toBe('no-account');
+    expect(consoleInfo).toHaveBeenCalledTimes(1);
+    expect(String(consoleInfo.mock.calls[0]?.[0])).toMatch(/no linked account yet/u);
+    expect(consoleError).not.toHaveBeenCalled();
+
+    consoleInfo.mockRestore();
+    consoleError.mockRestore();
+    await snowdrop.dispose();
+  });
+
+  it('logs a real connect failure once, at error, including when retried through startOnce', async () => {
+    const storage = createMemoryStorage({
+      'snowdrop.settings': JSON.stringify({
+        v: 2,
+        data: { connection: { backend: 'signal-cli', daemonUrl: '/signal-cli', account: null } },
+      }),
+    });
+    // The daemon is down (every fetch rejects): 'unreachable', a real
+    // failure, not an expected setup state like 'no-account' or
+    // 'account-required'.
+    const daemon = new FakeDaemon();
+    daemon.up = false;
+    const snowdrop = createSnowdrop({
+      storage,
+      fetch: daemon.fetch,
+      repository: new MemoryMessageRepository(),
+    });
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    startOnce(snowdrop);
+    await flush();
+
+    expect(snowdrop.stores.session.getState().status).toBe('error');
+    // Exactly one error line for this failure, not triplicated across
+    // SyncService, App.tsx's effect and startOnce's own catch.
+    expect(consoleError).toHaveBeenCalledTimes(1);
+
+    consoleError.mockRestore();
     await snowdrop.dispose();
   });
 });

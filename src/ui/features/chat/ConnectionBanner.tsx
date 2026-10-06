@@ -1,15 +1,19 @@
 import { RotateCw, WifiOff, LoaderCircle } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useStore } from 'zustand';
-import { createLogger } from '@/core/lib';
 import { sessionSelectors } from '@/core/stores';
 import { useSnowdrop } from '@/ui/hooks';
 import { friendlyErrorMessage } from '@/ui/lib/connectionErrors';
 import styles from './ConnectionBanner.module.css';
 
-const log = createLogger('ui');
-
-/** Slim banner at the top of the chat column when the connection degrades (PLAN §4.10). */
+/**
+ * Slim banner at the top of the chat column when the connection degrades
+ * (PLAN §4.10). The raw detail is never shown here, only the mapped copy —
+ * and it's never logged here either: SyncService already logged it once,
+ * at the right level, when the failure happened (see
+ * `wasConnectionErrorReported`); logging it again on every render this
+ * banner is visible would just be noise.
+ */
 export function ConnectionBanner() {
   const { stores, sync } = useSnowdrop();
   const status = useStore(stores.session, sessionSelectors.status);
@@ -18,11 +22,6 @@ export function ConnectionBanner() {
   const errorKind = useStore(stores.session, sessionSelectors.errorKind);
   const backend = useStore(stores.session, (s) => s.backendKind);
   const [retrying, setRetrying] = useState(false);
-
-  // The raw detail is never shown; it only ever goes to the console.
-  useEffect(() => {
-    if (status === 'error' && error) log.error('connection error', error);
-  }, [status, error]);
 
   // Before the first sync, "offline"/"connecting" is just booting; the shell shows skeletons.
   if (status === 'online' || (!ready && status !== 'error')) return null;

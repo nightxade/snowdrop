@@ -29,7 +29,14 @@ import {
   type MessageId,
   type MessageStatus,
 } from '@/core/domain';
-import { Emitter, type Cancel, type Clock, type Scheduler, type Unsubscribe } from '@/core/lib';
+import {
+  createLogger,
+  Emitter,
+  type Cancel,
+  type Clock,
+  type Scheduler,
+  type Unsubscribe,
+} from '@/core/lib';
 import type { MessageRepository } from '@/core/persistence';
 import { computeUnread, uiSelectors, type Stores } from '@/core/stores';
 import { PendingOpsBuffer } from './PendingOpsBuffer';
@@ -72,6 +79,40 @@ const RECEIPT_STATUS: Record<BackendEvents['receipt']['type'], MessageStatus> = 
 
 /** How many purged message ids are remembered to suppress re-delivery. */
 const PURGED_TOMBSTONES = 2_000;
+
+const log = createLogger('sync');
+
+/**
+ * Error kinds that mean "an expected first-run/setup state", not a real
+ * failure: the UI routes to its own screen for each of these (link flow,
+ * account prompt, install prompt, unlock screen) rather than showing an
+ * error. Logged once, at info — not at error, and not from every place that
+ * happens to observe the same rejection (see `wasConnectionErrorReported`).
+ */
+const SETUP_STATE_MESSAGES: Record<string, string> = {
+  'not-installed': "signal-cli isn't installed yet (first run)",
+  'no-account': 'no linked account yet; showing the link screen',
+  'account-required': 'signal-cli needs an account number; showing the setup screen',
+  'storage-locked': 'local storage is locked; showing the unlock screen',
+};
+
+/**
+ * Tags a connect/initial-sync failure once `doStart` has logged and stored
+ * it, so other places that see the very same rejection bubble through
+ * (e.g. `createSnowdrop`'s `start()`, re-thrown up to callers in
+ * `src/app/App.tsx`) know not to log it again. A `WeakSet` rather than a
+ * property on the error itself: nothing about the error's own shape changes.
+ */
+const reportedConnectionErrors = new WeakSet<object>();
+
+function markConnectionErrorReported(error: unknown): void {
+  if (typeof error === 'object' && error !== null) reportedConnectionErrors.add(error);
+}
+
+/** True if `error` is a connect/initial-sync failure {@link SyncService} already logged. */
+export function wasConnectionErrorReported(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && reportedConnectionErrors.has(error);
+}
 
 export class SyncService {
   private readonly events = new Emitter<SyncEvents>();
@@ -122,11 +163,20 @@ export class SyncService {
       // Drop the subscriptions so a retry doesn't double-subscribe, but keep the
       // backlog: those envelopes are gone from the daemon once delivered.
       this.unsubscribeAll();
+      const kind = errorKindOf(error);
       stores.session
         .getState()
-        .setError(error instanceof Error ? error.message : String(error), errorKindOf(error));
+        .setError(error instanceof Error ? error.message : String(error), kind);
       stores.session.getState().setStatus('error');
-      this.onError(error, 'initial sync failed');
+      // The single place this failure is logged (see `wasConnectionErrorReported`):
+      // an expected setup state (no account yet, signal-cli not installed, …)
+      // is routed to its own screen and logged once at info, not at error;
+      // a real failure still logs once, at error, never from the other
+      // places (App.tsx, ConnectionBanner) that also observe this rejection.
+      const setupMessage = kind !== null ? SETUP_STATE_MESSAGES[kind] : undefined;
+      if (setupMessage !== undefined) log.info(setupMessage);
+      else this.onError(error, 'initial sync failed');
+      markConnectionErrorReported(error);
       throw error;
     }
     stores.session.getState().setReady(true);

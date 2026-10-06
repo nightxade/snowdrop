@@ -1,6 +1,9 @@
 /**
  * The connection banner shows a plain, kind-specific message on error, never
- * the raw exception text — the raw detail only ever reaches the console.
+ * the raw exception text. Logging the raw detail is SyncService's job (it's
+ * logged once there, at the right level); the banner itself must not also
+ * log it, or a visible connection error would be logged repeatedly, once
+ * per render.
  */
 import { act, cleanup, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -31,7 +34,9 @@ describe('ConnectionBanner', () => {
     const banner = screen.getByRole('status');
     expect(banner.textContent).toMatch(/signal-cli ran into an internal problem/u);
     expect(banner.textContent).not.toMatch(/NullPointerException/u);
-    expect(consoleError).toHaveBeenCalledWith('[ui] connection error boom (NullPointerException)');
+    // The banner itself logs nothing: not here, and not from re-renders
+    // while the same error stays on screen (no per-render log spam).
+    expect(consoleError).not.toHaveBeenCalled();
 
     consoleError.mockRestore();
   });

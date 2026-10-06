@@ -220,7 +220,7 @@ async fn supervise(shared: Arc<Shared>, options: ProcessOptions, mut shutdown: w
         *shared.writer.lock().expect("writer lock") = Some(tx);
         let writer = tokio::spawn(write_loop(stdin, rx));
         let reader = tokio::spawn(read_loop(stdout, shared.clone()));
-        let drain = tokio::spawn(drain_stderr(stderr));
+        let drain = tokio::spawn(drain_stderr(stderr, shutdown.clone()));
         shared.set_state(ProcessState::Running { generation });
         let started = Instant::now();
 
@@ -306,34 +306,97 @@ async fn read_loop(stdout: impl AsyncRead + Unpin, shared: Arc<Shared>) {
     }
 }
 
+/// A small, deliberately narrow allowlist of signal-cli WARN lines that are
+/// routine, not actionable — confirmed against signal-cli's own source
+/// (`lib/.../manager/helper/ProfileHelper.java`): fetching a contact's
+/// profile 404s whenever they haven't set one up (or signal-cli hasn't
+/// fetched it yet), which is normal for a new or inactive contact, not
+/// something the user can or needs to act on. Kept small on purpose:
+/// broadening this risks quietly hiding an actual problem. Each entry is a
+/// pair of substrings that must *both* appear in the line (the call site's
+/// own wording, and the 404 that makes it benign) — this is deliberately
+/// narrower than matching on "Failed to retrieve profile" alone, which
+/// ProfileHelper also logs at WARN for real I/O failures that should stay
+/// at Warn.
+const KNOWN_BENIGN_SIGNAL_CLI_WARNINGS: &[(&str, &str)] = &[
+    ("Failed to retrieve profile for", "[404]"),
+    ("Failed to retrieve profile key credential for", "[404]"),
+];
+
+fn is_known_benign_signal_cli_warning(line: &str) -> bool {
+    KNOWN_BENIGN_SIGNAL_CLI_WARNINGS.iter().any(|(a, b)| line.contains(a) && line.contains(b))
+}
+
 /// signal-cli's stderr, one line at a time, through the app-wide logger
-/// (`crate::applog`) at target `signal-cli`. A JVM crash dump's native
-/// memory map is huge (one line per register/stack slot, each starting
-/// `  |0x...`); a run of those is collapsed into one summary line instead
-/// of logging each one.
-async fn drain_stderr(stderr: impl AsyncRead + Unpin) {
+/// (`crate::applog`) at target `signal-cli`. Two kinds of noise are
+/// smoothed out before anything is logged:
+/// - A JVM crash dump's native memory map is huge (one line per
+///   register/stack slot, each starting `  |0x...`); a run of those is
+///   collapsed into one summary line instead of logging each one (see
+///   [`flush_crash_dump_run`]), at Info if it happened while Snowdrop was
+///   already shutting the child down (a known, harmless GraalVM
+///   native-image teardown bug) and at Error otherwise.
+/// - A handful of known-benign WARN lines are logged at Info instead (see
+///   [`KNOWN_BENIGN_SIGNAL_CLI_WARNINGS`]).
+async fn drain_stderr(stderr: impl AsyncRead + Unpin, shutting_down: watch::Receiver<bool>) {
     let mut lines = BufReader::new(stderr).lines();
     let mut crash_dump_run: u32 = 0;
+    // The line right before a crash-dump run started, if any: usually the
+    // JVM's own one-line description of the crash (e.g. "Fatal error:
+    // java.lang.…"), included in the summary so it isn't left to scroll
+    // past unexplained register/stack dump lines to find.
+    let mut line_before_dump: Option<String> = None;
     while let Ok(Some(line)) = lines.next_line().await {
         if line.starts_with("  |0x") {
             crash_dump_run += 1;
             continue;
         }
-        flush_crash_dump_run(&mut crash_dump_run);
+        flush_crash_dump_run(&mut crash_dump_run, line_before_dump.take(), &shutting_down);
         if line.trim().is_empty() {
             continue;
         }
         let level = stderr_level(&line);
+        let level = if level == log::Level::Warn && is_known_benign_signal_cli_warning(&line) {
+            log::Level::Info
+        } else {
+            level
+        };
         log::log!(target: "signal-cli", level, "{}", truncate(&line, 500));
+        line_before_dump = Some(line);
     }
-    flush_crash_dump_run(&mut crash_dump_run);
+    flush_crash_dump_run(&mut crash_dump_run, line_before_dump.take(), &shutting_down);
 }
 
-fn flush_crash_dump_run(run: &mut u32) {
-    if *run > 0 {
-        log::warn!(target: "signal-cli", "collapsed {run} crash-dump line(s)");
-        *run = 0;
+/// The pure decision behind [`flush_crash_dump_run`] — split out so its
+/// three outcomes (shutting down; a real crash with a clue to the cause;
+/// a real crash with none) are each unit-testable without a global
+/// `log::Logger` installed. Shutdown already requested
+/// (`RpcProcess::shutdown`, which closes stdin before anything else) means
+/// this is the known GraalVM native-image teardown crash — harmless, logged
+/// once at Info; otherwise it's a real crash, logged at Error with
+/// `context_line` (the line just before the dump, if any) appended as a
+/// clue to the cause without needing the full dump.
+fn crash_dump_outcome(run: u32, context_line: Option<&str>, shutting_down: bool) -> (log::Level, String) {
+    if shutting_down {
+        (
+            log::Level::Info,
+            "signal-cli crashed while shutting down (known GraalVM native-image teardown bug; harmless)".to_string(),
+        )
+    } else if let Some(context) = context_line {
+        (log::Level::Error, format!("signal-cli crashed ({run} crash-dump lines collapsed): {}", truncate(context, 200)))
+    } else {
+        (log::Level::Error, format!("signal-cli crashed ({run} crash-dump lines collapsed)"))
     }
+}
+
+/// Logs a just-ended crash-dump run; a no-op if `run` is 0 (nothing to flush).
+fn flush_crash_dump_run(run: &mut u32, context_line: Option<String>, shutting_down: &watch::Receiver<bool>) {
+    if *run == 0 {
+        return;
+    }
+    let (level, message) = crash_dump_outcome(*run, context_line.as_deref(), *shutting_down.borrow());
+    log::log!(target: "signal-cli", level, "{message}");
+    *run = 0;
 }
 
 /// signal-cli (logback) lines start with a level word, e.g. `WARN  Foo: …`
@@ -363,6 +426,7 @@ fn truncate(text: &str, max: usize) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Once, OnceLock};
 
     #[test]
     fn backs_off_exponentially_up_to_a_cap() {
@@ -391,5 +455,136 @@ mod tests {
         assert_eq!(stderr_level("just some plain output"), log::Level::Info);
         // The word appearing later in the line, as ordinary text, doesn't count.
         assert_eq!(stderr_level("connection reset: no error code available"), log::Level::Info);
+    }
+
+    #[test]
+    fn recognises_the_documented_benign_profile_404_warnings() {
+        assert!(is_known_benign_signal_cli_warning(
+            "21:03:45.123 [main] WARN  ProfileHelper - Failed to retrieve profile for 11111111-1111-4111-8111-111111111111, ignoring: [404] Profile not found"
+        ));
+        assert!(is_known_benign_signal_cli_warning(
+            "WARN  ProfileHelper - Failed to retrieve profile key credential for 2222, ignoring: [404] Profile not found"
+        ));
+    }
+
+    #[test]
+    fn does_not_treat_other_profile_failures_or_warnings_as_benign() {
+        // Same call site, but a real I/O failure rather than a 404: must
+        // stay at whatever level `stderr_level` gave it.
+        assert!(!is_known_benign_signal_cli_warning(
+            "WARN  ProfileHelper - Failed to retrieve profile for 1234, ignoring: java.io.IOException: timeout"
+        ));
+        assert!(!is_known_benign_signal_cli_warning("WARN  something unrelated went wrong"));
+    }
+
+    #[test]
+    fn crash_dump_outcome_is_info_once_shutdown_was_requested() {
+        let (level, message) = crash_dump_outcome(122, Some("Fatal error: java.lang.NullPointerException"), true);
+        assert_eq!(level, log::Level::Info);
+        assert_eq!(message, "signal-cli crashed while shutting down (known GraalVM native-image teardown bug; harmless)");
+    }
+
+    #[test]
+    fn crash_dump_outcome_is_an_error_with_its_cause_otherwise() {
+        let (level, message) = crash_dump_outcome(3, Some("Fatal error: java.lang.NullPointerException"), false);
+        assert_eq!(level, log::Level::Error);
+        assert_eq!(message, "signal-cli crashed (3 crash-dump lines collapsed): Fatal error: java.lang.NullPointerException");
+    }
+
+    #[test]
+    fn crash_dump_outcome_without_a_context_line_still_reports_the_count() {
+        let (level, message) = crash_dump_outcome(5, None, false);
+        assert_eq!(level, log::Level::Error);
+        assert_eq!(message, "signal-cli crashed (5 crash-dump lines collapsed)");
+    }
+
+    // ─── drain_stderr, end to end ──────────────────────────────────────
+
+    /// A `log::Log` that just remembers every record (same pattern as
+    /// `tests/signal_cli.rs`'s `CapturingLogger`): installed once for this
+    /// binary's unit tests, since `log::set_logger` only accepts one logger
+    /// per process. Tests filter the shared log by a message they chose
+    /// themselves to be unique, so they stay independent under parallel
+    /// execution.
+    struct CapturingLogger(Mutex<Vec<(log::Level, String)>>);
+
+    static CAPTURE: OnceLock<CapturingLogger> = OnceLock::new();
+
+    impl log::Log for CapturingLogger {
+        fn enabled(&self, _: &log::Metadata) -> bool {
+            true
+        }
+        fn log(&self, record: &log::Record) {
+            if record.target() == "signal-cli" {
+                self.0.lock().unwrap().push((record.level(), record.args().to_string()));
+            }
+        }
+        fn flush(&self) {}
+    }
+
+    fn capturing_logger() -> &'static CapturingLogger {
+        let logger = CAPTURE.get_or_init(|| CapturingLogger(Mutex::new(Vec::new())));
+        static ONCE: Once = Once::new();
+        ONCE.call_once(|| {
+            log::set_max_level(log::LevelFilter::Trace);
+            let _ = log::set_logger(logger);
+        });
+        logger
+    }
+
+    /// Runs `drain_stderr` over `input` to completion and returns every
+    /// `target: "signal-cli"` record logged while doing so, in order.
+    async fn drain(input: &str, shutting_down: bool) -> Vec<(log::Level, String)> {
+        let logger = capturing_logger();
+        let before = logger.0.lock().unwrap().len();
+        let (tx, rx) = watch::channel(shutting_down);
+        let _ = &tx; // kept alive for the duration of the call
+        drain_stderr(input.as_bytes(), rx).await;
+        logger.0.lock().unwrap()[before..].to_vec()
+    }
+
+    #[tokio::test]
+    async fn downgrades_a_known_benign_profile_404_to_info() {
+        let marker = "drain-marker-benign-404";
+        let line = format!(
+            "WARN  ProfileHelper - Failed to retrieve profile for {marker}, ignoring: [404] Profile not found"
+        );
+        let got = drain(&format!("{line}\n"), false).await;
+        let matching: Vec<_> = got.into_iter().filter(|(_, m)| m.contains(marker)).collect();
+        assert_eq!(matching, vec![(log::Level::Info, line)]);
+    }
+
+    #[tokio::test]
+    async fn collapses_a_crash_dump_into_one_error_line_with_its_cause() {
+        let marker = "drain-marker-crash-not-shutdown";
+        let input = format!("Fatal error: {marker}\n  |0x1\n  |0x2\n  |0x3\n");
+        let got = drain(&input, false).await;
+        let matching: Vec<_> = got.into_iter().filter(|(_, m)| m.contains(marker)).collect();
+        // The "Fatal error: …" line itself is logged normally (Info: it has
+        // no WARN/ERROR level word), *and* the crash summary quotes it.
+        assert_eq!(
+            matching,
+            vec![
+                (log::Level::Info, format!("Fatal error: {marker}")),
+                (log::Level::Error, format!("signal-cli crashed (3 crash-dump lines collapsed): Fatal error: {marker}")),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_crash_dump_during_shutdown_is_one_harmless_info_line() {
+        let marker = "drain-marker-crash-during-shutdown";
+        let input = format!("Fatal error: {marker}\n  |0x1\n  |0x2\n");
+        let got = drain(&input, true).await;
+        let crash_summary: Vec<_> =
+            got.into_iter().filter(|(_, m)| m.contains("GraalVM native-image teardown")).collect();
+        assert_eq!(
+            crash_summary,
+            vec![(
+                log::Level::Info,
+                "signal-cli crashed while shutting down (known GraalVM native-image teardown bug; harmless)"
+                    .to_string()
+            )]
+        );
     }
 }

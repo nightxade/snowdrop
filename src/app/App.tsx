@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect } from 'react';
 import { useStore } from 'zustand';
 import type { BackendKind } from '@/core/backend';
 import { createLogger } from '@/core/lib';
+import { wasConnectionErrorReported } from '@/core/services';
 // Onboarding is seen once (or on connection trouble): keep it out of the main chunk.
 const Welcome = lazy(() =>
   import('@/ui/features/onboarding').then((m) => ({ default: m.Welcome })),
@@ -23,7 +24,10 @@ export function startOnce(snowdrop: Snowdrop): void {
   started.add(snowdrop);
   snowdrop.start().catch((error: unknown) => {
     // The session store carries the error; the shell shows it with a retry.
-    log.error('failed to start', error);
+    // A connect/initial-sync failure was already logged once, at the right
+    // level, by SyncService itself (see `wasConnectionErrorReported`) —
+    // logging it again here would triplicate it.
+    if (!wasConnectionErrorReported(error)) log.error('failed to start', error);
   });
 }
 
@@ -54,11 +58,6 @@ export function App({ onBackendChange }: AppProps) {
     if (matches) startOnce(snowdrop);
     else onBackendChange?.();
   }, [choice, matches, snowdrop, onBackendChange]);
-
-  // The raw detail is logged once here; the UI only ever sees the mapped copy.
-  useEffect(() => {
-    if (errorMessage) log.error('connection error', errorMessage);
-  }, [errorMessage]);
 
   if (choice === null) {
     const choose = (backend: BackendKind, url?: string) => {
@@ -118,7 +117,9 @@ export function App({ onBackendChange }: AppProps) {
                   configured: desktopBinaryPath.trim() !== '',
                   onInstalled: () => {
                     snowdrop.start().catch((error: unknown) => {
-                      log.error('failed to start after installing signal-cli', error);
+                      if (!wasConnectionErrorReported(error)) {
+                        log.error('failed to start after installing signal-cli', error);
+                      }
                     });
                   },
                 }
@@ -128,7 +129,9 @@ export function App({ onBackendChange }: AppProps) {
           onLinked={() => {
             // The adapter now knows the account; retry the start that failed.
             snowdrop.start().catch((error: unknown) => {
-              log.error('failed to start after linking', error);
+              if (!wasConnectionErrorReported(error)) {
+                log.error('failed to start after linking', error);
+              }
             });
           }}
           onAccount={(account) => {
