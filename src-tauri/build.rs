@@ -3,6 +3,9 @@ fn main() {
     // plugin commands: only those listed in capabilities/main.json are callable.
     tauri_build::try_build(
         tauri_build::Attributes::new().app_manifest(tauri_build::AppManifest::new().commands(&[
+            "clipboard_read_files",
+            "notification_show",
+            "notification_close",
             "signal_cli_connect",
             "signal_cli_request",
             "signal_cli_subscribe",

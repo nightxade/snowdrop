@@ -9,14 +9,14 @@ export type LinkState =
   | { step: 'naming'; deviceName: string; attempt: number }
   | { step: 'starting'; deviceName: string; attempt: number }
   | { step: 'waiting'; deviceName: string; uri: string; attempt: number }
-  | { step: 'linked'; deviceName: string; accountId: string }
+  | { step: 'linked'; deviceName: string; accountId: string; historyWarning?: string }
   | { step: 'failed'; deviceName: string; message: string; expired: boolean; attempt: number };
 
 export type LinkAction =
   | { type: 'rename'; deviceName: string }
   | { type: 'start' }
   | { type: 'started'; uri: string; attempt: number }
-  | { type: 'linked'; accountId: string; attempt: number }
+  | { type: 'linked'; accountId: string; attempt: number; historyWarning?: string }
   | { type: 'failed'; message: string; expired?: boolean; attempt: number }
   | { type: 'edit' };
 
@@ -55,7 +55,12 @@ export function linkReducer(state: LinkState, action: LinkAction): LinkState {
         : state;
     case 'linked':
       return state.step === 'waiting' && state.attempt === action.attempt
-        ? { step: 'linked', deviceName: state.deviceName, accountId: action.accountId }
+        ? {
+            step: 'linked',
+            deviceName: state.deviceName,
+            accountId: action.accountId,
+            ...(action.historyWarning ? { historyWarning: action.historyWarning } : {}),
+          }
         : state;
     case 'failed':
       return (state.step === 'starting' || state.step === 'waiting') &&

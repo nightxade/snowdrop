@@ -2,7 +2,7 @@
  * Pages conversation history into the messages store.
  *
  * The repository is the source of truth; backends that keep server-side
- * history (only the mock today) backfill it when local history runs out.
+ * history backfill it when local history runs out.
  * Windows can be anchored to the present or detached around an older message
  * (search results, reply jumps); see MessagesStore.
  *
@@ -257,7 +257,12 @@ export class HistoryService {
       conversationId,
       boundary === undefined
         ? { limit: limit - local.length }
-        : { before: boundary.sentAt, limit: limit - local.length },
+        : {
+            before: boundary.sentAt,
+            beforeId: boundary.id,
+            ...(boundary.historyCursor ? { beforeCursor: boundary.historyCursor } : {}),
+            limit: limit - local.length,
+          },
     );
     const stored = await repository.upsertMany(remote.messages, {
       backfill: true,

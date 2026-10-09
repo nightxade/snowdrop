@@ -47,6 +47,112 @@ function lastOwn(snowdrop: Snowdrop, id: ConversationId) {
 }
 
 describe('<Composer />', () => {
+  it.each([
+    { types: [], plain: '' },
+    { types: ['text/uri-list'], plain: 'file:///tmp/screenshot.png' },
+    { types: ['Files'], plain: 'screenshot.png' },
+  ])(
+    'uses native clipboard files when the webview exposes only $types',
+    async ({ types, plain }) => {
+      const { input, snowdrop } = await setup();
+      snowdrop.readClipboardFiles = vi
+        .fn()
+        .mockResolvedValue([new File(['native'], 'screenshot.png', { type: 'image/png' })]);
+      await act(async () => {
+        fireEvent.paste(input, {
+          clipboardData: { files: [], items: [], types, getData: () => plain },
+        });
+        await Promise.resolve();
+      });
+      expect(screen.getByRole('button', { name: 'Remove screenshot.png' })).toBeTruthy();
+      expect(snowdrop.readClipboardFiles).toHaveBeenCalledOnce();
+    },
+  );
+
+  it('does not read the native clipboard for ordinary text', async () => {
+    const { input, snowdrop } = await setup();
+    snowdrop.readClipboardFiles = vi.fn();
+    expect(
+      fireEvent.paste(input, {
+        clipboardData: { files: [], items: [], types: ['text/plain'], getData: () => 'hello' },
+      }),
+    ).toBe(true);
+    expect(snowdrop.readClipboardFiles).not.toHaveBeenCalled();
+  });
+
+  it('keeps copied web links as text even when they advertise a URI list', async () => {
+    const { input, snowdrop } = await setup();
+    snowdrop.readClipboardFiles = vi.fn().mockResolvedValue([]);
+    expect(
+      fireEvent.paste(input, {
+        clipboardData: {
+          files: [],
+          items: [],
+          types: ['text/plain', 'text/uri-list'],
+          getData: () => 'https://example.org',
+        },
+      }),
+    ).toBe(true);
+    expect(snowdrop.readClipboardFiles).not.toHaveBeenCalled();
+  });
+
+  it('surfaces native clipboard errors without adding attachments', async () => {
+    const { input, snowdrop } = await setup();
+    snowdrop.readClipboardFiles = vi
+      .fn()
+      .mockRejectedValue(new Error('A copied file is unreadable.'));
+    await act(async () => {
+      fireEvent.paste(input, {
+        clipboardData: { files: [], items: [], types: [], getData: () => '' },
+      });
+      await Promise.resolve();
+    });
+    expect(screen.getByRole('alert').textContent).toBe('A copied file is unreadable.');
+    expect(screen.queryByRole('list', { name: 'Attachments to send' })).toBeNull();
+  });
+
+  it('pastes files exposed through clipboard items even when files is empty', async () => {
+    const { input, snowdrop } = await setup();
+    const file = new File(['hello'], 'notes.txt', { type: 'text/plain' });
+    const allowed = fireEvent.paste(input, {
+      clipboardData: {
+        files: [],
+        items: [{ kind: 'file', getAsFile: () => file }],
+      },
+    });
+    expect(allowed).toBe(false);
+    expect(screen.getByRole('list', { name: 'Attachments to send' })).toBeTruthy();
+    const send = vi.spyOn(snowdrop.send, 'send');
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await settle(snowdrop);
+    expect(send.mock.calls[0]?.[0].attachments[0]?.fileName).toBe('notes.txt');
+  });
+
+  it('does not attach a file twice when both clipboard lists expose it', async () => {
+    const { input } = await setup();
+    const file = new File(['hello'], 'notes.txt', { type: 'text/plain' });
+    fireEvent.paste(input, {
+      clipboardData: {
+        files: [file],
+        items: [{ kind: 'file', getAsFile: () => file }],
+      },
+    });
+    expect(screen.getAllByRole('button', { name: 'Remove notes.txt' })).toHaveLength(1);
+  });
+
+  it('leaves ordinary text paste to the browser', async () => {
+    const { input } = await setup();
+    expect(
+      fireEvent.paste(input, {
+        clipboardData: {
+          files: [],
+          items: [{ kind: 'string', getAsFile: () => null }],
+        },
+      }),
+    ).toBe(true);
+    expect(screen.queryByRole('list', { name: 'Attachments to send' })).toBeNull();
+  });
+
   it('shows a placeholder naming the conversation', async () => {
     const { input, conv } = await setup();
     expect(input.placeholder).toBe(`Message #${conv.title}`);

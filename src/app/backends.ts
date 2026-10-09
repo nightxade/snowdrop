@@ -197,6 +197,9 @@ const signalCliBackend: BackendRegistration = {
       });
   },
   capabilities: new Set([
+    'fetchHistory',
+    'readHistory',
+    'getHistoryReadState',
     'adminDelete',
     'pinMessage',
     'updateConversation',

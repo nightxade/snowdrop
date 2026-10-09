@@ -44,7 +44,7 @@ function setup(options: { permission?: NotificationPermissionState; visible?: bo
       return { close: closed };
     },
   };
-  const source = new Emitter<{ message: Message }>();
+  const source = new Emitter<{ messageArrived: { message: Message; live: boolean } }>();
   const focusWindow = vi.fn();
   const boost = vi.fn<(m: Message) => string | null>(() => null);
   const service = new NotificationService({
@@ -57,17 +57,17 @@ function setup(options: { permission?: NotificationPermissionState; visible?: bo
     focusWindow,
   });
   service.start();
-  const receive = (partial: Partial<Message>) => {
-    source.emit(
-      'message',
-      makeMessage({
+  const receive = (partial: Partial<Message>, live = true) => {
+    source.emit('messageArrived', {
+      live,
+      message: makeMessage({
         conversationId: group,
         authorId: 'ana',
         sentAt: NOW,
         body: 'hello',
         ...partial,
       }),
-    );
+    });
   };
   return { stores, service, shown, closed, receive, focusWindow, boost };
 }
@@ -87,6 +87,15 @@ describe('NotificationService', () => {
       body: 'Ana Lima: hello',
       tag: `snowdrop:${group}`,
     });
+  });
+
+  it('silences initial sync and old envelopes delivered after sync finishes', () => {
+    const { shown, receive } = setup();
+    receive({ sentAt: NOW }, false);
+    receive({ sentAt: NOW - 1 });
+    expect(shown).toHaveLength(0);
+    receive({ sentAt: NOW + 1 });
+    expect(shown).toHaveLength(1);
   });
 
   it('never notifies for own, system or deleted messages, or without permission', () => {

@@ -31,6 +31,17 @@ export class MemoryMessageRepository implements MessageRepository {
     return Promise.resolve(m ? clone(m) : undefined);
   }
 
+  pendingHistoryTimers(): Promise<Message[]> {
+    return Promise.resolve(
+      [...this.messages.values()]
+        .filter(
+          (message) =>
+            message.historyCursor && message.expiresAfterReadMs && message.expiresAt === undefined,
+        )
+        .map(clone),
+    );
+  }
+
   private store(message: Message): void {
     const previous = this.messages.get(message.id);
     const timeline = this.timelines.get(message.conversationId) ?? [];

@@ -69,6 +69,7 @@ import {
   desktopAdmin,
   desktopLogAdmin,
   desktopNotificationApi,
+  desktopClipboardFiles,
   desktopStorageAdmin,
   installDesktopLinks,
   isTauri,
@@ -123,6 +124,8 @@ export interface Snowdrop {
   /** Resolves with the concrete adapter once its chunk has loaded (dev tools, tests). */
   backendReady: Promise<ChatBackend>;
   notifications: NotificationService;
+  /** Gesture-triggered native paste fallback; null in browsers. */
+  readClipboardFiles: (() => Promise<File[]>) | null;
   admin: AppAdmin;
   /** The desktop app's signal-cli management; null in the browser. */
   desktop: DesktopAdmin | null;
@@ -498,6 +501,7 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     backendReady: ready,
     safeMode: options.safeMode ?? false,
     notifications,
+    readClipboardFiles: isTauri() ? desktopClipboardFiles : null,
     admin,
     desktop: isTauri() ? desktopAdmin() : null,
     storageAdmin: isTauri() ? desktopStorageAdmin() : null,

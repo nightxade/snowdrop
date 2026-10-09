@@ -168,3 +168,34 @@ On a single-account daemon `connection.account` is required (Snowdrop reports
 - Incoming attachments are handed to the page as `blob:` URLs typed with their real media
   type only for common raster image, audio and video types; anything else (HTML, SVG, …)
   is served as opaque bytes so it can never run as a page.
+
+
+## Experimental phone-history patch
+
+The separately licensed [patch series](../patches/signal-cli/README.md) adds
+phone-history transfer during a fresh link and a paginated `getHistory` command
+to signal-cli 0.14.8. The phone decides whether to transfer history. This does
+not retroactively fill existing linked accounts. Snowdrop now discovers the
+optional archive, merges its directory, and pages supported messages into local
+history without emitting arrival notifications. Stock signal-cli remains usable
+without those methods. Read-time timer updates are connected to focused, visible
+message rows. Startup recovers saved deadlines without starting unread timers.
+A synthetic Chromium check loaded 63 archived messages across pages with no
+duplicates or historical notifications, opened a sticker in the image viewer,
+and started a pending timer only after viewing. A failed history transfer now
+shows a persistent warning after linking, with an option to continue using the
+linked account. Real-phone transfer remains unverified.
+When a cached boundary has no archive cursor, paging first locates its message
+identity in the archive so skewed sender clocks do not change the join position.
+This initial lookup may scan the chat's archive; subsequent pages use saved
+ordinal cursors directly. If the boundary is absent from the archive, paging
+falls back to its sender timestamp. Arbitrary gaps within an existing cache
+are not filled by this older-history paging path.
+See the patch README for build instructions and known limitations.
+
+Local verification includes the 1,441 frontend tests and 246 native tests
+(socket-dependent tests rerun outside the sandbox; notification and clipboard
+tests use isolated sessions). The patched CLI passes 44 history tests. Synthetic
+browser checks cover archive paging, media viewing, notification suppression,
+read-time expiration, and continuing after a history-transfer failure. These
+checks do not verify a real phone transfer or real attachment CDN availability.

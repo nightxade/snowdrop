@@ -296,7 +296,7 @@ export const wireSendResult = object({
 export type WireSendResult = Infer<typeof wireSendResult>;
 
 export const wireStartLink = object({ deviceLinkUri: str });
-export const wireFinishLink = object({ number: optStr, aci: optStr });
+export const wireFinishLink = object({ number: optStr, aci: optStr, historyTransfer: optStr });
 export const wireAttachmentData = object({ data: str });
 
 /** Our identity for an address: ACI when known (stable), else the number. */

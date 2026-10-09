@@ -4,6 +4,7 @@
  * and deliberately separate from protocol state so a backend update can
  * never clobber it.
  */
+import { parseCustomEmoji, parseCustomEmojiLibrary, type CustomEmoji } from './customEmoji';
 import { createStore, type StoreApi } from 'zustand/vanilla';
 import {
   asConversationId,
@@ -20,6 +21,8 @@ export const DEFAULT_LOCAL_CONVERSATION: LocalConversationState = Object.freeze(
 });
 
 export interface LocalData {
+  /** Personal image emoji, scoped to this backend/account with the rest of local data. */
+  customEmoji: CustomEmoji[];
   conversations: Record<ConversationId, LocalConversationState>;
   /** contactId → private note (profile popout). */
   contactNotes: Record<string, string>;
@@ -35,6 +38,8 @@ export interface LocalSeed {
 }
 
 export interface LocalState extends LocalData {
+  saveCustomEmoji(emoji: CustomEmoji): void;
+  removeCustomEmoji(name: string): void;
   patchConversation(id: ConversationId, patch: Partial<LocalConversationState>): void;
   setPinned(id: ConversationId, pinned: boolean): void;
   setMuted(id: ConversationId, muted: MuteState): void;
@@ -50,12 +55,29 @@ export interface LocalState extends LocalData {
 export type LocalStore = StoreApi<LocalState>;
 
 export function defaultLocalData(): LocalData {
-  return { conversations: {}, contactNotes: {}, reactionUsage: {}, seeded: false };
+  return { customEmoji: [], conversations: {}, contactNotes: {}, reactionUsage: {}, seeded: false };
 }
 
 export function createLocalStore(initial: LocalData = defaultLocalData()): LocalStore {
   return createStore<LocalState>()((set, get) => ({
     ...initial,
+    saveCustomEmoji: (value) => {
+      const emoji = parseCustomEmoji(value);
+      if (!emoji)
+        throw new Error('Use a valid image and a name with 1–32 letters, numbers, +, - or _.');
+      const current = get().customEmoji;
+      const index = current.findIndex((item) => item.name === emoji.name);
+      const next = [...current];
+      if (index < 0) next.push(emoji);
+      else next[index] = emoji;
+      if (parseCustomEmojiLibrary(next).length !== next.length) {
+        throw new Error('Your emoji collection is full. Remove an emoji before adding another.');
+      }
+      set({ customEmoji: next });
+    },
+    removeCustomEmoji: (name) => {
+      set((s) => ({ customEmoji: s.customEmoji.filter((emoji) => emoji.name !== name) }));
+    },
 
     patchConversation: (id, patch) => {
       set((s) => {
@@ -132,6 +154,7 @@ export const localSelectors = {
 
 export function selectLocalData(s: LocalState): LocalData {
   return {
+    customEmoji: s.customEmoji,
     conversations: s.conversations,
     contactNotes: s.contactNotes,
     reactionUsage: s.reactionUsage,
@@ -156,6 +179,7 @@ export function mergeLocalData(existing: LocalData, incoming: LocalData): LocalD
       .slice(0, MAX_TRACKED_REACTIONS),
   );
   return {
+    customEmoji: parseCustomEmojiLibrary([...existing.customEmoji, ...incoming.customEmoji]),
     conversations: { ...incoming.conversations, ...existing.conversations },
     contactNotes: { ...incoming.contactNotes, ...existing.contactNotes },
     reactionUsage: trimmed,
@@ -202,6 +226,12 @@ export const localSchema: VersionedSchema<LocalData> = {
           reactionUsage[emoji] = count;
       }
     }
-    return { conversations, contactNotes, reactionUsage, seeded: data.seeded === true };
+    return {
+      customEmoji: parseCustomEmojiLibrary(data.customEmoji),
+      conversations,
+      contactNotes,
+      reactionUsage,
+      seeded: data.seeded === true,
+    };
   },
 };

@@ -1,0 +1,406 @@
+--- a/build.gradle.kts
++++ b/build.gradle.kts
+@@ -10,7 +10,7 @@
+ 
+ allprojects {
+     group = "org.asamk"
+-    version = "0.14.8-snowdrop-history.1"
++    version = "0.14.8-snowdrop-history.2"
+ }
+ 
+ java {
+--- a/lib/src/main/java/org/asamk/signal/manager/Manager.java
++++ b/lib/src/main/java/org/asamk/signal/manager/Manager.java
+@@ -71,6 +71,14 @@
+ 
+ public interface Manager extends Closeable {
+ 
++    default org.asamk.signal.manager.history.HistoryStore.Page getHistoryDirectory(String archiveId, long after, int limit) throws IOException {
++        throw new IOException("This manager does not support imported history");
++    }
++
++    default org.asamk.signal.manager.history.HistoryStore.Page getHistoryChat(String archiveId, String chatId, Long before, int limit) throws IOException {
++        throw new IOException("This manager does not support imported history");
++    }
++
+     default org.asamk.signal.manager.history.HistoryStore.Page getHistory(
+             String archiveId, long after, int limit
+     ) throws IOException {
+--- a/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
++++ b/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
+@@ -181,6 +181,16 @@
+     }
+ 
+ 
++    @Override
++    public org.asamk.signal.manager.history.HistoryStore.Page getHistoryDirectory(String archiveId, long after, int limit) throws IOException {
++        return getHistoryStore().directoryPage(archiveId, after, limit, System.currentTimeMillis());
++    }
++
++    @Override
++    public org.asamk.signal.manager.history.HistoryStore.Page getHistoryChat(String archiveId, String chatId, Long before, int limit) throws IOException {
++        return getHistoryStore().chatPage(archiveId, chatId, before, limit, System.currentTimeMillis());
++    }
++
+     public org.asamk.signal.manager.history.LinkHistoryTransfer.Outcome importLinkedHistory(
+             byte[] ephemeralKey, java.nio.file.Path directory
+     ) throws IOException {
+--- a/lib/src/main/java/org/asamk/signal/manager/history/HistoryStore.java
++++ b/lib/src/main/java/org/asamk/signal/manager/history/HistoryStore.java
+@@ -37,6 +37,7 @@
+                 )
+                 """);
+             statement.executeUpdate("CREATE INDEX IF NOT EXISTS snowdrop_history_expiry ON snowdrop_history_frame(expires_at)");
++            HistoryIndex.initialize(statement);
+         }
+     }
+ 
+@@ -117,10 +118,7 @@
+         }
+         try (var connection = connections.open()) {
+             connection.setAutoCommit(false);
+-            try (var purge = connection.prepareStatement("DELETE FROM snowdrop_history_frame WHERE expires_at <= ?")) {
+-                purge.setLong(1, now);
+-                purge.executeUpdate();
+-            }
++            HistoryIndex.purge(connection, now);
+             String current = null;
+             try (var query = connection.createStatement(); var rows = query.executeQuery(
+                     "SELECT archive_id FROM snowdrop_history_meta WHERE singleton = 1")) {
+@@ -146,4 +144,36 @@
+             return new Page(current, List.copyOf(entries), cursor, more);
+         } catch (SQLException e) { throw new IOException("Cannot read history", e); }
+     }
++
++    public Page directoryPage(String archiveId, long after, int limit, long now) throws IOException {
++        if (after < 0 || (after > 0 && archiveId == null)) {
++            throw new IllegalArgumentException("Directory pagination requires an archiveId and a nonnegative cursor");
++        }
++        return indexedPage(archiveId, after, null, limit, now);
++    }
++
++    public Page chatPage(String archiveId, String chatId, Long before, int limit, long now) throws IOException {
++        if (chatId == null || !chatId.matches("[0-9]{1,20}")
++                || (before != null && (before < 0 || archiveId == null))) {
++            throw new IllegalArgumentException("Chat pagination requires a chat id, archiveId and a nonnegative cursor");
++        }
++        chatId = Long.toUnsignedString(Long.parseUnsignedLong(chatId));
++        return indexedPage(archiveId, before == null ? Long.MAX_VALUE : before, chatId, limit, now);
++    }
++
++    private Page indexedPage(String archiveId, long boundary, String chatId, int limit, long now) throws IOException {
++        if (limit < 1 || limit > 500) throw new IllegalArgumentException("History limit must be 1..500");
++        try (var connection = connections.open()) {
++            connection.setAutoCommit(false);
++            try {
++                var page = HistoryIndex.page(connection, archiveId, boundary, chatId, limit, now);
++                connection.commit();
++                return page;
++            } catch (IOException | SQLException | RuntimeException e) {
++                connection.rollback();
++                throw e;
++            }
++        } catch (SQLException e) { throw new IOException("Cannot query history", e); }
++    }
++
+ }
+--- /dev/null
++++ b/lib/src/main/java/org/asamk/signal/manager/history/HistoryIndex.java
+@@ -0,0 +1,112 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.manager.history;
++
++import org.thoughtcrime.securesms.backup.v2.proto.Backups;
++import java.io.IOException;
++import java.sql.Connection;
++import java.sql.SQLException;
++import java.sql.Statement;
++import java.util.ArrayList;
++import java.util.Collections;
++import java.util.List;
++
++/** Rebuildable query indexes. Original protobuf frames remain the source of truth. */
++final class HistoryIndex {
++    private HistoryIndex() {}
++
++    static void initialize(Statement statement) throws SQLException {
++        statement.executeUpdate("""
++            CREATE TABLE IF NOT EXISTS snowdrop_history_lookup (
++              ordinal INTEGER PRIMARY KEY, kind TEXT NOT NULL, chat_id TEXT
++            )
++            """);
++        statement.executeUpdate("CREATE INDEX IF NOT EXISTS snowdrop_history_directory ON snowdrop_history_lookup(kind, ordinal)");
++        statement.executeUpdate("CREATE INDEX IF NOT EXISTS snowdrop_history_chat ON snowdrop_history_lookup(chat_id, ordinal)");
++        statement.executeUpdate("""
++            CREATE TABLE IF NOT EXISTS snowdrop_history_lookup_meta (
++              singleton INTEGER PRIMARY KEY CHECK(singleton = 1), archive_id TEXT NOT NULL
++            )
++            """);
++    }
++
++    /** Lazy migration also handles snapshots imported by earlier patch versions. */
++    private static void ensure(Connection connection, String archiveId) throws SQLException, IOException {
++        if (archiveId == null) return;
++        try (var query = connection.createStatement();
++                var rows = query.executeQuery("SELECT archive_id FROM snowdrop_history_lookup_meta WHERE singleton = 1")) {
++            if (rows.next() && archiveId.equals(rows.getString(1))) return;
++        }
++        try (var statement = connection.createStatement()) {
++            statement.executeUpdate("DELETE FROM snowdrop_history_lookup");
++            statement.executeUpdate("DELETE FROM snowdrop_history_lookup_meta");
++        }
++        try (var query = connection.createStatement();
++                var rows = query.executeQuery("SELECT ordinal, frame FROM snowdrop_history_frame ORDER BY ordinal");
++                var insert = connection.prepareStatement("INSERT INTO snowdrop_history_lookup VALUES(?, ?, ?)")) {
++            while (rows.next()) {
++                var frame = Backups.Frame.parseFrom(rows.getBytes(2));
++                insert.setLong(1, rows.getLong(1));
++                insert.setString(2, frame.hasRecipient() || frame.hasChat() ? "directory"
++                        : frame.hasChatItem() ? "message" : "other");
++                insert.setString(3, frame.hasChatItem() ? Long.toUnsignedString(frame.getChatItem().getChatId()) : null);
++                insert.executeUpdate();
++            }
++        }
++        try (var insert = connection.prepareStatement("INSERT INTO snowdrop_history_lookup_meta VALUES(1, ?)")) {
++            insert.setString(1, archiveId);
++            insert.executeUpdate();
++        }
++    }
++
++    static void purge(Connection connection, long now) throws SQLException {
++        try (var index = connection.prepareStatement("""
++                DELETE FROM snowdrop_history_lookup WHERE ordinal IN
++                (SELECT ordinal FROM snowdrop_history_frame WHERE expires_at <= ?)
++                """)) {
++            index.setLong(1, now);
++            index.executeUpdate();
++        }
++        try (var frames = connection.prepareStatement("DELETE FROM snowdrop_history_frame WHERE expires_at <= ?")) {
++            frames.setLong(1, now);
++            frames.executeUpdate();
++        }
++    }
++
++    static HistoryStore.Page page(Connection connection, String requestedArchive, long boundary,
++            String chatId, int limit, long now) throws SQLException, IOException {
++        String current = null;
++        try (var query = connection.createStatement();
++                var rows = query.executeQuery("SELECT archive_id FROM snowdrop_history_meta WHERE singleton = 1")) {
++            if (rows.next()) current = rows.getString(1);
++        }
++        if (requestedArchive != null && !requestedArchive.equals(current)) {
++            throw new IOException("History changed; restart pagination");
++        }
++        ensure(connection, current);
++        purge(connection, now);
++        boolean chat = chatId != null;
++        String sql = "SELECT f.ordinal, f.frame FROM snowdrop_history_lookup i "
++                + "JOIN snowdrop_history_frame f ON f.ordinal = i.ordinal WHERE "
++                + (chat ? "i.chat_id = ? AND i.ordinal < ? ORDER BY i.ordinal DESC LIMIT ?"
++                        : "i.kind = 'directory' AND i.ordinal > ? ORDER BY i.ordinal LIMIT ?");
++        var entries = new ArrayList<HistoryStore.Entry>();
++        boolean more = false;
++        String cursor = Long.toString(boundary);
++        try (var query = connection.prepareStatement(sql)) {
++            int param = 1;
++            if (chat) query.setString(param++, chatId);
++            query.setLong(param++, boundary);
++            query.setInt(param, limit + 1);
++            try (var rows = query.executeQuery()) {
++                while (rows.next()) {
++                    if (entries.size() == limit) { more = true; break; }
++                    cursor = Long.toString(rows.getLong(1));
++                    entries.add(new HistoryStore.Entry(cursor, HistoryJson.fields(Backups.Frame.parseFrom(rows.getBytes(2)))));
++                }
++            }
++        }
++        // Backfill callers receive the page in archive order, but continue at its oldest cursor.
++        if (chat) Collections.reverse(entries);
++        return new HistoryStore.Page(current, List.copyOf(entries), cursor, more);
++    }
++}
+--- /dev/null
++++ b/lib/src/test/java/org/asamk/signal/manager/history/HistoryIndexTest.java
+@@ -0,0 +1,91 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.manager.history;
++
++import org.junit.jupiter.api.Test;
++import org.junit.jupiter.api.io.TempDir;
++import org.thoughtcrime.securesms.backup.v2.proto.Backups;
++import java.nio.file.Path;
++import java.sql.DriverManager;
++import static org.junit.jupiter.api.Assertions.*;
++
++class HistoryIndexTest {
++    @TempDir Path directory;
++    private HistoryStore store() throws Exception {
++        return new HistoryStore(() -> DriverManager.getConnection("jdbc:sqlite:" + directory.resolve("account.db")));
++    }
++    private String seed(HistoryStore store) throws Exception {
++        return store.replace(v -> {
++            v.info(Backups.BackupInfo.newBuilder().setVersion(1).build());
++            v.frame(Backups.Frame.newBuilder().setAccount(Backups.AccountData.getDefaultInstance()).build());
++            v.frame(Backups.Frame.newBuilder().setRecipient(Backups.Recipient.newBuilder().setId(1)
++                    .setSelf(Backups.Self.getDefaultInstance())).build());
++            for (long chat = 2; chat <= 3; chat++) {
++                v.frame(Backups.Frame.newBuilder().setChat(Backups.Chat.newBuilder().setId(chat).setRecipientId(1)).build());
++            }
++            // Interleaved conversations and sender-clock skew: archive order must survive.
++            for (long[] item : new long[][] {{2, 20}, {3, 30}, {2, 10}, {2, 40}}) {
++                v.frame(Backups.Frame.newBuilder().setChatItem(Backups.ChatItem.newBuilder()
++                        .setChatId(item[0]).setAuthorId(1).setDateSent(item[1])
++                        .setIncoming(Backups.ChatItem.IncomingMessageDetails.getDefaultInstance())
++                        .setStandardMessage(Backups.StandardMessage.newBuilder()
++                                .setText(Backups.Text.newBuilder().setBody("message " + item[1])))).build());
++            }
++        }, 1000);
++    }
++    @Test void pagesDirectoryWithoutReturningMessageBodies() throws Exception {
++        var store = store();
++        var id = seed(store);
++        var first = store.directoryPage(null, 0, 2, 1000);
++        assertEquals(id, first.archiveId());
++        assertEquals(2, first.entries().size());
++        assertTrue(first.hasMore());
++        var second = store().directoryPage(id, Long.parseLong(first.nextCursor()), 2, 1000);
++        assertEquals(1, second.entries().size());
++        assertFalse(second.hasMore());
++        assertTrue(second.entries().getFirst().frame().containsKey("chat"));
++    }
++    @Test void pagesOneChatInArchiveOrderWithoutLosingClockSkewedMessages() throws Exception {
++        var store = store();
++        var id = seed(store);
++        var newest = store.chatPage(id, "2", null, 2, 1000);
++        assertEquals(2, newest.entries().size());
++        assertTrue(newest.hasMore());
++        assertTrue(newest.entries().getFirst().frame().toString().contains("message 10"));
++        assertTrue(newest.entries().getLast().frame().toString().contains("message 40"));
++        var older = store.chatPage(id, "2", Long.parseLong(newest.nextCursor()), 2, 1000);
++        assertEquals(1, older.entries().size());
++        assertTrue(older.entries().getFirst().frame().toString().contains("message 20"));
++        assertFalse(older.hasMore());
++    }
++    @Test void replacesIndexWithSnapshotAndRejectsStaleCursors() throws Exception {
++        var store = store();
++        var old = seed(store);
++        store.directoryPage(old, 0, 10, 1000);
++        var current = seed(store);
++        assertNotEquals(old, current);
++        assertThrows(java.io.IOException.class, () -> store.directoryPage(old, 0, 10, 1000));
++        assertEquals(3, store.directoryPage(current, 0, 10, 1000).entries().size());
++        assertThrows(IllegalArgumentException.class, () -> store.chatPage(null, "2", 3L, 10, 1000));
++    }
++    @Test void purgesExpiredFramesAndTheirIndexesTogether() throws Exception {
++        var store = store();
++        var id = store.replace(v -> {
++            v.info(Backups.BackupInfo.newBuilder().setVersion(1).build());
++            v.frame(Backups.Frame.newBuilder().setRecipient(Backups.Recipient.newBuilder().setId(1)
++                    .setSelf(Backups.Self.getDefaultInstance())).build());
++            v.frame(Backups.Frame.newBuilder().setChat(Backups.Chat.newBuilder().setId(2).setRecipientId(1)).build());
++            v.frame(Backups.Frame.newBuilder().setChatItem(Backups.ChatItem.newBuilder()
++                    .setChatId(2).setAuthorId(1).setDateSent(10).setExpireStartDate(1000).setExpiresInMs(100)
++                    .setStandardMessage(Backups.StandardMessage.getDefaultInstance())).build());
++        }, 1000);
++        assertEquals(1, store.chatPage(id, "2", null, 10, 1000).entries().size());
++        assertEquals(0, store.chatPage(id, "2", null, 10, 1100).entries().size());
++        try (var connection = DriverManager.getConnection("jdbc:sqlite:" + directory.resolve("account.db"));
++                var query = connection.createStatement();
++                var rows = query.executeQuery("SELECT COUNT(*) FROM snowdrop_history_lookup WHERE kind = 'message'")) {
++            assertTrue(rows.next());
++            assertEquals(0, rows.getInt(1));
++        }
++    }
++
++}
+--- a/src/main/java/org/asamk/signal/commands/GetHistoryCommand.java
++++ b/src/main/java/org/asamk/signal/commands/GetHistoryCommand.java
+@@ -13,12 +13,27 @@
+ import java.io.IOException;
+ 
+ public class GetHistoryCommand implements JsonRpcLocalCommand {
+-    @Override public String getName() { return "getHistory"; }
++    public enum Kind { ARCHIVE, DIRECTORY, CHAT }
++    private final Kind kind;
++    public GetHistoryCommand() { this(Kind.ARCHIVE); }
++    public GetHistoryCommand(Kind kind) { this.kind = kind; }
++    @Override public String getName() {
++        return switch (kind) {
++            case ARCHIVE -> "getHistory";
++            case DIRECTORY -> "getHistoryDirectory";
++            case CHAT -> "getHistoryChat";
++        };
++    }
+ 
+     @Override public void attachToSubparser(Subparser parser) {
+         parser.help("Retrieve a page of imported phone history in backup-frame order.");
+         parser.addArgument("--archive-id").help("Snapshot id returned by the first page.");
+-        parser.addArgument("--after").setDefault("0").help("Exclusive cursor returned by the previous page.");
++        if (kind == Kind.CHAT) {
++            parser.addArgument("--chat-id").required(true).help("Archive-local chat id from getHistoryDirectory.");
++            parser.addArgument("--before").help("Exclusive cursor from the previous chat page; omit for the newest page.");
++        } else {
++            parser.addArgument("--after").setDefault("0").help("Exclusive cursor returned by the previous page.");
++        }
+         parser.addArgument("--limit").setDefault("100").help("Maximum frames to return (1..500).");
+     }
+ 
+@@ -27,9 +42,16 @@
+         try {
+             Object after = ns.get("after");
+             Object limit = ns.get("limit");
+-            var page = manager.getHistory(ns.getString("archive-id"),
+-                    after == null ? 0 : Long.parseLong(after.toString()),
+-                    limit == null ? 100 : Integer.parseInt(limit.toString()));
++            var archiveId = ns.getString("archive-id");
++            var count = limit == null ? 100 : Integer.parseInt(limit.toString());
++            var cursor = after == null ? 0 : Long.parseLong(after.toString());
++            Object before = ns.get("before");
++            var page = switch (kind) {
++                case ARCHIVE -> manager.getHistory(archiveId, cursor, count);
++                case DIRECTORY -> manager.getHistoryDirectory(archiveId, cursor, count);
++                case CHAT -> manager.getHistoryChat(archiveId, ns.getString("chat-id"),
++                        before == null ? null : Long.parseLong(before.toString()), count);
++            };
+             switch (output) {
+                 case JsonWriter writer -> writer.write(page);
+                 case PlainTextWriter writer -> {
+--- a/src/main/java/org/asamk/signal/commands/Commands.java
++++ b/src/main/java/org/asamk/signal/commands/Commands.java
+@@ -30,6 +30,8 @@
+         addCommand(new ListAccountsCommand());
+         addCommand(new ListContactsCommand());
+         addCommand(new GetHistoryCommand());
++        addCommand(new GetHistoryCommand(GetHistoryCommand.Kind.DIRECTORY));
++        addCommand(new GetHistoryCommand(GetHistoryCommand.Kind.CHAT));
+         addCommand(new ListDevicesCommand());
+         addCommand(new ListGroupsCommand());
+         addCommand(new ListIdentitiesCommand());
+--- a/src/test/java/org/asamk/signal/commands/GetHistoryCommandTest.java
++++ b/src/test/java/org/asamk/signal/commands/GetHistoryCommandTest.java
+@@ -47,4 +47,25 @@
+                 Map.of(), manager, output::set));
+         assertNull(output.get());
+     }
++    @Test void routesDirectoryAndChatPaginationWithoutRoundingCursors() throws Exception {
++        var page = new HistoryStore.Page("snapshot", List.of(), "0", false);
++        var output = new AtomicReference<Object>();
++        var directory = manager((proxy, method, args) -> {
++            assertEquals("getHistoryDirectory", method.getName());
++            assertArrayEquals(new Object[]{"snapshot", 3L, 100}, args);
++            return page;
++        });
++        new GetHistoryCommand(GetHistoryCommand.Kind.DIRECTORY).handleCommand(
++                Map.of("archiveId", "snapshot", "after", "3"), directory, output::set);
++        var chat = manager((proxy, method, args) -> {
++            assertEquals("getHistoryChat", method.getName());
++            assertArrayEquals(new Object[]{"snapshot", "18446744073709551615", 9007199254740993L, 30}, args);
++            return page;
++        });
++        new GetHistoryCommand(GetHistoryCommand.Kind.CHAT).handleCommand(
++                Map.of("archiveId", "snapshot", "chatId", "18446744073709551615", "before", "9007199254740993", "limit", 30),
++                chat, output::set);
++        assertEquals(page, output.get());
++    }
++
+ }

@@ -27,3 +27,5 @@ export {
 } from './desktop';
 export { getLastIpcCommand } from './ipc';
 export type { LastIpcCommand, TauriIpc } from './ipc';
+
+export { readClipboardFiles } from './clipboard';

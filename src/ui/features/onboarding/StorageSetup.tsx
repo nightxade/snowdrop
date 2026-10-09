@@ -55,7 +55,8 @@ function ProtectYourData({
   const [passphrase, setPassphrase] = useState('');
   const [confirm, setConfirm] = useState('');
   const [touched, setTouched] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [settingUp, setSettingUp] = useState<'keyring' | 'passphrase' | null>(null);
+  const busy = settingUp !== null;
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -78,7 +79,7 @@ function ProtectYourData({
           : null;
 
   const runSetup = async (mode: 'keyring' | 'passphrase', secret: string | null) => {
-    setBusy(true);
+    setSettingUp(mode);
     setError(null);
     try {
       const result = await admin.setup(mode, secret);
@@ -89,7 +90,7 @@ function ProtectYourData({
     } catch (e) {
       setError(friendlyErrorMessage(errorKind(e), e instanceof Error ? e.message : String(e)));
     } finally {
-      setBusy(false);
+      setSettingUp(null);
     }
   };
 
@@ -109,8 +110,10 @@ function ProtectYourData({
         autoFocus={!keyring?.available}
         value={passphrase}
         error={
-          touched && passphrase.length > 0 && passphrase.length < 8
-            ? 'Use at least 8 characters.'
+          touched && passphrase.length < 8
+            ? passphrase.length === 0
+              ? 'Enter a passphrase.'
+              : 'Use at least 8 characters.'
             : undefined
         }
         onChange={(e) => {
@@ -127,8 +130,10 @@ function ProtectYourData({
         autoComplete="new-password"
         value={confirm}
         error={
-          touched && confirm.length > 0 && confirm !== passphrase
-            ? "That doesn't match."
+          touched && passphrase.length >= 8 && confirm !== passphrase
+            ? confirm.length === 0
+              ? 'Confirm your passphrase.'
+              : "That doesn't match."
             : undefined
         }
         onChange={(e) => {
@@ -152,7 +157,7 @@ function ProtectYourData({
       </p>
       <div className={setupStyles.actions}>
         <Button type="submit" variant="primary" disabled={busy || (touched && !!passphraseError)}>
-          Continue
+          {busy ? 'Setting up…' : 'Continue'}
         </Button>
       </div>
     </form>
@@ -178,6 +183,13 @@ function ProtectYourData({
           {error}
         </p>
       )}
+      {busy && (
+        <p className={styles.hint} role="status">
+          {settingUp === 'keyring'
+            ? 'Setting up encrypted storage. Check for a keyring unlock prompt.'
+            : 'Setting up encrypted storage…'}
+        </p>
+      )}
       {keyring === null ? (
         <p className={styles.hint}>Checking for a keyring…</p>
       ) : keyring.available ? (
@@ -199,7 +211,7 @@ function ProtectYourData({
                   void runSetup('keyring', null);
                 }}
               >
-                Continue
+                {busy ? 'Setting up…' : 'Continue'}
               </Button>
             </div>
           </div>

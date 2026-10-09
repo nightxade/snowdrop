@@ -33,30 +33,13 @@ export const Attachments = memo(function Attachments({
   // Mounted on first open, then kept: unmounting an open Radix dialog can leave the page inert.
   const [viewerMounted, setViewerMounted] = useState(false);
   if (viewer !== null && !viewerMounted) setViewerMounted(true);
-  const [urls, setUrls] = useState<Record<string, string>>({});
-
-  const items: LightboxItem[] = media.flatMap((a) => {
-    const src = a.url ?? urls[a.id];
-    if (!src) return [];
-    return [
-      {
-        src,
-        kind: attachmentKind(a) === 'video' ? ('video' as const) : ('image' as const),
-        alt: a.fileName ?? 'Attachment',
-        fileName: a.fileName,
-        downloadHref: safeHref(src),
-        width: a.width,
-        height: a.height,
-      },
-    ];
-  });
-  const open = (a: Attachment, url: string) => {
-    if (!a.url) setUrls((u) => (u[a.id] === url ? u : { ...u, [a.id]: url }));
-    // Position among the media the viewer can show (those with a URL, now including this one).
-    const index = media
-      .filter((m) => m.id === a.id || m.url !== undefined || urls[m.id] !== undefined)
-      .indexOf(a);
-    setViewer(Math.max(0, index));
+  const open = (a: Attachment) => {
+    setViewer(
+      Math.max(
+        0,
+        media.findIndex((item) => item.id === a.id),
+      ),
+    );
   };
 
   const shown = media.slice(0, GRID_MAX);
@@ -89,11 +72,12 @@ export const Attachments = memo(function Attachments({
           <FileCard key={a.id} conversationId={conversationId} attachment={a} pending={pending} />
         ),
       )}
-      {items.length > 0 && viewerMounted && (
+      {media.length > 0 && viewerMounted && (
         <Suspense fallback={null}>
-          <Lightbox
-            items={items}
-            index={Math.min(viewer ?? 0, items.length - 1)}
+          <AttachmentViewer
+            conversationId={conversationId}
+            media={media}
+            index={Math.min(viewer ?? 0, media.length - 1)}
             onIndexChange={setViewer}
             open={viewer !== null}
             onOpenChange={(o) => {
@@ -107,6 +91,48 @@ export const Attachments = memo(function Attachments({
   );
 });
 
+/** Resolve the selected item independently of thumbnail and blob-cache lifetimes. */
+function AttachmentViewer({
+  conversationId,
+  media,
+  index,
+  ...props
+}: {
+  conversationId: ConversationId;
+  media: readonly Attachment[];
+  index: number;
+  open: boolean;
+  onIndexChange: (index: number) => void;
+  onOpenChange: (open: boolean) => void;
+  caption?: string | undefined;
+}) {
+  const selected = media[index];
+  if (!selected) throw new Error('Attachment viewer index is out of range');
+  const state = useAttachmentUrl(conversationId, selected);
+  const items: LightboxItem[] = media.map((a, i) => {
+    const src = i === index && state.status === 'ready' ? state.url : '';
+    return {
+      src,
+      kind: attachmentKind(a) === 'video' ? 'video' : 'image',
+      alt: a.fileName ?? 'Attachment',
+      fileName: a.fileName,
+      downloadHref: src ? safeHref(src) : undefined,
+      width: a.width,
+      height: a.height,
+    };
+  });
+  return (
+    <Lightbox
+      {...props}
+      items={items}
+      index={index}
+      mediaStatus={state.status}
+      onMediaError={state.onMediaError}
+      onRetry={state.retry}
+    />
+  );
+}
+
 function singleStyle(a: Attachment): CSSProperties {
   const box = fitMedia(a);
   return { width: box.width, aspectRatio: `${box.width} / ${box.height}` };
@@ -117,7 +143,7 @@ interface TileProps {
   attachment: Attachment;
   pending: boolean;
   more: number;
-  onOpen: (a: Attachment, url: string) => void;
+  onOpen: (a: Attachment) => void;
 }
 
 function MediaTile({ conversationId, attachment, pending, more, onOpen }: TileProps) {
@@ -151,7 +177,7 @@ function MediaTile({ conversationId, attachment, pending, more, onOpen }: TilePr
       data-open-attachment
       aria-label={`Open ${name}${more > 0 ? `, and ${more} more` : ''}`}
       onClick={() => {
-        onOpen(attachment, state.url);
+        onOpen(attachment);
       }}
     >
       {video ? (

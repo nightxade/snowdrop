@@ -337,6 +337,7 @@ describe('external links', () => {
 
 describe('native notifications', () => {
   it('asks for permission once, then shows notifications through the plugin', async () => {
+    ipc.invoke.mockResolvedValue(false); // Platform without the Linux replacement bridge.
     ipc.notifications.granted = false;
     ipc.notifications.sent.length = 0;
     const api = await tauriNotificationApi();
@@ -344,6 +345,8 @@ describe('native notifications', () => {
     expect(api.show({ title: 'Ada', body: 'hi', tag: 'c1' }, () => undefined)).toBeNull();
     expect(await api.request()).toBe('granted');
     expect(api.show({ title: 'Ada', body: 'hi', tag: 'c1' }, () => undefined)).not.toBeNull();
-    expect(ipc.notifications.sent).toEqual([{ title: 'Ada', body: 'hi' }]);
+    await vi.waitFor(() => {
+      expect(ipc.notifications.sent).toEqual([{ title: 'Ada', body: 'hi' }]);
+    });
   });
 });

@@ -12,8 +12,9 @@
  *   emitted with the event's cursor; the resume position is persisted only
  *   when the sync engine acknowledges it (i.e. after the repository write),
  *   so a reload can cause re-delivery but never loss.
- * - signal-cli keeps no message history and has no DM list; the repository
- *   owns history, and `DirectPeers` remembers who we've talked to.
+ * - The optional Snowdrop history patch supplies phone history; stock
+ *   signal-cli has none. The repository retains received messages, and
+ *   `DirectPeers` remembers who we've talked to.
  * - Multi-account daemons: the account is sent as the `account` param and
  *   with the event subscription. Single-account daemons (`-a +X daemon`) have
  *   no `listAccounts`; we then send no account param and rely on the
@@ -46,6 +47,10 @@ import type {
   ChatBackend,
   ConversationPatch,
   EditInput,
+  HistoryPage,
+  HistoryQuery,
+  HistoryReadRef,
+  HistoryReadState,
   LinkFlow,
   MessageRef,
   PinInput,
@@ -57,6 +62,8 @@ import { AttachmentResolver, encodeOutgoing, type Thumbnailer } from './attachme
 import { Directory } from './directory';
 import { describeError, SignalCliError } from './errors';
 import { GroupChangeTracker } from './groupChanges';
+import { HistoryArchive } from './history/archive';
+import { timestamp } from './history/wire';
 import { isUuid, SelfIdentity } from './identity';
 import { systemMessage } from './normalise/content';
 import { describeGroupChange, timerSentence, toDirectConversation } from './normalise/directory';
@@ -112,8 +119,8 @@ export interface SignalCliBackendOptions {
   thumbnailer?: Thumbnailer;
 }
 
-/** finishLink blocks until the phone scans the code. */
-const LINK_TIMEOUT_MS = 10 * 60_000;
+/** Allow time to scan the code and transfer history after provisioning. */
+const LINK_TIMEOUT_MS = 15 * 60_000;
 /** Quotes of messages sent this session, for edits whose caller omits them. */
 const SENT_QUOTES_MAX = 500;
 
@@ -144,6 +151,8 @@ export class SignalCliBackend implements ChatBackend {
   private readonly scheduler: Scheduler;
   private readonly attachments: AttachmentResolver;
   private readonly directory: Directory;
+  private history: Promise<HistoryArchive | null> | null = null;
+  private historyAbort = new AbortController();
   private readonly groupChanges = new GroupChangeTracker();
   private readonly sentQuotes = new Map<string, Quote>();
   private readonly debugLog: (message: string, detail?: unknown) => void;
@@ -222,7 +231,15 @@ export class SignalCliBackend implements ChatBackend {
         }
         this.preferredAccount = accountId;
         this.options.onAccountSelected?.(accountId);
-        return { accountId };
+        return {
+          accountId,
+          ...(result.historyTransfer === 'FAILED'
+            ? {
+                historyWarning:
+                  'Your device is linked, but message history could not be imported. You can use Snowdrop now. Retrying history transfer requires unlinking this device on your phone and linking it again.',
+              }
+            : {}),
+        };
       },
     };
   }
@@ -318,6 +335,8 @@ export class SignalCliBackend implements ChatBackend {
   async disconnect(): Promise<void> {
     await this.connecting?.catch(() => undefined);
     this.session++;
+    this.historyAbort.abort();
+    this.history = null;
     await this.closeStream();
     this.attachments.clear();
     this.groupChanges.clear();
@@ -371,6 +390,9 @@ export class SignalCliBackend implements ChatBackend {
     this.identity = new SelfIdentity(id, [account.aci, account.number]);
     this.peers = new DirectPeers(this.options.storage, id);
     this.directory.reset();
+    this.historyAbort.abort();
+    this.historyAbort = new AbortController();
+    this.history = null;
     this.groupChanges.clear();
     if (id !== this.preferredAccount) this.options.onAccountSelected?.(id);
     this.preferredAccount = id;
@@ -746,7 +768,15 @@ export class SignalCliBackend implements ChatBackend {
   async listContacts(): Promise<Contact[]> {
     this.assertAccount();
     const contacts = await this.directory.loadContacts();
-    return contacts.filter((c) => c.id !== this.selfId);
+    const history = await this.loadHistory();
+    return [
+      ...new Map(
+        [...(history?.directory.contacts() ?? []), ...contacts].map((contact) => [
+          contact.id,
+          contact,
+        ]),
+      ).values(),
+    ].filter((contact) => contact.id !== this.selfId);
   }
 
   async listConversations(): Promise<Conversation[]> {
@@ -768,7 +798,80 @@ export class SignalCliBackend implements ChatBackend {
     for (const [peer, at] of this.peers?.entries() ?? []) {
       dms.set(peer, this.directConversation(peer, at));
     }
-    return [...groups, ...dms.values()];
+    const history = await this.loadHistory();
+    return [
+      ...new Map(
+        [...(history?.directory.conversations() ?? []), ...groups, ...dms.values()].map(
+          (conversation) => [conversation.id, conversation],
+        ),
+      ).values(),
+    ];
+  }
+
+  private loadHistory(): Promise<HistoryArchive | null> {
+    if (this.history) return this.history;
+    const signal = this.historyAbort.signal;
+    const pending = (async () => {
+      await this.directory.loadContacts();
+      if (signal.aborted) throw new SignalCliError('aborted', 'History session ended');
+      const identity = this.identity;
+      const peers = this.peers;
+      return HistoryArchive.open(
+        this.rpc,
+        identity.selfId,
+        (id) => identity.resolve(peers?.resolve(id) ?? id),
+        signal,
+      );
+    })();
+    this.history = pending;
+    void pending.catch(() => {
+      if (this.history === pending) this.history = null;
+    });
+    return pending;
+  }
+
+  async fetchHistory(conversationId: ConversationId, query: HistoryQuery): Promise<HistoryPage> {
+    this.assertAccount();
+    const archive = await this.loadHistory();
+    return archive
+      ? archive.fetchHistory(conversationId, query, this.clock.now())
+      : { messages: [], hasMoreBefore: false };
+  }
+
+  async readHistory(messages: readonly HistoryReadRef[]): Promise<HistoryReadState[]> {
+    return this.historyReadStates(messages, true);
+  }
+
+  async getHistoryReadState(messages: readonly HistoryReadRef[]): Promise<HistoryReadState[]> {
+    return this.historyReadStates(messages, false);
+  }
+
+  private async historyReadStates(
+    messages: readonly HistoryReadRef[],
+    markRead: boolean,
+  ): Promise<HistoryReadState[]> {
+    this.assertAccount();
+    const archive = await this.loadHistory();
+    if (!archive) throw new SignalCliError('io', 'Imported history is unavailable');
+    const prefix = `${archive.archiveId}:`;
+    const references = new Map(
+      messages.map((message) => {
+        if (!message.cursor.startsWith(prefix))
+          throw new SignalCliError('io', 'History archive changed');
+        return [message.cursor.slice(prefix.length), message.id];
+      }),
+    );
+    const states = await archive.read([...references.keys()], markRead);
+    return states.map((state) => {
+      const id = references.get(state.cursor);
+      if (!id)
+        throw new SignalCliError('invalid-response', 'History read returned an unknown cursor');
+      return {
+        id,
+        ...(state.expiresAt === undefined ? {} : { expiresAt: timestamp(state.expiresAt) }),
+        unavailable: state.unavailable,
+      };
+    });
   }
 
   /** Eligible for a DM to be listed without local activity (see listConversations). */

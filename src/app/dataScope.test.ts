@@ -69,6 +69,7 @@ describe('migrateLegacyScope', () => {
   it('moves unseeded legacy data to the active scope', () => {
     const storage = createMemoryStorage();
     saveVersioned(storage, localSchema, {
+      customEmoji: [],
       conversations: {},
       contactNotes: { alice: 'met at work' },
       reactionUsage: {},
@@ -85,12 +86,14 @@ describe('migrateLegacyScope', () => {
   it('merges into existing data already at the target scope instead of overwriting it', () => {
     const storage = createMemoryStorage();
     saveVersioned(storage, scopedSchema(localSchema, 'demo'), {
+      customEmoji: [],
       conversations: {},
       contactNotes: { alice: 'already here' },
       reactionUsage: {},
       seeded: true,
     });
     saveVersioned(storage, localSchema, {
+      customEmoji: [],
       conversations: {},
       contactNotes: { alice: 'legacy value', bob: 'legacy only' },
       reactionUsage: {},
@@ -166,6 +169,7 @@ describe('rebindScopedStore', () => {
   it('folds in-memory changes into the new scope’s existing data, which wins on conflicts', () => {
     const storage = createMemoryStorage();
     saveVersioned(storage, scopedSchema(localSchema, 'signal-cli:acc1'), {
+      customEmoji: [],
       conversations: {},
       contactNotes: { alice: 'known already' },
       reactionUsage: {},
@@ -205,4 +209,28 @@ describe('rebindScopedStore', () => {
     const persisted = loadVersioned(storage, scopedSchema(spacesSchema, 'signal-cli:acc1'));
     expect(Object.values(persisted.spaces).map((s) => s.name)).toEqual(['After rebind']);
   });
+});
+
+it('keeps personal emoji separate across accounts and demo storage', () => {
+  const storage = createMemoryStorage();
+  const local = createLocalStore();
+  local.getState().saveCustomEmoji({ name: 'wave', dataUrl: 'data:image/png;base64,aGVsbG8=' });
+  saveVersioned(
+    storage,
+    scopedSchema(localSchema, scopeFor('mock', null)),
+    selectLocalData(local.getState()),
+  );
+  saveVersioned(
+    storage,
+    scopedSchema(localSchema, scopeFor('signal-cli', '+15550000001')),
+    selectLocalData(local.getState()),
+  );
+  expect(
+    loadVersioned(storage, scopedSchema(localSchema, scopeFor('signal-cli', '+15550000002')))
+      .customEmoji,
+  ).toEqual([]);
+  expect(
+    loadVersioned(storage, scopedSchema(localSchema, scopeFor('signal-cli', '+15550000001')))
+      .customEmoji,
+  ).toHaveLength(1);
 });

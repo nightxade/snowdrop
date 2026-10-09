@@ -1,0 +1,112 @@
+diff --git a/build.gradle.kts b/build.gradle.kts
+--- a/build.gradle.kts
++++ b/build.gradle.kts
+@@ -10,7 +10,7 @@
+ 
+ allprojects {
+     group = "org.asamk"
+-    version = "0.14.8-snowdrop-history.7"
++    version = "0.14.8-snowdrop-history.8"
+ }
+ 
+ java {
+diff --git a/lib/src/main/java/org/asamk/signal/manager/ProvisioningManager.java b/lib/src/main/java/org/asamk/signal/manager/ProvisioningManager.java
+--- a/lib/src/main/java/org/asamk/signal/manager/ProvisioningManager.java
++++ b/lib/src/main/java/org/asamk/signal/manager/ProvisioningManager.java
+@@ -8,6 +8,9 @@
+ 
+ public interface ProvisioningManager {
+ 
++    /** Outcome of the optional history transfer after linking. */
++    default String getHistoryTransferStatus() { return "UNAVAILABLE"; }
++
+     URI getDeviceLinkUri() throws TimeoutException, IOException;
+ 
+     String finishDeviceLink(String deviceName) throws IOException, TimeoutException, UserAlreadyExistsException;
+diff --git a/lib/src/main/java/org/asamk/signal/manager/internal/ProvisioningManagerImpl.java b/lib/src/main/java/org/asamk/signal/manager/internal/ProvisioningManagerImpl.java
+--- a/lib/src/main/java/org/asamk/signal/manager/internal/ProvisioningManagerImpl.java
++++ b/lib/src/main/java/org/asamk/signal/manager/internal/ProvisioningManagerImpl.java
+@@ -79,6 +79,11 @@
+     private final Consumer<Manager> newManagerListener;
+     private final AccountsStore accountsStore;
+ 
++    private String historyTransferStatus = "UNAVAILABLE";
++
++    @Override
++    public String getHistoryTransferStatus() { return historyTransferStatus; }
++
+     private final String password;
+     private final CompletableFuture<String> urlFuture = new CompletableFuture<>();
+     private final CompletableFuture<SecondaryProvisioningCipher.ProvisioningDecryptResult<ProvisionMessage>> messageFuture = new CompletableFuture<>();
+@@ -268,8 +273,10 @@
+                     logger.info("Waiting for message history from the phone");
+                     try {
+                         var outcome = m.importLinkedHistory(msg.ephemeralBackupKey.toByteArray(), pathConfig.dataPath().toPath());
++                        historyTransferStatus = outcome.name();
+                         logger.info("Phone history transfer: {}", outcome);
+                     } catch (IOException e) {
++                        historyTransferStatus = "FAILED";
+                         // Linking is already committed. Keep the usable account and make
+                         // the separate history failure explicit instead of breaking linking.
+                         logger.error("Device linked, but history import failed. A fresh link is required to retry history transfer.", e);
+diff --git a/src/main/java/org/asamk/signal/commands/FinishLinkCommand.java b/src/main/java/org/asamk/signal/commands/FinishLinkCommand.java
+--- a/src/main/java/org/asamk/signal/commands/FinishLinkCommand.java
++++ b/src/main/java/org/asamk/signal/commands/FinishLinkCommand.java
+@@ -73,10 +73,10 @@
+                     + "\" before trying again.");
+         }
+ 
+-        jsonWriter.write(new JsonFinishLink(number));
++        jsonWriter.write(new JsonFinishLink(number, provisioningManager.getHistoryTransferStatus()));
+     }
+ 
+     public record FinishLinkParams(String deviceLinkUri, String deviceName) {}
+ 
+-    private record JsonFinishLink(String number) {}
++    private record JsonFinishLink(String number, String historyTransfer) {}
+ }
+diff --git a/src/test/java/org/asamk/signal/commands/FinishLinkHistoryCommandTest.java b/src/test/java/org/asamk/signal/commands/FinishLinkHistoryCommandTest.java
+new file mode 100644
+--- /dev/null
++++ b/src/test/java/org/asamk/signal/commands/FinishLinkHistoryCommandTest.java
+@@ -0,0 +1,40 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.commands;
++
++import org.asamk.signal.manager.MultiAccountManager;
++import org.asamk.signal.manager.ProvisioningManager;
++import org.junit.jupiter.api.Test;
++import java.lang.reflect.Proxy;
++import java.util.concurrent.atomic.AtomicReference;
++import static org.junit.jupiter.api.Assertions.*;
++
++class FinishLinkHistoryCommandTest {
++    @Test void returnsLinkedAccountAlongsideHistoryOutcome() throws Exception {
++        for (var status : new String[]{"IMPORTED", "DECLINED", "UNAVAILABLE", "FAILED"}) {
++            var provisioner = (ProvisioningManager) Proxy.newProxyInstance(
++                    ProvisioningManager.class.getClassLoader(), new Class<?>[]{ProvisioningManager.class},
++                    (proxy, method, args) -> switch (method.getName()) {
++                        case "finishDeviceLink" -> { assertEquals("Snowdrop", args[0]); yield "+15550000001"; }
++                        case "getHistoryTransferStatus" -> status;
++                        default -> throw new AssertionError(method.getName());
++                    });
++            var manager = (MultiAccountManager) Proxy.newProxyInstance(
++                    MultiAccountManager.class.getClassLoader(), new Class<?>[]{MultiAccountManager.class},
++                    (proxy, method, args) -> {
++                        assertEquals("getProvisioningManagerFor", method.getName());
++                        return provisioner;
++                    });
++            var output = new AtomicReference<Object>();
++            new FinishLinkCommand().handleCommand(
++                    new FinishLinkCommand.FinishLinkParams("sgnl://linkdevice?uuid=test", "Snowdrop"),
++                    manager, output::set);
++            var response = output.get();
++            var number = response.getClass().getDeclaredMethod("number");
++            var history = response.getClass().getDeclaredMethod("historyTransfer");
++            number.setAccessible(true);
++            history.setAccessible(true);
++            assertEquals("+15550000001", number.invoke(response));
++            assertEquals(status, history.invoke(response));
++        }
++    }
++}

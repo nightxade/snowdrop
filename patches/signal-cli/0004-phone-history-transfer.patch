@@ -1,0 +1,295 @@
+--- a/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
++++ b/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
+@@ -181,6 +181,43 @@
+     }
+ 
+ 
++    public org.asamk.signal.manager.history.LinkHistoryTransfer.Outcome importLinkedHistory(
++            byte[] ephemeralKey, java.nio.file.Path directory
++    ) throws IOException {
++        try {
++            final var key = new org.signal.core.models.backup.MessageBackupKey(ephemeralKey);
++            final var secrets = key.deriveBackupSecrets(account.getAci(), null);
++            try {
++                final var store = getHistoryStore();
++                return new org.asamk.signal.manager.history.LinkHistoryTransfer().run(
++                        new org.asamk.signal.manager.history.LinkHistoryTransfer.Client() {
++                            @Override public org.asamk.signal.manager.history.LinkHistoryTransfer.Reply poll() throws IOException {
++                                var request = new org.signal.network.websocket.WebSocketRequestMessage.Builder()
++                                        .id(new java.security.SecureRandom().nextLong())
++                                        .verb("GET").path("/v1/devices/transfer_archive?timeout=5").build();
++                                try {
++                                    var response = dependencies.getAuthenticatedSignalWebSocket().request(request)
++                                            .timeout(15, java.util.concurrent.TimeUnit.SECONDS).blockingGet();
++                                    return new org.asamk.signal.manager.history.LinkHistoryTransfer.Reply(
++                                            response.getStatus(), response.getBody());
++                                } catch (RuntimeException e) { throw new IOException("History transfer connection failed", e); }
++                            }
++                            @Override public void download(int cdn, String cdnKey, java.nio.file.Path target) throws IOException {
++                                handleResponseException(dependencies.getMessageReceiver().retrieveLinkAndSyncBackup(
++                                        cdn, cdnKey, target.toFile(), null));
++                            }
++                        },
++                        archive -> store.importArchive(archive, secrets.getAesKey(), secrets.getMacKey(), System.currentTimeMillis()),
++                        directory);
++            } finally {
++                java.util.Arrays.fill(secrets.getAesKey(), (byte) 0);
++                java.util.Arrays.fill(secrets.getMacKey(), (byte) 0);
++            }
++        } finally {
++            java.util.Arrays.fill(ephemeralKey, (byte) 0);
++        }
++    }
++
+     private static final Logger logger = LoggerFactory.getLogger(ManagerImpl.class);
+ 
+     private SignalAccount account;
+--- a/lib/src/main/java/org/asamk/signal/manager/internal/ProvisioningManagerImpl.java
++++ b/lib/src/main/java/org/asamk/signal/manager/internal/ProvisioningManagerImpl.java
+@@ -100,7 +100,7 @@
+         final IdentityKeyPair tempIdentityKey = KeyUtils.generateIdentityKeyPair();
+         password = KeyUtils.createPassword();
+ 
+-        socketHandle = ProvisioningSocket.Companion.start(new ProvisioningSocket.Mode.Link(false),
++        socketHandle = ProvisioningSocket.Companion.start(new ProvisioningSocket.Mode.Link(true),
+                 tempIdentityKey,
+                 serviceEnvironmentConfig.signalServiceConfiguration(),
+                 (id, t) -> {
+@@ -264,6 +264,18 @@
+                     logger.error("Failed to refresh pre keys.", e);
+                 }
+ 
++                if (msg.ephemeralBackupKey != null) {
++                    logger.info("Waiting for message history from the phone");
++                    try {
++                        var outcome = m.importLinkedHistory(msg.ephemeralBackupKey.toByteArray(), pathConfig.dataPath().toPath());
++                        logger.info("Phone history transfer: {}", outcome);
++                    } catch (IOException e) {
++                        // Linking is already committed. Keep the usable account and make
++                        // the separate history failure explicit instead of breaking linking.
++                        logger.error("Device linked, but history import failed. A fresh link is required to retry history transfer.", e);
++                    }
++                }
++
+                 logger.debug("Requesting sync data");
+                 try {
+                     m.requestAllSyncData();
+--- /dev/null
++++ b/lib/src/main/java/org/asamk/signal/manager/history/LinkHistoryTransfer.java
+@@ -0,0 +1,74 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.manager.history;
++
++import com.fasterxml.jackson.databind.ObjectMapper;
++import java.io.IOException;
++import java.nio.file.Files;
++import java.nio.file.Path;
++import java.time.Duration;
++import java.util.function.LongSupplier;
++
++/** Polling and cleanup for the phone's temporary link-and-sync archive. */
++public final class LinkHistoryTransfer {
++    public enum Outcome { IMPORTED, DECLINED }
++    public record Reply(int status, String body) {}
++    public interface Client {
++        Reply poll() throws IOException;
++        void download(int cdn, String key, Path destination) throws IOException;
++    }
++    @FunctionalInterface public interface Importer { void read(Path archive) throws IOException; }
++    @FunctionalInterface interface Pause { void sleep() throws InterruptedException; }
++    private final LongSupplier nanoTime;
++    private final Pause pause;
++    private final long timeout;
++
++    public LinkHistoryTransfer() {
++        this(System::nanoTime, () -> Thread.sleep(100), Duration.ofMinutes(10));
++    }
++    LinkHistoryTransfer(LongSupplier nanoTime, Pause pause, Duration timeout) {
++        this.nanoTime = nanoTime;
++        this.pause = pause;
++        this.timeout = timeout.toNanos();
++    }
++
++    public Outcome run(Client client, Importer importer, Path privateDirectory) throws IOException {
++        long start = nanoTime.getAsLong();
++        while (nanoTime.getAsLong() - start < timeout) {
++            if (Thread.currentThread().isInterrupted()) throw new IOException("History transfer interrupted");
++            var reply = client.poll();
++            if (reply.status() == 204) {
++                try { pause.sleep(); }
++                catch (InterruptedException e) {
++                    Thread.currentThread().interrupt();
++                    throw new IOException("History transfer interrupted", e);
++                }
++                continue;
++            }
++            if (reply.status() != 200) throw new IOException("History transfer request failed (HTTP " + reply.status() + ")");
++            var body = new ObjectMapper().readTree(reply.body());
++            if (body == null || !body.isObject()) throw new IOException("Invalid history transfer response");
++            if (body.hasNonNull("error")) {
++                if ("CONTINUE_WITHOUT_UPLOAD".equals(body.path("error").asText())) return Outcome.DECLINED;
++                if ("RELINK_REQUESTED".equals(body.path("error").asText())) {
++                    throw new IOException("The phone requested a fresh link for history transfer");
++                }
++                throw new IOException("The phone could not provide history");
++            }
++            var cdn = body.path("cdn");
++            var key = body.path("key");
++            if (!cdn.isIntegralNumber() || !cdn.canConvertToInt() || cdn.intValue() < 0
++                    || !key.isTextual() || key.textValue().isEmpty() || key.textValue().length() > 4096) {
++                throw new IOException("Invalid history archive location");
++            }
++            var archive = Files.createTempFile(privateDirectory, "link-history-", ".encrypted");
++            try {
++                client.download(cdn.intValue(), key.textValue(), archive);
++                importer.read(archive);
++                return Outcome.IMPORTED;
++            } finally {
++                Files.deleteIfExists(archive);
++            }
++        }
++        throw new IOException("Timed out waiting for phone history");
++    }
++}
+--- /dev/null
++++ b/lib/src/test/java/org/asamk/signal/manager/history/LinkHistoryTransferTest.java
+@@ -0,0 +1,139 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.manager.history;
++
++import org.junit.jupiter.api.Test;
++import org.thoughtcrime.securesms.backup.v2.proto.Backups;
++import org.junit.jupiter.api.io.TempDir;
++import java.io.IOException;
++import java.nio.file.Files;
++import java.nio.file.Path;
++import java.time.Duration;
++import java.util.ArrayDeque;
++import java.util.List;
++import java.util.concurrent.atomic.AtomicLong;
++import static org.junit.jupiter.api.Assertions.*;
++
++class LinkHistoryTransferTest {
++    @TempDir Path directory;
++    private final AtomicLong clock = new AtomicLong();
++    private LinkHistoryTransfer transfer() {
++        return new LinkHistoryTransfer(clock::get, () -> clock.addAndGet(1_000_000_000), Duration.ofSeconds(3));
++    }
++    private static class Client implements LinkHistoryTransfer.Client {
++        final ArrayDeque<LinkHistoryTransfer.Reply> replies;
++        int downloads;
++        Client(LinkHistoryTransfer.Reply... replies) { this.replies = new ArrayDeque<>(List.of(replies)); }
++        public LinkHistoryTransfer.Reply poll() { return replies.remove(); }
++        public void download(int cdn, String key, Path destination) throws IOException {
++            assertEquals(3, cdn);
++            assertEquals("archive-key", key);
++            downloads++;
++            Files.writeString(destination, "encrypted bytes");
++        }
++    }
++    private LinkHistoryTransfer.Reply ready() {
++        return new LinkHistoryTransfer.Reply(200, "{\"cdn\":3,\"key\":\"archive-key\"}");
++    }
++    private void assertClean() throws IOException {
++        try (var files = Files.list(directory)) { assertEquals(0, files.count()); }
++    }
++    @Test void waitsForUploadThenImportsAndDeletesArchive() throws Exception {
++        var client = new Client(new LinkHistoryTransfer.Reply(204, ""), ready());
++        var imports = new AtomicLong();
++        assertEquals(LinkHistoryTransfer.Outcome.IMPORTED, transfer().run(client, file -> {
++            assertEquals("encrypted bytes", Files.readString(file));
++            imports.incrementAndGet();
++        }, directory));
++        assertEquals(1, client.downloads);
++        assertEquals(1, imports.get());
++        assertClean();
++    }
++    @Test void respectsPhoneDecliningTransfer() throws Exception {
++        var client = new Client(new LinkHistoryTransfer.Reply(200, "{\"error\":\"CONTINUE_WITHOUT_UPLOAD\"}"));
++        assertEquals(LinkHistoryTransfer.Outcome.DECLINED,
++                transfer().run(client, file -> fail("Must not import"), directory));
++        assertEquals(0, client.downloads);
++        assertClean();
++    }
++    @Test void stopsPollingAtDeadline() throws Exception {
++        var waiting = new LinkHistoryTransfer.Reply(204, "");
++        var client = new Client(waiting, waiting, waiting);
++        assertThrows(IOException.class, () -> transfer().run(client, file -> fail("Must not import"), directory));
++        assertEquals(3_000_000_000L, clock.get());
++        assertEquals(0, client.downloads);
++        assertClean();
++    }
++    @Test void rejectsErrorsAndMalformedLocations() throws Exception {
++        for (var reply : List.of(new LinkHistoryTransfer.Reply(403, ""),
++                new LinkHistoryTransfer.Reply(200, "{\"error\":\"RELINK_REQUESTED\"}"),
++                new LinkHistoryTransfer.Reply(200, "{\"cdn\":3}"),
++                new LinkHistoryTransfer.Reply(200, "{\"cdn\":3.5,\"key\":\"archive-key\"}"))) {
++            var client = new Client(reply);
++            assertThrows(IOException.class, () -> transfer().run(client, file -> fail("Must not import"), directory));
++            assertEquals(0, client.downloads);
++        }
++        assertClean();
++    }
++    @Test void deletesArchiveAfterImportFailure() throws Exception {
++        var client = new Client(ready());
++        assertThrows(IOException.class, () -> transfer().run(client, file -> {
++            throw new IOException("Authentication failed");
++        }, directory));
++        assertEquals(1, client.downloads);
++        assertClean();
++    }
++    @Test void retrievesMessagesFromAnAuthenticatedEncryptedDownload() throws Exception {
++        var plaintext = new java.io.ByteArrayOutputStream();
++        Backups.BackupInfo.newBuilder().setVersion(1).build()
++                .writeDelimitedTo(plaintext);
++        Backups.Frame.newBuilder().setAccount(
++                Backups.AccountData.getDefaultInstance()).build()
++                .writeDelimitedTo(plaintext);
++        Backups.Frame.newBuilder().setRecipient(
++                Backups.Recipient.newBuilder().setId(1).setSelf(
++                        Backups.Self.getDefaultInstance())).build()
++                .writeDelimitedTo(plaintext);
++        Backups.Frame.newBuilder().setChat(
++                Backups.Chat.newBuilder().setId(2).setRecipientId(1)).build()
++                .writeDelimitedTo(plaintext);
++        Backups.Frame.newBuilder().setChatItem(
++                Backups.ChatItem.newBuilder().setChatId(2).setAuthorId(1)
++                        .setDateSent(1234).setIncoming(
++                                Backups.ChatItem.IncomingMessageDetails.getDefaultInstance())
++                        .setStandardMessage(Backups.StandardMessage.newBuilder()
++                                .setText(Backups.Text.newBuilder().setBody("from phone"))))
++                .build().writeDelimitedTo(plaintext);
++        byte[] aes = new byte[32], mac = new byte[32], iv = new byte[16];
++        java.util.Arrays.fill(aes, (byte) 0x42);
++        java.util.Arrays.fill(mac, (byte) 0x13);
++        var compressed = new java.io.ByteArrayOutputStream();
++        try (var gzip = new java.util.zip.GZIPOutputStream(compressed)) { gzip.write(plaintext.toByteArray()); }
++        compressed.write(new byte[40]);
++        var cipher = javax.crypto.Cipher.getInstance("AES/CBC/PKCS5Padding");
++        cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, new javax.crypto.spec.SecretKeySpec(aes, "AES"),
++                new javax.crypto.spec.IvParameterSpec(iv));
++        var encrypted = new java.io.ByteArrayOutputStream();
++        encrypted.write(iv);
++        encrypted.write(cipher.doFinal(compressed.toByteArray()));
++        var hmac = javax.crypto.Mac.getInstance("HmacSHA256");
++        hmac.init(new javax.crypto.spec.SecretKeySpec(mac, "HmacSHA256"));
++        encrypted.write(hmac.doFinal(encrypted.toByteArray()));
++        var store = new HistoryStore(() -> java.sql.DriverManager.getConnection("jdbc:sqlite:" + directory.resolve("account.db")));
++        var client = new Client(ready()) {
++            @Override public void download(int cdn, String key, Path target) throws IOException {
++                Files.write(target, encrypted.toByteArray());
++            }
++        };
++        assertEquals(LinkHistoryTransfer.Outcome.IMPORTED, transfer().run(client,
++                file -> store.importArchive(file, aes, mac, 2000), directory));
++        var page = store.page(null, 0, 100, 2000);
++        assertNotNull(page.archiveId());
++        assertEquals(3, page.entries().size());
++        assertTrue(page.entries().getLast().frame().toString().contains("from phone"));
++        assertFalse(page.hasMore());
++        try (var files = Files.list(directory)) {
++            assertFalse(files.anyMatch(file -> file.getFileName().toString().startsWith("link-history-")));
++        }
++    }
++
++}

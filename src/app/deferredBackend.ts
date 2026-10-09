@@ -17,6 +17,8 @@ import type { Unsubscribe } from '@/core/lib';
 
 export const OPTIONAL_METHODS = [
   'fetchHistory',
+  'readHistory',
+  'getHistoryReadState',
   'adminDelete',
   'pinMessage',
   'updateConversation',
@@ -100,6 +102,14 @@ export function deferredBackend(
   if (caps.has('fetchHistory'))
     backend.fetchHistory = (c, q) =>
       call((b) => (b.fetchHistory ? b.fetchHistory(c, q) : missing('fetchHistory')));
+  if (caps.has('readHistory'))
+    backend.readHistory = (messages) =>
+      call((b) => (b.readHistory ? b.readHistory(messages) : missing('readHistory')));
+  if (caps.has('getHistoryReadState'))
+    backend.getHistoryReadState = (messages) =>
+      call((b) =>
+        b.getHistoryReadState ? b.getHistoryReadState(messages) : missing('getHistoryReadState'),
+      );
   if (caps.has('adminDelete'))
     backend.adminDelete = (c, t) =>
       call((b) => (b.adminDelete ? b.adminDelete(c, t) : missing('adminDelete')));

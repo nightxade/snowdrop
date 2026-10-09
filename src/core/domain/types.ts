@@ -164,6 +164,10 @@ export interface Message {
   deletedBy?: string;
   /** Epoch ms after which the message is purged (disappearing messages). */
   expiresAt?: number;
+  /** Duration of an imported timer that has not started; cleared after viewing. */
+  expiresAfterReadMs?: number;
+  /** Opaque backend history position; persisted so paging survives restarts and clock skew. */
+  historyCursor?: string;
   status: MessageStatus;
   kind: MessageKind;
   systemText?: string;

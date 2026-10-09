@@ -737,6 +737,19 @@ describe('SignalCliBackend: commands', () => {
     expect(onAccountSelected).toHaveBeenCalledWith(SELF_ACI);
   });
 
+  it('preserves a successful link while reporting a failed history transfer', async () => {
+    const daemon = new FakeDaemon().reply('finishLink', {
+      number: SELF_NUMBER,
+      aci: SELF_ACI,
+      historyTransfer: 'FAILED',
+    });
+    const { backend, onAccountSelected } = setup({ daemon });
+    const result = await backend.link.finish('sgnl://linkdevice?uuid=test', 'Snowdrop');
+    expect(result.accountId).toBe(SELF_ACI);
+    expect(result.historyWarning).toContain('message history could not be imported');
+    expect(onAccountSelected).toHaveBeenCalledWith(SELF_ACI);
+  });
+
   it('downloads attachments lazily, once, into cached object URLs', async () => {
     const { backend, daemon } = await connected();
     const attachment = { id: 'Zx9.jpg', contentType: 'image/jpeg' };
@@ -981,6 +994,72 @@ describe('SignalCliBackend: own changes and edits', () => {
       quote: other,
     });
     expect(daemon.callsTo('send').at(-1)).toMatchObject({ editTimestamp: 99, quoteAuthor: BOB });
+    await backend.disconnect();
+  });
+});
+
+describe('imported phone history', () => {
+  it('loads history without emitting arrivals and explicitly starts viewed timers', async () => {
+    const { backend, daemon } = setup();
+    daemon.reply('getHistoryDirectory', {
+      archiveId: 'snapshot',
+      entries: [
+        { cursor: '1', frame: { recipient: { id: '1', self: {} } } },
+        {
+          cursor: '2',
+          frame: {
+            recipient: {
+              id: '2',
+              contact: {
+                aci: Buffer.from(ALICE.replaceAll('-', ''), 'hex').toString('base64'),
+                profileGivenName: 'Archived Alice',
+              },
+            },
+          },
+        },
+        { cursor: '3', frame: { chat: { id: '3', recipientId: '2' } } },
+      ],
+      nextCursor: '3',
+      hasMore: false,
+    });
+    daemon.reply('getHistoryChat', {
+      archiveId: 'snapshot',
+      entries: [
+        {
+          cursor: '4',
+          frame: {
+            chatItem: {
+              chatId: '3',
+              authorId: '2',
+              dateSent: '1000',
+              incoming: { dateReceived: '1001' },
+              expiresInMs: '5000',
+              standardMessage: { text: { body: 'From the phone' } },
+            },
+          },
+        },
+      ],
+      nextCursor: '4',
+      hasMore: false,
+    });
+    const arrived = vi.fn();
+    backend.on('message', arrived);
+    await backend.connect();
+    expect((await backend.listContacts()).find((contact) => contact.id === ALICE)?.name).toBe(
+      'Alice Liddell',
+    );
+    const page = await backend.fetchHistory(directConversationId(ALICE), { limit: 50 });
+    expect(page.messages[0]).toMatchObject({
+      body: 'From the phone',
+      historyCursor: 'snapshot:4',
+      expiresAfterReadMs: 5000,
+    });
+    expect(arrived).not.toHaveBeenCalled();
+    expect(daemon.callsTo('readHistory')).toEqual([]);
+    daemon.reply('readHistory', [{ cursor: '4', expiresAt: '6000', unavailable: false }]);
+    expect(
+      await backend.readHistory([{ id: messageId(ALICE, 1000), cursor: 'snapshot:4' }]),
+    ).toEqual([{ id: messageId(ALICE, 1000), expiresAt: 6000, unavailable: false }]);
     await backend.disconnect();
   });
 });

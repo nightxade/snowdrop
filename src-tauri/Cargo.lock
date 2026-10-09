@@ -3926,6 +3926,7 @@ dependencies = [
  "flate2",
  "futures-util",
  "getrandom 0.2.17",
+ "gtk",
  "hkdf",
  "keyring",
  "libc",

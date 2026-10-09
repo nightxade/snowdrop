@@ -154,3 +154,13 @@
   color: var(--snowdrop-text-faint);
   font-size: var(--snowdrop-font-size-ui);
 }
+
+.modes {
+  display: flex;
+  gap: var(--snowdrop-space-2);
+  padding: var(--snowdrop-space-3);
+  border-bottom: 1px solid var(--snowdrop-border);
+}
+.modes [aria-pressed='true'] {
+  background: var(--snowdrop-bg-active);
+}

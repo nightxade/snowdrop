@@ -54,6 +54,29 @@ Object.defineProperty(navigator, 'clipboard', {
 });
 
 describe('StorageSetup: keyring detected', () => {
+  it('shows progress while waiting for the keyring, then advances', async () => {
+    let finish!: (status: StorageStatus) => void;
+    const setup = vi.fn(
+      () =>
+        new Promise<StorageStatus>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    render(
+      <StorageSetup status={needsSetup} admin={fakeAdmin({ setup })} onDone={() => undefined} />,
+    );
+    await screen.findByText(/The key is kept in/u);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Continue' })[0]!);
+    expect(screen.getByRole('status').textContent).toContain('keyring unlock prompt');
+    expect(
+      screen.getAllByRole('button', { name: 'Setting up…' })[0]?.hasAttribute('disabled'),
+    ).toBe(true);
+    act(() => {
+      finish(unlocked);
+    });
+    expect(await screen.findByRole('heading', { name: 'Create a recovery key?' })).toBeTruthy();
+  });
+
   it('offers Continue, then a recovery key that can be created, confirmed and continued', async () => {
     const onDone = vi.fn();
     const createRecovery = vi.fn().mockResolvedValue({
@@ -133,6 +156,33 @@ describe('StorageSetup: keyring detected', () => {
 });
 
 describe('StorageSetup: no keyring', () => {
+  it('explains missing passphrase fields when Continue is pressed', async () => {
+    const setup = vi.fn();
+    render(
+      <StorageSetup
+        status={needsSetup}
+        admin={fakeAdmin({
+          setup,
+          keyringStatus: () =>
+            Promise.resolve({
+              available: false,
+              hasSecret: false,
+              backend: 'secret-service',
+            }),
+        })}
+        onDone={() => undefined}
+      />,
+    );
+    await screen.findByText(/No keyring was found/u);
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    expect(screen.getByText('Enter a passphrase.')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Passphrase'), {
+      target: { value: 'long enough passphrase' },
+    });
+    expect(screen.getByText('Confirm your passphrase.')).toBeTruthy();
+    expect(setup).not.toHaveBeenCalled();
+  });
+
   it('validates a passphrase and its confirmation before letting setup proceed', async () => {
     const setup = vi.fn().mockResolvedValue(unlocked);
     render(

@@ -56,6 +56,10 @@ const ALLOWED_METHODS: &[&str] = &[
     "sendSyncRequest",
     // Attachments (attachments.ts).
     "getAttachment",
+    "getHistoryDirectory",
+    "getHistoryChat",
+    "readHistory",
+    "getHistoryReadState",
     // Linking and accounts (SignalCliBackend.ts, probe.ts). Never
     // register/unregister/addDevice/removeDevice: those create or destroy
     // accounts rather than read or send through an existing one.
@@ -647,4 +651,52 @@ pub async fn log_open_folder(app: AppHandle) -> Result<(), Error> {
     })
     .await
     .expect("log_open_folder: blocking task panicked")
+}
+
+/// Returns false where the frontend should use the platform plugin instead.
+#[tauri::command]
+pub async fn notification_show(
+    state: tauri::State<'_, std::sync::Arc<crate::notifications::Notifications>>,
+    tag: String,
+    title: String,
+    body: String,
+) -> Result<bool, String> {
+    #[cfg(target_os = "linux")]
+    {
+        let state = state.inner().clone();
+        tauri::async_runtime::spawn_blocking(move || state.show(tag, title, body))
+            .await
+            .map_err(|e| e.to_string())??;
+        Ok(true)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (state, tag, title, body);
+        Ok(false)
+    }
+}
+
+#[tauri::command]
+pub async fn notification_close(
+    state: tauri::State<'_, std::sync::Arc<crate::notifications::Notifications>>,
+    tag: String,
+) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    {
+        let state = state.inner().clone();
+        tauri::async_runtime::spawn_blocking(move || state.close(tag))
+            .await
+            .map_err(|e| e.to_string())?
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (state, tag);
+        Ok(())
+    }
+}
+
+
+#[tauri::command]
+pub async fn clipboard_read_files(app: tauri::AppHandle) -> Result<Vec<crate::clipboard::ClipboardFile>, String> {
+    crate::clipboard::read(app).await
 }

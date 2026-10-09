@@ -207,6 +207,16 @@ export class IdbMessageRepository implements MessageRepository {
     this.db.close();
   }
 
+  async pendingHistoryTimers(): Promise<Message[]> {
+    // These fields remain inside the encrypted payload. Reconcile once at
+    // startup, without adding a plaintext index exposing which rows were read.
+    const messages = await this.fromRows(await this.db.getAll('messages'));
+    return messages.filter(
+      (message) =>
+        message.historyCursor && message.expiresAfterReadMs && message.expiresAt === undefined,
+    );
+  }
+
   private async toRow(message: Message): Promise<MessageRow> {
     const [id, conversationKey, mentionIds] = await Promise.all([
       this.cipher.blindId(message.id),

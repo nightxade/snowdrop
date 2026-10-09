@@ -1,6 +1,7 @@
 import * as RadixDialog from '@radix-ui/react-dialog';
 import { ChevronLeft, ChevronRight, Download, X } from 'lucide-react';
 import { useRef, type KeyboardEvent } from 'react';
+import { Button } from './Button';
 import { IconButton } from './IconButton';
 import styles from './Lightbox.module.css';
 
@@ -25,6 +26,9 @@ export interface LightboxProps {
   onOpenChange: (open: boolean) => void;
   /** e.g. "Shared by Mira · Today at 14:02" */
   caption?: string | undefined;
+  mediaStatus?: 'ready' | 'loading' | 'error' | 'unavailable';
+  onMediaError?: () => void;
+  onRetry?: () => void;
 }
 
 /** Full-screen media viewer on the dialog primitive: ←/→ between items, Esc closes. */
@@ -35,6 +39,9 @@ export function Lightbox({
   open,
   onOpenChange,
   caption,
+  mediaStatus = 'ready',
+  onMediaError,
+  onRetry,
 }: LightboxProps) {
   const item = items[index];
   const opener = useRef<HTMLElement | null>(null);
@@ -112,11 +119,23 @@ export function Lightbox({
               if (e.target === e.currentTarget) onOpenChange(false);
             }}
           >
-            {item?.kind === 'video' ? (
+            {mediaStatus !== 'ready' ? (
+              <div role="status">
+                <p>
+                  {mediaStatus === 'loading'
+                    ? 'Loading attachment…'
+                    : mediaStatus === 'unavailable'
+                      ? 'Not available on this device'
+                      : "Couldn't load attachment"}
+                </p>
+                {mediaStatus === 'error' && onRetry && <Button onClick={onRetry}>Retry</Button>}
+              </div>
+            ) : item?.kind === 'video' ? (
               <video
                 key={item.src}
                 className={styles.media}
                 src={item.src}
+                onError={onMediaError}
                 controls
                 autoPlay
                 aria-label={item.alt}
@@ -126,6 +145,7 @@ export function Lightbox({
                 key={item.src}
                 className={styles.media}
                 src={item.src}
+                onError={onMediaError}
                 alt={item.alt}
                 {...(item.width ? { width: item.width } : {})}
                 {...(item.height ? { height: item.height } : {})}

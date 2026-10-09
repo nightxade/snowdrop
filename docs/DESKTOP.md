@@ -50,12 +50,46 @@ app (`signal_cli_install` below), on first launch or when Settings →
 Connection asks it to. There's nothing a `cargo build` in `src-tauri/`
 needs that isn't already in the repo.
 
-`scratch/tauri-env.sh` (outside this repo, alongside it) is **optional**: it
-just points `CARGO_HOME`, `CARGO_TARGET_DIR`, `XDG_CACHE_HOME` and the npm
-cache at a workspace-local directory, so Rust/npm downloads and build
-products stay inside `~/Downloads/aligns` instead of `~/.cargo` or
-`~/.cache`. Plain `npm run tauri:dev` / `npm run tauri:build` work fine
-without sourcing it.
+Build cache locations can be customized with `CARGO_HOME`, `CARGO_TARGET_DIR`,
+`XDG_CACHE_HOME`, and npm's cache setting. Plain `npm run tauri:dev` and
+`npm run tauri:build` use the tools' default locations.
+
+### Linux ARM64 (aarch64)
+
+Build on an ARM64 Linux machine with Node.js 20+, Rust/Cargo, a C/C++ toolchain,
+`pkg-config`, and the GTK 3, WebKitGTK 4.1, and librsvg development packages
+installed. Packaging the AppImage also needs the GStreamer plugins described
+below. The commands target `aarch64-unknown-linux-gnu` (64-bit ARM with glibc).
+They do not configure cross-compilation from an x86_64 machine.
+
+```sh
+npm ci
+cargo install cargo-about --locked --features cli  # once, for Rust licence notices
+
+npm run tauri:build:arm64          # AppImage + .deb
+npm run tauri:build:arm64:rpm      # .rpm, for RPM-based distributions
+npm run tauri:build:arm64:binary   # executable only
+```
+
+If Rust is managed by rustup, install the target once with
+`rustup target add aarch64-unknown-linux-gnu`. A native distribution-provided
+ARM64 Rust toolchain already targets this architecture.
+
+The executable is `src-tauri/target/aarch64-unknown-linux-gnu/release/snowdrop`;
+packages are under that directory's `bundle/` subdirectories (`appimage`,
+`deb`, or `rpm`). If `CARGO_TARGET_DIR` is set, replace `src-tauri/target` with
+that directory. Additional Tauri options pass through, for example:
+
+```sh
+npm run tauri:build:arm64 -- --bundles deb
+```
+
+These commands use the normal build, including Rust notices and the AppImage
+GL-library exclusions. ARM64 has no pinned signal-cli download in this repo:
+configure a compatible Java-based signal-cli in Settings → Connection. The
+[history-patched CLI](../patches/signal-cli/README.md) includes ARM64 JNI build
+instructions and requires Java 25. The optional `tauri:build:bundled` command
+currently supports only the pinned Linux x86_64 sidecar.
 
 ## Media playback (GStreamer)
 
@@ -485,3 +519,42 @@ binary would place that binary's own source under AGPL-3.0 obligations,
 unlike the current arm's-length signal-cli subprocess. That's a licensing
 decision for whoever picks this up, not just an engineering one, and nothing
 here should be read as having made it.
+
+### Conversation notification replacement (Linux)
+
+`notifications.rs` uses `org.freedesktop.Notifications` through the existing
+zbus dependency. It retains the returned notification id per conversation tag
+and supplies that id as `replaces_id` on the next message. The frontend queues
+show/close calls and ignores obsolete handles, so bursts and slow IPC cannot
+withdraw a newer notification. Bodies are escaped for the desktop's markup
+support. Other operating systems retain the Tauri notification plugin fallback.
+
+The bridge test uses a fake notification service on a private bus:
+
+```sh
+cd src-tauri
+dbus-run-session -- cargo test notification_replacement -- --ignored
+```
+
+The test verifies replacement ids, separate conversations, withdrawal, and
+plain-text escaping. Do not run this ignored test against a real desktop bus.
+Notification clicks remain unsupported by this adapter.
+
+### Native clipboard paste (Linux)
+
+The composer first uses files exposed by the browser's paste event. When the
+webview omits native image or copied-file formats, it calls `clipboard_read_files`.
+The GTK bridge reads image data, local `text/uri-list` selections, and GNOME's
+`x-special/gnome-copied-files` format, then stages them
+in the attachment tray, and leaves sending to the user. Ordinary text does not
+invoke the bridge. Pasted file batches are limited to 16 files and 32 MiB; copied
+folders and remote file URLs are rejected. No clipboard polling runs in the
+background. GTK is already part of Tauri's Linux runtime.
+GNOME copy and cut selections both attach a copy; the source files stay in place.
+
+`clipboard::tests::native_clipboard_roundtrip` is ignored by default because it
+sets the clipboard. Run it only on an isolated display, for example a private
+Broadway server with `GDK_BACKEND=broadway` and a separate `BROADWAY_DISPLAY`.
+It checks native image retrieval, file URIs (including escaped spaces), and
+ordinary text. The non-display tests cover file bytes, directories and size
+limits.

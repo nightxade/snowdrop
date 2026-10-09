@@ -12,7 +12,7 @@
   z-index: 71;
   inset: 0;
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto minmax(0, 1fr);
   outline: none;
   animation: fade var(--snowdrop-duration-slow) var(--snowdrop-ease);
 }
@@ -63,13 +63,17 @@
 }
 
 .stage {
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
   min-height: 0;
   padding: 0 var(--snowdrop-space-9) var(--snowdrop-space-9);
 }
 
 .media {
+  min-width: 0;
+  min-height: 0;
   width: auto;
   height: auto;
   max-width: 100%;

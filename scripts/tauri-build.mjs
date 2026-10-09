@@ -5,7 +5,7 @@
  * linuxdeploy otherwise bundles e.g. libGLESv2.so.2 (pulled in by the
  * GStreamer plugins). Those loaders must come from the host (libglvnd) to
  * match its GPU drivers: with the bundled copy, WebKitGTK fell onto a slow
- * path and a single frame took ~5 s to paint on an Intel Meteor Lake laptop
+ * path and a single frame took ~5 s to paint on affected Linux systems
  * (Settings and popups froze); without it, ~30 ms.
  */
 import { spawnSync } from 'node:child_process';

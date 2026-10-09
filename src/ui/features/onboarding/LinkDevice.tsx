@@ -36,11 +36,17 @@ export function LinkDevice({ link, onLinked, desktop = false }: LinkDeviceProps)
   return (
     <section className={styles.card} aria-labelledby="link-title" data-snowdrop="link-device">
       <h2 id="link-title" className={styles.title}>
-        Link Snowdrop to your phone
+        {state.step === 'linked' ? 'Snowdrop is linked' : 'Link Snowdrop to your phone'}
       </h2>
       <p className={styles.lede}>
-        signal-cli is running but has no account yet. Link it to the Signal account on your phone,
-        the same way you’d add Signal Desktop. Your phone stays the main device.
+        {state.step === 'linked' ? (
+          <>Your phone lists this device as {state.deviceName}. Your phone stays the main device.</>
+        ) : (
+          <>
+            signal-cli is running but has no account yet. Link it to the Signal account on your
+            phone, the same way you’d add Signal Desktop. Your phone stays the main device.
+          </>
+        )}
       </p>
       <div className={styles.linkBody}>
         <div className={styles.qrFrame} data-step={state.step} aria-live="polite">
@@ -73,16 +79,18 @@ export function LinkDevice({ link, onLinked, desktop = false }: LinkDeviceProps)
           )}
         </div>
         <div className={styles.linkSide}>
-          <ol className={styles.steps}>
-            <li>Open Signal on your phone.</li>
-            <li>
-              Go to <strong>Settings → Linked devices → Link new device</strong>.
-            </li>
-            <li>
-              Point your phone at the code. Keep this {desktop ? 'window' : 'tab'} open until it
-              finishes.
-            </li>
-          </ol>
+          {state.step !== 'linked' && (
+            <ol className={styles.steps}>
+              <li>Open Signal on your phone.</li>
+              <li>
+                Go to <strong>Settings → Linked devices → Link new device</strong>.
+              </li>
+              <li>
+                Point your phone at the code. Keep this {desktop ? 'window' : 'tab'} open until it
+                finishes.
+              </li>
+            </ol>
+          )}
           {state.step === 'naming' || state.step === 'failed' ? (
             <form
               className={styles.nameForm}
@@ -112,10 +120,21 @@ export function LinkDevice({ link, onLinked, desktop = false }: LinkDeviceProps)
               </Button>
             </form>
           ) : state.step === 'linked' ? (
-            <p className={styles.status} data-tone="success" role="status">
-              <CircleCheck size={16} aria-hidden />
-              Linked as {state.deviceName}. Loading your conversations…
-            </p>
+            state.historyWarning ? (
+              <div>
+                <p className={styles.error} role="alert">
+                  {state.historyWarning}
+                </p>
+                <Button variant="primary" onClick={flow.continueLinked}>
+                  Continue to conversations
+                </Button>
+              </div>
+            ) : (
+              <p className={styles.status} data-tone="success" role="status">
+                <CircleCheck size={16} aria-hidden />
+                Linked as {state.deviceName}. Loading your conversations…
+              </p>
+            )
           ) : (
             <div className={styles.waiting}>
               <p className={styles.status} role="status">

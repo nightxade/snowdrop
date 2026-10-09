@@ -39,9 +39,14 @@ export function useLinkFlow(
         dispatch({ type: 'started', uri: started.uri, attempt });
         return link.finish(started.uri, deviceName);
       })
-      .then(({ accountId }) => {
-        dispatch({ type: 'linked', accountId, attempt });
-        if (pending.current === attempt) linked.current(accountId);
+      .then(({ accountId, historyWarning }) => {
+        dispatch({
+          type: 'linked',
+          accountId,
+          attempt,
+          ...(historyWarning ? { historyWarning } : {}),
+        });
+        if (pending.current === attempt && !historyWarning) linked.current(accountId);
       })
       .catch((error: unknown) => {
         dispatch({
@@ -64,5 +69,16 @@ export function useLinkFlow(
     dispatch({ type: 'edit' });
   }, []);
 
-  return { state: state satisfies LinkState, start, rename, edit, supported: link !== undefined };
+  const continueLinked = useCallback(() => {
+    if (state.step === 'linked') linked.current(state.accountId);
+  }, [state]);
+
+  return {
+    state: state satisfies LinkState,
+    start,
+    rename,
+    edit,
+    continueLinked,
+    supported: link !== undefined,
+  };
 }

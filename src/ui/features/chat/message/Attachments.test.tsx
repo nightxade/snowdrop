@@ -8,7 +8,7 @@
  * so a genuine failure surfaces the hook's own error state and its Retry
  * button rather than a dead end.
  */
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Attachment, ConversationId } from '@/core/domain';
 import { SnowdropContextProvider, type AppServices } from '@/ui/hooks';
@@ -115,5 +115,53 @@ describe('MediaTile: a dead "ready" URL re-resolves instead of sticking broken',
     await screen.findByRole('button', { name: 'Open Video' });
     expect(document.querySelector('video')).toHaveProperty('src', 'blob:fresh-video');
     expect(resolveAttachmentUrl).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('attachment viewer', () => {
+  it('re-resolves media errors in the open viewer and offers retry after failure', async () => {
+    const resolve = vi
+      .fn()
+      .mockResolvedValueOnce('blob:thumbnail')
+      .mockResolvedValueOnce('blob:viewer')
+      .mockRejectedValueOnce(new Error('Unavailable'));
+    renderTile({ id: 'photo', contentType: 'image/png', fileName: 'photo.png' }, resolve);
+    fireEvent.click(await screen.findByRole('button', { name: 'Open photo.png' }));
+    const dialog = await screen.findByRole('dialog');
+    const image = await within(dialog).findByRole('img', { name: 'photo.png' });
+    fireEvent.error(image);
+    expect(await within(dialog).findByText("Couldn't load attachment")).toBeTruthy();
+    resolve.mockResolvedValueOnce('blob:recovered');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Retry' }));
+    expect(await within(dialog).findByRole('img', { name: 'photo.png' })).toHaveProperty(
+      'src',
+      'blob:recovered',
+    );
+  });
+
+  it('opens media beyond the four-thumbnail limit through Next', async () => {
+    const resolve = vi.fn((_id: ConversationId, a: Attachment) => Promise.resolve(`blob:${a.id}`));
+    render(
+      <SnowdropContextProvider value={fakeApp(resolve)}>
+        <TooltipProvider>
+          <Attachments
+            conversationId={conversationId}
+            pending={false}
+            attachments={Array.from({ length: 5 }, (_, i) => ({
+              id: `${i}`,
+              fileName: `${i}.png`,
+              contentType: 'image/png',
+            }))}
+          />
+        </TooltipProvider>
+      </SnowdropContextProvider>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Open 3.png, and 1 more' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Next' }));
+    expect(await within(dialog).findByRole('img', { name: '4.png' })).toHaveProperty(
+      'src',
+      'blob:4',
+    );
   });
 });

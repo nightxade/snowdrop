@@ -89,6 +89,8 @@ export interface AppServices {
   backends: { options(): readonly BackendOption[] };
   /** Desktop notification permission + a test notification. */
   notifications: Pick<NotificationService, 'permission' | 'requestPermission' | 'test'>;
+  /** Native file/image clipboard fallback, available only in the desktop shell. */
+  readClipboardFiles: (() => Promise<File[]>) | null;
   admin: AppAdmin;
   /** The desktop app's signal-cli management (Settings → Connection, About); null in the browser. */
   desktop: DesktopAdmin | null;

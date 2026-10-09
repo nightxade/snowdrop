@@ -52,11 +52,14 @@ where it is more detailed than §3–§5, §8 is right. Developer-facing guides:
 - Fonts: **Inter** and **JetBrains Mono** via `@fontsource-variable/*` (OFL),
   bundled locally.
 - `signal-cli` (GPL-3.0) runs as a separate process; we talk to it over its
-  documented HTTP JSON-RPC API. We ship none of its code.
+  documented HTTP JSON-RPC API. The app does not incorporate its code.
+  The user-requested history work lives separately as GPL-licensed patches
+  under `patches/signal-cli/`; see that directory for implementation status.
 - Every dependency must be MIT / ISC / Apache-2.0 / BSD / OFL. Reviewer
   checks `package.json` additions.
-- `scratch/` (outside the repo) holds reference clones; never copy code from
-  them into `snowdrop/`.
+- `scratch/` (outside the repo) holds reference clones; do not copy code into the app. The separately licensed
+  signal-cli patches may include attributed upstream backup schemas and test
+  fixtures required for the requested history implementation.
 
 ## 2. Tech stack
 
@@ -1773,3 +1776,15 @@ Full detail is `docs/DESKTOP.md`; this is the as-built summary.
   `presage` is AGPL-3.0 — bundling it would put the desktop binary itself
   under AGPL-3.0, unlike today's arm's-length signal-cli subprocess. Not
   started; a licensing call, not just an engineering one.
+
+
+### Personal image emoji
+
+The composer's emoji picker includes **My emoji**, a collection private to the
+current backend/account on this device. PNG, JPEG, GIF and WebP images can be
+named, searched, attached and removed. Selection stages an ordinary image
+attachment for review before sending, so other Signal clients can display it.
+These are not custom Signal reactions or inline rich-text emoji. The local
+collection uses the existing account-scoped persistence (encrypted with the
+rest of local state on desktop), with limits of 32 images, 256 KiB per image,
+1024 × 1024 pixels on upload, and approximately 1 MiB of image bytes in total.

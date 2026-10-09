@@ -13,6 +13,7 @@ import type {
   Conversation,
   ConversationId,
   Message,
+  MessageId,
   Quote,
   Reaction,
 } from '@/core/domain';
@@ -121,13 +122,17 @@ export interface PinInput {
 }
 
 export interface HistoryQuery {
-  /** Return messages strictly older than this sentAt; omit for the newest page. */
+  /** Legacy sender-time boundary for backends without archive cursors. */
   before?: number;
+  /** Opaque position of the boundary message, preferred over its sender timestamp. */
+  beforeCursor?: string;
+  /** Message identity for locating a cached boundary that has no archive cursor yet. */
+  beforeId?: MessageId;
   limit: number;
 }
 
 export interface HistoryPage {
-  /** Ascending by sentAt. */
+  /** Oldest to newest in the backend's history order (not necessarily sender time). */
   messages: Message[];
   hasMoreBefore: boolean;
   /**
@@ -135,6 +140,17 @@ export interface HistoryPage {
    * Only meaningful on the newest page; used to seed read cursors on first sync.
    */
   readUpTo?: number;
+}
+
+export interface HistoryReadRef {
+  id: MessageId;
+  cursor: string;
+}
+
+export interface HistoryReadState {
+  id: MessageId;
+  expiresAt?: number;
+  unavailable: boolean;
 }
 
 export type ReceiptType = 'delivered' | 'read' | 'viewed';
@@ -195,7 +211,7 @@ export interface LinkFlow {
   /** Begins device linking; `uri` is rendered as a QR code (sgnl://linkdevice?...). */
   start(): Promise<{ uri: string }>;
   /** Resolves once the primary device has scanned the code and linking completed. */
-  finish(uri: string, deviceName: string): Promise<{ accountId: string }>;
+  finish(uri: string, deviceName: string): Promise<{ accountId: string; historyWarning?: string }>;
 }
 
 export interface ChatBackend {
@@ -230,11 +246,14 @@ export interface ChatBackend {
   syncContactsAndGroups?(): Promise<void>;
 
   /**
-   * Server-side history, when the transport has any. signal-cli keeps no
-   * history (we persist everything we see), so only the mock implements this
-   * to provide a rich seeded world. Callers must treat it as optional.
+   * Backend history, when available (mock seed data or an imported phone
+   * archive in patched signal-cli). Callers must treat it as optional.
    */
   fetchHistory?(conversationId: ConversationId, query: HistoryQuery): Promise<HistoryPage>;
+  /** Persist read-time expiration for viewed imported messages; no network receipts. */
+  readHistory?(messages: readonly HistoryReadRef[]): Promise<HistoryReadState[]>;
+  /** Read-only deadline recovery: must not start timers or mark messages read. */
+  getHistoryReadState?(messages: readonly HistoryReadRef[]): Promise<HistoryReadState[]>;
 
   /**
    * Turns an attachment that arrived without a `url` into a renderable one.

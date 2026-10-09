@@ -75,6 +75,8 @@ libc = "0.2"
 # (is `org.freedesktop.secrets` owned on the session bus?), run ahead of the
 # slow real keyring call (docs/ENCRYPTION.md, "Keyring availability").
 zbus = "4"
+# The same GTK version already used by Tauri, for native file/image paste.
+gtk = "0.18"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["io-util", "macros", "process", "rt-multi-thread", "sync", "time", "test-util"] }

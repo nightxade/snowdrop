@@ -63,6 +63,7 @@ describe('localStore', () => {
       }),
     });
     expect(loadVersioned(broken, localSchema)).toEqual({
+      customEmoji: [],
       conversations: { 'group:x': { pinned: false, muted: false, archived: false } },
       contactNotes: {},
       reactionUsage: {},

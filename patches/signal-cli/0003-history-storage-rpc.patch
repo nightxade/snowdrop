@@ -1,0 +1,410 @@
+diff --git a/build.gradle.kts b/build.gradle.kts
+index 338a58d..a888980 100644
+--- a/build.gradle.kts
++++ b/build.gradle.kts
+@@ -10,7 +10,7 @@ plugins {
+ 
+ allprojects {
+     group = "org.asamk"
+-    version = "0.14.8"
++    version = "0.14.8-snowdrop-history.1"
+ }
+ 
+ java {
+diff --git a/lib/src/main/java/org/asamk/signal/manager/Manager.java b/lib/src/main/java/org/asamk/signal/manager/Manager.java
+index 7d0c73a..5dcedd5 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/Manager.java
++++ b/lib/src/main/java/org/asamk/signal/manager/Manager.java
+@@ -71,6 +71,13 @@ import java.util.Set;
+ 
+ public interface Manager extends Closeable {
+ 
++    default org.asamk.signal.manager.history.HistoryStore.Page getHistory(
++            String archiveId, long after, int limit
++    ) throws IOException {
++        throw new IOException("History retrieval is unavailable through this manager");
++    }
++
++
+     static boolean isValidNumber(final String e164Number, final String countryCode) {
+         return PhoneNumberUtil.getInstance().isPossibleNumber(e164Number, countryCode);
+     }
+diff --git a/lib/src/main/java/org/asamk/signal/manager/history/HistoryStore.java b/lib/src/main/java/org/asamk/signal/manager/history/HistoryStore.java
+new file mode 100644
+index 0000000..27abcc0
+--- /dev/null
++++ b/lib/src/main/java/org/asamk/signal/manager/history/HistoryStore.java
+@@ -0,0 +1,149 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.manager.history;
++
++import org.thoughtcrime.securesms.backup.v2.proto.Backups;
++import java.io.IOException;
++import java.nio.file.Path;
++import java.sql.Connection;
++import java.sql.SQLException;
++import java.util.ArrayList;
++import java.util.HashSet;
++import java.util.List;
++import java.util.Map;
++import java.util.UUID;
++
++/** Imported phone history inside signal-cli's existing account database.
++ * Imports replace a snapshot atomically. Cursors are scoped to that snapshot.
++ */
++public final class HistoryStore {
++    @FunctionalInterface public interface Connections { Connection open() throws SQLException; }
++    @FunctionalInterface interface Source { void read(HistoryFrames.Visitor visitor) throws IOException; }
++    public record Entry(String cursor, Map<String, Object> frame) {}
++    public record Page(String archiveId, List<Entry> entries, String nextCursor, boolean hasMore) {}
++    private final Connections connections;
++
++    public HistoryStore(Connections connections) throws SQLException {
++        this.connections = connections;
++        try (var connection = connections.open(); var statement = connection.createStatement()) {
++            statement.executeUpdate("""
++                CREATE TABLE IF NOT EXISTS snowdrop_history_meta (
++                  singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
++                  archive_id TEXT NOT NULL, backup_info BLOB NOT NULL
++                )
++                """);
++            statement.executeUpdate("""
++                CREATE TABLE IF NOT EXISTS snowdrop_history_frame (
++                  ordinal INTEGER PRIMARY KEY, frame BLOB NOT NULL, expires_at INTEGER
++                )
++                """);
++            statement.executeUpdate("CREATE INDEX IF NOT EXISTS snowdrop_history_expiry ON snowdrop_history_frame(expires_at)");
++        }
++    }
++
++    public String importArchive(Path archive, byte[] aesKey, byte[] macKey, long now) throws IOException {
++        return replace(visitor -> HistoryFrames.read(archive, aesKey, macKey, visitor), now);
++    }
++
++    String replace(Source source, long now) throws IOException {
++        String id = UUID.randomUUID().toString();
++        try (var connection = connections.open()) {
++            connection.setAutoCommit(false);
++            try {
++                try (var clear = connection.createStatement()) {
++                    clear.executeUpdate("DELETE FROM snowdrop_history_frame");
++                    clear.executeUpdate("DELETE FROM snowdrop_history_meta");
++                }
++                try (var insert = connection.prepareStatement(
++                        "INSERT INTO snowdrop_history_frame(ordinal, frame, expires_at) VALUES(?, ?, ?)")) {
++                    source.read(new HistoryFrames.Visitor() {
++                        private long ordinal;
++                        private final HashSet<Long> recipients = new HashSet<>();
++                        private final HashSet<Long> chats = new HashSet<>();
++                        @Override public void info(Backups.BackupInfo info) throws IOException {
++                            try (var meta = connection.prepareStatement(
++                                    "INSERT INTO snowdrop_history_meta VALUES(1, ?, ?)")) {
++                                meta.setString(1, id);
++                                meta.setBytes(2, info.toByteArray());
++                                meta.executeUpdate();
++                            } catch (SQLException e) { throw new IOException("Cannot store history metadata", e); }
++                        }
++                        @Override public void frame(Backups.Frame frame) throws IOException {
++                            // Account keys/settings are not needed by the history client.
++                            if (frame.hasAccount()) return;
++                            if (frame.hasRecipient() && !recipients.add(frame.getRecipient().getId())) {
++                                throw new IOException("Duplicate history recipient");
++                            }
++                            if (frame.hasChat() && (!recipients.contains(frame.getChat().getRecipientId())
++                                    || !chats.add(frame.getChat().getId()))) {
++                                throw new IOException("Invalid history chat reference");
++                            }
++                            Long expires = null;
++                            if (frame.hasChatItem()) {
++                                var item = frame.getChatItem();
++                                if (!chats.contains(item.getChatId()) || !recipients.contains(item.getAuthorId())) {
++                                    throw new IOException("Invalid history message reference");
++                                }
++                                if (item.hasExpireStartDate() && item.getExpireStartDate() != 0
++                                        && item.hasExpiresInMs() && item.getExpiresInMs() != 0) {
++                                    if (item.getExpireStartDate() < 0 || item.getExpiresInMs() < 0) {
++                                        throw new IOException("Invalid history expiration");
++                                    }
++                                    try { expires = Math.addExact(item.getExpireStartDate(), item.getExpiresInMs()); }
++                                    catch (ArithmeticException e) { throw new IOException("Invalid history expiration", e); }
++                                    if (expires <= now) return;
++                                }
++                            }
++                            try {
++                                insert.setLong(1, ++ordinal);
++                                insert.setBytes(2, frame.toByteArray());
++                                insert.setObject(3, expires);
++                                insert.executeUpdate();
++                            } catch (SQLException e) { throw new IOException("Cannot store history frame", e); }
++                        }
++                    });
++                }
++                connection.commit();
++                return id;
++            } catch (IOException | SQLException | RuntimeException e) {
++                connection.rollback();
++                throw e;
++            }
++        } catch (SQLException e) { throw new IOException("Cannot import history", e); }
++    }
++
++    public Page page(String archiveId, long after, int limit, long now) throws IOException {
++        if (after < 0 || limit < 1 || limit > 500 || (after > 0 && archiveId == null)) {
++            throw new IllegalArgumentException("History requires limit 1..500, a nonnegative cursor, and an archiveId when paging");
++        }
++        try (var connection = connections.open()) {
++            connection.setAutoCommit(false);
++            try (var purge = connection.prepareStatement("DELETE FROM snowdrop_history_frame WHERE expires_at <= ?")) {
++                purge.setLong(1, now);
++                purge.executeUpdate();
++            }
++            String current = null;
++            try (var query = connection.createStatement(); var rows = query.executeQuery(
++                    "SELECT archive_id FROM snowdrop_history_meta WHERE singleton = 1")) {
++                if (rows.next()) current = rows.getString(1);
++            }
++            if (archiveId != null && !archiveId.equals(current)) throw new IOException("History changed; restart pagination");
++            var entries = new ArrayList<Entry>();
++            boolean more = false;
++            String cursor = Long.toString(after);
++            try (var query = connection.prepareStatement(
++                    "SELECT ordinal, frame FROM snowdrop_history_frame WHERE ordinal > ? ORDER BY ordinal LIMIT ?")) {
++                query.setLong(1, after);
++                query.setInt(2, limit + 1);
++                try (var rows = query.executeQuery()) {
++                    while (rows.next()) {
++                        if (entries.size() == limit) { more = true; break; }
++                        cursor = Long.toString(rows.getLong(1));
++                        entries.add(new Entry(cursor, HistoryJson.fields(Backups.Frame.parseFrom(rows.getBytes(2)))));
++                    }
++                }
++            }
++            connection.commit();
++            return new Page(current, List.copyOf(entries), cursor, more);
++        } catch (SQLException e) { throw new IOException("Cannot read history", e); }
++    }
++}
+diff --git a/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java b/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
+index 173faf3..744c7de 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
++++ b/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
+@@ -165,6 +165,22 @@ import static org.signal.core.util.StringExtensionsKt.splitByByteLength;
+ 
+ public class ManagerImpl implements Manager {
+ 
++    public org.asamk.signal.manager.history.HistoryStore getHistoryStore() throws IOException {
++        try {
++            return new org.asamk.signal.manager.history.HistoryStore(account.getAccountDatabase()::getConnection);
++        } catch (java.sql.SQLException e) {
++            throw new IOException("Cannot open history storage", e);
++        }
++    }
++
++    @Override
++    public org.asamk.signal.manager.history.HistoryStore.Page getHistory(
++            String archiveId, long after, int limit
++    ) throws IOException {
++        return getHistoryStore().page(archiveId, after, limit, System.currentTimeMillis());
++    }
++
++
+     private static final Logger logger = LoggerFactory.getLogger(ManagerImpl.class);
+ 
+     private SignalAccount account;
+diff --git a/lib/src/test/java/org/asamk/signal/manager/history/HistoryStoreTest.java b/lib/src/test/java/org/asamk/signal/manager/history/HistoryStoreTest.java
+new file mode 100644
+index 0000000..7f9df73
+--- /dev/null
++++ b/lib/src/test/java/org/asamk/signal/manager/history/HistoryStoreTest.java
+@@ -0,0 +1,70 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.manager.history;
++
++import org.junit.jupiter.api.Test;
++import org.junit.jupiter.api.io.TempDir;
++import org.thoughtcrime.securesms.backup.v2.proto.Backups;
++import java.io.IOException;
++import java.nio.file.Path;
++import java.sql.DriverManager;
++import static org.junit.jupiter.api.Assertions.*;
++
++class HistoryStoreTest {
++    @TempDir Path directory;
++    private HistoryStore store() throws Exception {
++        return new HistoryStore(() -> DriverManager.getConnection("jdbc:sqlite:" + directory.resolve("account.db")));
++    }
++    private void seed(HistoryFrames.Visitor visitor) throws IOException {
++        visitor.info(Backups.BackupInfo.newBuilder().setVersion(1).build());
++        visitor.frame(Backups.Frame.newBuilder().setAccount(Backups.AccountData.getDefaultInstance()).build());
++        visitor.frame(Backups.Frame.newBuilder().setRecipient(Backups.Recipient.newBuilder().setId(1)
++                .setSelf(Backups.Self.getDefaultInstance())).build());
++        visitor.frame(Backups.Frame.newBuilder().setChat(Backups.Chat.newBuilder().setId(2).setRecipientId(1)).build());
++    }
++    private Backups.Frame message(long sentAt, long expiresIn) {
++        var item = Backups.ChatItem.newBuilder().setChatId(2).setAuthorId(1).setDateSent(sentAt)
++                .setIncoming(Backups.ChatItem.IncomingMessageDetails.getDefaultInstance())
++                .setStandardMessage(Backups.StandardMessage.newBuilder().setText(Backups.Text.newBuilder().setBody("hello")));
++        if (expiresIn > 0) item.setExpireStartDate(1000).setExpiresInMs(expiresIn);
++        return Backups.Frame.newBuilder().setChatItem(item).build();
++    }
++    @Test void pagesDurableHistoryWithoutAccountSecrets() throws Exception {
++        var store = store();
++        String id = store.replace(v -> { seed(v); v.frame(message(10, 0)); }, 1000);
++        var first = store().page(null, 0, 2, 1000);
++        assertEquals(id, first.archiveId());
++        assertEquals(2, first.entries().size());
++        assertTrue(first.hasMore());
++        assertTrue(first.entries().getFirst().frame().containsKey("recipient"));
++        var last = store.page(id, Long.parseLong(first.nextCursor()), 2, 1000);
++        assertEquals(1, last.entries().size());
++        assertTrue(last.entries().getFirst().frame().containsKey("chatItem"));
++        assertFalse(last.hasMore());
++    }
++    @Test void failedImportRollsBackToPriorSnapshot() throws Exception {
++        var store = store();
++        String id = store.replace(this::seed, 1000);
++        assertThrows(IOException.class, () -> store.replace(v -> {
++            seed(v); throw new IOException("corrupt trailing frame");
++        }, 1000));
++        assertEquals(id, store.page(null, 0, 10, 1000).archiveId());
++        assertEquals(2, store.page(id, 0, 10, 1000).entries().size());
++    }
++    @Test void skipsExpiredMessagesAndPurgesNewlyExpiredMessages() throws Exception {
++        var store = store();
++        store.replace(v -> { seed(v); v.frame(message(10, 10)); v.frame(message(20, 100)); }, 1050);
++        assertEquals(3, store.page(null, 0, 10, 1050).entries().size());
++        assertEquals(2, store.page(null, 0, 10, 1100).entries().size());
++    }
++    @Test void rejectsStaleCursorsAndInvalidReferences() throws Exception {
++        var store = store();
++        String old = store.replace(this::seed, 1000);
++        store.replace(this::seed, 1000);
++        assertThrows(IOException.class, () -> store.page(old, 1, 10, 1000));
++        assertThrows(IllegalArgumentException.class, () -> store.page(null, 1, 10, 1000));
++        assertThrows(IOException.class, () -> store.replace(v -> {
++            v.info(Backups.BackupInfo.newBuilder().setVersion(1).build());
++            v.frame(message(1, 0));
++        }, 1000));
++    }
++}
+diff --git a/src/main/java/org/asamk/signal/commands/Commands.java b/src/main/java/org/asamk/signal/commands/Commands.java
+index a57c8c9..60926f3 100644
+--- a/src/main/java/org/asamk/signal/commands/Commands.java
++++ b/src/main/java/org/asamk/signal/commands/Commands.java
+@@ -29,6 +29,7 @@ public class Commands {
+         addCommand(new LinkCommand());
+         addCommand(new ListAccountsCommand());
+         addCommand(new ListContactsCommand());
++        addCommand(new GetHistoryCommand());
+         addCommand(new ListDevicesCommand());
+         addCommand(new ListGroupsCommand());
+         addCommand(new ListIdentitiesCommand());
+diff --git a/src/main/java/org/asamk/signal/commands/GetHistoryCommand.java b/src/main/java/org/asamk/signal/commands/GetHistoryCommand.java
+new file mode 100644
+index 0000000..29599f3
+--- /dev/null
++++ b/src/main/java/org/asamk/signal/commands/GetHistoryCommand.java
+@@ -0,0 +1,47 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.commands;
++
++import net.sourceforge.argparse4j.inf.Namespace;
++import net.sourceforge.argparse4j.inf.Subparser;
++import org.asamk.signal.commands.exceptions.CommandException;
++import org.asamk.signal.commands.exceptions.IOErrorException;
++import org.asamk.signal.commands.exceptions.UserErrorException;
++import org.asamk.signal.manager.Manager;
++import org.asamk.signal.output.JsonWriter;
++import org.asamk.signal.output.OutputWriter;
++import org.asamk.signal.output.PlainTextWriter;
++import java.io.IOException;
++
++public class GetHistoryCommand implements JsonRpcLocalCommand {
++    @Override public String getName() { return "getHistory"; }
++
++    @Override public void attachToSubparser(Subparser parser) {
++        parser.help("Retrieve a page of imported phone history in backup-frame order.");
++        parser.addArgument("--archive-id").help("Snapshot id returned by the first page.");
++        parser.addArgument("--after").setDefault("0").help("Exclusive cursor returned by the previous page.");
++        parser.addArgument("--limit").setDefault("100").help("Maximum frames to return (1..500).");
++    }
++
++    @Override public void handleCommand(Namespace ns, Manager manager, OutputWriter output)
++            throws CommandException {
++        try {
++            Object after = ns.get("after");
++            Object limit = ns.get("limit");
++            var page = manager.getHistory(ns.getString("archive-id"),
++                    after == null ? 0 : Long.parseLong(after.toString()),
++                    limit == null ? 100 : Integer.parseInt(limit.toString()));
++            switch (output) {
++                case JsonWriter writer -> writer.write(page);
++                case PlainTextWriter writer -> {
++                    writer.println("Archive: {}", page.archiveId());
++                    for (var entry : page.entries()) writer.println("{} {}", entry.cursor(), entry.frame());
++                    writer.println("Next cursor: {} More: {}", page.nextCursor(), page.hasMore());
++                }
++            }
++        } catch (IllegalArgumentException e) {
++            throw new UserErrorException("Invalid history pagination: " + e.getMessage(), e);
++        } catch (IOException e) {
++            throw new IOErrorException("History retrieval failed: " + e.getMessage(), e);
++        }
++    }
++}
+diff --git a/src/test/java/org/asamk/signal/commands/GetHistoryCommandTest.java b/src/test/java/org/asamk/signal/commands/GetHistoryCommandTest.java
+new file mode 100644
+index 0000000..1765c2e
+--- /dev/null
++++ b/src/test/java/org/asamk/signal/commands/GetHistoryCommandTest.java
+@@ -0,0 +1,50 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.commands;
++
++import org.asamk.signal.commands.exceptions.IOErrorException;
++import org.asamk.signal.commands.exceptions.UserErrorException;
++import org.asamk.signal.manager.Manager;
++import org.asamk.signal.manager.history.HistoryStore;
++import org.junit.jupiter.api.Test;
++import java.io.IOException;
++import java.lang.reflect.Proxy;
++import java.util.List;
++import java.util.Map;
++import java.util.concurrent.atomic.AtomicReference;
++import static org.junit.jupiter.api.Assertions.*;
++
++class GetHistoryCommandTest {
++    private Manager manager(java.lang.reflect.InvocationHandler handler) {
++        return (Manager) Proxy.newProxyInstance(Manager.class.getClassLoader(), new Class<?>[]{Manager.class}, handler);
++    }
++    @Test void handlesJsonRpcNamesAndStringCursors() throws Exception {
++        var expected = new HistoryStore.Page("snapshot", List.of(), "9007199254740993", false);
++        var manager = manager((proxy, method, args) -> {
++            assertEquals("getHistory", method.getName());
++            assertArrayEquals(new Object[]{"snapshot", 9007199254740993L, 20}, args);
++            return expected;
++        });
++        var output = new AtomicReference<Object>();
++        new GetHistoryCommand().handleCommand(Map.of("archiveId", "snapshot", "after", "9007199254740993", "limit", 20),
++                manager, output::set);
++        assertEquals(expected, output.get());
++    }
++    @Test void usesFirstPageDefaults() throws Exception {
++        var manager = manager((proxy, method, args) -> {
++            assertArrayEquals(new Object[]{null, 0L, 100}, args);
++            return new HistoryStore.Page(null, List.of(), "0", false);
++        });
++        var output = new AtomicReference<Object>();
++        new GetHistoryCommand().handleCommand(Map.of(), manager, output::set);
++        assertNotNull(output.get());
++    }
++    @Test void reportsMalformedCursorsAndStorageErrors() {
++        var manager = manager((proxy, method, args) -> { throw new IOException("History changed"); });
++        var output = new AtomicReference<Object>();
++        assertThrows(UserErrorException.class, () -> new GetHistoryCommand().handleCommand(
++                Map.of("after", "1.5"), manager, output::set));
++        assertThrows(IOErrorException.class, () -> new GetHistoryCommand().handleCommand(
++                Map.of(), manager, output::set));
++        assertNull(output.get());
++    }
++}

@@ -1,10 +1,10 @@
 /**
  * Local message history.
  *
- * signal-cli keeps no history: once an envelope is received it's gone. So
- * everything we see is persisted here and the UI pages history from this
- * repository, never from the backend (except the mock's optional seed
- * history, which the history service copies in on demand).
+ * Stock signal-cli keeps no received-message history. Everything we see is
+ * persisted here and the UI pages from this repository. Backends with history
+ * (the phone-history patch or mock data) supply older pages on demand through
+ * HistoryService, which persists them before exposing them to the UI.
  *
  * Ordering: messages are keyed by identity (`author:sentAt`) but *ordered* by
  * `seq`, a local arrival sequence the repository assigns. Sender clocks can
@@ -94,6 +94,8 @@ export interface MessageRepository {
   pinned(conversationId: ConversationId, limit: number): Promise<Message[]>;
   /** Messages whose expiresAt has passed (disappearing messages). */
   expired(now: number, limit: number): Promise<Message[]>;
+  /** Imported timers that need their authoritative deadline checked after reconnect. */
+  pendingHistoryTimers(): Promise<Message[]>;
 
   /** Per-conversation read positions (seq of the last read message). */
   getReadCursors(): Promise<Map<ConversationId, number>>;

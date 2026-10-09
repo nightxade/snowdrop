@@ -135,6 +135,7 @@ export class SyncService {
   private purgeTimer: Cancel | null = null;
   private refreshing: Promise<void> | null = null;
   private refreshAgain = false;
+  private readonly readingHistory = new Set<MessageId>();
 
   constructor(private readonly deps: SyncServiceDeps) {
     this.receipts = deps.receipts ?? new ReceiptBuffer();
@@ -253,12 +254,16 @@ export class SyncService {
     stores.contacts.getState().upsertMany([self, ...contacts]);
     stores.conversations.getState().upsertMany(conversations);
 
+    await this.recoverHistoryTimers();
     const cursors = await repository.getReadCursors();
     await Promise.all(
       conversations.map(async (conv) => {
         cursors.set(conv.id, await this.seedConversation(conv, cursors.get(conv.id)));
       }),
     );
+    while ((await this.purgeExpired()) === 500) {
+      // Drain expired cache entries before setting ready or exposing message previews.
+    }
     stores.conversations.getState().setReadCursors(Object.fromEntries(cursors));
     await Promise.all(conversations.map((c) => this.recomputeUnread(c.id)));
   }
@@ -306,6 +311,141 @@ export class SyncService {
   }
 
   // ─── Read state ────────────────────────────────────────────────────────
+
+  /** Recover a server-committed read whose local write was interrupted. */
+  private async recoverHistoryTimers(): Promise<void> {
+    const { backend, repository, stores, clock } = this.deps;
+    if (!backend.getHistoryReadState) return;
+    const generation = this.generation;
+    const pending = await repository.pendingHistoryTimers();
+    for (let start = 0; start < pending.length; start += 500) {
+      if (generation !== this.generation) return;
+      const batch = pending.slice(start, start + 500);
+      const selected = new Map(batch.map((message) => [message.id, message]));
+      const states = await backend.getHistoryReadState(
+        batch.flatMap((message) =>
+          message.historyCursor ? [{ id: message.id, cursor: message.historyCursor }] : [],
+        ),
+      );
+      if (generation !== this.generation) return;
+      if (
+        states.length !== selected.size ||
+        new Set(states.map((state) => state.id)).size !== states.length
+      )
+        throw new Error('History recovery omitted or duplicated a message');
+      for (const state of states) {
+        const message = selected.get(state.id);
+        if (!message) throw new Error('History recovery returned an unknown message');
+        if (
+          state.expiresAt !== undefined &&
+          (!Number.isSafeInteger(state.expiresAt) || state.expiresAt <= 0)
+        )
+          throw new Error('History recovery returned an invalid deadline');
+        if (
+          state.unavailable ||
+          (state.expiresAt !== undefined && state.expiresAt <= clock.now())
+        ) {
+          await repository.delete(state.id);
+          if (generation !== this.generation) return;
+          this.rememberPurged(state.id);
+          stores.messages.getState().remove(message.conversationId, state.id);
+          const selfId = this.selfId();
+          if (selfId) stores.conversations.getState().applyRemoval(message, selfId);
+        } else if (state.expiresAt !== undefined) {
+          const expiresAt = state.expiresAt;
+          const updated = await repository.update(state.id, (current) => {
+            if (current.historyCursor !== message.historyCursor) return current;
+            const next = {
+              ...current,
+              expiresAt: Math.min(current.expiresAt ?? expiresAt, expiresAt),
+            };
+            delete next.expiresAfterReadMs;
+            return next;
+          });
+          if (generation !== this.generation) return;
+          if (updated)
+            stores.messages.getState().update(message.conversationId, state.id, () => updated);
+        }
+      }
+    }
+  }
+
+  /** Start pending imported timers only for messages the UI reports as visible. */
+  async readHistoryMessages(
+    conversationId: ConversationId,
+    ids: readonly MessageId[],
+  ): Promise<void> {
+    const { backend, repository, stores, clock } = this.deps;
+    if (!backend.readHistory) return;
+    const generation = this.generation;
+    const claimed = [...new Set(ids)].filter((id) => !this.readingHistory.has(id));
+    for (const id of claimed) this.readingHistory.add(id);
+    try {
+      const selected = new Map<MessageId, Message>();
+      for (const id of claimed) {
+        const message = await repository.get(id);
+        if (generation !== this.generation) return;
+        if (
+          message?.conversationId === conversationId &&
+          message.historyCursor &&
+          message.expiresAfterReadMs &&
+          !message.deleted &&
+          message.expiresAt === undefined
+        )
+          selected.set(id, message);
+      }
+      if (!selected.size) return;
+      const states = await backend.readHistory(
+        [...selected.values()].flatMap((message) =>
+          message.historyCursor ? [{ id: message.id, cursor: message.historyCursor }] : [],
+        ),
+      );
+      if (generation !== this.generation) return;
+      for (const state of states) {
+        const original = selected.get(state.id);
+        if (!original) continue;
+        if (
+          state.expiresAt !== undefined &&
+          (!Number.isSafeInteger(state.expiresAt) || state.expiresAt <= 0)
+        )
+          throw new Error('History timer response has an invalid deadline');
+        const current = await repository.get(state.id);
+        if (generation !== this.generation) return;
+        if (!current || current.historyCursor !== original.historyCursor) continue;
+        if (
+          state.unavailable ||
+          (state.expiresAt !== undefined && state.expiresAt <= clock.now())
+        ) {
+          await repository.delete(state.id);
+          if (generation !== this.generation) return;
+          this.rememberPurged(state.id);
+          stores.messages.getState().remove(conversationId, state.id);
+          const selfId = this.selfId();
+          if (selfId) stores.conversations.getState().applyRemoval(current, selfId);
+          continue;
+        }
+        const expiresAt = state.expiresAt;
+        if (expiresAt === undefined || !Number.isSafeInteger(expiresAt) || expiresAt <= 0)
+          throw new Error('History timer response has no valid deadline');
+        const updated = await repository.update(state.id, (message) => {
+          if (message.historyCursor !== original.historyCursor) return message;
+          const next = {
+            ...message,
+            expiresAt: Math.min(message.expiresAt ?? expiresAt, expiresAt),
+          };
+          delete next.expiresAfterReadMs;
+          return next;
+        });
+        if (generation !== this.generation) return;
+        if (updated) stores.messages.getState().update(conversationId, state.id, () => updated);
+        this.schedulePurge(expiresAt - clock.now());
+      }
+    } catch (error) {
+      if (generation === this.generation) this.onError(error, 'starting history expiration failed');
+    } finally {
+      for (const id of claimed) this.readingHistory.delete(id);
+    }
+  }
 
   /**
    * Marks everything in a conversation as read: advances the cursor, clears

@@ -1,0 +1,219 @@
+diff --git a/lib/src/main/java/org/asamk/signal/manager/history/LinkHistoryReader.java b/lib/src/main/java/org/asamk/signal/manager/history/LinkHistoryReader.java
+new file mode 100644
+index 0000000..18aa70f
+--- /dev/null
++++ b/lib/src/main/java/org/asamk/signal/manager/history/LinkHistoryReader.java
+@@ -0,0 +1,130 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.manager.history;
++
++import javax.crypto.Cipher;
++import javax.crypto.CipherInputStream;
++import javax.crypto.Mac;
++import javax.crypto.spec.IvParameterSpec;
++import javax.crypto.spec.SecretKeySpec;
++import java.io.EOFException;
++import java.io.FilterInputStream;
++import java.io.IOException;
++import java.io.InputStream;
++import java.nio.channels.Channels;
++import java.nio.channels.SeekableByteChannel;
++import java.nio.file.Files;
++import java.nio.file.Path;
++import java.security.GeneralSecurityException;
++import java.security.MessageDigest;
++import java.util.zip.GZIPInputStream;
++
++/** Reads an authenticated link-and-sync archive, without loading it all into memory.
++ * The archive must be a private, immutable download owned by the caller.
++ * Keys come from libsignal's MessageBackupKey derivation, not the raw provisioning key.
++ * Importers must commit their transaction only after this method returns successfully.
++ */
++public final class LinkHistoryReader {
++    private static final int IV_BYTES = 16;
++    private static final int MAC_BYTES = 32;
++    private static final int MAX_FRAME_BYTES = 16 * 1024 * 1024;
++
++    private LinkHistoryReader() {}
++
++    @FunctionalInterface
++    public interface FrameConsumer {
++        // First frame is BackupInfo; subsequent frames are Backup Frame protobufs.
++        void accept(byte[] frame) throws IOException;
++    }
++
++    public static void read(Path archive, byte[] aesKey, byte[] macKey, FrameConsumer consumer)
++            throws IOException {
++        if (aesKey.length != 32 || macKey.length != 32) {
++            throw new IOException("Invalid history archive key length");
++        }
++        try (var channel = Files.newByteChannel(archive)) {
++            long signedLength = channel.size() - MAC_BYTES;
++            if (signedLength < IV_BYTES + 16 || (signedLength - IV_BYTES) % 16 != 0) {
++                throw new IOException("Truncated history archive");
++            }
++            // Authenticate before constructing a cipher or releasing any plaintext.
++            verify(channel, signedLength, macKey);
++            channel.position(0);
++            var source = Channels.newInputStream(channel);
++            byte[] iv = source.readNBytes(IV_BYTES);
++            var cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
++            cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(aesKey, "AES"), new IvParameterSpec(iv));
++            try (var plaintext = new GZIPInputStream(new CipherInputStream(
++                    new LimitedInputStream(source, signedLength - IV_BYTES), cipher))) {
++                int first;
++                while ((first = plaintext.read()) != -1) {
++                    int length = frameLength(first, plaintext);
++                    byte[] frame = plaintext.readNBytes(length);
++                    if (frame.length != length) throw new EOFException("Truncated history frame");
++                    consumer.accept(frame);
++                }
++            }
++        } catch (GeneralSecurityException e) {
++            throw new IOException("Unable to decrypt history archive", e);
++        }
++    }
++
++    private static void verify(SeekableByteChannel channel, long signedLength, byte[] key)
++            throws IOException, GeneralSecurityException {
++        var mac = Mac.getInstance("HmacSHA256");
++        mac.init(new SecretKeySpec(key, "HmacSHA256"));
++        var source = Channels.newInputStream(channel);
++        var signed = new LimitedInputStream(source, signedLength);
++        byte[] buffer = new byte[64 * 1024];
++        int count;
++        while ((count = signed.read(buffer)) != -1) mac.update(buffer, 0, count);
++        byte[] expected = source.readNBytes(MAC_BYTES);
++        if (expected.length != MAC_BYTES || !MessageDigest.isEqual(mac.doFinal(), expected)) {
++            throw new IOException("History archive authentication failed");
++        }
++    }
++
++    private static int frameLength(int first, InputStream source) throws IOException {
++        long length = 0;
++        int value = first;
++        for (int shift = 0; shift < 35; shift += 7) {
++            length |= (long) (value & 0x7f) << shift;
++            if ((value & 0x80) == 0) {
++                if (length > MAX_FRAME_BYTES) {
++                    throw new IOException("Invalid history frame size");
++                }
++                return (int) length;
++            }
++            value = source.read();
++            if (value == -1) throw new EOFException("Truncated history frame length");
++        }
++        throw new IOException("Invalid history frame length");
++    }
++
++    private static final class LimitedInputStream extends FilterInputStream {
++        private long remaining;
++
++        LimitedInputStream(InputStream source, long length) {
++            super(source);
++            remaining = length;
++        }
++
++        @Override
++        public int read() throws IOException {
++            if (remaining == 0) return -1;
++            int value = in.read();
++            if (value == -1) throw new EOFException("Truncated history archive");
++            remaining--;
++            return value;
++        }
++
++        @Override
++        public int read(byte[] bytes, int offset, int length) throws IOException {
++            if (length == 0) return 0;
++            if (remaining == 0) return -1;
++            int count = in.read(bytes, offset, (int) Math.min(length, remaining));
++            if (count == -1) throw new EOFException("Truncated history archive");
++            remaining -= count;
++            return count;
++        }
++    }
++}
+diff --git a/lib/src/test/java/org/asamk/signal/manager/history/LinkHistoryReaderTest.java b/lib/src/test/java/org/asamk/signal/manager/history/LinkHistoryReaderTest.java
+new file mode 100644
+index 0000000..ae94e3b
+--- /dev/null
++++ b/lib/src/test/java/org/asamk/signal/manager/history/LinkHistoryReaderTest.java
+@@ -0,0 +1,77 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.manager.history;
++
++import org.junit.jupiter.api.Test;
++import org.junit.jupiter.api.io.TempDir;
++import javax.crypto.Cipher;
++import javax.crypto.Mac;
++import javax.crypto.spec.IvParameterSpec;
++import javax.crypto.spec.SecretKeySpec;
++import java.io.ByteArrayOutputStream;
++import java.io.IOException;
++import java.nio.file.Files;
++import java.nio.file.Path;
++import java.util.ArrayList;
++import java.util.Arrays;
++import java.util.zip.GZIPOutputStream;
++import static org.junit.jupiter.api.Assertions.*;
++
++class LinkHistoryReaderTest {
++    @TempDir Path directory;
++    private final byte[] aes = new byte[32];
++    private final byte[] mac = new byte[32];
++
++    private Path archive(byte[] plaintext) throws Exception {
++        Arrays.fill(aes, (byte) 0x42);
++        Arrays.fill(mac, (byte) 0x13);
++        var gzip = new ByteArrayOutputStream();
++        try (var out = new GZIPOutputStream(gzip)) { out.write(plaintext); }
++        // Link-and-sync pads the compressed stream before encryption.
++        gzip.write(new byte[40]);
++        byte[] iv = new byte[16];
++        var cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
++        cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(aes, "AES"), new IvParameterSpec(iv));
++        var encrypted = new ByteArrayOutputStream();
++        encrypted.write(iv);
++        encrypted.write(cipher.doFinal(gzip.toByteArray()));
++        var hmac = Mac.getInstance("HmacSHA256");
++        hmac.init(new SecretKeySpec(mac, "HmacSHA256"));
++        encrypted.write(hmac.doFinal(encrypted.toByteArray()));
++        return Files.write(directory.resolve("archive.bin"), encrypted.toByteArray());
++    }
++
++    @Test void decodesDelimitedFrames() throws Exception {
++        var file = archive(new byte[]{2, 8, 1, 3, 10, 1, 0});
++        var frames = new ArrayList<byte[]>();
++        LinkHistoryReader.read(file, aes, mac, frames::add);
++        assertEquals(2, frames.size());
++        assertArrayEquals(new byte[]{8, 1}, frames.get(0));
++        assertArrayEquals(new byte[]{10, 1, 0}, frames.get(1));
++    }
++
++    @Test void rejectsTamperingBeforeDeliveringFrames() throws Exception {
++        var file = archive(new byte[]{2, 8, 1});
++        byte[] bytes = Files.readAllBytes(file);
++        bytes[18] ^= 1;
++        Files.write(file, bytes);
++        var frames = new ArrayList<byte[]>();
++        assertThrows(IOException.class, () -> LinkHistoryReader.read(file, aes, mac, frames::add));
++        assertTrue(frames.isEmpty());
++    }
++
++    @Test void rejectsWrongMacKey() throws Exception {
++        var file = archive(new byte[]{2, 8, 1});
++        assertThrows(IOException.class, () -> LinkHistoryReader.read(file, aes, new byte[32],
++                frame -> fail("Unauthenticated plaintext")));
++    }
++
++    @Test void rejectsTruncatedFrame() throws Exception {
++        var file = archive(new byte[]{3, 8});
++        assertThrows(IOException.class, () -> LinkHistoryReader.read(file, aes, mac, frame -> fail()));
++    }
++
++    @Test void rejectsOversizedFrameBeforeAllocation() throws Exception {
++        var file = archive(new byte[]{-1, -1, -1, -1, 15});
++        assertThrows(IOException.class, () -> LinkHistoryReader.read(file, aes, mac, frame -> fail()));
++    }
++}

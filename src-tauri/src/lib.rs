@@ -6,6 +6,7 @@ pub mod aead;
 #[cfg(target_os = "linux")]
 mod appimage;
 pub mod applog;
+pub mod clipboard;
 pub mod commands;
 pub mod config;
 pub mod error;
@@ -14,6 +15,7 @@ pub mod external;
 pub mod jsonrpc;
 pub mod keyslots;
 pub mod logfile;
+pub mod notifications;
 pub mod perf;
 pub mod process;
 pub mod redact;
@@ -100,6 +102,7 @@ pub fn run() {
         // First, so a second launch hands over before anything else starts.
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| focus_main(app)))
         .plugin(tauri_plugin_notification::init())
+        .manage(Arc::new(notifications::Notifications::default()))
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             // First thing: `app_log_dir()` needs the `AppHandle`, which
@@ -214,6 +217,9 @@ pub fn run() {
             });
         })
         .invoke_handler(tauri::generate_handler![
+            commands::clipboard_read_files,
+            commands::notification_show,
+            commands::notification_close,
             commands::signal_cli_connect,
             commands::signal_cli_request,
             commands::signal_cli_subscribe,

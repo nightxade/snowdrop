@@ -1,0 +1,2460 @@
+diff --git a/lib/build.gradle.kts b/lib/build.gradle.kts
+index b5e7f31..e10f0da 100644
+--- a/lib/build.gradle.kts
++++ b/lib/build.gradle.kts
+@@ -1,4 +1,5 @@
+ plugins {
++    id("com.google.protobuf") version "0.10.0"
+     `java-library`
+     `check-lib-versions`
+ }
+@@ -17,6 +18,7 @@ java {
+ val libsignalClientPath = project.findProperty("libsignal_client_path")?.toString()
+ 
+ dependencies {
++    implementation("com.google.protobuf:protobuf-java:4.31.1")
+     if (libsignalClientPath == null) {
+         implementation(libs.signalnetwork)
+     } else {
+@@ -61,3 +63,7 @@ tasks.jar {
+         attributes("Automatic-Module-Name" to "org.asamk.signal.manager")
+     }
+ }
++
++protobuf {
++    protoc { artifact = "com.google.protobuf:protoc:4.31.1" }
++}
+diff --git a/lib/src/main/java/org/asamk/signal/manager/history/HistoryFrames.java b/lib/src/main/java/org/asamk/signal/manager/history/HistoryFrames.java
+new file mode 100644
+index 0000000..e50058e
+--- /dev/null
++++ b/lib/src/main/java/org/asamk/signal/manager/history/HistoryFrames.java
+@@ -0,0 +1,57 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.manager.history;
++
++import org.thoughtcrime.securesms.backup.v2.proto.Backups;
++import java.io.IOException;
++import java.nio.file.Path;
++
++/** Typed, lossless backup decoding. This intentionally does not use the
++ * takeout JSON exporter: that exporter removes disappearing messages.
++ * Importers decide expiration and unsupported-message handling themselves.
++ */
++public final class HistoryFrames implements LinkHistoryReader.FrameConsumer {
++    public interface Visitor {
++        void info(Backups.BackupInfo info) throws IOException;
++        void frame(Backups.Frame frame) throws IOException;
++    }
++
++    private final Visitor visitor;
++    private boolean hasInfo;
++    private boolean hasAccount;
++
++    public HistoryFrames(Visitor visitor) {
++        this.visitor = visitor;
++    }
++
++    public static void read(Path archive, byte[] aesKey, byte[] macKey, Visitor visitor)
++            throws IOException {
++        var frames = new HistoryFrames(visitor);
++        LinkHistoryReader.read(archive, aesKey, macKey, frames);
++        frames.finish();
++    }
++
++    @Override
++    public void accept(byte[] bytes) throws IOException {
++        if (!hasInfo) {
++            var info = Backups.BackupInfo.parseFrom(bytes);
++            if (info.getVersion() != 1) throw new IOException("Unsupported history archive version");
++            visitor.info(info);
++            hasInfo = true;
++            return;
++        }
++        var frame = Backups.Frame.parseFrom(bytes);
++        // The protocol permits unknown/empty frames for forward compatibility.
++        if (frame.getItemCase() == Backups.Frame.ItemCase.ITEM_NOT_SET) return;
++        if (frame.hasAccount()) {
++            if (hasAccount) throw new IOException("Duplicate history account frame");
++            hasAccount = true;
++        } else if (!hasAccount) {
++            throw new IOException("History account frame must come first");
++        }
++        visitor.frame(frame);
++    }
++
++    public void finish() throws IOException {
++        if (!hasInfo || !hasAccount) throw new IOException("Incomplete history archive");
++    }
++}
+diff --git a/lib/src/main/java/org/asamk/signal/manager/history/HistoryJson.java b/lib/src/main/java/org/asamk/signal/manager/history/HistoryJson.java
+new file mode 100644
+index 0000000..8bfbb0c
+--- /dev/null
++++ b/lib/src/main/java/org/asamk/signal/manager/history/HistoryJson.java
+@@ -0,0 +1,47 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.manager.history;
++
++import com.google.protobuf.ByteString;
++import com.google.protobuf.Descriptors;
++import com.google.protobuf.Message;
++import java.util.Base64;
++import java.util.LinkedHashMap;
++import java.util.List;
++import java.util.Map;
++
++/** JSON-compatible backup fields for the history RPC. Preserve 64-bit integers
++ * as strings, so JavaScript cannot round timestamps/ids during import.
++ */
++public final class HistoryJson {
++    private HistoryJson() {}
++
++    public static Map<String, Object> fields(Message message) {
++        Map<String, Object> result = new LinkedHashMap<>();
++        for (var entry : message.getAllFields().entrySet()) {
++            var field = entry.getKey();
++            Object value = entry.getValue();
++            if (field.isRepeated()) {
++                value = ((List<?>) value).stream().map(item -> value(field, item)).toList();
++            } else {
++                value = value(field, value);
++            }
++            result.put(field.getJsonName(), value);
++        }
++        return result;
++    }
++
++    private static Object value(Descriptors.FieldDescriptor field, Object value) {
++        return switch (field.getJavaType()) {
++            case MESSAGE -> fields((Message) value);
++            case BYTE_STRING -> Base64.getEncoder().encodeToString(((ByteString) value).toByteArray());
++            case ENUM -> ((Descriptors.EnumValueDescriptor) value).getName();
++            case LONG -> field.getType() == Descriptors.FieldDescriptor.Type.UINT64
++                    || field.getType() == Descriptors.FieldDescriptor.Type.FIXED64
++                    ? Long.toUnsignedString((Long) value) : value.toString();
++            case INT -> field.getType() == Descriptors.FieldDescriptor.Type.UINT32
++                    || field.getType() == Descriptors.FieldDescriptor.Type.FIXED32
++                    ? Integer.toUnsignedLong((Integer) value) : value;
++            default -> value;
++        };
++    }
++}
+diff --git a/lib/src/main/proto/Backups.proto b/lib/src/main/proto/Backups.proto
+new file mode 100644
+index 0000000..ff50240
+--- /dev/null
++++ b/lib/src/main/proto/Backups.proto
+@@ -0,0 +1,1488 @@
++// Copyright 2024 Signal Messenger, LLC
++// SPDX-License-Identifier: AGPL-3.0-only
++syntax = "proto3";
++
++package signalbackups;
++
++option java_package = "org.thoughtcrime.securesms.backup.v2.proto";
++option swift_prefix = "BackupProto_";
++
++message BackupInfo {
++  uint64 version = 1;
++  uint64 backupTimeMs = 2;
++  bytes mediaRootBackupKey = 3; // 32-byte random value generated when the backup is uploaded for the first time.
++  string currentAppVersion = 4;
++  string firstAppVersion = 5;
++  bytes debugInfo = 6; // Client-specific data field for debug info during testing
++}
++
++// Frames must follow in the following ordering rules:
++//
++// 1. There is exactly one AccountData and it is the first frame.
++// 2. A frame referenced by ID must come before the referencing frame.
++//    e.g. a Recipient must come before any Chat referencing it.
++// 3. All ChatItems must appear in global Chat rendering order.
++//    (The order in which they were received by the client.)
++// 4. ChatFolders must appear in render order (e.g., left to right for
++//    LTR locales), but can appear anywhere relative to other frames respecting
++//    rule 2 (after Recipients and Chats).
++//
++// Recipients, Chats, StickerPacks, AdHocCalls, and NotificationProfiles
++// can be in any order. (But must respect rule 2.)
++//
++// For example, Chats may all be together at the beginning,
++// or may each immediately precede its first ChatItem.
++message Frame {
++  // If unset, importers should skip this frame without throwing an error.
++  oneof item {
++    AccountData account = 1;
++    Recipient recipient = 2;
++    Chat chat = 3;
++    ChatItem chatItem = 4;
++    StickerPack stickerPack = 5;
++    AdHocCall adHocCall = 6;
++    NotificationProfile notificationProfile = 7;
++    ChatFolder chatFolder = 8;
++  }
++}
++
++message AccountData {
++  enum PhoneNumberSharingMode {
++    UNKNOWN = 0; // Interpret as "Nobody"
++    EVERYBODY = 1;
++    NOBODY = 2;
++  }
++  message UsernameLink {
++    enum Color {
++      UNKNOWN = 0; // Interpret as "Blue"
++      BLUE = 1;
++      WHITE = 2;
++      GREY = 3;
++      OLIVE = 4;
++      GREEN = 5;
++      ORANGE = 6;
++      PINK = 7;
++      PURPLE = 8;
++    }
++
++    bytes entropy = 1;  // 32 bytes of entropy used for encryption
++    bytes serverId = 2; // 16 bytes of encoded UUID provided by the server
++    Color color = 3;
++  }
++
++  enum SentMediaQuality {
++    UNKNOWN_QUALITY = 0; // Interpret as "Standard"
++    STANDARD = 1;
++    HIGH = 2;
++  }
++
++  message AutoDownloadSettings {
++    enum AutoDownloadOption {
++      UNKNOWN = 0; // Interpret as "Never"
++      NEVER = 1;
++      WIFI = 2;
++      WIFI_AND_CELLULAR = 3;
++    }
++
++    AutoDownloadOption images = 1;
++    AutoDownloadOption audio = 2;
++    AutoDownloadOption video = 3;
++    AutoDownloadOption documents = 4;
++  }
++
++  enum AppTheme {
++    UNKNOWN_APP_THEME = 0; // Interpret as "System"
++    SYSTEM = 1;
++    LIGHT = 2;
++    DARK = 3;
++  }
++
++  enum CallsUseLessDataSetting {
++    UNKNOWN_CALL_DATA_SETTING = 0; // Interpret as "Never"
++    NEVER = 1;
++    MOBILE_DATA_ONLY = 2;
++    WIFI_AND_MOBILE_DATA = 3;
++  }
++
++  message AccountSettings {
++    enum UnreadBadgeType {
++      UNKNOWN_BADGE_TYPE = 0; // Interpret as "Unread messages"
++      UNREAD_MESSAGES = 1;
++      UNREAD_CHATS = 2;
++    }
++
++    bool readReceipts = 1;
++    bool sealedSenderIndicators = 2;
++    bool typingIndicators = 3;
++    bool linkPreviews = 4;
++    bool notDiscoverableByPhoneNumber = 5;
++    bool preferContactAvatars = 6;
++    uint32 universalExpireTimerSeconds = 7; // 0 means no universal expire timer.
++    repeated string preferredReactionEmoji = 8;
++    bool displayBadgesOnProfile = 9;
++    bool keepMutedChatsArchived = 10;
++    bool hasSetMyStoriesPrivacy = 11;
++    bool hasViewedOnboardingStory = 12;
++    bool storiesDisabled = 13;
++    optional bool storyViewReceiptsEnabled = 14;
++    bool hasSeenGroupStoryEducationSheet = 15;
++    bool hasCompletedUsernameOnboarding = 16;
++    PhoneNumberSharingMode phoneNumberSharingMode = 17;
++    ChatStyle defaultChatStyle = 18;
++    repeated ChatStyle.CustomChatColor customChatColors = 19;
++    bool optimizeOnDeviceStorage = 20;
++    // See zkgroup for integer particular values. Unset if backups are not enabled.
++    optional uint64 backupTier = 21;
++    reserved /* showSealedSenderIndicators */ 22;
++    SentMediaQuality defaultSentMediaQuality = 23;
++    AutoDownloadSettings autoDownloadSettings = 24;
++    reserved /* wifiAutoDownloadSettings */ 25;
++    optional uint32 screenLockTimeoutMinutes = 26; // If unset, consider screen lock to be disabled.
++    optional bool pinReminders = 27; // If unset, consider pin reminders to be enabled.
++    AppTheme appTheme = 28;  // If unset, treat the same as "Unknown" case
++    CallsUseLessDataSetting callsUseLessDataSetting = 29;  // If unset, treat the same as "Unknown" case
++    bool allowSealedSenderFromAnyone = 30;
++    bool allowAutomaticKeyVerification = 31;
++    bool hasSeenAdminDeleteEducationDialog = 32;
++    UnreadBadgeType unreadBadgeType = 33;
++    optional bool includeMutedChatsInBadge = 34; // If unset, consider this disabled
++    optional bool reactionNotifications = 35; // If unset, consider this enabled
++    optional bool notifyForCallsIfMuted = 36; // If unset, consider this disabled
++    optional bool notifyForMentionsIfMuted = 37; // If unset, consider this enabled
++    optional bool notifyForRepliesIfMuted = 38; // If unset, consider this enabled
++    optional bool showUnreadReminders = 39; // If unset, consider this enabled
++    optional bool notifyWhenContactJoins = 40; // If unset, consider this disabled
++  }
++
++  message SubscriberData {
++    bytes subscriberId = 1;
++    string currencyCode = 2;
++    bool manuallyCancelled = 3;
++  }
++
++  message IAPSubscriberData {
++    bytes subscriberId = 1;
++
++    // If unset, importers should ignore the subscriber data without throwing an error.
++    oneof iapSubscriptionId {
++      // Identifies an Android Play Store IAP subscription.
++      string purchaseToken = 2;
++      // Identifies an iOS App Store IAP subscription.
++      uint64 originalTransactionId = 3;
++    }
++  }
++
++  message AndroidSpecificSettings {
++    enum NavigationBarSize {
++      UNKNOWN_BAR_SIZE = 0; // Intepret as "Normal"
++      NORMAL = 1;
++      COMPACT = 2;
++    }
++
++    bool useSystemEmoji = 1;
++    bool screenshotSecurity = 2;
++    NavigationBarSize navigationBarSize = 3; // If unset, treat the same as "Unknown" case
++  }
++
++  bytes profileKey = 1;
++  optional string username = 2;
++  UsernameLink usernameLink = 3;
++  string givenName = 4;
++  string familyName = 5;
++  string avatarUrlPath = 6;
++  SubscriberData donationSubscriberData = 7;
++  reserved /*backupsSubscriberData*/ 8; // A deprecated format
++  AccountSettings accountSettings = 9;
++  IAPSubscriberData backupsSubscriberData = 10;
++  string svrPin = 11;
++  AndroidSpecificSettings androidSpecificSettings = 12;
++  string bioText = 13;
++  string bioEmoji = 14;
++  reserved /*keyTransparencyData*/ 15;
++}
++
++message Recipient {
++  uint64 id = 1; // generated id for reference only within this file
++  // If unset, importers should skip this frame without throwing an error.
++  oneof destination {
++    Contact contact = 2;
++    Group group = 3;
++    DistributionListItem distributionList = 4;
++    Self self = 5;
++    ReleaseNotes releaseNotes = 6;
++    CallLink callLink = 7;
++  }
++}
++
++// If unset - computed as the value of the first byte of SHA-256(msg=CONTACT_ID)
++// modulo the count of colors. Once set the avatar color for a recipient is
++// never recomputed or changed.
++//
++// `CONTACT_ID` is the first available identifier from the list:
++// - ServiceIdToBinary(ACI)
++// - E164
++// - ServiceIdToBinary(PNI)
++// - Group Id
++enum AvatarColor {
++  A100 = 0;
++  A110 = 1;
++  A120 = 2;
++  A130 = 3;
++  A140 = 4;
++  A150 = 5;
++  A160 = 6;
++  A170 = 7;
++  A180 = 8;
++  A190 = 9;
++  A200 = 10;
++  A210 = 11;
++}
++
++message Contact {
++  enum IdentityState {
++    DEFAULT = 0; // A valid value -- indicates unset by the user
++    VERIFIED = 1;
++    UNVERIFIED = 2; // Was once verified and is now unverified
++  }
++
++  message Registered {}
++  message NotRegistered {
++    uint64 unregisteredTimestamp = 1;
++  }
++
++  enum Visibility {
++    VISIBLE = 0; // A valid value -- the contact is not hidden
++    HIDDEN = 1;
++    HIDDEN_MESSAGE_REQUEST = 2;
++  }
++
++  message Name {
++    string given = 1;
++    string family = 2;
++  }
++
++  optional bytes aci = 1; // should be 16 bytes
++  optional bytes pni = 2; // should be 16 bytes
++  optional string username = 3;
++  optional uint64 e164 = 4;
++  bool blocked = 5;
++  Visibility visibility = 6;
++
++  // If unset, consider the user to be registered
++  oneof registration {
++    Registered registered = 7;
++    NotRegistered notRegistered = 8;
++  }
++
++  optional bytes profileKey = 9;
++  bool profileSharing = 10;
++  optional string profileGivenName = 11;
++  optional string profileFamilyName = 12;
++  bool hideStory = 13;
++  optional bytes identityKey = 14;
++  IdentityState identityState = 15;
++  Name nickname = 16; // absent iff both `given` and `family` are empty
++  string note = 17;
++  string systemGivenName = 18;
++  string systemFamilyName = 19;
++  string systemNickname = 20;
++  optional AvatarColor avatarColor = 21;
++  // Opaque blob containing key transparency data for the contact
++  optional bytes keyTransparencyData = 22;
++  uint64 blockedAtTimestamp = 23; // if `blocked` is true, 0 means unknown block time
++}
++
++message Group {
++  enum StorySendMode {
++    DEFAULT = 0; // A valid value -- indicates unset by the user
++    DISABLED = 1;
++    ENABLED = 2;
++  }
++
++  bytes masterKey = 1;
++  bool whitelisted = 2;
++  bool hideStory = 3;
++  StorySendMode storySendMode = 4;
++  GroupSnapshot snapshot = 5;
++  bool blocked = 6;
++  optional AvatarColor avatarColor = 7;
++  uint64 blockedAtTimestamp = 8; // if `blocked` is true, 0 means unknown block time
++
++  // These are simply plaintext copies of the groups proto from Groups.proto.
++  // They should be kept completely in-sync with Groups.proto.
++  // These exist to allow us to have the latest snapshot of a group during restoration without having to hit the network.
++  // We would use Groups.proto if we could, but we want a plaintext version to improve export readability.
++  // For documentation, defer to Groups.proto. The only name change is Group -> GroupSnapshot to avoid the naming conflict.
++  message GroupSnapshot {
++    reserved /*publicKey*/ 1;  // The field is deprecated in the context of static group state
++    GroupAttributeBlob title = 2;
++    GroupAttributeBlob description = 11;
++    string avatarUrl = 3;
++    GroupAttributeBlob disappearingMessagesTimer = 4;
++    AccessControl accessControl = 5;
++    uint32 version = 6;
++    repeated Member members = 7;
++    repeated MemberPendingProfileKey membersPendingProfileKey = 8;
++    repeated MemberPendingAdminApproval membersPendingAdminApproval = 9;
++    bytes inviteLinkPassword = 10;
++    bool announcementsOnly = 12;
++    repeated MemberBanned membersBanned = 13;
++    bool terminated = 14;
++  }
++
++  message GroupAttributeBlob {
++    // If unset, consider the field it represents to not be present
++    oneof content {
++      string title = 1;
++      bytes avatar = 2;
++      uint32 disappearingMessagesDuration = 3;
++      string descriptionText = 4;
++    }
++  }
++
++  message Member {
++    enum Role {
++      UNKNOWN = 0; // Intepret as "Default"
++      DEFAULT = 1;
++      ADMINISTRATOR = 2;
++    }
++
++    bytes userId = 1;
++    Role role = 2;
++    reserved /*profileKey*/ 3; // This field is ignored in Backups, in favor of Contact frames for members
++    reserved /*presentation*/ 4; // This field is deprecated in the context of static group state
++    uint32 joinedAtVersion = 5;
++    string labelEmoji = 6;
++    string labelString = 7;
++  }
++
++  message MemberPendingProfileKey {
++    Member member = 1;
++    bytes addedByUserId = 2;
++    uint64 timestamp = 3;
++  }
++
++  message MemberPendingAdminApproval {
++    bytes userId = 1;
++    reserved /*profileKey*/ 2; // This field is ignored in Backups, in favor of Contact frames for members
++    reserved /*presentation*/ 3; // This field is deprecated in the context of static group state
++    uint64 timestamp = 4;
++  }
++
++  message MemberBanned {
++    bytes userId = 1;
++    uint64 timestamp = 2;
++  }
++
++  message AccessControl {
++    enum AccessRequired {
++      UNKNOWN = 0; // Intepret as "Unsatisfiable"
++      ANY = 1;
++      MEMBER = 2;
++      ADMINISTRATOR = 3;
++      UNSATISFIABLE = 4;
++    }
++
++    AccessRequired attributes = 1;
++    AccessRequired members = 2;
++    AccessRequired addFromInviteLink = 3;
++    AccessRequired memberLabel = 4;
++  }
++}
++
++message Self {
++  optional AvatarColor avatarColor = 1;
++}
++
++message ReleaseNotes {}
++
++message Chat {
++  uint64 id = 1; // generated id for reference only within this file
++  uint64 recipientId = 2;
++  bool archived = 3;
++  optional uint32 pinnedOrder = 4; // will be displayed in ascending order
++  optional uint64 expirationTimerMs = 5;
++  optional uint64 muteUntilMs = 6; // INT64_MAX (2^63 - 1) = "always muted".
++  bool markedUnread = 7;
++  bool dontNotifyForMentionsIfMuted = 8; // will be deprecated in favor of [notifyForMentionsIfMuted]
++  ChatStyle style = 9;
++  uint32 expireTimerVersion = 10;
++  optional bool notifyForCallsIfMuted = 11; // If unset, use default global settings
++  optional bool notifyForMentionsIfMuted = 12; // If unset, use default global settings. Only for groups. If [dontNotifyForMentionsIfMuted] is true, this should be initialized to false.
++  optional bool notifyForRepliesIfMuted = 13; // If unset, use default global settings. Only for groups.
++  optional bool showUnreadReminders = 14; // If unset, use default global settings
++}
++
++/**
++ * Call Links have some associated data including a call, but unlike other recipients
++ * are not tied to threads because they do not have messages associated with them.
++ *
++ * note:
++ * - room id can be derived from the root key
++ * - the presence of an admin key means this user is a call admin
++ */
++message CallLink {
++  enum Restrictions {
++    UNKNOWN = 0; // Interpret as "Admin Approval"
++    NONE = 1;
++    ADMIN_APPROVAL = 2;
++  }
++
++  bytes rootKey = 1;
++  optional bytes adminKey = 2; // Only present if the user is an admin
++  string name = 3;
++  Restrictions restrictions = 4;
++  uint64 expirationMs = 5;
++  reserved /*epoch*/ 6;
++}
++
++message AdHocCall {
++  enum State {
++    UNKNOWN_STATE = 0; // Interpret as "Generic"
++    GENERIC = 1;
++  }
++
++  uint64 callId = 1;
++  // Refers to a `CallLink` recipient.
++  uint64 recipientId = 2;
++  State state = 3;
++  uint64 callTimestamp = 4;
++}
++
++message DistributionListItem {
++  // distribution ids are UUIDv4s. "My Story" is represented
++  // by an all-0 UUID (00000000-0000-0000-0000-000000000000).
++  bytes distributionId = 1; // distribution list ids are uuids
++
++  // If unset, importers should skip the item entirely without showing an error.
++  oneof item {
++    uint64 deletionTimestamp = 2;
++    DistributionList distributionList = 3;
++  }
++}
++
++message DistributionList {
++  enum PrivacyMode {
++    UNKNOWN = 0; // Interpret as "Only with"
++    ONLY_WITH = 1;
++    ALL_EXCEPT = 2;
++    ALL = 3;
++  }
++
++  string name = 1;
++  bool allowReplies = 2;
++  PrivacyMode privacyMode = 3;
++  repeated uint64 memberRecipientIds = 4; // generated recipient id
++}
++
++message ChatItem {
++  message IncomingMessageDetails {
++    uint64 dateReceived = 1;
++    optional uint64 dateServerSent = 2;
++    bool read = 3;
++    bool sealedSender = 4;
++  }
++
++  message OutgoingMessageDetails {
++    repeated SendStatus sendStatus = 1;
++    uint64 dateReceived = 2; // may be different from dateSent for sync messages
++  }
++
++  message DirectionlessMessageDetails {
++  }
++
++  message PinDetails {
++    uint64 pinnedAtTimestamp = 1;
++    oneof pinExpiry {
++      uint64 pinExpiresAtTimestamp = 2; // timestamp when the pin should expire
++      bool pinNeverExpires = 3;
++    }
++  }
++
++  uint64 chatId = 1;   // conversation id
++  uint64 authorId = 2; // recipient id
++  uint64 dateSent = 3;
++  optional uint64 expireStartDate = 4; // timestamp of when expiration timer started ticking down
++  optional uint64 expiresInMs = 5; // how long timer of message is (ms)
++  repeated ChatItem revisions = 6; // ordered from oldest to newest
++  bool sms = 7;
++
++  // If unset, importers should skip this item without throwing an error.
++  oneof directionalDetails {
++    IncomingMessageDetails incoming = 8;
++    OutgoingMessageDetails outgoing = 9;
++    DirectionlessMessageDetails directionless = 10;
++  }
++
++  // If unset, importers should skip this item without throwing an error.
++  oneof item {
++    StandardMessage standardMessage = 11;
++    ContactMessage contactMessage = 12;
++    StickerMessage stickerMessage = 13;
++    RemoteDeletedMessage remoteDeletedMessage = 14;
++    ChatUpdateMessage updateMessage = 15;
++    PaymentNotification paymentNotification = 16;
++    GiftBadge giftBadge = 17;
++    ViewOnceMessage viewOnceMessage = 18;
++    DirectStoryReplyMessage directStoryReplyMessage = 19; // group story reply messages are not backed up
++    Poll poll = 20;
++    AdminDeletedMessage adminDeletedMessage = 22;
++  }
++
++  PinDetails pinDetails = 21; // only set if message is pinned
++}
++
++message SendStatus {
++  message Pending {}
++
++  message Sent {
++    bool sealedSender = 1;
++  }
++
++  message Delivered {
++    bool sealedSender = 1;
++  }
++
++  message Read {
++    bool sealedSender = 1;
++  }
++
++  message Viewed {
++    bool sealedSender = 1;
++  }
++
++  // e.g. user in group was blocked, so we skipped sending to them
++  message Skipped {}
++
++  message Failed {
++    enum FailureReason {
++      UNKNOWN = 0; // A valid value -- could indicate a crash or lack of information
++      NETWORK = 1;
++      IDENTITY_KEY_MISMATCH = 2;
++    }
++
++    FailureReason reason = 1;
++  }
++
++  uint64 recipientId = 1;
++  uint64 timestamp = 2; // the time the status was last updated -- if from a receipt, it should be the sentTime of the receipt
++
++  // If unset, importers should consider the status to be "pending"
++  oneof deliveryStatus {
++    Pending pending = 3;
++    Sent sent = 4;
++    Delivered delivered = 5;
++    Read read = 6;
++    Viewed viewed = 7;
++    Skipped skipped = 8;
++    Failed failed = 9;
++  }
++}
++
++message Text {
++  string body = 1;
++  repeated BodyRange bodyRanges = 2;
++}
++
++message StandardMessage {
++  optional Quote quote = 1;
++  optional Text text = 2;
++  repeated MessageAttachment attachments = 3;
++  repeated LinkPreview linkPreview = 4;
++  optional FilePointer longText = 5;
++  repeated Reaction reactions = 6;
++}
++
++message ContactMessage {
++  ContactAttachment contact = 1;
++  repeated Reaction reactions = 2;
++}
++
++message DirectStoryReplyMessage {
++  message TextReply {
++    Text text = 1;
++    FilePointer longText = 2;
++  }
++
++  // If unset, importers should ignore the message without throwing an error.
++  oneof reply {
++    TextReply textReply = 1;
++    string emoji = 2;
++  }
++
++  repeated Reaction reactions = 3;
++  reserved /*storySentTimestamp*/ 4;
++}
++
++message PaymentNotification {
++  message TransactionDetails {
++    message MobileCoinTxoIdentification { // Used to map to payments on the ledger
++      repeated bytes publicKey = 1; // for received transactions
++      repeated bytes keyImages = 2; // for sent transactions
++    }
++
++    message FailedTransaction { // Failed payments can't be synced from the ledger
++      enum FailureReason {
++        GENERIC = 0; // A valid value -- reason unknown
++        NETWORK = 1;
++        INSUFFICIENT_FUNDS = 2;
++      }
++      FailureReason reason = 1;
++    }
++
++    message Transaction {
++      enum Status {
++        INITIAL = 0; // A valid value -- state unconfirmed
++        SUBMITTED = 1;
++        SUCCESSFUL = 2;
++      }
++      Status status = 1;
++
++      // This identification is used to map the payment table to the ledger
++      // and is likely required otherwise we may have issues reconciling with
++      // the ledger
++      MobileCoinTxoIdentification mobileCoinIdentification = 2;
++      optional uint64 timestamp = 3;
++      optional uint64 blockIndex = 4;
++      optional uint64 blockTimestamp = 5;
++      optional bytes transaction = 6; // mobile coin blobs
++      optional bytes receipt = 7; // mobile coin blobs
++    }
++
++    // If unset, importers should treat the transaction as successful with no metadata.
++    oneof payment {
++      Transaction transaction = 1;
++      FailedTransaction failedTransaction = 2;
++    }
++  }
++
++  optional string amountMob = 1; // stored as a decimal string, e.g. 1.00001
++  optional string feeMob = 2; // stored as a decimal string, e.g. 1.00001
++  optional string note = 3;
++  TransactionDetails transactionDetails = 4;
++}
++
++message GiftBadge {
++  enum State {
++    UNOPENED = 0; // A valid state
++    OPENED = 1;
++    REDEEMED = 2;
++    FAILED = 3;
++  }
++
++  bytes receiptCredentialPresentation = 1;
++  State state = 2;
++}
++
++message ViewOnceMessage {
++  // Will be null for viewed messages
++  MessageAttachment attachment = 1;
++  repeated Reaction reactions = 2;
++}
++
++message ContactAttachment {
++  message Name {
++    string givenName = 1;
++    string familyName = 2;
++    string prefix = 3;
++    string suffix = 4;
++    string middleName = 5;
++    string nickname = 6;
++  }
++
++  message Phone {
++    enum Type {
++      UNKNOWN = 0; // Interpret as "Home"
++      HOME = 1;
++      MOBILE = 2;
++      WORK = 3;
++      CUSTOM = 4;
++    }
++
++    string value = 1;
++    Type type = 2;
++    string label = 3;
++  }
++
++  message Email {
++    enum Type {
++      UNKNOWN = 0; // Intepret as "Home"
++      HOME = 1;
++      MOBILE = 2;
++      WORK = 3;
++      CUSTOM = 4;
++    }
++
++    string value = 1;
++    Type type = 2;
++    string label = 3;
++  }
++
++  message PostalAddress {
++    enum Type {
++      UNKNOWN = 0; // Interpret as "Home"
++      HOME = 1;
++      WORK = 2;
++      CUSTOM = 3;
++    }
++
++    Type type = 1;
++    string label = 2;
++    string street = 3;
++    string pobox = 4;
++    string neighborhood = 5;
++    string city = 6;
++    string region = 7;
++    string postcode = 8;
++    string country = 9;
++  }
++
++  optional Name name = 1;
++  repeated Phone number = 3;
++  repeated Email email = 4;
++  repeated PostalAddress address = 5;
++  optional FilePointer avatar = 6;
++  string organization = 7;
++}
++
++message StickerMessage {
++  Sticker sticker = 1;
++  repeated Reaction reactions = 2;
++}
++
++// Tombstone for remote delete
++message RemoteDeletedMessage {}
++
++message Sticker {
++  bytes packId = 1;
++  bytes packKey = 2;
++  uint32 stickerId = 3;
++  optional string emoji = 4;
++  // Stickers are uploaded to be sent as attachments; we also
++  // back them up as normal attachments when they are in messages.
++  // DO NOT treat this as the definitive source of a sticker in
++  // an installed StickerPack that shares the same packId.
++  FilePointer data = 5;
++}
++
++message LinkPreview {
++  string url = 1;
++  optional string title = 2;
++  optional FilePointer image = 3;
++  optional string description = 4;
++  optional uint64 date = 5;
++}
++
++// A FilePointer on a message that has additional
++// metadata that applies only to message attachments.
++message MessageAttachment {
++  // Similar to SignalService.AttachmentPointer.Flags,
++  // but explicitly mutually exclusive. Note the different raw values
++  // (non-zero starting values are not supported in proto3.)
++  enum Flag {
++    NONE = 0; // A valid value -- no flag applied
++    VOICE_MESSAGE = 1;
++    BORDERLESS = 2;
++    GIF = 3;
++  }
++
++  FilePointer pointer = 1;
++  Flag flag = 2;
++  bool wasDownloaded = 3;
++  // Cross-client identifier for this attachment among all attachments on the
++  // owning message. See: SignalService.AttachmentPointer.clientUuid.
++  optional bytes clientUuid = 4;
++}
++
++message FilePointer {
++  message LocatorInfo {
++    // Must be non-empty if transitCdnKey or plaintextHash are set/nonempty.
++    // Otherwise must be empty.
++    bytes key = 1;
++
++    reserved /*legacyDigest*/ 2;
++
++    oneof integrityCheck {
++      // Set if file was at one point downloaded and its plaintextHash was calculated
++      bytes plaintextHash = 10;
++
++      // Set if file has not been downloaded so its integrity has not been verified
++      // From the sender of the attachment
++      bytes encryptedDigest = 11;
++    }
++
++    // NB: This is the plaintext size, and empty content attachments are legal, so this
++    // may be zero even if transitCdnKey or mediaName are set/nonempty.
++    uint32 size = 3;
++
++    // Either both transit cdn key and number are set or neither should be set.
++    // Upload timestamp is optional but should only be set if key/number are set.
++    optional string transitCdnKey = 4;
++    optional uint32 transitCdnNumber = 5;
++    optional uint64 transitTierUploadTimestamp = 6;
++
++    // If present, the cdn number of the succesful upload to media tier.
++    // If unset, may still have been uploaded, and clients
++    // can discover the cdn number via the list endpoint.
++    // Exporting clients should set this as long as their subscription
++    // has not rotated since last upload; even if currently free tier.
++    optional uint32 mediaTierCdnNumber = 7;
++
++    reserved /*legacyMediaName*/ 8;
++
++    // Separate key used to encrypt this file for the local backup.
++    // Generally required for local backups.
++    // Missing field indicates attachment was not available locally
++    // when the backup was generated, but remote backup or transit
++    // info was available.
++    optional bytes localKey = 9;
++  }
++
++  reserved /*backupLocator*/ 1;
++  reserved /*attachmentLocator*/ 2;
++  reserved /*invalidAttachmentLocator*/ 3;
++  reserved /*localLocator*/ 12;
++
++  optional string contentType = 4;
++  optional bytes incrementalMac = 5;
++  optional uint32 incrementalMacChunkSize = 6;
++  optional string fileName = 7;
++  optional uint32 width = 8;
++  optional uint32 height = 9;
++  optional string caption = 10;
++  optional string blurHash = 11;
++  LocatorInfo locatorInfo = 13;
++  // Waveform for audio attachments. Each byte represents a "bar" in the
++  // waveform, with 0 as silence 255 as loudest. At most 100 bytes/bars.
++  optional bytes audioWaveform = 14;
++  // Duration of an audio attachment, in seconds.
++  optional float audioDurationSeconds = 15;
++}
++
++message Quote {
++  enum Type {
++    UNKNOWN = 0; // Interpret as "Normal"
++    NORMAL = 1;
++    GIFT_BADGE = 2;
++    VIEW_ONCE = 3;
++    POLL = 4;
++  }
++
++  message QuotedAttachment {
++    optional string contentType = 1;
++    optional string fileName = 2;
++    optional MessageAttachment thumbnail = 3;
++  }
++
++  optional uint64 targetSentTimestamp = 1; // null if the target message could not be found at time of quote insert
++  uint64 authorId = 2;
++  optional Text text = 3;
++  repeated QuotedAttachment attachments = 4;
++  Type type = 5;
++}
++
++message BodyRange {
++  enum Style {
++    NONE = 0; // Importers should ignore the body range without throwing an error.
++    BOLD = 1;
++    ITALIC = 2;
++    SPOILER = 3;
++    STRIKETHROUGH = 4;
++    MONOSPACE = 5;
++  }
++
++  // 'start' and 'length' are measured in UTF-16 code units.
++  // They may refer to offsets in a longText attachment.
++  uint32 start = 1;
++  uint32 length = 2;
++
++  // If unset, importers should ignore the body range without throwing an error.
++  oneof associatedValue {
++    bytes mentionAci = 3;
++    Style style = 4;
++  }
++}
++
++message Reaction {
++  string emoji = 1;
++  uint64 authorId = 2;
++  uint64 sentTimestamp = 3;
++  // A higher sort order means that a reaction is more recent. Some clients may export this as
++  // incrementing numbers (e.g. 1, 2, 3), others as timestamps.
++  uint64 sortOrder = 4;
++}
++
++message Poll {
++
++  message PollOption {
++
++    message PollVote {
++      uint64 voterId = 1; // A direct reference to Recipient proto id. Must be self or contact.
++      uint32 voteCount = 2; // Tracks how many times you voted.
++    }
++
++    string option = 1; // Between 1-100 characters
++    repeated PollVote votes = 2;
++  }
++
++  string question = 1; // Between 1-100 characters
++  bool allowMultiple = 2;
++  repeated PollOption options = 3; // At least two
++  bool hasEnded = 4;
++  repeated Reaction reactions = 5;
++}
++
++message AdminDeletedMessage {
++  uint64 adminId = 1; // id of the admin that deleted the message
++}
++
++message ChatUpdateMessage {
++  // If unset, importers should ignore the update message without throwing an error.
++  oneof update {
++    SimpleChatUpdate simpleUpdate = 1;
++    GroupChangeChatUpdate groupChange = 2;
++    ExpirationTimerChatUpdate expirationTimerChange = 3;
++    ProfileChangeChatUpdate profileChange = 4;
++    ThreadMergeChatUpdate threadMerge = 5;
++    SessionSwitchoverChatUpdate sessionSwitchover = 6;
++    IndividualCall individualCall = 7;
++    GroupCall groupCall = 8;
++    LearnedProfileChatUpdate learnedProfileChange = 9;
++    PollTerminateUpdate pollTerminate = 10;
++    PinMessageUpdate pinMessage = 11;
++  }
++}
++
++message IndividualCall {
++  enum Type {
++    UNKNOWN_TYPE = 0; // Interpret as "Audio call"
++    AUDIO_CALL = 1;
++    VIDEO_CALL = 2;
++  }
++
++  enum Direction {
++    UNKNOWN_DIRECTION = 0; // Interpret as "Incoming"
++    INCOMING = 1;
++    OUTGOING = 2;
++  }
++
++  enum State {
++    UNKNOWN_STATE = 0; // Interpret as "Accepted"
++    ACCEPTED = 1;
++    NOT_ACCEPTED = 2;
++    // An incoming call that is no longer ongoing, which we neither accepted
++    // not actively declined. For example, it expired, was canceled by the
++    // sender, or was rejected due to being in another call.
++    MISSED = 3;
++    // We auto-declined an incoming call due to a notification profile.
++    MISSED_NOTIFICATION_PROFILE = 4;
++  }
++
++  optional uint64 callId = 1;
++  Type type = 2;
++  Direction direction = 3;
++  State state = 4;
++  uint64 startedCallTimestamp = 5;
++  bool read = 6;
++}
++
++message GroupCall {
++  enum State {
++    UNKNOWN_STATE = 0; // Interpret as "Generic"
++    // A group call was started without ringing.
++    GENERIC = 1;
++    // We joined a group call that was started without ringing.
++    JOINED = 2;
++    // An incoming group call is actively ringing.
++    RINGING = 3;
++    // We accepted an incoming group ring.
++    ACCEPTED = 4;
++    // We declined an incoming group ring.
++    DECLINED = 5;
++    // We missed an incoming group ring, for example because it expired.
++    MISSED = 6;
++    // We auto-declined an incoming group ring due to a notification profile.
++    MISSED_NOTIFICATION_PROFILE = 7;
++    // An outgoing ring was started. We don't track any state for outgoing rings
++    // beyond that they started.
++    OUTGOING_RING = 8;
++  }
++
++  optional uint64 callId = 1;
++  State state = 2;
++  optional uint64 ringerRecipientId = 3;
++  optional uint64 startedCallRecipientId = 4;
++  uint64 startedCallTimestamp = 5;
++  optional uint64 endedCallTimestamp = 6; // The time the call ended.
++  bool read = 7;
++}
++
++message SimpleChatUpdate {
++  enum Type {
++    UNKNOWN = 0; // Importers should skip the update without throwing an error.
++    JOINED_SIGNAL = 1;
++    IDENTITY_UPDATE = 2;
++    IDENTITY_VERIFIED = 3;
++    IDENTITY_DEFAULT = 4; // marking as unverified
++    CHANGE_NUMBER = 5;
++    RELEASE_CHANNEL_DONATION_REQUEST = 6;
++    END_SESSION = 7;
++    CHAT_SESSION_REFRESH = 8;
++    BAD_DECRYPT = 9;
++    PAYMENTS_ACTIVATED = 10;
++    PAYMENT_ACTIVATION_REQUEST = 11;
++    UNSUPPORTED_PROTOCOL_MESSAGE = 12;
++    REPORTED_SPAM = 13;
++    BLOCKED = 14;
++    UNBLOCKED = 15;
++    MESSAGE_REQUEST_ACCEPTED = 16;
++  }
++
++  Type type = 1;
++}
++
++// For 1:1 chat updates only.
++// For group thread updates use GroupExpirationTimerUpdate.
++message ExpirationTimerChatUpdate {
++  uint64 expiresInMs = 1; // 0 means the expiration timer was disabled
++}
++
++message ProfileChangeChatUpdate {
++  string previousName = 1;
++  string newName = 2;
++}
++
++message LearnedProfileChatUpdate {
++  // If unset, importers should consider the previous name to be an empty string.
++  oneof previousName {
++    uint64 e164 = 1;
++    string username = 2;
++  }
++}
++
++message ThreadMergeChatUpdate {
++  uint64 previousE164 = 1;
++}
++
++message SessionSwitchoverChatUpdate {
++  uint64 e164 = 1;
++}
++
++message GroupChangeChatUpdate {
++  message Update {
++    // If unset, importers should consider it to be a GenericGroupUpdate with unset updaterAci
++    oneof update {
++      GenericGroupUpdate genericGroupUpdate = 1;
++      GroupCreationUpdate groupCreationUpdate = 2;
++      GroupNameUpdate groupNameUpdate = 3;
++      GroupAvatarUpdate groupAvatarUpdate = 4;
++      GroupDescriptionUpdate groupDescriptionUpdate = 5;
++      GroupMembershipAccessLevelChangeUpdate groupMembershipAccessLevelChangeUpdate = 6;
++      GroupAttributesAccessLevelChangeUpdate groupAttributesAccessLevelChangeUpdate = 7;
++      GroupAnnouncementOnlyChangeUpdate groupAnnouncementOnlyChangeUpdate = 8;
++      GroupAdminStatusUpdate groupAdminStatusUpdate = 9;
++      GroupMemberLeftUpdate groupMemberLeftUpdate = 10;
++      GroupMemberRemovedUpdate groupMemberRemovedUpdate = 11;
++      SelfInvitedToGroupUpdate selfInvitedToGroupUpdate = 12;
++      SelfInvitedOtherUserToGroupUpdate selfInvitedOtherUserToGroupUpdate = 13;
++      GroupUnknownInviteeUpdate groupUnknownInviteeUpdate = 14;
++      GroupInvitationAcceptedUpdate groupInvitationAcceptedUpdate = 15;
++      GroupInvitationDeclinedUpdate groupInvitationDeclinedUpdate = 16;
++      GroupMemberJoinedUpdate groupMemberJoinedUpdate = 17;
++      GroupMemberAddedUpdate groupMemberAddedUpdate = 18;
++      GroupSelfInvitationRevokedUpdate groupSelfInvitationRevokedUpdate = 19;
++      GroupInvitationRevokedUpdate groupInvitationRevokedUpdate = 20;
++      GroupJoinRequestUpdate groupJoinRequestUpdate = 21;
++      GroupJoinRequestApprovalUpdate groupJoinRequestApprovalUpdate = 22;
++      GroupJoinRequestCanceledUpdate groupJoinRequestCanceledUpdate = 23;
++      GroupInviteLinkResetUpdate groupInviteLinkResetUpdate = 24;
++      GroupInviteLinkEnabledUpdate groupInviteLinkEnabledUpdate = 25;
++      GroupInviteLinkAdminApprovalUpdate groupInviteLinkAdminApprovalUpdate = 26;
++      GroupInviteLinkDisabledUpdate groupInviteLinkDisabledUpdate = 27;
++      GroupMemberJoinedByLinkUpdate groupMemberJoinedByLinkUpdate = 28;
++      GroupV2MigrationUpdate groupV2MigrationUpdate = 29;
++      GroupV2MigrationSelfInvitedUpdate groupV2MigrationSelfInvitedUpdate = 30;
++      GroupV2MigrationInvitedMembersUpdate groupV2MigrationInvitedMembersUpdate = 31;
++      GroupV2MigrationDroppedMembersUpdate groupV2MigrationDroppedMembersUpdate = 32;
++      GroupSequenceOfRequestsAndCancelsUpdate groupSequenceOfRequestsAndCancelsUpdate = 33;
++      GroupExpirationTimerUpdate groupExpirationTimerUpdate = 34;
++      GroupMemberLabelAccessLevelChangeUpdate groupMemberLabelAccessLevelChangeUpdate = 35;
++      GroupTerminateChangeUpdate groupTerminateChangeUpdate = 36;
++    }
++  }
++
++  // Must be one or more; all updates batched together came from
++  // a single batched group state update.
++  repeated Update updates = 1;
++}
++
++message GenericGroupUpdate {
++  optional bytes updaterAci = 1;
++}
++
++message GroupCreationUpdate {
++  optional bytes updaterAci = 1;
++}
++
++message GroupNameUpdate {
++  optional bytes updaterAci = 1;
++  // Null value means the group name was removed.
++  optional string newGroupName = 2;
++}
++
++message GroupAvatarUpdate {
++  optional bytes updaterAci = 1;
++  bool wasRemoved = 2;
++}
++
++message GroupDescriptionUpdate {
++  optional bytes updaterAci = 1;
++  // Null value means the group description was removed.
++  optional string newDescription = 2;
++}
++
++enum GroupV2AccessLevel {
++  UNKNOWN = 0; // Interpret as "Unsatisfiable"
++  ANY = 1;
++  MEMBER = 2;
++  ADMINISTRATOR = 3;
++  UNSATISFIABLE = 4;
++}
++
++message GroupMembershipAccessLevelChangeUpdate {
++  optional bytes updaterAci = 1;
++  GroupV2AccessLevel accessLevel = 2;
++}
++
++message GroupMemberLabelAccessLevelChangeUpdate {
++  optional bytes updaterAci = 1;
++  GroupV2AccessLevel accessLevel = 2;
++}
++
++message GroupAttributesAccessLevelChangeUpdate {
++  optional bytes updaterAci = 1;
++  GroupV2AccessLevel accessLevel = 2;
++}
++
++message GroupAnnouncementOnlyChangeUpdate {
++  optional bytes updaterAci = 1;
++  bool isAnnouncementOnly = 2;
++}
++
++message GroupAdminStatusUpdate {
++  optional bytes updaterAci = 1;
++  // The aci who had admin status granted or revoked.
++  bytes memberAci = 2;
++  bool wasAdminStatusGranted = 3;
++}
++
++message GroupMemberLeftUpdate {
++  bytes aci = 1;
++}
++
++message GroupMemberRemovedUpdate {
++  optional bytes removerAci = 1;
++  bytes removedAci = 2;
++}
++
++message SelfInvitedToGroupUpdate {
++  optional bytes inviterAci = 1;
++}
++
++message SelfInvitedOtherUserToGroupUpdate {
++  // If no invitee id available, use GroupUnknownInviteeUpdate
++  bytes inviteeServiceId = 1;
++}
++
++message GroupUnknownInviteeUpdate {
++  // Can be the self user.
++  optional bytes inviterAci = 1;
++  uint32 inviteeCount = 2;
++}
++
++message GroupInvitationAcceptedUpdate {
++  optional bytes inviterAci = 1;
++  bytes newMemberAci = 2;
++}
++
++message GroupInvitationDeclinedUpdate {
++  optional bytes inviterAci = 1;
++  // Note: if invited by pni, just set inviteeAci to nil.
++  optional bytes inviteeAci = 2;
++}
++
++message GroupMemberJoinedUpdate {
++  bytes newMemberAci = 1;
++}
++
++message GroupMemberAddedUpdate {
++  optional bytes updaterAci = 1;
++  bytes newMemberAci = 2;
++  bool hadOpenInvitation = 3;
++  // If hadOpenInvitation is true, optionally include aci of the inviter.
++  optional bytes inviterAci = 4;
++}
++
++// An invitation to self was revoked.
++message GroupSelfInvitationRevokedUpdate {
++  optional bytes revokerAci = 1;
++}
++
++// These invitees should never be the local user.
++// Use GroupSelfInvitationRevokedUpdate in those cases.
++// The inviter or updater can be the local user.
++message GroupInvitationRevokedUpdate {
++  message Invitee {
++    optional bytes inviterAci = 1;
++    // Prefer to use aci over pni. No need to set
++    // pni if aci is set. Both can be missing.
++    optional bytes inviteeAci = 2;
++    optional bytes inviteePni = 3;
++  }
++
++  // The member that revoked the invite(s), not the inviter!
++  // Assumed to be an admin (at the time, may no longer be an
++  // admin or even a member).
++  optional bytes updaterAci = 1;
++  repeated Invitee invitees = 2;
++}
++
++message GroupJoinRequestUpdate {
++  bytes requestorAci = 1;
++}
++
++message GroupJoinRequestApprovalUpdate {
++  bytes requestorAci = 1;
++  // The aci that approved or rejected the request.
++  optional bytes updaterAci = 2;
++  bool wasApproved = 3;
++}
++
++message GroupJoinRequestCanceledUpdate {
++  bytes requestorAci = 1;
++}
++
++// A single requestor has requested to join and cancelled
++// their request repeatedly with no other updates in between.
++// The last action encompassed by this update is always a
++// cancellation; if there was another open request immediately
++// after, it will be a separate GroupJoinRequestUpdate, either
++// in the same frame or in a subsequent frame.
++message GroupSequenceOfRequestsAndCancelsUpdate {
++  bytes requestorAci = 1;
++  uint32 count = 2;
++}
++
++message GroupInviteLinkResetUpdate {
++  optional bytes updaterAci = 1;
++}
++
++message GroupInviteLinkEnabledUpdate {
++  optional bytes updaterAci = 1;
++  bool linkRequiresAdminApproval = 2;
++}
++
++message GroupInviteLinkAdminApprovalUpdate {
++  optional bytes updaterAci = 1;
++  bool linkRequiresAdminApproval = 2;
++}
++
++message GroupInviteLinkDisabledUpdate {
++  optional bytes updaterAci = 1;
++}
++
++message GroupMemberJoinedByLinkUpdate {
++  bytes newMemberAci = 1;
++}
++
++// A gv1->gv2 migration occurred.
++message GroupV2MigrationUpdate {}
++
++// Another user migrated gv1->gv2 but was unable to add
++// the local user and invited them instead.
++message GroupV2MigrationSelfInvitedUpdate {}
++
++// The local user migrated gv1->gv2 but was unable to
++// add some members and invited them instead.
++// (Happens if we don't have the invitee's profile key)
++message GroupV2MigrationInvitedMembersUpdate {
++  uint32 invitedMembersCount = 1;
++}
++
++// The local user migrated gv1->gv2 but was unable to
++// add or invite some members and dropped them instead.
++// (Happens for e164 members where we don't have an aci).
++message GroupV2MigrationDroppedMembersUpdate {
++  uint32 droppedMembersCount = 1;
++}
++
++// For 1:1 timer updates, use ExpirationTimerChatUpdate.
++message GroupExpirationTimerUpdate {
++  uint64 expiresInMs = 1; // 0 means the expiration timer was disabled
++  optional bytes updaterAci = 2;
++}
++
++message GroupTerminateChangeUpdate {
++  optional bytes updaterAci = 1;
++}
++
++message PollTerminateUpdate {
++  uint64 targetSentTimestamp = 1;
++  string question = 2; // Between 1-100 characters
++}
++
++message PinMessageUpdate {
++  uint64 targetSentTimestamp = 1;
++  uint64 authorId = 2; // recipient id
++}
++
++message StickerPack {
++  bytes packId = 1;
++  bytes packKey = 2;
++}
++
++message ChatStyle {
++  message Gradient {
++    // Color ordering:
++    //   0   degrees: bottom-to-top
++    //   90  degrees: left-to-right
++    //   180 degrees: top-to-bottom
++    //   270 degrees: right-to-left
++
++    uint32 angle = 1; // degrees
++    repeated fixed32 colors = 2; // 0xAARRGGBB
++    repeated float positions = 3; // percent from 0 to 1
++  }
++
++  message CustomChatColor {
++    uint64 id = 1;
++
++    // If unset, use the default chat color
++    oneof color {
++      fixed32 solid = 2; // 0xAARRGGBB
++      Gradient gradient = 3;
++    }
++  }
++
++  message AutomaticBubbleColor {
++  }
++
++  enum WallpaperPreset {
++    UNKNOWN_WALLPAPER_PRESET = 0; // Interpret as the wallpaper being unset
++    SOLID_BLUSH = 1;
++    SOLID_COPPER = 2;
++    SOLID_DUST = 3;
++    SOLID_CELADON = 4;
++    SOLID_RAINFOREST = 5;
++    SOLID_PACIFIC = 6;
++    SOLID_FROST = 7;
++    SOLID_NAVY = 8;
++    SOLID_LILAC = 9;
++    SOLID_PINK = 10;
++    SOLID_EGGPLANT = 11;
++    SOLID_SILVER = 12;
++    GRADIENT_SUNSET = 13;
++    GRADIENT_NOIR = 14;
++    GRADIENT_HEATMAP = 15;
++    GRADIENT_AQUA = 16;
++    GRADIENT_IRIDESCENT = 17;
++    GRADIENT_MONSTERA = 18;
++    GRADIENT_BLISS = 19;
++    GRADIENT_SKY = 20;
++    GRADIENT_PEACH = 21;
++  }
++
++  enum BubbleColorPreset {
++    UNKNOWN_BUBBLE_COLOR_PRESET = 0; // Interpret as the user's default chat bubble color
++    SOLID_ULTRAMARINE = 1;
++    SOLID_CRIMSON = 2;
++    SOLID_VERMILION = 3;
++    SOLID_BURLAP = 4;
++    SOLID_FOREST = 5;
++    SOLID_WINTERGREEN = 6;
++    SOLID_TEAL = 7;
++    SOLID_BLUE = 8;
++    SOLID_INDIGO = 9;
++    SOLID_VIOLET = 10;
++    SOLID_PLUM = 11;
++    SOLID_TAUPE = 12;
++    SOLID_STEEL = 13;
++    GRADIENT_EMBER = 14;
++    GRADIENT_MIDNIGHT = 15;
++    GRADIENT_INFRARED = 16;
++    GRADIENT_LAGOON = 17;
++    GRADIENT_FLUORESCENT = 18;
++    GRADIENT_BASIL = 19;
++    GRADIENT_SUBLIME = 20;
++    GRADIENT_SEA = 21;
++    GRADIENT_TANGERINE = 22;
++  }
++
++  // If unset, importers should consider there to be no wallpaper.
++  oneof wallpaper {
++    WallpaperPreset wallpaperPreset = 1;
++    // This `FilePointer` is expected not to contain a `fileName`, `width`,
++    // `height`, or `caption`.
++    FilePointer wallpaperPhoto = 2;
++  }
++
++  // If unset, importers should consider it to be AutomaticBubbleColor
++  oneof bubbleColor {
++    // Bubble setting is automatically determined based on the wallpaper setting,
++    // or `SOLID_ULTRAMARINE` for `noWallpaper`
++    AutomaticBubbleColor autoBubbleColor = 3;
++    BubbleColorPreset bubbleColorPreset = 4;
++
++    // See AccountSettings.customChatColors
++    uint64 customColorId = 5;
++  }
++
++  bool dimWallpaperInDarkMode = 7;
++}
++
++message NotificationProfile {
++  enum DayOfWeek {
++    UNKNOWN = 0; // Interpret as "Monday"
++    MONDAY = 1;
++    TUESDAY = 2;
++    WEDNESDAY = 3;
++    THURSDAY = 4;
++    FRIDAY = 5;
++    SATURDAY = 6;
++    SUNDAY = 7;
++  }
++
++  string name = 1;
++  optional string emoji = 2;
++  fixed32 color = 3; // 0xAARRGGBB
++  uint64 createdAtMs = 4;
++  bool allowAllCalls = 5;
++  bool allowAllMentions = 6;
++  repeated uint64 allowedMembers = 7; // generated recipient id for allowed groups and contacts
++  bool scheduleEnabled = 8;
++  uint32 scheduleStartTime = 9; // 24-hour clock int, 0000-2359 (e.g., 15, 900, 1130, 2345)
++  uint32 scheduleEndTime = 10; // 24-hour clock int, 0000-2359 (e.g., 15, 900, 1130, 2345)
++  repeated DayOfWeek scheduleDaysEnabled = 11;
++  bytes id = 12; // should be 16 bytes
++}
++
++message ChatFolder {
++  // Represents the default "All chats" folder record vs all other custom folders
++  enum FolderType {
++    UNKNOWN = 0; // Interpret as "Custom"
++    ALL = 1;
++    CUSTOM = 2;
++  }
++
++  string name = 1;
++  bool showOnlyUnread = 2;
++  bool showMutedChats = 3;
++  // Folder includes all 1:1 chats, unless excluded
++  bool includeAllIndividualChats = 4;
++  // Folder includes all group chats, unless excluded
++  bool includeAllGroupChats = 5;
++  FolderType folderType = 6;
++  repeated uint64 includedRecipientIds = 7; // generated recipient id of groups, contacts, and/or note to self
++  repeated uint64 excludedRecipientIds = 8; // generated recipient id of groups, contacts, and/or note to self
++  bytes id = 9; // should be 16 bytes
++}
+diff --git a/lib/src/main/proto/LICENSE-AGPL-3.0 b/lib/src/main/proto/LICENSE-AGPL-3.0
+new file mode 100644
+index 0000000..be3f7b2
+--- /dev/null
++++ b/lib/src/main/proto/LICENSE-AGPL-3.0
+@@ -0,0 +1,661 @@
++                    GNU AFFERO GENERAL PUBLIC LICENSE
++                       Version 3, 19 November 2007
++
++ Copyright (C) 2007 Free Software Foundation, Inc. <https://fsf.org/>
++ Everyone is permitted to copy and distribute verbatim copies
++ of this license document, but changing it is not allowed.
++
++                            Preamble
++
++  The GNU Affero General Public License is a free, copyleft license for
++software and other kinds of works, specifically designed to ensure
++cooperation with the community in the case of network server software.
++
++  The licenses for most software and other practical works are designed
++to take away your freedom to share and change the works.  By contrast,
++our General Public Licenses are intended to guarantee your freedom to
++share and change all versions of a program--to make sure it remains free
++software for all its users.
++
++  When we speak of free software, we are referring to freedom, not
++price.  Our General Public Licenses are designed to make sure that you
++have the freedom to distribute copies of free software (and charge for
++them if you wish), that you receive source code or can get it if you
++want it, that you can change the software or use pieces of it in new
++free programs, and that you know you can do these things.
++
++  Developers that use our General Public Licenses protect your rights
++with two steps: (1) assert copyright on the software, and (2) offer
++you this License which gives you legal permission to copy, distribute
++and/or modify the software.
++
++  A secondary benefit of defending all users' freedom is that
++improvements made in alternate versions of the program, if they
++receive widespread use, become available for other developers to
++incorporate.  Many developers of free software are heartened and
++encouraged by the resulting cooperation.  However, in the case of
++software used on network servers, this result may fail to come about.
++The GNU General Public License permits making a modified version and
++letting the public access it on a server without ever releasing its
++source code to the public.
++
++  The GNU Affero General Public License is designed specifically to
++ensure that, in such cases, the modified source code becomes available
++to the community.  It requires the operator of a network server to
++provide the source code of the modified version running there to the
++users of that server.  Therefore, public use of a modified version, on
++a publicly accessible server, gives the public access to the source
++code of the modified version.
++
++  An older license, called the Affero General Public License and
++published by Affero, was designed to accomplish similar goals.  This is
++a different license, not a version of the Affero GPL, but Affero has
++released a new version of the Affero GPL which permits relicensing under
++this license.
++
++  The precise terms and conditions for copying, distribution and
++modification follow.
++
++                       TERMS AND CONDITIONS
++
++  0. Definitions.
++
++  "This License" refers to version 3 of the GNU Affero General Public License.
++
++  "Copyright" also means copyright-like laws that apply to other kinds of
++works, such as semiconductor masks.
++
++  "The Program" refers to any copyrightable work licensed under this
++License.  Each licensee is addressed as "you".  "Licensees" and
++"recipients" may be individuals or organizations.
++
++  To "modify" a work means to copy from or adapt all or part of the work
++in a fashion requiring copyright permission, other than the making of an
++exact copy.  The resulting work is called a "modified version" of the
++earlier work or a work "based on" the earlier work.
++
++  A "covered work" means either the unmodified Program or a work based
++on the Program.
++
++  To "propagate" a work means to do anything with it that, without
++permission, would make you directly or secondarily liable for
++infringement under applicable copyright law, except executing it on a
++computer or modifying a private copy.  Propagation includes copying,
++distribution (with or without modification), making available to the
++public, and in some countries other activities as well.
++
++  To "convey" a work means any kind of propagation that enables other
++parties to make or receive copies.  Mere interaction with a user through
++a computer network, with no transfer of a copy, is not conveying.
++
++  An interactive user interface displays "Appropriate Legal Notices"
++to the extent that it includes a convenient and prominently visible
++feature that (1) displays an appropriate copyright notice, and (2)
++tells the user that there is no warranty for the work (except to the
++extent that warranties are provided), that licensees may convey the
++work under this License, and how to view a copy of this License.  If
++the interface presents a list of user commands or options, such as a
++menu, a prominent item in the list meets this criterion.
++
++  1. Source Code.
++
++  The "source code" for a work means the preferred form of the work
++for making modifications to it.  "Object code" means any non-source
++form of a work.
++
++  A "Standard Interface" means an interface that either is an official
++standard defined by a recognized standards body, or, in the case of
++interfaces specified for a particular programming language, one that
++is widely used among developers working in that language.
++
++  The "System Libraries" of an executable work include anything, other
++than the work as a whole, that (a) is included in the normal form of
++packaging a Major Component, but which is not part of that Major
++Component, and (b) serves only to enable use of the work with that
++Major Component, or to implement a Standard Interface for which an
++implementation is available to the public in source code form.  A
++"Major Component", in this context, means a major essential component
++(kernel, window system, and so on) of the specific operating system
++(if any) on which the executable work runs, or a compiler used to
++produce the work, or an object code interpreter used to run it.
++
++  The "Corresponding Source" for a work in object code form means all
++the source code needed to generate, install, and (for an executable
++work) run the object code and to modify the work, including scripts to
++control those activities.  However, it does not include the work's
++System Libraries, or general-purpose tools or generally available free
++programs which are used unmodified in performing those activities but
++which are not part of the work.  For example, Corresponding Source
++includes interface definition files associated with source files for
++the work, and the source code for shared libraries and dynamically
++linked subprograms that the work is specifically designed to require,
++such as by intimate data communication or control flow between those
++subprograms and other parts of the work.
++
++  The Corresponding Source need not include anything that users
++can regenerate automatically from other parts of the Corresponding
++Source.
++
++  The Corresponding Source for a work in source code form is that
++same work.
++
++  2. Basic Permissions.
++
++  All rights granted under this License are granted for the term of
++copyright on the Program, and are irrevocable provided the stated
++conditions are met.  This License explicitly affirms your unlimited
++permission to run the unmodified Program.  The output from running a
++covered work is covered by this License only if the output, given its
++content, constitutes a covered work.  This License acknowledges your
++rights of fair use or other equivalent, as provided by copyright law.
++
++  You may make, run and propagate covered works that you do not
++convey, without conditions so long as your license otherwise remains
++in force.  You may convey covered works to others for the sole purpose
++of having them make modifications exclusively for you, or provide you
++with facilities for running those works, provided that you comply with
++the terms of this License in conveying all material for which you do
++not control copyright.  Those thus making or running the covered works
++for you must do so exclusively on your behalf, under your direction
++and control, on terms that prohibit them from making any copies of
++your copyrighted material outside their relationship with you.
++
++  Conveying under any other circumstances is permitted solely under
++the conditions stated below.  Sublicensing is not allowed; section 10
++makes it unnecessary.
++
++  3. Protecting Users' Legal Rights From Anti-Circumvention Law.
++
++  No covered work shall be deemed part of an effective technological
++measure under any applicable law fulfilling obligations under article
++11 of the WIPO copyright treaty adopted on 20 December 1996, or
++similar laws prohibiting or restricting circumvention of such
++measures.
++
++  When you convey a covered work, you waive any legal power to forbid
++circumvention of technological measures to the extent such circumvention
++is effected by exercising rights under this License with respect to
++the covered work, and you disclaim any intention to limit operation or
++modification of the work as a means of enforcing, against the work's
++users, your or third parties' legal rights to forbid circumvention of
++technological measures.
++
++  4. Conveying Verbatim Copies.
++
++  You may convey verbatim copies of the Program's source code as you
++receive it, in any medium, provided that you conspicuously and
++appropriately publish on each copy an appropriate copyright notice;
++keep intact all notices stating that this License and any
++non-permissive terms added in accord with section 7 apply to the code;
++keep intact all notices of the absence of any warranty; and give all
++recipients a copy of this License along with the Program.
++
++  You may charge any price or no price for each copy that you convey,
++and you may offer support or warranty protection for a fee.
++
++  5. Conveying Modified Source Versions.
++
++  You may convey a work based on the Program, or the modifications to
++produce it from the Program, in the form of source code under the
++terms of section 4, provided that you also meet all of these conditions:
++
++    a) The work must carry prominent notices stating that you modified
++    it, and giving a relevant date.
++
++    b) The work must carry prominent notices stating that it is
++    released under this License and any conditions added under section
++    7.  This requirement modifies the requirement in section 4 to
++    "keep intact all notices".
++
++    c) You must license the entire work, as a whole, under this
++    License to anyone who comes into possession of a copy.  This
++    License will therefore apply, along with any applicable section 7
++    additional terms, to the whole of the work, and all its parts,
++    regardless of how they are packaged.  This License gives no
++    permission to license the work in any other way, but it does not
++    invalidate such permission if you have separately received it.
++
++    d) If the work has interactive user interfaces, each must display
++    Appropriate Legal Notices; however, if the Program has interactive
++    interfaces that do not display Appropriate Legal Notices, your
++    work need not make them do so.
++
++  A compilation of a covered work with other separate and independent
++works, which are not by their nature extensions of the covered work,
++and which are not combined with it such as to form a larger program,
++in or on a volume of a storage or distribution medium, is called an
++"aggregate" if the compilation and its resulting copyright are not
++used to limit the access or legal rights of the compilation's users
++beyond what the individual works permit.  Inclusion of a covered work
++in an aggregate does not cause this License to apply to the other
++parts of the aggregate.
++
++  6. Conveying Non-Source Forms.
++
++  You may convey a covered work in object code form under the terms
++of sections 4 and 5, provided that you also convey the
++machine-readable Corresponding Source under the terms of this License,
++in one of these ways:
++
++    a) Convey the object code in, or embodied in, a physical product
++    (including a physical distribution medium), accompanied by the
++    Corresponding Source fixed on a durable physical medium
++    customarily used for software interchange.
++
++    b) Convey the object code in, or embodied in, a physical product
++    (including a physical distribution medium), accompanied by a
++    written offer, valid for at least three years and valid for as
++    long as you offer spare parts or customer support for that product
++    model, to give anyone who possesses the object code either (1) a
++    copy of the Corresponding Source for all the software in the
++    product that is covered by this License, on a durable physical
++    medium customarily used for software interchange, for a price no
++    more than your reasonable cost of physically performing this
++    conveying of source, or (2) access to copy the
++    Corresponding Source from a network server at no charge.
++
++    c) Convey individual copies of the object code with a copy of the
++    written offer to provide the Corresponding Source.  This
++    alternative is allowed only occasionally and noncommercially, and
++    only if you received the object code with such an offer, in accord
++    with subsection 6b.
++
++    d) Convey the object code by offering access from a designated
++    place (gratis or for a charge), and offer equivalent access to the
++    Corresponding Source in the same way through the same place at no
++    further charge.  You need not require recipients to copy the
++    Corresponding Source along with the object code.  If the place to
++    copy the object code is a network server, the Corresponding Source
++    may be on a different server (operated by you or a third party)
++    that supports equivalent copying facilities, provided you maintain
++    clear directions next to the object code saying where to find the
++    Corresponding Source.  Regardless of what server hosts the
++    Corresponding Source, you remain obligated to ensure that it is
++    available for as long as needed to satisfy these requirements.
++
++    e) Convey the object code using peer-to-peer transmission, provided
++    you inform other peers where the object code and Corresponding
++    Source of the work are being offered to the general public at no
++    charge under subsection 6d.
++
++  A separable portion of the object code, whose source code is excluded
++from the Corresponding Source as a System Library, need not be
++included in conveying the object code work.
++
++  A "User Product" is either (1) a "consumer product", which means any
++tangible personal property which is normally used for personal, family,
++or household purposes, or (2) anything designed or sold for incorporation
++into a dwelling.  In determining whether a product is a consumer product,
++doubtful cases shall be resolved in favor of coverage.  For a particular
++product received by a particular user, "normally used" refers to a
++typical or common use of that class of product, regardless of the status
++of the particular user or of the way in which the particular user
++actually uses, or expects or is expected to use, the product.  A product
++is a consumer product regardless of whether the product has substantial
++commercial, industrial or non-consumer uses, unless such uses represent
++the only significant mode of use of the product.
++
++  "Installation Information" for a User Product means any methods,
++procedures, authorization keys, or other information required to install
++and execute modified versions of a covered work in that User Product from
++a modified version of its Corresponding Source.  The information must
++suffice to ensure that the continued functioning of the modified object
++code is in no case prevented or interfered with solely because
++modification has been made.
++
++  If you convey an object code work under this section in, or with, or
++specifically for use in, a User Product, and the conveying occurs as
++part of a transaction in which the right of possession and use of the
++User Product is transferred to the recipient in perpetuity or for a
++fixed term (regardless of how the transaction is characterized), the
++Corresponding Source conveyed under this section must be accompanied
++by the Installation Information.  But this requirement does not apply
++if neither you nor any third party retains the ability to install
++modified object code on the User Product (for example, the work has
++been installed in ROM).
++
++  The requirement to provide Installation Information does not include a
++requirement to continue to provide support service, warranty, or updates
++for a work that has been modified or installed by the recipient, or for
++the User Product in which it has been modified or installed.  Access to a
++network may be denied when the modification itself materially and
++adversely affects the operation of the network or violates the rules and
++protocols for communication across the network.
++
++  Corresponding Source conveyed, and Installation Information provided,
++in accord with this section must be in a format that is publicly
++documented (and with an implementation available to the public in
++source code form), and must require no special password or key for
++unpacking, reading or copying.
++
++  7. Additional Terms.
++
++  "Additional permissions" are terms that supplement the terms of this
++License by making exceptions from one or more of its conditions.
++Additional permissions that are applicable to the entire Program shall
++be treated as though they were included in this License, to the extent
++that they are valid under applicable law.  If additional permissions
++apply only to part of the Program, that part may be used separately
++under those permissions, but the entire Program remains governed by
++this License without regard to the additional permissions.
++
++  When you convey a copy of a covered work, you may at your option
++remove any additional permissions from that copy, or from any part of
++it.  (Additional permissions may be written to require their own
++removal in certain cases when you modify the work.)  You may place
++additional permissions on material, added by you to a covered work,
++for which you have or can give appropriate copyright permission.
++
++  Notwithstanding any other provision of this License, for material you
++add to a covered work, you may (if authorized by the copyright holders of
++that material) supplement the terms of this License with terms:
++
++    a) Disclaiming warranty or limiting liability differently from the
++    terms of sections 15 and 16 of this License; or
++
++    b) Requiring preservation of specified reasonable legal notices or
++    author attributions in that material or in the Appropriate Legal
++    Notices displayed by works containing it; or
++
++    c) Prohibiting misrepresentation of the origin of that material, or
++    requiring that modified versions of such material be marked in
++    reasonable ways as different from the original version; or
++
++    d) Limiting the use for publicity purposes of names of licensors or
++    authors of the material; or
++
++    e) Declining to grant rights under trademark law for use of some
++    trade names, trademarks, or service marks; or
++
++    f) Requiring indemnification of licensors and authors of that
++    material by anyone who conveys the material (or modified versions of
++    it) with contractual assumptions of liability to the recipient, for
++    any liability that these contractual assumptions directly impose on
++    those licensors and authors.
++
++  All other non-permissive additional terms are considered "further
++restrictions" within the meaning of section 10.  If the Program as you
++received it, or any part of it, contains a notice stating that it is
++governed by this License along with a term that is a further
++restriction, you may remove that term.  If a license document contains
++a further restriction but permits relicensing or conveying under this
++License, you may add to a covered work material governed by the terms
++of that license document, provided that the further restriction does
++not survive such relicensing or conveying.
++
++  If you add terms to a covered work in accord with this section, you
++must place, in the relevant source files, a statement of the
++additional terms that apply to those files, or a notice indicating
++where to find the applicable terms.
++
++  Additional terms, permissive or non-permissive, may be stated in the
++form of a separately written license, or stated as exceptions;
++the above requirements apply either way.
++
++  8. Termination.
++
++  You may not propagate or modify a covered work except as expressly
++provided under this License.  Any attempt otherwise to propagate or
++modify it is void, and will automatically terminate your rights under
++this License (including any patent licenses granted under the third
++paragraph of section 11).
++
++  However, if you cease all violation of this License, then your
++license from a particular copyright holder is reinstated (a)
++provisionally, unless and until the copyright holder explicitly and
++finally terminates your license, and (b) permanently, if the copyright
++holder fails to notify you of the violation by some reasonable means
++prior to 60 days after the cessation.
++
++  Moreover, your license from a particular copyright holder is
++reinstated permanently if the copyright holder notifies you of the
++violation by some reasonable means, this is the first time you have
++received notice of violation of this License (for any work) from that
++copyright holder, and you cure the violation prior to 30 days after
++your receipt of the notice.
++
++  Termination of your rights under this section does not terminate the
++licenses of parties who have received copies or rights from you under
++this License.  If your rights have been terminated and not permanently
++reinstated, you do not qualify to receive new licenses for the same
++material under section 10.
++
++  9. Acceptance Not Required for Having Copies.
++
++  You are not required to accept this License in order to receive or
++run a copy of the Program.  Ancillary propagation of a covered work
++occurring solely as a consequence of using peer-to-peer transmission
++to receive a copy likewise does not require acceptance.  However,
++nothing other than this License grants you permission to propagate or
++modify any covered work.  These actions infringe copyright if you do
++not accept this License.  Therefore, by modifying or propagating a
++covered work, you indicate your acceptance of this License to do so.
++
++  10. Automatic Licensing of Downstream Recipients.
++
++  Each time you convey a covered work, the recipient automatically
++receives a license from the original licensors, to run, modify and
++propagate that work, subject to this License.  You are not responsible
++for enforcing compliance by third parties with this License.
++
++  An "entity transaction" is a transaction transferring control of an
++organization, or substantially all assets of one, or subdividing an
++organization, or merging organizations.  If propagation of a covered
++work results from an entity transaction, each party to that
++transaction who receives a copy of the work also receives whatever
++licenses to the work the party's predecessor in interest had or could
++give under the previous paragraph, plus a right to possession of the
++Corresponding Source of the work from the predecessor in interest, if
++the predecessor has it or can get it with reasonable efforts.
++
++  You may not impose any further restrictions on the exercise of the
++rights granted or affirmed under this License.  For example, you may
++not impose a license fee, royalty, or other charge for exercise of
++rights granted under this License, and you may not initiate litigation
++(including a cross-claim or counterclaim in a lawsuit) alleging that
++any patent claim is infringed by making, using, selling, offering for
++sale, or importing the Program or any portion of it.
++
++  11. Patents.
++
++  A "contributor" is a copyright holder who authorizes use under this
++License of the Program or a work on which the Program is based.  The
++work thus licensed is called the contributor's "contributor version".
++
++  A contributor's "essential patent claims" are all patent claims
++owned or controlled by the contributor, whether already acquired or
++hereafter acquired, that would be infringed by some manner, permitted
++by this License, of making, using, or selling its contributor version,
++but do not include claims that would be infringed only as a
++consequence of further modification of the contributor version.  For
++purposes of this definition, "control" includes the right to grant
++patent sublicenses in a manner consistent with the requirements of
++this License.
++
++  Each contributor grants you a non-exclusive, worldwide, royalty-free
++patent license under the contributor's essential patent claims, to
++make, use, sell, offer for sale, import and otherwise run, modify and
++propagate the contents of its contributor version.
++
++  In the following three paragraphs, a "patent license" is any express
++agreement or commitment, however denominated, not to enforce a patent
++(such as an express permission to practice a patent or covenant not to
++sue for patent infringement).  To "grant" such a patent license to a
++party means to make such an agreement or commitment not to enforce a
++patent against the party.
++
++  If you convey a covered work, knowingly relying on a patent license,
++and the Corresponding Source of the work is not available for anyone
++to copy, free of charge and under the terms of this License, through a
++publicly available network server or other readily accessible means,
++then you must either (1) cause the Corresponding Source to be so
++available, or (2) arrange to deprive yourself of the benefit of the
++patent license for this particular work, or (3) arrange, in a manner
++consistent with the requirements of this License, to extend the patent
++license to downstream recipients.  "Knowingly relying" means you have
++actual knowledge that, but for the patent license, your conveying the
++covered work in a country, or your recipient's use of the covered work
++in a country, would infringe one or more identifiable patents in that
++country that you have reason to believe are valid.
++
++  If, pursuant to or in connection with a single transaction or
++arrangement, you convey, or propagate by procuring conveyance of, a
++covered work, and grant a patent license to some of the parties
++receiving the covered work authorizing them to use, propagate, modify
++or convey a specific copy of the covered work, then the patent license
++you grant is automatically extended to all recipients of the covered
++work and works based on it.
++
++  A patent license is "discriminatory" if it does not include within
++the scope of its coverage, prohibits the exercise of, or is
++conditioned on the non-exercise of one or more of the rights that are
++specifically granted under this License.  You may not convey a covered
++work if you are a party to an arrangement with a third party that is
++in the business of distributing software, under which you make payment
++to the third party based on the extent of your activity of conveying
++the work, and under which the third party grants, to any of the
++parties who would receive the covered work from you, a discriminatory
++patent license (a) in connection with copies of the covered work
++conveyed by you (or copies made from those copies), or (b) primarily
++for and in connection with specific products or compilations that
++contain the covered work, unless you entered into that arrangement,
++or that patent license was granted, prior to 28 March 2007.
++
++  Nothing in this License shall be construed as excluding or limiting
++any implied license or other defenses to infringement that may
++otherwise be available to you under applicable patent law.
++
++  12. No Surrender of Others' Freedom.
++
++  If conditions are imposed on you (whether by court order, agreement or
++otherwise) that contradict the conditions of this License, they do not
++excuse you from the conditions of this License.  If you cannot convey a
++covered work so as to satisfy simultaneously your obligations under this
++License and any other pertinent obligations, then as a consequence you may
++not convey it at all.  For example, if you agree to terms that obligate you
++to collect a royalty for further conveying from those to whom you convey
++the Program, the only way you could satisfy both those terms and this
++License would be to refrain entirely from conveying the Program.
++
++  13. Remote Network Interaction; Use with the GNU General Public License.
++
++  Notwithstanding any other provision of this License, if you modify the
++Program, your modified version must prominently offer all users
++interacting with it remotely through a computer network (if your version
++supports such interaction) an opportunity to receive the Corresponding
++Source of your version by providing access to the Corresponding Source
++from a network server at no charge, through some standard or customary
++means of facilitating copying of software.  This Corresponding Source
++shall include the Corresponding Source for any work covered by version 3
++of the GNU General Public License that is incorporated pursuant to the
++following paragraph.
++
++  Notwithstanding any other provision of this License, you have
++permission to link or combine any covered work with a work licensed
++under version 3 of the GNU General Public License into a single
++combined work, and to convey the resulting work.  The terms of this
++License will continue to apply to the part which is the covered work,
++but the work with which it is combined will remain governed by version
++3 of the GNU General Public License.
++
++  14. Revised Versions of this License.
++
++  The Free Software Foundation may publish revised and/or new versions of
++the GNU Affero General Public License from time to time.  Such new versions
++will be similar in spirit to the present version, but may differ in detail to
++address new problems or concerns.
++
++  Each version is given a distinguishing version number.  If the
++Program specifies that a certain numbered version of the GNU Affero General
++Public License "or any later version" applies to it, you have the
++option of following the terms and conditions either of that numbered
++version or of any later version published by the Free Software
++Foundation.  If the Program does not specify a version number of the
++GNU Affero General Public License, you may choose any version ever published
++by the Free Software Foundation.
++
++  If the Program specifies that a proxy can decide which future
++versions of the GNU Affero General Public License can be used, that proxy's
++public statement of acceptance of a version permanently authorizes you
++to choose that version for the Program.
++
++  Later license versions may give you additional or different
++permissions.  However, no additional obligations are imposed on any
++author or copyright holder as a result of your choosing to follow a
++later version.
++
++  15. Disclaimer of Warranty.
++
++  THERE IS NO WARRANTY FOR THE PROGRAM, TO THE EXTENT PERMITTED BY
++APPLICABLE LAW.  EXCEPT WHEN OTHERWISE STATED IN WRITING THE COPYRIGHT
++HOLDERS AND/OR OTHER PARTIES PROVIDE THE PROGRAM "AS IS" WITHOUT WARRANTY
++OF ANY KIND, EITHER EXPRESSED OR IMPLIED, INCLUDING, BUT NOT LIMITED TO,
++THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
++PURPOSE.  THE ENTIRE RISK AS TO THE QUALITY AND PERFORMANCE OF THE PROGRAM
++IS WITH YOU.  SHOULD THE PROGRAM PROVE DEFECTIVE, YOU ASSUME THE COST OF
++ALL NECESSARY SERVICING, REPAIR OR CORRECTION.
++
++  16. Limitation of Liability.
++
++  IN NO EVENT UNLESS REQUIRED BY APPLICABLE LAW OR AGREED TO IN WRITING
++WILL ANY COPYRIGHT HOLDER, OR ANY OTHER PARTY WHO MODIFIES AND/OR CONVEYS
++THE PROGRAM AS PERMITTED ABOVE, BE LIABLE TO YOU FOR DAMAGES, INCLUDING ANY
++GENERAL, SPECIAL, INCIDENTAL OR CONSEQUENTIAL DAMAGES ARISING OUT OF THE
++USE OR INABILITY TO USE THE PROGRAM (INCLUDING BUT NOT LIMITED TO LOSS OF
++DATA OR DATA BEING RENDERED INACCURATE OR LOSSES SUSTAINED BY YOU OR THIRD
++PARTIES OR A FAILURE OF THE PROGRAM TO OPERATE WITH ANY OTHER PROGRAMS),
++EVEN IF SUCH HOLDER OR OTHER PARTY HAS BEEN ADVISED OF THE POSSIBILITY OF
++SUCH DAMAGES.
++
++  17. Interpretation of Sections 15 and 16.
++
++  If the disclaimer of warranty and limitation of liability provided
++above cannot be given local legal effect according to their terms,
++reviewing courts shall apply local law that most closely approximates
++an absolute waiver of all civil liability in connection with the
++Program, unless a warranty or assumption of liability accompanies a
++copy of the Program in return for a fee.
++
++                     END OF TERMS AND CONDITIONS
++
++            How to Apply These Terms to Your New Programs
++
++  If you develop a new program, and you want it to be of the greatest
++possible use to the public, the best way to achieve this is to make it
++free software which everyone can redistribute and change under these terms.
++
++  To do so, attach the following notices to the program.  It is safest
++to attach them to the start of each source file to most effectively
++state the exclusion of warranty; and each file should have at least
++the "copyright" line and a pointer to where the full notice is found.
++
++    <one line to give the program's name and a brief idea of what it does.>
++    Copyright (C) <year>  <name of author>
++
++    This program is free software: you can redistribute it and/or modify
++    it under the terms of the GNU Affero General Public License as published by
++    the Free Software Foundation, either version 3 of the License, or
++    (at your option) any later version.
++
++    This program is distributed in the hope that it will be useful,
++    but WITHOUT ANY WARRANTY; without even the implied warranty of
++    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++    GNU Affero General Public License for more details.
++
++    You should have received a copy of the GNU Affero General Public License
++    along with this program.  If not, see <https://www.gnu.org/licenses/>.
++
++Also add information on how to contact you by electronic and paper mail.
++
++  If your software can interact with users remotely through a computer
++network, you should also make sure that it provides a way for users to
++get its source.  For example, if your program is a web application, its
++interface could display a "Source" link that leads users to an archive
++of the code.  There are many ways you could offer source, and different
++solutions will be better for different programs; see section 13 for the
++specific requirements.
++
++  You should also get your employer (if you work as a programmer) or school,
++if any, to sign a "copyright disclaimer" for the program, if necessary.
++For more information on this, and how to apply and follow the GNU AGPL, see
++<https://www.gnu.org/licenses/>.
+diff --git a/lib/src/main/proto/UPSTREAM.md b/lib/src/main/proto/UPSTREAM.md
+new file mode 100644
+index 0000000..68615d2
+--- /dev/null
++++ b/lib/src/main/proto/UPSTREAM.md
+@@ -0,0 +1,11 @@
++# Backup schema provenance
++
++`Backups.proto` is an unmodified copy from Signal Desktop, commit
++`5c1a030485ea64a1c311288cd6b5eecbe36964cd`, path `protos/Backups.proto`.
++Copyright 2024 Signal Messenger, LLC; SPDX-License-Identifier: AGPL-3.0-only.
++The upstream license is included in `LICENSE-AGPL-3.0`.
++
++The history test fixture `lib/src/test/resources/history/canonical-backup.binproto`
++is from libsignal, commit `4beb029d8a941f81e7d9c6d8af1ed25a677569a8`, path
++`java/client/src/test/resources/org/signal/libsignal/messagebackup/canonical-backup.binproto`.
++It is synthetic test data distributed under that project's AGPL-3.0 license.
+diff --git a/lib/src/test/java/org/asamk/signal/manager/history/HistoryFramesTest.java b/lib/src/test/java/org/asamk/signal/manager/history/HistoryFramesTest.java
+new file mode 100644
+index 0000000..7854648
+--- /dev/null
++++ b/lib/src/test/java/org/asamk/signal/manager/history/HistoryFramesTest.java
+@@ -0,0 +1,77 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.manager.history;
++
++import org.junit.jupiter.api.Test;
++import org.thoughtcrime.securesms.backup.v2.proto.Backups;
++import java.io.IOException;
++import java.util.ArrayList;
++import static org.junit.jupiter.api.Assertions.*;
++
++class HistoryFramesTest {
++    private final ArrayList<Backups.Frame> received = new ArrayList<>();
++    private final HistoryFrames decoder = new HistoryFrames(new HistoryFrames.Visitor() {
++        public void info(Backups.BackupInfo info) { assertEquals(1, info.getVersion()); }
++        public void frame(Backups.Frame frame) { received.add(frame); }
++    });
++
++    private void start() throws IOException {
++        decoder.accept(Backups.BackupInfo.newBuilder().setVersion(1).build().toByteArray());
++        decoder.accept(Backups.Frame.newBuilder().setAccount(Backups.AccountData.getDefaultInstance())
++                .build().toByteArray());
++    }
++
++    @Test void decodesOfficialSignalFixture() throws Exception {
++        try (var input = getClass().getResourceAsStream("/history/canonical-backup.binproto")) {
++            assertNotNull(input);
++            var info = Backups.BackupInfo.parseDelimitedFrom(input);
++            decoder.accept(info.toByteArray());
++            Backups.Frame frame;
++            while ((frame = Backups.Frame.parseDelimitedFrom(input)) != null) {
++                decoder.accept(frame.toByteArray());
++            }
++        }
++        decoder.finish();
++        assertEquals(5, received.size());
++        assertTrue(received.getFirst().hasAccount());
++        assertEquals(4, received.stream().filter(Backups.Frame::hasRecipient).count());
++    }
++
++    @Test void preservesMessageContentAndExpiration() throws Exception {
++        start();
++        var item = Backups.ChatItem.newBuilder().setChatId(7).setAuthorId(3)
++                .setDateSent(123).setExpireStartDate(200).setExpiresInMs(5000)
++                .setIncoming(Backups.ChatItem.IncomingMessageDetails.newBuilder().setDateReceived(124))
++                .setStandardMessage(Backups.StandardMessage.newBuilder()
++                        .setText(Backups.Text.newBuilder().setBody("hello 🌸")))
++                .build();
++        decoder.accept(Backups.Frame.newBuilder().setChatItem(item).build().toByteArray());
++        decoder.finish();
++        assertEquals(item, received.getLast().getChatItem());
++    }
++
++    @Test void ignoresUnknownFramesWithoutLosingFollowingFrames() throws Exception {
++        start();
++        decoder.accept(new byte[]{(byte) 0xa2, 6, 0}); // field 100, empty bytes
++        decoder.accept(Backups.Frame.newBuilder().setChat(Backups.Chat.newBuilder().setId(8))
++                .build().toByteArray());
++        decoder.finish();
++        assertEquals(2, received.size());
++        assertEquals(8, received.getLast().getChat().getId());
++    }
++
++    @Test void rejectsUnsupportedVersionsAndIncompleteArchives() {
++        assertThrows(IOException.class, () -> decoder.accept(
++                Backups.BackupInfo.newBuilder().setVersion(2).build().toByteArray()));
++        assertThrows(IOException.class, decoder::finish);
++    }
++
++    @Test void rejectsMissingOrDuplicateAccountFrames() throws Exception {
++        decoder.accept(Backups.BackupInfo.newBuilder().setVersion(1).build().toByteArray());
++        assertThrows(IOException.class, () -> decoder.accept(Backups.Frame.newBuilder()
++                .setChat(Backups.Chat.newBuilder().setId(8)).build().toByteArray()));
++        decoder.accept(Backups.Frame.newBuilder().setAccount(Backups.AccountData.getDefaultInstance())
++                .build().toByteArray());
++        assertThrows(IOException.class, () -> decoder.accept(Backups.Frame.newBuilder()
++                .setAccount(Backups.AccountData.getDefaultInstance()).build().toByteArray()));
++    }
++}
+diff --git a/lib/src/test/java/org/asamk/signal/manager/history/HistoryJsonTest.java b/lib/src/test/java/org/asamk/signal/manager/history/HistoryJsonTest.java
+new file mode 100644
+index 0000000..e5610bb
+--- /dev/null
++++ b/lib/src/test/java/org/asamk/signal/manager/history/HistoryJsonTest.java
+@@ -0,0 +1,34 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.manager.history;
++
++import org.junit.jupiter.api.Test;
++import org.thoughtcrime.securesms.backup.v2.proto.Backups;
++import com.google.protobuf.ByteString;
++import java.util.List;
++import java.util.Map;
++import static org.junit.jupiter.api.Assertions.*;
++
++class HistoryJsonTest {
++    @Test void keepsUnsignedIdsExactAndRecursivelyConvertsMessages() {
++        var revision = Backups.ChatItem.newBuilder().setDateSent(42).build();
++        var message = Backups.ChatItem.newBuilder().setChatId(-1L).setExpiresInMs(5000)
++                .addRevisions(revision).setStandardMessage(Backups.StandardMessage.newBuilder()
++                        .setText(Backups.Text.newBuilder().setBody("hello"))).build();
++        var json = HistoryJson.fields(message);
++        assertEquals("18446744073709551615", json.get("chatId"));
++        assertEquals("5000", json.get("expiresInMs"));
++        assertEquals(List.of(Map.of("dateSent", "42")), json.get("revisions"));
++        assertEquals(Map.of("text", Map.of("body", "hello")), json.get("standardMessage"));
++    }
++
++    @Test void preservesUnsigned32BitFields() {
++        var chat = Backups.Chat.newBuilder().setExpireTimerVersion(-1).build();
++        assertEquals(4294967295L, HistoryJson.fields(chat).get("expireTimerVersion"));
++    }
++
++    @Test void encodesBinaryFieldsAsBase64() {
++        var info = Backups.BackupInfo.newBuilder().setMediaRootBackupKey(
++                ByteString.copyFrom(new byte[]{1, 2, 3})).build();
++        assertEquals("AQID", HistoryJson.fields(info).get("mediaRootBackupKey"));
++    }
++}
+diff --git a/lib/src/test/resources/history/canonical-backup.binproto b/lib/src/test/resources/history/canonical-backup.binproto
+new file mode 100644
+index 0000000000000000000000000000000000000000..567f7b6e7f954b754ecc424a71253ad0934dbf25
+GIT binary patch
+literal 430
+zcmdPqU=+CVYr*{QhEfWv34rg6TwfTu6cU*xu6}#i$<t%*;#r0#m!6$@_EP@WcB4lb
+zkHg<Fl-|4{#FLbtlo+3uT2i8CW+r9ErI4B)Q+$DMg8=K}-8EkBpQfEo4f)>LsN5m?
+zQuKz(U%kmf0*MD17cpFQ67M|3DsjWJ>VpJ}5{pxQQlb`%TWU#(l_r<Mo81}5O^l`V
+z78{>k?tZezH8@o%F+$t_T-1YmD}2wTN(wQD2D?ZwdU<m&3NT7AYA_lwT1=2}V*fC|
+zzwiByeh<a~#t6m)#tg;+#tOy;M#c_CrX7ro4;UF=Ffw&8F->4%oWaDffQfMh6T=23
+zh8;`{2bdU>*dT_n39)c6YB7K)CL;z7AvF$WB_%Ea1~eeW$Hn1WsSsR}UsNf;D8U>k
+z<j=uk<;^9av;G|O5v~a=bNGutP5pn_K}cas(Vqiv_RW{Na@%`9GxOEyCX#l$uQ2Xs
+l>voE$nz*xlrxZ^}YGST}Z)$2uW?s4ilSadV*C*#10RUTom}dY0
+
+literal 0
+HcmV?d00001
+

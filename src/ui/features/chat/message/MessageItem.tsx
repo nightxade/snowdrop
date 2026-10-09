@@ -21,6 +21,7 @@ import { messagesSelectors, sessionSelectors } from '@/core/stores';
 import { BREAKPOINTS, overlayOwnsKeys, useMediaQuery, useSnowdrop } from '@/ui/hooks';
 import { ContextMenu, Drawer, EmojiPicker, VisuallyHidden } from '@/ui/primitives';
 import { useChatController } from '../ChatController';
+import { useHistoryRead } from './useHistoryRead';
 import {
   useRowActive,
   useRowEntered,
@@ -83,6 +84,7 @@ export const MessageItem = memo(function MessageItem({
   const tabStop = useRowActive(id);
   const entered = useRowEntered(id);
   const row = useRef<HTMLDivElement>(null);
+  useHistoryRead(row, m);
   const domId = useId();
   const [focused, setFocused] = useState(false);
   const [contextOpen, setContextOpen] = useState(false);

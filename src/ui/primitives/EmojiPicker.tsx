@@ -1,5 +1,6 @@
 import * as RadixPopover from '@radix-ui/react-popover';
-import { lazy, Suspense, useRef, type ReactElement } from 'react';
+import { lazy, Suspense, useRef, useState, type ReactNode, type ReactElement } from 'react';
+import { Button } from './Button';
 import { focusQuietly } from './focusQuietly';
 import { EMOJIBASE_URL, type EmojiPickerProps } from './emojiPickerTypes';
 import styles from './EmojiPicker.module.css';
@@ -35,6 +36,8 @@ export interface EmojiPickerPopoverProps extends Omit<EmojiPickerProps, 'autoFoc
   align?: 'start' | 'center' | 'end';
   /** Keep the picker open after a pick (e.g. adding several reactions). */
   stayOpen?: boolean;
+  /** Optional personal image collection, only offered when the caller can attach files. */
+  customContent?: ReactNode;
 }
 
 /** The picker in a popover, anchored to (and toggled by) its child. */
@@ -47,7 +50,9 @@ export function EmojiPickerPopover({
   onSelect,
   stayOpen,
   columns,
+  customContent,
 }: EmojiPickerPopoverProps) {
+  const [custom, setCustom] = useState(false);
   const trigger = useRef<HTMLButtonElement | null>(null);
   return (
     <RadixPopover.Root open={open} onOpenChange={onOpenChange}>
@@ -68,15 +73,41 @@ export function EmojiPickerPopover({
             if (trigger.current?.isConnected) focusQuietly(trigger.current);
           }}
         >
-          {open && (
-            <EmojiPicker
-              {...(columns !== undefined ? { columns } : {})}
-              onSelect={(emoji) => {
-                onSelect(emoji);
-                if (!stayOpen) onOpenChange(false);
-              }}
-            />
+          {customContent && (
+            <div className={styles.modes} aria-label="Emoji collection">
+              <Button
+                size="sm"
+                variant="ghost"
+                aria-pressed={!custom}
+                onClick={() => {
+                  setCustom(false);
+                }}
+              >
+                Emoji
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                aria-pressed={custom}
+                onClick={() => {
+                  setCustom(true);
+                }}
+              >
+                My emoji
+              </Button>
+            </div>
           )}
+          {open && custom && customContent
+            ? customContent
+            : open && (
+                <EmojiPicker
+                  {...(columns !== undefined ? { columns } : {})}
+                  onSelect={(emoji) => {
+                    onSelect(emoji);
+                    if (!stayOpen) onOpenChange(false);
+                  }}
+                />
+              )}
         </RadixPopover.Content>
       </RadixPopover.Portal>
     </RadixPopover.Root>

@@ -121,6 +121,9 @@ see [docs/DESKTOP.md](docs/DESKTOP.md).
 | `node scripts/gen-licences.mjs` | Regenerates the About page's licence list after dependency changes (then run Prettier).                              |
 | `npm run tauri:dev`             | Runs the desktop app in dev mode (signal-cli downloads on first launch, inside the app).                             |
 | `npm run tauri:build`           | Builds the desktop app (AppImage, .deb); no bundled signal-cli.                                                      |
+| `npm run tauri:build:arm64`     | Builds Linux ARM64 AppImage and .deb packages on an ARM64 Linux host. |
+| `npm run tauri:build:arm64:rpm` | Builds a Linux ARM64 RPM (Fedora and similar distributions). |
+| `npm run tauri:build:arm64:binary` | Builds the Linux ARM64 executable without packaging. |
 | `npm run tauri:build:bundled`   | Optional: fetches and bundles signal-cli into the app package instead (GPL obligations apply — see docs/DESKTOP.md). |
 
 The full quality gate is

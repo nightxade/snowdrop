@@ -58,8 +58,13 @@ export interface NotificationServiceDeps {
   stores: Stores;
   api: NotificationApi;
   clock: Clock;
-  /** New stored messages (SyncService). */
-  source: { on(event: 'message', fn: (message: Message) => void): Unsubscribe };
+  /** New stored messages with initial-sync provenance (SyncService). */
+  source: {
+    on(
+      event: 'messageArrived',
+      fn: (event: { message: Message; live: boolean }) => void,
+    ): Unsubscribe;
+  };
   /** Plugin boosters (Registries.boostReason). */
   boost?: (message: Message) => string | null;
   /** Page visibility; defaults to "visible". */
@@ -155,13 +160,18 @@ export function decideNotification(
 
 export class NotificationService {
   private unsub: Unsubscribe | null = null;
+  private startedAt = Infinity;
   private readonly shown = new Map<ConversationId, ShownNotification>();
 
   constructor(private readonly deps: NotificationServiceDeps) {}
 
   start(): void {
-    this.unsub ??= this.deps.source.on('message', (message) => {
-      this.handle(message);
+    if (this.unsub) return;
+    this.startedAt = this.deps.clock.now();
+    this.unsub = this.deps.source.on('messageArrived', ({ message, live }) => {
+      // The daemon can finish draining old envelopes after initial sync ends.
+      // Keep those messages in history, without announcing them as new.
+      if (live && message.sentAt >= this.startedAt) this.handle(message);
     });
   }
 

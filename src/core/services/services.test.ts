@@ -121,6 +121,42 @@ const draft = (
 });
 
 describe('SyncService: initial sync', () => {
+  it('recovers acknowledged history deadlines after a crash without starting unread timers', async () => {
+    const { backend, repository, sync, conv, memberOf } = await setup({
+      start: false,
+      noServerHistory: true,
+    });
+    const id = conv('crux');
+    const messages = [1, 2, 3].map((sentAt) =>
+      incoming(id, memberOf(id), sentAt, {
+        historyCursor: `snapshot:${sentAt}`,
+        expiresAfterReadMs: 5000,
+      }),
+    );
+    await repository.upsertMany(messages, { backfill: false, merge: (existing) => existing });
+    const alreadyExpired = incoming(id, memberOf(id), 4, { expiresAt: NOW - 1 });
+    await repository.upsertMany([alreadyExpired], {
+      backfill: false,
+      merge: (existing) => existing,
+    });
+    const readHistory = vi.fn();
+    const getHistoryReadState = vi.fn().mockResolvedValue([
+      { id: messages[0]!.id, unavailable: true },
+      { id: messages[1]!.id, expiresAt: NOW + 1000, unavailable: false },
+      { id: messages[2]!.id, unavailable: false },
+    ]);
+    Object.assign(backend, { readHistory, getHistoryReadState });
+    await sync.start();
+    expect(readHistory).not.toHaveBeenCalled();
+    expect(getHistoryReadState).toHaveBeenCalledTimes(1);
+    expect(await repository.get(messages[0]!.id)).toBeUndefined();
+    expect(await repository.get(alreadyExpired.id)).toBeUndefined();
+    expect(await repository.get(messages[1]!.id)).toMatchObject({ expiresAt: NOW + 1000 });
+    expect(await repository.get(messages[1]!.id)).not.toHaveProperty('expiresAfterReadMs');
+    expect(await repository.get(messages[2]!.id)).toMatchObject({ expiresAfterReadMs: 5000 });
+    expect(await repository.get(messages[2]!.id)).not.toHaveProperty('expiresAt');
+  });
+
   it('fills stores and repository', async () => {
     const { stores, backend, repository, conv } = await setup();
     expect(stores.session.getState()).toMatchObject({
@@ -946,6 +982,53 @@ describe('SendService', () => {
 });
 
 describe('HistoryService', () => {
+  it.each([undefined, 'snapshot:9007199254740993'])(
+    'passes boundary identity and any persisted cursor (%s)',
+    async (cursor) => {
+      const { history, backend, repository, conv, memberOf } = await setup({
+        noServerHistory: true,
+      });
+      const id = conv('crux');
+      const message = incoming(id, memberOf(id), 1000, {
+        ...(cursor ? { historyCursor: cursor } : {}),
+      });
+      await repository.upsertMany([message], { backfill: false, merge: (existing) => existing });
+      const fetchHistory = vi.fn().mockResolvedValue({ messages: [], hasMoreBefore: false });
+      Object.assign(backend, { fetchHistory });
+      await history.open(id);
+      expect(fetchHistory).toHaveBeenCalledWith(id, {
+        before: 1000,
+        beforeId: message.id,
+        ...(cursor ? { beforeCursor: cursor } : {}),
+        limit: 19,
+      });
+    },
+  );
+
+  it('persists a viewed timer deadline without starting it during loading', async () => {
+    const { history, backend, sync, repository, conv, memberOf, list } = await setup({
+      noServerHistory: true,
+    });
+    const id = conv('crux');
+    const message = incoming(id, memberOf(id), 1000, {
+      historyCursor: 'snapshot:3',
+      expiresAfterReadMs: 5000,
+    });
+    await repository.upsertMany([message], { backfill: false, merge: (existing) => existing });
+    const readHistory = vi
+      .fn()
+      .mockResolvedValue([{ id: message.id, expiresAt: NOW + 5000, unavailable: false }]);
+    Object.assign(backend, { readHistory });
+    await history.open(id);
+    expect(readHistory).not.toHaveBeenCalled();
+    await sync.readHistoryMessages(id, [message.id]);
+    expect(readHistory).toHaveBeenCalledWith([{ id: message.id, cursor: 'snapshot:3' }]);
+    expect(await repository.get(message.id)).toMatchObject({ expiresAt: NOW + 5000 });
+    expect(list(id)[0]).not.toHaveProperty('expiresAfterReadMs');
+    await sync.readHistoryMessages(id, [message.id]);
+    expect(readHistory).toHaveBeenCalledTimes(1);
+  });
+
   it('loads the newest page and backfills older pages from the backend', async () => {
     const { stores, history, backend, conv, list } = await setup();
     const id = conv('crux');

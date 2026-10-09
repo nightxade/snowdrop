@@ -32,6 +32,19 @@ const implementations: [string, () => Promise<MessageRepository & { close?: () =
 describe.each(implementations)('MessageRepository (%s)', (_name, create) => {
   let repo: MessageRepository & { close?: () => void };
 
+  it('finds only imported timers whose local deadline is still unknown', async () => {
+    const pending = incoming({
+      conversationId: a,
+      authorId: 'timer',
+      sentAt: 1,
+      historyCursor: 'snapshot:3',
+      expiresAfterReadMs: 5000,
+    });
+    const started = { ...pending, id: messageId('timer', 2), sentAt: 2, expiresAt: 6000 };
+    await repo.upsertMany([pending, started], { backfill: false, merge: mergeDuplicate });
+    expect((await repo.pendingHistoryTimers()).map((message) => message.id)).toEqual([pending.id]);
+  });
+
   beforeEach(async () => {
     repo = await create();
     const msgs = [];

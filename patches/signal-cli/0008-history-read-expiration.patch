@@ -1,0 +1,284 @@
+--- a/build.gradle.kts
++++ b/build.gradle.kts
+@@ -10,7 +10,7 @@
+ 
+ allprojects {
+     group = "org.asamk"
+-    version = "0.14.8-snowdrop-history.4"
++    version = "0.14.8-snowdrop-history.5"
+ }
+ 
+ java {
+--- /dev/null
++++ b/lib/src/main/java/org/asamk/signal/manager/history/HistoryRead.java
+@@ -0,0 +1,56 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.manager.history;
++
++import java.io.IOException;
++import java.sql.Connection;
++import java.sql.SQLException;
++import java.util.ArrayList;
++import java.util.List;
++import org.thoughtcrime.securesms.backup.v2.proto.Backups;
++
++/** Read-time expiration persisted in the archive, so paging cannot revive it. */
++final class HistoryRead {
++    private HistoryRead() {}
++    static List<HistoryStore.ReadState> apply(Connection connection, String archiveId,
++            List<Long> cursors, long now) throws IOException, SQLException {
++        try (var query = connection.prepareStatement("SELECT archive_id FROM snowdrop_history_meta WHERE singleton = 1");
++                var rows = query.executeQuery()) {
++            if (!rows.next() || !archiveId.equals(rows.getString(1))) {
++                throw new IOException("History changed; restart pagination");
++            }
++        }
++        HistoryIndex.purge(connection, now);
++        var states = new ArrayList<HistoryStore.ReadState>();
++        try (var query = connection.prepareStatement("SELECT frame, expires_at FROM snowdrop_history_frame WHERE ordinal = ?");
++                var update = connection.prepareStatement("UPDATE snowdrop_history_frame SET frame = ?, expires_at = ? WHERE ordinal = ?")) {
++            for (long cursor : cursors) {
++                query.setLong(1, cursor);
++                try (var rows = query.executeQuery()) {
++                    if (!rows.next()) {
++                        states.add(new HistoryStore.ReadState(Long.toString(cursor), null, true));
++                        continue;
++                    }
++                    var frame = Backups.Frame.parseFrom(rows.getBytes(1));
++                    if (!frame.hasChatItem()) throw new IOException("History read cursor does not identify a message");
++                    var item = frame.getChatItem().toBuilder();
++                    Long expiresAt = rows.getObject(2) == null ? null : rows.getLong(2);
++                    long duration = item.getExpiresInMs();
++                    if (duration < 0) throw new IOException("Invalid history expiration duration");
++                    if (duration > 0 && item.getExpireStartDate() == 0) {
++                        try { expiresAt = Math.addExact(now, duration); }
++                        catch (ArithmeticException e) { throw new IOException("Invalid history expiration", e); }
++                        item.setExpireStartDate(now);
++                    }
++                    if (item.hasIncoming()) item.setIncoming(item.getIncoming().toBuilder().setRead(true));
++                    update.setBytes(1, frame.toBuilder().setChatItem(item).build().toByteArray());
++                    update.setObject(2, expiresAt);
++                    update.setLong(3, cursor);
++                    update.executeUpdate();
++                    states.add(new HistoryStore.ReadState(Long.toString(cursor),
++                            expiresAt == null ? null : Long.toString(expiresAt), false));
++                }
++            }
++        }
++        return List.copyOf(states);
++    }
++}
+--- a/lib/src/main/java/org/asamk/signal/manager/history/HistoryStore.java
++++ b/lib/src/main/java/org/asamk/signal/manager/history/HistoryStore.java
+@@ -20,6 +20,7 @@
+     @FunctionalInterface interface Source { void read(HistoryFrames.Visitor visitor) throws IOException; }
+     public record Entry(String cursor, Map<String, Object> frame) {}
+     public record Page(String archiveId, List<Entry> entries, String nextCursor, boolean hasMore) {}
++    public record ReadState(String cursor, String expiresAt, boolean unavailable) {}
+     private final Connections connections;
+ 
+     public HistoryStore(Connections connections) throws SQLException {
+@@ -43,6 +44,25 @@
+ 
+     public String importArchive(Path archive, byte[] aesKey, byte[] macKey, long now) throws IOException {
+         return replace(visitor -> HistoryFrames.read(archive, aesKey, macKey, visitor), now);
++    }
++
++    public List<ReadState> read(String archiveId, List<Long> cursors, long now) throws IOException {
++        if (archiveId == null || archiveId.isBlank() || cursors == null || cursors.isEmpty()
++                || cursors.size() > 500 || now <= 0
++                || cursors.stream().anyMatch(cursor -> cursor == null || cursor <= 0)) {
++            throw new IllegalArgumentException("History reads require a snapshot and 1..500 positive cursors");
++        }
++        try (var connection = connections.open()) {
++            connection.setAutoCommit(false);
++            try {
++                var states = HistoryRead.apply(connection, archiveId, cursors, now);
++                connection.commit();
++                return states;
++            } catch (IOException | SQLException | RuntimeException e) {
++                connection.rollback();
++                throw e;
++            }
++        } catch (SQLException e) { throw new IOException("Cannot mark history read", e); }
+     }
+ 
+     /** Resolve an opaque UI attachment id without accepting caller-supplied keys or URLs. */
+--- a/lib/src/main/java/org/asamk/signal/manager/Manager.java
++++ b/lib/src/main/java/org/asamk/signal/manager/Manager.java
+@@ -70,6 +70,9 @@
+ import java.util.Set;
+ 
+ public interface Manager extends Closeable {
++    default List<org.asamk.signal.manager.history.HistoryStore.ReadState> readHistory(String archiveId, List<Long> cursors) throws IOException {
++        throw new IOException("This manager does not support imported history");
++    }
+ 
+     default org.asamk.signal.manager.history.HistoryStore.Page getHistoryDirectory(String archiveId, long after, int limit) throws IOException {
+         throw new IOException("This manager does not support imported history");
+--- a/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
++++ b/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
+@@ -191,6 +191,11 @@
+         return getHistoryStore().chatPage(archiveId, chatId, before, limit, System.currentTimeMillis());
+     }
+ 
++    @Override
++    public java.util.List<org.asamk.signal.manager.history.HistoryStore.ReadState> readHistory(String archiveId, java.util.List<Long> cursors) throws IOException {
++        return getHistoryStore().read(archiveId, cursors, System.currentTimeMillis());
++    }
++
+     public org.asamk.signal.manager.history.LinkHistoryTransfer.Outcome importLinkedHistory(
+             byte[] ephemeralKey, java.nio.file.Path directory
+     ) throws IOException {
+--- a/src/main/java/org/asamk/signal/commands/Commands.java
++++ b/src/main/java/org/asamk/signal/commands/Commands.java
+@@ -30,6 +30,7 @@
+         addCommand(new ListAccountsCommand());
+         addCommand(new ListContactsCommand());
+         addCommand(new GetHistoryCommand());
++        addCommand(new ReadHistoryCommand());
+         addCommand(new GetHistoryCommand(GetHistoryCommand.Kind.DIRECTORY));
+         addCommand(new GetHistoryCommand(GetHistoryCommand.Kind.CHAT));
+         addCommand(new ListDevicesCommand());
+--- /dev/null
++++ b/src/main/java/org/asamk/signal/commands/ReadHistoryCommand.java
+@@ -0,0 +1,50 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.commands;
++
++import net.sourceforge.argparse4j.inf.Namespace;
++import net.sourceforge.argparse4j.inf.Subparser;
++import org.asamk.signal.commands.exceptions.CommandException;
++import org.asamk.signal.commands.exceptions.IOErrorException;
++import org.asamk.signal.commands.exceptions.UserErrorException;
++import org.asamk.signal.manager.Manager;
++import org.asamk.signal.output.JsonWriter;
++import org.asamk.signal.output.OutputWriter;
++import org.asamk.signal.output.PlainTextWriter;
++import java.io.IOException;
++import java.util.ArrayList;
++import java.util.List;
++
++/** Local read state only: no network read receipts are sent by this command. */
++public class ReadHistoryCommand implements JsonRpcLocalCommand {
++    @Override public String getName() { return "readHistory"; }
++    @Override public void attachToSubparser(Subparser parser) {
++        parser.help("Mark viewed archive messages read and start their disappearing timers.");
++        parser.addArgument("--archive-id").required(true).help("Snapshot id returned by getHistoryDirectory.");
++        parser.addArgument("--cursors").required(true).nargs("+").help("1..500 archive message cursors, as decimal strings.");
++    }
++    @Override public void handleCommand(Namespace ns, Manager manager, OutputWriter output) throws CommandException {
++        try {
++            List<?> values = ns.getList("cursors");
++            if (values == null || values.isEmpty() || values.size() > 500) throw new IllegalArgumentException("Expected 1..500 cursors");
++            var cursors = new ArrayList<Long>();
++            for (var value : values) {
++                if (!(value instanceof String text) || !text.matches("[1-9][0-9]*")) {
++                    throw new IllegalArgumentException("Cursors must be positive decimal strings");
++                }
++                cursors.add(Long.parseLong(text));
++            }
++            var states = manager.readHistory(ns.getString("archive-id"), cursors);
++            switch (output) {
++                case JsonWriter writer -> writer.write(states);
++                case PlainTextWriter writer -> {
++                    for (var state : states) writer.println("{} Expires: {} Unavailable: {}",
++                            state.cursor(), state.expiresAt(), state.unavailable());
++                }
++            }
++        } catch (IllegalArgumentException e) {
++            throw new UserErrorException("Invalid history read: " + e.getMessage(), e);
++        } catch (IOException e) {
++            throw new IOErrorException("History read failed: " + e.getMessage(), e);
++        }
++    }
++}
+--- /dev/null
++++ b/lib/src/test/java/org/asamk/signal/manager/history/HistoryReadTest.java
+@@ -0,0 +1,55 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.manager.history;
++
++import org.junit.jupiter.api.Test;
++import org.junit.jupiter.api.io.TempDir;
++import org.thoughtcrime.securesms.backup.v2.proto.Backups;
++import java.io.IOException;
++import java.nio.file.Path;
++import java.sql.DriverManager;
++import java.util.List;
++import static org.junit.jupiter.api.Assertions.*;
++
++class HistoryReadTest {
++    @TempDir Path directory;
++    private HistoryStore store() throws Exception {
++        return new HistoryStore(() -> DriverManager.getConnection("jdbc:sqlite:" + directory.resolve("account.db")));
++    }
++    private String seed(HistoryStore store) throws Exception {
++        return store.replace(v -> {
++            v.info(Backups.BackupInfo.newBuilder().setVersion(1).build());
++            v.frame(Backups.Frame.newBuilder().setRecipient(Backups.Recipient.newBuilder().setId(1)
++                    .setSelf(Backups.Self.getDefaultInstance())).build());
++            v.frame(Backups.Frame.newBuilder().setChat(Backups.Chat.newBuilder().setId(2).setRecipientId(1)).build());
++            for (int n = 0; n < 2; n++) {
++                v.frame(Backups.Frame.newBuilder().setChatItem(Backups.ChatItem.newBuilder()
++                        .setChatId(2).setAuthorId(1).setDateSent(10 + n).setExpiresInMs(100)
++                        .setIncoming(Backups.ChatItem.IncomingMessageDetails.getDefaultInstance())
++                        .setStandardMessage(Backups.StandardMessage.newBuilder()
++                                .setText(Backups.Text.newBuilder().setBody("timer")))).build());
++            }
++        }, 1000);
++    }
++    @Test void startsOnReadAndNeverRestartsAfterReload() throws Exception {
++        var store = store();
++        var snapshot = seed(store);
++        assertEquals("1100", store.read(snapshot, List.of(3L), 1000).getFirst().expiresAt());
++        assertEquals("1100", store().read(snapshot, List.of(3L), 1050).getFirst().expiresAt());
++        var page = store.chatPage(snapshot, "2", null, 10, 1050);
++        assertTrue(page.entries().getFirst().frame().toString().contains("expireStartDate=1000"));
++        assertTrue(page.entries().getFirst().frame().toString().contains("read=true"));
++        assertEquals(1, store.chatPage(snapshot, "2", null, 10, 1100).entries().size());
++        assertTrue(store.read(snapshot, List.of(3L), 1200).getFirst().unavailable());
++        assertEquals(1, store.chatPage(snapshot, "2", null, 10, 1200).entries().size());
++    }
++    @Test void rejectsSnapshotReplacementAndRollsBackInvalidBatch() throws Exception {
++        var store = store();
++        var snapshot = seed(store);
++        assertThrows(IOException.class, () -> store.read(snapshot, List.of(3L, 1L), 1000));
++        assertEquals("1200", store.read(snapshot, List.of(3L), 1100).getFirst().expiresAt());
++        seed(store);
++        assertThrows(IOException.class, () -> store.read(snapshot, List.of(4L), 1000));
++        assertThrows(IllegalArgumentException.class, () -> store.read(null, List.of(4L), 1000));
++        assertThrows(IllegalArgumentException.class, () -> store.read(snapshot, List.of(-1L), 1000));
++    }
++}
+--- /dev/null
++++ b/src/test/java/org/asamk/signal/commands/ReadHistoryCommandTest.java
+@@ -0,0 +1,28 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.commands;
++
++import org.asamk.signal.commands.exceptions.UserErrorException;
++import org.asamk.signal.manager.Manager;
++import org.asamk.signal.manager.history.HistoryStore;
++import org.junit.jupiter.api.Test;
++import java.lang.reflect.Proxy;
++import java.util.List;
++import java.util.Map;
++import java.util.concurrent.atomic.AtomicReference;
++import static org.junit.jupiter.api.Assertions.*;
++
++class ReadHistoryCommandTest {
++    @Test void routesExactCursorsAndRejectsNumericJsonValues() throws Exception {
++        var expected = List.of(new HistoryStore.ReadState("9007199254740993", "5000", false));
++        var manager = (Manager) Proxy.newProxyInstance(Manager.class.getClassLoader(), new Class<?>[]{Manager.class}, (proxy, method, args) -> {
++            assertEquals("readHistory", method.getName());
++            assertArrayEquals(new Object[]{"snapshot", List.of(9007199254740993L)}, args);
++            return expected;
++        });
++        var output = new AtomicReference<Object>();
++        new ReadHistoryCommand().handleCommand(Map.of("archiveId", "snapshot", "cursors", List.of("9007199254740993")), manager, output::set);
++        assertEquals(expected, output.get());
++        assertThrows(UserErrorException.class, () -> new ReadHistoryCommand().handleCommand(
++                Map.of("archiveId", "snapshot", "cursors", List.of(9007199254740993L)), manager, output::set));
++    }
++}

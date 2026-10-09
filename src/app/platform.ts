@@ -215,3 +215,8 @@ export function installTerminalErrorLog(): (error: unknown, where: string) => vo
   });
   return report;
 }
+
+/** Native formats absent from WebKit's ClipboardEvent (Linux screenshots and file-manager copies). */
+export async function desktopClipboardFiles(): Promise<File[]> {
+  return (await platform()).readClipboardFiles();
+}
