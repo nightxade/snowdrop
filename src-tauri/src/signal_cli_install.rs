@@ -161,6 +161,12 @@ fn work_dir(app_data_dir: &Path) -> PathBuf {
 /// it's never treated as a signal-cli *data* dir (`storage::
 /// legacy_signal_cli_dir` now requires a `data/` subdirectory) and so is
 /// never synced into the vault.
+///
+/// This only ever reads `<app_data_dir>/signal-cli/` (the pre-fix location,
+/// a *sibling* of `bin/`) — it never lists `<app_data_dir>/bin/` itself, so
+/// `bin/signal-cli-history/` (the history-patched build an operator installs
+/// with `scripts/build-signal-cli.sh --install`; see `config::patched_dir`)
+/// is never seen by this function, let alone moved or deleted by it.
 pub fn migrate_old_installs(app_data_dir: &Path) -> Result<(), Error> {
     let old_root = app_data_dir.join("signal-cli");
     let entries = match fs::read_dir(&old_root) {

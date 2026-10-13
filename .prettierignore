@@ -11,3 +11,5 @@ src-tauri/licenses
 # cargo-about Handlebars template: whitespace is part of the output
 src-tauri/about.hbs
 .vitest
+patches/signal-cli/.work
+patches/signal-cli/dist

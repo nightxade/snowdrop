@@ -40,8 +40,12 @@ export type DesktopErrorKind =
 
 export interface ResolvedProgram {
   path: string;
-  /** Where it came from: downloaded by Snowdrop, bundled with the app, the configured path, or PATH. */
-  source: 'downloaded' | 'bundled' | 'configured' | 'path';
+  /**
+   * Where it came from: the history-enabled build installed by `scripts/
+   * build-signal-cli.sh --install` (`patched`), downloaded by Snowdrop,
+   * bundled with the app, the configured path, or PATH.
+   */
+  source: 'patched' | 'downloaded' | 'bundled' | 'configured' | 'path';
 }
 
 export type DesktopProbeResult =

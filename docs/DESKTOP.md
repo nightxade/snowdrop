@@ -209,14 +209,28 @@ located in this order:
    (`DesktopConnection.binaryPath`). It must point to a file literally named
    `signal-cli` (or `.exe`/`.bat`), including through a symlink, and be
    executable; anything else is rejected before it's ever spawned.
-2. **Downloaded** — the pinned version Snowdrop downloaded into
+2. **Patched** — the history-enabled build at `<app_data_dir>/bin/signal-cli-
+history/bin/signal-cli` (`config::patched_binary`), if an operator has run
+   `npm run signal-cli:install` (see `patches/signal-cli/README.md`). Nothing
+   puts a binary there automatically — this step only ever matches after that
+   explicit, manual install. The binary there is a small shell launcher
+   around a jlinked JVM, not an ELF executable, which resolves fine: Rust's
+   `is_executable` only checks the file's permission bits, and spawning it
+   execs the launcher through its `#!` shebang like any other script.
+3. **Downloaded** — the pinned version Snowdrop downloaded into
    `<app_data_dir>/bin/signal-cli/<version>/` (above), if present.
-3. **Bundled** — a sidecar Tauri installed next to the app's own executable,
+4. **Bundled** — a sidecar Tauri installed next to the app's own executable,
    only in a build made with `npm run tauri:build:bundled` (the
    `bundled-sidecar` Cargo feature; see below). The default build has no
    such sidecar at all — this step never matches.
-4. **PATH** — the first `signal-cli`/`signal-cli.exe`/`signal-cli.bat` found
+5. **PATH** — the first `signal-cli`/`signal-cli.exe`/`signal-cli.bat` found
    on `PATH`.
+
+`bin/signal-cli-history/` is a sibling of `bin/signal-cli/<version>/` and
+`bin/.install-tmp/`: `signal_cli_install.rs`'s `migrate_old_installs` only
+ever lists the pre-fix `<app_data_dir>/signal-cli/` location (not `bin/`
+itself), so it can't see, move, or delete it, and nothing else in that
+module scans `bin/` generically either.
 
 If none resolve, the UI shows a screen in onboarding: the first-run download
 screen (`DownloadSignalCli.tsx`) when nothing is configured and nothing was

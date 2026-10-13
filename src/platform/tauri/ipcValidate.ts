@@ -57,7 +57,7 @@ function validated<T>(command: string, decoder: Decoder<T>, value: unknown): T {
 
 const resolvedProgramShape: Decoder<ResolvedProgram> = object({
   path: str,
-  source: oneOf(['downloaded', 'bundled', 'configured', 'path']),
+  source: oneOf(['patched', 'downloaded', 'bundled', 'configured', 'path']),
 });
 
 export function validateResolvedProgram(command: string, value: unknown): ResolvedProgram {

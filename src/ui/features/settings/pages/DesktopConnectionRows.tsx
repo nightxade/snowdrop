@@ -18,6 +18,7 @@ const log = createLogger('signal-cli');
 
 /** `satisfies` keeps this exhaustive against `ResolvedProgram['source']` at the type level. */
 const SOURCE_TEXT = {
+  patched: 'the history-enabled build (patched) installed for Snowdrop',
   downloaded: 'the signal-cli Snowdrop downloaded',
   bundled: 'the copy bundled with Snowdrop',
   configured: 'the path below',

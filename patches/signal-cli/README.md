@@ -17,6 +17,38 @@ git apply /path/to/snowdrop/patches/signal-cli/*.patch
 ./gradlew installDist
 ```
 
+`scripts/build-signal-cli.sh` (repo root) automates exactly that — clone,
+checkout, patch, `installDist` — and then goes one step further: it jlinks a
+minimal, self-contained Java runtime around the result (a fixed module list
+in the script — `jdeps` can't resolve this jar set, and the TLS providers,
+sqlite JDBC and libsignal's JNI bridge are only reached at runtime), so the
+output needs no system Java at all to run. It writes everything under this
+directory's own gitignored `.work/` (the clone + Gradle build tree) and
+`dist/` (the finished runtime):
+
+```sh
+npm run signal-cli:build            # patches/signal-cli/dist/signal-cli/{bin,lib,runtime}
+npm run signal-cli:build -- --test  # same, running the history test suite first
+npm run signal-cli:install          # build (if dist/ isn't already there) and install it
+```
+
+`dist/signal-cli/bin/signal-cli` is a small launcher script, not the JVM
+start script directly: it resolves its own real location, points
+`JAVA_HOME` at the jlinked `runtime/` next to it, and execs the original
+Gradle start script (kept alongside as `bin/signal-cli.gradle`). `npm run
+signal-cli:install` copies that whole directory, atomically, into
+`<app data dir>/bin/signal-cli-history/` (`${XDG_DATA_HOME:-~/.local/share}/
+local.snowdrop.desktop/bin/signal-cli-history/` on Linux; the previous install is kept as `signal-cli-history.previous/`; override with
+`SNOWDROP_APP_DATA`, which is how to test an install into a scratch
+directory without touching the real one) — the desktop app prefers a
+binary there over its own downloaded or bundled copy (`src-tauri/src/
+config.rs`, `BinarySource::Patched`; see docs/DESKTOP.md's "Resolution
+order"). The script requires `SNOWDROP_JDK` to point at a JDK 25 home
+(`java -version` must report 25 under it) and reads `SIGNAL_CLI_SRC` for
+the clone source (default: upstream's GitHub repo; a local path works too).
+`dist/signal-cli/PROVENANCE.txt` records the upstream commit, each applied
+patch's SHA-256, the JDK version, and the build date.
+
 Requires JDK 25. The first patch adds the authenticated archive decoder and its
 regression tests. The second patch adds protobuf decoding and JSON conversion
 that preserve expiration fields and exact 64-bit IDs, plus an official Signal

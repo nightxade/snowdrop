@@ -170,9 +170,11 @@ impl Service {
     }
 
     pub fn locate(&self, binary_path: Option<&str>) -> Result<ResolvedBinary, Error> {
+        let patched = config::patched_binary(&self.paths.app_data_dir);
         let downloaded = crate::signal_cli_install::installed_binary(&self.paths.app_data_dir);
         config::resolve_binary(
             binary_path,
+            patched.as_deref(),
             downloaded.as_deref(),
             self.paths.bundled.as_deref(),
             std::env::var_os("PATH").as_deref(),

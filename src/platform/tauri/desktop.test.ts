@@ -4,6 +4,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import {
+  createDesktopAdmin,
   storageCreateRecovery,
   storageEnrollKeyring,
   storageEraseAll,
@@ -184,5 +185,26 @@ describe('storageSignOut', () => {
     const result = await storageSignOut(fakeIpcWithInvoke(invoke));
     expect(invoke).toHaveBeenCalledWith('storage_sign_out');
     expect(result).toEqual(reply);
+  });
+});
+
+describe('createDesktopAdmin().locate', () => {
+  it('accepts the patched source (the history-enabled build)', async () => {
+    const admin = createDesktopAdmin(
+      fakeIpc({ path: '/data/bin/signal-cli-history/bin/signal-cli', source: 'patched' }),
+    );
+    await expect(admin.locate({ binaryPath: '' })).resolves.toEqual({
+      ok: true,
+      path: '/data/bin/signal-cli-history/bin/signal-cli',
+      source: 'patched',
+    });
+  });
+
+  it('rejects a source outside the known set', async () => {
+    const admin = createDesktopAdmin(fakeIpc({ path: '/x', source: 'mystery' }));
+    await expect(admin.locate({ binaryPath: '' })).resolves.toMatchObject({
+      ok: false,
+      kind: 'invalid-response',
+    });
   });
 });
