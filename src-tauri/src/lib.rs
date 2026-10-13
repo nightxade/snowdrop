@@ -95,9 +95,20 @@ fn focus_main(app: &AppHandle) {
     }
 }
 
+/// See `appimage::run_as_warmup_child_if_requested`: must be called at the
+/// very top of `main()`, before Tauri or anything else starts. A no-op on
+/// platforms without the `appimage` module (only built for Linux).
+pub fn maybe_run_as_gstreamer_warmup_child() {
+    #[cfg(target_os = "linux")]
+    appimage::run_as_warmup_child_if_requested();
+}
+
 pub fn run() {
     #[cfg(target_os = "linux")]
-    appimage::fix_gstreamer_scanner();
+    {
+        appimage::fix_gstreamer_scanner();
+        appimage::fix_gstreamer_registry();
+    }
     let app = tauri::Builder::default()
         // First, so a second launch hands over before anything else starts.
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| focus_main(app)))
@@ -114,6 +125,11 @@ pub fn run() {
             if let Some(log_file) = log_file.clone() {
                 applog::install(log_file);
             }
+            // Kick off the GStreamer registry warm-up now that the logger
+            // exists to report it (see `appimage::warm_registry_in_background`;
+            // no-op outside an AppImage).
+            #[cfg(target_os = "linux")]
+            appimage::warm_registry_in_background();
             let handle = app.handle().clone();
             // signal-cli keeps Snowdrop's own data (linked account, keys) apart
             // from any signal-cli you use on the command line.

@@ -121,6 +121,34 @@ Verified on 0.1.0: running the new AppImage for ~10 s (fresh
 `appsink`/`appimagesink` warning on stderr, where the pre-fix build logged
 it at launch.
 
+### Registry rescans and the first-media-touch stall
+
+The AppImage mounts at a fresh random path (`$APPDIR`) on every launch, so
+the first `gst_init()` of the session — made by WebKit's web process, on
+its main thread, the first time a page touches media (e.g. opening
+Settings) — has to rescan every bundled plugin from scratch, stalling the
+UI for several seconds. The AppImage's own GStreamer hook
+(`apprun-hooks/linuxdeploy-plugin-gstreamer.sh`) also points the registry
+at the host's shared `~/.cache/gstreamer-1.0/registry.*.bin`, clobbering it
+for the user's other GStreamer apps too. `src-tauri/src/appimage.rs` fixes
+both, running before the webview (and any other threads) exist:
+
+- `fix_gstreamer_scanner` points `GST_PLUGIN_SCANNER_1_0` at the scanner
+  the bundler actually ships (the hook's own Debian-style path isn't
+  populated, so every scan otherwise falls back to scanning in-process).
+- `fix_gstreamer_registry` points `GST_REGISTRY_1_0`/`GST_REGISTRY` at a
+  Snowdrop-owned file instead,
+  `${XDG_CACHE_HOME:-$HOME/.cache}/local.snowdrop.desktop/gstreamer-1.0/registry.<arch>.bin`,
+  unless the user has already set `GST_REGISTRY_1_0` themselves.
+- `warm_registry_in_background` spawns a low-priority child copy of
+  Snowdrop itself (a private `--snowdrop-warm-gstreamer` flag, handled at
+  the very top of `main()` before Tauri starts) that `dlopen`s
+  `$APPDIR/usr/lib/libgstreamer-1.0.so.0` and calls `gst_init(NULL, NULL)`
+  — the same scan WebKit would otherwise do synchronously — so the
+  registry is already warm by the time the UI needs it. Any failure here
+  is logged (one `log::info!` line with the duration and exit status) and
+  otherwise ignored; it can never stop or delay the app starting.
+
 ## Downloading signal-cli (the default)
 
 `src-tauri/signal-cli.json` is the **one pinned source of truth**, read by
