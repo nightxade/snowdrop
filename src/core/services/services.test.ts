@@ -721,7 +721,7 @@ describe('SendService', () => {
     const sendSpy = vi.spyOn(s.backend, 'send');
     s.stores.local
       .getState()
-      .saveCustomEmoji({ name: 'party', dataUrl: 'data:image/png;base64,aGk=' });
+      .saveCustomEmoji({ kind: 'image', name: 'party', dataUrl: 'data:image/png;base64,aGk=' });
     const id = s.conv('orchard-eng');
     await s.send.send(draft(id, 'hi :party: and :unknown:'));
     await flush();
@@ -736,7 +736,7 @@ describe('SendService', () => {
     const s = await setup();
     s.stores.local
       .getState()
-      .saveCustomEmoji({ name: 'party', dataUrl: 'data:image/png;base64,aGk=' });
+      .saveCustomEmoji({ kind: 'image', name: 'party', dataUrl: 'data:image/png;base64,aGk=' });
     const sendSpy = vi.spyOn(s.backend, 'send');
     const id = s.conv('orchard-eng');
     await s.send.send(draft(id, 'hi :party:'));

@@ -39,7 +39,14 @@ export function useCustomEmojiResolver(
   }, []);
 
   const resolveCustomEmoji = useMemo<Resolve | undefined>(() => {
-    if (own) return (name) => collection.find((e) => e.name === name)?.dataUrl;
+    // A text emoticon's `:name:` was already expanded to its text when this
+    // (our own) message was sent, so only an *image* emoji can still be
+    // behind a surviving token — never a text emoji's name.
+    if (own)
+      return (name) => {
+        const emoji = collection.find((e) => e.name === name);
+        return emoji?.kind === 'image' ? emoji.dataUrl : undefined;
+      };
     if (!delivered?.length) return undefined;
     return (name) => urls[name];
   }, [own, collection, delivered, urls]);

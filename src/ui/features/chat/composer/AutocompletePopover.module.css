@@ -90,6 +90,18 @@
   object-fit: contain;
 }
 
+.customEmojiText {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--snowdrop-text-strong);
+  font-weight: var(--snowdrop-font-weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* A user-authored emoticon; contain any bidi controls like other free text here. */
+  unicode-bidi: isolate;
+}
+
 .slashIcon {
   display: grid;
   place-items: center;

@@ -18,13 +18,19 @@ import type {
   OutgoingCustomEmoji,
   SendInput,
 } from '@/core/backend';
-import { extractCustomEmojiNames } from '@/core/stores/customEmoji';
+import {
+  expandTextEmoticons,
+  extractCustomEmojiNames,
+  isImageCustomEmoji,
+  type ImageCustomEmoji,
+} from '@/core/stores/customEmoji';
 import {
   advanceStatus,
   applyDelete,
   applyEdit,
   applyReaction,
   attachMentions,
+  escapeMarkdown,
   isPendingMessageId,
   mergeOutgoingCommit,
   messageId,
@@ -112,25 +118,37 @@ export class SendService {
   }
 
   /**
-   * The sender's own custom emoji actually used (as `:name:`) in `body`,
-   * deduplicated, for a backend that can deliver them (see
+   * The sender's own *image* custom emoji actually used (as `:name:`) in
+   * `body`, deduplicated, for a backend that can deliver them (see
    * ChatBackend.supportsCustomEmojiDelivery). A name with no matching local
-   * emoji is simply left out — it renders as plain `:name:` text everywhere,
-   * same as it always did.
+   * image emoji is simply left out — a text emoticon's token was already
+   * expanded to its text by `compose` before `body` ever reached here, and
+   * an unknown name renders as plain `:name:` text everywhere, same as it
+   * always did.
    */
   private buildCustomEmoji(body: string): OutgoingCustomEmoji[] | undefined {
     if (!this.deps.backend.supportsCustomEmojiDelivery?.()) return undefined;
     const library = this.deps.stores.local.getState().customEmoji;
     const used = extractCustomEmojiNames(body)
       .map((name) => library.find((e) => e.name === name))
-      .filter((e): e is (typeof library)[number] => e !== undefined)
+      .filter((e): e is ImageCustomEmoji => e !== undefined && isImageCustomEmoji(e))
       .map((e) => ({ name: e.name, dataUrl: e.dataUrl }));
     return used.length > 0 ? used : undefined;
   }
 
   /**
-   * Turns composer text into Signal body + ranges: markdown (per `format`, or
-   * the user's setting when omitted) plus mentions.
+   * Turns composer text into Signal body + ranges: text-emoticon expansion,
+   * then markdown (per `format`, or the user's setting when omitted), then
+   * mentions.
+   *
+   * Expansion runs first and unconditionally — a hand-typed `:shrug:` must
+   * become `¯\_(ツ)_/¯` whether or not markdown is on — so the length it
+   * adds is already in the body before any ranges (markdown spans, mention
+   * positions) are computed over it; computing ranges first and shifting
+   * them afterwards would be the same result for far more code. When
+   * markdown runs next, the expanded text is escaped first so characters
+   * inside it (those underscores) can't be read as syntax the user never
+   * typed.
    */
   compose(
     text: string,
@@ -141,7 +159,9 @@ export class SendService {
       format === undefined
         ? this.deps.stores.settings.getState().behaviour.markdown
         : format === 'markdown';
-    const parsed = markdown ? parseMarkdownToRanges(text) : { body: text, ranges: [] };
+    const library = this.deps.stores.local.getState().customEmoji;
+    const expanded = expandTextEmoticons(text, library, markdown ? escapeMarkdown : undefined);
+    const parsed = markdown ? parseMarkdownToRanges(expanded) : { body: expanded, ranges: [] };
     return { body: parsed.body, ranges: attachMentions(parsed.body, parsed.ranges, mentionIds) };
   }
 

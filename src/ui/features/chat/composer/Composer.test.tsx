@@ -249,7 +249,7 @@ describe('<Composer />', () => {
     const { snowdrop, input, typeText } = await setup();
     snowdrop.stores.local
       .getState()
-      .saveCustomEmoji({ name: 'wave', dataUrl: 'data:image/png;base64,aGVsbG8=' });
+      .saveCustomEmoji({ kind: 'image', name: 'wave', dataUrl: 'data:image/png;base64,aGVsbG8=' });
     typeText(':wa');
     const option = within(await screen.findByRole('listbox')).getByRole('option');
     expect(option.textContent).toContain(':wave:');

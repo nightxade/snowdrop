@@ -269,7 +269,7 @@ export const SETTINGS_PAGES: SettingsPageDef[] = [
     group: 'customise',
     icon: Smile,
     title: 'Custom emoji',
-    description: 'Your personal image emoji. Type :name: to use one, in any chat.',
+    description: 'Your own emoji: images, or text like ¯\\_(ツ)_/¯. Type :name: to use one, in any chat.',
     keywords: ['emoji', 'sticker', 'image', 'picker'],
     entries: [
       { id: 'customEmoji.add', label: 'Add an emoji', keywords: ['name', 'image', 'upload'] },

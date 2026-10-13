@@ -8,6 +8,8 @@ import { useStore } from 'zustand';
 import {
   CUSTOM_EMOJI_MAX_BYTES,
   CUSTOM_EMOJI_NAME,
+  CUSTOM_EMOJI_TEXT_MAX_LENGTH,
+  parseEmoticonText,
   type CustomEmoji,
 } from '@/core/stores/customEmoji';
 import { useSnowdrop } from './SnowdropContext';
@@ -22,7 +24,14 @@ export interface CustomEmojiLibrary {
    * stores it under `name`. Throws a user-facing `Error` on any failure;
    * callers show `error.message` as-is.
    */
-  add: (name: string, file: File) => Promise<void>;
+  addImage: (name: string, file: File) => Promise<void>;
+  /**
+   * Validates `text` (non-empty once trimmed, no line breaks, at most
+   * `CUSTOM_EMOJI_TEXT_MAX_LENGTH` characters) and stores it under `name`.
+   * Throws a user-facing `Error` on any failure; callers show
+   * `error.message` as-is.
+   */
+  addText: (name: string, text: string) => void;
   remove: (name: string) => void;
 }
 
@@ -31,14 +40,18 @@ export function useCustomEmojiLibrary(): CustomEmojiLibrary {
   const emojis = useStore(stores.local, (s) => s.customEmoji);
   const [busy, setBusy] = useState(false);
 
-  const add = async (name: string, file: File): Promise<void> => {
+  const checkName = (name: string): void => {
+    if (!CUSTOM_EMOJI_NAME.test(name))
+      throw new Error('Name your emoji using 1–32 lowercase letters, numbers, +, - or _.');
+    if (emojis.some((emoji) => emoji.name === name))
+      throw new Error('That name is already in your collection. Choose another.');
+  };
+
+  const addImage = async (name: string, file: File): Promise<void> => {
     setBusy(true);
     const account = stores.session.getState().self?.id;
     try {
-      if (!CUSTOM_EMOJI_NAME.test(name))
-        throw new Error('Name your emoji using 1–32 lowercase letters, numbers, +, - or _.');
-      if (emojis.some((emoji) => emoji.name === name))
-        throw new Error('That name is already in your collection. Choose another.');
+      checkName(name);
       if (file.size > CUSTOM_EMOJI_MAX_BYTES)
         throw new Error('Choose an image smaller than 256 KB.');
       if (!ACCEPTED_TYPES.includes(file.type))
@@ -46,16 +59,25 @@ export function useCustomEmojiLibrary(): CustomEmojiLibrary {
       const dataUrl = await readImage(file);
       // A slow read must not land in an account the user has since switched away from.
       if (stores.session.getState().self?.id !== account) return;
-      stores.local.getState().saveCustomEmoji({ name, dataUrl });
+      stores.local.getState().saveCustomEmoji({ kind: 'image', name, dataUrl });
     } finally {
       setBusy(false);
     }
   };
 
+  const addText = (name: string, text: string): void => {
+    checkName(name);
+    const parsed = parseEmoticonText(text);
+    if (parsed === null)
+      throw new Error(`Use 1–${CUSTOM_EMOJI_TEXT_MAX_LENGTH} characters, no line breaks.`);
+    stores.local.getState().saveCustomEmoji({ kind: 'text', name, text: parsed });
+  };
+
   return {
     emojis,
     busy,
-    add,
+    addImage,
+    addText,
     remove: (name) => {
       stores.local.getState().removeCustomEmoji(name);
     },

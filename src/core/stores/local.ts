@@ -21,7 +21,7 @@ export const DEFAULT_LOCAL_CONVERSATION: LocalConversationState = Object.freeze(
 });
 
 export interface LocalData {
-  /** Personal image emoji, scoped to this backend/account with the rest of local data. */
+  /** Personal custom emoji (images or text emoticons), scoped to this backend/account with the rest of local data. */
   customEmoji: CustomEmoji[];
   conversations: Record<ConversationId, LocalConversationState>;
   /** contactId → private note (profile popout). */
@@ -64,7 +64,7 @@ export function createLocalStore(initial: LocalData = defaultLocalData()): Local
     saveCustomEmoji: (value) => {
       const emoji = parseCustomEmoji(value);
       if (!emoji)
-        throw new Error('Use a valid image and a name with 1–32 letters, numbers, +, - or _.');
+        throw new Error('Use a valid emoji and a name with 1–32 letters, numbers, +, - or _.');
       const current = get().customEmoji;
       const index = current.findIndex((item) => item.name === emoji.name);
       const next = [...current];

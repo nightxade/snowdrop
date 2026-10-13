@@ -214,7 +214,9 @@ describe('rebindScopedStore', () => {
 it('keeps personal emoji separate across accounts and demo storage', () => {
   const storage = createMemoryStorage();
   const local = createLocalStore();
-  local.getState().saveCustomEmoji({ name: 'wave', dataUrl: 'data:image/png;base64,aGVsbG8=' });
+  local
+    .getState()
+    .saveCustomEmoji({ kind: 'image', name: 'wave', dataUrl: 'data:image/png;base64,aGVsbG8=' });
   saveVersioned(
     storage,
     scopedSchema(localSchema, scopeFor('mock', null)),

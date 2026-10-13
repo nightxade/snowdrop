@@ -280,7 +280,9 @@
   flex-direction: column;
   align-items: center;
   gap: var(--snowdrop-space-2);
-  width: 96px;
+  /* Image tiles stay square-ish; a text emoticon's tile grows to show it. */
+  min-width: 96px;
+  max-width: 224px;
   padding: var(--snowdrop-space-3);
   border-radius: var(--snowdrop-radius-sm);
   background: var(--snowdrop-bg-sidebar);
@@ -292,6 +294,20 @@
   object-fit: contain;
 }
 
+.emojiTextTile {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--snowdrop-text);
+  font-size: var(--snowdrop-font-size-sm);
+  line-height: 44px;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* A user-authored emoticon; contain any bidi controls. */
+  unicode-bidi: isolate;
+}
+
 .emojiName {
   max-width: 100%;
   overflow: hidden;
@@ -299,4 +315,22 @@
   font-size: var(--snowdrop-font-size-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.emojiTextRow {
+  display: flex;
+  align-items: center;
+  gap: var(--snowdrop-space-3);
+}
+
+.emojiTextPreview {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* A user-authored emoticon; contain any bidi controls. */
+  unicode-bidi: isolate;
 }

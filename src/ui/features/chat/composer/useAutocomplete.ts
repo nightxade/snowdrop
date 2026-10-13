@@ -10,10 +10,33 @@ import { findTrigger, type Trigger } from './triggers';
 
 const log = createLogger('ui');
 
+/**
+ * An image emoji's suggestion inserts `:name:` and previews its picture; a
+ * text emoticon's inserts its text directly (what will actually be sent)
+ * and previews that same text.
+ */
+export type CustomEmojiSuggestion =
+  | {
+      kind: 'customEmoji';
+      key: string;
+      name: string;
+      insert: string;
+      emojiKind: 'image';
+      dataUrl: string;
+    }
+  | {
+      kind: 'customEmoji';
+      key: string;
+      name: string;
+      insert: string;
+      emojiKind: 'text';
+      text: string;
+    };
+
 export type Suggestion =
   | { kind: 'mention'; key: string; contact: Contact; insert: string; token: MentionToken }
   | { kind: 'emoji'; key: string; emoji: string; code: string; insert: string }
-  | { kind: 'customEmoji'; key: string; name: string; dataUrl: string; insert: string }
+  | CustomEmojiSuggestion
   | {
       kind: 'slash';
       key: string;
@@ -119,13 +142,26 @@ export function useAutocomplete(
             a.name.localeCompare(b.name),
         )
         .slice(0, LIMIT)
-        .map((e) => ({
-          kind: 'customEmoji',
-          key: `c-${e.name}`,
-          name: e.name,
-          dataUrl: e.dataUrl,
-          insert: `:${e.name}: `,
-        }));
+        .map((e): CustomEmojiSuggestion =>
+          e.kind === 'image'
+            ? {
+                kind: 'customEmoji',
+                key: `c-${e.name}`,
+                name: e.name,
+                emojiKind: 'image',
+                dataUrl: e.dataUrl,
+                insert: `:${e.name}: `,
+              }
+            : // Inserts the text itself — the sender sees exactly what will be sent.
+              {
+                kind: 'customEmoji',
+                key: `c-${e.name}`,
+                name: e.name,
+                emojiKind: 'text',
+                text: e.text,
+                insert: `${e.text} `,
+              },
+        );
       const remaining = LIMIT - custom.length;
       if (remaining <= 0 || !emojiIndex) return custom;
       const standard: Suggestion[] = searchEmoji(emojiIndex, trigger.query, remaining).map(
