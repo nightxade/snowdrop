@@ -169,7 +169,6 @@ On a single-account daemon `connection.account` is required (Snowdrop reports
   type only for common raster image, audio and video types; anything else (HTML, SVG, …)
   is served as opaque bytes so it can never run as a page.
 
-
 ## Experimental phone-history patch
 
 The separately licensed [patch series](../patches/signal-cli/README.md) adds

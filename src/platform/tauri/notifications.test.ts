@@ -70,7 +70,9 @@ describe('native notifications', () => {
     invoke.mockImplementationOnce(
       () =>
         new Promise<boolean>((resolve) => {
-          finish = () => { resolve(true); };
+          finish = () => {
+            resolve(true);
+          };
         }),
     );
     const api = await tauriNotificationApi(ipc);

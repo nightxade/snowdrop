@@ -95,7 +95,6 @@ restart pagination. Expired messages are skipped on import and purged before
 retrieval. The tables live inside the existing account database, so Snowdrop's
 SQLite vault snapshot includes them.
 
-
 ## Indexed queries for Snowdrop integration
 
 The fifth patch adds `getHistoryDirectory` and `getHistoryChat` without changing

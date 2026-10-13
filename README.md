@@ -107,24 +107,24 @@ see [docs/DESKTOP.md](docs/DESKTOP.md).
 
 ## Scripts
 
-| Command                         | What it does                                                                                                         |
-| ------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `npm run dev`                   | Vite dev server with hot reload and the signal-cli proxy.                                                            |
-| `npm run build`                 | Type-checks (`tsc -b`) and builds to `dist/` (with CSP and `THIRD_PARTY_NOTICES.txt`).                               |
-| `npm run preview`               | Serves the production build locally, with the same proxy.                                                            |
-| `npm run typecheck`             | TypeScript only, no output.                                                                                          |
-| `npm run lint`                  | ESLint, then `scripts/verify-boundaries.mjs` (proves the architecture rules still fire).                             |
-| `npm test`                      | All Vitest suites once.                                                                                              |
-| `npm run test:watch`            | Vitest in watch mode.                                                                                                |
-| `npm run format`                | Prettier, writing changes.                                                                                           |
-| `npm run format:check`          | Prettier, check only.                                                                                                |
-| `node scripts/gen-licences.mjs` | Regenerates the About page's licence list after dependency changes (then run Prettier).                              |
-| `npm run tauri:dev`             | Runs the desktop app in dev mode (signal-cli downloads on first launch, inside the app).                             |
-| `npm run tauri:build`           | Builds the desktop app (AppImage, .deb); no bundled signal-cli.                                                      |
-| `npm run tauri:build:arm64`     | Builds Linux ARM64 AppImage and .deb packages on an ARM64 Linux host. |
-| `npm run tauri:build:arm64:rpm` | Builds a Linux ARM64 RPM (Fedora and similar distributions). |
-| `npm run tauri:build:arm64:binary` | Builds the Linux ARM64 executable without packaging. |
-| `npm run tauri:build:bundled`   | Optional: fetches and bundles signal-cli into the app package instead (GPL obligations apply — see docs/DESKTOP.md). |
+| Command                            | What it does                                                                                                         |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `npm run dev`                      | Vite dev server with hot reload and the signal-cli proxy.                                                            |
+| `npm run build`                    | Type-checks (`tsc -b`) and builds to `dist/` (with CSP and `THIRD_PARTY_NOTICES.txt`).                               |
+| `npm run preview`                  | Serves the production build locally, with the same proxy.                                                            |
+| `npm run typecheck`                | TypeScript only, no output.                                                                                          |
+| `npm run lint`                     | ESLint, then `scripts/verify-boundaries.mjs` (proves the architecture rules still fire).                             |
+| `npm test`                         | All Vitest suites once.                                                                                              |
+| `npm run test:watch`               | Vitest in watch mode.                                                                                                |
+| `npm run format`                   | Prettier, writing changes.                                                                                           |
+| `npm run format:check`             | Prettier, check only.                                                                                                |
+| `node scripts/gen-licences.mjs`    | Regenerates the About page's licence list after dependency changes (then run Prettier).                              |
+| `npm run tauri:dev`                | Runs the desktop app in dev mode (signal-cli downloads on first launch, inside the app).                             |
+| `npm run tauri:build`              | Builds the desktop app (AppImage, .deb); no bundled signal-cli.                                                      |
+| `npm run tauri:build:arm64`        | Builds Linux ARM64 AppImage and .deb packages on an ARM64 Linux host.                                                |
+| `npm run tauri:build:arm64:rpm`    | Builds a Linux ARM64 RPM (Fedora and similar distributions).                                                         |
+| `npm run tauri:build:arm64:binary` | Builds the Linux ARM64 executable without packaging.                                                                 |
+| `npm run tauri:build:bundled`      | Optional: fetches and bundles signal-cli into the app package instead (GPL obligations apply — see docs/DESKTOP.md). |
 
 The full quality gate is
 `npm run typecheck && npm run lint && npm run format:check && npm test && npm run build`. See
