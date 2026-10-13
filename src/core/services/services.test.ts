@@ -563,6 +563,87 @@ describe('SyncService: events', () => {
     consoleError.mockRestore();
   });
 
+  it('retries account-unavailable automatically every 60s, never routing to the link screen', async () => {
+    const scheduler = new ManualScheduler(NOW);
+    const backend = new MockBackend({ seed: 7, clock: scheduler, scheduler });
+    const realConnect = backend.connect.bind(backend);
+    let attempts = 0;
+    // The first attempt fails transiently; the retry uses the real
+    // MockBackend connect (so it emits its own status events like a real
+    // success would), to prove the eventual 'online' isn't just asserted
+    // past a bypassed mock.
+    const connect = vi.spyOn(backend, 'connect').mockImplementation(() => {
+      attempts++;
+      if (attempts === 1) {
+        return Promise.reject(
+          Object.assign(new Error("signal-cli couldn't load the linked account."), {
+            kind: 'account-unavailable',
+          }),
+        );
+      }
+      return realConnect();
+    });
+    const stores = createStores();
+    const onError = vi.fn();
+    const sync = new SyncService({
+      backend,
+      repository: new MemoryMessageRepository(),
+      stores,
+      clock: scheduler,
+      scheduler,
+      onError,
+    });
+
+    await sync.start().catch(() => undefined);
+    expect(connect).toHaveBeenCalledTimes(1);
+    expect(stores.session.getState()).toMatchObject({
+      status: 'error',
+      errorKind: 'account-unavailable',
+      ready: false,
+    });
+    // A real failure, not a setup state: logged once, at error.
+    expect(onError).toHaveBeenCalledTimes(1);
+
+    // Nothing happens before the 60s mark.
+    scheduler.advance(59_000);
+    await flush();
+    expect(connect).toHaveBeenCalledTimes(1);
+
+    // At 60s, it retries on its own — no manual Retry click needed — and
+    // this time connect() succeeds.
+    scheduler.advance(1_000);
+    await sync.start();
+    expect(connect).toHaveBeenCalledTimes(2);
+    expect(stores.session.getState()).toMatchObject({ status: 'online', ready: true });
+  });
+
+  it('stops retrying account-unavailable once the service is stopped', async () => {
+    const scheduler = new ManualScheduler(NOW);
+    const backend = new MockBackend({ seed: 7, clock: scheduler, scheduler });
+    const connect = vi.spyOn(backend, 'connect').mockRejectedValue(
+      Object.assign(new Error("signal-cli couldn't load the linked account."), {
+        kind: 'account-unavailable',
+      }),
+    );
+    const stores = createStores();
+    const sync = new SyncService({
+      backend,
+      repository: new MemoryMessageRepository(),
+      stores,
+      clock: scheduler,
+      scheduler,
+      onError: vi.fn(),
+    });
+
+    await sync.start().catch(() => undefined);
+    expect(connect).toHaveBeenCalledTimes(1);
+    await sync.stop();
+    scheduler.advance(120_000);
+    await flush();
+    // The pending retry was cancelled by stop(): no further connect attempts.
+    expect(connect).toHaveBeenCalledTimes(1);
+  });
+
   it('logs a real connection failure once, at error, not three times', async () => {
     const scheduler = new ManualScheduler(NOW);
     const backend = new MockBackend({ seed: 7, clock: scheduler, scheduler });

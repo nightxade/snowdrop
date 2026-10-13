@@ -22,6 +22,14 @@ export type SignalCliErrorKind =
   /** The daemon has no registered/linked account (start the link flow). */
   | 'no-account'
   /**
+   * A previously-linked account (`connection.account`) didn't come back from
+   * `listAccounts` — signal-cli's own MultiAccountManager dropped it after a
+   * transient failure checking it against the server on startup, and never
+   * retries on its own. Distinct from `no-account`: never route this to the
+   * (destructive) relink screen, only reconnect with backoff.
+   */
+  | 'account-unavailable'
+  /**
    * Single-account daemon (`signal-cli -a +X daemon`): it can't tell us which
    * account it serves, so the user must enter it (settings `connection.account`).
    */
@@ -76,6 +84,7 @@ export class SignalCliError extends Error {
       this.kind === 'unreachable' ||
       this.kind === 'timeout' ||
       this.kind === 'io' ||
+      this.kind === 'account-unavailable' ||
       (this.kind === 'http' && (this.status ?? 0) >= 500)
     );
   }

@@ -98,6 +98,15 @@ const SETUP_STATE_MESSAGES: Record<string, string> = {
 };
 
 /**
+ * `account-unavailable` means the backend already tried a bounded backoff
+ * itself (restarting signal-cli a few times) and still couldn't load a
+ * previously-linked account — never routed to the link screen, so this is
+ * the steady-state fallback: keep retrying the whole connect on this
+ * interval, same as if the user kept pressing the connection banner's Retry.
+ */
+const ACCOUNT_UNAVAILABLE_RETRY_MS = 60_000;
+
+/**
  * Tags a connect/initial-sync failure once `doStart` has logged and stored
  * it, so other places that see the very same rejection bubble through
  * (e.g. `createSnowdrop`'s `start()`, re-thrown up to callers in
@@ -138,6 +147,8 @@ export class SyncService {
   private refreshAgain = false;
   private readonly readingHistory = new Set<MessageId>();
   private readonly catchUpTracker: CatchUpTracker;
+  /** A pending steady-state retry after `account-unavailable` (see `doStart`'s catch). */
+  private accountRetryCancel: Cancel | null = null;
 
   constructor(private readonly deps: SyncServiceDeps) {
     this.receipts = deps.receipts ?? new ReceiptBuffer();
@@ -163,6 +174,10 @@ export class SyncService {
 
   private async doStart(): Promise<void> {
     const { backend, stores } = this.deps;
+    // A fresh attempt (manual or the steady-state retry below) supersedes
+    // any retry still pending from an earlier failure.
+    this.accountRetryCancel?.();
+    this.accountRetryCancel = null;
     stores.session.getState().setBackendKind(backend.kind);
     this.gated = true;
     this.subscribe();
@@ -190,6 +205,17 @@ export class SyncService {
       if (setupMessage !== undefined) log.info(setupMessage);
       else this.onError(error, 'initial sync failed');
       markConnectionErrorReported(error);
+      // The backend already backed off restarting signal-cli a few times
+      // (see SignalCliBackend's `resolveAccount`); keep that going at a
+      // slower, steady pace rather than leaving it to a manual Retry click —
+      // this must never happen for `no-account`/`account-required`, which
+      // mean the user has to act (link, or enter an account number).
+      if (kind === 'account-unavailable') {
+        this.accountRetryCancel = this.deps.scheduler.setTimeout(() => {
+          this.accountRetryCancel = null;
+          this.start().catch(() => undefined);
+        }, ACCOUNT_UNAVAILABLE_RETRY_MS);
+      }
       throw error;
     }
     stores.session.getState().setReady(true);
@@ -220,6 +246,8 @@ export class SyncService {
 
   async stop(): Promise<void> {
     if (this.startPromise) await this.startPromise.catch(() => undefined);
+    this.accountRetryCancel?.();
+    this.accountRetryCancel = null;
     this.pruneTimer?.();
     this.purgeTimer?.();
     this.pruneTimer = null;

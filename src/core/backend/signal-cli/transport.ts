@@ -91,4 +91,14 @@ export interface SignalCliTransport {
    * delivered events until then (see src-tauri/src/events.rs); HTTP needs nothing.
    */
   acknowledge?(cursor: string): void;
+  /**
+   * Forces a fresh signal-cli process, even if the current one still
+   * answers requests. Only the desktop transport (a managed child) can do
+   * this; the HTTP daemon is someone else's process to restart. Used to
+   * recover when signal-cli loaded zero accounts after a transient hiccup
+   * checking one against the server on startup — its own account-loading
+   * step never retries on its own, so only a new process gives it another
+   * chance (see `SignalCliBackend`'s `account-unavailable` recovery).
+   */
+  restart?(): Promise<void>;
 }

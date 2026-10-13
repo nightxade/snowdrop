@@ -13,6 +13,7 @@
     "allow-notification-show",
     "allow-notification-close",
     "allow-signal-cli-connect",
+    "allow-signal-cli-restart",
     "allow-signal-cli-request",
     "allow-signal-cli-subscribe",
     "allow-signal-cli-ack",

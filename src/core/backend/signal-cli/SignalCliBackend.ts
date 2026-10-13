@@ -141,6 +141,14 @@ const log = createLogger('signal-cli');
  */
 const GROUP_BACKOFF_DELAYS_MS = [5_000, 20_000, 60_000, 180_000];
 
+/**
+ * Backoff before giving up on a previously-linked account signal-cli failed
+ * to load this time (see `resolveAccount`): a restart + recheck at each
+ * delay, then `account-unavailable` — the caller (SyncService) keeps
+ * retrying every minute after that.
+ */
+const ACCOUNT_RETRY_DELAYS_MS = [2_000, 5_000, 15_000, 30_000];
+
 type GroupChanged = Extract<AdapterEvent, { kind: 'groupChanged' }>;
 
 export class SignalCliBackend implements ChatBackend {
@@ -325,7 +333,7 @@ export class SignalCliBackend implements ChatBackend {
         ? { aci: configured, number: undefined, multi: false }
         : { aci: undefined, number: configured, multi: false };
     }
-    return { ...this.chooseAccount(accounts), multi: true };
+    return { ...(await this.resolveAccount(accounts)), multi: true };
   }
 
   /**
@@ -392,21 +400,69 @@ export class SignalCliBackend implements ChatBackend {
     return this.rpc.account;
   }
 
-  private chooseAccount(accounts: WireAccount[]): WireAccount {
+  /** The usable account among `accounts` matching `preferredAccount`, or the first if none set. */
+  private pickAccount(accounts: WireAccount[]): WireAccount | undefined {
     const usable = accounts.filter((a) => a.aci ?? a.number);
     const preferred = this.preferredAccount;
     const match = preferred
       ? usable.find((a) => a.aci === preferred || a.number === preferred)
       : undefined;
     const chosen = match ?? usable[0];
-    if (!chosen) {
-      throw new SignalCliError(
-        'no-account',
-        'signal-cli has no account yet. Link this device to your phone to continue.',
-      );
-    }
-    if (preferred && !match) this.debugLog(`account ${preferred} not found; using the first one`);
+    if (chosen && preferred && !match)
+      this.debugLog(`account ${preferred} not found; using the first one`);
     return chosen;
+  }
+
+  /**
+   * Picks the account `listAccounts` should serve, retrying if a
+   * previously-linked account (`preferredAccount`) is missing: signal-cli's
+   * MultiAccountManager builds itself once at startup and drops an account
+   * that fails its check against the server right then (a network hiccup,
+   * commonly), never retrying on its own. Only a fresh process gives it
+   * another chance — `transport.restart` — so this restarts and rechecks
+   * with a bounded backoff before giving up as `account-unavailable` (never
+   * `no-account`: that's reserved for a device that has truly never linked,
+   * so it's the only case that may route to the — destructive — link flow).
+   */
+  private async resolveAccount(initial: WireAccount[]): Promise<WireAccount> {
+    let accounts = initial;
+    for (let attempt = 0; ; attempt++) {
+      const chosen = this.pickAccount(accounts);
+      if (chosen) return chosen;
+      if (!this.preferredAccount) {
+        throw new SignalCliError(
+          'no-account',
+          'signal-cli has no account yet. Link this device to your phone to continue.',
+        );
+      }
+      const delayMs = ACCOUNT_RETRY_DELAYS_MS[attempt];
+      if (delayMs === undefined) {
+        throw new SignalCliError(
+          'account-unavailable',
+          "signal-cli couldn't load the linked account. This is usually transient; Snowdrop will keep retrying.",
+        );
+      }
+      const session = this.session;
+      await this.delay(delayMs);
+      if (session !== this.session)
+        throw new SignalCliError('aborted', 'Disconnected while reconnecting');
+      try {
+        await this.transport.restart?.();
+      } catch (error) {
+        this.debugLog('restarting signal-cli to recover the account failed', error);
+      }
+      if (session !== this.session)
+        throw new SignalCliError('aborted', 'Disconnected while reconnecting');
+      accounts = await this.rpc
+        .call('listAccounts', undefined, wireAccounts, { account: null })
+        .catch(() => [] as WireAccount[]);
+    }
+  }
+
+  private delay(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+      this.scheduler.setTimeout(resolve, ms);
+    });
   }
 
   private selectAccount(account: WireAccount & { multi: boolean }): void {

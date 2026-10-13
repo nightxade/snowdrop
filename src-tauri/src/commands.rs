@@ -83,6 +83,15 @@ pub async fn signal_cli_connect(service: Svc<'_>, config: ConnectConfig) -> Resu
     service.connect(config).await
 }
 
+/// Forces a fresh signal-cli process even if the current one is still
+/// answering (see `Service::restart`): used when a previously-linked
+/// account went missing from `listAccounts` without signal-cli crashing.
+#[tauri::command]
+pub async fn signal_cli_restart(service: Svc<'_>, config: ConnectConfig) -> Result<ConnectInfo, Error> {
+    let _t = CommandTimer::start("signal_cli_restart");
+    service.restart(config).await
+}
+
 #[tauri::command]
 pub async fn signal_cli_request(
     service: Svc<'_>,

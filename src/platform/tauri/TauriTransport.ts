@@ -157,6 +157,14 @@ export class TauriTransport implements SignalCliTransport {
       // Only releases memory on the Rust side; a missed ack means a longer hold.
     });
   }
+
+  async restart(): Promise<void> {
+    try {
+      await this.ipc.invoke('signal_cli_restart', { config: this.config });
+    } catch (error) {
+      throw toSignalCliError(error);
+    }
+  }
 }
 
 const DEFAULT_RETRY_MS = [1_000, 2_000, 5_000, 10_000, 30_000];

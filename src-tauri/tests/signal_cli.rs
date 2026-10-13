@@ -253,6 +253,43 @@ async fn service_delivers_events_with_resumable_cursors() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn restart_forces_a_fresh_process_even_when_connect_would_reuse_it() {
+    require_node!();
+    let dir = temp_dir("force-restart");
+    // Simulates signal-cli's MultiAccountManager dropping the only account
+    // after a transient failure checking it against the server on startup
+    // (AccountCheckException): it answers, but with zero accounts, and (per
+    // signal-cli's own behaviour) would never pick the account up on its own
+    // without a fresh process.
+    std::fs::write(dir.join("fake.json"), r#"{"accounts":[]}"#).unwrap();
+    let recorder = Arc::new(Recorder::default());
+    let svc = service(&dir, recorder);
+    svc.connect(spawn_config()).await.unwrap();
+    let empty = svc.request("listAccounts", None, Duration::from_secs(5)).await.unwrap();
+    assert_eq!(empty["result"], Value::Array(vec![]));
+    let pid = std::fs::read_to_string(dir.join("fake.pid")).unwrap();
+
+    // An ordinary reconnect with the same settings keeps the same (still
+    // account-less) child — this is the bug: nothing about `connect` alone
+    // ever gives signal-cli another chance to load the account.
+    svc.connect(spawn_config()).await.unwrap();
+    assert_eq!(std::fs::read_to_string(dir.join("fake.pid")).unwrap(), pid);
+    let still_empty = svc.request("listAccounts", None, Duration::from_secs(5)).await.unwrap();
+    assert_eq!(still_empty["result"], Value::Array(vec![]));
+
+    // The account is now loadable (the hiccup passed); `restart` is the only
+    // thing that gives the fake (standing in for signal-cli) a fresh process
+    // to notice.
+    std::fs::write(dir.join("fake.json"), r#"{"accounts":[{"number":"+15550001","aci":"11111111-1111-4111-8111-111111111111"}]}"#).unwrap();
+    svc.restart(spawn_config()).await.unwrap();
+    assert_ne!(std::fs::read_to_string(dir.join("fake.pid")).unwrap(), pid, "restart should spawn a new process");
+    let reply = svc.request("listAccounts", None, Duration::from_secs(5)).await.unwrap();
+    assert_eq!(reply["result"][0]["number"], "+15550001");
+
+    svc.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn service_resubscribes_after_a_restart() {
     require_node!();
     let dir = temp_dir("resubscribe");

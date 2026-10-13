@@ -237,6 +237,7 @@ pub fn run() {
             commands::notification_show,
             commands::notification_close,
             commands::signal_cli_connect,
+            commands::signal_cli_restart,
             commands::signal_cli_request,
             commands::signal_cli_subscribe,
             commands::signal_cli_ack,

@@ -38,6 +38,7 @@ const GENERIC_MESSAGES: Record<string, DetailMessage> = {
       ? 'The connection was rejected (a proxy or Host header problem). Use the dev proxy or a localhost address.'
       : 'The connection was refused.',
   'invalid-response': () => "Something answered, but it wasn't signal-cli.",
+  'account-unavailable': () => "signal-cli couldn't load your account this time. Reconnecting…",
   protocol: () => "signal-cli sent something Snowdrop couldn't understand.",
   user: () => 'signal-cli rejected that request.',
   unregistered: () => "That person isn't on Signal.",

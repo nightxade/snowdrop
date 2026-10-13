@@ -218,6 +218,24 @@ impl Service {
         Ok(info)
     }
 
+    /// Forces a fresh backend for `config`, even if the current one is still
+    /// answering requests — unlike [`connect`](Self::connect), never reuses
+    /// it. For a managed child, this is the only way to make signal-cli
+    /// re-run its own startup account-loading: `MultiAccountManager` builds
+    /// itself once per process and never retries an account a transient
+    /// hiccup made it drop, so recovering means a new process (see
+    /// `SignalCliBackend`'s `account-unavailable` recovery on the TS side).
+    pub async fn restart(&self, config: ConnectConfig) -> Result<ConnectInfo, Error> {
+        let mut active = self.active.lock().await;
+        if let Some(old) = active.take() {
+            self.stop_active(old).await;
+        }
+        let started = self.start(config).await?;
+        let info = self.info(&started);
+        *active = Some(started);
+        Ok(info)
+    }
+
     fn info(&self, active: &Active) -> ConnectInfo {
         match active {
             Active::Child { binary, version, .. } => ConnectInfo {

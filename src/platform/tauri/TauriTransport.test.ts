@@ -70,6 +70,19 @@ describe('TauriTransport', () => {
     });
   });
 
+  it('restarts with the same configuration, and maps a failure like any other command', async () => {
+    ipc.invoke.mockResolvedValueOnce({ mode: 'spawn', run: 'r2' });
+    await new TauriTransport({ desktop: spawn }).restart();
+    expect(ipc.invoke).toHaveBeenCalledWith('signal_cli_restart', {
+      config: { mode: 'spawn', binaryPath: '/opt/signal-cli', account: null },
+    });
+    ipc.invoke.mockRejectedValueOnce({ kind: 'not-installed', message: 'Install signal-cli…' });
+    await expect(new TauriTransport({ desktop: spawn }).restart()).rejects.toMatchObject({
+      name: 'SignalCliError',
+      kind: 'not-installed',
+    });
+  });
+
   it('scopes resume cursors by mode', () => {
     expect(new TauriTransport({ desktop: spawn }).resumeScope).toBe('desktop');
     expect(new TauriTransport({ desktop: { ...spawn, mode: 'external' } }).resumeScope).toBe(

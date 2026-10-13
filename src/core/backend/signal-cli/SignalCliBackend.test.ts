@@ -28,8 +28,17 @@ import {
   T0,
 } from './fixtures/envelopes';
 import { DIRECTORY_TTL_MS } from './directory';
+import { HttpTransport } from './httpTransport';
 import { SignalCliBackend } from './SignalCliBackend';
 import { FakeDaemon, flush } from './testing';
+import type {
+  EventSubscription,
+  EventSubscriptionOptions,
+  RpcParams,
+  RpcReply,
+  SignalCliTransport,
+  TransportCallOptions,
+} from './transport';
 
 const GROUP = groupConversationId(GROUP_ID);
 
@@ -153,6 +162,55 @@ async function connected(options: Parameters<typeof setup>[0] = {}) {
   return s;
 }
 
+/**
+ * Wraps a `FakeDaemon`-backed `HttpTransport` with a `restart()`: the HTTP
+ * transport itself has none (restarting a daemon the user runs isn't
+ * Snowdrop's job), but the desktop transport does — this stands in for it
+ * so `SignalCliBackend`'s account recovery (`resolveAccount`) can be tested
+ * without the whole Tauri IPC layer.
+ */
+class RestartingTransport implements SignalCliTransport {
+  restartCalls = 0;
+  private readonly inner: HttpTransport;
+
+  constructor(
+    daemon: FakeDaemon,
+    private readonly onRestart: () => void,
+  ) {
+    this.inner = new HttpTransport({ baseUrl: '/signal-cli', fetch: daemon.fetch });
+  }
+
+  get resumeScope(): string {
+    return this.inner.resumeScope;
+  }
+
+  get description(): string {
+    return this.inner.description;
+  }
+
+  check(options: TransportCallOptions): Promise<void> {
+    return this.inner.check(options);
+  }
+
+  request(
+    method: string,
+    params: RpcParams | undefined,
+    options: TransportCallOptions,
+  ): Promise<RpcReply> {
+    return this.inner.request(method, params, options);
+  }
+
+  subscribe(options: EventSubscriptionOptions): EventSubscription {
+    return this.inner.subscribe(options);
+  }
+
+  restart(): Promise<void> {
+    this.restartCalls++;
+    this.onRestart();
+    return Promise.resolve();
+  }
+}
+
 describe('SignalCliBackend: connection', () => {
   it('checks the daemon, selects the account and subscribes to its events', async () => {
     const { backend, daemon, statuses, onAccountSelected } = await connected();
@@ -185,6 +243,73 @@ describe('SignalCliBackend: connection', () => {
     const { backend, statuses } = setup({ daemon });
     await expect(backend.connect()).rejects.toMatchObject({ kind: 'no-account' });
     expect(statuses.at(-1)).toBe('error');
+  });
+
+  it('recovers a previously-linked account signal-cli failed to load, by restarting and rechecking', async () => {
+    // Simulates signal-cli's MultiAccountManager dropping the account after
+    // a transient failure checking it against the server on startup: it
+    // answers `listAccounts` with none, until something gives it a fresh
+    // process (`restart`).
+    let loaded = false;
+    const daemon = new FakeDaemon()
+      .handle('listAccounts', () => ({
+        result: loaded ? [{ number: SELF_NUMBER, aci: SELF_ACI }] : [],
+      }))
+      .handle('listContacts', () => ({ result: [] }))
+      .handle('listGroups', () => ({ result: [] }));
+    const scheduler = new ManualScheduler(T0 + 1000);
+    const transport = new RestartingTransport(daemon, () => {
+      loaded = true;
+    });
+    const backend = new SignalCliBackend({
+      baseUrl: '/signal-cli',
+      account: SELF_NUMBER, // this device has linked before
+      transport,
+      clock: scheduler,
+      scheduler,
+      random: () => 0,
+      storage: createMemoryStorage(),
+    });
+    const connectPromise = backend.connect();
+    await flush();
+    // The first (empty) listAccounts queued a restart-and-recheck, 2s out —
+    // never an immediate "no-account".
+    expect(scheduler.pending).toBe(1);
+    scheduler.advance(2_000);
+    await flush();
+    await connectPromise;
+    expect(transport.restartCalls).toBe(1);
+    expect(backend.getStatus()).toBe('online');
+    expect(backend.account).toBe(SELF_ACI);
+    await backend.disconnect();
+  });
+
+  it('gives up as account-unavailable, never no-account, once the bounded backoff is exhausted', async () => {
+    const daemon = new FakeDaemon().reply('listAccounts', []);
+    const scheduler = new ManualScheduler(T0 + 1000);
+    const transport = new RestartingTransport(daemon, () => {
+      // Restarting never helps in this scenario (e.g. the account is really gone).
+    });
+    const backend = new SignalCliBackend({
+      baseUrl: '/signal-cli',
+      account: SELF_NUMBER,
+      transport,
+      clock: scheduler,
+      scheduler,
+      random: () => 0,
+      storage: createMemoryStorage(),
+    });
+    const connectPromise = backend.connect().catch((e: unknown) => e);
+    // The documented schedule: 2s, 5s, 15s, 30s — one restart at each step.
+    for (const ms of [2_000, 5_000, 15_000, 30_000]) {
+      await flush();
+      scheduler.advance(ms);
+    }
+    await flush();
+    const error = await connectPromise;
+    expect(error).toMatchObject({ kind: 'account-unavailable' });
+    expect(transport.restartCalls).toBe(4);
+    expect(backend.getStatus()).toBe('error');
   });
 
   it('fails with unreachable when the daemon is down', async () => {
