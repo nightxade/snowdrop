@@ -16,6 +16,8 @@
 }
 
 .customEmoji {
+  /* The reset makes images block-level; an emoji flows with the text. */
+  display: inline-block;
   width: 1.2em;
   height: 1.2em;
   object-fit: contain;
