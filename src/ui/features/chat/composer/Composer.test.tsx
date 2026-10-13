@@ -245,6 +245,18 @@ describe('<Composer />', () => {
     expect(input.value).toBe('/shrug ');
   });
 
+  it('autocompletes personal emoji by name, inserting :name:', async () => {
+    const { snowdrop, input, typeText } = await setup();
+    snowdrop.stores.local
+      .getState()
+      .saveCustomEmoji({ name: 'wave', dataUrl: 'data:image/png;base64,aGVsbG8=' });
+    typeText(':wa');
+    const option = within(await screen.findByRole('listbox')).getByRole('option');
+    expect(option.textContent).toContain(':wave:');
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(input.value).toBe(':wave: ');
+  });
+
   it('edits the last own message with Up in an empty composer', async () => {
     const { snowdrop, conv, input, typeText } = await setup();
     typeText('to be edited');

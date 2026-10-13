@@ -20,9 +20,20 @@ export interface MessageBodyProps {
   preview?: boolean;
   /** Inline content after the text, e.g. the "(edited)" tag. */
   trailing?: ReactNode;
+  /**
+   * Resolves a `:name:` token to a custom emoji image, if one should render
+   * inline here. Own messages resolve from the viewer's own collection;
+   * received messages have nothing to resolve from — Snowdrop never guesses
+   * a sender's custom emoji from the viewer's own collection (no transport
+   * currently delivers the sender's image alongside the text; see
+   * docs/SIGNAL_CLI.md). Omitting this prop renders `:name:` as plain text.
+   */
+  resolveCustomEmoji?: (name: string) => string | undefined;
 }
 
 const URL_PATTERN = /\bhttps?:\/\/[^\s<>"']+[^\s<>"'.,;:!?)\]}]/giu;
+/** Matches the same name shape as `CUSTOM_EMOJI_NAME` in core/stores/customEmoji.ts. */
+const CUSTOM_EMOJI_TOKEN = /:([a-z0-9_+-]{1,32}):/gu;
 
 /** Plain text with http(s) links made clickable (opened in a new tab, no referrer). */
 function Linkified({ text }: { text: string }) {
@@ -46,6 +57,30 @@ function Linkified({ text }: { text: string }) {
   }
   if (last === 0) return text;
   if (last < text.length) parts.push(text.slice(last));
+  return parts;
+}
+
+/** `Linkified`, with any resolvable `:name:` custom emoji swapped for its image. */
+function EmojiAndLinks({
+  text,
+  resolve,
+}: {
+  text: string;
+  resolve: (name: string) => string | undefined;
+}) {
+  const parts: ReactNode[] = [];
+  let last = 0;
+  for (const match of text.matchAll(CUSTOM_EMOJI_TOKEN)) {
+    const name = match[1];
+    const dataUrl = name && resolve(name);
+    if (!dataUrl) continue;
+    const at = match.index;
+    if (at > last) parts.push(<Linkified key={at} text={text.slice(last, at)} />);
+    parts.push(<img key={`${at}e`} className={styles.customEmoji} src={dataUrl} alt={match[0]} />);
+    last = at + match[0].length;
+  }
+  if (last === 0) return <Linkified text={text} />;
+  if (last < text.length) parts.push(<Linkified key={last} text={text.slice(last)} />);
   return parts;
 }
 
@@ -100,7 +135,12 @@ function render(segments: readonly Segment[], props: MessageBodyProps, path: str
     if (s.type === 'text') {
       // Stray placeholders (a mention without its range) carry no meaning.
       const text = s.text.replaceAll(MENTION_PLACEHOLDER, '');
-      return props.preview ? text : <Linkified key={key} text={text} />;
+      if (props.preview) return text;
+      return props.resolveCustomEmoji ? (
+        <EmojiAndLinks key={key} text={text} resolve={props.resolveCustomEmoji} />
+      ) : (
+        <Linkified key={key} text={text} />
+      );
     }
     if (s.type === 'mention') {
       if (props.preview)
@@ -163,11 +203,29 @@ function render(segments: readonly Segment[], props: MessageBodyProps, path: str
 }
 
 const JUMBO = /^(?:\p{Extended_Pictographic}|\p{Emoji_Component}|‍|️|\s)+$/u;
+/** A standin pictographic char so a resolved `:name:` token counts as one jumbo-eligible unit. */
+const JUMBO_PLACEHOLDER = '🟡';
 
-/** Up to 10 emoji and nothing else are shown large, as in most chat apps. */
-export function isJumbo(body: string, ranges: readonly BodyRange[]): boolean {
-  if (ranges.length > 0 || body.trim() === '' || !JUMBO.test(body)) return false;
-  const count = splitGraphemes(body.trim()).filter((g) => g.trim() !== '').length;
+/**
+ * Up to 10 emoji and nothing else are shown large, as in most chat apps.
+ * `resolveCustomEmoji` lets the same rule count the viewer's own resolvable
+ * `:name:` tokens as emoji too; an unresolved token is just text, so it never
+ * triggers jumbo (consistent with never guessing another sender's emoji).
+ */
+export function isJumbo(
+  body: string,
+  ranges: readonly BodyRange[],
+  resolveCustomEmoji?: (name: string) => string | undefined,
+): boolean {
+  if (ranges.length > 0 || body.trim() === '') return false;
+  const trimmed = body.trim();
+  const withPlaceholders = resolveCustomEmoji
+    ? trimmed.replaceAll(CUSTOM_EMOJI_TOKEN, (token, name: string) =>
+        resolveCustomEmoji(name) ? JUMBO_PLACEHOLDER : token,
+      )
+    : trimmed;
+  if (!JUMBO.test(withPlaceholders)) return false;
+  const count = splitGraphemes(withPlaceholders).filter((g) => g.trim() !== '').length;
   return count <= 10;
 }
 
@@ -180,7 +238,7 @@ export const MessageBody = memo(function MessageBody(props: MessageBodyProps) {
       {...(props.id !== undefined ? { id: props.id } : {})}
       className={[styles.body, className].filter(Boolean).join(' ')}
       data-snowdrop="message-body"
-      data-jumbo={isJumbo(body, ranges) ? '' : undefined}
+      data-jumbo={isJumbo(body, ranges, props.resolveCustomEmoji) ? '' : undefined}
       dir="auto"
     >
       {render(segments, props, 'b')}

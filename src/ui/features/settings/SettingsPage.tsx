@@ -5,6 +5,7 @@ import { AccessibilityPage } from './pages/AccessibilityPage';
 import { AppearancePage } from './pages/AppearancePage';
 import { BehaviourPage } from './pages/BehaviourPage';
 import { ConnectionPage } from './pages/ConnectionPage';
+import { CustomEmojiPage } from './pages/CustomEmojiPage';
 import { DataPage } from './pages/DataPage';
 import { NotificationsPage } from './pages/NotificationsPage';
 import { PrivacyPage } from './pages/PrivacyPage';
@@ -23,6 +24,7 @@ const VIEWS: Record<SettingsPageId, ComponentType<PageProps>> = {
   notifications: NotificationsPage,
   keybinds: KeybindsPage,
   behaviour: BehaviourPage,
+  'custom-emoji': CustomEmojiPage,
   plugins: PluginsPage,
   themes: ThemesPage,
   'custom-css': CustomCssPage,

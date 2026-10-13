@@ -10,19 +10,18 @@ afterEach(async () => {
   await app.dispose();
 });
 
-it('searches, attaches and removes personal images', async () => {
+it('searches, inserts and removes personal emoji', async () => {
   app = await bootSnowdrop();
   app.stores.local
     .getState()
     .saveCustomEmoji({ name: 'wave', dataUrl: 'data:image/png;base64,aGVsbG8=' });
-  const select = vi.fn<(file: File) => void>();
+  const select = vi.fn<(name: string) => void>();
   renderWithSnowdrop(app, <CustomEmojiPanel onSelect={select} />);
   fireEvent.change(screen.getByLabelText('Find a custom emoji'), { target: { value: 'missing' } });
   expect(screen.getByText('No matching emoji.')).toBeTruthy();
   fireEvent.change(screen.getByLabelText('Find a custom emoji'), { target: { value: 'wave' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Attach :wave:' }));
-  expect(select).toHaveBeenCalledOnce();
-  expect(select.mock.calls[0]?.[0].name).toBe('wave.png');
+  fireEvent.click(screen.getByRole('button', { name: 'Insert :wave:' }));
+  expect(select).toHaveBeenCalledExactlyOnceWith('wave');
   fireEvent.click(screen.getByRole('button', { name: 'Manage' }));
   fireEvent.click(screen.getByRole('button', { name: 'Remove :wave:' }));
   expect(app.stores.local.getState().customEmoji).toEqual([]);

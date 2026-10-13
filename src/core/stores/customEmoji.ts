@@ -41,16 +41,3 @@ export function parseCustomEmojiLibrary(value: unknown): CustomEmoji[] {
   }
   return result;
 }
-
-export function customEmojiFile(emoji: CustomEmoji): File {
-  const valid = parseCustomEmoji(emoji);
-  if (!valid) throw new Error('Invalid custom emoji');
-  const match = IMAGE_DATA.exec(valid.dataUrl);
-  const type = match?.[1];
-  const encoded = match?.[2];
-  if (!type || !encoded) throw new Error('Invalid custom emoji');
-  const bytes = Uint8Array.from(atob(encoded), (c) => c.charCodeAt(0));
-  return new File([bytes], `${valid.name}.${type === 'jpeg' ? 'jpg' : type}`, {
-    type: `image/${type}`,
-  });
-}

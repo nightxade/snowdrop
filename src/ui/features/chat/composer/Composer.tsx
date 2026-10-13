@@ -245,8 +245,11 @@ function ComposerInner({ conversation }: { conversation: ConversationView }) {
             <EmojiPickerPopover
               customContent={
                 <CustomEmojiPanel
-                  onSelect={(file) => {
-                    state.addFiles([file]);
+                  onSelect={(name) => {
+                    const el = textarea.current;
+                    const start = el?.selectionStart ?? text.length;
+                    const end = el?.selectionEnd ?? text.length;
+                    replace(start, end, `:${name}: `);
                     setEmojiOpen(false);
                     requestAnimationFrame(focus);
                   }}

@@ -251,3 +251,52 @@
   display: flex;
   gap: var(--snowdrop-space-3);
 }
+
+/* Custom emoji */
+.emojiNameInput {
+  width: min(100%, 220px);
+  border: 1px solid var(--snowdrop-border);
+  padding: var(--snowdrop-space-3);
+  border-radius: var(--snowdrop-radius-sm);
+  background: var(--snowdrop-bg-input);
+  color: var(--snowdrop-text);
+  font: inherit;
+}
+
+.emojiUpload {
+  display: flex;
+  align-items: center;
+  gap: var(--snowdrop-space-3);
+}
+
+.emojiGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--snowdrop-space-3);
+}
+
+.emojiTile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--snowdrop-space-2);
+  width: 96px;
+  padding: var(--snowdrop-space-3);
+  border-radius: var(--snowdrop-radius-sm);
+  background: var(--snowdrop-bg-sidebar);
+}
+
+.emojiImage {
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+}
+
+.emojiName {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--snowdrop-text);
+  font-size: var(--snowdrop-font-size-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

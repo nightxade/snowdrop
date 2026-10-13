@@ -16,6 +16,7 @@ import {
   Puzzle,
   Shield,
   SlidersHorizontal,
+  Smile,
   UserRound,
   type LucideIcon,
 } from 'lucide-react';
@@ -39,6 +40,7 @@ export const PAGE_IDS = [
   'notifications',
   'keybinds',
   'behaviour',
+  'custom-emoji',
   'plugins',
   'themes',
   'custom-css',
@@ -260,6 +262,18 @@ export const SETTINGS_PAGES: SettingsPageDef[] = [
     entries: [
       { id: 'behaviour.enter', label: 'Send with', keywords: ['enter', 'shift', 'newline'] },
       { id: 'behaviour.markdown', label: 'Markdown formatting', keywords: ['bold', 'italic'] },
+    ],
+  },
+  {
+    id: 'custom-emoji',
+    group: 'customise',
+    icon: Smile,
+    title: 'Custom emoji',
+    description: 'Your personal image emoji. Type :name: to use one, in any chat.',
+    keywords: ['emoji', 'sticker', 'image', 'picker'],
+    entries: [
+      { id: 'customEmoji.add', label: 'Add an emoji', keywords: ['name', 'image', 'upload'] },
+      { id: 'customEmoji.collection', label: 'Your collection', keywords: ['remove', 'manage'] },
     ],
   },
   {

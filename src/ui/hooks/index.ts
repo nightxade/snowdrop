@@ -38,3 +38,4 @@ export {
   textSurfaceFor,
 } from './textSurfaces';
 export { usePluginState } from './usePluginState';
+export { useCustomEmojiLibrary, type CustomEmojiLibrary } from './useCustomEmojiLibrary';

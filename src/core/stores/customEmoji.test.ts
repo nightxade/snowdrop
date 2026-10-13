@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createLocalStore, localSchema, selectLocalData } from './local';
-import { customEmojiFile, parseCustomEmoji } from './customEmoji';
+import { parseCustomEmoji } from './customEmoji';
 
 const emoji = { name: 'wave', dataUrl: 'data:image/png;base64,aGVsbG8=' };
 
@@ -35,12 +35,5 @@ describe('personal custom emoji', () => {
     }).toThrow('collection is full');
     expect(store.getState().customEmoji).toHaveLength(32);
     expect(localSchema.parse({ conversations: {} })?.customEmoji).toEqual([]);
-  });
-
-  it('preserves bytes and filename when attaching an emoji', async () => {
-    const file = customEmojiFile(emoji);
-    expect(file.name).toBe('wave.png');
-    expect(file.type).toBe('image/png');
-    expect(await file.text()).toBe('hello');
   });
 });

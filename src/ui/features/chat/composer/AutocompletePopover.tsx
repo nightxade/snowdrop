@@ -148,6 +148,14 @@ function SuggestionRow({ suggestion: s }: { suggestion: Suggestion }) {
       </>
     );
   }
+  if (s.kind === 'customEmoji') {
+    return (
+      <>
+        <img className={styles.customEmoji} src={s.dataUrl} alt="" />
+        <span className={styles.primary}>:{s.name}:</span>
+      </>
+    );
+  }
   return (
     <>
       <span className={styles.slashIcon}>

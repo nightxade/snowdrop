@@ -198,3 +198,30 @@ tests use isolated sessions). The patched CLI passes 44 history tests. Synthetic
 browser checks cover archive paging, media viewing, notification suppression,
 read-time expiration, and continuing after a history-transfer failure. These
 checks do not verify a real phone transfer or real attachment CDN availability.
+
+## Custom emoji: `:name:` text, no Snowdrop-to-Snowdrop delivery
+
+Custom emoji (Settings → Custom emoji, or the composer's "My emoji" tab) are typed or
+inserted as plain `:name:` text — there is no attachment. Snowdrop renders a resolvable
+`:name:` inline as the emoji's image, at emoji size (jumbo if the whole message is emoji,
+matching the rule for standard emoji — see `isJumbo` in
+`src/ui/features/chat/message/MessageBody.tsx`), but **only in the viewer's own messages**,
+resolved from their own local collection. Received messages always render `:name:` as plain
+text: Snowdrop never guesses another sender's custom emoji from the viewer's own collection.
+
+This is intentionally short of the original goal (delivering the sender's emoji image to
+other Snowdrop clients over an unknown DataMessage field that official Signal clients ignore).
+A feasibility pass found that `signal-service-java` 2.15.3_unofficial_153's public send API
+(`SignalServiceMessageSender.sendDataMessage` / `sendGroupDataMessage`) only accepts its
+high-level `SignalServiceDataMessage`, which has no unknown-field slot and no public
+conversion to the raw Wire `DataMessage`/`Content` proto; the only API that accepts a
+caller-built `Content` (`resendContent`) sends to a single recipient only, with no group
+equivalent at all. Receiving an unknown field is fully feasible signal-cli-side (the raw,
+still-unparsed `Content` proto is available in
+`IncomingMessageHandler.validate()` via `cipherResult.getContent()`, and Wire's
+`unknownFields()` exposes it), but sending one is not, without patching
+`signal-service-java` itself — out of scope for the signal-cli patch series, which only
+patches signal-cli's own source. No patch 0013 exists for this reason; patches stop at 0012.
+Because Snowdrop never attempts to smuggle emoji data over the wire, sending against stock
+signal-cli or the demo backend already "degrades gracefully" by construction — it was always
+just sending text — with no capability probe needed.

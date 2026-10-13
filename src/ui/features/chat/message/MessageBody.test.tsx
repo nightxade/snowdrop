@@ -106,4 +106,42 @@ describe('MessageBody', () => {
     expect(isJumbo('ok 👍', [])).toBe(false);
     expect(isJumbo('🎯', [{ start: 0, length: 2, style: 'bold' }])).toBe(false);
   });
+
+  const wave = (name: string) => (name === 'wave' ? 'data:image/png;base64,aGVsbG8=' : undefined);
+
+  it('renders a resolvable :name: token as its image', () => {
+    const { container } = render(
+      <MessageBody
+        body="hi :wave: there"
+        ranges={[]}
+        selfId="me"
+        nameFor={nameFor}
+        resolveCustomEmoji={wave}
+      />,
+    );
+    const img = container.querySelector('img');
+    expect(img?.getAttribute('src')).toBe('data:image/png;base64,aGVsbG8=');
+    expect(container.textContent).toBe('hi  there');
+  });
+
+  it('leaves an unresolved :name: token as plain text', () => {
+    const { container } = renderBody(':mystery:', [], null);
+    expect(container.textContent).toBe(':mystery:');
+    expect(container.querySelector('img')).toBeNull();
+  });
+
+  it('never resolves custom emoji without an explicit resolver (received messages)', () => {
+    const { container } = render(
+      <MessageBody body=":wave:" ranges={[]} selfId="me" nameFor={nameFor} />,
+    );
+    expect(container.textContent).toBe(':wave:');
+    expect(container.querySelector('img')).toBeNull();
+  });
+
+  it('counts a resolvable custom emoji as one unit for jumbo display', () => {
+    expect(isJumbo(':wave:', [], wave)).toBe(true);
+    expect(isJumbo(':wave::wave:', [], wave)).toBe(true);
+    // Unresolved: just text, never jumbo.
+    expect(isJumbo(':mystery:', [], wave)).toBe(false);
+  });
 });

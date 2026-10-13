@@ -15,6 +15,13 @@
   line-height: 1.2;
 }
 
+.customEmoji {
+  width: 1.2em;
+  height: 1.2em;
+  object-fit: contain;
+  vertical-align: text-bottom;
+}
+
 .body strong {
   color: var(--snowdrop-text-strong);
   font-weight: var(--snowdrop-font-weight-bold);

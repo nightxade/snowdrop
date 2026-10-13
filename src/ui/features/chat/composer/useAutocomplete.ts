@@ -13,6 +13,7 @@ const log = createLogger('ui');
 export type Suggestion =
   | { kind: 'mention'; key: string; contact: Contact; insert: string; token: MentionToken }
   | { kind: 'emoji'; key: string; emoji: string; code: string; insert: string }
+  | { kind: 'customEmoji'; key: string; name: string; dataUrl: string; insert: string }
   | {
       kind: 'slash';
       key: string;
@@ -48,6 +49,7 @@ export function useAutocomplete(
   const { stores, registries, plugins } = useSnowdrop();
   const contacts = useStore(stores.contacts, contactsSelectors.byId);
   const selfId = useStore(stores.session, sessionSelectors.selfId);
+  const customEmoji = useStore(stores.local, (s) => s.customEmoji);
   const commands = useObservableList(registries.slash);
   const [emojiIndex, setEmojiIndex] = useState<readonly EmojiEntry[] | null>(null);
   const [dismissedAt, setDismissedAt] = useState<number | null>(null);
@@ -106,15 +108,37 @@ export function useAutocomplete(
       });
     }
     if (trigger.kind === 'emoji') {
-      if (!emojiIndex) return [];
-      return searchEmoji(emojiIndex, trigger.query, LIMIT).map(({ entry, code }) => ({
-        kind: 'emoji',
-        key: `e-${code}`,
-        emoji: entry.emoji,
-        code,
-        // Without the trailing presentation selector some data adds, plus a space to keep typing.
-        insert: `${withoutExtraSelector(entry.emoji)} `,
-      }));
+      // Personal emoji first (no network fetch needed), then standard ones
+      // once their index has loaded, filling out the shared limit.
+      const q = trigger.query.toLowerCase();
+      const custom: Suggestion[] = customEmoji
+        .filter((e) => e.name.includes(q))
+        .sort(
+          (a, b) =>
+            Number(b.name.startsWith(q)) - Number(a.name.startsWith(q)) ||
+            a.name.localeCompare(b.name),
+        )
+        .slice(0, LIMIT)
+        .map((e) => ({
+          kind: 'customEmoji',
+          key: `c-${e.name}`,
+          name: e.name,
+          dataUrl: e.dataUrl,
+          insert: `:${e.name}: `,
+        }));
+      const remaining = LIMIT - custom.length;
+      if (remaining <= 0 || !emojiIndex) return custom;
+      const standard: Suggestion[] = searchEmoji(emojiIndex, trigger.query, remaining).map(
+        ({ entry, code }) => ({
+          kind: 'emoji',
+          key: `e-${code}`,
+          emoji: entry.emoji,
+          code,
+          // Without the trailing presentation selector some data adds, plus a space to keep typing.
+          insert: `${withoutExtraSelector(entry.emoji)} `,
+        }),
+      );
+      return [...custom, ...standard];
     }
     const q = trigger.query.toLowerCase();
     return commands
@@ -131,7 +155,7 @@ export function useAutocomplete(
         owner: c.owner === 'core' ? 'core' : (plugins.get(c.owner)?.definition.name ?? c.owner),
         insert: `/${c.name} `,
       }));
-  }, [trigger, memberIds, selfId, contacts, emojiIndex, commands, plugins]);
+  }, [trigger, memberIds, selfId, contacts, emojiIndex, customEmoji, commands, plugins]);
 
   const triggerKey = trigger ? `${trigger.kind}:${trigger.start}:${trigger.query}` : '';
   const active =
