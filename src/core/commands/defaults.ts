@@ -46,6 +46,12 @@ export const NavCommand = {
   CommandPalette: 'core.commandPalette',
   /** Opens (never closes) the in-conversation search panel; hidden. */
   OpenSearch: 'core.openSearch',
+  /**
+   * Leaves an empty composer for the newest message, scrolled into view —
+   * always the newest, never the previous tab stop (unlike FocusMessages).
+   * Hidden; driven by Vim mode's empty-draft Escape.
+   */
+  FocusLatestMessage: 'core.focusLatestMessage',
 } as const;
 
 /**

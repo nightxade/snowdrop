@@ -27,6 +27,8 @@ export interface ListNavigation {
   act(action: MessageAction): boolean;
   /** Focuses the list's tab stop. */
   focus(): void;
+  /** Focuses the newest message and scrolls it into view (composer → messages). */
+  focusLatest(): void;
 }
 
 export interface ListHandle extends ListNavigation {

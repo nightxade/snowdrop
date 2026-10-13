@@ -187,6 +187,98 @@ describe('jump to message', () => {
   });
 });
 
+describe('focus() vs focusLatest()', () => {
+  /** A deterministic two-message window, rendered and settled, with the chat controller. */
+  async function openTwoMessages(snowdrop: Snowdrop) {
+    const conv = Object.values(snowdrop.stores.conversations.getState().byId).find(
+      (c) => c.title === 'Orchard · Engineering',
+    )!;
+    const author = conv.memberIds[0]!;
+    const olderId = messageId(author, 3_000_000);
+    const newerId = messageId(author, 3_000_060);
+    const messages: Message[] = [olderId, newerId].map((id, i) => ({
+      id,
+      conversationId: conv.id,
+      authorId: author,
+      sentAt: 3_000_000 + i * 60_000,
+      receivedAt: 3_000_000 + i * 60_000,
+      body: `focus-latest message ${i}`,
+      ranges: [],
+      attachments: [],
+      reactions: [],
+      status: 'read',
+      kind: 'normal',
+    }));
+    await act(async () => {
+      snowdrop.stores.ui.getState().selectConversation(conv.id);
+      await snowdrop.history.open(conv.id);
+      snowdrop.stores.messages
+        .getState()
+        .replaceWindow(conv.id, messages, { hasMoreBefore: false, hasMoreAfter: false });
+    });
+    const chat = new ChatController();
+    renderWithSnowdrop(
+      snowdrop,
+      <VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 48 }}>
+        <ChatControllerProvider value={chat}>
+          <MessagePane conversationId={conv.id} />
+        </ChatControllerProvider>
+      </VirtuosoMockContext.Provider>,
+    );
+    await settle(snowdrop);
+    const scroller = document.querySelector<HTMLElement>('[data-message-scroller]')!;
+    await waitFor(
+      () => {
+        act(() => {
+          scroller.dispatchEvent(new Event('scroll'));
+        });
+        expect(document.querySelector(`[data-message-id="${olderId}"]`)).toBeTruthy();
+        expect(document.querySelector(`[data-message-id="${newerId}"]`)).toBeTruthy();
+      },
+      { timeout: 3000 },
+    );
+    // Move the roving tab stop to the older message (e.g. a quote jump) and
+    // off it again, the way leaving the composer would find it.
+    await act(async () => {
+      await chat.reveal(conv.id, olderId, { focus: true });
+      await new Promise((r) => requestAnimationFrame(r));
+    });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 400));
+    });
+    expect(document.activeElement?.getAttribute('data-message-id')).toBe(olderId);
+    (document.activeElement as HTMLElement | null)?.blur();
+    return { conv, chat, olderId, newerId };
+  }
+
+  it('focus() keeps using the last tab stop (e.g. the "Focus the message list" command)', async () => {
+    const snowdrop = await bootSnowdrop();
+    snowdrops.push(snowdrop);
+    const { chat, olderId } = await openTwoMessages(snowdrop);
+    act(() => {
+      chat.navigation?.focus();
+    });
+    expect(document.activeElement?.getAttribute('data-message-id')).toBe(olderId);
+  });
+
+  it('focusLatest() always lands on the newest message and scrolls it into view', async () => {
+    const snowdrop = await bootSnowdrop();
+    snowdrops.push(snowdrop);
+    const { chat, newerId } = await openTwoMessages(snowdrop);
+    const scrollIntoView = vi.spyOn(HTMLElement.prototype, 'scrollIntoView');
+    act(() => {
+      chat.navigation?.focusLatest();
+    });
+    // focusLatest() awaits jumpToPresent (a resolved promise here, already
+    // anchored) then two animation frames before focusing the row.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 400));
+    });
+    expect(document.activeElement?.getAttribute('data-message-id')).toBe(newerId);
+    expect(scrollIntoView).toHaveBeenCalledWith(expect.objectContaining({ block: 'end' }));
+  });
+});
+
 describe('reactions', () => {
   it('labels who reacted, you first', () => {
     const names: Record<string, string> = { a: 'Ada', b: 'Bo', c: 'Cy', d: 'Di' };

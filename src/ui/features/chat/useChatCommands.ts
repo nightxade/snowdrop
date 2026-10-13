@@ -92,6 +92,16 @@ export function useChatCommands(): void {
           nav()?.focus();
         },
       }),
+      commands.register({
+        id: NavCommand.FocusLatestMessage,
+        title: 'Focus the latest message',
+        category: 'Navigation',
+        hidden: true,
+        enabled: hasList,
+        run: () => {
+          nav()?.focusLatest();
+        },
+      }),
       commands.register(
         listCommand(MessageCommand.Next, 'Next message', () => {
           nav()?.navigate('next', 1);

@@ -273,8 +273,9 @@ export class VimController {
       else if (effect.type === 'clipboard') this.host.copy(effect.text);
       else if (effect.type === 'escape') {
         // Normal-mode Esc: the composer's own Escape (cancel reply → mark read);
-        // on an empty draft, focus goes back to the messages.
-        if (surface.escape() === 'read') void this.host.execute(NavCommand.FocusMessages);
+        // on an empty draft, focus goes back to the newest message, never
+        // wherever the roving tab stop was last left.
+        if (surface.escape() === 'read') void this.host.execute(NavCommand.FocusLatestMessage);
       }
     }
   }

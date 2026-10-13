@@ -473,6 +473,25 @@ describe('Vim mode: composer', () => {
     await settle();
     expect(markRead).toHaveBeenCalledTimes(1);
     expect(focused()?.hasAttribute('data-message-id')).toBe(true);
+    expect(focused()).toBe(rows().at(-1));
+  });
+
+  it('returns to the newest message, not wherever the list was last left, when leaving an empty composer', async () => {
+    await bootVim();
+    blur();
+    // Move the roving tab stop off the newest message before entering the composer.
+    keys('3k');
+    await settle();
+    const older = focused();
+    expect(older).not.toBe(rows().at(-1));
+    const scrollIntoView = vi.spyOn(HTMLElement.prototype, 'scrollIntoView');
+    press('i');
+    press('Escape'); // Insert -> Normal
+    press('Escape'); // Normal, empty draft -> back to the messages
+    await settle();
+    expect(focused()).toBe(rows().at(-1));
+    expect(focused()).not.toBe(older);
+    expect(scrollIntoView).toHaveBeenCalledWith(expect.objectContaining({ block: 'end' }));
   });
 
   it('offers suggestions only in Insert mode, and their keys keep working', async () => {

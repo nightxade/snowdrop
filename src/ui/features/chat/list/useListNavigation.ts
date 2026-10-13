@@ -63,6 +63,17 @@ export function useListNavigation(deps: ListNavigationDeps): ListNavigation {
       const box = el.getBoundingClientRect();
       return box.bottom > view.top && box.top < view.bottom;
     };
+    /** Jumps to the present (loading it first if detached) and focuses the newest row. */
+    const focusLatest = () => {
+      void d()
+        .jumpToPresent()
+        .then(() => {
+          afterRender(() => {
+            const last = rowEls().at(-1);
+            if (last) focusRow(last, 'end');
+          });
+        });
+    };
 
     return {
       navigate(to, count) {
@@ -76,14 +87,7 @@ export function useListNavigation(deps: ListNavigationDeps): ListNavigation {
           return true;
         }
         if (to === 'last') {
-          void d()
-            .jumpToPresent()
-            .then(() => {
-              afterRender(() => {
-                const last = rowEls().at(-1);
-                if (last) focusRow(last, 'end');
-              });
-            });
+          focusLatest();
           return true;
         }
         const current = focusedRow();
@@ -152,6 +156,8 @@ export function useListNavigation(deps: ListNavigationDeps): ListNavigation {
         if (stop) focusRow(stop);
         else d().scroller.current?.focus();
       },
+
+      focusLatest,
     };
   }, []);
 }
