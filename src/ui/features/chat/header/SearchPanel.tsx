@@ -1,6 +1,8 @@
 import { SearchX, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { useStore } from 'zustand';
 import type { ConversationView, Message } from '@/core/domain';
+import { sessionSelectors } from '@/core/stores';
 import { useSnowdrop } from '@/ui/hooks';
 import { IconButton, SearchInput, Skeleton } from '@/ui/primitives';
 import { useChatController } from '../ChatController';
@@ -23,7 +25,11 @@ export function SearchPanel({
   conversation: ConversationView;
   onClose: () => void;
 }) {
-  const { repository } = useSnowdrop();
+  const { repository, stores } = useSnowdrop();
+  const importing = useStore(
+    stores.session,
+    (s) => sessionSelectors.historyImport(s).status === 'importing',
+  );
   const chat = useChatController();
   const [query, setQuery] = useState('');
   const [state, setState] = useState<SearchState>({ status: 'idle' });
@@ -98,6 +104,12 @@ export function SearchPanel({
         />
         <IconButton label="Close search (Esc)" icon={<X />} onClick={onClose} />
       </header>
+      {importing && (
+        <p className={styles.importHint} role="status">
+          Still importing your phone's message history — results may be incomplete until it
+          finishes.
+        </p>
+      )}
       <div className={styles.results}>
         {view.status === 'idle' && (
           <p className={styles.empty}>

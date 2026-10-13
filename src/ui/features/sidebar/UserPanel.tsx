@@ -19,6 +19,7 @@ export function UserPanel() {
   const self = useStore(stores.session, sessionSelectors.self);
   const status = useStore(stores.session, sessionSelectors.status);
   const backend = useStore(stores.session, (s) => s.backendKind);
+  const historyImport = useStore(stores.session, sessionSelectors.historyImport);
   const notify = useStore(stores.settings, (s) => s.notifications.enabled);
   const settingsKey = useKeybindLabel(CoreCommand.OpenSettings);
 
@@ -36,8 +37,10 @@ export function UserPanel() {
   ];
 
   const name = self?.name ?? 'You';
-  const subtitle =
-    status === 'online'
+  const importing = status === 'online' && historyImport.status === 'importing';
+  const subtitle = importing
+    ? `Importing message history… ${historyImport.percent}%`
+    : status === 'online'
       ? backend === 'mock'
         ? 'Demo account'
         : 'Linked device'
@@ -57,6 +60,18 @@ export function UserPanel() {
           <span className={styles.subtitle} data-status={status}>
             {subtitle}
           </span>
+          {importing && (
+            <div
+              className={styles.importProgress}
+              role="progressbar"
+              aria-label="Importing message history"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={historyImport.percent}
+            >
+              <span style={{ width: `${historyImport.percent}%` }} />
+            </div>
+          )}
         </div>
       </div>
       <div className={styles.buttons}>

@@ -2,6 +2,29 @@ import { createStore, type StoreApi } from 'zustand/vanilla';
 import type { BackendKind } from '@/core/backend';
 import type { ConnectionStatus, Contact } from '@/core/domain';
 
+export type HistoryImportStatus = 'idle' | 'importing' | 'done' | 'failed';
+
+/**
+ * Progress of `HistoryImportService`'s one-time archive import, for the
+ * sidebar footer's indicator and Settings → Data & storage's status line.
+ * `percent` is a conversation-weighted estimate (counting whole chats as
+ * done, not individual messages) while importing, and 100 once done.
+ */
+export interface HistoryImportProgress {
+  status: HistoryImportStatus;
+  percent: number;
+  /** Messages written to the repository across this and any earlier runs. */
+  imported: number;
+  error: string | null;
+}
+
+const IDLE_HISTORY_IMPORT: HistoryImportProgress = {
+  status: 'idle',
+  percent: 0,
+  imported: 0,
+  error: null,
+};
+
 export interface SessionState {
   backendKind: BackendKind | null;
   status: ConnectionStatus;
@@ -23,6 +46,8 @@ export interface SessionState {
    * during it.
    */
   catchingUp: boolean;
+  /** See `HistoryImportProgress`. */
+  historyImport: HistoryImportProgress;
 
   setBackendKind(kind: BackendKind | null): void;
   setStatus(status: ConnectionStatus): void;
@@ -30,6 +55,7 @@ export interface SessionState {
   setError(error: string | null, kind?: string | null): void;
   setReady(ready: boolean): void;
   setCatchingUp(catchingUp: boolean): void;
+  setHistoryImport(patch: Partial<HistoryImportProgress>): void;
 }
 
 export type SessionStore = StoreApi<SessionState>;
@@ -43,6 +69,7 @@ export function createSessionStore(): SessionStore {
     errorKind: null,
     ready: false,
     catchingUp: false,
+    historyImport: IDLE_HISTORY_IMPORT,
     setBackendKind: (backendKind) => {
       set({ backendKind });
     },
@@ -61,6 +88,9 @@ export function createSessionStore(): SessionStore {
     setCatchingUp: (catchingUp) => {
       set({ catchingUp });
     },
+    setHistoryImport: (patch) => {
+      set((s) => ({ historyImport: { ...s.historyImport, ...patch } }));
+    },
   }));
 }
 
@@ -73,4 +103,5 @@ export const sessionSelectors = {
   error: (s: SessionState) => s.error,
   errorKind: (s: SessionState) => s.errorKind,
   catchingUp: (s: SessionState) => s.catchingUp,
+  historyImport: (s: SessionState) => s.historyImport,
 };

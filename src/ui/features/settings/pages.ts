@@ -355,6 +355,11 @@ export const SETTINGS_PAGES: SettingsPageDef[] = [
       { id: 'data.usage', label: 'Storage used', keywords: ['quota', 'size'] },
       { id: 'data.export', label: 'Export history', keywords: ['download', 'json', 'backup'] },
       {
+        id: 'data.historyImport',
+        label: 'Message history import',
+        keywords: ['archive', 'transfer', 'search', 'phone', 'progress'],
+      },
+      {
         id: 'data.diagnosticsVerbose',
         section: 'diagnostics',
         label: 'Verbose logging',

@@ -287,6 +287,16 @@ export interface ChatBackend {
   getHistoryReadState?(messages: readonly HistoryReadRef[]): Promise<HistoryReadState[]>;
 
   /**
+   * The id of the whole-account archive behind `fetchHistory`, or null if
+   * there is none (upstream signal-cli, a link with no "transfer message
+   * history", the demo). The one capability check `HistoryImportService`
+   * needs to decide whether there's anything to import, and to tell one
+   * archive apart from the next (a relink produces a new one, whose cursors
+   * supersede the old archive's rather than extending it).
+   */
+  getHistoryArchiveId?(): Promise<string | null>;
+
+  /**
    * Turns an attachment that arrived without a `url` into a renderable one.
    * signal-cli only hands out attachment bytes on request, so its adapter
    * leaves `url` unset and downloads lazily (cached `blob:` URL) when the UI

@@ -112,3 +112,68 @@ describe('Settings → Data & storage → Diagnostics', () => {
     expect(admin.openFolder).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('Settings → Data & storage → Message history import', () => {
+  it('is hidden while there is nothing to import (the demo backend)', async () => {
+    snowdrop = await bootSnowdrop();
+    renderWithSnowdrop(snowdrop, <DataPage />);
+
+    expect(screen.queryByText('Message history import')).toBeNull();
+  });
+
+  it('shows progress while importing', async () => {
+    snowdrop = await bootSnowdrop();
+    renderWithSnowdrop(snowdrop, <DataPage />);
+
+    act(() => {
+      snowdrop?.stores.session
+        .getState()
+        .setHistoryImport({ status: 'importing', percent: 37, imported: 10, error: null });
+    });
+
+    expect(screen.getByText('Message history import')).toBeTruthy();
+    expect(screen.getByText(/37% so far/)).toBeTruthy();
+    expect(screen.getByRole('progressbar', { name: 'Importing message history' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+  });
+
+  it('reports the message count once done', async () => {
+    snowdrop = await bootSnowdrop();
+    renderWithSnowdrop(snowdrop, <DataPage />);
+
+    act(() => {
+      snowdrop?.stores.session
+        .getState()
+        .setHistoryImport({ status: 'done', percent: 100, imported: 1234, error: null });
+    });
+
+    expect(screen.getByText(/1,234 messages/)).toBeTruthy();
+    expect(screen.queryByRole('progressbar')).toBeNull();
+  });
+
+  it('shows the error and retries through HistoryImportService on failure', async () => {
+    snowdrop = await bootSnowdrop();
+    const retry = vi.fn().mockResolvedValue(undefined);
+    // `historyImport` is a real HistoryImportService; only its action needs
+    // faking here — resume/idempotency/error behaviour is covered by
+    // historyImport.test.ts, and `stop()` must still work for `afterEach`'s
+    // `dispose()`, so only the one method is replaced.
+    snowdrop.historyImport.retry = retry;
+    renderWithSnowdrop(snowdrop, <DataPage />);
+
+    act(() => {
+      snowdrop?.stores.session.getState().setHistoryImport({
+        status: 'failed',
+        percent: 20,
+        imported: 5,
+        error: 'archive unavailable',
+      });
+    });
+
+    expect(screen.getByText('archive unavailable')).toBeTruthy();
+    const button = screen.getByRole('button', { name: 'Retry' });
+    fireEvent.click(button);
+
+    expect(retry).toHaveBeenCalledTimes(1);
+  });
+});

@@ -1,6 +1,16 @@
-import { Copy, Download, FolderOpen, LoaderCircle, RotateCcw, Trash2 } from 'lucide-react';
+import {
+  Copy,
+  Download,
+  FolderOpen,
+  LoaderCircle,
+  RefreshCw,
+  RotateCcw,
+  Trash2,
+} from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { useStore } from 'zustand';
 import { recentLogLines } from '@/core/lib';
+import { sessionSelectors } from '@/core/stores';
 import { useSnowdrop } from '@/ui/hooks';
 import { Button, Modal, Switch } from '@/ui/primitives';
 import { downloadText } from '../download';
@@ -142,6 +152,64 @@ function DiagnosticsSection() {
 
 type Danger = 'clear' | 'reset' | null;
 
+/**
+ * Settings → Data & storage: status of `HistoryImportService`'s one-time
+ * archive import. Hidden while there's nothing to report (the demo, upstream
+ * signal-cli, or before the first sync has even checked) — see
+ * `HistoryImportService`'s capability check.
+ */
+function HistoryImportRow() {
+  const app = useSnowdrop();
+  const historyImport = useStore(app.stores.session, sessionSelectors.historyImport);
+  const [retrying, setRetrying] = useState(false);
+  if (historyImport.status === 'idle') return null;
+
+  const description =
+    historyImport.status === 'importing'
+      ? `Importing your phone's message history into search — ${historyImport.percent}% so far.`
+      : historyImport.status === 'done'
+        ? `Finished importing your phone's message history (${historyImport.imported.toLocaleString()} messages).`
+        : (historyImport.error ?? "Importing your phone's message history failed.");
+
+  return (
+    <SettingRow
+      id="data.historyImport"
+      label="Message history import"
+      description={description}
+      stacked={historyImport.status === 'importing'}
+      control={
+        historyImport.status === 'failed' ? (
+          <Button
+            icon={<RefreshCw size={16} className={retrying ? styles.spin : undefined} />}
+            disabled={retrying}
+            onClick={() => {
+              setRetrying(true);
+              void app.historyImport.retry().finally(() => {
+                setRetrying(false);
+              });
+            }}
+          >
+            Retry
+          </Button>
+        ) : undefined
+      }
+    >
+      {historyImport.status === 'importing' && (
+        <div
+          className={styles.meter}
+          role="progressbar"
+          aria-label="Importing message history"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={historyImport.percent}
+        >
+          <span style={{ width: `${Math.max(1, historyImport.percent)}%` }} />
+        </div>
+      )}
+    </SettingRow>
+  );
+}
+
 export function DataPage() {
   const app = useSnowdrop();
   // The desktop app keeps history in its encrypted store on disk, not a browser.
@@ -249,6 +317,7 @@ export function DataPage() {
             </Button>
           }
         />
+        <HistoryImportRow />
       </SettingsSection>
       <DiagnosticsSection />
       <SettingsSection title="Danger zone" rowIds={['data.clear', 'data.reset']}>

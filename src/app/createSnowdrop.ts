@@ -31,6 +31,7 @@ import { BUILTIN_PLUGINS, PluginRuntime, Registries } from '@/core/plugins';
 import {
   browserNotificationApi,
   exportHistory,
+  HistoryImportService,
   HistoryService,
   NotificationService,
   PendingOpsBuffer,
@@ -121,6 +122,8 @@ export interface Snowdrop {
   sync: SyncService;
   send: SendService;
   history: HistoryService;
+  /** The one-time background import of the whole history archive (Settings → Data & storage). */
+  historyImport: HistoryImportService;
   /** Resolves with the concrete adapter once its chunk has loaded (dev tools, tests). */
   backendReady: Promise<ChatBackend>;
   notifications: NotificationService;
@@ -325,6 +328,7 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
   const sendLog = createLogger('send');
   const syncLog = createLogger('sync');
   const historyLog = createLogger('history');
+  const historyImportLog = createLogger('history-import');
 
   // Plugin errors outside start/stop (commands, transforms, hover actions…)
   // are logged under `plugins:<id>` and recorded on the plugin, so its card
@@ -365,6 +369,26 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     stores,
     onError: (error, context) => {
       historyLog.error(context, error);
+    },
+  });
+  const historyImport = new HistoryImportService({
+    backend,
+    repository,
+    stores,
+    storage,
+    // Same scoping as spaces/local (app/dataScope.ts): per backend/account,
+    // so switching accounts can never resume a different account's import.
+    scope: () => {
+      const connection = stores.settings.getState().connection;
+      return scopeFor(
+        registration.kind,
+        connection.account ?? (connection.desktop.account || null),
+      );
+    },
+    clock,
+    scheduler,
+    onError: (error, context) => {
+      historyImportLog.error(context, error);
     },
   });
 
@@ -446,7 +470,13 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
       return probeDaemon(url, options.fetch ? { fetch: options.fetch } : {});
     },
     exportHistory: (onProgress) => exportHistory(repository, stores, new Date(), onProgress),
-    clearHistory: () => repository.clear(),
+    clearHistory: async () => {
+      await repository.clear();
+      // The archive is still on signal-cli; clearing our copy re-allows a
+      // full import instead of leaving it stuck at "done" against an empty
+      // repository.
+      historyImport.reset();
+    },
     disconnect: () => sync.stop(),
     setPendingHistoryClear: async (pending) => {
       if (pending) storage.setItem(PENDING_HISTORY_CLEAR_KEY, '1');
@@ -498,6 +528,7 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     sync,
     send,
     history,
+    historyImport,
     backendReady: ready,
     safeMode: options.safeMode ?? false,
     notifications,
@@ -524,6 +555,10 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
       }
       // A failure (e.g. signal-cli has no account yet) leaves `started` false so a retry runs everything.
       await sync.start();
+      // Fire-and-forget: it waits on the session store (ready, not
+      // catchingUp) and runs in the background for as long as it takes;
+      // nothing here should block on it.
+      void historyImport.start();
       await send.restoreOutbox();
       // sync.start() connected, so the adapter has loaded.
       const loaded = await ready;
@@ -544,6 +579,7 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
       for (const binding of currentBindings()) binding.dispose();
       notifications.stop();
       await runtime.stopAll();
+      await historyImport.stop();
       await sync.stop();
     },
   };

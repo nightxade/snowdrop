@@ -68,3 +68,12 @@
   font-size: var(--snowdrop-font-size-sm);
   font-weight: var(--snowdrop-font-weight-semibold);
 }
+
+.importHint {
+  margin: 0;
+  padding: var(--snowdrop-space-2) var(--snowdrop-space-4);
+  color: var(--snowdrop-warning);
+  font-size: var(--snowdrop-font-size-xs);
+  background: color-mix(in srgb, var(--snowdrop-warning) 12%, transparent);
+  border-bottom: 1px solid var(--snowdrop-border);
+}

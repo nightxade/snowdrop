@@ -11,6 +11,7 @@ import type { MessageRepository } from '@/core/persistence';
 import type { PluginRuntime, Registries } from '@/core/plugins';
 import type {
   HistoryExport,
+  HistoryImportService,
   HistoryService,
   NotificationService,
   SendService,
@@ -79,6 +80,11 @@ export interface AppServices {
   sync: SyncService;
   send: SendService;
   history: HistoryService;
+  /**
+   * Progress lives in `stores.session.getState().historyImport`; this is
+   * only the action Settings' "failed — Retry" needs.
+   */
+  historyImport: Pick<HistoryImportService, 'retry'>;
   /**
    * The only transport capabilities the UI may touch directly: its kind and
    * lazy attachment URLs (render-only, see ChatBackend.resolveAttachmentUrl).

@@ -925,6 +925,12 @@ export class SignalCliBackend implements ChatBackend {
       : { messages: [], hasMoreBefore: false };
   }
 
+  async getHistoryArchiveId(): Promise<string | null> {
+    this.assertAccount();
+    const archive = await this.loadHistory();
+    return archive?.archiveId ?? null;
+  }
+
   async readHistory(messages: readonly HistoryReadRef[]): Promise<HistoryReadState[]> {
     return this.historyReadStates(messages, true);
   }
