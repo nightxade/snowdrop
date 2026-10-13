@@ -244,6 +244,24 @@ describe('SignalCliBackend: connection', () => {
     await again.disconnect();
   });
 
+  it('maps a receiveCaughtUp SSE event to the caughtUp backend event', async () => {
+    const { backend, daemon } = await connected();
+    const caughtUp = collect(backend, 'caughtUp');
+    const order: string[] = [];
+    backend.on('caughtUp', () => order.push('caughtUp'));
+    backend.on('checkpoint', (c) => order.push(`checkpoint:${c.cursor}`));
+    daemon.lastStream!.push(
+      `id:run-9\nevent:receiveCaughtUp\ndata:${JSON.stringify({ account: SELF_ACI })}\n\n`,
+    );
+    await flush();
+    await backend.idle();
+    expect(caughtUp).toEqual([undefined]);
+    // No envelope to apply, but the event still advances (and can be acknowledged
+    // for) the resume position like any other.
+    expect(order).toEqual(['caughtUp', 'checkpoint:run-9']);
+    await backend.disconnect();
+  });
+
   it('can connect again after the stream failed fatally', async () => {
     const { daemon } = daemonWithAccount();
     daemon.eventStatuses = [400];

@@ -15,12 +15,21 @@ export interface SessionState {
   errorKind: string | null;
   /** True once the initial sync (contacts, conversations, unread) finished. */
   ready: boolean;
+  /**
+   * True while the backend is draining messages queued on the server before
+   * this connection (SyncService's CatchUpTracker). The sidebar freezes
+   * order/badges and shows "Loading…" previews while this is true, and
+   * NotificationService suppresses notifications for messages processed
+   * during it.
+   */
+  catchingUp: boolean;
 
   setBackendKind(kind: BackendKind | null): void;
   setStatus(status: ConnectionStatus): void;
   setSelf(self: Contact): void;
   setError(error: string | null, kind?: string | null): void;
   setReady(ready: boolean): void;
+  setCatchingUp(catchingUp: boolean): void;
 }
 
 export type SessionStore = StoreApi<SessionState>;
@@ -33,6 +42,7 @@ export function createSessionStore(): SessionStore {
     error: null,
     errorKind: null,
     ready: false,
+    catchingUp: false,
     setBackendKind: (backendKind) => {
       set({ backendKind });
     },
@@ -48,6 +58,9 @@ export function createSessionStore(): SessionStore {
     setReady: (ready) => {
       set({ ready });
     },
+    setCatchingUp: (catchingUp) => {
+      set({ catchingUp });
+    },
   }));
 }
 
@@ -59,4 +72,5 @@ export const sessionSelectors = {
   ready: (s: SessionState) => s.ready,
   error: (s: SessionState) => s.error,
   errorKind: (s: SessionState) => s.errorKind,
+  catchingUp: (s: SessionState) => s.catchingUp,
 };

@@ -199,6 +199,14 @@ export interface BackendEvents {
   conversationUpdated: Conversation;
   contactUpdated: Contact;
   /**
+   * The backend finished draining whatever was queued on the server before
+   * this connection (or reconnect): CatchUpTracker ends "catching up" and the
+   * sidebar stops freezing. Backends with no such notion (or that never send
+   * it — upstream signal-cli) simply never emit this; the tracker falls back
+   * to a quiet period instead.
+   */
+  caughtUp: undefined;
+  /**
    * Every event emitted before this one is complete for transport position
    * `cursor`. The sync engine processes it in queue order — i.e. after the
    * preceding events are persisted — and then calls `backend.acknowledge`.

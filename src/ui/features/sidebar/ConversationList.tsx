@@ -1,5 +1,5 @@
 import { Inbox } from 'lucide-react';
-import { useId, useState } from 'react';
+import { Fragment, useId, useState } from 'react';
 import { useStore } from 'zustand';
 import { HOME, sessionSelectors, type HomeSection } from '@/core/stores';
 import { useRovingFocus, useStores } from '@/ui/hooks';
@@ -25,7 +25,7 @@ export function ConversationList() {
   );
   const unread: Record<string, { count: number; mentions: number }> = {};
   for (const id of unreadKey ? unreadKey.split('\n') : []) unread[id] = { count: 1, mentions: 0 };
-  const { space, sections, archived, selected } = useSidebarModel();
+  const { space, sections, archived, selected, catchingUp } = useSidebarModel();
   const onKeyDown = useRovingFocus('vertical');
   const [showArchived, setShowArchived] = useState(false);
   const baseId = useId();
@@ -54,6 +54,7 @@ export function ConversationList() {
     <Scroller className={styles.scroller} data-snowdrop="conversation-list">
       <nav
         aria-label={space === HOME ? 'Home conversations' : 'Space conversations'}
+        aria-busy={catchingUp}
         onKeyDown={onKeyDown}
       >
         {isEmpty && (
@@ -99,18 +100,23 @@ export function ConversationList() {
                 />
               )}
               <ul id={listId} className={styles.list}>
-                {ids.map((id, i) => [
-                  i === line ? dropLine : null,
-                  <ConversationRow
-                    key={id}
-                    id={id}
-                    variant={variant}
-                    selected={id === selected}
-                    tabStop={id === tabStop}
-                    // Spaces: drag between categories or to another space. Home: groups to a space.
-                    draggable={inSpace || viewsById[id]?.kind === 'group'}
-                  />,
-                ])}
+                {ids.map((id, i) => (
+                  // Keyed on `id` alone (not wrapped per-index): a conversation keeps the
+                  // same identity — and so the same mounted row, with its own render
+                  // state (CatchUpTracker's frozen unread badge) — across reorders, e.g.
+                  // when a new conversation is inserted ahead of it while catching up.
+                  <Fragment key={id}>
+                    {i === line && dropLine}
+                    <ConversationRow
+                      id={id}
+                      variant={variant}
+                      selected={id === selected}
+                      tabStop={id === tabStop}
+                      // Spaces: drag between categories or to another space. Home: groups to a space.
+                      draggable={inSpace || viewsById[id]?.kind === 'group'}
+                    />
+                  </Fragment>
+                ))}
                 {line === ids.length && dropLine}
                 {inSpace && ids.length === 0 && !section.collapsed && line === -1 && (
                   <li className={styles.emptyCategory}>

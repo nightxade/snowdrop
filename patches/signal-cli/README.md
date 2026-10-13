@@ -219,6 +219,26 @@ warning visible until the user continues to conversations and explains that
 retrying transfer requires unlinking and linking again. Older signal-cli
 builds without this optional field retain the existing link flow.
 
+## Catch-up notification
+
+The twelfth patch adds a `receiveCaughtUp` JSON-RPC notification. signal-cli's
+receive loop already tracks `hasCaughtUpWithOldMessages` internally
+(`ReceiveHelper`/`ManagerImpl`) but never surfaced it past the process; this
+patch adds `Manager.addCaughtUpWithOldMessagesListener`/
+`removeCaughtUpWithOldMessagesListener` (mirroring `addReceiveHandler`/
+`removeReceiveHandler`) and has `ManagerImpl` call registered listeners
+alongside its existing `notifyAll()`. The JSON-RPC dispatcher subscribes one
+such listener per manager wherever it already subscribes `receive` (on
+connect, and for every `subscribeReceive` call), and sends
+`{"jsonrpc":"2.0","method":"receiveCaughtUp","params":{"account":"…"}}` each
+time the loop catches up with the server's queue — both on initial connect
+and after every reconnect, since `hasCaughtUpWithOldMessages` resets then
+fires again. Explicit (non-default) `subscribeReceive` subscriptions get the
+same `{"subscription":…,"result":{"account":"…"}}` wrapper as their `receive`
+notifications. It carries no envelope payload; clients still read messages
+from ordinary `receive` notifications. Builds as
+`0.14.8-snowdrop-history.9`.
+
 ## User-controlled phone verification
 
 Run this only when ready to add a test device on the phone. It uses a new data

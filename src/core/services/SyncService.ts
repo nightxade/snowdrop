@@ -39,6 +39,7 @@ import {
 } from '@/core/lib';
 import type { MessageRepository } from '@/core/persistence';
 import { computeUnread, uiSelectors, type Stores } from '@/core/stores';
+import { CatchUpTracker } from './CatchUpTracker';
 import { PendingOpsBuffer } from './PendingOpsBuffer';
 import { ReceiptBuffer } from './ReceiptBuffer';
 import { consoleReporter, type ErrorReporter } from './types';
@@ -136,11 +137,19 @@ export class SyncService {
   private refreshing: Promise<void> | null = null;
   private refreshAgain = false;
   private readonly readingHistory = new Set<MessageId>();
+  private readonly catchUpTracker: CatchUpTracker;
 
   constructor(private readonly deps: SyncServiceDeps) {
     this.receipts = deps.receipts ?? new ReceiptBuffer();
     this.pendingOps = deps.pendingOps ?? new PendingOpsBuffer();
     this.onError = deps.onError ?? consoleReporter;
+    this.catchUpTracker = new CatchUpTracker({
+      clock: deps.clock,
+      scheduler: deps.scheduler,
+      onChange: (catchingUp) => {
+        this.deps.stores.session.getState().setCatchingUp(catchingUp);
+      },
+    });
   }
 
   /** Subscribes, connects and performs the initial sync. Safe to call repeatedly. */
@@ -157,6 +166,8 @@ export class SyncService {
     stores.session.getState().setBackendKind(backend.kind);
     this.gated = true;
     this.subscribe();
+    // "Catching up" from here; `subscribe()` wired the events that end it.
+    this.catchUpTracker.start();
     try {
       await backend.connect();
       await this.initialSync();
@@ -164,6 +175,7 @@ export class SyncService {
       // Drop the subscriptions so a retry doesn't double-subscribe, but keep the
       // backlog: those envelopes are gone from the daemon once delivered.
       this.unsubscribeAll();
+      this.catchUpTracker.dispose();
       const kind = errorKindOf(error);
       stores.session
         .getState()
@@ -182,6 +194,7 @@ export class SyncService {
     }
     stores.session.getState().setReady(true);
     this.openGate();
+    this.catchUpTracker.armQuiet();
     this.schedulePurge(0);
   }
 
@@ -211,6 +224,7 @@ export class SyncService {
     this.purgeTimer?.();
     this.pruneTimer = null;
     this.purgeTimer = null;
+    this.catchUpTracker.dispose();
     await this.idle();
     // Disconnect while still subscribed so the final "offline" status reaches the store.
     await this.deps.backend.disconnect();
@@ -512,10 +526,29 @@ export class SyncService {
     on(
       'status',
       (status) => {
+        // A reconnect after being offline means signal-cli may have queued
+        // messages again; the initial `start()` call above already covers
+        // the very first connect (its status goes 'connecting' → 'online',
+        // never through 'offline').
+        if (status === 'online' && this.deps.stores.session.getState().status === 'offline') {
+          this.catchUpTracker.start();
+          this.catchUpTracker.armQuiet();
+        }
         this.deps.stores.session.getState().setStatus(status);
       },
       true,
     );
+    // Any arrival, parked or not, means the backlog is still flowing.
+    this.unsubscribers.push(
+      backend.on('message', () => {
+        this.catchUpTracker.onMessage();
+      }),
+    );
+    // Queued (and parked behind the initial sync) like messages, so catch-up
+    // ends only once every message before it has reached the stores.
+    on('caughtUp', () => {
+      this.catchUpTracker.finish();
+    });
     on(
       'typing',
       (e) => {

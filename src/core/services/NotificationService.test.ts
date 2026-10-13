@@ -98,6 +98,17 @@ describe('NotificationService', () => {
     expect(shown).toHaveLength(1);
   });
 
+  it('silences messages processed while the backend is still catching up', () => {
+    const { stores, shown, receive } = setup();
+    stores.session.getState().setCatchingUp(true);
+    // Live (not parked by SyncService's own gate) and new enough to otherwise notify.
+    receive({ sentAt: NOW + 1 });
+    expect(shown).toHaveLength(0);
+    stores.session.getState().setCatchingUp(false);
+    receive({ sentAt: NOW + 2 });
+    expect(shown).toHaveLength(1);
+  });
+
   it('never notifies for own, system or deleted messages, or without permission', () => {
     const a = setup();
     a.receive({ authorId: 'me' });

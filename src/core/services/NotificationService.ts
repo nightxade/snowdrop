@@ -169,9 +169,12 @@ export class NotificationService {
     if (this.unsub) return;
     this.startedAt = this.deps.clock.now();
     this.unsub = this.deps.source.on('messageArrived', ({ message, live }) => {
-      // The daemon can finish draining old envelopes after initial sync ends.
-      // Keep those messages in history, without announcing them as new.
-      if (live && message.sentAt >= this.startedAt) this.handle(message);
+      // The daemon can finish draining old envelopes after initial sync ends,
+      // and signal-cli's catch-up drain (SyncService's CatchUpTracker; see
+      // stores.session.catchingUp) can still be running after that: both
+      // cases are old messages replayed on launch, not new ones to announce.
+      const catchingUp = this.deps.stores.session.getState().catchingUp;
+      if (live && message.sentAt >= this.startedAt && !catchingUp) this.handle(message);
     });
   }
 

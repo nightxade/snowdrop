@@ -4,12 +4,13 @@ import type { ConversationId, ConversationView } from '@/core/domain';
 import {
   HOME,
   selectConversationViews,
+  sessionSelectors,
   uiSelectors,
   type SpaceSelection,
   type SpacesData,
   type Stores,
 } from '@/core/stores';
-import { useStores } from '@/ui/hooks';
+import { useFrozenWhile, useStores } from '@/ui/hooks';
 import {
   archivedIds,
   buildHomeSections,
@@ -26,6 +27,8 @@ export interface SidebarModel {
   sections: SidebarSection[];
   archived: ConversationId[];
   selected: ConversationId | null;
+  /** While catching up (PLAN): order and badges hold still; see `useFrozenOrder`. */
+  catchingUp: boolean;
 }
 
 function indexViews(views: readonly ConversationView[]): Record<string, ConversationView> {
@@ -36,6 +39,26 @@ function indexViews(views: readonly ConversationView[]): Record<string, Conversa
 
 function homeLayout(stores: Stores): HomeLayout {
   return { splitByType: stores.settings.getState().appearance.splitHomeByType };
+}
+
+/**
+ * While catching up, every conversation seen before it started keeps its
+ * frozen view (so its position and whatever `buildHomeSections`/
+ * `buildSpaceSections` derive from it — pinned/archived/kind, recency order
+ * — hold still); a conversation that didn't exist yet is new activity and
+ * still surfaces, ahead of the frozen ones.
+ */
+function useFrozenOrder(
+  live: readonly ConversationView[],
+  catchingUp: boolean,
+): readonly ConversationView[] {
+  const frozen = useFrozenWhile(live, catchingUp);
+  if (!catchingUp) return live;
+  const liveIds = new Set(live.map((v) => v.id));
+  const frozenIds = new Set(frozen.map((v) => v.id));
+  const fresh = live.filter((v) => !frozenIds.has(v.id));
+  const stillPresent = frozen.filter((v) => liveIds.has(v.id));
+  return fresh.length > 0 ? [...fresh, ...stillPresent] : stillPresent;
 }
 
 function sectionsFor(
@@ -59,14 +82,22 @@ export function useSidebarModel(): SidebarModel {
   const spaces = useStore(stores.spaces, (s) => s.spaces);
   const homeCollapsed = useStore(stores.spaces, (s) => s.homeCollapsed);
   const splitByType = useStore(stores.settings, (s) => s.appearance.splitHomeByType);
+  const catchingUp = useStore(stores.session, sessionSelectors.catchingUp);
+  const liveViews = useMemo(() => selectConversationViews(byId, local), [byId, local]);
+  const views = useFrozenOrder(liveViews, catchingUp);
   return useMemo(() => {
-    const views = selectConversationViews(byId, local);
     const sections =
       space === HOME
         ? buildHomeSections(views, { spaces, homeCollapsed }, { splitByType })
         : buildSpaceSections(space, { spaces }, indexViews(views));
-    return { space, sections, archived: space === HOME ? archivedIds(views) : [], selected };
-  }, [byId, local, spaces, homeCollapsed, splitByType, space, selected]);
+    return {
+      space,
+      sections,
+      archived: space === HOME ? archivedIds(views) : [],
+      selected,
+      catchingUp,
+    };
+  }, [views, spaces, homeCollapsed, splitByType, space, selected, catchingUp]);
 }
 
 /** Non-React access for keyboard commands: the rendered order of the current sidebar. */

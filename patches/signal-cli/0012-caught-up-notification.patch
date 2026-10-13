@@ -1,0 +1,521 @@
+diff --git a/build.gradle.kts b/build.gradle.kts
+index cd48bb3..3b8b84e 100644
+--- a/build.gradle.kts
++++ b/build.gradle.kts
+@@ -10,7 +10,7 @@ plugins {
+ 
+ allprojects {
+     group = "org.asamk"
+-    version = "0.14.8-snowdrop-history.8"
++    version = "0.14.8-snowdrop-history.9"
+ }
+ 
+ java {
+diff --git a/lib/src/main/java/org/asamk/signal/manager/Manager.java b/lib/src/main/java/org/asamk/signal/manager/Manager.java
+index 421fd57..2f60804 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/Manager.java
++++ b/lib/src/main/java/org/asamk/signal/manager/Manager.java
+@@ -397,6 +397,15 @@ public interface Manager extends Closeable {
+      */
+     void removeReceiveHandler(ReceiveMessageHandler handler);
+ 
++    /**
++     * Add a listener that's notified every time the receive loop catches up with
++     * messages that were queued on the server before it started, or after a
++     * reconnect. Fires again after every reconnect.
++     */
++    void addCaughtUpWithOldMessagesListener(Runnable listener);
++
++    void removeCaughtUpWithOldMessagesListener(Runnable listener);
++
+     boolean isReceiving();
+ 
+     /**
+diff --git a/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java b/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
+index bc67bf1..4d42df7 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
++++ b/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
+@@ -252,6 +252,7 @@ public class ManagerImpl implements Manager {
+     private final Set<ReceiveMessageHandler> messageHandlers = new HashSet<>();
+     private final List<Runnable> closedListeners = new ArrayList<>();
+     private final List<Runnable> addressChangedListeners = new ArrayList<>();
++    private final Set<Runnable> caughtUpWithOldMessagesListeners = new HashSet<>();
+     private final CompositeDisposable disposable = new CompositeDisposable();
+     private final AtomicLong lastMessageTimestamp = new AtomicLong();
+ 
+@@ -296,6 +297,9 @@ public class ManagerImpl implements Manager {
+             synchronized (this) {
+                 this.notifyAll();
+             }
++            synchronized (caughtUpWithOldMessagesListeners) {
++                caughtUpWithOldMessagesListeners.forEach(Runnable::run);
++            }
+         });
+         disposable.add(account.getIdentityKeyStore()
+                 .getIdentityChanges()
+@@ -1905,6 +1909,20 @@ public class ManagerImpl implements Manager {
+         }
+     }
+ 
++    @Override
++    public void addCaughtUpWithOldMessagesListener(final Runnable listener) {
++        synchronized (caughtUpWithOldMessagesListeners) {
++            caughtUpWithOldMessagesListeners.add(listener);
++        }
++    }
++
++    @Override
++    public void removeCaughtUpWithOldMessagesListener(final Runnable listener) {
++        synchronized (caughtUpWithOldMessagesListeners) {
++            caughtUpWithOldMessagesListeners.remove(listener);
++        }
++    }
++
+     @Override
+     public void addCallEventListener(final CallEventListener listener) {
+         context.getCallManager().addCallEventListener(listener);
+diff --git a/src/main/java/org/asamk/signal/dbus/DbusManagerImpl.java b/src/main/java/org/asamk/signal/dbus/DbusManagerImpl.java
+index 74dc12a..5e49b1b 100644
+--- a/src/main/java/org/asamk/signal/dbus/DbusManagerImpl.java
++++ b/src/main/java/org/asamk/signal/dbus/DbusManagerImpl.java
+@@ -720,6 +720,16 @@ public class DbusManagerImpl implements Manager {
+         }
+     }
+ 
++    @Override
++    public void addCaughtUpWithOldMessagesListener(final Runnable listener) {
++        // Not supported over DBus
++    }
++
++    @Override
++    public void removeCaughtUpWithOldMessagesListener(final Runnable listener) {
++        // Not supported over DBus
++    }
++
+     @Override
+     public boolean isReceiving() {
+         synchronized (messageHandlers) {
+diff --git a/src/main/java/org/asamk/signal/jsonrpc/SignalJsonRpcDispatcherHandler.java b/src/main/java/org/asamk/signal/jsonrpc/SignalJsonRpcDispatcherHandler.java
+index 166c822..70086a0 100644
+--- a/src/main/java/org/asamk/signal/jsonrpc/SignalJsonRpcDispatcherHandler.java
++++ b/src/main/java/org/asamk/signal/jsonrpc/SignalJsonRpcDispatcherHandler.java
+@@ -44,6 +44,7 @@ public class SignalJsonRpcDispatcherHandler {
+     private final boolean noReceiveOnStart;
+ 
+     private final Map<Integer, ArrayList<Pair<Manager, Manager.ReceiveMessageHandler>>> receiveHandlers = new HashMap<>();
++    private final Map<Integer, ArrayList<Pair<Manager, Runnable>>> caughtUpHandlers = new HashMap<>();
+     private final Map<Integer, ArrayList<Pair<Manager, Manager.CallEventListener>>> callEventHandlers = new HashMap<>();
+     private SignalJsonRpcCommandHandler commandHandler;
+ 
+@@ -68,6 +69,8 @@ public class SignalJsonRpcDispatcherHandler {
+         }
+         c.addOnManagerAddedHandler(m -> receiveHandlers.forEach((subscriptionId, handlers) -> handlers.add(
+                 createReceiveHandler(m, subscriptionId, false))));
++        c.addOnManagerAddedHandler(m -> caughtUpHandlers.forEach((subscriptionId, handlers) -> handlers.add(
++                createCaughtUpHandler(m, subscriptionId, false))));
+         c.addOnManagerAddedHandler(m -> callEventHandlers.forEach((subscriptionId, handlers) -> handlers.add(
+                 createCallEventHandler(m, subscriptionId))));
+ 
+@@ -152,6 +155,10 @@ public class SignalJsonRpcDispatcherHandler {
+                 .map(m -> createReceiveHandler(m, subscriptionId, internalSubscription))
+                 .collect(Collectors.toCollection(ArrayList::new));
+         receiveHandlers.put(subscriptionId, handlers);
++        final var caughtUp = managers.stream()
++                .map(m -> createCaughtUpHandler(m, subscriptionId, internalSubscription))
++                .collect(Collectors.toCollection(ArrayList::new));
++        caughtUpHandlers.put(subscriptionId, caughtUp);
+ 
+         return subscriptionId;
+     }
+@@ -184,14 +191,55 @@ public class SignalJsonRpcDispatcherHandler {
+         return new Pair<>(m, receiveMessageHandler);
+     }
+ 
++    /**
++     * Notifies subscribers each time the manager's receive loop catches up with
++     * messages queued on the server (and again after every reconnect), mirroring
++     * {@link #createReceiveHandler} but with no envelope payload.
++     */
++    private Pair<Manager, Runnable> createCaughtUpHandler(
++            final Manager m,
++            final int subscriptionId,
++            final boolean internalSubscription
++    ) {
++        final Runnable listener = () -> {
++            final var result = new HashMap<String, Object>();
++            result.put("account", m.getSelfNumber());
++            ContainerNode<?> params;
++            if (internalSubscription) {
++                params = objectMapper.valueToTree(result);
++            } else {
++                final var paramsNode = new ObjectNode(objectMapper.getNodeFactory());
++                paramsNode.set("subscription", IntNode.valueOf(subscriptionId));
++                paramsNode.set("result", objectMapper.valueToTree(result));
++                params = paramsNode;
++            }
++            final var jsonRpcRequest = JsonRpcRequest.forNotification("receiveCaughtUp", params, null);
++            try {
++                jsonRpcSender.sendRequest(jsonRpcRequest);
++            } catch (AssertionError e) {
++                if (e.getCause() instanceof ClosedChannelException) {
++                    unsubscribeReceive(subscriptionId);
++                }
++            }
++        };
++        m.addCaughtUpWithOldMessagesListener(listener);
++        return new Pair<>(m, listener);
++    }
++
+     private boolean unsubscribeReceive(final int subscriptionId) {
+         final var handlers = receiveHandlers.remove(subscriptionId);
++        final var caughtUp = caughtUpHandlers.remove(subscriptionId);
+         if (handlers == null) {
+             return false;
+         }
+         for (final var pair : handlers) {
+             unsubscribeReceiveHandler(pair);
+         }
++        if (caughtUp != null) {
++            for (final var pair : caughtUp) {
++                unsubscribeCaughtUpHandler(pair);
++            }
++        }
+         return true;
+     }
+ 
+@@ -211,6 +259,8 @@ public class SignalJsonRpcDispatcherHandler {
+         } finally {
+             receiveHandlers.forEach((_subscriptionId, handlers) -> handlers.forEach(this::unsubscribeReceiveHandler));
+             receiveHandlers.clear();
++            caughtUpHandlers.forEach((_subscriptionId, handlers) -> handlers.forEach(this::unsubscribeCaughtUpHandler));
++            caughtUpHandlers.clear();
+             unsubscribeAllCallEvents();
+         }
+     }
+@@ -221,6 +271,10 @@ public class SignalJsonRpcDispatcherHandler {
+         m.removeReceiveHandler(handler);
+     }
+ 
++    private void unsubscribeCaughtUpHandler(final Pair<Manager, Runnable> pair) {
++        pair.first().removeCaughtUpWithOldMessagesListener(pair.second());
++    }
++
+     private Command getCommand(final String method) {
+         if ("subscribeReceive".equals(method)) {
+             return new SubscribeReceiveCommand();
+diff --git a/src/test/java/org/asamk/signal/jsonrpc/ReceiveCaughtUpNotificationTest.java b/src/test/java/org/asamk/signal/jsonrpc/ReceiveCaughtUpNotificationTest.java
+new file mode 100644
+index 0000000..931a502
+--- /dev/null
++++ b/src/test/java/org/asamk/signal/jsonrpc/ReceiveCaughtUpNotificationTest.java
+@@ -0,0 +1,259 @@
++package org.asamk.signal.jsonrpc;
++
++import org.asamk.signal.manager.Manager;
++import org.asamk.signal.manager.MultiAccountManager;
++import org.asamk.signal.manager.ProvisioningManager;
++import org.asamk.signal.manager.RegistrationManager;
++import org.asamk.signal.output.JsonWriter;
++import org.asamk.signal.testutil.ManagerMock;
++import org.junit.jupiter.api.Test;
++
++import java.net.URI;
++import java.util.ArrayList;
++import java.util.Collections;
++import java.util.List;
++import java.util.Queue;
++import java.util.concurrent.ConcurrentLinkedQueue;
++import java.util.function.Consumer;
++import java.util.function.Supplier;
++
++import static org.junit.jupiter.api.Assertions.assertEquals;
++import static org.junit.jupiter.api.Assertions.assertNull;
++import static org.junit.jupiter.api.Assertions.assertTrue;
++
++/**
++ * Tests for the {@code receiveCaughtUp} JSON-RPC notification: sent whenever a
++ * manager's receive loop catches up with messages that were queued on the
++ * server (snowdrop-history patch).
++ */
++class ReceiveCaughtUpNotificationTest {
++
++    /**
++     * Feeds pre-configured JSON-RPC lines to the handler, then returns null to end.
++     */
++    private static class LineFeeder {
++
++        private final Queue<String> lines = new ConcurrentLinkedQueue<>();
++
++        void addLine(String line) {
++            lines.add(line);
++        }
++
++        String getLine() {
++            return lines.poll();
++        }
++    }
++
++    /**
++     * Captures JSON-RPC requests/responses written by the handler.
++     */
++    private static class CapturingJsonWriter implements JsonWriter {
++
++        final List<Object> written = Collections.synchronizedList(new ArrayList<>());
++
++        @Override
++        public void write(final Object object) {
++            written.add(object);
++        }
++    }
++
++    private record ManagedManager(Manager manager, ManagerMock.State state) {}
++
++    private static ManagedManager createManager(final String selfNumber) {
++        final var state = new ManagerMock.State();
++        return new ManagedManager(ManagerMock.create(selfNumber, state), state);
++    }
++
++    /**
++     * Minimal MultiAccountManager stub for multi-account mode tests.
++     */
++    private static class StubMultiAccountManager implements MultiAccountManager {
++
++        final List<Manager> managers;
++        final List<Consumer<Manager>> addedHandlers = new ArrayList<>();
++
++        StubMultiAccountManager(List<Manager> managers) {
++            this.managers = new ArrayList<>(managers);
++        }
++
++        @Override
++        public List<String> getAccountNumbers() {
++            return managers.stream().map(Manager::getSelfNumber).toList();
++        }
++
++        @Override
++        public List<Manager> getManagers() {
++            return managers;
++        }
++
++        @Override
++        public void addOnManagerAddedHandler(Consumer<Manager> handler) {
++            addedHandlers.add(handler);
++        }
++
++        @Override
++        public void addOnManagerRemovedHandler(Consumer<Manager> handler) {
++        }
++
++        @Override
++        public Manager getManager(String phoneNumber) {
++            return managers.stream().filter(m -> phoneNumber.equals(m.getSelfNumber())).findFirst().orElse(null);
++        }
++
++        @Override
++        public URI getNewProvisioningDeviceLinkUri() {
++            return null;
++        }
++
++        @Override
++        public ProvisioningManager getProvisioningManagerFor(URI u) {
++            return null;
++        }
++
++        @Override
++        public RegistrationManager getNewRegistrationManager(String a) {
++            return null;
++        }
++
++        @Override
++        public void close() {
++        }
++    }
++
++    private static String jsonRpcCall(int id, String method) {
++        return "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"method\":\"" + method + "\"}";
++    }
++
++    private static String jsonRpcCall(int id, String method, String params) {
++        return "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"method\":\"" + method + "\",\"params\":" + params + "}";
++    }
++
++    private static List<JsonRpcRequest> notificationsNamed(final CapturingJsonWriter writer, final String method) {
++        return writer.written.stream()
++                .filter(JsonRpcRequest.class::isInstance)
++                .map(JsonRpcRequest.class::cast)
++                .filter(r -> method.equals(r.getMethod()))
++                .toList();
++    }
++
++    // --- Single-account mode ---
++
++    @Test
++    void notSubscribedWhenReceiveIsNotSubscribed() {
++        var manager = createManager("+15551234567");
++        var feeder = new LineFeeder();
++        var writer = new CapturingJsonWriter();
++
++        // noReceiveOnStart = true: no implicit subscribeReceive, so no caught-up listener either.
++        var handler = new SignalJsonRpcDispatcherHandler(writer, feeder::getLine, true);
++        handler.handleConnection(manager.manager());
++
++        assertEquals(0, manager.state().addCaughtUpListenerCount.get(), "should not auto-subscribe");
++    }
++
++    @Test
++    void firesNotificationWithAccountOnDefaultSubscription() {
++        var manager = createManager("+15551234567");
++        var writer = new CapturingJsonWriter();
++
++        // Simulate the receive loop catching up with the server queue the instant the
++        // connection is handled, then end the connection.
++        Supplier<String> feeder = () -> {
++            manager.state().fireCaughtUp();
++            return null;
++        };
++
++        var handler = new SignalJsonRpcDispatcherHandler(writer, feeder, false);
++        handler.handleConnection(manager.manager());
++
++        assertEquals(1, manager.state().addCaughtUpListenerCount.get(), "default subscribeReceive should register one");
++        assertEquals(1, manager.state().removeCaughtUpListenerCount.get(), "cleanup should remove it");
++
++        var notifications = notificationsNamed(writer, "receiveCaughtUp");
++        assertEquals(1, notifications.size());
++        assertEquals("+15551234567", notifications.get(0).getParams().get("account").asText());
++        // The default (internal) subscription sends bare params, with no "subscription" wrapper.
++        assertNull(notifications.get(0).getParams().get("subscription"));
++    }
++
++    @Test
++    void explicitSubscriptionWrapsResultWithSubscriptionId() {
++        var manager = createManager("+15551234567");
++        var writer = new CapturingJsonWriter();
++        var lines = new LineFeeder();
++        lines.addLine(jsonRpcCall(1, "subscribeReceive"));
++
++        Supplier<String> feeder = () -> {
++            var next = lines.getLine();
++            if (next != null) {
++                return next;
++            }
++            // The subscribeReceive command above is handled on another (virtual) thread;
++            // wait for it to register before firing, bounded so a stuck test still fails fast.
++            for (var i = 0; i < 1000 && manager.state().addCaughtUpListenerCount.get() == 0; i++) {
++                try {
++                    Thread.sleep(1);
++                } catch (InterruptedException e) {
++                    Thread.currentThread().interrupt();
++                    break;
++                }
++            }
++            manager.state().fireCaughtUp();
++            return null;
++        };
++
++        // noReceiveOnStart = true, so the only subscription is the explicit one above.
++        var handler = new SignalJsonRpcDispatcherHandler(writer, feeder, true);
++        handler.handleConnection(manager.manager());
++
++        var notifications = notificationsNamed(writer, "receiveCaughtUp");
++        assertEquals(1, notifications.size());
++        // Explicit (non-default) subscriptions wrap the payload with their subscription id,
++        // unlike the bare params the default subscription sends (see the test above).
++        assertTrue(notifications.get(0).getParams().get("subscription").isInt());
++        assertEquals("+15551234567", notifications.get(0).getParams().get("result").get("account").asText());
++    }
++
++    @Test
++    void unsubscribeReceiveStopsCaughtUpNotifications() {
++        var manager = createManager("+15551234567");
++        var feeder = new LineFeeder();
++        var writer = new CapturingJsonWriter();
++
++        feeder.addLine(jsonRpcCall(1, "subscribeReceive"));
++        feeder.addLine(jsonRpcCall(2, "unsubscribeReceive", "{\"subscription\":0}"));
++
++        var handler = new SignalJsonRpcDispatcherHandler(writer, feeder::getLine, true);
++        handler.handleConnection(manager.manager());
++
++        assertEquals(1, manager.state().addCaughtUpListenerCount.get());
++        assertEquals(1, manager.state().removeCaughtUpListenerCount.get(), "explicit unsubscribe should remove it");
++        assertEquals(0, manager.state().caughtUpListeners.size());
++
++        // Firing after unsubscribe must not produce a notification.
++        manager.state().fireCaughtUp();
++        assertEquals(0, notificationsNamed(writer, "receiveCaughtUp").size());
++    }
++
++    // --- Multi-account mode ---
++
++    @Test
++    void multiAccountNotificationNamesTheRightAccount() {
++        var manager1 = createManager("+15551111111");
++        var manager2 = createManager("+15552222222");
++        var multi = new StubMultiAccountManager(List.of(manager1.manager(), manager2.manager()));
++        var writer = new CapturingJsonWriter();
++
++        Supplier<String> feeder = () -> {
++            manager2.state().fireCaughtUp();
++            return null;
++        };
++
++        var handler = new SignalJsonRpcDispatcherHandler(writer, feeder, false);
++        handler.handleConnection(multi);
++
++        var notifications = notificationsNamed(writer, "receiveCaughtUp");
++        assertEquals(1, notifications.size(), "only manager2 caught up");
++        assertEquals("+15552222222", notifications.get(0).getParams().get("account").asText());
++    }
++}
+diff --git a/src/test/java/org/asamk/signal/jsonrpc/SubscribeCallEventsTest.java b/src/test/java/org/asamk/signal/jsonrpc/SubscribeCallEventsTest.java
+index 80fc63e..bb29969 100644
+--- a/src/test/java/org/asamk/signal/jsonrpc/SubscribeCallEventsTest.java
++++ b/src/test/java/org/asamk/signal/jsonrpc/SubscribeCallEventsTest.java
+@@ -228,8 +228,9 @@ class SubscribeCallEventsTest {
+ 
+         assertEquals(1, manager1.state().addCallEventListenerCount.get(), "manager1 should have one listener");
+         assertEquals(1, manager2.state().addCallEventListenerCount.get(), "manager2 should have one listener");
+-        // Also registers an onManagerAdded handler for receive and one for call events
+-        assertEquals(2, multi.addedHandlers.size(), "should register onManagerAdded handlers");
++        // Also registers an onManagerAdded handler for receive, one for the
++        // receiveCaughtUp notification, and one for call events.
++        assertEquals(3, multi.addedHandlers.size(), "should register onManagerAdded handlers");
+     }
+ 
+     @Test
+diff --git a/src/test/java/org/asamk/signal/testutil/ManagerMock.java b/src/test/java/org/asamk/signal/testutil/ManagerMock.java
+index d10bdd6..70b8528 100644
+--- a/src/test/java/org/asamk/signal/testutil/ManagerMock.java
++++ b/src/test/java/org/asamk/signal/testutil/ManagerMock.java
+@@ -27,6 +27,15 @@ public final class ManagerMock {
+         public final List<Manager.ReceiveMessageHandler> receiveHandlers = new ArrayList<>();
+         public final AtomicInteger addReceiveHandlerCount = new AtomicInteger(0);
+         public final AtomicInteger removeReceiveHandlerCount = new AtomicInteger(0);
++
++        public final List<Runnable> caughtUpListeners = new ArrayList<>();
++        public final AtomicInteger addCaughtUpListenerCount = new AtomicInteger(0);
++        public final AtomicInteger removeCaughtUpListenerCount = new AtomicInteger(0);
++
++        /** Simulates the receive loop catching up with the server's queue. */
++        public void fireCaughtUp() {
++            new ArrayList<>(caughtUpListeners).forEach(Runnable::run);
++        }
+     }
+ 
+     public static Manager create(final String selfNumber) {
+@@ -59,6 +68,14 @@ public final class ManagerMock {
+                             state.removeReceiveHandlerCount.incrementAndGet();
+                             state.receiveHandlers.remove((Manager.ReceiveMessageHandler) args[0]);
+                             return null;
++                        case "addCaughtUpWithOldMessagesListener":
++                            state.addCaughtUpListenerCount.incrementAndGet();
++                            state.caughtUpListeners.add((Runnable) args[0]);
++                            return null;
++                        case "removeCaughtUpWithOldMessagesListener":
++                            state.removeCaughtUpListenerCount.incrementAndGet();
++                            state.caughtUpListeners.remove((Runnable) args[0]);
++                            return null;
+                         case "equals":
+                             return proxy == args[0];
+                         case "hashCode":

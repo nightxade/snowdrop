@@ -459,7 +459,11 @@ export class SignalCliBackend implements ChatBackend {
 
   private onTransportEvent(event: TransportEvent): void {
     let events: AdapterEvent[] = [];
-    if (event.type !== 'receive') {
+    if (event.type === 'receiveCaughtUp') {
+      // Patched signal-cli only (patches/signal-cli/0012): the receive loop
+      // drained the server's queue. No envelope; nothing to normalise.
+      this.emitter.emit('caughtUp', undefined);
+    } else if (event.type !== 'receive') {
       this.debugLog(`ignored event "${event.type}"`);
     } else {
       try {

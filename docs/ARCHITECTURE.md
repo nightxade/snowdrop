@@ -211,10 +211,20 @@ and calls services (or runs commands).
 Adapters translate protocol quirks into the domain-level `BackendEvents`
 (`message`, `messageEdited`, `messageDeleted`, `messagePinned`, `reaction`,
 `receipt`, `typing`, `readSync`, `conversationUpdated`, `contactUpdated`,
-`status`, `checkpoint`). `SyncService` subscribes once:
+`status`, `checkpoint`, `caughtUp`). `SyncService` subscribes once:
 
 - **Ephemeral events apply immediately:** `status`, `typing` and
   `contactUpdated` go straight to their stores.
+- **`caughtUp`** (and every `message`, observed directly) drives a
+  `CatchUpTracker`, exposed as `stores.session.catchingUp`: true from
+  `start()` (and again after a reconnect that followed being offline) until
+  the backend reports it caught up with the server's queue, a quiet period
+  with no messages, or a ~20s ceiling, whichever comes first. The sidebar
+  freezes order/badges and shows "Loading…" previews while it's true
+  (`useSidebarModel`, `useRowState`); `NotificationService` suppresses
+  messages processed during it. signal-cli only sends `caughtUp` with the
+  `receiveCaughtUp` patch (`patches/signal-cli/README.md`); other backends
+  rely on the quiet-period/ceiling fallback.
 - **Everything else goes through one ordered queue,** so an edit can never
   overtake the message it edits and a group refresh can't be overtaken by the
   next message. A handler that throws is reported and skipped; it never stalls

@@ -1,4 +1,5 @@
 export * from './types';
+export * from './CatchUpTracker';
 export * from './SendService';
 export * from './SyncService';
 export * from './HistoryService';

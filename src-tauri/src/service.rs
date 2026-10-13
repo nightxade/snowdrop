@@ -450,8 +450,14 @@ impl Service {
         self.vault.trigger();
     }
 
+    /// `receive` carries the envelope; `receiveCaughtUp` (patches/signal-cli
+    /// 0012) tells the UI the receive loop drained the server's queue, with
+    /// no envelope. Both wrap their payload in `{ subscription, result }` the
+    /// same way (`subscribe_child` subscribes to both at once), so they share
+    /// the account lookup and the held-event log; only the forwarded `kind`
+    /// (and therefore the UI's event `type`) differs.
     fn on_notification(&self, method: &str, params: Value) {
-        if method != "receive" {
+        if method != "receive" && method != "receiveCaughtUp" {
             log::debug!("ignored signal-cli notification {method}");
             return;
         }
@@ -465,7 +471,7 @@ impl Service {
                 None if subs.accounts.len() == 1 => subs.accounts[0].clone(),
                 None => {
                     log::warn!(
-                        "dropped a receive notification with an unrecognised subscription id ({} account(s) subscribed)",
+                        "dropped a {method} notification with an unrecognised subscription id ({} account(s) subscribed)",
                         subs.accounts.len()
                     );
                     return;
@@ -473,7 +479,7 @@ impl Service {
             }
         };
         let payload = receive_payload(params);
-        let event = self.log.lock().expect("log lock").push(&account, "receive", payload);
+        let event = self.log.lock().expect("log lock").push(&account, method, payload);
         self.sink.event(&event);
     }
 
@@ -652,6 +658,34 @@ mod tests {
         let (svc, sink) = service_with_sink();
 
         svc.on_notification("receive", json!({"subscription": 999, "envelope": {}}));
+
+        assert!(sink.events.lock().unwrap().is_empty());
+    }
+
+    /// `receiveCaughtUp` (patches/signal-cli 0012) is forwarded just like `receive`,
+    /// with its own `kind` and no envelope, using the same account lookup.
+    #[test]
+    fn caught_up_notification_is_forwarded_with_its_own_kind() {
+        let (svc, sink) = service_with_sink();
+        svc.subs.lock().unwrap().by_id.insert(0, "+15550001".into());
+
+        svc.on_notification("receiveCaughtUp", json!({"subscription": 0, "result": {"account": "+15550001"}}));
+
+        let events = sink.events.lock().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, "receiveCaughtUp");
+        assert_eq!(events[0].account, "+15550001");
+        assert_eq!(events[0].data, json!({"account": "+15550001"}));
+    }
+
+    /// A notification method Snowdrop doesn't understand is dropped, not forwarded
+    /// under some made-up kind.
+    #[test]
+    fn unknown_notification_method_is_ignored() {
+        let (svc, sink) = service_with_sink();
+        svc.subs.lock().unwrap().accounts.push("+15550001".into());
+
+        svc.on_notification("somethingElse", json!({"subscription": 0}));
 
         assert!(sink.events.lock().unwrap().is_empty());
     }
