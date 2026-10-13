@@ -197,8 +197,10 @@ pub fn warm_registry_in_background() {
             });
         }
         match command.status() {
-            Ok(status) => log::info!("gstreamer registry warm-up finished in {:?}: {status}", start.elapsed()),
-            Err(error) => log::info!("gstreamer registry warm-up couldn't start: {error}"),
+            // Info on success (hidden at the default Warn level); a failure is worth seeing.
+            Ok(status) if status.success() => log::info!("gstreamer registry warm-up finished in {:?}", start.elapsed()),
+            Ok(status) => log::warn!("gstreamer registry warm-up failed after {:?}: {status}", start.elapsed()),
+            Err(error) => log::warn!("gstreamer registry warm-up couldn't start: {error}"),
         }
     });
 }
