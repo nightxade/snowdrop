@@ -239,6 +239,104 @@ notifications. It carries no envelope payload; clients still read messages
 from ordinary `receive` notifications. Builds as
 `0.14.8-snowdrop-history.9`.
 
+## Custom emoji
+
+The thirteenth patch adds Snowdrop-to-Snowdrop custom emoji delivery: when a message's text
+contains a sender's own `:name:` custom emoji, the patched signal-cli uploads each one's image
+as a normal encrypted attachment and carries `{name, attachment}` pairs on the message as an
+_unknown_ DataMessage field. Official Signal clients (and unpatched signal-cli) silently ignore
+unknown fields — they still show the plain `:name:` text and nothing else. Only a signal-cli with
+this patch (receiving) decodes and exposes the delivered images. Works in 1:1 chats, groups, and
+edits (an `EditMessage` wraps a `DataMessage` the same way).
+
+This patch depends on `patches/signal-service-java`'s generic unknown-fields hook — see that
+patch set's README for what it adds to the library and how `scripts/build-signal-cli.sh` builds
+and wires it in. Everything _specific_ to custom emoji (the field number, the wire shape, the
+JSON-RPC surface) lives entirely in this patch, in signal-cli's own source.
+
+### Wire shape
+
+Field 9000 on `DataMessage` (chosen well above Signal's own field numbering, which tops out in
+the low two digits for top-level `DataMessage` fields): a `SnowdropExtension` submessage,
+entirely private to this patch (not declared in any `.proto` file — encoded and decoded by hand
+in `SnowdropCustomEmojiCodec`, using Wire's public low-level `ProtoReader`/`ProtoWriter`/
+`ProtoAdapter` APIs the same way Wire's own generated code does):
+
+```proto
+// Field 9000 on DataMessage.
+message SnowdropExtension {
+  repeated SnowdropEmojiEntry emoji = 1;
+}
+message SnowdropEmojiEntry {
+  string name = 1;
+  bytes attachment = 2; // a serialized, standard Signal AttachmentPointer proto
+}
+```
+
+The nested attachment is a real `AttachmentPointer` (the same proto type ordinary message
+attachments use), built on send via `AttachmentPointerUtil.createAttachmentPointer` and read back
+on receive via `AttachmentPointerUtil.createSignalAttachmentPointer` — both already-public
+methods on signal-service-java (no patch needed for either direction of that conversion). This
+means a received custom emoji attachment downloads and decrypts through signal-cli's completely
+ordinary attachment path; it is not a bespoke shape.
+
+### Sending
+
+JSON-RPC `send` (and `sendEditMessage`'s underlying path) gains an optional `customEmoji`
+parameter: a list of `{name, attachment}` objects, where `attachment` is the same kind of value
+as a normal `attachments` entry (a file path or a `data:` URI). Snowdrop is expected to send only
+the custom emoji whose `:name:` tokens actually appear in the message text, deduplicated — this
+patch does not itself scan the text for tokens (that's Snowdrop's own job; see
+`docs/SIGNAL_CLI.md`). Each entry's image is uploaded exactly like a normal attachment
+(`AttachmentHelper.uploadAttachment`). Defensive caps: at most `SnowdropCustomEmojiCodec.
+MAX_ENTRIES` (50) entries per message, and each uploaded attachment must be at or under 256 KiB
+(matching Snowdrop's own client-side cap on custom emoji images) — a message that exceeds either
+cap fails the whole send with a clear error rather than silently dropping entries.
+
+### Receiving
+
+`IncomingMessageHandler` decodes field 9000 from the raw, pre-`SignalServiceContent` `Content`/
+`DataMessage` Wire proto that's already available there (`SignalServiceCipherResult#getContent()`
+— nothing about signal-service-java needed to change for this direction; see that patch's
+README). Malformed data — a field that doesn't parse as `SnowdropExtension`, an entry missing its
+name or attachment, more than `MAX_ENTRIES` entries — is dropped (that one field, or that one
+entry) without failing the whole message, and logged at debug level without message content.
+
+The decoded entries are threaded through to `MessageEnvelope.Data.customEmoji`: a list of
+`{name, attachment}`, where `attachment` is the exact same JSON shape (`JsonAttachment`) as an
+ordinary message attachment, downloadable through the existing `getAttachment` RPC. Only the
+emoji actually delivered with _that_ message appear there — never a guess from any local
+collection. This is threaded through for both a plain `DataMessage` and an `EditMessage`'s wrapped
+`DataMessage`; a `SyncMessage`'s self-sent echo (`sentMessage.dataMessage`, a different nested
+position in the raw proto) is not covered by this patch.
+
+Custom emoji attachments are not eagerly downloaded to signal-cli's local cache on receipt the
+way ordinary message attachments are — they're resolved on demand through `getAttachment`, same
+as any other attachment accessed outside the eager-download path.
+
+### Capability detection
+
+Nothing upstream advertises support for this. Snowdrop detects it from signal-cli's own version
+string: a build with `snowdrop-history.N` where `N` is at least this patch's number (10) supports
+`customEmoji`; anything else (upstream signal-cli, the demo backend, an older patched build)
+doesn't, and Snowdrop falls back to sending/rendering plain text.
+
+### Verification
+
+- Java unit tests: `SignalServiceDataMessageUnknownFieldsTest` (signal-service-java, the generic
+  hook) and `SnowdropCustomEmojiCodecTest` (signal-cli, encode/decode round trips through real
+  Wire proto encoding — including through a nested `EditMessage`, multiple entries preserving
+  order, and tolerance of malformed/oversized/missing-field input).
+- Full `:libsignal-cli:test` (lib module) and root `:test` suites pass with this patch applied:
+  211 tests, 0 failures, 0 errors (includes the new tests above).
+- `scripts/build-signal-cli.sh --test` builds and smoke-tests the complete runtime with this
+  patch and patches/signal-service-java's jar substituted in.
+- Not verified: an actual Snowdrop-to-Snowdrop send/receive over Signal's servers (no test
+  account available in this environment), and the real-phone check that official Signal shows
+  only the `:name:` text — both are the user's to do.
+
+Builds as `0.14.8-snowdrop-history.10`.
+
 ## User-controlled phone verification
 
 Run this only when ready to add a test device on the phone. It uses a new data

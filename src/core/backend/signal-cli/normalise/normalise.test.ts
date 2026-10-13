@@ -134,6 +134,30 @@ describe('normaliseReceive: messages', () => {
     ]);
   });
 
+  it('maps custom emoji delivered with the message (patches/signal-cli extension)', () => {
+    const { payload } = only(run(fixtures.customEmojiDelivery).events, 'message');
+    expect(payload.body).toBe('nice climb :party:');
+    expect(payload.customEmoji).toEqual([
+      {
+        name: 'party',
+        attachment: {
+          id: 'Aa1Bb2Cc3Dd4.png',
+          contentType: 'image/png',
+          size: 4_096,
+          width: 64,
+          height: 64,
+        },
+      },
+    ]);
+  });
+
+  it('drops a custom emoji entry missing its name, keeping the others', () => {
+    const { payload } = only(run(fixtures.customEmojiPartiallyMalformed).events, 'message');
+    expect(payload.customEmoji).toEqual([
+      { name: 'b', attachment: { id: 'good.png', contentType: 'image/png' } },
+    ]);
+  });
+
   it('maps sync transcripts to our own messages in the right conversation', () => {
     const dm = only(run(fixtures.syncSentDm).events, 'message').payload;
     expect(dm).toMatchObject({

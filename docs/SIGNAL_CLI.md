@@ -199,29 +199,37 @@ browser checks cover archive paging, media viewing, notification suppression,
 read-time expiration, and continuing after a history-transfer failure. These
 checks do not verify a real phone transfer or real attachment CDN availability.
 
-## Custom emoji: `:name:` text, no Snowdrop-to-Snowdrop delivery
+## Custom emoji: `:name:` text, with Snowdrop-to-Snowdrop delivery on a patched signal-cli
 
 Custom emoji (Settings → Custom emoji, or the composer's "My emoji" tab) are typed or
-inserted as plain `:name:` text — there is no attachment. Snowdrop renders a resolvable
-`:name:` inline as the emoji's image, at emoji size (jumbo if the whole message is emoji,
-matching the rule for standard emoji — see `isJumbo` in
-`src/ui/features/chat/message/MessageBody.tsx`), but **only in the viewer's own messages**,
-resolved from their own local collection. Received messages always render `:name:` as plain
-text: Snowdrop never guesses another sender's custom emoji from the viewer's own collection.
+inserted as plain `:name:` text — the text is all that's in a message's visible body.
+Snowdrop renders a resolvable `:name:` inline as the emoji's image, at emoji size (jumbo if
+the whole message is emoji, matching the rule for standard emoji — see `isJumbo` in
+`src/ui/features/chat/message/MessageBody.tsx`).
 
-This is intentionally short of the original goal (delivering the sender's emoji image to
-other Snowdrop clients over an unknown DataMessage field that official Signal clients ignore).
-A feasibility pass found that `signal-service-java` 2.15.3_unofficial_153's public send API
-(`SignalServiceMessageSender.sendDataMessage` / `sendGroupDataMessage`) only accepts its
-high-level `SignalServiceDataMessage`, which has no unknown-field slot and no public
-conversion to the raw Wire `DataMessage`/`Content` proto; the only API that accepts a
-caller-built `Content` (`resendContent`) sends to a single recipient only, with no group
-equivalent at all. Receiving an unknown field is fully feasible signal-cli-side (the raw,
-still-unparsed `Content` proto is available in
-`IncomingMessageHandler.validate()` via `cipherResult.getContent()`, and Wire's
-`unknownFields()` exposes it), but sending one is not, without patching
-`signal-service-java` itself — out of scope for the signal-cli patch series, which only
-patches signal-cli's own source. No patch 0013 exists for this reason; patches stop at 0012.
-Because Snowdrop never attempts to smuggle emoji data over the wire, sending against stock
-signal-cli or the demo backend already "degrades gracefully" by construction — it was always
-just sending text — with no capability probe needed.
+Against a signal-cli built from this repo's patches (`patches/signal-cli`, patch 0013, and
+its enabling `patches/signal-service-java` hook), the emoji's image is delivered too: when the
+outgoing text contains `:name:` tokens matching the sender's own collection, Snowdrop uploads
+each one's image as a normal encrypted attachment and the message carries `{name, attachment}`
+pairs on an _unknown_ DataMessage field (9000). Official Signal clients, and any unpatched
+signal-cli, silently ignore unknown fields — they still see only the `:name:` text. A Snowdrop
+peer on a patched signal-cli decodes the field and renders the image inline, for that message
+only; **own messages still resolve `:name:` from the viewer's own collection** (what they're
+about to send, or already sent), and **received messages resolve only from that specific
+message's own delivered emoji** — never the viewer's local collection, which has nothing to do
+with what the sender used. Works in 1:1 chats, groups, and edits.
+
+Capability detection is one pure function,
+`src/core/backend/signal-cli/capabilities.ts` (`supportsCustomEmojiDelivery`): it checks the
+connected daemon's own version string (fetched once at connect, via the `version` JSON-RPC
+method) for a `snowdrop-history.N` patch level of at least 10. Against upstream signal-cli, an
+older patched build, or the demo backend, this is false, and Snowdrop sends (and received
+messages can only ever carry) plain `:name:` text — the exact behaviour this feature had before
+patch 0013 existed, with no change in UI or data shape.
+
+See `patches/signal-cli/README.md`'s "Custom emoji" section for the wire shape, the JSON-RPC
+`send`/`sendEditMessage` `customEmoji` param, and the `MessageEnvelope.Data.customEmoji`
+receive shape this builds on; `patches/signal-service-java/README.md` for the one generic hook
+(`SignalServiceDataMessage.Builder#withUnknownFields`) that made sending possible at all — the
+public send API otherwise only accepts a `SignalServiceDataMessage` with no unknown-field slot,
+and the raw-`Content` escape hatch (`resendContent`) has no group-send equivalent.

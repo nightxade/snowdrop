@@ -1,5 +1,6 @@
 import { memo, useState, type KeyboardEvent, type ReactElement, type ReactNode } from 'react';
 import { MENTION_PLACEHOLDER, rangesToSegments, type BodyRange, type Segment } from '@/core/domain';
+import { CUSTOM_EMOJI_TOKEN } from '@/core/stores/customEmoji';
 import { splitGraphemes } from '@/ui/lib/graphemes';
 import styles from './MessageBody.module.css';
 
@@ -23,17 +24,17 @@ export interface MessageBodyProps {
   /**
    * Resolves a `:name:` token to a custom emoji image, if one should render
    * inline here. Own messages resolve from the viewer's own collection;
-   * received messages have nothing to resolve from — Snowdrop never guesses
-   * a sender's custom emoji from the viewer's own collection (no transport
-   * currently delivers the sender's image alongside the text; see
-   * docs/SIGNAL_CLI.md). Omitting this prop renders `:name:` as plain text.
+   * received messages resolve from that specific message's own delivered
+   * emoji, when the sender's signal-cli could deliver them (see
+   * docs/SIGNAL_CLI.md) — never the viewer's own collection, which has
+   * nothing to do with what the sender used. Omitting this prop, or the
+   * resolver returning undefined (not found, or still loading), renders
+   * `:name:` as plain text.
    */
   resolveCustomEmoji?: (name: string) => string | undefined;
 }
 
 const URL_PATTERN = /\bhttps?:\/\/[^\s<>"']+[^\s<>"'.,;:!?)\]}]/giu;
-/** Matches the same name shape as `CUSTOM_EMOJI_NAME` in core/stores/customEmoji.ts. */
-const CUSTOM_EMOJI_TOKEN = /:([a-z0-9_+-]{1,32}):/gu;
 
 /** Plain text with http(s) links made clickable (opened in a new tab, no referrer). */
 function Linkified({ text }: { text: string }) {

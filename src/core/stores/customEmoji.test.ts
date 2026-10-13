@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createLocalStore, localSchema, selectLocalData } from './local';
-import { parseCustomEmoji } from './customEmoji';
+import { extractCustomEmojiNames, parseCustomEmoji } from './customEmoji';
 
 const emoji = { name: 'wave', dataUrl: 'data:image/png;base64,aGVsbG8=' };
 
@@ -35,5 +35,23 @@ describe('personal custom emoji', () => {
     }).toThrow('collection is full');
     expect(store.getState().customEmoji).toHaveLength(32);
     expect(localSchema.parse({ conversations: {} })?.customEmoji).toEqual([]);
+  });
+});
+
+describe('extractCustomEmojiNames', () => {
+  it('finds distinct :name: tokens in first-seen order', () => {
+    expect(extractCustomEmojiNames('great :party: and :party: again, :wave:')).toEqual([
+      'party',
+      'wave',
+    ]);
+  });
+
+  it('returns nothing for text with no tokens', () => {
+    expect(extractCustomEmojiNames('just text, no emoji here')).toEqual([]);
+    expect(extractCustomEmojiNames('')).toEqual([]);
+  });
+
+  it('ignores a malformed or over-length token', () => {
+    expect(extractCustomEmojiNames(`:${'a'.repeat(33)}: :Capital: :has space:`)).toEqual([]);
   });
 });

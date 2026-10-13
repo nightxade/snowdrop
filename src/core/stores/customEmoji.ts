@@ -11,6 +11,24 @@ export const CUSTOM_EMOJI_NAME = /^[a-z0-9_+-]{1,32}$/u;
 const IMAGE_DATA =
   /^data:image\/(png|jpeg|gif|webp);base64,((?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?)$/u;
 
+/**
+ * Matches a `:name:` token in message text. Shared by composing (which
+ * emoji did the sender use, to deliver alongside the text) and rendering
+ * (MessageBody's inline image swap) so both sides agree on exactly the same
+ * shape as `CUSTOM_EMOJI_NAME`.
+ */
+export const CUSTOM_EMOJI_TOKEN = /:([a-z0-9_+-]{1,32}):/gu;
+
+/** The distinct `:name:` tokens in `text`, in first-seen order. */
+export function extractCustomEmojiNames(text: string): string[] {
+  const names = new Set<string>();
+  for (const match of text.matchAll(CUSTOM_EMOJI_TOKEN)) {
+    const name = match[1];
+    if (name) names.add(name);
+  }
+  return [...names];
+}
+
 export function parseCustomEmoji(value: unknown): CustomEmoji | null {
   if (
     !isRecord(value) ||

@@ -167,6 +167,39 @@ export const fixtures = {
     }),
   }),
 
+  customEmojiDelivery: receive('alice', {
+    dataMessage: dataMessage({
+      message: 'nice climb :party:',
+      customEmoji: [
+        {
+          name: 'party',
+          attachment: {
+            contentType: 'image/png',
+            filename: null,
+            id: 'Aa1Bb2Cc3Dd4.png',
+            size: 4_096,
+            width: 64,
+            height: 64,
+            caption: null,
+            uploadTimestamp: T0 - 10,
+            isVoiceNote: false,
+          },
+        },
+      ],
+    }),
+  }),
+
+  /** A malformed entry (missing name) alongside a valid one: only the valid one survives. */
+  customEmojiPartiallyMalformed: receive('alice', {
+    dataMessage: dataMessage({
+      message: ':a: :b:',
+      customEmoji: [
+        { name: '', attachment: { contentType: 'image/png', id: 'bad.png' } },
+        { name: 'b', attachment: { contentType: 'image/png', id: 'good.png' } },
+      ],
+    }),
+  }),
+
   syncSentDm: receive('self', {
     sourceDevice: 2,
     syncMessage: {

@@ -1,5 +1,5 @@
 import { Clock } from 'lucide-react';
-import { useMemo, type CSSProperties } from 'react';
+import type { CSSProperties } from 'react';
 import { useStore } from 'zustand';
 import { initialsFor, type ConversationId, type Message } from '@/core/domain';
 import { contactsSelectors } from '@/core/stores';
@@ -14,6 +14,7 @@ import { MessageEditor } from './MessageEditor';
 import { MessageMeta } from './MessageMeta';
 import { MessageNotes } from './MessageNotes';
 import { Reactions } from './Reactions';
+import { useCustomEmojiResolver } from './useCustomEmojiResolver';
 import styles from './MessageItem.module.css';
 
 export interface MessageContentProps {
@@ -50,23 +51,12 @@ export function MessageContent({
 }: MessageContentProps) {
   const app = useSnowdrop();
   const author = useStore(app.stores.contacts, contactsSelectors.contact(m.authorId));
-  const customEmoji = useStore(app.stores.local, (s) => s.customEmoji);
   const accessories = useObservableList(app.registries.messageAccessories);
   const decorations = useObservableList(app.registries.messageDecorations);
   const name = nameFor(m.authorId);
   const color = author?.color ?? 'var(--snowdrop-avatar-1)';
   const showHeader = compact || !continuation;
-  // Only the viewer's own collection, and only on their own messages: nothing
-  // currently delivers a sender's custom emoji image alongside the text (see
-  // docs/SIGNAL_CLI.md), so a received `:name:` always renders as plain text.
-  const own = m.authorId === selfId;
-  const resolveCustomEmoji = useMemo(
-    () =>
-      own
-        ? (emojiName: string) => customEmoji.find((e) => e.name === emojiName)?.dataUrl
-        : undefined,
-    [own, customEmoji],
-  );
+  const { resolveCustomEmoji, emojiSources } = useCustomEmojiResolver(m, selfId, conversationId);
 
   const avatar = (
     <Avatar
@@ -114,6 +104,7 @@ export function MessageContent({
             {!compact && <MessageMeta message={m} variant="header" quiet={menuOpen} />}
           </span>
         )}
+        {emojiSources}
         {editing ? (
           <MessageEditor message={m} onDone={onEditDone} />
         ) : m.deleted ? (

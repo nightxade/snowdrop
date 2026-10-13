@@ -12,7 +12,13 @@
  * acknowledged. If the send never went out (it failed), an edit simply
  * rewrites what will be sent and a delete discards it.
  */
-import type { ChatBackend, ConversationPatch, SendInput } from '@/core/backend';
+import type {
+  ChatBackend,
+  ConversationPatch,
+  OutgoingCustomEmoji,
+  SendInput,
+} from '@/core/backend';
+import { extractCustomEmojiNames } from '@/core/stores/customEmoji';
 import {
   advanceStatus,
   applyDelete,
@@ -106,6 +112,23 @@ export class SendService {
   }
 
   /**
+   * The sender's own custom emoji actually used (as `:name:`) in `body`,
+   * deduplicated, for a backend that can deliver them (see
+   * ChatBackend.supportsCustomEmojiDelivery). A name with no matching local
+   * emoji is simply left out — it renders as plain `:name:` text everywhere,
+   * same as it always did.
+   */
+  private buildCustomEmoji(body: string): OutgoingCustomEmoji[] | undefined {
+    if (!this.deps.backend.supportsCustomEmojiDelivery?.()) return undefined;
+    const library = this.deps.stores.local.getState().customEmoji;
+    const used = extractCustomEmojiNames(body)
+      .map((name) => library.find((e) => e.name === name))
+      .filter((e): e is (typeof library)[number] => e !== undefined)
+      .map((e) => ({ name: e.name, dataUrl: e.dataUrl }));
+    return used.length > 0 ? used : undefined;
+  }
+
+  /**
    * Turns composer text into Signal body + ranges: markdown (per `format`, or
    * the user's setting when omitted) plus mentions.
    */
@@ -151,6 +174,8 @@ export class SendService {
       attachments: transformed.attachments,
     };
     if (transformed.quote) input.quote = transformed.quote;
+    const customEmoji = this.buildCustomEmoji(body);
+    if (customEmoji) input.customEmoji = customEmoji;
 
     const optimistic: Message = {
       id: pendingMessageId(nonce),
@@ -440,12 +465,14 @@ export class SendService {
       commit: async (target) => {
         // signal-cli rebuilds the whole data message from the edit's params:
         // without the original quote the edit would drop the reply context.
+        const customEmoji = this.buildCustomEmoji(body);
         const result = await this.deps.backend.edit({
           conversationId,
           targetSentAt: target.sentAt,
           body,
           ranges,
           ...(target.quote ? { quote: target.quote } : {}),
+          ...(customEmoji ? { customEmoji } : {}),
         });
         editedAt = result.sentAt;
       },

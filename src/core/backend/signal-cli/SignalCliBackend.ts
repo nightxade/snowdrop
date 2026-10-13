@@ -59,6 +59,7 @@ import type {
   SendResult,
 } from '../types';
 import { AttachmentResolver, encodeOutgoing, type Thumbnailer } from './attachments';
+import { supportsCustomEmojiDelivery as detectCustomEmojiSupport } from './capabilities';
 import { Directory } from './directory';
 import { describeError, SignalCliError } from './errors';
 import { GroupChangeTracker } from './groupChanges';
@@ -91,6 +92,7 @@ import {
   wireFinishLink,
   wireSendResult,
   wireStartLink,
+  wireVersion,
   type WireAccount,
 } from './wire';
 
@@ -170,6 +172,8 @@ export class SignalCliBackend implements ChatBackend {
   private identity = new SelfIdentity('');
   private multiAccount = true;
   private peers: DirectPeers | null = null;
+  /** Whether the connected daemon can deliver custom emoji (see capabilities.ts). */
+  private customEmojiSupported = false;
 
   constructor(private readonly options: SignalCliBackendOptions) {
     this.clock = options.clock ?? systemClock;
@@ -262,6 +266,7 @@ export class SignalCliBackend implements ChatBackend {
     this.setStatus('connecting');
     try {
       await this.rpc.check({ timeoutMs: this.transport.checkTimeoutMs ?? 5_000 });
+      this.customEmojiSupported = detectCustomEmojiSupport(await this.probeVersion());
       this.selectAccount(await this.discoverAccount());
       // Stream first: nothing sent to us while we load the directory is missed.
       this.openStream();
@@ -275,6 +280,27 @@ export class SignalCliBackend implements ChatBackend {
       this.setStatus('error');
       throw error;
     }
+  }
+
+  /**
+   * `version` takes no account and never fails a connect: an older daemon
+   * that somehow rejects it just means no capabilities it gates (today,
+   * only custom emoji) are offered.
+   */
+  private async probeVersion(): Promise<string | undefined> {
+    try {
+      const { version } = await this.rpc.call('version', undefined, wireVersion, {
+        account: null,
+      });
+      return version;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** Whether the connected signal-cli build can deliver custom emoji images (see capabilities.ts). */
+  supportsCustomEmojiDelivery(): boolean {
+    return this.customEmojiSupported;
   }
 
   /**
@@ -340,6 +366,7 @@ export class SignalCliBackend implements ChatBackend {
     await this.closeStream();
     this.attachments.clear();
     this.groupChanges.clear();
+    this.customEmojiSupported = false;
     this.setStatus('offline');
   }
 
@@ -929,6 +956,11 @@ export class SignalCliBackend implements ChatBackend {
         ranges: input.ranges,
         ...(input.quote ? { quote: input.quote } : {}),
         attachments: encoded.map((e) => e.param),
+        // Defensive: never forward customEmoji to a daemon that hasn't
+        // advertised support for it, even if the caller built one anyway.
+        ...(this.customEmojiSupported && input.customEmoji
+          ? { customEmoji: input.customEmoji }
+          : {}),
       }),
     };
     let result;
@@ -973,6 +1005,9 @@ export class SignalCliBackend implements ChatBackend {
         ranges: input.ranges,
         ...(quote ? { quote } : {}),
         editTimestamp: input.targetSentAt,
+        ...(this.customEmojiSupported && input.customEmoji
+          ? { customEmoji: input.customEmoji }
+          : {}),
       }),
     };
     try {

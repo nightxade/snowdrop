@@ -634,6 +634,35 @@ describe('SendService', () => {
     expect(await s.repository.listOutbox()).toEqual([]);
   });
 
+  it('includes the sender own custom emoji used in the text, when the backend supports delivering them', async () => {
+    const s = await setup();
+    Object.assign(s.backend, { supportsCustomEmojiDelivery: () => true });
+    const sendSpy = vi.spyOn(s.backend, 'send');
+    s.stores.local
+      .getState()
+      .saveCustomEmoji({ name: 'party', dataUrl: 'data:image/png;base64,aGk=' });
+    const id = s.conv('orchard-eng');
+    await s.send.send(draft(id, 'hi :party: and :unknown:'));
+    await flush();
+    expect(sendSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        customEmoji: [{ name: 'party', dataUrl: 'data:image/png;base64,aGk=' }],
+      }),
+    );
+  });
+
+  it('never attaches customEmoji when the backend has not advertised support for it', async () => {
+    const s = await setup();
+    s.stores.local
+      .getState()
+      .saveCustomEmoji({ name: 'party', dataUrl: 'data:image/png;base64,aGk=' });
+    const sendSpy = vi.spyOn(s.backend, 'send');
+    const id = s.conv('orchard-eng');
+    await s.send.send(draft(id, 'hi :party:'));
+    await flush();
+    expect(sendSpy.mock.calls[0]?.[0]).not.toHaveProperty('customEmoji');
+  });
+
   it('(C) applies a receipt that arrived before the send was acknowledged', async () => {
     const s = await setup({ latencyMs: 100 });
     const id = s.conv('books');

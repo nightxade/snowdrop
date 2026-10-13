@@ -281,6 +281,24 @@ describe('SignalCliBackend: connection', () => {
     expect(statuses.at(-1)).toBe('error');
     await backend.disconnect();
   });
+
+  it('detects custom-emoji support from the connected daemon version string', async () => {
+    const { daemon } = daemonWithAccount();
+    daemon.reply('version', { version: '0.14.8-snowdrop-history.10' });
+    const { backend } = await connected({ daemon });
+    expect(backend.supportsCustomEmojiDelivery()).toBe(true);
+    await backend.disconnect();
+    // A fresh connect to a daemon that doesn't support it drops back to false.
+    expect(backend.supportsCustomEmojiDelivery()).toBe(false);
+  });
+
+  it('treats a missing or unsupported version as no custom-emoji support', async () => {
+    const { daemon } = daemonWithAccount();
+    // No 'version' handler configured: FakeDaemon answers method-not-found.
+    const { backend } = await connected({ daemon });
+    expect(backend.supportsCustomEmojiDelivery()).toBe(false);
+    await backend.disconnect();
+  });
 });
 
 describe('SignalCliBackend: directory', () => {
@@ -608,6 +626,47 @@ describe('SignalCliBackend: commands', () => {
         },
       ],
     });
+    await backend.disconnect();
+  });
+
+  it('forwards customEmoji on send/edit only when the daemon supports it', async () => {
+    const { daemon } = daemonWithAccount();
+    daemon.reply('version', { version: '0.14.8-snowdrop-history.10' });
+    const { backend } = await connected({ daemon });
+    const emoji = [{ name: 'party', dataUrl: 'data:image/png;base64,aGk=' }];
+
+    await backend.send({
+      conversationId: directConversationId(ALICE),
+      body: 'hi :party:',
+      ranges: [],
+      customEmoji: emoji,
+    });
+    expect(daemon.callsTo('send').at(-1)).toMatchObject({
+      customEmoji: [{ name: 'party', attachment: 'data:image/png;base64,aGk=' }],
+    });
+
+    await backend.edit({
+      conversationId: directConversationId(ALICE),
+      targetSentAt: T0,
+      body: 'hi :party: edited',
+      ranges: [],
+      customEmoji: emoji,
+    });
+    expect(daemon.callsTo('send').at(-1)).toMatchObject({
+      customEmoji: [{ name: 'party', attachment: 'data:image/png;base64,aGk=' }],
+    });
+    await backend.disconnect();
+  });
+
+  it('never forwards customEmoji to a daemon that has not advertised support for it', async () => {
+    const { backend, daemon } = await connected();
+    await backend.send({
+      conversationId: directConversationId(ALICE),
+      body: 'hi :party:',
+      ranges: [],
+      customEmoji: [{ name: 'party', dataUrl: 'data:image/png;base64,aGk=' }],
+    });
+    expect(daemon.callsTo('send').at(-1)).not.toHaveProperty('customEmoji');
     await backend.disconnect();
   });
 

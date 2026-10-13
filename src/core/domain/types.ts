@@ -107,6 +107,19 @@ export interface Attachment {
   blurhash?: string;
 }
 
+/**
+ * A custom emoji the sender delivered alongside this specific message (a
+ * patched signal-cli extension; see docs/SIGNAL_CLI.md "Custom emoji").
+ * `name` is the `:name:` token used in `body`; `attachment` is its image,
+ * downloadable through the normal attachment path (useAttachmentUrl).
+ * Never carries the viewer's own collection for someone else's message —
+ * only emoji this exact message actually delivered.
+ */
+export interface CustomEmojiDelivery {
+  name: string;
+  attachment: Attachment;
+}
+
 export interface Quote {
   authorId: string;
   sentAt: number;
@@ -155,6 +168,8 @@ export interface Message {
   ranges: BodyRange[];
   quote?: Quote;
   attachments: Attachment[];
+  /** Custom emoji the sender delivered with this message (received only; see CustomEmojiDelivery). */
+  customEmoji?: CustomEmojiDelivery[];
   reactions: Reaction[];
   /** Number of times the message has been edited. */
   edits?: number;

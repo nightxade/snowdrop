@@ -1,0 +1,169 @@
+diff --git a/lib/libsignal-service/build.gradle.kts b/lib/libsignal-service/build.gradle.kts
+index 80107d7..150e996 100644
+--- a/lib/libsignal-service/build.gradle.kts
++++ b/lib/libsignal-service/build.gradle.kts
+@@ -18,6 +18,11 @@ plugins {
+   id("com.squareup.wire")
+ }
+ 
++// Snowdrop: bump only this module's own published version. Its sibling modules
++// (core:network, core:util-jvm, core:models-jvm) keep the stock upstream version, so this
++// patch only needs to republish the one jar this hook actually touches.
++version = "2.15.3_unofficial_153-snowdrop.1"
++
+ java {
+   withJavadocJar()
+   withSourcesJar()
+diff --git a/lib/libsignal-service/src/main/java/org/whispersystems/signalservice/api/SignalServiceMessageSender.java b/lib/libsignal-service/src/main/java/org/whispersystems/signalservice/api/SignalServiceMessageSender.java
+index 414817a..5f43c18 100644
+--- a/lib/libsignal-service/src/main/java/org/whispersystems/signalservice/api/SignalServiceMessageSender.java
++++ b/lib/libsignal-service/src/main/java/org/whispersystems/signalservice/api/SignalServiceMessageSender.java
+@@ -1389,6 +1389,10 @@ public class SignalServiceMessageSender {
+ 
+     builder.timestamp(message.getTimestamp());
+ 
++    if (message.getUnknownFields().isPresent()) {
++      builder.addUnknownFields(message.getUnknownFields().get());
++    }
++
+     return builder;
+   }
+ 
+diff --git a/lib/libsignal-service/src/main/java/org/whispersystems/signalservice/api/messages/SignalServiceDataMessage.kt b/lib/libsignal-service/src/main/java/org/whispersystems/signalservice/api/messages/SignalServiceDataMessage.kt
+index 79c11a1..29de510 100644
+--- a/lib/libsignal-service/src/main/java/org/whispersystems/signalservice/api/messages/SignalServiceDataMessage.kt
++++ b/lib/libsignal-service/src/main/java/org/whispersystems/signalservice/api/messages/SignalServiceDataMessage.kt
+@@ -5,6 +5,7 @@
+  */
+ package org.whispersystems.signalservice.api.messages
+ 
++import okio.ByteString
+ import org.signal.core.models.ServiceId
+ import org.signal.libsignal.zkgroup.groups.GroupSecretParams
+ import org.signal.libsignal.zkgroup.receipts.ReceiptCredentialPresentation
+@@ -54,7 +55,15 @@ class SignalServiceDataMessage private constructor(
+   val pollTerminate: Optional<PollTerminate>,
+   val pinnedMessage: Optional<PinnedMessage>,
+   val unpinnedMessage: Optional<UnpinnedMessage>,
+-  val adminDelete: Optional<AdminDelete>
++  val adminDelete: Optional<AdminDelete>,
++  /**
++   * Pre-encoded Wire unknown-field bytes (tag + value, already varint/length-delimited
++   * encoded) to merge into the outgoing `DataMessage` proto's unknown fields. This is a
++   * generic escape hatch for carrying fields this library's API doesn't model yet — it is
++   * not aware of any specific field number or payload shape. Callers are responsible for
++   * encoding valid proto field bytes; invalid bytes will corrupt the resulting message.
++   */
++  val unknownFields: Optional<ByteString>
+ ) {
+   val isActivatePaymentsRequest: Boolean = payment.map { it.isActivationRequest }.orElse(false)
+   val isPaymentsActivated: Boolean = payment.map { it.isActivation }.orElse(false)
+@@ -118,6 +127,7 @@ class SignalServiceDataMessage private constructor(
+     private var pinnedMessage: PinnedMessage? = null
+     private var unpinnedMessage: UnpinnedMessage? = null
+     private var adminDelete: AdminDelete? = null
++    private var unknownFields: ByteString? = null
+ 
+     fun withTimestamp(timestamp: Long): Builder {
+       this.timestamp = timestamp
+@@ -270,6 +280,15 @@ class SignalServiceDataMessage private constructor(
+       return this
+     }
+ 
++    /**
++     * Sets pre-encoded Wire unknown-field bytes to merge into the outgoing `DataMessage`
++     * proto's unknown fields. See [SignalServiceDataMessage.unknownFields].
++     */
++    fun withUnknownFields(unknownFields: ByteString?): Builder {
++      this.unknownFields = unknownFields
++      return this
++    }
++
+     fun build(): SignalServiceDataMessage {
+       if (timestamp == 0L) {
+         timestamp = System.currentTimeMillis()
+@@ -303,7 +322,8 @@ class SignalServiceDataMessage private constructor(
+         pollTerminate = pollTerminate.asOptional(),
+         pinnedMessage = pinnedMessage.asOptional(),
+         unpinnedMessage = unpinnedMessage.asOptional(),
+-        adminDelete = adminDelete.asOptional()
++        adminDelete = adminDelete.asOptional(),
++        unknownFields = unknownFields.asOptional()
+       )
+     }
+   }
+diff --git a/lib/libsignal-service/src/test/java/org/whispersystems/signalservice/api/messages/SignalServiceDataMessageUnknownFieldsTest.kt b/lib/libsignal-service/src/test/java/org/whispersystems/signalservice/api/messages/SignalServiceDataMessageUnknownFieldsTest.kt
+new file mode 100644
+index 0000000..91ee6e2
+--- /dev/null
++++ b/lib/libsignal-service/src/test/java/org/whispersystems/signalservice/api/messages/SignalServiceDataMessageUnknownFieldsTest.kt
+@@ -0,0 +1,69 @@
++/*
++ * Licensed according to the LICENSE file in this repository.
++ */
++
++package org.whispersystems.signalservice.api.messages
++
++import assertk.assertThat
++import assertk.assertions.isEqualTo
++import assertk.assertions.isFalse
++import assertk.assertions.isTrue
++import com.squareup.wire.FieldEncoding
++import okio.ByteString
++import org.junit.Test
++import org.whispersystems.signalservice.internal.push.DataMessage
++
++/**
++ * Covers the generic "extra unknown-field bytes" hook on [SignalServiceDataMessage]: a caller
++ * (e.g. a signal-cli patch) can attach pre-encoded Wire unknown-field bytes that survive into
++ * the proto this library builds for sending, without this library knowing anything about the
++ * field's number or meaning.
++ */
++class SignalServiceDataMessageUnknownFieldsTest {
++
++  @Test
++  fun `builder without unknownFields leaves it absent`() {
++    val message = SignalServiceDataMessage.newBuilder().withBody("hi").build()
++
++    assertThat(message.unknownFields.isPresent).isFalse()
++  }
++
++  @Test
++  fun `builder carries unknownFields bytes through to the built message`() {
++    val extra = ByteString.of(1, 2, 3)
++
++    val message = SignalServiceDataMessage.newBuilder()
++      .withBody("hi")
++      .withUnknownFields(extra)
++      .build()
++
++    assertThat(message.unknownFields.isPresent).isTrue()
++    assertThat(message.unknownFields.get()).isEqualTo(extra)
++  }
++
++  @Test
++  fun `addUnknownFields on the Wire builder round-trips through encode and decode`() {
++    // This is the exact mechanism SignalServiceMessageSender.createDataMessage relies on:
++    // Message.Builder#addUnknownFields merges pre-encoded field bytes in, and Wire's normal
++    // ADAPTER.encode/decode preserves them as unknown fields on the far side (this is what lets
++    // a field number this library's .proto doesn't declare, such as a high field number used by
++    // a downstream fork, survive a round trip without any schema change here).
++    val fieldNumber = 9000
++    val payload = ByteString.of(42, 7)
++    val encodedField = okio.Buffer().apply {
++      val writer = com.squareup.wire.ProtoWriter(this)
++      writer.writeTag(fieldNumber, FieldEncoding.LENGTH_DELIMITED)
++      writer.writeVarint32(payload.size)
++      writer.writeBytes(payload)
++    }.readByteString()
++
++    val builder = DataMessage.Builder().body("hi")
++    builder.addUnknownFields(encodedField)
++    val encoded = DataMessage.ADAPTER.encode(builder.build())
++
++    val decoded = DataMessage.ADAPTER.decode(encoded)
++
++    assertThat(decoded.body).isEqualTo("hi")
++    assertThat(decoded.unknownFields).isEqualTo(encodedField)
++  }
++}

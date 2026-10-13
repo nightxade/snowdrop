@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Snowdrop } from '@/app/createSnowdrop';
 import { MockBackend } from '@/core/backend/mock';
-import type { ConversationId, Message, MessageId } from '@/core/domain';
+import { messageId, type ConversationId, type Message, type MessageId } from '@/core/domain';
 import { messagesSelectors } from '@/core/stores';
 import { bootSnowdrop, renderWithSnowdrop, settle } from '@/test/renderWithSnowdrop';
 import { ChatController, ChatControllerProvider } from '../ChatController';
@@ -124,6 +124,126 @@ describe('<MessageItem /> failed send', () => {
     const discard = vi.spyOn(snowdrop.send, 'discard').mockResolvedValue();
     fireEvent.click(within(row).getByRole('button', { name: 'Delete' }));
     expect(discard).toHaveBeenCalledWith(conv, own.nonce);
+  });
+});
+
+describe('<MessageItem /> custom emoji delivery', () => {
+  it('renders a received message’s own delivered custom emoji inline, from that message alone', async () => {
+    const snowdrop = await bootSnowdrop();
+    snowdrops.push(snowdrop);
+    const conv = Object.values(snowdrop.stores.conversations.getState().byId).find(
+      (c) => c.title === 'Orchard · Engineering',
+    )!;
+    await act(async () => {
+      snowdrop.stores.ui.getState().selectConversation(conv.id);
+      await snowdrop.history.open(conv.id);
+    });
+    const backend = await snowdrop.backendReady;
+    const sender = conv.memberIds.find((id) => id !== snowdrop.stores.session.getState().self!.id)!;
+    const sentAt = Date.now();
+    const received: Message = {
+      id: messageId(sender, sentAt),
+      conversationId: conv.id,
+      authorId: sender,
+      sentAt,
+      receivedAt: sentAt,
+      body: 'nice :party:',
+      ranges: [],
+      attachments: [],
+      customEmoji: [
+        {
+          name: 'party',
+          // A `url` already set resolves synchronously through useAttachmentUrl,
+          // same as any other attachment that doesn't need lazy download.
+          attachment: {
+            id: 'emoji-1',
+            contentType: 'image/png',
+            url: 'data:image/png;base64,aGk=',
+          },
+        },
+      ],
+      reactions: [],
+      status: 'delivered',
+      kind: 'normal',
+    };
+    act(() => {
+      (backend as MockBackend).deliver(received);
+    });
+    await settle(snowdrop);
+    const chat = new ChatController();
+    renderWithSnowdrop(
+      snowdrop,
+      <ChatControllerProvider value={chat}>
+        <div data-snowdrop="message-log">
+          <MessageItem
+            conversationId={conv.id}
+            id={received.id}
+            continuation={false}
+            compact={false}
+            compactAvatars={false}
+          />
+        </div>
+      </ChatControllerProvider>,
+    );
+    await settle(snowdrop);
+    const img = screen.getByAltText(':party:');
+    expect(img.getAttribute('src')).toBe('data:image/png;base64,aGk=');
+    // The plain `:party:` text is gone, replaced entirely by the image.
+    expect(screen.queryByText(':party:')).toBeNull();
+  });
+
+  it('renders :name: as plain text while a received custom emoji is still resolving', async () => {
+    const snowdrop = await bootSnowdrop();
+    snowdrops.push(snowdrop);
+    const conv = Object.values(snowdrop.stores.conversations.getState().byId).find(
+      (c) => c.title === 'Orchard · Engineering',
+    )!;
+    await act(async () => {
+      snowdrop.stores.ui.getState().selectConversation(conv.id);
+      await snowdrop.history.open(conv.id);
+    });
+    const backend = await snowdrop.backendReady;
+    const sender = conv.memberIds.find((id) => id !== snowdrop.stores.session.getState().self!.id)!;
+    const sentAt = Date.now();
+    const received: Message = {
+      id: messageId(sender, sentAt),
+      conversationId: conv.id,
+      authorId: sender,
+      sentAt,
+      receivedAt: sentAt,
+      body: 'nice :party:',
+      ranges: [],
+      attachments: [],
+      customEmoji: [
+        // No `url`, and the mock omits resolveAttachmentUrl: never resolves.
+        { name: 'party', attachment: { id: 'emoji-1', contentType: 'image/png' } },
+      ],
+      reactions: [],
+      status: 'delivered',
+      kind: 'normal',
+    };
+    act(() => {
+      (backend as MockBackend).deliver(received);
+    });
+    await settle(snowdrop);
+    const chat = new ChatController();
+    renderWithSnowdrop(
+      snowdrop,
+      <ChatControllerProvider value={chat}>
+        <div data-snowdrop="message-log">
+          <MessageItem
+            conversationId={conv.id}
+            id={received.id}
+            continuation={false}
+            compact={false}
+            compactAvatars={false}
+          />
+        </div>
+      </ChatControllerProvider>,
+    );
+    await settle(snowdrop);
+    expect(screen.queryByAltText(':party:')).toBeNull();
+    expect(screen.getByText((text) => text.includes(':party:'))).toBeTruthy();
   });
 });
 

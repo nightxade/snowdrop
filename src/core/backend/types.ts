@@ -50,6 +50,16 @@ export interface OutgoingAttachment {
   height?: number;
 }
 
+/**
+ * A custom emoji used (as `:name:`) in an outgoing message's body, for
+ * backends that can deliver it (see `ChatBackend.supportsCustomEmojiDelivery`).
+ */
+export interface OutgoingCustomEmoji {
+  name: string;
+  /** The emoji's stored image: a `data:` URI (core/stores/customEmoji.ts). */
+  dataUrl: string;
+}
+
 export interface SendInput {
   conversationId: ConversationId;
   /** Body with mention placeholders (U+FFFC) already in place. */
@@ -58,6 +68,8 @@ export interface SendInput {
   ranges: BodyRange[];
   quote?: Quote;
   attachments?: OutgoingAttachment[];
+  /** Deduplicated custom emoji used in `body`; only sent when the backend supports it. */
+  customEmoji?: OutgoingCustomEmoji[];
 }
 
 export interface EditInput {
@@ -73,6 +85,8 @@ export interface EditInput {
    * an edit; Signal clients keep the original's attachments.)
    */
   quote?: Quote;
+  /** Deduplicated custom emoji used in `body`; only sent when the backend supports it. */
+  customEmoji?: OutgoingCustomEmoji[];
 }
 
 export interface ReactInput {
@@ -252,6 +266,15 @@ export interface ChatBackend {
    * without an equivalent (the mock) omit it.
    */
   syncContactsAndGroups?(): Promise<void>;
+
+  /**
+   * Whether the connected backend can deliver custom emoji images alongside
+   * `:name:` text (patches/signal-cli's custom-emoji extension). Gates
+   * whether `SendInput.customEmoji` is worth building at all; adapters
+   * without this capability (upstream signal-cli, the mock) omit it, which
+   * is the same as always returning false.
+   */
+  supportsCustomEmojiDelivery?(): boolean;
 
   /**
    * Backend history, when available (mock seed data or an imported phone

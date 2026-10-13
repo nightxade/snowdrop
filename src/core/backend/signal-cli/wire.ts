@@ -143,6 +143,8 @@ export const wireDataMessage = object({
   pinMessage: maybe(wirePin),
   unpinMessage: maybe(wireTarget),
   adminDelete: maybe(wireTarget),
+  /** Snowdrop's custom-emoji extension (patches/signal-cli); absent on any other sender/build. */
+  customEmoji: list(object({ name: str, attachment: wireAttachment })),
 });
 export type WireDataMessage = Infer<typeof wireDataMessage>;
 
@@ -298,6 +300,7 @@ export type WireSendResult = Infer<typeof wireSendResult>;
 export const wireStartLink = object({ deviceLinkUri: str });
 export const wireFinishLink = object({ number: optStr, aci: optStr, historyTransfer: optStr });
 export const wireAttachmentData = object({ data: str });
+export const wireVersion = object({ version: optStr });
 
 /** Our identity for an address: ACI when known (stable), else the number. */
 export function addressId(

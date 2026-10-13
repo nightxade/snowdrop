@@ -13,3 +13,4 @@ src-tauri/about.hbs
 .vitest
 patches/signal-cli/.work
 patches/signal-cli/dist
+patches/signal-service-java/.work

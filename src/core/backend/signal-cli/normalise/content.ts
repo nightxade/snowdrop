@@ -11,6 +11,7 @@ import {
   type Attachment,
   type BodyRange,
   type ConversationId,
+  type CustomEmojiDelivery,
   type Message,
   type MessageStatus,
   type Quote,
@@ -39,6 +40,22 @@ export function toAttachment(a: WireAttachment, fallbackId: string): Attachment 
   if (a.width !== undefined && a.width > 0) out.width = a.width;
   if (a.height !== undefined && a.height > 0) out.height = a.height;
   return out;
+}
+
+/**
+ * Snowdrop's custom-emoji extension (patches/signal-cli): entries this
+ * specific message delivered, each downloadable through the ordinary
+ * attachment path. A name without a usable attachment id is dropped rather
+ * than rendered with a broken reference.
+ */
+export function toCustomEmoji(
+  data: WireDataMessage,
+  fallbackId: (index: number) => string,
+): CustomEmojiDelivery[] {
+  return data.customEmoji.flatMap((e, i) => {
+    if (!e.name) return [];
+    return [{ name: e.name, attachment: toAttachment(e.attachment, fallbackId(i)) }];
+  });
 }
 
 export function toQuote(q: WireQuote, resolveId: (id: string) => string): Quote | undefined {
@@ -122,6 +139,9 @@ export function buildMessage(data: WireDataMessage, meta: MessageMeta): Message 
     ? []
     : data.attachments.map((a, i) => toAttachment(a, `${meta.authorId}:${data.timestamp}:${i}`));
   const quote = data.quote ? toQuote(data.quote, meta.resolveId) : undefined;
+  const customEmoji = data.viewOnce
+    ? []
+    : toCustomEmoji(data, (i) => `${meta.authorId}:${data.timestamp}:emoji:${i}`);
 
   if (!body && attachments.length === 0 && !quote) return null;
 
@@ -139,6 +159,7 @@ export function buildMessage(data: WireDataMessage, meta: MessageMeta): Message 
     kind: 'normal',
   };
   if (quote) message.quote = quote;
+  if (customEmoji.length > 0) message.customEmoji = customEmoji;
   const expires = data.expiresInSeconds ?? 0;
   // Signal starts the timer when the message is read; starting it when the
   // server received it errs on the side of deleting early, never keeping a

@@ -79,6 +79,20 @@ describe('messageParams', () => {
       quoteMention: ['4:1:me'],
     });
   });
+
+  it('adds customEmoji as {name, attachment} pairs, omitted when empty', () => {
+    expect(
+      messageParams({
+        body: 'nice :party:',
+        ranges: [],
+        customEmoji: [{ name: 'party', dataUrl: 'data:image/png;base64,aGk=' }],
+      }),
+    ).toEqual({
+      message: 'nice :party:',
+      customEmoji: [{ name: 'party', attachment: 'data:image/png;base64,aGk=' }],
+    });
+    expect(messageParams({ body: 'hi', ranges: [], customEmoji: [] })).toEqual({ message: 'hi' });
+  });
 });
 
 describe('attachments', () => {

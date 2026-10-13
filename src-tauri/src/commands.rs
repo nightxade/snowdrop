@@ -66,6 +66,11 @@ const ALLOWED_METHODS: &[&str] = &[
     "startLink",
     "finishLink",
     "listAccounts",
+    // Capability detection (SignalCliBackend.ts: supportsCustomEmojiDelivery)
+    // — reads back the running signal-cli's own version string so the UI can
+    // tell whether it's a patched build that can deliver custom emoji images.
+    // Takes no account and changes nothing.
+    "version",
 ];
 
 fn is_allowed_method(method: &str) -> bool {
@@ -534,6 +539,13 @@ mod tests {
         assert!(is_allowed_method("sendSyncRequest"));
     }
 
+    /// Custom-emoji capability detection (SignalCliBackend.ts:
+    /// supportsCustomEmojiDelivery) reads the daemon's version string back.
+    #[test]
+    fn allows_the_version_capability_probe() {
+        assert!(is_allowed_method("version"));
+    }
+
     /// Account-destroying and config methods must never be reachable from the
     /// webview, even though signal-cli itself implements them.
     #[test]
@@ -563,7 +575,7 @@ mod tests {
             "sendMessage",
             "subscribeReceive",
             "unsubscribeReceive",
-            "version",
+            "updateProfile",
             "eval(1)",
         ] {
             assert!(!is_allowed_method(method), "{method} should be rejected");

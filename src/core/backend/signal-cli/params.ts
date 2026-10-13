@@ -51,6 +51,8 @@ export interface MessageParamsInput {
   attachments?: string[];
   /** Makes this an edit of the message sent at this timestamp. */
   editTimestamp?: number;
+  /** Custom emoji used in `body`, for a daemon that can deliver them (patches/signal-cli). */
+  customEmoji?: SendInput['customEmoji'];
 }
 
 export function messageParams(input: MessageParamsInput): RpcParams {
@@ -61,6 +63,9 @@ export function messageParams(input: MessageParamsInput): RpcParams {
   if (mentions.length > 0) params.mention = mentions;
   if (input.attachments && input.attachments.length > 0) params.attachment = input.attachments;
   if (input.editTimestamp !== undefined) params.editTimestamp = input.editTimestamp;
+  if (input.customEmoji && input.customEmoji.length > 0) {
+    params.customEmoji = input.customEmoji.map((e) => ({ name: e.name, attachment: e.dataUrl }));
+  }
   const quote = input.quote;
   if (quote) {
     params.quoteTimestamp = quote.sentAt;

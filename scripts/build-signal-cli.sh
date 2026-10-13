@@ -16,11 +16,19 @@
 #                                            # working build) and then install it
 #
 # Env vars (all optional, with defaults below):
-#   SNOWDROP_JDK        JDK 25 home. `java -version` under it must report 25.
-#   SIGNAL_CLI_SRC      git URL or local path to clone signal-cli from.
-#   SNOWDROP_APP_DATA   overrides the app data dir --install copies into
-#                       (defaults to the real Snowdrop app data dir — pass
-#                       this when testing --install against a scratch dir).
+#   SNOWDROP_JDK          JDK 25 home. `java -version` under it must report 25.
+#   SIGNAL_CLI_SRC        git URL or local path to clone signal-cli from.
+#   SIGNAL_SERVICE_JAVA_SRC  git URL or local path to clone signal-service-java from
+#                            (patches/signal-service-java; default: upstream's GitHub repo).
+#   SNOWDROP_APP_DATA     overrides the app data dir --install copies into
+#                         (defaults to the real Snowdrop app data dir — pass
+#                         this when testing --install against a scratch dir).
+#
+# Before building signal-cli itself, this script also clones, patches, tests and locally
+# publishes patches/signal-service-java (the custom-emoji unknown-fields hook) under its own
+# .work/ tree, then points signal-cli's build at that jar via SNOWDROP_SIGNAL_SERVICE_VERSION
+# and SNOWDROP_SIGNAL_SERVICE_REPO (patches/signal-cli/lib/build.gradle.kts's dependency
+# substitution — see that patch's README). See patches/signal-service-java/README.md.
 #
 # Everything this script writes lives under patches/signal-cli/.work/ (the
 # clone + build tree) and patches/signal-cli/dist/ (the finished runtime) —
@@ -33,15 +41,24 @@ set -euo pipefail
 # ─── Fixed facts about the patch set (patches/signal-cli/README.md) ───────
 readonly UPSTREAM_COMMIT="22b028bbb9cee8f6aa22af71c6b3e9d09028a16a"
 readonly UPSTREAM_TAG="v0.14.8"
+# ─── Fixed facts about patches/signal-service-java/README.md ─────────────
+readonly SSJ_UPSTREAM_COMMIT="d1b477f1339a1aaf2de4c8a6dff9ef52851fe3b0"
+readonly SSJ_UPSTREAM_TAG="v2.15.3_unofficial_153"
+readonly SSJ_PATCHED_VERSION="2.15.3_unofficial_153-snowdrop.1"
 # ────────────────────────────────────────────────────────────────────────
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PATCHES_DIR="$ROOT_DIR/patches/signal-cli"
 WORK_DIR="$PATCHES_DIR/.work"
+SSJ_PATCHES_DIR="$ROOT_DIR/patches/signal-service-java"
+SSJ_WORK_DIR="$SSJ_PATCHES_DIR/.work"
+SSJ_SRC_DIR="$SSJ_WORK_DIR/libsignal-service-java-src"
+SSJ_REPO_DIR="$SSJ_WORK_DIR/m2repo"
 SRC_DIR="$WORK_DIR/signal-cli-src"
 DIST_DIR="$PATCHES_DIR/dist"
 
 SIGNAL_CLI_SRC="${SIGNAL_CLI_SRC:-https://github.com/AsamK/signal-cli.git}"
+SIGNAL_SERVICE_JAVA_SRC="${SIGNAL_SERVICE_JAVA_SRC:-https://github.com/Turasa/libsignal-service-java.git}"
 
 # The runtime's modules. A fixed list rather than `jdeps` output: jdeps
 # can't resolve this jar set (split packages across signal-cli's modular
@@ -101,6 +118,62 @@ fi
 if [ "$NEED_BUILD" -eq 1 ]; then
   mkdir -p "$WORK_DIR"
 
+  # ── patches/signal-service-java: clone, patch, test and locally publish ─
+  # the custom-emoji unknown-fields hook, before building signal-cli itself
+  # (which depends on it — see patches/signal-cli/lib/build.gradle.kts). ──
+  mkdir -p "$SSJ_WORK_DIR"
+
+  if [ -d "$SSJ_SRC_DIR/.git" ]; then
+    log "Fetching into existing clone at $SSJ_SRC_DIR"
+    git -C "$SSJ_SRC_DIR" fetch --tags --force origin
+  else
+    log "Cloning $SIGNAL_SERVICE_JAVA_SRC into $SSJ_SRC_DIR"
+    rm -rf "$SSJ_SRC_DIR"
+    git clone "$SIGNAL_SERVICE_JAVA_SRC" "$SSJ_SRC_DIR"
+  fi
+
+  log "Checking out $SSJ_UPSTREAM_TAG ($SSJ_UPSTREAM_COMMIT), detached"
+  git -C "$SSJ_SRC_DIR" checkout --detach "$SSJ_UPSTREAM_COMMIT" \
+    || die "couldn't check out $SSJ_UPSTREAM_COMMIT in $SSJ_SRC_DIR — does the clone's history include it?"
+
+  ssj_actual_commit="$(git -C "$SSJ_SRC_DIR" rev-parse HEAD)"
+  [ "$ssj_actual_commit" = "$SSJ_UPSTREAM_COMMIT" ] \
+    || die "checked out $ssj_actual_commit, expected the pinned $SSJ_UPSTREAM_COMMIT"
+
+  git -C "$SSJ_SRC_DIR" reset --hard "$SSJ_UPSTREAM_COMMIT"
+  git -C "$SSJ_SRC_DIR" clean -fdx
+
+  shopt -s nullglob
+  ssj_patches=("$SSJ_PATCHES_DIR"/*.patch)
+  shopt -u nullglob
+  [ "${#ssj_patches[@]}" -gt 0 ] || die "no patches found in $SSJ_PATCHES_DIR"
+  for patch in "${ssj_patches[@]}"; do
+    log "Applying $(basename "$patch") (signal-service-java)"
+    git -C "$SSJ_SRC_DIR" apply "$patch" \
+      || die "failed to apply $(basename "$patch") — it may no longer apply cleanly to $SSJ_UPSTREAM_COMMIT"
+  done
+
+  if [ "$DO_TEST" -eq 1 ]; then
+    log "Running signal-service-java's unit tests"
+    (cd "$SSJ_SRC_DIR" && ./gradlew --no-daemon :lib:libsignal-service:test) \
+      || die "signal-service-java tests failed"
+  fi
+
+  log "Publishing the patched signal-service-java jar to $SSJ_REPO_DIR"
+  rm -rf "$SSJ_REPO_DIR"
+  SNOWDROP_SIGNAL_SERVICE_REPO="$SSJ_REPO_DIR" \
+    bash -c "cd '$SSJ_SRC_DIR' && ./gradlew --no-daemon \
+      --init-script '$SSJ_PATCHES_DIR/publish-local.init.gradle.kts' \
+      :lib:libsignal-service:publishAllPublicationsToSnowdropLocalRepository" \
+    || die "failed to publish the patched signal-service-java jar"
+
+  [ -f "$SSJ_REPO_DIR/com/github/turasa/signal-service-java/$SSJ_PATCHED_VERSION/signal-service-java-$SSJ_PATCHED_VERSION.jar" ] \
+    || die "publish succeeded but the expected jar is missing from $SSJ_REPO_DIR"
+
+  # Picked up by signal-cli's lib/build.gradle.kts dependency substitution below.
+  export SNOWDROP_SIGNAL_SERVICE_VERSION="$SSJ_PATCHED_VERSION"
+  export SNOWDROP_SIGNAL_SERVICE_REPO="$SSJ_REPO_DIR"
+
   # ── Clone/fetch the pinned upstream commit, detached ──────────────────
   if [ -d "$SRC_DIR/.git" ]; then
     log "Fetching into existing clone at $SRC_DIR"
@@ -149,6 +222,17 @@ if [ "$NEED_BUILD" -eq 1 ]; then
   INSTALL_DIST="$SRC_DIR/build/install/signal-cli"
   [ -d "$INSTALL_DIST/lib" ] || die "installDist didn't produce $INSTALL_DIST/lib"
   [ -x "$INSTALL_DIST/bin/signal-cli" ] || die "installDist didn't produce an executable $INSTALL_DIST/bin/signal-cli"
+
+  # The dependency substitution in signal-cli's lib/build.gradle.kts should have swapped the
+  # patched signal-service-java jar in for the stock one. Verify that actually happened.
+  if ls "$INSTALL_DIST/lib"/signal-service-java-"$SSJ_PATCHED_VERSION".jar >/dev/null 2>&1; then
+    log "Confirmed: $INSTALL_DIST/lib has the patched signal-service-java-$SSJ_PATCHED_VERSION.jar"
+  else
+    die "$INSTALL_DIST/lib is missing signal-service-java-$SSJ_PATCHED_VERSION.jar — the dependency substitution didn't take effect"
+  fi
+  if ls "$INSTALL_DIST/lib"/signal-service-java-*.jar 2>/dev/null | grep -qv "$SSJ_PATCHED_VERSION"; then
+    die "$INSTALL_DIST/lib still has an unpatched signal-service-java jar alongside the patched one: $(ls "$INSTALL_DIST/lib"/signal-service-java-*.jar)"
+  fi
 
   all_modules="$RUNTIME_MODULES"
   log "jlink module list: $all_modules"
@@ -199,6 +283,13 @@ LAUNCHER
     echo
     echo "Patches applied (sha256, in order):"
     for patch in "${patches[@]}"; do
+      printf '  %s  %s\n' "$(sha256sum "$patch" | cut -d' ' -f1)" "$(basename "$patch")"
+    done
+    echo
+    echo "signal-service-java upstream commit: $SSJ_UPSTREAM_COMMIT ($SSJ_UPSTREAM_TAG)"
+    echo "signal-service-java patched version: $SSJ_PATCHED_VERSION"
+    echo "signal-service-java patches applied (sha256, in order):"
+    for patch in "${ssj_patches[@]}"; do
       printf '  %s  %s\n' "$(sha256sum "$patch" | cut -d' ' -f1)" "$(basename "$patch")"
     done
   } > "$BUILD_TMP/signal-cli/PROVENANCE.txt"
