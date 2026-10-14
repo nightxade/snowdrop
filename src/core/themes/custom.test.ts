@@ -79,7 +79,7 @@ describe('theme import', () => {
       accent: null,
       density: 'comfortable',
       shell: 'standard',
-      fontScale: 1,
+      fontSize: 15,
       zoom: 1,
       saturation: 1,
       reducedMotion: 'system',

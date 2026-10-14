@@ -5,7 +5,7 @@ property named `--snowdrop-<token>`. A theme is a set of token overrides (plus
 optional CSS); Custom CSS is your own stylesheet on top. Both can be shared as
 files, and both are filtered so they can never make the browser fetch anything.
 
-- Change themes, accent, density and text size in **Settings → Appearance**.
+- Change themes, accent, density and font size (in pixels) in **Settings → Appearance**.
 - Import and export themes in **Settings → Themes**.
 - Write your own CSS in **Settings → Custom CSS**.
 
@@ -175,6 +175,11 @@ derived), so a theme's value for them is ignored.
 | `tui-type-scale`    | number | `1`                          | —             |
 
 #### Typography
+
+Settings → Appearance → Font size stores a pixel size (12–20, default 15 —
+the base `font-size-message`), not `font-scale` directly: the engine derives
+`font-scale` as `fontSize / 15`, so every other size below keeps scaling
+proportionally off the one setting.
 
 | Token                  | Kind        | Dusk (base) value                                                      | Overridden by |
 | ---------------------- | ----------- | ---------------------------------------------------------------------- | ------------- |
@@ -515,8 +520,9 @@ size, so `tui.css` also re-declares every `font-size-*` token (and
 text around 13px, secondary and chrome text 10–12px, headings scaled up
 modestly from there — so the shell reads as a dense terminal UI instead of a
 size (or more) bigger than the standard one. Each still multiplies
-`--snowdrop-font-scale` (Settings → Appearance → Text size still works) and
-`--snowdrop-tui-type-scale` (see [token reference](#pane-tui-shell) above): a
+`--snowdrop-font-scale` (Settings → Appearance → Font size still works, scaled
+off its smaller TUI base) and `--snowdrop-tui-type-scale` (see
+[token reference](#pane-tui-shell) above): a
 theme or Custom CSS can set just that one token on `:root` to make the whole
 TUI shell denser or roomier without overriding every size. Row padding on the
 rail's text list and the sidebar's conversation rows is tightened to match

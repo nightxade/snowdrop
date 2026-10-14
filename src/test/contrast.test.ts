@@ -108,7 +108,7 @@ describe.each(BUILTIN_THEMES.map((t) => [t.name, t] as const))('%s contrast', (_
         accent,
         density: 'comfortable',
         shell: 'standard',
-        fontScale: 1,
+        fontSize: 15,
         zoom: 1,
         saturation: 1,
         reducedMotion: 'system',

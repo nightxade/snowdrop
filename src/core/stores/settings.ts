@@ -22,8 +22,12 @@ export interface AppearanceSettings {
   density: Density;
   /** 'tui' boxes every region with titled borders, monospace type and a status line. */
   shell: Shell;
-  /** 0.875–1.25 */
-  fontScale: number;
+  /**
+   * 12–20 (px). The message text size; everything else (UI chrome, headers,
+   * emoji, …) keeps scaling proportionally — the engine derives
+   * `--snowdrop-font-scale` as `fontSize / 15` (`core/themes/engine.ts`).
+   */
+  fontSize: number;
   /** 0.8–1.5 */
   zoom: number;
   /** 0–1 */
@@ -160,7 +164,7 @@ export function defaultSettings(): Settings {
       accent: null,
       density: 'comfortable',
       shell: 'standard',
-      fontScale: 1,
+      fontSize: 15,
       zoom: 1,
       saturation: 1,
       reducedMotion: 'system',
@@ -348,7 +352,7 @@ export function parseSettings(data: unknown, options: SettingsParseOptions = {})
       accent: typeof a.accent === 'string' && HEX.test(a.accent) ? a.accent : null,
       density: oneOf(a.density, ['comfortable', 'compact'], d.appearance.density),
       shell: oneOf(a.shell, ['standard', 'tui'], d.appearance.shell),
-      fontScale: num(a.fontScale, d.appearance.fontScale, 0.875, 1.25),
+      fontSize: Math.round(num(a.fontSize, d.appearance.fontSize, 12, 20)),
       zoom: num(a.zoom, d.appearance.zoom, 0.8, 1.5),
       saturation: num(a.saturation, d.appearance.saturation, 0, 1),
       reducedMotion: oneOf(a.reducedMotion, ['system', 'on', 'off'], d.appearance.reducedMotion),
@@ -445,7 +449,7 @@ export function createSettingsSchema(
 
 export const settingsSchema: VersionedSchema<Settings> = {
   key: 'snowdrop.settings',
-  version: 4,
+  version: 5,
   migrations: {
     // v2 (P5): `connection.account`; the untouched v1 default daemon URL moves
     // to the same-origin proxy path (a custom URL is kept as the user set it).
@@ -482,6 +486,17 @@ export const settingsSchema: VersionedSchema<Settings> = {
       if (!isRecord(data)) return data;
       const behaviour = isRecord(data.behaviour) ? data.behaviour : {};
       return { ...data, behaviour: { ...behaviour, linkPreviews: true } };
+    },
+    // v5: Appearance → Text size is now a pixel font size (`fontSize`,
+    // 12–20) instead of a percentage scale (`fontScale`, 0.875–1.25).
+    // `--snowdrop-font-scale` is now derived by the theme engine as
+    // `fontSize / 15` instead of being stored directly.
+    5: (data) => {
+      if (!isRecord(data) || !isRecord(data.appearance)) return data;
+      const { fontScale, ...appearance } = data.appearance;
+      const scale = typeof fontScale === 'number' && Number.isFinite(fontScale) ? fontScale : 1;
+      const fontSize = Math.min(20, Math.max(12, Math.round(15 * scale)));
+      return { ...data, appearance: { ...appearance, fontSize } };
     },
   },
   defaults: defaultSettings,

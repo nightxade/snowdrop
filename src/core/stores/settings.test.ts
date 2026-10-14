@@ -34,7 +34,7 @@ describe('settingsStore', () => {
       appearance: {
         themeId: 'linen',
         accent: 'red',
-        fontScale: 9,
+        fontSize: 99,
         density: 'huge',
         clock24h: false,
       },
@@ -46,7 +46,7 @@ describe('settingsStore', () => {
     expect(parsed.appearance).toEqual({
       ...d.appearance,
       themeId: 'linen',
-      fontScale: 1.25,
+      fontSize: 20,
       clock24h: false,
     });
     expect(parsed.behaviour).toEqual(d.behaviour);
@@ -143,6 +143,35 @@ describe('settingsStore', () => {
     // Missing/odd `behaviour` is tolerated, not just a present-but-false field.
     expect(load({}).behaviour.linkPreviews).toBe(true);
     expect(load({ behaviour: 'nope' }).behaviour.linkPreviews).toBe(true);
+  });
+
+  it('migrates v4 settings to v5, replacing the percentage fontScale with a pixel fontSize', () => {
+    const load = (data: unknown) => {
+      const storage = createMemoryStorage({
+        'snowdrop.settings': JSON.stringify({ v: 4, data }),
+      });
+      return loadVersioned(storage, settingsSchema);
+    };
+    // fontSize = round(15 * fontScale), clamped to 12-20.
+    expect(load({ appearance: { fontScale: 1 } }).appearance.fontSize).toBe(15);
+    expect(load({ appearance: { fontScale: 1.1 } }).appearance.fontSize).toBe(17);
+    expect(load({ appearance: { fontScale: 0.875 } }).appearance.fontSize).toBe(13);
+    expect(load({ appearance: { fontScale: 1.25 } }).appearance.fontSize).toBe(19);
+    // Garbage/missing fontScale falls back to the old default (1) -> 15px.
+    expect(load({ appearance: { fontScale: 'nope' } }).appearance.fontSize).toBe(15);
+    expect(load({}).appearance.fontSize).toBe(15);
+    // `fontScale` itself is dropped, not merely ignored.
+    expect(load({ appearance: { fontScale: 1 } }).appearance).not.toHaveProperty('fontScale');
+  });
+
+  it('parses fontSize, clamping to 12-20 and rounding to a whole pixel', () => {
+    const d = defaultSettings();
+    expect(parseSettings({ appearance: { fontSize: 16.4 } }).appearance.fontSize).toBe(16);
+    expect(parseSettings({ appearance: { fontSize: 5 } }).appearance.fontSize).toBe(12);
+    expect(parseSettings({ appearance: { fontSize: 99 } }).appearance.fontSize).toBe(20);
+    expect(parseSettings({ appearance: { fontSize: 'huge' } }).appearance.fontSize).toBe(
+      d.appearance.fontSize,
+    );
   });
 
   it('defaults the TUI shell to standard and parses it as one of the two layouts', () => {

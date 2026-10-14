@@ -24,7 +24,8 @@ export interface AppearanceInput {
   density: Density;
   /** 'tui' sets `data-shell="tui"` on the document element. */
   shell: Shell;
-  fontScale: number;
+  /** 12–20 (px), the message text size. Derived to `--snowdrop-font-scale` as `fontSize / 15`. */
+  fontSize: number;
   zoom: number;
   saturation: number;
   reducedMotion: ReducedMotion;
@@ -152,7 +153,9 @@ export function buildThemeCss(input: AppearanceInput): string {
     ...theme.tokens,
     ...(input.accent ? deriveAccentTokens(input.accent, theme.kind) : {}),
     'accent-text': deriveAccentText(accent, surfaces),
-    'font-scale': String(input.fontScale),
+    // The message text size (px) is the one stored setting; every other
+    // size keeps scaling proportionally off this single derived ratio.
+    'font-scale': String(input.fontSize / 15),
     zoom: String(input.zoom),
     saturation: String(input.saturation),
   };

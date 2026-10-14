@@ -32,11 +32,24 @@
 }
 
 /* Slider */
+.sliderWrap {
+  display: inline-flex;
+  flex-direction: column;
+  gap: var(--snowdrop-space-2);
+  min-width: 220px;
+}
+
 .slider {
   display: inline-flex;
   align-items: center;
   gap: var(--snowdrop-space-4);
-  min-width: 220px;
+}
+
+.sliderTicks {
+  display: flex;
+  justify-content: space-between;
+  color: var(--snowdrop-text-faint);
+  font-size: var(--snowdrop-font-size-xs);
 }
 
 .range {

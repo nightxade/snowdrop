@@ -190,10 +190,10 @@ export const SETTINGS_PAGES: SettingsPageDef[] = [
         keywords: ['12', '24', 'hour', 'clock'],
       },
       {
-        id: 'appearance.fontScale',
+        id: 'appearance.fontSize',
         section: 'text',
-        label: 'Text size',
-        keywords: ['font', 'scale'],
+        label: 'Font size',
+        keywords: ['font', 'scale', 'text size', 'px', 'pixels'],
       },
       { id: 'appearance.zoom', section: 'text', label: 'Zoom', keywords: ['ui', 'scale'] },
     ],

@@ -24,7 +24,7 @@ const base: AppearanceInput = {
   accent: null,
   density: 'comfortable',
   shell: 'standard',
-  fontScale: 1,
+  fontSize: 15,
   zoom: 1,
   saturation: 1,
   reducedMotion: 'system',
@@ -85,10 +85,11 @@ describe('themes', () => {
   });
 
   it('builds CSS with overrides, accent and scale tokens', () => {
-    const css = buildThemeCss({ ...base, themeId: 'linen', accent: '#3366ff', fontScale: 1.125 });
+    const css = buildThemeCss({ ...base, themeId: 'linen', accent: '#3366ff', fontSize: 18 });
     expect(css).toContain(`--snowdrop-bg-chat: ${LINEN.tokens['bg-chat']};`);
     expect(css).toContain('--snowdrop-accent: #3366ff;');
-    expect(css).toContain('--snowdrop-font-scale: 1.125;');
+    // fontSize (px) is the stored setting; font-scale is derived as fontSize / 15.
+    expect(css).toContain('--snowdrop-font-scale: 1.2;');
     expect(buildThemeCss({ ...base, themeId: 'high-contrast' })).toContain('0 0 0 2px #ffffff');
   });
 });

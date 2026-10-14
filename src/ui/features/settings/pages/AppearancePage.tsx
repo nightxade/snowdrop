@@ -190,20 +190,25 @@ export function AppearancePage() {
       </SettingsSection>
       <SettingsSection id="text" title="Size">
         <SettingRow
-          id="appearance.fontScale"
-          label="Text size"
-          description="Scales message and interface text."
+          id="appearance.fontSize"
+          label="Font size"
+          description={
+            a.shell === 'tui'
+              ? 'Sets the message text size; the interface scales to match. The TUI layout uses slightly smaller text throughout.'
+              : 'Sets the message text size; the interface scales to match.'
+          }
           control={(ids) => (
             <Slider
               id={ids.id}
               aria-describedby={ids.descriptionId}
-              value={Math.round(a.fontScale * 1000) / 10}
-              min={87.5}
-              max={125}
-              step={2.5}
-              format={(v) => `${Number.isInteger(v) ? v : v.toFixed(1)}%`}
+              value={a.fontSize}
+              min={12}
+              max={20}
+              step={1}
+              format={(v) => `${v} px`}
+              ticks={['12 px', '20 px']}
               onValueChange={(v) => {
-                set({ fontScale: v / 100 });
+                set({ fontSize: v });
               }}
             />
           )}
