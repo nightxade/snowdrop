@@ -158,8 +158,10 @@ On a single-account daemon `connection.account` is required (Snowdrop reports
   including other `localhost` apps — can't use it. Running `vite --host` (or `npm run dev -- --host`) puts the server on your network: the
   guard then refuses LAN requests, but don't work around it, and never run the proxy on a
   shared machine.
-- Snowdrop only talks to the daemon through the local proxy; no other network requests are
-  made on its behalf. Link previews are off by default.
+- Snowdrop only talks to the daemon through the local proxy, with one exception: link
+  previews (on by default). Composing a message with a link fetches that page's title,
+  description and image directly from this device, which reveals your IP to the site —
+  visible before you send, and can be turned off in Settings → Behaviour.
 - Message history lives in your browser's IndexedDB for the Snowdrop origin; clear it from
   Settings → Data & Storage, or by clearing site data.
 - Outgoing attachments are sent to the daemon as `data:` URIs (never as file paths, and

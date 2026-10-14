@@ -53,7 +53,11 @@ export interface BehaviourSettings {
   sendReadReceipts: boolean;
   /** Convert markdown to native Signal formatting on send. */
   markdown: boolean;
-  /** Off by default: fetching previews leaks what you're reading to third parties. */
+  /**
+   * On by default. The desktop app fetches the page directly to build the
+   * preview, so the site you're linking to sees your IP; recipients never
+   * contact the site themselves.
+   */
   linkPreviews: boolean;
   /**
    * Off by default: opening a conversation (switcher, notification, sidebar
@@ -172,7 +176,7 @@ export function defaultSettings(): Settings {
       sendTypingIndicators: true,
       sendReadReceipts: true,
       markdown: true,
-      linkPreviews: false,
+      linkPreviews: true,
       focusComposerOnOpen: false,
       verboseLogging: false,
     },
@@ -441,7 +445,7 @@ export function createSettingsSchema(
 
 export const settingsSchema: VersionedSchema<Settings> = {
   key: 'snowdrop.settings',
-  version: 3,
+  version: 4,
   migrations: {
     // v2 (P5): `connection.account`; the untouched v1 default daemon URL moves
     // to the same-origin proxy path (a custom URL is kept as the user set it).
@@ -470,6 +474,14 @@ export const settingsSchema: VersionedSchema<Settings> = {
         out.plugins = plugins;
       }
       return out;
+    },
+    // v4: link previews are now on by default — there was no UI toggle for
+    // it until the link-previews feature shipped, so a stored `false` only
+    // ever reflects the old default, never a deliberate choice.
+    4: (data) => {
+      if (!isRecord(data)) return data;
+      const behaviour = isRecord(data.behaviour) ? data.behaviour : {};
+      return { ...data, behaviour: { ...behaviour, linkPreviews: true } };
     },
   },
   defaults: defaultSettings,

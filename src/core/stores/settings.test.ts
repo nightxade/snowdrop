@@ -122,6 +122,29 @@ describe('settingsStore', () => {
     expect(parseSettings({ connection: { desktop: custom } }).connection.desktop).toEqual(custom);
   });
 
+  it('defaults linkPreviews to on and parses it as a plain boolean', () => {
+    const d = defaultSettings();
+    expect(d.behaviour.linkPreviews).toBe(true);
+    expect(parseSettings({ behaviour: { linkPreviews: false } }).behaviour).toEqual({
+      ...d.behaviour,
+      linkPreviews: false,
+    });
+    expect(parseSettings({ behaviour: { linkPreviews: 'yes' } }).behaviour).toEqual(d.behaviour);
+  });
+
+  it('migrates v3 settings to v4, turning linkPreviews on (it had no UI toggle before)', () => {
+    const load = (data: unknown) => {
+      const storage = createMemoryStorage({
+        'snowdrop.settings': JSON.stringify({ v: 3, data }),
+      });
+      return loadVersioned(storage, settingsSchema);
+    };
+    expect(load({ behaviour: { linkPreviews: false } }).behaviour.linkPreviews).toBe(true);
+    // Missing/odd `behaviour` is tolerated, not just a present-but-false field.
+    expect(load({}).behaviour.linkPreviews).toBe(true);
+    expect(load({ behaviour: 'nope' }).behaviour.linkPreviews).toBe(true);
+  });
+
   it('defaults the TUI shell to standard and parses it as one of the two layouts', () => {
     const d = defaultSettings();
     expect(d.appearance.shell).toBe('standard');

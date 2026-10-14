@@ -39,22 +39,22 @@ describe('Settings → Behaviour: link previews', () => {
     expect(screen.queryByRole('switch', { name: 'Link previews' })).toBeNull();
   });
 
-  it('is off by default and flips the setting when offered (desktop)', async () => {
+  it('is on by default and flips the setting when offered (desktop)', async () => {
     snowdrop = await bootSnowdrop();
     // Simulates the desktop build, where createSnowdrop wires this up to a
     // real fetch — the row's presence and the switch itself don't care which.
     (snowdrop as { linkPreviewFetch: unknown }).linkPreviewFetch = () => Promise.resolve(undefined);
     renderWithSnowdrop(snowdrop, <BehaviourPage />);
 
-    expect(snowdrop.stores.settings.getState().behaviour.linkPreviews).toBe(false);
+    expect(snowdrop.stores.settings.getState().behaviour.linkPreviews).toBe(true);
     const toggle = screen.getByRole('switch', { name: 'Link previews' });
-    expect(toggle.getAttribute('aria-checked')).toBe('false');
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
 
     act(() => {
       fireEvent.click(toggle);
     });
 
-    expect(snowdrop.stores.settings.getState().behaviour.linkPreviews).toBe(true);
-    expect(toggle.getAttribute('aria-checked')).toBe('true');
+    expect(snowdrop.stores.settings.getState().behaviour.linkPreviews).toBe(false);
+    expect(toggle.getAttribute('aria-checked')).toBe('false');
   });
 });
