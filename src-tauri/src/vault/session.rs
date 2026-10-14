@@ -6,8 +6,17 @@
 //! decides whether it's looking at a clean slate or a crashed previous
 //! session, `ensure_media`/`evict_media` implement the on-demand media
 //! budget, and `shutdown` leaves things safe to start again either way.
+//!
+//! Because media is restored lazily, a media relpath missing from the
+//! runtime dir doesn't mean signal-cli deleted it — it may just never have
+//! been hydrated, or have been evicted back out by
+//! [`evict_media`](VaultSession::evict_media). `VaultSession` tracks which
+//! media relpaths it knows are actually materialized (`materialized_media`)
+//! and only lets its own `sync` drop one that's missing *and* was
+//! materialized; a non-media relpath missing from the runtime dir is still
+//! always a real deletion.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -156,6 +165,23 @@ pub struct VaultSession {
     /// again right after a restore — never a correctness problem, since
     /// `evict_media` only ever removes files already safely in the vault.
     last_access: HashMap<String, Instant>,
+    /// Media relpaths this session knows are materialized in the runtime
+    /// dir: seen present on a [`sync`](Self::sync)'s walk, or hydrated by
+    /// [`ensure_media`](Self::ensure_media). Also in-memory only, lost on
+    /// restart exactly like `last_access` — a fresh session has hydrated
+    /// nothing yet, so starting empty is always correct, never a reason a
+    /// real deletion could be missed (docs/ENCRYPTION.md, "Sync").
+    ///
+    /// `sync` consults this to tell a media relpath signal-cli genuinely
+    /// deleted (materialized, now gone: drop it) from one this session
+    /// simply hasn't hydrated yet (never materialized, still absent: keep
+    /// it) — the fix for a real bug where the first sync after every launch
+    /// treated every not-yet-hydrated media file as deleted and destroyed
+    /// its blob. `evict_media` removes a relpath from this set the moment it
+    /// deletes the file, so an evicted-then-re-hydrated file round-trips
+    /// through "materialized → not materialized → materialized" exactly as
+    /// its presence on disk does.
+    materialized_media: HashSet<String>,
 }
 
 impl VaultSession {
@@ -199,7 +225,17 @@ impl VaultSession {
 
         match kind {
             StartKind::Recovered => {
-                vault.sync(&runtime_dir)?;
+                // No `VaultSession` exists yet, so there's no materialized-
+                // media set to consult — and none is needed: a crashed
+                // previous session's runtime dir was never restored into
+                // either (same `do_restore` skips media as every other
+                // start), so a media relpath missing here is exactly as
+                // likely to be "never hydrated" as "really deleted", and
+                // this path has no way to tell them apart. Keep every
+                // absent media entry unconditionally; an ordinary sync once
+                // the session exists can tell the difference and will catch
+                // up on a real deletion then.
+                sync::sync(&vault, &runtime_dir, is_media)?;
                 sweep_non_allowlisted(&runtime_dir)?;
                 let (manifest, _source) = manifest::load_with_fallback(&vault.dir, &vault.key, &vault.vault_id)?;
                 write_marker(&runtime_dir, &vault.vault_id, manifest.generation)?;
@@ -210,7 +246,14 @@ impl VaultSession {
             }
         }
 
-        Ok(Self { vault, runtime_dir, _lock: lock, last_start: kind, last_access: HashMap::new() })
+        Ok(Self {
+            vault,
+            runtime_dir,
+            _lock: lock,
+            last_start: kind,
+            last_access: HashMap::new(),
+            materialized_media: HashSet::new(),
+        })
     }
 
     /// What [`start`](Self::start) found, for logging/tests.
@@ -223,9 +266,28 @@ impl VaultSession {
     }
 
     /// Syncs the runtime dir into the vault (docs/ENCRYPTION.md, "Sync",
-    /// "When to sync").
-    pub fn sync(&self) -> Result<sync::SyncReport, Error> {
-        self.vault.sync(&self.runtime_dir)
+    /// "When to sync"). Unlike [`Vault::sync`](super::Vault::sync), a media
+    /// relpath absent from the runtime dir is only treated as deleted once
+    /// this session has actually seen it materialized there — walks its own
+    /// copy of the runtime dir first (rather than calling `Vault::sync`) so
+    /// it can both update that record and reuse the walk for the sync
+    /// itself.
+    pub fn sync(&mut self) -> Result<sync::SyncReport, Error> {
+        self.sync_inner()
+    }
+
+    /// The shared implementation behind [`sync`](Self::sync) and
+    /// [`shutdown`](Self::shutdown) (which needs one last sync with the
+    /// same media-aware rule before it wipes the runtime dir).
+    fn sync_inner(&mut self) -> Result<sync::SyncReport, Error> {
+        let walked = sync::walk(&self.runtime_dir)?;
+        for entry in &walked {
+            if is_media(&entry.relpath) {
+                self.materialized_media.insert(entry.relpath.clone());
+            }
+        }
+        let materialized = &self.materialized_media;
+        sync::sync_walked(&self.vault, &walked, |relpath| is_media(relpath) && !materialized.contains(relpath))
     }
 
     /// Records `relpath` as just accessed, without restoring anything.
@@ -242,17 +304,21 @@ impl VaultSession {
     /// restore verifies every entry. Returns whether it actually restored
     /// anything — `false` both when the file was already there and when
     /// the manifest doesn't have it at all. Either way, a successful call
-    /// (file present on return) counts as an access.
+    /// (file present on return) counts as an access and, since the file is
+    /// now known to be materialized, makes `relpath` safe for a later
+    /// [`sync`](Self::sync) to delete if it later goes missing for real.
     pub fn ensure_media(&mut self, relpath: &str) -> Result<bool, Error> {
         validate_relpath(relpath)?;
         let full = self.runtime_dir.join(relpath);
         if full.is_file() {
             self.touch(relpath);
+            self.materialized_media.insert(relpath.to_string());
             return Ok(false);
         }
         let restored = restore::restore_one(&self.vault, &self.runtime_dir, relpath)?;
         if restored {
             self.touch(relpath);
+            self.materialized_media.insert(relpath.to_string());
         }
         Ok(restored)
     }
@@ -305,6 +371,9 @@ impl VaultSession {
             }
             fs::remove_file(&entry.path).map_err(|e| io_err(&entry.path, e))?;
             self.last_access.remove(&entry.relpath);
+            // No longer materialized: the next sync must not treat its
+            // absence as a real deletion (docs/ENCRYPTION.md, "Sync").
+            self.materialized_media.remove(&entry.relpath);
             remaining -= entry.len;
             freed += entry.len;
             evicted.push(entry.relpath.clone());
@@ -320,8 +389,8 @@ impl VaultSession {
     /// since this consumes the session regardless, but that's harmless: a
     /// marker matching this vault is exactly what makes the next `start`
     /// take the recovery path instead of restoring over unsynced changes.
-    pub fn shutdown(self) -> Result<(), Error> {
-        self.vault.sync(&self.runtime_dir)?;
+    pub fn shutdown(mut self) -> Result<(), Error> {
+        self.sync_inner()?;
         wipe_runtime_dir(&self.runtime_dir)
     }
 }
@@ -411,6 +480,149 @@ mod tests {
         // Not in the manifest at all.
         let missing = session.ensure_media("attachments/nope.jpg").unwrap();
         assert!(!missing);
+    }
+
+    // The regression suite for a real data-loss bug: `sync` used to treat
+    // *every* manifest entry absent from the runtime dir as deleted, which
+    // meant the first sync after any launch (media is never restored up
+    // front) — or any sync after `evict_media` — permanently destroyed
+    // every attachment, avatar and sticker that wasn't hydrated at that
+    // exact moment. These five tests pin down the fix: a media relpath is
+    // only ever dropped once this session has actually seen it
+    // materialized and it then goes missing for real; a non-media relpath
+    // is unaffected either way.
+
+    #[test]
+    fn fresh_start_sync_does_not_delete_unhydrated_media() {
+        let base = temp_dir("media-fresh-sync");
+        let base = base.path();
+        let vault = new_vault(base, [20u8; VAULT_ID_LEN]);
+        let runtime = base.join("runtime");
+        write_file(&runtime, "data/account", b"account data");
+        write_file(&runtime, "attachments/photo.jpg", b"fake jpeg bytes");
+        vault.sync(&runtime).unwrap();
+        fs::remove_dir_all(&runtime).unwrap();
+
+        let mut session = VaultSession::start(vault, runtime.clone(), lock(base)).unwrap();
+        assert!(!runtime.join("attachments/photo.jpg").exists(), "media must not be restored up front");
+
+        // The very first sync of a fresh session must not treat the
+        // never-hydrated attachment as deleted, even though it's genuinely
+        // absent from the runtime dir right now.
+        let report = session.sync().unwrap();
+        assert_eq!(report.deleted, 0, "sync must not count unhydrated media as deleted");
+        assert!(!report.wrote, "nothing actually changed, so nothing should be committed");
+
+        let restored = session.ensure_media("attachments/photo.jpg").unwrap();
+        assert!(restored, "the manifest entry must have survived the sync above");
+        assert_eq!(fs::read(runtime.join("attachments/photo.jpg")).unwrap(), b"fake jpeg bytes");
+    }
+
+    #[test]
+    fn evicted_media_survives_a_subsequent_sync() {
+        let base = temp_dir("media-evict-sync");
+        let base = base.path();
+        let vault = new_vault(base, [21u8; VAULT_ID_LEN]);
+        let runtime = base.join("runtime");
+        write_file(&runtime, "attachments/photo.jpg", b"fake jpeg bytes");
+        vault.sync(&runtime).unwrap();
+        fs::remove_dir_all(&runtime).unwrap();
+
+        let mut session = VaultSession::start(vault, runtime.clone(), lock(base)).unwrap();
+        assert!(session.ensure_media("attachments/photo.jpg").unwrap());
+
+        // Budget 0, idle 0: evicts everything already synced, regardless of
+        // how recently it was accessed.
+        let evict_report = session.evict_media(0, Duration::ZERO).unwrap();
+        assert_eq!(evict_report.evicted, vec!["attachments/photo.jpg".to_string()]);
+        assert!(!runtime.join("attachments/photo.jpg").exists());
+
+        let sync_report = session.sync().unwrap();
+        assert_eq!(sync_report.deleted, 0, "a file this session itself evicted must not be treated as deleted");
+
+        let restored = session.ensure_media("attachments/photo.jpg").unwrap();
+        assert!(restored, "the manifest entry must have survived the sync above");
+        assert_eq!(fs::read(runtime.join("attachments/photo.jpg")).unwrap(), b"fake jpeg bytes");
+    }
+
+    #[test]
+    fn sync_drops_media_actually_deleted_after_being_materialized() {
+        let base = temp_dir("media-real-delete");
+        let base = base.path();
+        let vault = new_vault(base, [22u8; VAULT_ID_LEN]);
+        let runtime = base.join("runtime");
+
+        // Written straight into the running session's runtime dir (rather
+        // than via `ensure_media`) and synced, the same way signal-cli
+        // itself would create a new attachment: the sync's own walk sees it
+        // present, which is what marks it materialized.
+        let mut session = VaultSession::start(vault, runtime.clone(), lock(base)).unwrap();
+        write_file(&runtime, "attachments/photo.jpg", b"fake jpeg bytes");
+        session.sync().unwrap();
+
+        // signal-cli (simulated) really deletes the file.
+        fs::remove_file(runtime.join("attachments/photo.jpg")).unwrap();
+        let report = session.sync().unwrap();
+        assert_eq!(report.deleted, 1, "a materialized-then-missing media file is a real deletion");
+
+        // Gone from the manifest for good: re-hydrating it finds nothing.
+        let restored = session.ensure_media("attachments/photo.jpg").unwrap();
+        assert!(!restored);
+    }
+
+    #[test]
+    fn crash_recovery_keeps_media_absent_from_the_runtime_dir() {
+        let base = temp_dir("media-crash-recovery");
+        let base = base.path();
+        let vault_id = [23u8; VAULT_ID_LEN];
+        let vault_dir = base.join("vault");
+        let key = Key32::random();
+        let runtime = base.join("runtime");
+
+        let vault1 = Vault::open(&vault_dir, Key32::from_slice(key.as_bytes()).unwrap(), vault_id).unwrap();
+        write_file(&runtime, "data/account", b"account data");
+        write_file(&runtime, "attachments/photo.jpg", b"fake jpeg bytes");
+        vault1.sync(&runtime).unwrap();
+        fs::remove_dir_all(&runtime).unwrap();
+
+        let session1 = VaultSession::start(vault1, runtime.clone(), lock(base)).unwrap();
+        assert_eq!(session1.last_start(), StartKind::Fresh);
+        assert!(!runtime.join("attachments/photo.jpg").exists(), "media never restored up front");
+
+        // "Crash": dropped without calling `shutdown`, same as the existing
+        // crash-recovery test — the attachment is still never hydrated.
+        drop(session1);
+
+        let vault2 = Vault::open(&vault_dir, Key32::from_slice(key.as_bytes()).unwrap(), vault_id).unwrap();
+        let session2 = VaultSession::start(vault2, runtime.clone(), lock(base)).unwrap();
+        assert_eq!(session2.last_start(), StartKind::Recovered);
+
+        // The crash-recovery sync (which runs in `start`, before any
+        // `VaultSession` exists to track materialized media) must not have
+        // treated the never-hydrated attachment as deleted.
+        let check_vault = Vault::open(&vault_dir, Key32::from_slice(key.as_bytes()).unwrap(), vault_id).unwrap();
+        let restored = temp_dir("media-crash-recovery-restored");
+        let restored = restored.path();
+        check_vault.restore(restored, |_| true).unwrap();
+        assert_eq!(fs::read(restored.join("attachments/photo.jpg")).unwrap(), b"fake jpeg bytes");
+    }
+
+    #[test]
+    fn sync_still_drops_a_deleted_non_media_file() {
+        let base = temp_dir("non-media-delete");
+        let base = base.path();
+        let vault = new_vault(base, [24u8; VAULT_ID_LEN]);
+        let runtime = base.join("runtime");
+        write_file(&runtime, "data/account", b"account data");
+        vault.sync(&runtime).unwrap();
+        fs::remove_dir_all(&runtime).unwrap();
+
+        let mut session = VaultSession::start(vault, runtime.clone(), lock(base)).unwrap();
+        assert!(runtime.join("data/account").exists());
+
+        fs::remove_file(runtime.join("data/account")).unwrap();
+        let report = session.sync().unwrap();
+        assert_eq!(report.deleted, 1, "a non-media relpath missing from the runtime dir is still always a real deletion");
     }
 
     #[test]
@@ -589,7 +801,7 @@ mod tests {
         vault.sync(&runtime).unwrap();
         fs::remove_dir_all(&runtime).unwrap();
 
-        let session = VaultSession::start(vault, runtime.clone(), lock(base)).unwrap();
+        let mut session = VaultSession::start(vault, runtime.clone(), lock(base)).unwrap();
         assert!(read_marker(&runtime).is_some(), "sanity: the marker really is on disk");
         session.sync().unwrap();
 

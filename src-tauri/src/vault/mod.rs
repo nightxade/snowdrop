@@ -117,8 +117,15 @@ impl Vault {
     /// Diffs `runtime_dir` against the current manifest, copies every
     /// changed file into a new blob, and commits a new manifest generation.
     /// Writes nothing at all if nothing changed.
+    ///
+    /// Every manifest entry absent from `runtime_dir` is treated as deleted
+    /// — the plain behaviour, right for every caller here (none hydrates
+    /// media lazily). [`VaultSession`] is the one caller that can't use
+    /// this: it calls [`sync::sync_walked`] directly with a predicate that
+    /// also keeps a not-yet-hydrated media relpath (docs/ENCRYPTION.md,
+    /// "Sync", "Attachment budget").
     pub fn sync(&self, runtime_dir: &Path) -> Result<SyncReport, Error> {
-        sync::sync(self, runtime_dir)
+        sync::sync(self, runtime_dir, |_| false)
     }
 
     /// The vault directory (for callers that need to place sibling state,

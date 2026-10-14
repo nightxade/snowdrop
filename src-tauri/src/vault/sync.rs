@@ -3,6 +3,17 @@
 //! strategy `copy` picks for it, write each one to a brand new blob, commit
 //! a new manifest generation, then garbage-collect. Writes nothing at all
 //! if nothing changed.
+//!
+//! A manifest entry whose relpath is missing from the runtime dir isn't
+//! automatically "deleted": [`sync`]/[`sync_walked`] take an explicit
+//! `keep_if_absent` predicate for exactly this, so this module stays a pure
+//! function of its inputs rather than knowing anything about
+//! `session::VaultSession`'s on-demand media. [`Vault::sync`](super::Vault::sync)
+//! passes a predicate that never keeps anything (today's plain behaviour:
+//! absent always means deleted); `VaultSession` passes one that also keeps
+//! a media relpath this session hasn't materialized (seen present on a walk,
+//! or hydrated via `ensure_media`) — see docs/ENCRYPTION.md, "Sync" and
+//! "Attachment budget".
 
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashSet};
@@ -134,21 +145,39 @@ fn copy_one(path: &Path, vault_dir: &Path) -> Result<Vec<u8>, String> {
     Err(last_err)
 }
 
-pub(crate) fn sync(vault: &Vault, runtime_dir: &Path) -> Result<SyncReport, Error> {
-    let (old_manifest, _source) = manifest::load_with_fallback(&vault.dir, &vault.key, &vault.vault_id)?;
+/// Walks `runtime_dir` itself, then delegates to [`sync_walked`]. Most
+/// callers (anything that doesn't already have a walk lying around) want
+/// this; `session::VaultSession::sync` reuses its own walk (it needs one
+/// anyway, to track which media relpaths are now present) and calls
+/// [`sync_walked`] directly instead.
+pub(crate) fn sync(vault: &Vault, runtime_dir: &Path, keep_if_absent: impl Fn(&str) -> bool) -> Result<SyncReport, Error> {
     let walked = walk(runtime_dir)?;
+    sync_walked(vault, &walked, keep_if_absent)
+}
+
+/// Diffs an already-[`walk`]ed runtime dir against the current manifest,
+/// copies every changed file into a new blob, and commits a new manifest
+/// generation. Writes nothing at all if nothing changed.
+///
+/// A manifest relpath absent from `walked` is normally treated as deleted —
+/// unless `keep_if_absent` says otherwise for it, in which case its entry is
+/// carried over unchanged (not deleted, not re-copied, not counted in the
+/// returned `deleted`). See this module's docs for why that exists.
+pub(crate) fn sync_walked(vault: &Vault, walked: &[WalkEntry], keep_if_absent: impl Fn(&str) -> bool) -> Result<SyncReport, Error> {
+    let (old_manifest, _source) = manifest::load_with_fallback(&vault.dir, &vault.key, &vault.vault_id)?;
 
     let mut new_entries = old_manifest.entries.clone();
     let mut skipped = Vec::new();
     let mut changed = 0usize;
 
     let present: HashSet<&str> = walked.iter().map(|w| w.relpath.as_str()).collect();
-    let deleted_keys: Vec<String> = old_manifest.entries.keys().filter(|k| !present.contains(k.as_str())).cloned().collect();
+    let deleted_keys: Vec<String> =
+        old_manifest.entries.keys().filter(|k| !present.contains(k.as_str()) && !keep_if_absent(k.as_str())).cloned().collect();
     for key in &deleted_keys {
         new_entries.remove(key);
     }
 
-    for entry in &walked {
+    for entry in walked {
         validate_relpath(&entry.relpath)?;
 
         let unchanged_by_stat =
@@ -301,7 +330,7 @@ mod tests {
         fs::create_dir_all(runtime.join("data")).unwrap();
         fs::write(runtime.join("data/bad.json"), b"{ this never parses").unwrap();
 
-        let report = sync(&vault, &runtime).unwrap();
+        let report = sync(&vault, &runtime, |_| false).unwrap();
         assert_eq!(report.changed, 0);
         assert_eq!(report.skipped.len(), 1);
         assert_eq!(report.skipped[0].relpath, "data/bad.json");
@@ -330,7 +359,7 @@ mod tests {
         // into account.db yet, so a plain file copy would lose it.
         assert!(runtime.join("data/account.db-wal").exists());
 
-        let report = sync(&vault, &runtime).unwrap();
+        let report = sync(&vault, &runtime, |_| false).unwrap();
         assert!(report.wrote);
         assert_eq!(report.changed, 1);
 

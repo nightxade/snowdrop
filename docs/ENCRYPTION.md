@@ -119,6 +119,8 @@ never counted as legacy data (see "Migration" below for why this matters).
 
 A crash at any point leaves either the old or the new generation fully intact. `manifest.prev` is a one-generation fallback if the current one is unreadable.
 
+A manifest entry whose relpath is absent from the runtime dir normally means it was deleted, so step 1 above also removes it from the manifest (and its blob is garbage-collected along with everything else at step 5) — **except** for a media relpath (`attachments/`, `avatars/`, `stickers/`) that this session has never actually seen materialized in the runtime dir: since media is restored lazily (see "Attachment budget" below), its absence just as often means "never hydrated yet" or "evicted" as "genuinely deleted", and the two are indistinguishable from the runtime dir's contents alone. `VaultSession` tracks which media relpaths it knows are materialized — seen present on a sync's own walk, or hydrated by `ensure_media` — drops a relpath from that record the moment `evict_media` removes it, and only lets a materialized-but-now-missing media relpath be treated as a real deletion. A non-media relpath is never special-cased this way.
+
 **When to sync:**
 
 - About 2 s, debounced, after a receive batch is acknowledged or a send succeeds.
@@ -132,12 +134,12 @@ A crash at any point leaves either the old or the new generation fully intact. `
 
 - Restore hydrates everything except media; media is restored on demand.
 - Snowdrop already proxies signal-cli requests. When a `getAttachment` names a file missing from the runtime dir but present in the vault, it's decrypted into place first, then the request continues.
-- After each sync, media not read for 10 minutes is evicted from the runtime dir, oldest first, once the runtime media total exceeds 256 MiB. That's safe because every evicted file is already in the vault.
+- After each sync, media not read for 10 minutes is evicted from the runtime dir, oldest first, once the runtime media total exceeds 256 MiB. That's safe because every evicted file is already in the vault — and because an evicted file no longer counts as "materialized" (see "Sync" above), so the very next sync can't mistake its absence for signal-cli having deleted it.
 - **If the RAM-backed folder fills up mid-write:** signal-cli's write fails and Snowdrop surfaces a "Storage full" error. Eviction then runs immediately.
 
 **Crash recovery:**
 
-- If the runtime dir exists at launch and the lock is free, the previous session crashed, and the runtime copy is newer. Sync it into the vault first, then reuse it.
+- If the runtime dir exists at launch and the lock is free, the previous session crashed, and the runtime copy is newer. Sync it into the vault first, then reuse it. This sync runs before any `VaultSession` exists, so there's no record of what the crashed session had materialized — every media relpath absent from the reused runtime dir is kept unconditionally (never treated as deleted) rather than guessed at; an ordinary sync once the new session is running can tell a real deletion from a merely-unhydrated file and will catch up on it then.
 - After a reboot the runtime copy is gone, so at most the last few seconds are lost. That can mean a handful of messages from that window fail to decrypt.
 
 **Migration:** `<app data>/signal-cli/` is signal-cli's own plaintext data dir, left by a build that predates the vault — but only once it actually looks like signal-cli's data, not just any directory happening to exist at that path. Snowdrop requires a `data/` subdirectory specifically (signal-cli's own layout is exactly `data/`, `attachments/`, `avatars/`, `stickers/` — see above) before treating it as legacy data at all.
