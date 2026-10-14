@@ -8,8 +8,8 @@
  * requests, and keep a small LRU so scrolling back and forth doesn't
  * re-download or leak object URLs.
  */
-import type { Attachment } from '@/core/domain';
-import type { OutgoingAttachment } from '../types';
+import type { Attachment, LinkPreview } from '@/core/domain';
+import type { OutgoingAttachment, OutgoingLinkPreview } from '../types';
 import { SignalCliError } from './errors';
 import { toDataUri } from './params';
 import type { JsonRpcClient, RpcParams } from './rpc';
@@ -151,6 +151,48 @@ export async function encodeOutgoing(
     }
   }
   return { param, attachment };
+}
+
+export interface EncodedPreview {
+  /** `{ previewUrl, previewTitle, previewDescription?, previewImage? }` material. */
+  param: { url: string; title: string; description?: string; image?: string };
+  /** Our local record, for the optimistic message and the sent-message echo. */
+  preview: LinkPreview;
+}
+
+/** Caps the preview image like any other attachment, well under signal-cli's own limit. */
+export const MAX_PREVIEW_IMAGE_BYTES = 2 * 1024 * 1024;
+
+/**
+ * Encodes a composer-fetched preview for `send`/`edit`. The image (when
+ * present) rides the same data-URI path as a regular attachment.
+ */
+export async function encodeOutgoingPreview(
+  input: OutgoingLinkPreview,
+  id: string,
+): Promise<EncodedPreview> {
+  const preview: LinkPreview = { url: input.url };
+  if (input.title) preview.title = input.title;
+  if (input.description) preview.description = input.description;
+  const param: EncodedPreview['param'] = { url: input.url, title: input.title || input.url };
+  if (input.description) param.description = input.description;
+
+  const image = input.image;
+  if (image && image.data.size > 0 && image.data.size <= MAX_PREVIEW_IMAGE_BYTES) {
+    const bytes = new Uint8Array(await image.data.arrayBuffer());
+    const base64 = bytesToBase64(bytes);
+    param.image = toDataUri(image.contentType, 'preview', base64);
+    const attachment: Attachment = {
+      id,
+      contentType: image.contentType || 'application/octet-stream',
+      size: bytes.length,
+      url: `data:${safeMediaType(image.contentType)};base64,${base64}`,
+    };
+    if (image.width !== undefined) attachment.width = image.width;
+    if (image.height !== undefined) attachment.height = image.height;
+    preview.image = attachment;
+  }
+  return { param, preview };
 }
 
 export interface AttachmentResolverOptions {

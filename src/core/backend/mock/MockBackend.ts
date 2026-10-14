@@ -17,6 +17,7 @@ import {
   type Contact,
   type Conversation,
   type ConversationId,
+  type LinkPreview,
   type Message,
 } from '@/core/domain';
 import {
@@ -187,6 +188,31 @@ export class MockBackend implements ChatBackend {
           : {}),
       })),
     );
+    const preview: LinkPreview | undefined = input.preview && {
+      url: input.preview.url,
+      title: input.preview.title,
+      ...(input.preview.description ? { description: input.preview.description } : {}),
+      ...(input.preview.image
+        ? {
+            image: {
+              id: `${sentAt.toString(36)}-preview`,
+              contentType: input.preview.image.contentType,
+              size: input.preview.image.data.size,
+              ...(input.preview.image.width !== undefined
+                ? { width: input.preview.image.width }
+                : {}),
+              ...(input.preview.image.height !== undefined
+                ? { height: input.preview.image.height }
+                : {}),
+              ...(input.preview.image.data.size <= INLINE_ATTACHMENT_MAX
+                ? {
+                    url: await toDataUrl(input.preview.image.data, input.preview.image.contentType),
+                  }
+                : {}),
+            },
+          }
+        : {}),
+    };
     const selfId = this.world.self.id;
     const message: Message = {
       id: messageId(selfId, sentAt),
@@ -202,10 +228,11 @@ export class MockBackend implements ChatBackend {
       kind: 'normal',
     };
     if (input.quote) message.quote = input.quote;
+    if (preview) message.previews = [preview];
     this.append(message);
     this.scheduleReceipts(conv, sentAt);
     if (conv.kind === 'direct') this.liveliness.replyTo(conv.id);
-    return { sentAt, attachments };
+    return { sentAt, attachments, ...(preview ? { preview } : {}) };
   }
 
   async edit(input: EditInput): Promise<{ sentAt: number }> {

@@ -44,7 +44,7 @@ import {
 import { createNonce, type Clock } from '@/core/lib';
 import type { MessageRepository } from '@/core/persistence';
 import type { Stores } from '@/core/stores';
-import { localAttachment, withLocalUrls } from './localAttachments';
+import { finalPreview, localAttachment, localPreview, withLocalUrls } from './localAttachments';
 import { PendingOpsBuffer } from './PendingOpsBuffer';
 import { ReceiptBuffer } from './ReceiptBuffer';
 import {
@@ -196,6 +196,7 @@ export class SendService {
     if (transformed.quote) input.quote = transformed.quote;
     const customEmoji = this.buildCustomEmoji(body);
     if (customEmoji) input.customEmoji = customEmoji;
+    if (transformed.preview) input.preview = transformed.preview;
 
     const optimistic: Message = {
       id: pendingMessageId(nonce),
@@ -214,6 +215,7 @@ export class SendService {
       nonce,
     };
     if (input.quote) optimistic.quote = input.quote;
+    if (transformed.preview) optimistic.previews = [localPreview(transformed.preview, nonce)];
 
     this.outgoing.set(nonce, {
       conversationId: input.conversationId,
@@ -361,6 +363,9 @@ export class SendService {
       nonce,
       ...(pendingRow?.seq === undefined ? {} : { seq: pendingRow.seq }),
       ...(out.input.quote ? { quote: out.input.quote } : {}),
+      ...(result.preview
+        ? { previews: [finalPreview(result.preview, pendingRow?.previews?.[0]) ?? result.preview] }
+        : {}),
       ...(result.recipientFailures?.length
         ? { failedRecipients: result.recipientFailures.map((f) => f.recipientId) }
         : {}),
@@ -693,13 +698,14 @@ export class SendService {
 
 /** Puts an original message's content fields back, including absent optionals. */
 function restoreContent(m: Message, original: Message): Message {
-  const { edits: _e, editedAt: _t, ...rest } = m;
+  const { edits: _e, editedAt: _t, previews: _p, ...rest } = m;
   return {
     ...rest,
     body: original.body,
     ranges: original.ranges,
     ...(original.edits === undefined ? {} : { edits: original.edits }),
     ...(original.editedAt === undefined ? {} : { editedAt: original.editedAt }),
+    ...(original.previews ? { previews: original.previews } : {}),
   };
 }
 

@@ -4,6 +4,7 @@ import {
   TEXT_STYLES,
   type Attachment,
   type BodyRange,
+  type LinkPreview,
   type Message,
   type MessageStatus,
   type Quote,
@@ -78,6 +79,21 @@ function attachment(pointer: BackupRecord, id: string): Attachment {
   if (width) result.width = width;
   if (height) result.height = height;
   return result;
+}
+
+/** `StandardMessage.linkPreview` (Backups.proto): url, title?, image? (FilePointer), description?. */
+function linkPreviews(value: unknown, archiveId: string, cursor: string): LinkPreview[] {
+  return records(value).flatMap((entry, index): LinkPreview[] => {
+    const url = text(entry.url);
+    if (!url) return [];
+    const preview: LinkPreview = { url };
+    if (text(entry.title)) preview.title = text(entry.title);
+    if (text(entry.description)) preview.description = text(entry.description);
+    if (isRecord(entry.image)) {
+      preview.image = attachment(entry.image, `history:${archiveId}:${cursor}:preview:${index}`);
+    }
+    return [preview];
+  });
 }
 
 function status(item: BackupRecord): MessageStatus {
@@ -184,6 +200,8 @@ export function backupMessage({
       : [],
   );
   message.reactions = reactions(standard.reactions, directory);
+  const previews = linkPreviews(standard.linkPreview, archiveId, cursor);
+  if (previews.length > 0) message.previews = previews;
   if (isRecord(standard.longText))
     message.attachments.push(
       attachment(

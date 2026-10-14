@@ -5,7 +5,7 @@
  * Transports are registered in `backends.ts`, the plugin host's services are
  * in `pluginHost.ts` and the headless core commands in `coreCommands.ts`.
  */
-import type { ChatBackend, DesktopAdmin, StorageAdmin } from '@/core/backend';
+import type { ChatBackend, DesktopAdmin, OutgoingLinkPreview, StorageAdmin } from '@/core/backend';
 // Type-only: the adapter itself is loaded on demand (its own chunk).
 import type { FetchLike } from '@/core/backend/signal-cli';
 import { type CommandRegistry, isMacPlatform, KeybindDispatcher } from '@/core/commands';
@@ -69,6 +69,7 @@ import { createPluginHost } from './pluginHost';
 import {
   desktopAdmin,
   desktopLogAdmin,
+  desktopLinkPreviewFetch,
   desktopNotificationApi,
   desktopClipboardFiles,
   desktopStorageAdmin,
@@ -129,6 +130,8 @@ export interface Snowdrop {
   notifications: NotificationService;
   /** Gesture-triggered native paste fallback; null in browsers. */
   readClipboardFiles: (() => Promise<File[]>) | null;
+  /** Settings → Behaviour → "Link previews" (desktop only); null in browsers. */
+  linkPreviewFetch: ((url: string) => Promise<OutgoingLinkPreview | undefined>) | null;
   admin: AppAdmin;
   /** The desktop app's signal-cli management; null in the browser. */
   desktop: DesktopAdmin | null;
@@ -533,6 +536,7 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     safeMode: options.safeMode ?? false,
     notifications,
     readClipboardFiles: isTauri() ? desktopClipboardFiles : null,
+    linkPreviewFetch: isTauri() ? desktopLinkPreviewFetch : null,
     admin,
     desktop: isTauri() ? desktopAdmin() : null,
     storageAdmin: isTauri() ? desktopStorageAdmin() : null,

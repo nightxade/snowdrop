@@ -200,6 +200,59 @@ export const fixtures = {
     }),
   }),
 
+  linkPreview: receive('alice', {
+    dataMessage: dataMessage({
+      message: 'check this out https://example.com/climb',
+      previews: [
+        {
+          url: 'https://example.com/climb',
+          title: 'A great climb',
+          description: 'Topo and trip report.',
+          image: {
+            contentType: 'image/jpeg',
+            filename: null,
+            id: 'Pp1Qq2Rr3Ss4.jpg',
+            size: 65_536,
+            width: 1200,
+            height: 630,
+            caption: null,
+            uploadTimestamp: T0 - 10,
+            isVoiceNote: false,
+          },
+        },
+      ],
+    }),
+  }),
+
+  /** No `image`, and a malformed second entry: only the valid, imageless one survives. */
+  linkPreviewNoImage: receive('alice', {
+    dataMessage: dataMessage({
+      message: 'https://example.com/plain',
+      previews: [
+        { url: 'https://example.com/plain', title: 'Plain page', description: null, image: null },
+        { url: null, title: 'Dropped: no url' },
+      ],
+    }),
+  }),
+
+  linkPreviewEdit: receive('alice', {
+    editMessage: {
+      targetSentTimestamp: T0,
+      dataMessage: dataMessage({
+        timestamp: T0 + 21,
+        message: 'now check this https://example.com/edited',
+        previews: [
+          {
+            url: 'https://example.com/edited',
+            title: 'Edited preview',
+            description: null,
+            image: null,
+          },
+        ],
+      }),
+    },
+  }),
+
   syncSentDm: receive('self', {
     sourceDevice: 2,
     syncMessage: {

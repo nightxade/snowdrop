@@ -9,6 +9,7 @@ import * as act from './actions';
 import { Attachments } from './Attachments';
 import { AuthorPopover } from './AuthorPopover';
 import { EditedTag } from './EditedTag';
+import { LinkPreviewCard } from './LinkPreviewCard';
 import { MessageBody } from './MessageBody';
 import { MessageEditor } from './MessageEditor';
 import { MessageMeta } from './MessageMeta';
@@ -55,6 +56,7 @@ export function MessageContent({
   const decorations = useObservableList(app.registries.messageDecorations);
   const name = nameFor(m.authorId);
   const color = author?.color ?? 'var(--snowdrop-avatar-1)';
+  const preview = m.previews?.[0];
   const showHeader = compact || !continuation;
   const { resolveCustomEmoji, emojiSources } = useCustomEmojiResolver(m, selfId, conversationId);
 
@@ -137,6 +139,9 @@ export function MessageContent({
         )}
         {pending && m.body === '' && !editing && <PendingMark />}
         {!editing && !m.deleted && <MessageNotes message={m} nameFor={nameFor} />}
+        {!editing && !m.deleted && preview && (
+          <LinkPreviewCard conversationId={conversationId} preview={preview} body={m.body} />
+        )}
         {m.attachments.length > 0 && (
           <Attachments
             conversationId={conversationId}

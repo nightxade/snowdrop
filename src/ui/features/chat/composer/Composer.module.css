@@ -24,7 +24,8 @@
   transition: box-shadow var(--snowdrop-duration-fast) var(--snowdrop-ease);
 }
 
-.shell[data-reply] .box {
+.shell[data-reply] .box,
+.shell[data-link-preview] .box {
   border-radius: 0 0 var(--snowdrop-radius-md) var(--snowdrop-radius-md);
 }
 

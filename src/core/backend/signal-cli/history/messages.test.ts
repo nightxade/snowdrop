@@ -39,6 +39,38 @@ describe('phone-history messages', () => {
     });
     expect(JSON.stringify(message)).not.toContain('secret');
   });
+  it('decodes a link preview, its image riding the ordinary attachment path', () => {
+    const message = convert({
+      ...base,
+      standardMessage: {
+        text: { body: 'check this out' },
+        linkPreview: [
+          {
+            url: 'https://example.com/a',
+            title: 'A page',
+            description: 'A description',
+            image: { contentType: 'image/jpeg', width: 1200, height: 630 },
+          },
+          // No url: dropped, not crash the whole message.
+          { title: 'No url' },
+        ],
+      },
+    });
+    expect(message?.previews).toEqual([
+      {
+        url: 'https://example.com/a',
+        title: 'A page',
+        description: 'A description',
+        image: {
+          id: 'history:snapshot:10:preview:0',
+          contentType: 'image/jpeg',
+          width: 1200,
+          height: 630,
+        },
+      },
+    ]);
+  });
+
   it('keeps shared contact details, poll choices, and story reply text', () => {
     expect(
       convert({

@@ -1,0 +1,100 @@
+.card {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: var(--snowdrop-space-3);
+  width: min(400px, 100%);
+  margin-top: var(--snowdrop-space-2);
+  overflow: hidden;
+  border: 1px solid var(--snowdrop-border);
+  border-radius: var(--snowdrop-radius-sm);
+  background: var(--snowdrop-bg-elevated);
+  text-decoration: none;
+  transition: background-color var(--snowdrop-duration-fast) var(--snowdrop-ease);
+}
+
+.card:hover {
+  background: var(--snowdrop-bg-hover);
+}
+
+.card[data-layout='wide'] {
+  flex-direction: column;
+}
+
+.accent {
+  flex: none;
+  width: 4px;
+  background: var(--snowdrop-accent);
+}
+
+.card[data-layout='wide'] .accent {
+  width: 100%;
+  height: 4px;
+}
+
+.body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: var(--snowdrop-space-3) var(--snowdrop-space-3) var(--snowdrop-space-3) 0;
+}
+
+.card[data-layout='wide'] .body {
+  padding: var(--snowdrop-space-3);
+}
+
+.domain {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  color: var(--snowdrop-text-faint);
+  font-size: var(--snowdrop-font-size-xs);
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  /* Hostnames are attacker-controlled; contain any bidi controls. */
+  unicode-bidi: isolate;
+}
+
+.title {
+  overflow: hidden;
+  color: var(--snowdrop-text-link);
+  font-size: var(--snowdrop-font-size-ui);
+  font-weight: var(--snowdrop-font-weight-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  unicode-bidi: isolate;
+}
+
+.description {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  unicode-bidi: isolate;
+}
+
+.image {
+  flex: none;
+  display: block;
+  object-fit: cover;
+  background: var(--snowdrop-bg-active);
+}
+
+.image[data-layout='thumb'] {
+  align-self: center;
+  margin-right: var(--snowdrop-space-3);
+  border-radius: var(--snowdrop-radius-xs);
+}
+
+.image[data-layout='wide'] {
+  width: 100%;
+  max-width: 100%;
+}

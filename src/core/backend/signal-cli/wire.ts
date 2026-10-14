@@ -68,6 +68,19 @@ export const wireAttachment = object({
 });
 export type WireAttachment = Infer<typeof wireAttachment>;
 
+/**
+ * JsonPreview (org.asamk.signal.json.JsonPreview): no `date` field on the
+ * wire, unlike the daemon's internal domain model — see
+ * docs/SIGNAL_CLI.md-style notes in link-previews-notes.md.
+ */
+export const wirePreview = object({
+  url: str,
+  title: optStr,
+  description: optStr,
+  image: maybe(wireAttachment),
+});
+export type WirePreview = Infer<typeof wirePreview>;
+
 export const wireQuote = object({
   id: num,
   author: optStr,
@@ -131,6 +144,7 @@ export const wireDataMessage = object({
   payment: opt(unknownValue),
   mentions: list(wireMention),
   attachments: list(wireAttachment),
+  previews: list(wirePreview),
   sticker: maybe(object({ packId: str, stickerId: num })),
   remoteDelete: maybe(object({ timestamp: num })),
   contacts: list(wireSharedContact),

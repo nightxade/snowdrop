@@ -14,6 +14,7 @@ pub mod events;
 pub mod external;
 pub mod jsonrpc;
 pub mod keyslots;
+pub mod link_preview;
 pub mod logfile;
 pub mod notifications;
 pub mod perf;
@@ -249,6 +250,7 @@ pub fn run() {
             commands::signal_cli_install_cancel,
             commands::desktop_info,
             commands::open_external,
+            commands::link_preview_fetch,
             commands::storage_keyring_status,
             commands::storage_status,
             commands::storage_setup,

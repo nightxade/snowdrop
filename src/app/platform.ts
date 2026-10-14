@@ -3,7 +3,7 @@
  * imported dynamically, and only inside Tauri (`isTauri()`), so the browser
  * build and the tests never load `@tauri-apps/*`.
  */
-import type { DesktopAdmin, StorageAdmin } from '@/core/backend';
+import type { DesktopAdmin, OutgoingLinkPreview, StorageAdmin } from '@/core/backend';
 import { addLogSink, createLogger, type LogAdmin } from '@/core/lib';
 import type { NotificationApi } from '@/core/services';
 import { isTauri } from '@/platform/detect';
@@ -219,4 +219,16 @@ export function installTerminalErrorLog(): (error: unknown, where: string) => vo
 /** Native formats absent from WebKit's ClipboardEvent (Linux screenshots and file-manager copies). */
 export async function desktopClipboardFiles(): Promise<File[]> {
   return (await platform()).readClipboardFiles();
+}
+
+/**
+ * Settings → Behaviour → "Link previews" (desktop only; see
+ * `src-tauri/src/link_preview.rs`). Resolves to `undefined` for "no preview"
+ * — a blocked scraper, a timeout, a page with nothing usable — never an
+ * error for those ordinary cases.
+ */
+export async function desktopLinkPreviewFetch(
+  url: string,
+): Promise<OutgoingLinkPreview | undefined> {
+  return (await platform()).linkPreviewFetch(url);
 }

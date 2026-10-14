@@ -12,12 +12,19 @@ import {
   type BodyRange,
   type ConversationId,
   type CustomEmojiDelivery,
+  type LinkPreview,
   type Message,
   type MessageStatus,
   type Quote,
 } from '@/core/domain';
 import { stripBidiControls } from '@/core/lib';
-import { addressId, type WireAttachment, type WireDataMessage, type WireQuote } from '../wire';
+import {
+  addressId,
+  type WireAttachment,
+  type WireDataMessage,
+  type WirePreview,
+  type WireQuote,
+} from '../wire';
 import { sortRanges, toBodyRanges } from './ranges';
 
 export interface MessageMeta {
@@ -55,6 +62,25 @@ export function toCustomEmoji(
   return data.customEmoji.flatMap((e, i) => {
     if (!e.name) return [];
     return [{ name: e.name, attachment: toAttachment(e.attachment, fallbackId(i)) }];
+  });
+}
+
+/**
+ * Preview image ids are synthetic (signal-cli gives it none of its own
+ * beyond the attachment's own `id`, which is already unique); only one
+ * preview per message is ever sent, so the index is purely defensive.
+ */
+export function toLinkPreviews(
+  previews: readonly WirePreview[],
+  fallbackId: (index: number) => string,
+): LinkPreview[] {
+  return previews.flatMap((p, i): LinkPreview[] => {
+    if (!p.url) return [];
+    const preview: LinkPreview = { url: p.url };
+    if (p.title) preview.title = stripBidiControls(p.title);
+    if (p.description) preview.description = stripBidiControls(p.description);
+    if (p.image) preview.image = toAttachment(p.image, fallbackId(i));
+    return [preview];
   });
 }
 
@@ -142,6 +168,9 @@ export function buildMessage(data: WireDataMessage, meta: MessageMeta): Message 
   const customEmoji = data.viewOnce
     ? []
     : toCustomEmoji(data, (i) => `${meta.authorId}:${data.timestamp}:emoji:${i}`);
+  const previews = data.viewOnce
+    ? []
+    : toLinkPreviews(data.previews, (i) => `${meta.authorId}:${data.timestamp}:preview:${i}`);
 
   if (!body && attachments.length === 0 && !quote) return null;
 
@@ -160,6 +189,7 @@ export function buildMessage(data: WireDataMessage, meta: MessageMeta): Message 
   };
   if (quote) message.quote = quote;
   if (customEmoji.length > 0) message.customEmoji = customEmoji;
+  if (previews.length > 0) message.previews = previews;
   const expires = data.expiresInSeconds ?? 0;
   // Signal starts the timer when the message is read; starting it when the
   // server received it errs on the side of deleting early, never keeping a

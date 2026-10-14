@@ -120,6 +120,20 @@ export interface CustomEmojiDelivery {
   attachment: Attachment;
 }
 
+/**
+ * A sender-generated preview of a link in the message body (Signal's
+ * `DataMessage.preview`). The sender's client fetched `url` and attached
+ * what it found; recipients only ever render this — they never contact
+ * `url` themselves. `image`, when present, is a normal `Attachment` and
+ * resolves through the same attachment path as everything else.
+ */
+export interface LinkPreview {
+  url: string;
+  title?: string;
+  description?: string;
+  image?: Attachment;
+}
+
 export interface Quote {
   authorId: string;
   sentAt: number;
@@ -168,6 +182,12 @@ export interface Message {
   ranges: BodyRange[];
   quote?: Quote;
   attachments: Attachment[];
+  /**
+   * Link previews the sender's client generated for a URL in `body` (at most
+   * one, like Signal's own clients). Only shown when `url` still appears in
+   * `body` — see LinkPreviewCard.
+   */
+  previews?: LinkPreview[];
   /** Custom emoji the sender delivered with this message (received only; see CustomEmojiDelivery). */
   customEmoji?: CustomEmojiDelivery[];
   reactions: Reaction[];

@@ -23,7 +23,7 @@ import {
   type WireEditMessage,
   type WireEnvelope,
 } from '../wire';
-import { buildMessage, systemMessage } from './content';
+import { buildMessage, systemMessage, toLinkPreviews } from './content';
 import { timerSentence } from './directory';
 import { toBodyRanges } from './ranges';
 import type { AdapterEvent, NormaliseContext } from './types';
@@ -236,6 +236,10 @@ function fromEdit(
   const ranges = toBodyRanges(body, data.textStyles, data.mentions).map((r) =>
     r.mentionId === undefined ? r : { ...r, mentionId: resolve(r.mentionId) },
   );
+  const previews = toLinkPreviews(
+    data.previews,
+    (i) => `${origin.authorId}:${data.timestamp}:preview:${i}`,
+  );
   return [
     {
       kind: 'messageEdited',
@@ -246,6 +250,7 @@ function fromEdit(
         body,
         ranges,
         editedAt: data.timestamp,
+        ...(previews.length > 0 ? { previews } : {}),
       },
     },
   ];

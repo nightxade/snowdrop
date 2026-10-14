@@ -721,3 +721,12 @@ pub async fn notification_close(
 pub async fn clipboard_read_files(app: tauri::AppHandle) -> Result<Vec<crate::clipboard::ClipboardFile>, String> {
     crate::clipboard::read(app).await
 }
+
+/// Settings → Behaviour → "Link previews" (desktop only; see
+/// src/link_preview.rs for the fetch itself and its privacy posture).
+#[tauri::command]
+pub async fn link_preview_fetch(
+    url: String,
+) -> Result<Option<crate::link_preview::FetchedPreview>, String> {
+    crate::link_preview::link_preview_fetch(url).await
+}

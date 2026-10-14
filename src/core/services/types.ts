@@ -1,4 +1,4 @@
-import type { OutgoingAttachment } from '@/core/backend';
+import type { OutgoingAttachment, OutgoingLinkPreview } from '@/core/backend';
 import type { ConversationId, Quote } from '@/core/domain';
 import { createLogger } from '@/core/lib';
 
@@ -19,6 +19,8 @@ export interface OutgoingDraft {
    * explicitly so it renders correctly even with markdown turned off.
    */
   format?: 'markdown' | 'plain';
+  /** The composer's fetched link preview, if the user hasn't dismissed it. */
+  preview?: OutgoingLinkPreview;
 }
 
 /** Structural check for drafts coming back from (untrusted) plugin transforms. */

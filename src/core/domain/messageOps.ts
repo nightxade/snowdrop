@@ -3,7 +3,7 @@
  * pipeline and the mock backend, so every layer applies protocol semantics
  * identically.
  */
-import type { BodyRange, Message, MessageStatus, Reaction } from './types';
+import type { BodyRange, LinkPreview, Message, MessageStatus, Reaction } from './types';
 
 /** Signal allows one reaction per author per message; a new one replaces the old. */
 export function applyReaction(
@@ -40,16 +40,20 @@ export function advanceStatus(current: MessageStatus, next: MessageStatus): Mess
  */
 export function applyEdit(
   message: Message,
-  edit: { body: string; ranges: BodyRange[]; editedAt: number },
+  edit: { body: string; ranges: BodyRange[]; editedAt: number; previews?: LinkPreview[] },
 ): Message {
   if (message.deleted) return message;
   if (message.editedAt !== undefined && edit.editedAt <= message.editedAt) return message;
+  // signal-cli rebuilds the whole data message for an edit, so the preview
+  // is replaced wholesale too (absent on the edit ⇒ no preview any more).
+  const { previews: _previews, ...rest } = message;
   return {
-    ...message,
+    ...rest,
     body: edit.body,
     ranges: edit.ranges,
     edits: (message.edits ?? 0) + 1,
     editedAt: edit.editedAt,
+    ...(edit.previews && edit.previews.length > 0 ? { previews: edit.previews } : {}),
   };
 }
 
@@ -101,20 +105,22 @@ export function mergeDuplicate(existing: Message, incoming: Message): Message {
  * Merge for `MessageRepository.commitOutgoing`: `final` is our own send's
  * authoritative result — its reserved seq (so the message keeps the spot the
  * optimistic row held, however long the round trip took), its nonce, and
- * attachment preview fields already reconciled by `withLocalUrls`. If a
- * sync-transcript echo of our own send created the row first, plain
- * `mergeDuplicate` would let *that* row's independently-allocated seq and
- * attachments win instead, moving the message in the timeline and dropping
- * the local preview. Everything else a duplicate delivery should still keep
- * — edits, reactions, deletion, pinning, and the max of both statuses —
- * still comes from `mergeDuplicate`, unchanged for every other caller.
+ * attachment/preview fields already reconciled by `withLocalUrls`/
+ * `finalPreview`. If a sync-transcript echo of our own send created the row
+ * first, plain `mergeDuplicate` would let *that* row's independently-
+ * allocated seq, attachments and preview win instead, moving the message in
+ * the timeline and dropping the local preview. Everything else a duplicate
+ * delivery should still keep — edits, reactions, deletion, pinning, and the
+ * max of both statuses — still comes from `mergeDuplicate`, unchanged for
+ * every other caller.
  */
 export function mergeOutgoingCommit(existing: Message, final: Message): Message {
   const merged = mergeDuplicate(existing, final);
-  const { nonce: _nonce, ...rest } = merged;
+  const { nonce: _nonce, previews: _previews, ...rest } = merged;
   return {
     ...rest,
     attachments: final.attachments,
+    ...(final.previews ? { previews: final.previews } : {}),
     ...(final.nonce === undefined ? {} : { nonce: final.nonce }),
     ...(final.seq === undefined ? {} : { seq: final.seq }),
   };

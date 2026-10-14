@@ -10,6 +10,7 @@ import { EmojiPickerPopover, IconButton, Slot } from '@/ui/primitives';
 import { useChatController } from '../ChatController';
 import { CustomEmojiPanel } from './CustomEmojiPanel';
 import { AttachmentTray } from './AttachmentTray';
+import { ComposerLinkPreview } from './ComposerLinkPreview';
 import { ReplyBar } from './ReplyBar';
 import { TypingLine } from './TypingLine';
 import { useAutocompleteField } from './useAutocompleteField';
@@ -147,7 +148,11 @@ function ComposerInner({ conversation }: { conversation: ConversationView }) {
           {state.error}
         </p>
       )}
-      <div className={styles.shell} data-reply={replyTo ? '' : undefined}>
+      <div
+        className={styles.shell}
+        data-reply={replyTo ? '' : undefined}
+        data-link-preview={state.linkPreview.url ? '' : undefined}
+      >
         {replyTo && (
           <ReplyBar
             conversationId={conversationId}
@@ -158,6 +163,7 @@ function ComposerInner({ conversation }: { conversation: ConversationView }) {
             }}
           />
         )}
+        <ComposerLinkPreview view={state.linkPreview} />
         <div className={styles.box} ref={setField}>
           <AttachmentTray attachments={state.attachments} onRemove={state.removeAttachment} />
           <div className={styles.field}>

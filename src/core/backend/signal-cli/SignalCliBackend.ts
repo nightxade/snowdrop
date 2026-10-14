@@ -58,7 +58,12 @@ import type {
   SendInput,
   SendResult,
 } from '../types';
-import { AttachmentResolver, encodeOutgoing, type Thumbnailer } from './attachments';
+import {
+  AttachmentResolver,
+  encodeOutgoing,
+  encodeOutgoingPreview,
+  type Thumbnailer,
+} from './attachments';
 import { supportsCustomEmojiDelivery as detectCustomEmojiSupport } from './capabilities';
 import { Directory } from './directory';
 import { describeError, SignalCliError } from './errors';
@@ -1011,6 +1016,9 @@ export class SignalCliBackend implements ChatBackend {
         encodeOutgoing(file, `local:${stamp}:${i}`, this.options.thumbnailer),
       ),
     );
+    const encodedPreview = input.preview
+      ? await encodeOutgoingPreview(input.preview, `local:${stamp}:preview`)
+      : undefined;
     const params = {
       ...target,
       ...messageParams({
@@ -1018,6 +1026,7 @@ export class SignalCliBackend implements ChatBackend {
         ranges: input.ranges,
         ...(input.quote ? { quote: input.quote } : {}),
         attachments: encoded.map((e) => e.param),
+        ...(encodedPreview ? { preview: encodedPreview.param } : {}),
         // Defensive: never forward customEmoji to a daemon that hasn't
         // advertised support for it, even if the caller built one anyway.
         ...(this.customEmojiSupported && input.customEmoji
@@ -1038,6 +1047,7 @@ export class SignalCliBackend implements ChatBackend {
     this.notePeer(input.conversationId, this.clock.now());
     const out: SendResult = { sentAt: result.timestamp };
     if (encoded.length > 0) out.attachments = encoded.map((e) => e.attachment);
+    if (encodedPreview) out.preview = encodedPreview.preview;
     if (failures.length > 0) out.recipientFailures = failures;
     return out;
   }

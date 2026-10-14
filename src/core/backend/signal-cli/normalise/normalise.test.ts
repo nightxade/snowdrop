@@ -158,6 +158,36 @@ describe('normaliseReceive: messages', () => {
     ]);
   });
 
+  it('maps a link preview, with its image on the normal attachment path', () => {
+    const { payload } = only(run(fixtures.linkPreview).events, 'message');
+    expect(payload.previews).toEqual([
+      {
+        url: 'https://example.com/climb',
+        title: 'A great climb',
+        description: 'Topo and trip report.',
+        image: {
+          id: 'Pp1Qq2Rr3Ss4.jpg',
+          contentType: 'image/jpeg',
+          size: 65_536,
+          width: 1200,
+          height: 630,
+        },
+      },
+    ]);
+  });
+
+  it('maps a link preview with no image, and drops one missing its url', () => {
+    const { payload } = only(run(fixtures.linkPreviewNoImage).events, 'message');
+    expect(payload.previews).toEqual([{ url: 'https://example.com/plain', title: 'Plain page' }]);
+  });
+
+  it('carries an updated preview on a received edit', () => {
+    const { payload } = only(run(fixtures.linkPreviewEdit).events, 'messageEdited');
+    expect(payload.previews).toEqual([
+      { url: 'https://example.com/edited', title: 'Edited preview' },
+    ]);
+  });
+
   it('maps sync transcripts to our own messages in the right conversation', () => {
     const dm = only(run(fixtures.syncSentDm).events, 'message').payload;
     expect(dm).toMatchObject({

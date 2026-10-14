@@ -93,6 +93,83 @@
   font-weight: var(--snowdrop-font-weight-semibold);
 }
 
+.linkPreview {
+  display: flex;
+  align-items: center;
+  gap: var(--snowdrop-space-3);
+  min-height: 36px;
+  padding: var(--snowdrop-space-2) var(--snowdrop-space-3) var(--snowdrop-space-2)
+    var(--snowdrop-space-4);
+  border-radius: var(--snowdrop-radius-md) var(--snowdrop-radius-md) 0 0;
+  background: var(--snowdrop-bg-elevated);
+}
+
+/* Replying to a message *and* composing a link: the reply bar keeps the
+   shell's top rounding, this one sits square between it and the box. */
+.reply + .linkPreview {
+  border-radius: 0;
+}
+
+.linkPreviewLoading {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--snowdrop-space-2);
+  min-width: 0;
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
+}
+
+.linkPreviewThumb {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--snowdrop-radius-xs);
+  object-fit: cover;
+}
+
+.linkPreviewIcon {
+  flex: none;
+  color: var(--snowdrop-accent-text);
+}
+
+.linkPreviewText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.linkPreviewDomain {
+  overflow: hidden;
+  color: var(--snowdrop-text-faint);
+  font-size: var(--snowdrop-font-size-xs);
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  unicode-bidi: isolate;
+}
+
+.linkPreviewTitle {
+  overflow: hidden;
+  color: var(--snowdrop-text);
+  font-size: var(--snowdrop-font-size-sm);
+  font-weight: var(--snowdrop-font-weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  unicode-bidi: isolate;
+}
+
+.linkPreview .remove {
+  flex: none;
+}
+
+.linkPreview .remove:hover:not(:disabled) {
+  background: var(--snowdrop-danger);
+  color: var(--snowdrop-text-on-danger);
+}
+
 .typing {
   display: flex;
   align-items: center;

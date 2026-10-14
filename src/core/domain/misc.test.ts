@@ -198,6 +198,19 @@ describe('messageOps', () => {
     expect(applyEdit(deleted, { body: 'zombie', ranges: [], editedAt: 6 }).body).toBe('');
   });
 
+  it('replaces the preview wholesale on edit, dropping it when the edit carries none', () => {
+    const m = makeMessage({ body: 'old', previews: [{ url: 'https://a.example' }] });
+    const edited = applyEdit(m, {
+      body: 'new https://b.example',
+      ranges: [],
+      editedAt: 5,
+      previews: [{ url: 'https://b.example', title: 'B' }],
+    });
+    expect(edited.previews).toEqual([{ url: 'https://b.example', title: 'B' }]);
+    const withoutPreview = applyEdit(edited, { body: 'plain text', ranges: [], editedAt: 6 });
+    expect(withoutPreview.previews).toBeUndefined();
+  });
+
   it('ignores edits older than the one shown (out-of-order delivery)', () => {
     const m = makeMessage({ body: 'v0' });
     const v2 = applyEdit(m, { body: 'v2', ranges: [], editedAt: 3000 });
@@ -264,6 +277,19 @@ describe('messageOps', () => {
       status: 'read',
       reactions: [r('👍', 'friend')],
     });
+  });
+
+  it('(regression) commitOutgoing merge keeps our preview over a sync echo with none', () => {
+    const echo = makeMessage({ authorId: 'me', sentAt: 101, seq: 43 });
+    const final = makeMessage({
+      authorId: 'me',
+      sentAt: 101,
+      seq: 8,
+      previews: [{ url: 'https://example.com', title: 'Example' }],
+    });
+    expect(mergeOutgoingCommit(echo, final).previews).toEqual([
+      { url: 'https://example.com', title: 'Example' },
+    ]);
   });
 
   it('summarises reactions by emoji', () => {

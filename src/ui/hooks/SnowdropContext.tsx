@@ -4,7 +4,13 @@
  * concrete `Snowdrop` from app/createSnowdrop satisfies this structurally.
  */
 import { createContext, use, type ReactNode } from 'react';
-import type { BackendOption, ChatBackend, DesktopAdmin, StorageAdmin } from '@/core/backend';
+import type {
+  BackendOption,
+  ChatBackend,
+  DesktopAdmin,
+  OutgoingLinkPreview,
+  StorageAdmin,
+} from '@/core/backend';
 import type { CommandRegistry, KeybindDispatcher } from '@/core/commands';
 import type { LogAdmin } from '@/core/lib';
 import type { MessageRepository } from '@/core/persistence';
@@ -97,6 +103,12 @@ export interface AppServices {
   notifications: Pick<NotificationService, 'permission' | 'requestPermission' | 'test'>;
   /** Native file/image clipboard fallback, available only in the desktop shell. */
   readClipboardFiles: (() => Promise<File[]>) | null;
+  /**
+   * Settings → Behaviour → "Link previews": fetches a URL's preview
+   * metadata from this device. Desktop only (null in the browser build,
+   * which has no backend for it); resolves to `undefined` for "no preview".
+   */
+  linkPreviewFetch: ((url: string) => Promise<OutgoingLinkPreview | undefined>) | null;
   admin: AppAdmin;
   /** The desktop app's signal-cli management (Settings → Connection, About); null in the browser. */
   desktop: DesktopAdmin | null;

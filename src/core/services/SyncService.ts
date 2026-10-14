@@ -601,7 +601,12 @@ export class SyncService {
     on('message', (m, live) => this.onMessage(m, live));
     on('messageEdited', (e) =>
       this.updateMessage(e.conversationId, messageId(e.authorId, e.targetSentAt), (m) =>
-        applyEdit(m, { body: e.body, ranges: e.ranges, editedAt: e.editedAt }),
+        applyEdit(m, {
+          body: e.body,
+          ranges: e.ranges,
+          editedAt: e.editedAt,
+          ...(e.previews ? { previews: e.previews } : {}),
+        }),
       ),
     );
     on('messageDeleted', (e) =>

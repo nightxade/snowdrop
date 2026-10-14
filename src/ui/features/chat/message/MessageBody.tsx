@@ -34,7 +34,8 @@ export interface MessageBodyProps {
   resolveCustomEmoji?: (name: string) => string | undefined;
 }
 
-const URL_PATTERN = /\bhttps?:\/\/[^\s<>"']+[^\s<>"'.,;:!?)\]}]/giu;
+/** Exported for LinkPreviewCard: Signal only shows a preview whose url still appears in the text. */
+export const URL_PATTERN = /\bhttps?:\/\/[^\s<>"']+[^\s<>"'.,;:!?)\]}]/giu;
 
 /** Plain text with http(s) links made clickable (opened in a new tab, no referrer). */
 function Linkified({ text }: { text: string }) {

@@ -8,6 +8,7 @@ import { useSnowdrop } from '@/ui/hooks';
 import { useChatController } from '../ChatController';
 import type { PendingAttachment } from './AttachmentTray';
 import { addToken, encodeMentions, tokensInText, type MentionToken } from './mentionTokens';
+import { useLinkPreview, type LinkPreviewView } from './useLinkPreview';
 
 let attachmentSeq = 0;
 
@@ -33,6 +34,7 @@ export interface ComposerState {
   removeAttachment: (id: string) => void;
   error: string | null;
   setError: (error: string | null) => void;
+  linkPreview: LinkPreviewView;
   submit: () => Promise<void>;
 }
 
@@ -60,6 +62,9 @@ export function useComposer(conversation: ConversationView): ComposerState {
   );
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const linkPreviewsEnabled =
+    useStore(stores.settings, (s) => s.behaviour.linkPreviews) && app.linkPreviewFetch !== null;
+  const linkPreview = useLinkPreview(text, linkPreviewsEnabled);
   const latest = useRef(attachments);
   useEffect(() => {
     latest.current = attachments;
@@ -145,6 +150,26 @@ export function useComposer(conversation: ConversationView): ComposerState {
         ? { width: a.width, height: a.height }
         : {}),
     }));
+    // Same reasoning as the attachments above: a fresh object URL for the
+    // sent message, independent of the composer card's own (which the
+    // link-preview hook releases on its own schedule once `text` clears).
+    const fetched = linkPreview.preview;
+    const preview = fetched && {
+      url: fetched.url,
+      title: fetched.title,
+      ...(fetched.description ? { description: fetched.description } : {}),
+      ...(fetched.image
+        ? {
+            image: {
+              contentType: fetched.image.contentType,
+              data: fetched.image.data,
+              previewUrl: URL.createObjectURL(fetched.image.data),
+              ...(fetched.image.width !== undefined ? { width: fetched.image.width } : {}),
+              ...(fetched.image.height !== undefined ? { height: fetched.image.height } : {}),
+            },
+          }
+        : {}),
+    };
     clear();
     // Sent messages only appear in a window anchored to the present.
     const w = stores.messages.getState().windows[conversationId];
@@ -157,6 +182,7 @@ export function useComposer(conversation: ConversationView): ComposerState {
         attachments: files,
         ...(replyTarget ? { quote: quoteOf(replyTarget) } : {}),
         ...(format ? { format } : {}),
+        ...(preview ? { preview } : {}),
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not send the message');
@@ -206,6 +232,7 @@ export function useComposer(conversation: ConversationView): ComposerState {
     removeAttachment,
     error,
     setError,
+    linkPreview,
     submit,
   };
 }

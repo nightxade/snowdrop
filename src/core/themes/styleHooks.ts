@@ -35,6 +35,7 @@ export const STYLE_HOOKS = [
   { hook: 'composer-input', what: 'The composer’s textarea' },
   { hook: 'attachment-tray', what: 'Attachments waiting to be sent' },
   { hook: 'reply-bar', what: '“Replying to …” bar' },
+  { hook: 'composer-link-preview', what: 'The composer’s own link-preview card' },
   { hook: 'autocomplete', what: '@ / : / slash suggestions' },
   { hook: 'typing-line', what: '“… is typing” strip' },
   { hook: 'drop-overlay', what: 'Drag-and-drop overlay' },

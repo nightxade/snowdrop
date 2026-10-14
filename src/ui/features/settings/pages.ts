@@ -262,6 +262,11 @@ export const SETTINGS_PAGES: SettingsPageDef[] = [
     entries: [
       { id: 'behaviour.enter', label: 'Send with', keywords: ['enter', 'shift', 'newline'] },
       { id: 'behaviour.markdown', label: 'Markdown formatting', keywords: ['bold', 'italic'] },
+      {
+        id: 'behaviour.linkPreviews',
+        label: 'Link previews',
+        keywords: ['preview', 'url', 'link', 'embed'],
+      },
     ],
   },
   {

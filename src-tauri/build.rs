@@ -19,6 +19,7 @@ fn main() {
             "signal_cli_install_cancel",
             "desktop_info",
             "open_external",
+            "link_preview_fetch",
             "storage_keyring_status",
             "storage_status",
             "storage_setup",

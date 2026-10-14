@@ -25,6 +25,7 @@
     "allow-signal-cli-install-cancel",
     "allow-desktop-info",
     "allow-open-external",
+    "allow-link-preview-fetch",
     "allow-storage-keyring-status",
     "allow-storage-status",
     "allow-storage-setup",

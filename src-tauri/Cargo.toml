@@ -30,12 +30,22 @@ tauri-plugin-opener = "2"
 tauri-plugin-single-instance = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "sync", "time"] }
+tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "process", "rt-multi-thread", "sync", "time"] }
 # External-daemon mode: plain HTTP to a loopback signal-cli daemon (no TLS needed).
 ureq = { version = "2", default-features = false }
-# First-run signal-cli download: HTTPS to github.com over rustls (no OpenSSL anywhere in the app).
+# First-run signal-cli download (HTTPS to github.com) and link previews
+# (src/link_preview.rs, HTTPS to whatever site a message links to): both
+# over rustls (no OpenSSL anywhere in the app).
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
+# Parses the fetched page's `<title>`/Open Graph/Twitter-card tags for link
+# previews with a real HTML5 tokenizer (never regex) — see link_preview.rs.
+html5gum = "0.8"
+# The preview image's pixel size, read from its header only (no full decode).
+imagesize = "0.15"
+# Link previews resolve relative image URLs and re-validate every redirect
+# hop against the same URL type reqwest/the browser use.
+url = "2"
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 tar = "0.4"
 sha2 = "0.10"

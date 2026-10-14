@@ -12,6 +12,7 @@ import type {
   Contact,
   Conversation,
   ConversationId,
+  LinkPreview,
   Message,
   MessageId,
   Quote,
@@ -60,6 +61,25 @@ export interface OutgoingCustomEmoji {
   dataUrl: string;
 }
 
+/**
+ * A link preview the *composer* fetched for a URL in the draft (desktop
+ * only — see `link_preview_fetch`). Sent as-is; `image`, when present, rides
+ * the same data-URI path as a regular attachment.
+ */
+export interface OutgoingLinkPreview {
+  url: string;
+  title: string;
+  description?: string;
+  image?: {
+    contentType: string;
+    data: Blob;
+    /** Local, render-only URL of the same bytes, shown until the send is acknowledged. */
+    previewUrl?: string;
+    width?: number;
+    height?: number;
+  };
+}
+
 export interface SendInput {
   conversationId: ConversationId;
   /** Body with mention placeholders (U+FFFC) already in place. */
@@ -70,6 +90,8 @@ export interface SendInput {
   attachments?: OutgoingAttachment[];
   /** Deduplicated custom emoji used in `body`; only sent when the backend supports it. */
   customEmoji?: OutgoingCustomEmoji[];
+  /** At most one, like Signal's own clients; its `url` must appear in `body`. */
+  preview?: OutgoingLinkPreview;
 }
 
 export interface EditInput {
@@ -117,6 +139,7 @@ export interface RecipientFailure {
 export interface SendResult {
   sentAt: number;
   attachments?: Attachment[];
+  preview?: LinkPreview;
   recipientFailures?: RecipientFailure[];
 }
 
@@ -180,6 +203,8 @@ export interface BackendEvents {
     body: string;
     ranges: BodyRange[];
     editedAt: number;
+    /** The edit's own previews, replacing whatever the original had (possibly none). */
+    previews?: LinkPreview[];
   };
   messageDeleted: {
     conversationId: ConversationId;

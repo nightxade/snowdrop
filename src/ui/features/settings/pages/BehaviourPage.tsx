@@ -1,9 +1,11 @@
+import { useSnowdrop } from '@/ui/hooks';
 import { Segmented, Switch } from '@/ui/primitives';
 import { SettingRow } from '../rows/SettingRow';
 import { SettingsSection } from '../rows/SettingsSection';
 import { useSettingsSection } from '../useSettingsSection';
 
 export function BehaviourPage() {
+  const app = useSnowdrop();
   const [b, set] = useSettingsSection('behaviour');
   return (
     <SettingsSection>
@@ -60,6 +62,23 @@ export function BehaviourPage() {
           />
         )}
       />
+      {app.linkPreviewFetch && (
+        <SettingRow
+          id="behaviour.linkPreviews"
+          label="Link previews"
+          description="When a message you're writing has a link, Snowdrop fetches that page's title, description and image directly from this device and attaches them, the same way Signal's own apps do — this device contacts the site, not Signal and not the recipient. Signal's apps additionally hide your IP from the site by routing that fetch through Signal's own relay; Snowdrop has no access to it, so the site does see this device's IP, the same as opening the link in a browser would. You'll see what was found before it sends, and can remove it. Off, nothing is ever fetched — you can still see previews other people send you, since those never involve your device contacting anything."
+          control={(ids) => (
+            <Switch
+              id={ids.id}
+              aria-describedby={ids.descriptionId}
+              checked={b.linkPreviews}
+              onCheckedChange={(v) => {
+                set({ linkPreviews: v });
+              }}
+            />
+          )}
+        />
+      )}
     </SettingsSection>
   );
 }

@@ -3,8 +3,8 @@
  * composer) is shown until the transport returns its own URL, and released
  * once nothing shows it any more.
  */
-import type { OutgoingAttachment } from '@/core/backend';
-import type { Attachment } from '@/core/domain';
+import type { OutgoingAttachment, OutgoingLinkPreview } from '@/core/backend';
+import type { Attachment, LinkPreview } from '@/core/domain';
 
 /** The optimistic copy of an outgoing attachment: shows the local preview until the transport has a URL. */
 export function localAttachment(a: OutgoingAttachment, id: string): Attachment {
@@ -39,6 +39,40 @@ export function withLocalUrls(
     }
     return { ...pickSize(local), ...a, ...(local.url !== undefined ? { url: local.url } : {}) };
   });
+}
+
+/** The optimistic copy of an outgoing link preview: shows the local image preview, if any. */
+export function localPreview(p: OutgoingLinkPreview, nonce: string): LinkPreview {
+  const preview: LinkPreview = { url: p.url };
+  if (p.title) preview.title = p.title;
+  if (p.description) preview.description = p.description;
+  const image = p.image;
+  if (image) {
+    preview.image = {
+      id: `${nonce}-preview`,
+      contentType: image.contentType,
+      size: image.data.size,
+      ...(image.previewUrl !== undefined ? { url: image.previewUrl } : {}),
+      ...(image.width !== undefined ? { width: image.width } : {}),
+      ...(image.height !== undefined ? { height: image.height } : {}),
+    };
+  }
+  return preview;
+}
+
+/**
+ * Merges the sent preview's final image (a stable `data:` URL — see
+ * `encodeOutgoingPreview`) with the optimistic one's local object URL,
+ * exactly like `withLocalUrls` for regular attachments.
+ */
+export function finalPreview(
+  acknowledged: LinkPreview | undefined,
+  pending: LinkPreview | undefined,
+): LinkPreview | undefined {
+  if (!acknowledged) return pending;
+  if (!acknowledged.image) return acknowledged;
+  const [image] = withLocalUrls([acknowledged.image], pending?.image ? [pending.image] : []);
+  return { ...acknowledged, ...(image ? { image } : {}) };
 }
 
 function pickSize(a: Attachment): Partial<Attachment> {
