@@ -48,6 +48,7 @@ readonly SSJ_PATCHED_VERSION="2.15.3_unofficial_153-snowdrop.1"
 # ────────────────────────────────────────────────────────────────────────
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPT_PATH="$ROOT_DIR/scripts/build-signal-cli.sh"
 PATCHES_DIR="$ROOT_DIR/patches/signal-cli"
 WORK_DIR="$PATCHES_DIR/.work"
 SSJ_PATCHES_DIR="$ROOT_DIR/patches/signal-service-java"
@@ -277,6 +278,7 @@ LAUNCHER
 
   {
     echo "Upstream commit: $UPSTREAM_COMMIT ($UPSTREAM_TAG)"
+    echo "Build script sha256: $(sha256sum "$SCRIPT_PATH" | cut -d' ' -f1)"
     echo "Built: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
     echo "JDK: $("$SNOWDROP_JDK/bin/java" -version 2>&1 | head -1)"
     echo "jlink modules: $all_modules"

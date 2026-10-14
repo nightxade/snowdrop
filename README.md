@@ -125,6 +125,7 @@ see [docs/DESKTOP.md](docs/DESKTOP.md).
 | `npm run tauri:build:arm64:rpm`    | Builds a Linux ARM64 RPM (Fedora and similar distributions).                                                         |
 | `npm run tauri:build:arm64:binary` | Builds the Linux ARM64 executable without packaging.                                                                 |
 | `npm run tauri:build:bundled`      | Optional: fetches and bundles signal-cli into the app package instead (GPL obligations apply — see docs/DESKTOP.md). |
+| `npm run desktop:update`           | Brings a local desktop install up to date, rebuilding only what changed — see "Updating your local install" below.   |
 
 The full quality gate is
 `npm run typecheck && npm run lint && npm run format:check && npm test && npm run build`. See
@@ -132,6 +133,19 @@ The full quality gate is
 
 Environment: `SNOWDROP_SIGNAL_CLI_URL` (shell or `.env.local`) points the dev
 and preview proxy at a daemon other than `http://127.0.0.1:8080`.
+
+### Updating your local install
+
+```sh
+npm run desktop:update              # rebuild/install only what changed
+npm run desktop:update -- --dry-run # report what it would do, change nothing
+```
+
+Rebuilds the patched signal-cli only if its patches or the build script
+changed, installs it only if the installed copy is stale, and rebuilds the
+AppImage only if the app's sources changed — see
+[docs/DESKTOP.md](docs/DESKTOP.md#updating-your-local-install) for the full
+behaviour, flags, and the one-time `SNOWDROP_JDK` setup.
 
 ## Project structure
 

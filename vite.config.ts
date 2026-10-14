@@ -87,7 +87,7 @@ export default defineConfig(({ mode }) => {
     preview: { proxy, cors: false },
     test: {
       environment: 'happy-dom',
-      include: ['src/**/*.test.{ts,tsx}', 'devserver/**/*.test.ts'],
+      include: ['src/**/*.test.{ts,tsx}', 'devserver/**/*.test.ts', 'scripts/**/*.test.mjs'],
       restoreMocks: true,
       // Deterministic day grouping and clock formatting.
       env: { TZ: 'UTC' },

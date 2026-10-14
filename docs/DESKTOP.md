@@ -268,6 +268,60 @@ path turned out bad. Settings → Connection can also just **locate** a binary
 to show which one would be used, and has its own "Installed signal-cli" row
 with a "Re-download" action.
 
+## Updating your local install
+
+`scripts/desktop-update.mjs` (`npm run desktop:update`) is the one command
+for bringing a local checkout's desktop install up to date, doing only the
+work that's actually needed:
+
+```sh
+npm run desktop:update                 # rebuild/install only what changed
+npm run desktop:update -- --dry-run    # report what it would do; changes nothing
+npm run desktop:update -- --force      # rebuild signal-cli and the AppImage regardless
+npm run desktop:update -- --skip-appimage
+npm run desktop:update -- --skip-signal-cli
+```
+
+**Patched signal-cli.** It rebuilds (`scripts/build-signal-cli.sh`) only if
+`patches/signal-cli/*.patch`, `patches/signal-service-java/*`, or the build
+script itself changed since the last build, by comparing their current
+SHA-256s against the ones recorded in
+`patches/signal-cli/dist/signal-cli/PROVENANCE.txt` (which now also records
+the build script's own hash, alongside the signal-service-java patch hashes
+it already tracked). It then installs (`--install`) only if the installed
+copy's `PROVENANCE.txt` (under `<app data dir>/bin/signal-cli-history/`)
+differs from dist's — an exact text match means nothing changed since the
+last install. If Snowdrop looks like it's running (an exact process-name
+match, e.g. the `snowdrop` binary inside the AppImage — nothing is ever
+killed), it refuses to install and tells you to close it first; rerunning
+`npm run desktop:update` afterwards finishes the install.
+
+**AppImage.** It rebuilds (`npm run tauri:build`) only if the app's own
+sources changed since the last successful build. "Changed" is a stamp
+(`.snowdrop-appimage-stamp.json`, gitignored, written next to the repo root)
+covering a git tree hash of `src/`, `src-tauri/` (its gitignored `target/`
+is naturally excluded), `index.html`, `package.json`, `package-lock.json`,
+`vite.config.ts`, and `public/`, plus a hash of whatever's uncommitted under
+those paths — so local edits count even before a commit.
+
+**JDK.** Same `SNOWDROP_JDK` requirement as `scripts/build-signal-cli.sh`
+(a JDK 25 home), read from the `SNOWDROP_JDK` environment variable, else
+from a gitignored `.snowdrop.local.env` file in the repo root:
+
+```sh
+echo 'SNOWDROP_JDK=/path/to/your/jdk-25' > .snowdrop.local.env
+```
+
+If neither is set, the command prints that one-time setup message instead
+of guessing — it's never hard-coded into a tracked file.
+
+It finishes with a short summary: whether signal-cli was built and/or
+installed (with its version, e.g. `0.14.8-snowdrop-history.11`), whether the
+AppImage was rebuilt (and its path), and anything you need to do next (close
+Snowdrop, or relaunch it from a freshly built AppImage). It exits non-zero
+with a clear message on failure (a build error, a missing `SNOWDROP_JDK`,
+and so on).
+
 ## The optional bundled build
 
 ```sh

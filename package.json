@@ -28,7 +28,8 @@
     "tauri:fetch:bundled": "node scripts/fetch-signal-cli.mjs",
     "tauri:build:bundled": "npm run notices:rust && node scripts/fetch-signal-cli.mjs && SNOWDROP_BUNDLED=1 node scripts/tauri-build.mjs --config tauri.bundled.conf.json --features bundled-sidecar",
     "signal-cli:build": "scripts/build-signal-cli.sh",
-    "signal-cli:install": "scripts/build-signal-cli.sh --install"
+    "signal-cli:install": "scripts/build-signal-cli.sh --install",
+    "desktop:update": "node scripts/desktop-update.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

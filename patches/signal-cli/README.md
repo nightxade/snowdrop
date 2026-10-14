@@ -47,7 +47,12 @@ order"). The script requires `SNOWDROP_JDK` to point at a JDK 25 home
 (`java -version` must report 25 under it) and reads `SIGNAL_CLI_SRC` for
 the clone source (default: upstream's GitHub repo; a local path works too).
 `dist/signal-cli/PROVENANCE.txt` records the upstream commit, each applied
-patch's SHA-256, the JDK version, and the build date.
+patch's SHA-256 (both this repo's and signal-service-java's), this build
+script's own SHA-256, the JDK version, and the build date.
+`npm run desktop:update` (repo root; see docs/DESKTOP.md) reads that file to
+decide whether a rebuild/install is actually needed and drives this script
+for you — use it instead of calling `signal-cli:build`/`signal-cli:install`
+by hand unless you're debugging the build itself.
 
 Requires JDK 25. The first patch adds the authenticated archive decoder and its
 regression tests. The second patch adds protobuf decoding and JSON conversion

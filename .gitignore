@@ -9,3 +9,9 @@ coverage/
 test-results/
 playwright-report/
 .vitest/
+# Local machine config for scripts/desktop-update.mjs (SNOWDROP_JDK); see
+# docs/DESKTOP.md "Updating your local install".
+.snowdrop.local.env
+# Build-input stamp written by scripts/desktop-update.mjs, next to the repo
+# root rather than inside src-tauri/target (which is wiped by cargo clean).
+.snowdrop-appimage-stamp.json
