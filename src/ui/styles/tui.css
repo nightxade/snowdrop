@@ -16,6 +16,42 @@
      are still descendants of <html>, so the custom property reaches them. */
   --snowdrop-font-sans: var(--snowdrop-font-mono);
 
+  /*
+   * The standard pixel sizes below are tuned for the sans stack; monospace
+   * glyphs are wider and taller at the same size, so re-declaring them here
+   * with smaller bases keeps the TUI shell reading like a dense terminal UI
+   * instead of a size (or more) bigger than the standard shell. Every value
+   * still runs through both `--snowdrop-font-scale` (Settings → Appearance →
+   * Text size) and `--snowdrop-tui-type-scale` (tokens.css; a single knob a
+   * theme or Custom CSS can use to tune the whole shell's density at once).
+   */
+  --snowdrop-font-size-xs: calc(10px * var(--snowdrop-font-scale) * var(--snowdrop-tui-type-scale));
+  --snowdrop-font-size-sm: calc(11px * var(--snowdrop-font-scale) * var(--snowdrop-tui-type-scale));
+  --snowdrop-font-size-ui: calc(12px * var(--snowdrop-font-scale) * var(--snowdrop-tui-type-scale));
+  --snowdrop-font-size-message: calc(
+    13px * var(--snowdrop-font-scale) * var(--snowdrop-tui-type-scale)
+  );
+  --snowdrop-font-size-header: calc(
+    14px * var(--snowdrop-font-scale) * var(--snowdrop-tui-type-scale)
+  );
+  --snowdrop-font-size-title: calc(
+    17px * var(--snowdrop-font-scale) * var(--snowdrop-tui-type-scale)
+  );
+  --snowdrop-font-size-display: calc(
+    24px * var(--snowdrop-font-scale) * var(--snowdrop-tui-type-scale)
+  );
+  --snowdrop-font-size-hero: calc(
+    35px * var(--snowdrop-font-scale) * var(--snowdrop-tui-type-scale)
+  );
+  --snowdrop-font-size-emoji-sm: calc(
+    16px * var(--snowdrop-font-scale) * var(--snowdrop-tui-type-scale)
+  );
+  --snowdrop-font-size-emoji: calc(
+    19px * var(--snowdrop-font-scale) * var(--snowdrop-tui-type-scale)
+  );
+  --snowdrop-line-height-message: 1.3;
+  --snowdrop-line-height-ui: 1.25;
+
   /* Small, mostly-square corners. */
   --snowdrop-radius-2xs: 0px;
   --snowdrop-radius-xs: 2px;
@@ -147,7 +183,9 @@
 :root[data-shell='tui'] [data-snowdrop='chat-title-tag'] {
   display: block;
   position: absolute;
-  top: -7px;
+  /* em-relative (not a fixed px) so it tracks font-size-xs above like every
+     other pane title's `top: -0.65em` does. */
+  top: -0.65em;
   left: var(--snowdrop-space-4);
   z-index: 3;
   max-width: calc(100% - 2 * var(--snowdrop-space-4));
@@ -157,7 +195,7 @@
   color: var(--snowdrop-pane-title-color);
   font-family: var(--snowdrop-font-mono);
   font-size: var(--snowdrop-font-size-xs);
-  line-height: 14px;
+  line-height: 1.3;
   letter-spacing: var(--snowdrop-tracking-label);
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -166,7 +204,9 @@
 /* ─── Rail: a text list of space names ─────────────────────────────────── */
 
 :root[data-shell='tui'] [data-snowdrop='rail'] {
-  width: 148px;
+  /* Narrower than the icon rail's 148px: sized for the smaller type above,
+     not the bigger sans-at-mono-width text this replaced. */
+  width: 144px;
 }
 
 :root[data-shell='tui'] [data-snowdrop='rail'] [role='separator'] {
@@ -176,6 +216,9 @@
 
 :root[data-shell='tui'] [data-snowdrop='rail'] [data-tone] {
   width: 100%;
+  /* Tighter vertical rhythm than the icon rail's tile padding (space-2 each
+     side): a text list reads as a list, not a stack of touch targets. */
+  padding-block: 1px;
   justify-content: flex-start;
 }
 
@@ -184,7 +227,7 @@
   align-items: center;
   width: 100%;
   height: auto;
-  padding: 3px var(--snowdrop-space-3);
+  padding: 2px var(--snowdrop-space-3);
   border: none;
   border-radius: 0;
   background: none;
@@ -253,6 +296,10 @@
 
 :root[data-shell='tui'] [data-snowdrop='conversation-row'] button[data-roving-item] {
   background: none;
+  /* The standard shell's 40px/32px min-height is sized for the avatar/glyph
+     column hidden below; rows here are one or two lines of small type. */
+  min-height: 0;
+  padding-block: 1px;
 }
 
 :root[data-shell='tui'] [data-snowdrop='conversation-row'] button[data-roving-item]::before {
@@ -328,7 +375,7 @@
 
 :root[data-shell='tui'] [data-snowdrop='message'][data-compact] [data-snowdrop='message-content'] {
   display: grid;
-  grid-template-columns: 14ch minmax(0, 1fr);
+  grid-template-columns: 18ch minmax(0, 1fr);
   column-gap: var(--snowdrop-space-2);
 }
 

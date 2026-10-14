@@ -37,7 +37,7 @@ shell; see [TUI layout](#tui-layout) below), `data-reduced-motion` (`on` |
 <!-- Generated from TOKEN_NAMES (src/core/themes/tokens.ts), the values in
      src/ui/styles/tokens.css, tokenKind() and the built-in themes. -->
 
-110 tokens. **Kind** decides which values an imported theme may use for the
+111 tokens. **Kind** decides which values an imported theme may use for the
 token (see [validation](#validation-rules)). **Overridden by** lists the
 built-in themes that change the token (M = Midnight, L = Linen, HC = High
 Contrast); _accent override_ marks tokens recomputed when you pick an accent
@@ -172,6 +172,7 @@ derived), so a theme's value for them is ignored.
 | `pane-radius`       | length | `4px`                        | —             |
 | `pane-gap`          | length | `14px`                       | —             |
 | `pane-title-color`  | color  | `var(--snowdrop-text-muted)` | —             |
+| `tui-type-scale`    | number | `1`                          | —             |
 
 #### Typography
 
@@ -507,6 +508,20 @@ read `[3]` instead of a pill. A status line along the bottom
 (`[data-snowdrop='status-line']`) shows the open conversation, total unread,
 connection state and (with Vim Mode on) the current mode, built from the
 `status.items` slot; "? for keys" opens the keyboard-shortcuts dialog.
+
+Monospace glyphs are wider and taller than the sans stack at the same pixel
+size, so `tui.css` also re-declares every `font-size-*` token (and
+`line-height-message`/`line-height-ui`) with smaller bases — body/message
+text around 13px, secondary and chrome text 10–12px, headings scaled up
+modestly from there — so the shell reads as a dense terminal UI instead of a
+size (or more) bigger than the standard one. Each still multiplies
+`--snowdrop-font-scale` (Settings → Appearance → Text size still works) and
+`--snowdrop-tui-type-scale` (see [token reference](#pane-tui-shell) above): a
+theme or Custom CSS can set just that one token on `:root` to make the whole
+TUI shell denser or roomier without overriding every size. Row padding on the
+rail's text list and the sidebar's conversation rows is tightened to match
+(the sidebar's usual avatar/glyph-sized row height no longer applies, since
+the TUI shell hides that column).
 
 ## Security policy
 

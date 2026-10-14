@@ -83,6 +83,7 @@ export const TOKEN_NAMES = [
   'pane-radius',
   'pane-gap',
   'pane-title-color',
+  'tui-type-scale',
   'font-sans',
   'font-mono',
   'font-scale',

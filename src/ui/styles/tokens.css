@@ -108,6 +108,11 @@
   --snowdrop-pane-radius: 4px;
   --snowdrop-pane-gap: 14px;
   --snowdrop-pane-title-color: var(--snowdrop-text-muted);
+  /* Multiplies every font-size-* token while the TUI shell is active
+     (src/ui/styles/tui.css) — one knob for a theme or Custom CSS to make the
+     monospace shell denser or roomier without overriding each size. No
+     effect outside the TUI shell. */
+  --snowdrop-tui-type-scale: 1;
 
   /* Typography */
   --snowdrop-font-sans: 'Inter Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;

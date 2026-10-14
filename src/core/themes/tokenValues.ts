@@ -12,7 +12,8 @@ export type TokenKind =
 
 export function tokenKind(name: TokenName): TokenKind {
   if (/^(space-|radius-)|-(width|height|size)$|^font-size-|^tracking-/u.test(name)) return 'length';
-  if (/^(font-scale|saturation|zoom|line-height-|font-weight-)/u.test(name)) return 'number';
+  if (/^(font-scale|tui-type-scale|saturation|zoom|line-height-|font-weight-)/u.test(name))
+    return 'number';
   if (name.startsWith('font-')) return 'font-family';
   if (name.startsWith('shadow-')) return 'shadow';
   if (name === 'ease') return 'easing';
