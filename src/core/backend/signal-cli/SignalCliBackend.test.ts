@@ -409,7 +409,7 @@ describe('SignalCliBackend: connection', () => {
 
   it('detects custom-emoji support from the connected daemon version string', async () => {
     const { daemon } = daemonWithAccount();
-    daemon.reply('version', { version: '0.14.8-snowdrop-history.10' });
+    daemon.reply('version', { version: '0.14.8-snowdrop-history.11' });
     const { backend } = await connected({ daemon });
     expect(backend.supportsCustomEmojiDelivery()).toBe(true);
     await backend.disconnect();
@@ -756,7 +756,7 @@ describe('SignalCliBackend: commands', () => {
 
   it('forwards customEmoji on send/edit only when the daemon supports it', async () => {
     const { daemon } = daemonWithAccount();
-    daemon.reply('version', { version: '0.14.8-snowdrop-history.10' });
+    daemon.reply('version', { version: '0.14.8-snowdrop-history.11' });
     const { backend } = await connected({ daemon });
     const emoji = [{ name: 'party', dataUrl: 'data:image/png;base64,aGk=' }];
 

@@ -1,5 +1,5 @@
 diff --git a/build.gradle.kts b/build.gradle.kts
-index 3b8b84e..07a437f 100644
+index 3b8b84e..4f900a7 100644
 --- a/build.gradle.kts
 +++ b/build.gradle.kts
 @@ -10,7 +10,27 @@ plugins {
@@ -7,7 +7,7 @@ index 3b8b84e..07a437f 100644
  allprojects {
      group = "org.asamk"
 -    version = "0.14.8-snowdrop-history.9"
-+    version = "0.14.8-snowdrop-history.10"
++    version = "0.14.8-snowdrop-history.11"
 +
 +    // Snowdrop: substitute a locally-built, patched signal-service-java
 +    // (snowdrop/patches/signal-service-java) for the stock turasa jar, when
@@ -58,10 +58,10 @@ index b9d60b0..3f9557e 100644
              long timestamp,
              RecipientIdentifier.Single author,
 diff --git a/lib/src/main/java/org/asamk/signal/manager/api/MessageEnvelope.java b/lib/src/main/java/org/asamk/signal/manager/api/MessageEnvelope.java
-index d7da621..05362d6 100644
+index d7da621..130c1fd 100644
 --- a/lib/src/main/java/org/asamk/signal/manager/api/MessageEnvelope.java
 +++ b/lib/src/main/java/org/asamk/signal/manager/api/MessageEnvelope.java
-@@ -2,9 +2,13 @@ package org.asamk.signal.manager.api;
+@@ -2,9 +2,12 @@ package org.asamk.signal.manager.api;
  
  import org.asamk.signal.manager.groups.GroupUtils;
  import org.asamk.signal.manager.helper.RecipientAddressResolver;
@@ -71,19 +71,10 @@ index d7da621..05362d6 100644
  import org.signal.libsignal.metadata.ProtocolException;
 +import org.slf4j.Logger;
 +import org.slf4j.LoggerFactory;
-+import org.whispersystems.signalservice.api.InvalidMessageStructureException;
  import org.whispersystems.signalservice.api.messages.SignalServiceAttachment;
  import org.whispersystems.signalservice.api.messages.SignalServiceAttachmentPointer;
  import org.whispersystems.signalservice.api.messages.SignalServiceContent;
-@@ -33,6 +37,7 @@ import org.whispersystems.signalservice.api.messages.multidevice.SentTranscriptM
- import org.whispersystems.signalservice.api.messages.multidevice.SignalServiceSyncMessage;
- import org.whispersystems.signalservice.api.messages.multidevice.ViewOnceOpenMessage;
- import org.whispersystems.signalservice.api.messages.multidevice.ViewedMessage;
-+import org.whispersystems.signalservice.api.util.AttachmentPointerUtil;
- 
- import java.io.File;
- import java.io.IOException;
-@@ -58,6 +63,8 @@ public record MessageEnvelope(
+@@ -58,6 +61,8 @@ public record MessageEnvelope(
          Optional<Story> story
  ) {
  
@@ -92,7 +83,7 @@ index d7da621..05362d6 100644
      public record Receipt(long when, Type type, List<Long> timestamps) {
  
          static Receipt from(final SignalServiceReceiptMessage receiptMessage) {
-@@ -124,7 +131,8 @@ public record MessageEnvelope(
+@@ -124,7 +129,8 @@ public record MessageEnvelope(
              List<TextStyle> textStyles,
              Optional<PinMessage> pinMessage,
              Optional<UnpinMessage> unpinMessage,
@@ -102,7 +93,7 @@ index d7da621..05362d6 100644
      ) {
  
          static Data from(
-@@ -132,7 +140,8 @@ public record MessageEnvelope(
+@@ -132,7 +138,8 @@ public record MessageEnvelope(
                  Map<String, String> longTexts,
                  RecipientResolver recipientResolver,
                  RecipientAddressResolver addressResolver,
@@ -112,7 +103,7 @@ index d7da621..05362d6 100644
          ) {
              var body = dataMessage.getBody();
              if (dataMessage.getAttachments().isPresent()) {
-@@ -188,7 +197,11 @@ public record MessageEnvelope(
+@@ -188,7 +195,11 @@ public record MessageEnvelope(
                              .orElse(List.of()),
                      dataMessage.getPinnedMessage().map(p -> PinMessage.from(p, recipientResolver, addressResolver)),
                      dataMessage.getUnpinnedMessage().map(p -> UnpinMessage.from(p, recipientResolver, addressResolver)),
@@ -125,7 +116,7 @@ index d7da621..05362d6 100644
          }
  
          public record GroupContext(GroupId groupId, boolean isGroupUpdate, int revision) {
-@@ -385,6 +398,26 @@ public record MessageEnvelope(
+@@ -385,6 +396,23 @@ public record MessageEnvelope(
              }
          }
  
@@ -138,11 +129,8 @@ index d7da621..05362d6 100644
 +        public record CustomEmoji(String name, Attachment attachment) {
 +
 +            static CustomEmoji from(SnowdropCustomEmojiCodec.Entry entry, final AttachmentFileProvider fileProvider) {
-+                final SignalServiceAttachmentPointer pointer;
-+                try {
-+                    pointer = AttachmentPointerUtil.createSignalAttachmentPointer(entry.attachmentPointer());
-+                } catch (InvalidMessageStructureException e) {
-+                    logger.debug("Ignoring Snowdrop custom emoji with an invalid attachment pointer", e);
++                final var pointer = SnowdropCustomEmojiCodec.toSignalAttachmentPointer(entry);
++                if (pointer == null) {
 +                    return null;
 +                }
 +                return new CustomEmoji(entry.name(), Attachment.from(pointer, fileProvider));
@@ -152,7 +140,7 @@ index d7da621..05362d6 100644
          public record Sticker(StickerPackId packId, byte[] packKey, int stickerId) {
  
              static Sticker from(SignalServiceDataMessage.Sticker sticker) {
-@@ -638,13 +671,25 @@ public record MessageEnvelope(
+@@ -638,13 +666,25 @@ public record MessageEnvelope(
                  RecipientResolver recipientResolver,
                  RecipientAddressResolver addressResolver,
                  final AttachmentFileProvider fileProvider
@@ -179,7 +167,7 @@ index d7da621..05362d6 100644
          }
      }
  
-@@ -716,7 +761,8 @@ public record MessageEnvelope(
+@@ -716,7 +756,8 @@ public record MessageEnvelope(
                                          longTexts,
                                          recipientResolver,
                                          addressResolver,
@@ -189,7 +177,7 @@ index d7da621..05362d6 100644
                          sentMessage.getEditMessage()
                                  .map(message -> Edit.from(message,
                                          longTexts,
-@@ -1028,7 +1074,9 @@ public record MessageEnvelope(
+@@ -1028,7 +1069,9 @@ public record MessageEnvelope(
              RecipientResolver recipientResolver,
              RecipientAddressResolver addressResolver,
              final AttachmentFileProvider fileProvider,
@@ -200,7 +188,7 @@ index d7da621..05362d6 100644
      ) {
          final var serviceId = envelope.getSourceServiceId();
          final var source = !envelope.isUnidentifiedSender() && serviceId != null
-@@ -1059,9 +1107,10 @@ public record MessageEnvelope(
+@@ -1059,9 +1102,10 @@ public record MessageEnvelope(
                              longTexts,
                              recipientResolver,
                              addressResolver,
@@ -214,7 +202,7 @@ index d7da621..05362d6 100644
                      .map(s -> Sync.from(s, longTexts, recipientResolver, addressResolver, fileProvider));
              call = content.getCallMessage().map(Call::from);
 diff --git a/lib/src/main/java/org/asamk/signal/manager/helper/IncomingMessageHandler.java b/lib/src/main/java/org/asamk/signal/manager/helper/IncomingMessageHandler.java
-index 6aa9c5a..11ecdcb 100644
+index 6aa9c5a..267e021 100644
 --- a/lib/src/main/java/org/asamk/signal/manager/helper/IncomingMessageHandler.java
 +++ b/lib/src/main/java/org/asamk/signal/manager/helper/IncomingMessageHandler.java
 @@ -107,6 +107,8 @@ public final class IncomingMessageHandler {
@@ -294,6 +282,15 @@ index 6aa9c5a..11ecdcb 100644
      ) {
          if (content != null) {
              // Store uuid if we don't have it already
+@@ -303,7 +325,7 @@ public final class IncomingMessageHandler {
+             List<HandleAction> actions;
+             Map<String, String> longTexts;
+             if (content != null) {
+-                final var results = handleMessage(envelope, content, receiveConfig);
++                final var results = handleMessage(envelope, content, receiveConfig, dataMessageEmoji, editMessageEmoji);
+                 actions = results.first();
+                 longTexts = results.second();
+             } else {
 @@ -316,7 +338,9 @@ public final class IncomingMessageHandler {
                      account.getRecipientResolver(),
                      account.getRecipientAddressResolver(),
@@ -305,12 +302,95 @@ index 6aa9c5a..11ecdcb 100644
              return actions;
          }
      }
+@@ -324,7 +348,9 @@ public final class IncomingMessageHandler {
+     public Pair<List<HandleAction>, Map<String, String>> handleMessage(
+             SignalServiceEnvelope envelope,
+             SignalServiceContent content,
+-            ReceiveConfig receiveConfig
++            ReceiveConfig receiveConfig,
++            List<SnowdropCustomEmojiCodec.Entry> dataMessageEmoji,
++            List<SnowdropCustomEmojiCodec.Entry> editMessageEmoji
+     ) {
+         final var actions = new ArrayList<HandleAction>();
+         final var longTexts = new HashMap<String, String>();
+@@ -385,6 +411,7 @@ public final class IncomingMessageHandler {
+             var message = content.getDataMessage().isPresent()
+                     ? content.getDataMessage().get()
+                     : content.getEditMessage().get().getDataMessage();
++            var customEmoji = content.getDataMessage().isPresent() ? dataMessageEmoji : editMessageEmoji;
+ 
+             if (content.isNeedsReceipt()) {
+                 actions.add(new SendReceiptAction(sender,
+@@ -411,7 +438,8 @@ public final class IncomingMessageHandler {
+                     false,
+                     senderDeviceAddress,
+                     destination,
+-                    receiveConfig);
++                    receiveConfig,
++                    customEmoji);
+             actions.addAll(dataResults.first());
+             longTexts.putAll(dataResults.second());
+         }
+@@ -581,7 +609,11 @@ public final class IncomingMessageHandler {
+                                 : new DeviceAddress(account.getRecipientResolver().resolveRecipient(destination),
+                                         destination.getServiceId(),
+                                         0),
+-                        receiveConfig);
++                        receiveConfig,
++                        // A SyncMessage's self-sent echo is a different nested position in the
++                        // raw proto (sentMessage.dataMessage) that this patch's field-9000 decode
++                        // doesn't cover; see patches/signal-cli/README.md "Receiving".
++                        List.of());
+                 actions.addAll(dataResults.first());
+                 longTexts.putAll(dataResults.second());
+             }
+@@ -862,7 +894,8 @@ public final class IncomingMessageHandler {
+             boolean isSync,
+             DeviceAddress source,
+             DeviceAddress destination,
+-            ReceiveConfig receiveConfig
++            ReceiveConfig receiveConfig,
++            List<SnowdropCustomEmojiCodec.Entry> customEmoji
+     ) {
+         final var longTexts = new HashMap<String, String>();
+         var actions = new ArrayList<HandleAction>();
+@@ -994,6 +1027,7 @@ public final class IncomingMessageHandler {
+                     }
+                 }
+             }
++            downloadCustomEmojiAttachments(customEmoji);
+         } else {
+             if (message.getAttachments().isPresent()) {
+                 for (var attachment : message.getAttachments().get()) {
+@@ -1032,6 +1066,22 @@ public final class IncomingMessageHandler {
+         return new Pair<>(actions, longTexts);
+     }
+ 
++    /**
++     * Downloads each Snowdrop custom emoji's attachment (see SnowdropCustomEmojiCodec) the same
++     * way an ordinary message attachment is downloaded, so a later {@code getAttachment} RPC for
++     * its id succeeds. An entry whose pointer doesn't parse is skipped (logged at debug level,
++     * without message content) without affecting the rest of the message, same as
++     * {@code AttachmentHelper#downloadAttachment} already tolerates a failed download per entry.
++     */
++    private void downloadCustomEmojiAttachments(final List<SnowdropCustomEmojiCodec.Entry> customEmoji) {
++        for (final var entry : customEmoji) {
++            final var pointer = SnowdropCustomEmojiCodec.toSignalAttachmentPointer(entry);
++            if (pointer != null) {
++                context.getAttachmentHelper().downloadAttachment(pointer);
++            }
++        }
++    }
++
+     private void handleIncomingGiftBadge(final SignalServiceDataMessage.GiftBadge giftBadge) {
+         // TODO
+     }
 diff --git a/lib/src/main/java/org/asamk/signal/manager/helper/SnowdropCustomEmojiCodec.java b/lib/src/main/java/org/asamk/signal/manager/helper/SnowdropCustomEmojiCodec.java
 new file mode 100644
-index 0000000..e66b7ad
+index 0000000..acf97e9
 --- /dev/null
 +++ b/lib/src/main/java/org/asamk/signal/manager/helper/SnowdropCustomEmojiCodec.java
-@@ -0,0 +1,180 @@
+@@ -0,0 +1,201 @@
 +// SPDX-License-Identifier: GPL-3.0-or-later
 +package org.asamk.signal.manager.helper;
 +
@@ -320,6 +400,9 @@ index 0000000..e66b7ad
 +
 +import org.slf4j.Logger;
 +import org.slf4j.LoggerFactory;
++import org.whispersystems.signalservice.api.InvalidMessageStructureException;
++import org.whispersystems.signalservice.api.messages.SignalServiceAttachmentPointer;
++import org.whispersystems.signalservice.api.util.AttachmentPointerUtil;
 +import org.whispersystems.signalservice.internal.push.AttachmentPointer;
 +import org.whispersystems.signalservice.internal.push.Content;
 +import org.whispersystems.signalservice.internal.push.DataMessage;
@@ -372,6 +455,24 @@ index 0000000..e66b7ad
 +    }
 +
 +    public record Entry(String name, AttachmentPointer attachmentPointer) {}
++
++    /**
++     * Converts a decoded entry's raw {@code AttachmentPointer} proto into the
++     * {@code SignalServiceAttachmentPointer} the rest of signal-cli's attachment machinery
++     * (downloading it, converting it to {@code MessageEnvelope.Data.Attachment}) already knows
++     * how to handle — the same conversion ordinary attachments go through, just starting from a
++     * raw proto instead of a {@code SignalServiceContent}-parsed one. Returns {@code null},
++     * rather than throwing, for a pointer that doesn't parse: one malformed entry shouldn't take
++     * down the rest of the message.
++     */
++    public static SignalServiceAttachmentPointer toSignalAttachmentPointer(Entry entry) {
++        try {
++            return AttachmentPointerUtil.createSignalAttachmentPointer(entry.attachmentPointer());
++        } catch (InvalidMessageStructureException e) {
++            logger.debug("Ignoring Snowdrop custom emoji with an invalid attachment pointer", e);
++            return null;
++        }
++    }
 +
 +    /**
 +     * Encodes {@code entries} into the raw unknown-field bytes to hand to
@@ -572,14 +673,16 @@ index 4d42df7..8413672 100644
      private ArrayList<SignalServiceDataMessage.Mention> resolveMentions(final List<Message.Mention> mentionList) throws UnregisteredRecipientException {
 diff --git a/lib/src/test/java/org/asamk/signal/manager/helper/SnowdropCustomEmojiCodecTest.java b/lib/src/test/java/org/asamk/signal/manager/helper/SnowdropCustomEmojiCodecTest.java
 new file mode 100644
-index 0000000..69f1af1
+index 0000000..a9e0694
 --- /dev/null
 +++ b/lib/src/test/java/org/asamk/signal/manager/helper/SnowdropCustomEmojiCodecTest.java
-@@ -0,0 +1,172 @@
+@@ -0,0 +1,223 @@
 +// SPDX-License-Identifier: GPL-3.0-or-later
 +package org.asamk.signal.manager.helper;
 +
 +import org.junit.jupiter.api.Test;
++import org.whispersystems.signalservice.api.InvalidMessageStructureException;
++import org.whispersystems.signalservice.api.messages.SignalServiceAttachmentRemoteId;
 +import org.whispersystems.signalservice.internal.push.AttachmentPointer;
 +import org.whispersystems.signalservice.internal.push.Content;
 +import org.whispersystems.signalservice.internal.push.DataMessage;
@@ -591,6 +694,7 @@ index 0000000..69f1af1
 +import okio.ByteString;
 +
 +import static org.junit.jupiter.api.Assertions.assertEquals;
++import static org.junit.jupiter.api.Assertions.assertNotNull;
 +import static org.junit.jupiter.api.Assertions.assertNull;
 +import static org.junit.jupiter.api.Assertions.assertThrows;
 +import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -599,6 +703,23 @@ index 0000000..69f1af1
 +
 +    private static AttachmentPointer samplePointer(long cdnId) {
 +        return new AttachmentPointer.Builder().cdnId(cdnId)
++                .key(ByteString.of((byte) 1, (byte) 2, (byte) 3))
++                .digest(ByteString.of((byte) 4, (byte) 5))
++                .size(123)
++                .contentType("image/png")
++                .uploadTimestamp(42L)
++                .build();
++    }
++
++    /**
++     * A pointer complete enough for {@code AttachmentPointerUtil.createSignalAttachmentPointer}
++     * to accept: unlike {@link #samplePointer}, it also sets {@code cdnNumber}, which that
++     * conversion requires (along with {@code key}) and {@code decode}/{@code encode} round
++     * trips here don't exercise.
++     */
++    private static AttachmentPointer downloadablePointer(long cdnId) {
++        return new AttachmentPointer.Builder().cdnId(cdnId)
++                .cdnNumber(2)
 +                .key(ByteString.of((byte) 1, (byte) 2, (byte) 3))
 +                .digest(ByteString.of((byte) 4, (byte) 5))
 +                .size(123)
@@ -746,6 +867,37 @@ index 0000000..69f1af1
 +        final var decoded = SnowdropCustomEmojiCodec.decodeDataMessage(content);
 +        assertEquals(1, decoded.size());
 +        assertEquals("valid", decoded.get(0).name());
++    }
++
++    /**
++     * The seam {@code IncomingMessageHandler} uses to queue a received custom emoji's
++     * attachment for download (and {@code MessageEnvelope.CustomEmoji.from} uses to serialize
++     * it): converting a decoded entry's raw pointer into the
++     * {@code SignalServiceAttachmentPointer} the rest of signal-cli's attachment machinery
++     * accepts.
++     */
++    @Test
++    public void toSignalAttachmentPointer_convertsAValidPointerForDownload() throws InvalidMessageStructureException {
++        final var entry = new SnowdropCustomEmojiCodec.Entry("party", downloadablePointer(7));
++
++        final var pointer = SnowdropCustomEmojiCodec.toSignalAttachmentPointer(entry);
++
++        assertNotNull(pointer);
++        assertTrue(pointer.isPointer());
++        assertEquals("image/png", pointer.getContentType());
++        assertEquals(SignalServiceAttachmentRemoteId.from(downloadablePointer(7)), pointer.getRemoteId());
++    }
++
++    @Test
++    public void toSignalAttachmentPointer_returnsNullRatherThanThrowingForAnInvalidPointer() {
++        // Missing cdnNumber, which AttachmentPointerUtil.createSignalAttachmentPointer requires.
++        final var incomplete = new AttachmentPointer.Builder().cdnId(7L)
++                .key(ByteString.of((byte) 1))
++                .contentType("image/png")
++                .build();
++        final var entry = new SnowdropCustomEmojiCodec.Entry("party", incomplete);
++
++        assertNull(SnowdropCustomEmojiCodec.toSignalAttachmentPointer(entry));
 +    }
 +}
 diff --git a/settings.gradle.kts b/settings.gradle.kts
@@ -898,11 +1050,145 @@ index 1d53fe7..6b0f0e4 100644
              var results = m.sendMessage(message, Set.of(getGroupRecipientIdentifier(groupId)), false);
              checkSendMessageResults(results);
              return results.timestamp();
+diff --git a/src/main/java/org/asamk/signal/json/JsonCustomEmoji.java b/src/main/java/org/asamk/signal/json/JsonCustomEmoji.java
+new file mode 100644
+index 0000000..17558f9
+--- /dev/null
++++ b/src/main/java/org/asamk/signal/json/JsonCustomEmoji.java
+@@ -0,0 +1,18 @@
++package org.asamk.signal.json;
++
++import org.asamk.signal.manager.api.MessageEnvelope;
++
++import io.micronaut.jsonschema.JsonSchema;
++
++/**
++ * A custom emoji delivered alongside a {@code DataMessage} (see patches/signal-cli's "Custom
++ * emoji" extension). {@code attachment} is the exact same JSON shape as an ordinary message
++ * attachment, so its {@code id} works with the existing {@code getAttachment} RPC.
++ */
++@JsonSchema(title = "CustomEmoji")
++record JsonCustomEmoji(String name, JsonAttachment attachment) {
++
++    static JsonCustomEmoji from(MessageEnvelope.Data.CustomEmoji customEmoji) {
++        return new JsonCustomEmoji(customEmoji.name(), JsonAttachment.from(customEmoji.attachment()));
++    }
++}
+diff --git a/src/main/java/org/asamk/signal/json/JsonDataMessage.java b/src/main/java/org/asamk/signal/json/JsonDataMessage.java
+index 9fd2078..6a9d5a0 100644
+--- a/src/main/java/org/asamk/signal/json/JsonDataMessage.java
++++ b/src/main/java/org/asamk/signal/json/JsonDataMessage.java
+@@ -37,7 +37,8 @@ record JsonDataMessage(
+         @JsonInclude(JsonInclude.Include.NON_NULL) JsonStoryContext storyContext,
+         @JsonInclude(JsonInclude.Include.NON_NULL) JsonPinMessage pinMessage,
+         @JsonInclude(JsonInclude.Include.NON_NULL) JsonUnpinMessage unpinMessage,
+-        @JsonInclude(JsonInclude.Include.NON_NULL) JsonAdminDelete adminDelete
++        @JsonInclude(JsonInclude.Include.NON_NULL) JsonAdminDelete adminDelete,
++        @JsonInclude(JsonInclude.Include.NON_NULL) List<JsonCustomEmoji> customEmoji
+ ) {
+ 
+     static JsonDataMessage from(MessageEnvelope.Data dataMessage, Manager m) {
+@@ -88,6 +89,10 @@ record JsonDataMessage(
+         final var pinMessage = dataMessage.pinMessage().map(JsonPinMessage::from).orElse(null);
+         final var unpinMessage = dataMessage.unpinMessage().map(JsonUnpinMessage::from).orElse(null);
+         final var adminDelete = dataMessage.adminDelete().map(JsonAdminDelete::from).orElse(null);
++        final var customEmoji = !dataMessage.customEmoji().isEmpty() ? dataMessage.customEmoji()
++                                                                       .stream()
++                                                                       .map(JsonCustomEmoji::from)
++                                                                       .toList() : null;
+ 
+         return new JsonDataMessage(timestamp,
+                 message,
+@@ -115,6 +120,7 @@ record JsonDataMessage(
+                 storyContext,
+                 pinMessage,
+                 unpinMessage,
+-                adminDelete);
++                adminDelete,
++                customEmoji);
+     }
+ }
 diff --git a/src/test/java/org/asamk/signal/json/JsonDataMessageTest.java b/src/test/java/org/asamk/signal/json/JsonDataMessageTest.java
-index faac30a..868e1e5 100644
+index faac30a..5b5de30 100644
 --- a/src/test/java/org/asamk/signal/json/JsonDataMessageTest.java
 +++ b/src/test/java/org/asamk/signal/json/JsonDataMessageTest.java
-@@ -72,6 +72,7 @@ class JsonDataMessageTest {
+@@ -40,6 +40,75 @@ class JsonDataMessageTest {
+         assertFalse(json.get("hasProfileKey").booleanValue());
+     }
+ 
++    @Test
++    void omitsCustomEmojiWhenEmpty() {
++        final var dataMessage = dataMessage(Optional.empty(), false, false, false);
++
++        final var json = Util.createJsonObjectMapper().valueToTree(JsonDataMessage.from(dataMessage, null));
++
++        assertFalse(json.has("customEmoji"));
++    }
++
++    @Test
++    void serializesCustomEmojiWithNameAndAttachmentId() {
++        final var attachment = new MessageEnvelope.Data.Attachment(Optional.of("attachment-id"),
++                Optional.empty(),
++                Optional.of("party.png"),
++                "image/png",
++                Optional.empty(),
++                Optional.of(123L),
++                Optional.empty(),
++                Optional.empty(),
++                Optional.empty(),
++                Optional.empty(),
++                Optional.empty(),
++                false,
++                false,
++                false);
++        final var dataMessage = dataMessageWithCustomEmoji(List.of(new MessageEnvelope.Data.CustomEmoji("party",
++                attachment)));
++
++        final var json = Util.createJsonObjectMapper().valueToTree(JsonDataMessage.from(dataMessage, null));
++
++        assertTrue(json.has("customEmoji"));
++        final var customEmoji = json.get("customEmoji");
++        assertEquals(1, customEmoji.size());
++        assertEquals("party", customEmoji.get(0).get("name").textValue());
++        assertEquals("attachment-id", customEmoji.get(0).get("attachment").get("id").textValue());
++        assertEquals("image/png", customEmoji.get(0).get("attachment").get("contentType").textValue());
++    }
++
++    private static MessageEnvelope.Data dataMessageWithCustomEmoji(final List<MessageEnvelope.Data.CustomEmoji> customEmoji) {
++        return new MessageEnvelope.Data(1L,
++                Optional.empty(),
++                Optional.empty(),
++                Optional.empty(),
++                Optional.empty(),
++                0,
++                false,
++                false,
++                false,
++                false,
++                false,
++                Optional.empty(),
++                Optional.empty(),
++                Optional.empty(),
++                List.of(),
++                Optional.empty(),
++                Optional.empty(),
++                List.of(),
++                Optional.empty(),
++                Optional.empty(),
++                Optional.empty(),
++                List.of(),
++                List.of(),
++                List.of(),
++                Optional.empty(),
++                Optional.empty(),
++                Optional.empty(),
++                customEmoji);
++    }
++
+     private static MessageEnvelope.Data dataMessage(
+             final Optional<MessageEnvelope.Data.GroupCallUpdate> groupCallUpdate,
+             final boolean isEndSession,
+@@ -72,6 +141,7 @@ class JsonDataMessageTest {
                  List.of(),
                  Optional.empty(),
                  Optional.empty(),

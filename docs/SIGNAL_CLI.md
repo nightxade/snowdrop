@@ -222,7 +222,7 @@ with what the sender used. Works in 1:1 chats, groups, and edits.
 Capability detection is one pure function,
 `src/core/backend/signal-cli/capabilities.ts` (`supportsCustomEmojiDelivery`): it checks the
 connected daemon's own version string (fetched once at connect, via the `version` JSON-RPC
-method) for a `snowdrop-history.N` patch level of at least 10. Against upstream signal-cli, an
+method) for a `snowdrop-history.N` patch level of at least 11. Against upstream signal-cli, an
 older patched build, or the demo backend, this is false, and Snowdrop sends (and received
 messages can only ever carry) plain `:name:` text — the exact behaviour this feature had before
 patch 0013 existed, with no change in UI or data shape.

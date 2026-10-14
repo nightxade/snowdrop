@@ -310,32 +310,53 @@ collection. This is threaded through for both a plain `DataMessage` and an `Edit
 `DataMessage`; a `SyncMessage`'s self-sent echo (`sentMessage.dataMessage`, a different nested
 position in the raw proto) is not covered by this patch.
 
-Custom emoji attachments are not eagerly downloaded to signal-cli's local cache on receipt the
-way ordinary message attachments are — they're resolved on demand through `getAttachment`, same
-as any other attachment accessed outside the eager-download path.
+Custom emoji attachments are downloaded eagerly to signal-cli's local cache on receipt, exactly
+like ordinary message attachments: `IncomingMessageHandler` converts each entry's `AttachmentPointer`
+back to a `SignalServiceAttachmentPointer` (`AttachmentPointerUtil.createSignalAttachmentPointer`)
+and calls the same `AttachmentHelper.downloadAttachment` ordinary attachments use, under the same
+`ReceiveConfig.ignoreAttachments()` condition, for both a plain `DataMessage` and an `EditMessage`'s
+wrapped `DataMessage`. An entry whose pointer doesn't parse is skipped (logged at debug level)
+without affecting the rest of the message or the download of any other attachment, the same
+tolerance `downloadAttachment` itself already has for an individual failed download. (An earlier
+version of this patch left this step out entirely — the entries reached `MessageEnvelope.Data.
+customEmoji` but their images were never fetched, so a later `getAttachment` for their id failed.
+Fixed in patch level 11.)
+
+`MessageEnvelope.Data.customEmoji` is also, as of patch level 11, actually serialized to the
+JSON-RPC surface: `JsonDataMessage` (and anything built on it — `JsonEditMessage`, which wraps a
+`JsonDataMessage`, and `JsonSyncDataMessage`, which unwraps one) gained a `customEmoji` field, a
+list of `{name, attachment}` using the same `JsonAttachment` shape as ordinary attachments,
+omitted when empty like its neighbouring list fields. (Patch level 10 decoded field 9000 into the
+Java domain model but never wired it into the JSON actually emitted over JSON-RPC, so a receiving
+Snowdrop never saw it at all — the bug this patch level fixes.)
 
 ### Capability detection
 
 Nothing upstream advertises support for this. Snowdrop detects it from signal-cli's own version
-string: a build with `snowdrop-history.N` where `N` is at least this patch's number (10) supports
+string: a build with `snowdrop-history.N` where `N` is at least this patch's number (11) supports
 `customEmoji`; anything else (upstream signal-cli, the demo backend, an older patched build)
-doesn't, and Snowdrop falls back to sending/rendering plain text.
+doesn't, and Snowdrop falls back to sending/rendering plain text. Patch level 10 could _send_
+custom emoji (that half worked) but not receive them, so Snowdrop's threshold
+(`MIN_CUSTOM_EMOJI_PATCH_LEVEL`, src/core/backend/signal-cli/capabilities.ts) moved from 10 to 11
+rather than staying put — a .10 peer would otherwise look capable while silently failing to
+deliver received emoji.
 
 ### Verification
 
 - Java unit tests: `SignalServiceDataMessageUnknownFieldsTest` (signal-service-java, the generic
   hook) and `SnowdropCustomEmojiCodecTest` (signal-cli, encode/decode round trips through real
   Wire proto encoding — including through a nested `EditMessage`, multiple entries preserving
-  order, and tolerance of malformed/oversized/missing-field input).
-- Full `:libsignal-cli:test` (lib module) and root `:test` suites pass with this patch applied:
-  211 tests, 0 failures, 0 errors (includes the new tests above).
+  order, and tolerance of malformed/oversized/missing-field input). `JsonDataMessageTest` now also
+  asserts the serialized JSON itself carries `customEmoji` as `{name, attachment: {id, ...}}`, not
+  just a codec round trip, and that it's omitted when empty.
 - `scripts/build-signal-cli.sh --test` builds and smoke-tests the complete runtime with this
-  patch and patches/signal-service-java's jar substituted in.
+  patch and patches/signal-service-java's jar substituted in; see that command's own output for
+  current pass/fail counts.
 - Not verified: an actual Snowdrop-to-Snowdrop send/receive over Signal's servers (no test
   account available in this environment), and the real-phone check that official Signal shows
   only the `:name:` text — both are the user's to do.
 
-Builds as `0.14.8-snowdrop-history.10`.
+Builds as `0.14.8-snowdrop-history.11`.
 
 ## User-controlled phone verification
 
