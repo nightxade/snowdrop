@@ -411,6 +411,64 @@ motivated are covered by `npx vitest` in the main repo, not here.
 
 Builds as `0.14.8-snowdrop-history.12`.
 
+## 0015: linked-device account record integrity
+
+Right after linking, Signal's own apps could show "There's a problem with your username" on the
+phone. The cause was in `StorageSyncModels.localToRemoteRecord` (used for every AccountRecord
+signal-cli builds for upload): it always set `username`/`usernameLink` from local state —
+`self.getAddress().username()` (the self recipient row's address) and `account.getUsernameLink()`
+— regardless of device role. On a linked device that address field is never refreshed:
+`SignalAccount.setUsername`/`setUsernameLink` (which `AccountRecordProcessor.updateLocal` calls
+once it learns the real values from a remote AccountRecord) update `SignalAccount`'s own fields,
+not the self recipient's stored `RecipientAddress`, which is only ever set by
+`resolveSelfRecipientTrusted` at account creation/registration time — never by `setUsername`. So
+`self.getAddress().username()` stays empty for the lifetime of a linked device. Any subsequent
+account-record write (routine: several `SyncStorageJob` enqueues fire right after linking, e.g.
+`AccountHelper.updateSelfIdentifiers`) rebuilt the record through `localToRemoteRecord`, which
+overwrote the correct, already-learned username with `""` and rebuilt `usernameLink` from scratch,
+re-uploading a corrupted AccountRecord over the real one.
+
+`AccountRecordProcessor.merge` itself was already correct — it builds the merged proto from
+`remote.newBuilder()`, which Wire's generated code carries `remote.unknownFields()` into via
+`addUnknownFields`, and it hardcodes `.username(remote.username)` /
+`.usernameLink(remote.usernameLink)` regardless of local state. The bug was specifically in the
+record-building path used to construct what gets re-uploaded, not in the merge/diff logic. The
+same pattern already existed for `ContactRecord`'s `systemGivenName`/`systemFamilyName`
+(`account.isPrimaryDevice() ? local.x : remote.x` in `ContactRecordProcessor.merge`), confirming
+this codebase's own convention for fields only a primary device may originate locally.
+
+Fix: `StorageSyncModels.localToRemoteRecord` takes a new `isPrimaryDevice` parameter (passed by
+all three callers — `AccountRecordProcessor`'s constructor, and both of
+`StorageHelper`'s `localToRemoteRecord` call sites for ACCOUNT records). A linked device
+(`shouldSetUsernameFieldsLocally(false)`) never touches `username`/`usernameLink` on the builder at
+all, leaving them at whatever `self.getStorageRecord()` already decoded (the last successfully
+merged, remote-sourced record) — never local, never empty. A primary device keeps the previous
+behavior unchanged.
+
+While adding tests for "a fresh link produces no write," a second, unrelated needless-write bug
+surfaced in the same `merge`: `safeSetPayments` (signal-service-java) unconditionally builds a
+`Payments.Builder().build()` object, turning an absent `payments` field present-but-empty even
+when neither remote nor local ever had one — forcing a spurious re-upload on every sync.
+`AccountRecordProcessor`'s merge now only calls `safeSetPayments` when there's actually data to
+set (from either side), leaving `payments` as remote's own absence otherwise. This is a
+signal-cli-side guard around the existing signal-service-java helper; the helper itself wasn't
+changed.
+
+`AccountRecordProcessor.merge`'s record-building logic is now also exposed as a package-visible,
+pure `buildMergedRecord(AccountRecord remote, AccountRecord local)` (plus `doProtosMatch`), so it's
+directly unit-testable without a database: `StorageRecordProcessorTest` builds a remote
+`AccountRecord` carrying a real username, usernameLink and a hand-crafted unknown field (an
+out-of-schema varint field, encoded with Wire's `ProtoAdapter.UINT64.encodeWithTag`), merges it
+against a "local" record simulating the stale/empty state a linked device could have, and asserts
+the merged proto is byte-identical to remote — proving both that unknown fields and
+username/usernameLink survive untouched, and that `doProtosMatch` would find no write needed on a
+fresh link. A second test confirms local may still legitimately contribute a field remote left
+unset (e.g. `givenName`) without username/usernameLink or unknown fields being affected.
+
+No signal-service-java change was needed or made; this is a signal-cli-only fix.
+
+Builds as `0.14.8-snowdrop-history.13`.
+
 ## User-controlled phone verification
 
 Run this only when ready to add a test device on the phone. It uses a new data

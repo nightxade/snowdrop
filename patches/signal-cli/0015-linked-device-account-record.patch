@@ -1,0 +1,311 @@
+diff --git a/build.gradle.kts b/build.gradle.kts
+index c867712..af0650a 100644
+--- a/build.gradle.kts
++++ b/build.gradle.kts
+@@ -10,7 +10,7 @@ plugins {
+ 
+ allprojects {
+     group = "org.asamk"
+-    version = "0.14.8-snowdrop-history.12"
++    version = "0.14.8-snowdrop-history.13"
+ 
+     // Snowdrop: substitute a locally-built, patched signal-service-java
+     // (snowdrop/patches/signal-service-java) for the stock turasa jar, when
+diff --git a/lib/src/main/java/org/asamk/signal/manager/helper/StorageHelper.java b/lib/src/main/java/org/asamk/signal/manager/helper/StorageHelper.java
+index 8438cdb..168f71f 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/helper/StorageHelper.java
++++ b/lib/src/main/java/org/asamk/signal/manager/helper/StorageHelper.java
+@@ -449,7 +449,8 @@ public class StorageHelper {
+                     final var accountRecord = StorageSyncModels.localToRemoteRecord(connection,
+                             account.getConfigurationStore(),
+                             recipient,
+-                            account.getUsernameLink());
++                            account.getUsernameLink(),
++                            account.isPrimaryDevice());
+                     newStorageRecords.add(new SignalStorageRecord(storageId,
+                             new StorageRecord.Builder().account(accountRecord).build()));
+                 } else {
+@@ -671,7 +672,8 @@ public class StorageHelper {
+                 final var record = StorageSyncModels.localToRemoteRecord(connection,
+                         account.getConfigurationStore(),
+                         selfRecipient,
+-                        account.getUsernameLink());
++                        account.getUsernameLink(),
++                        account.isPrimaryDevice());
+                 yield new SignalStorageRecord(storageId, new StorageRecord.Builder().account(record).build());
+             }
+             case ManifestRecord.Identifier.Type.STICKER_PACK -> {
+diff --git a/lib/src/main/java/org/asamk/signal/manager/syncStorage/AccountRecordProcessor.java b/lib/src/main/java/org/asamk/signal/manager/syncStorage/AccountRecordProcessor.java
+index 357fd6a..3a36ffd 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/syncStorage/AccountRecordProcessor.java
++++ b/lib/src/main/java/org/asamk/signal/manager/syncStorage/AccountRecordProcessor.java
+@@ -55,7 +55,8 @@ public class AccountRecordProcessor extends DefaultStorageRecordProcessor<Signal
+                 StorageSyncModels.localToRemoteRecord(connection,
+                         account.getConfigurationStore(),
+                         recipient,
+-                        account.getUsernameLink()));
++                        account.getUsernameLink(),
++                        account.isPrimaryDevice()));
+     }
+ 
+     @Override
+@@ -72,6 +73,31 @@ public class AccountRecordProcessor extends DefaultStorageRecordProcessor<Signal
+     protected SignalAccountRecord merge(SignalAccountRecord remoteRecord, SignalAccountRecord localRecord) {
+         final var remote = remoteRecord.getProto();
+         final var local = localRecord.getProto();
++        final var merged = buildMergedRecord(remote, local);
++
++        final var matchesRemote = doProtosMatch(merged, remote);
++        if (matchesRemote) {
++            return remoteRecord;
++        }
++
++        final var matchesLocal = doProtosMatch(merged, local);
++        if (matchesLocal) {
++            return localRecord;
++        }
++
++        return new SignalAccountRecord(StorageId.forAccount(KeyUtils.createRawStorageId()), merged);
++    }
++
++    /**
++     * Builds the merged {@link AccountRecord} for a remote/local pair. Kept as a pure,
++     * package-visible function (no StorageId/database access) so it can be unit tested directly:
++     * the merged builder always starts from {@code remote.newBuilder()}, which carries
++     * {@code remote.unknownFields()} and every field this schema doesn't explicitly touch below
++     * forward unchanged -- in particular {@code username} and {@code usernameLink} are always
++     * taken from remote, never from local, so a linked device can never overwrite them with its
++     * own (possibly stale or empty) state.
++     */
++    static AccountRecord buildMergedRecord(AccountRecord remote, AccountRecord local) {
+         String givenName;
+         String familyName;
+         if (!remote.givenName.isEmpty() || !remote.familyName.isEmpty()) {
+@@ -146,25 +172,18 @@ public class AccountRecordProcessor extends DefaultStorageRecordProcessor<Signal
+                 .username(remote.username)
+                 .usernameLink(remote.usernameLink)
+                 .avatarColor(remote.avatarColor);
+-        safeSetPayments(mergedBuilder,
+-                payments != null && payments.enabled,
+-                payments == null ? null : payments.entropy.toByteArray());
++        if (payments != null) {
++            // safeSetPayments always materializes a (possibly empty) Payments submessage, which
++            // would turn an absent field into a present-but-empty one and force a needless write
++            // when neither remote nor local ever had payments data. Only call it when one side
++            // actually has something to contribute; otherwise leave mergedBuilder.payments as
++            // remote.newBuilder() already left it (null, matching remote).
++            safeSetPayments(mergedBuilder, payments.enabled, payments.entropy.toByteArray());
++        }
+         safeSetSubscriber(mergedBuilder, donationSubscriberId, donationSubscriberCurrencyCode);
+         safeSetBackupsSubscriber(mergedBuilder, backupsSubscriberId, backupsPurchaseToken);
+ 
+-        final var merged = mergedBuilder.build();
+-
+-        final var matchesRemote = doProtosMatch(merged, remote);
+-        if (matchesRemote) {
+-            return remoteRecord;
+-        }
+-
+-        final var matchesLocal = doProtosMatch(merged, local);
+-        if (matchesLocal) {
+-            return localRecord;
+-        }
+-
+-        return new SignalAccountRecord(StorageId.forAccount(KeyUtils.createRawStorageId()), mergedBuilder.build());
++        return mergedBuilder.build();
+     }
+ 
+     @Override
+@@ -228,7 +247,7 @@ public class AccountRecordProcessor extends DefaultStorageRecordProcessor<Signal
+         return 0;
+     }
+ 
+-    private static boolean doProtosMatch(AccountRecord merged, AccountRecord other) {
++    static boolean doProtosMatch(AccountRecord merged, AccountRecord other) {
+         return Arrays.equals(merged.encode(), other.encode());
+     }
+ }
+diff --git a/lib/src/main/java/org/asamk/signal/manager/syncStorage/StorageSyncModels.java b/lib/src/main/java/org/asamk/signal/manager/syncStorage/StorageSyncModels.java
+index d1a7736..b068c35 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/syncStorage/StorageSyncModels.java
++++ b/lib/src/main/java/org/asamk/signal/manager/syncStorage/StorageSyncModels.java
+@@ -61,7 +61,8 @@ public final class StorageSyncModels {
+             final Connection connection,
+             ConfigurationStore configStore,
+             Recipient self,
+-            UsernameLinkComponents usernameLinkComponents
++            UsernameLinkComponents usernameLinkComponents,
++            boolean isPrimaryDevice
+     ) throws SQLException {
+         final var builder = SignalAccountRecord.Companion.newBuilder(self.getStorageRecord());
+         if (self.getProfileKey() != null) {
+@@ -80,19 +81,37 @@ public final class StorageSyncModels {
+                 .unlistedPhoneNumber(Optional.ofNullable(configStore.getPhoneNumberUnlisted(connection)).orElse(false))
+                 .phoneNumberSharingMode(Optional.ofNullable(configStore.getPhoneNumberSharingMode(connection))
+                         .map(StorageSyncModels::localToRemote)
+-                        .orElse(AccountRecord.PhoneNumberSharingMode.UNKNOWN))
+-                .username(self.getAddress().username().orElse(""));
+-        if (usernameLinkComponents != null) {
+-            final var linkColor = configStore.getUsernameLinkColor(connection);
+-            builder.usernameLink(new UsernameLink.Builder().entropy(ByteString.of(usernameLinkComponents.getEntropy()))
+-                    .serverId(UuidUtil.toByteString(usernameLinkComponents.getServerId()))
+-                    .color(linkColor == null ? UsernameLink.Color.UNKNOWN : UsernameLink.Color.valueOf(linkColor))
+-                    .build());
++                        .orElse(AccountRecord.PhoneNumberSharingMode.UNKNOWN));
++        if (shouldSetUsernameFieldsLocally(isPrimaryDevice)) {
++            // A linked device never originates its own username or username link: it only ever
++            // learns them from a remote AccountRecord via AccountRecordProcessor#merge, which
++            // already carries the decoded remote values (and any fields unknown to this schema)
++            // forward into self.getStorageRecord(). Setting them here from local recipient/account
++            // state would instead re-upload empty or stale values and corrupt the real ones on the
++            // storage service for every other device.
++            builder.username(self.getAddress().username().orElse(""));
++            if (usernameLinkComponents != null) {
++                final var linkColor = configStore.getUsernameLinkColor(connection);
++                builder.usernameLink(new UsernameLink.Builder().entropy(ByteString.of(usernameLinkComponents.getEntropy()))
++                        .serverId(UuidUtil.toByteString(usernameLinkComponents.getServerId()))
++                        .color(linkColor == null ? UsernameLink.Color.UNKNOWN : UsernameLink.Color.valueOf(linkColor))
++                        .build());
++            }
+         }
+ 
+         return builder.build();
+     }
+ 
++    /**
++     * Only a primary device is allowed to originate the account's username and username link
++     * fields from local state. A linked device must always defer to whatever the last
++     * successful {@link AccountRecordProcessor#merge} wrote into {@code self.getStorageRecord()},
++     * which is sourced from the remote AccountRecord.
++     */
++    static boolean shouldSetUsernameFieldsLocally(boolean isPrimaryDevice) {
++        return isPrimaryDevice;
++    }
++
+     public static ContactRecord localToRemoteRecord(Recipient recipient, IdentityInfo identity) {
+         final var address = recipient.getAddress();
+         final var aciPresent = address.aci().isPresent();
+diff --git a/lib/src/test/java/org/asamk/signal/manager/syncStorage/StorageRecordProcessorTest.java b/lib/src/test/java/org/asamk/signal/manager/syncStorage/StorageRecordProcessorTest.java
+index 1ce68a0..ff20b17 100644
+--- a/lib/src/test/java/org/asamk/signal/manager/syncStorage/StorageRecordProcessorTest.java
++++ b/lib/src/test/java/org/asamk/signal/manager/syncStorage/StorageRecordProcessorTest.java
+@@ -1,11 +1,21 @@
+ package org.asamk.signal.manager.syncStorage;
+ 
++import com.squareup.wire.ProtoAdapter;
++import com.squareup.wire.ProtoWriter;
++
+ import org.junit.jupiter.api.Test;
+ import org.signal.core.models.ServiceId.ACI;
+ import org.signal.core.models.ServiceId.PNI;
++import org.whispersystems.signalservice.internal.storage.protos.AccountRecord;
+ 
++import java.io.IOException;
+ import java.util.UUID;
+ 
++import okio.Buffer;
++import okio.ByteString;
++
++import static org.junit.jupiter.api.Assertions.assertArrayEquals;
++import static org.junit.jupiter.api.Assertions.assertEquals;
+ import static org.junit.jupiter.api.Assertions.assertFalse;
+ import static org.junit.jupiter.api.Assertions.assertTrue;
+ 
+@@ -37,4 +47,96 @@ class StorageRecordProcessorTest {
+         assertFalse(StickerPackRecordProcessor.shouldKeepLocalDeletion(200, 0));
+         assertFalse(StickerPackRecordProcessor.shouldKeepLocalDeletion(0, 100));
+     }
++
++    @Test
++    void onlyAPrimaryDeviceSetsUsernameFieldsLocally() {
++        assertTrue(StorageSyncModels.shouldSetUsernameFieldsLocally(true));
++        assertFalse(StorageSyncModels.shouldSetUsernameFieldsLocally(false));
++    }
++
++    /**
++     * A linked device builds its "local" AccountRecord baseline from whatever it last decoded off
++     * the wire (see StorageSyncModels#localToRemoteRecord), which can be stale or missing the
++     * username/usernameLink entirely. AccountRecordProcessor#merge must still always prefer
++     * remote's username/usernameLink, and must never drop fields it doesn't know about (simulated
++     * here with a hand-crafted unknown field) when producing the record it re-uploads. When local
++     * disagrees only in ways a linked device is allowed to disagree, the merged record should be
++     * byte-identical to remote, so AccountRecordProcessor#merge returns the remote record unchanged
++     * and no write to the storage service happens at all.
++     */
++    @Test
++    void mergeKeepsRemoteUsernameAndUnknownFieldsAndNeedsNoWriteOnFreshLink() throws IOException {
++        final var usernameLink = new AccountRecord.UsernameLink.Builder().entropy(ByteString.of(new byte[32]))
++                .serverId(ByteString.of(new byte[16]))
++                .color(AccountRecord.UsernameLink.Color.BLUE)
++                .build();
++        final var remoteBase = new AccountRecord.Builder().username("alice.01")
++                .usernameLink(usernameLink)
++                .givenName("Alice")
++                .readReceipts(true)
++                .build();
++        // Simulate a field a future Signal client set that this schema doesn't know about yet.
++        final var remote = AccountRecord.ADAPTER.decode(concat(ByteString.of(remoteBase.encode()),
++                unknownVarintField(9999, 42)));
++        assertFalse(remote.unknownFields().equals(ByteString.EMPTY), "Test fixture should carry an unknown field");
++
++        // A linked device that never learned the real username/link locally (e.g. the self
++        // recipient row was never refreshed) and otherwise has only default field values.
++        final var local = new AccountRecord.Builder().build();
++
++        final var merged = AccountRecordProcessor.buildMergedRecord(remote, local);
++
++        assertArrayEquals(remote.encode(), merged.encode(), "Merged record must be byte-identical to remote");
++        assertEquals("alice.01", merged.username);
++        assertEquals(usernameLink, merged.usernameLink);
++        assertEquals(remote.unknownFields(), merged.unknownFields());
++        assertTrue(AccountRecordProcessor.doProtosMatch(merged, remote),
++                "A fresh link must not trigger any write: merged must match remote exactly");
++    }
++
++    /**
++     * Even when local legitimately contributes a field remote left unset (a normal, intended
++     * merge), remote's username/usernameLink and unknown fields must still win untouched.
++     */
++    @Test
++    void mergePrefersLocalOnlyForFieldsRemoteLeftUnset() throws IOException {
++        final var usernameLink = new AccountRecord.UsernameLink.Builder().entropy(ByteString.of(new byte[32]))
++                .serverId(ByteString.of(new byte[16]))
++                .color(AccountRecord.UsernameLink.Color.GREEN)
++                .build();
++        final var remoteBase = new AccountRecord.Builder().username("bob.42")
++                .usernameLink(usernameLink)
++                .build(); // no givenName/familyName set remotely
++        final var remote = AccountRecord.ADAPTER.decode(concat(ByteString.of(remoteBase.encode()),
++                unknownVarintField(9999, 7)));
++
++        final var local = new AccountRecord.Builder().givenName("Bob")
++                .familyName("Local")
++                .username("") // stale/never-learned locally; must not win
++                .build();
++
++        final var merged = AccountRecordProcessor.buildMergedRecord(remote, local);
++
++        assertEquals("Bob", merged.givenName);
++        assertEquals("Local", merged.familyName);
++        assertEquals("bob.42", merged.username);
++        assertEquals(usernameLink, merged.usernameLink);
++        assertEquals(remote.unknownFields(), merged.unknownFields());
++        assertFalse(AccountRecordProcessor.doProtosMatch(merged, remote),
++                "This merge legitimately differs from remote and should produce a write");
++    }
++
++    private static ByteString concat(ByteString a, ByteString b) {
++        final var buffer = new Buffer();
++        buffer.write(a);
++        buffer.write(b);
++        return buffer.readByteString();
++    }
++
++    private static ByteString unknownVarintField(int fieldNumber, long value) throws IOException {
++        final var buffer = new Buffer();
++        final var writer = new ProtoWriter(buffer);
++        ProtoAdapter.UINT64.encodeWithTag(writer, fieldNumber, value);
++        return buffer.readByteString();
++    }
+ }
+\ No newline at end of file
