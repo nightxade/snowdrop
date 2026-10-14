@@ -6,7 +6,7 @@
  * target an iframe preview. Tags are moved to the end of <head> on each apply
  * so later-loaded stylesheets can't silently outrank user CSS.
  */
-import type { ReducedMotion, Density } from '@/core/stores';
+import type { ReducedMotion, Density, Shell } from '@/core/stores';
 import { findTheme, type Theme } from './builtin';
 import { adjustLightness, compositeOver, contrastRatio, parseHex, withAlpha } from './color';
 import { DUSK_BASE } from './builtin';
@@ -22,6 +22,8 @@ export interface AppearanceInput {
   themeId: string;
   accent: string | null;
   density: Density;
+  /** 'tui' sets `data-shell="tui"` on the document element. */
+  shell: Shell;
   fontScale: number;
   zoom: number;
   saturation: number;
@@ -203,6 +205,8 @@ export function applyAppearance(doc: ThemeDocument, input: AppearanceInput): voi
   root.setAttribute('data-theme-kind', theme.kind);
   root.style.colorScheme = theme.kind;
   root.setAttribute('data-density', input.density);
+  if (input.shell === 'tui') root.setAttribute('data-shell', 'tui');
+  else root.removeAttribute('data-shell');
   if (input.reducedMotion === 'system') root.removeAttribute('data-reduced-motion');
   else root.setAttribute('data-reduced-motion', input.reducedMotion);
   if (input.saturation < 1) root.setAttribute('data-saturation-adjusted', '');
@@ -220,6 +224,7 @@ export function clearAppearance(doc: ThemeDocument): void {
     'data-theme',
     'data-theme-kind',
     'data-density',
+    'data-shell',
     'data-reduced-motion',
     'data-saturation-adjusted',
     'data-focus',

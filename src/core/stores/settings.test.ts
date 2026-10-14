@@ -121,4 +121,17 @@ describe('settingsStore', () => {
     };
     expect(parseSettings({ connection: { desktop: custom } }).connection.desktop).toEqual(custom);
   });
+
+  it('defaults the TUI shell to standard and parses it as one of the two layouts', () => {
+    const d = defaultSettings();
+    expect(d.appearance.shell).toBe('standard');
+    expect(parseSettings({ appearance: { shell: 'tui' } }).appearance).toEqual({
+      ...d.appearance,
+      shell: 'tui',
+    });
+    // An unknown value falls back to the default rather than resetting the rest.
+    expect(
+      parseSettings({ appearance: { shell: 'retro', density: 'compact' } }).appearance,
+    ).toEqual({ ...d.appearance, density: 'compact' });
+  });
 });

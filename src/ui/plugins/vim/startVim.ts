@@ -9,6 +9,7 @@ import { makeBlockCaret } from './caret/BlockCaret';
 import type { Mode } from './engine/engine';
 import { makeModePill } from './ModePill';
 import { ModeStore } from './modeStore';
+import { makeStatusModePill } from './StatusModePill';
 import type { settings } from './settings';
 import { VimController, type VimOptions } from './VimController';
 import { makeVimKeysPanel } from './VimKeysPanel';
@@ -46,6 +47,11 @@ export function startVim(ctx: PluginContext<typeof settings>): void {
       timeoutMs: v.timeout,
     };
   };
+  /** The composer id (= conversation id) the open conversation's mode lives under, if any. */
+  const currentConversation = (): string | null => {
+    const ui = ctx.stores.ui.getState();
+    return ui.selectedConversationBySpace[ui.selectedSpace] ?? null;
+  };
   const vim = new VimController(
     {
       options,
@@ -64,10 +70,7 @@ export function startVim(ctx: PluginContext<typeof settings>): void {
         ctx.toast(message, 'info');
       },
       notificationsEnabled: () => ctx.stores.settings.getState().notifications.enabled,
-      currentConversation: () => {
-        const ui = ctx.stores.ui.getState();
-        return ui.selectedConversationBySpace[ui.selectedSpace] ?? null;
-      },
+      currentConversation,
     },
     modes,
   );
@@ -85,6 +88,16 @@ export function startVim(ctx: PluginContext<typeof settings>): void {
     'mode-pill',
     makeModePill({
       modes,
+      subscribeOptions,
+      composerEnabled: () => ctx.settings.get('composer'),
+      startMode: (): Mode => (ctx.settings.get('startInInsert') ? 'insert' : 'normal'),
+    }),
+  );
+  ctx.statusBar.addItem(
+    'mode-pill',
+    makeStatusModePill({
+      modes,
+      currentSurface: currentConversation,
       subscribeOptions,
       composerEnabled: () => ctx.settings.get('composer'),
       startMode: (): Mode => (ctx.settings.get('startInInsert') ? 'insert' : 'normal'),

@@ -183,6 +183,7 @@ describe('accent text colour (M4)', () => {
         themeId: theme.id,
         accent: null,
         density: 'comfortable',
+        shell: 'standard',
         fontScale: 1,
         zoom: 1,
         saturation: 1,

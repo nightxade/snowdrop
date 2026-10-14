@@ -37,6 +37,9 @@ export function FullScreenDialog({
       <RadixDialog.Portal>
         <RadixDialog.Content
           className={[styles.content, className].filter(Boolean).join(' ')}
+          // TUI shell only (src/ui/styles/tui.css): the titled border reads this;
+          // inert markup otherwise.
+          data-pane-title={title.toLowerCase()}
           aria-describedby={undefined}
           onOpenAutoFocus={(e) => {
             e.preventDefault();

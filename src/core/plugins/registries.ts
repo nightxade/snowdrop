@@ -39,6 +39,9 @@ export interface ComposerSlotProps {
   descriptionId: string;
 }
 
+/** Status-line items (TUI shell) take no props: each reads its own state. */
+export type StatusItemProps = Record<string, never>;
+
 /** Props an icon receives (lucide-react icons fit). */
 export interface IconProps {
   size?: number;
@@ -168,6 +171,13 @@ export class Registries implements DraftPipeline {
   readonly notificationBoosters = new ObservableList<Owned & { boost: NotificationBooster }>();
   /** Components rendered inside the composer field (Vim mode's mode pill). */
   readonly composerAccessories = new ObservableList<Owned & ComponentEntry<ComposerSlotProps>>();
+  /**
+   * Items shown left-to-right in the TUI shell's status line (`status.items`):
+   * core registers conversation/unread/connection directly (owner `'core'`,
+   * see `src/app/statusItems.tsx`), plugins (Vim Mode's NORMAL/INSERT pill)
+   * through `ctx.statusBar.addItem`.
+   */
+  readonly statusItems = new ObservableList<Owned & ComponentEntry<StatusItemProps>>();
   /** Modal key layers (see core/commands/keyLayer); consulted before keybinds. */
   readonly keyLayers: KeyLayerStack;
   /** Entries whose `visible` threw, reported once each (it runs on every render). */

@@ -217,4 +217,16 @@ describe('plugin API (P6)', () => {
     expect(onError).toHaveBeenCalledWith(expect.any(Error), 'p', 'command "p.boom"');
     expect(runtime.get('p')?.runtimeError?.where).toBe('command "p.boom"');
   });
+
+  it('registers and tears down a status-line item (TUI shell)', async () => {
+    const { runtime, registries } = setup((ctx) => {
+      ctx.statusBar.addItem('mode', () => 'NORMAL');
+    });
+    await runtime.startAll();
+    const entry = registries.statusItems.list()[0];
+    expect(entry).toMatchObject({ id: 'mode', owner: 'p' });
+    expect((entry?.component as () => string)()).toBe('NORMAL');
+    await runtime.stop('p');
+    expect(registries.statusItems.list()).toEqual([]);
+  });
 });

@@ -78,6 +78,7 @@ describe('theme import', () => {
       themeId: 'linen-copy',
       accent: null,
       density: 'comfortable',
+      shell: 'standard',
       fontScale: 1,
       zoom: 1,
       saturation: 1,

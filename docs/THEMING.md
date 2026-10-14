@@ -27,16 +27,17 @@ keep their `tokens.css` (Dusk) values, also in light themes.
 
 The engine also sets attributes on `<html>` that CSS can use:
 `data-theme` (theme id), `data-theme-kind` (`dark` | `light`), `data-density`
-(`comfortable` | `compact`), `data-reduced-motion` (`on` | `off`, absent =
-follow the OS), `data-saturation-adjusted`, `data-focus="strong"` and
-`data-targets="large"` (Accessibility settings).
+(`comfortable` | `compact`), `data-shell="tui"` (absent for the standard
+shell; see [TUI layout](#tui-layout) below), `data-reduced-motion` (`on` |
+`off`, absent = follow the OS), `data-saturation-adjusted`,
+`data-focus="strong"` and `data-targets="large"` (Accessibility settings).
 
 ## Token reference
 
 <!-- Generated from TOKEN_NAMES (src/core/themes/tokens.ts), the values in
      src/ui/styles/tokens.css, tokenKind() and the built-in themes. -->
 
-105 tokens. **Kind** decides which values an imported theme may use for the
+110 tokens. **Kind** decides which values an imported theme may use for the
 token (see [validation](#validation-rules)). **Overridden by** lists the
 built-in themes that change the token (M = Midnight, L = Linen, HC = High
 Contrast); _accent override_ marks tokens recomputed when you pick an accent
@@ -161,6 +162,16 @@ derived), so a theme's value for them is ignored.
 | `members-width` | length | `248px`           | —             |
 | `header-height` | length | `48px`            | —             |
 | `tile-size`     | length | `48px`            | —             |
+
+#### Pane (TUI shell)
+
+| Token               | Kind   | Dusk (base) value            | Overridden by |
+| ------------------- | ------ | ---------------------------- | ------------- |
+| `pane-border`       | color  | `var(--snowdrop-text-faint)` | —             |
+| `pane-border-focus` | color  | `var(--snowdrop-accent)`     | —             |
+| `pane-radius`       | length | `4px`                        | —             |
+| `pane-gap`          | length | `14px`                       | —             |
+| `pane-title-color`  | color  | `var(--snowdrop-text-muted)` | —             |
 
 #### Typography
 
@@ -394,59 +405,64 @@ instead.
 
 **Regions: `[data-snowdrop='…']`.** Every value used in the app:
 
-| Hook                    | Element                                            |
-| ----------------------- | -------------------------------------------------- |
-| `app`                   | The whole shell                                    |
-| `demo-banner`           | Persistent demo-mode banner above the shell        |
-| `rail`                  | Spaces rail                                        |
-| `drawer`                | Rail + sidebar slide-over on narrow screens        |
-| `sidebar`               | Conversation sidebar                               |
-| `sidebar-header`        | Sidebar title bar                                  |
-| `conversation-list`     | Conversation list                                  |
-| `conversation-row`      | One conversation in the sidebar                    |
-| `section-header`        | Sidebar section / category header                  |
-| `user-panel`            | Your profile at the bottom of the sidebar          |
-| `chat`                  | Chat column                                        |
-| `chat-header`           | Chat title bar                                     |
-| `member-toggle`         | Member-list button in the chat header              |
-| `connection-banner`     | Connection-problem banner above the chat           |
-| `message-pane`          | Message area                                       |
-| `message-log`           | The message list                                   |
-| `conversation-intro`    | "Beginning of your conversation" block             |
-| `history-skeleton`      | Loading placeholder rows                           |
-| `message`               | One message row (see attributes below)             |
-| `message-body`          | The text of a message                              |
-| `hover-bar`             | Message hover actions                              |
-| `message-action-sheet`  | Long-press action sheet (touch)                    |
-| `system-message`        | Joined / renamed / timer lines                     |
-| `new-divider`           | The "New" line at the first unread message         |
-| `new-messages-bar`      | "N new messages since …" bar                       |
-| `jump-to-present`       | Jump-to-present pill                               |
-| `composer`              | Message composer                                   |
-| `composer-input`        | The composer's textarea                            |
-| `attachment-tray`       | Attachments waiting to be sent                     |
-| `reply-bar`             | "Replying to …" bar                                |
-| `composer-link-preview` | The composer's own link-preview card               |
-| `autocomplete`          | @ / : / slash suggestions                          |
-| `typing-line`           | "… is typing" strip                                |
-| `drop-overlay`          | Drag-and-drop overlay                              |
-| `search-panel`          | In-conversation search results                     |
-| `members`               | Member list                                        |
-| `member-row`            | One member                                         |
-| `settings`              | Settings screen                                    |
-| `plugin-card`           | A plugin in Settings → Plugins                     |
-| `welcome`               | Welcome / connection setup screens                 |
-| `link-device`           | Device-linking screen                              |
-| `storage-setup`         | "Protect your data" encrypted-storage setup screen |
-| `recovery-key`          | Recovery-key suggestion / creation screen          |
-| `unlock`                | Encrypted-storage unlock screen                    |
-| `storage-unavailable`   | Encrypted-storage unavailable screen               |
-| `restart-required`      | Restart-Snowdrop-to-finish screen, after an erase  |
-| `app-error`             | App-level error boundary's fallback card           |
-| `note-badge`            | Pronoun & Notes Badge plugin's badge               |
-| `vim-mode`              | Vim Mode plugin's mode pill                        |
-| `vim-caret`             | Vim Mode plugin's block cursor                     |
-| `vim-caret-layer`       | Clipping layer that holds the block cursor         |
+| Hook                    | Element                                                         |
+| ----------------------- | --------------------------------------------------------------- |
+| `app`                   | The whole shell                                                 |
+| `demo-banner`           | Persistent demo-mode banner above the shell                     |
+| `rail`                  | Spaces rail                                                     |
+| `drawer`                | Rail + sidebar slide-over on narrow screens                     |
+| `status-line`           | TUI shell status line at the bottom of the window               |
+| `sidebar`               | Conversation sidebar                                            |
+| `sidebar-header`        | Sidebar title bar                                               |
+| `conversation-list`     | Conversation list                                               |
+| `conversation-row`      | One conversation in the sidebar                                 |
+| `section-header`        | Sidebar section / category header                               |
+| `user-panel`            | Your profile at the bottom of the sidebar                       |
+| `chat`                  | Chat column                                                     |
+| `chat-title-tag`        | TUI shell: the chat pane border's title (the open conversation) |
+| `chat-header`           | Chat title bar                                                  |
+| `member-toggle`         | Member-list button in the chat header                           |
+| `connection-banner`     | Connection-problem banner above the chat                        |
+| `message-pane`          | Message area                                                    |
+| `message-log`           | The message list                                                |
+| `conversation-intro`    | "Beginning of your conversation" block                          |
+| `history-skeleton`      | Loading placeholder rows                                        |
+| `message`               | One message row (see attributes below)                          |
+| `message-body`          | The text of a message                                           |
+| `message-author`        | The author-name button in a message row                         |
+| `message-time`          | A message row's timestamp (has data-variant)                    |
+| `message-content`       | The name + body + trailing content of a message row             |
+| `hover-bar`             | Message hover actions                                           |
+| `message-action-sheet`  | Long-press action sheet (touch)                                 |
+| `system-message`        | Joined / renamed / timer lines                                  |
+| `new-divider`           | The "New" line at the first unread message                      |
+| `new-messages-bar`      | "N new messages since …" bar                                    |
+| `jump-to-present`       | Jump-to-present pill                                            |
+| `composer`              | Message composer                                                |
+| `composer-input`        | The composer's textarea                                         |
+| `attachment-tray`       | Attachments waiting to be sent                                  |
+| `reply-bar`             | "Replying to …" bar                                             |
+| `composer-link-preview` | The composer's own link-preview card                            |
+| `autocomplete`          | @ / : / slash suggestions                                       |
+| `typing-line`           | "… is typing" strip                                             |
+| `drop-overlay`          | Drag-and-drop overlay                                           |
+| `search-panel`          | In-conversation search results                                  |
+| `members`               | Member list                                                     |
+| `member-row`            | One member                                                      |
+| `settings`              | Settings screen                                                 |
+| `plugin-card`           | A plugin in Settings → Plugins                                  |
+| `welcome`               | Welcome / connection setup screens                              |
+| `link-device`           | Device-linking screen                                           |
+| `storage-setup`         | "Protect your data" encrypted-storage setup screen              |
+| `recovery-key`          | Recovery-key suggestion / creation screen                       |
+| `unlock`                | Encrypted-storage unlock screen                                 |
+| `storage-unavailable`   | Encrypted-storage unavailable screen                            |
+| `restart-required`      | Restart-Snowdrop-to-finish screen, after an erase               |
+| `app-error`             | App-level error boundary's fallback card                        |
+| `note-badge`            | Pronoun & Notes Badge plugin's badge                            |
+| `vim-mode`              | Vim Mode plugin's mode pill                                     |
+| `vim-caret`             | Vim Mode plugin's block cursor                                  |
+| `vim-caret-layer`       | Clipping layer that holds the block cursor                      |
 
 **Attributes on those elements:**
 
@@ -461,11 +477,36 @@ instead.
   in Custom CSS to restyle it.
 - Sidebar rows carry `data-conversation-id`.
 - Icon buttons carry `data-icon-button`.
+- In the TUI shell, a region's titled border reads `content: attr(data-pane-title)`
+  from a `data-pane-title="…"` attribute on its `[data-snowdrop='…']` element
+  (the rail, sidebar, chat column and composer set it; the chat column's
+  updates to the open conversation's name). Rail tiles (spaces, folders, "Create
+  a space") carry `data-rail-label="…"`, the text the TUI shell lists them by.
 
 **Plugin slots: `[data-slot='…']`.** `message.decorations`,
-`message.accessories`, `composer.accessories`, `chat.header.buttons`.
+`message.accessories`, `composer.accessories`, `chat.header.buttons`,
+`status.items` (TUI shell status line; core contributes the conversation,
+unread-total and connection items, the Vim Mode plugin its NORMAL/INSERT pill).
 
 **Document attributes** on `<html>`: see [How styles are applied](#how-styles-are-applied).
+
+## TUI layout
+
+**Settings → Appearance → Layout: TUI** (also the "Toggle TUI layout" palette
+command) sets `appearance.shell = 'tui'`, which the engine mirrors to
+`data-shell="tui"` on `<html>` (see above) — colours and theme are unchanged,
+only the layout. One stylesheet, `src/ui/styles/tui.css`, scoped entirely under
+`:root[data-shell='tui']`, draws every region as a titled, bordered box using
+the stable `[data-snowdrop='…']` hooks and the pane tokens above: monospace
+type, square-ish corners, an accent border on the focused pane
+(`:focus-within`), and the same boxed treatment for popovers, modals and
+Settings (any `[role="dialog"]`). The rail becomes a plain text list of space
+names, messages render as one line (`time  name  text`, reusing compact-mode
+markup forced on regardless of the Message density setting), and unread counts
+read `[3]` instead of a pill. A status line along the bottom
+(`[data-snowdrop='status-line']`) shows the open conversation, total unread,
+connection state and (with Vim Mode on) the current mode, built from the
+`status.items` slot; "? for keys" opens the keyboard-shortcuts dialog.
 
 ## Security policy
 

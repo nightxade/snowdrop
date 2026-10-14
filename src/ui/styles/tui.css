@@ -1,0 +1,387 @@
+/*
+ * The TUI shell ("boxed panes"): Appearance → Layout: TUI, or the "Toggle
+ * TUI layout" palette command (`appearance.shell = 'tui'`, mirrored by the
+ * theme engine to `data-shell="tui"` on <html> — see core/themes/engine.ts).
+ * Colour and theme are untouched; this is layout only.
+ *
+ * Scoped entirely under `:root[data-shell='tui']` and built on the stable
+ * `[data-snowdrop='…']` hooks (docs/THEMING.md) plus two attributes set by
+ * component markup: `data-pane-title` (the text a region's border reads) and
+ * `data-rail-label` (what a rail tile is listed by). Everything else here is
+ * selectors over markup that already existed — no forks.
+ */
+
+:root[data-shell='tui'] {
+  /* Monospace everywhere, including portaled modals/popovers/tooltips: they
+     are still descendants of <html>, so the custom property reaches them. */
+  --snowdrop-font-sans: var(--snowdrop-font-mono);
+
+  /* Small, mostly-square corners. */
+  --snowdrop-radius-2xs: 0px;
+  --snowdrop-radius-xs: 2px;
+  --snowdrop-radius-sm: 2px;
+  --snowdrop-radius-md: 2px;
+  --snowdrop-radius-lg: 2px;
+  --snowdrop-radius-tile: 2px;
+  --snowdrop-radius-full: 2px;
+
+  /*
+   * shadow-* tokens bake a faint 1px light outline into the drop shadow
+   * itself (see tokens.css). Pane borders below replace that outline, so it
+   * is dropped here — otherwise a popover/modal would show two borders a
+   * pixel apart.
+   */
+  --snowdrop-shadow-menu: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --snowdrop-shadow-popout: 0 12px 32px rgba(0, 0, 0, 0.5);
+  --snowdrop-shadow-modal: 0 24px 64px rgba(0, 0, 0, 0.6);
+}
+
+/* ─── Boxed panes ──────────────────────────────────────────────────────── */
+
+:root[data-shell='tui'] [data-snowdrop='rail'],
+:root[data-shell='tui'] [data-snowdrop='sidebar'],
+:root[data-shell='tui'] [data-snowdrop='chat'],
+:root[data-shell='tui'] [data-snowdrop='composer'],
+:root[data-shell='tui'] [data-snowdrop='members'] {
+  position: relative;
+  box-sizing: border-box;
+  border: 1px solid var(--snowdrop-pane-border);
+  border-radius: var(--snowdrop-pane-radius);
+}
+
+/*
+ * Modals and popovers already establish their own containing block (Radix
+ * positions them `fixed`/`absolute`, some inline — never `static`), so the
+ * title pseudo-element needs no `position` override here. Setting one would
+ * be actively harmful: FullScreenDialog's (Settings') content is `position:
+ * fixed` from its own CSS module class, and a same-or-higher-specificity
+ * `position: relative` here would turn that into an in-flow box instead of
+ * a viewport-covering overlay.
+ */
+:root[data-shell='tui'] [role='dialog'] {
+  box-sizing: border-box;
+  border: 1px solid var(--snowdrop-pane-border);
+  border-radius: var(--snowdrop-pane-radius);
+}
+
+/*
+ * The full-screen Settings dialog (the only `[role='dialog']` that also
+ * carries `data-pane-title`, set by FullScreenDialog.tsx) sits flush against
+ * the viewport (`inset: 0`) with no room above it for its titled border to
+ * sit in — the title would render off the top of the screen entirely. Inset
+ * it by the same gap every other pane gets, individual longhands (not
+ * `inset`, so this beats that shorthand's equal-specificity declaration).
+ */
+:root[data-shell='tui'] [role='dialog'][data-pane-title] {
+  top: var(--snowdrop-pane-gap);
+  right: var(--snowdrop-pane-gap);
+  bottom: var(--snowdrop-pane-gap);
+  left: var(--snowdrop-pane-gap);
+}
+
+:root[data-shell='tui'] [data-snowdrop='rail']:focus-within,
+:root[data-shell='tui'] [data-snowdrop='sidebar']:focus-within,
+:root[data-shell='tui'] [data-snowdrop='chat']:focus-within,
+:root[data-shell='tui'] [data-snowdrop='composer']:focus-within {
+  border-color: var(--snowdrop-pane-border-focus);
+}
+
+:root[data-shell='tui'] [data-snowdrop='rail'] {
+  margin: var(--snowdrop-pane-gap) 0 var(--snowdrop-pane-gap) var(--snowdrop-pane-gap);
+}
+
+:root[data-shell='tui'] [data-snowdrop='sidebar'],
+:root[data-shell='tui'] [data-snowdrop='chat'] {
+  margin-block: var(--snowdrop-pane-gap);
+  margin-right: var(--snowdrop-pane-gap);
+}
+
+:root[data-shell='tui'] [data-snowdrop='composer'] {
+  margin: var(--snowdrop-pane-gap) var(--snowdrop-space-5) var(--snowdrop-space-4);
+  padding: var(--snowdrop-space-3) var(--snowdrop-space-4);
+}
+
+:root[data-shell='tui'] [data-snowdrop='members'] {
+  margin: var(--snowdrop-pane-gap) var(--snowdrop-pane-gap) var(--snowdrop-pane-gap) 0;
+}
+
+/* Titled border: the title sits in the top edge, over a gap it cuts in the
+   line by painting the pane's own background behind the text. */
+:root[data-shell='tui'] [data-pane-title]::before {
+  content: attr(data-pane-title) / '';
+  position: absolute;
+  top: -0.65em;
+  left: var(--snowdrop-space-4);
+  z-index: 1;
+  padding: 0 4px;
+  color: var(--snowdrop-pane-title-color);
+  font-family: var(--snowdrop-font-mono);
+  font-size: var(--snowdrop-font-size-xs);
+  letter-spacing: var(--snowdrop-tracking-label);
+  white-space: nowrap;
+}
+
+:root[data-shell='tui'] [data-snowdrop='rail'][data-pane-title]::before {
+  background: var(--snowdrop-bg-rail);
+}
+:root[data-shell='tui'] [data-snowdrop='sidebar'][data-pane-title]::before {
+  background: var(--snowdrop-bg-sidebar);
+}
+:root[data-shell='tui'] [data-snowdrop='composer'][data-pane-title]::before {
+  background: var(--snowdrop-bg-input);
+}
+:root[data-shell='tui'] [data-snowdrop='members'][data-pane-title]::before {
+  background: var(--snowdrop-bg-chat);
+}
+/* The full-screen Settings dialog sets data-pane-title itself (FullScreenDialog.tsx). */
+:root[data-shell='tui'] [role='dialog'][data-pane-title]::before {
+  background: var(--snowdrop-bg-chat);
+}
+
+/*
+ * The chat pane's title is a real element (ChatColumn.tsx) rather than
+ * generated content, since it follows the open conversation. Same look and
+ * position as the `[data-pane-title]::before` titles above, stacked above
+ * the chat header (z-index 2), which would otherwise cover its lower half.
+ */
+:root[data-shell='tui'] [data-snowdrop='chat-title-tag'] {
+  display: block;
+  position: absolute;
+  top: -7px;
+  left: var(--snowdrop-space-4);
+  z-index: 3;
+  max-width: calc(100% - 2 * var(--snowdrop-space-4));
+  padding: 0 4px;
+  overflow: hidden;
+  background: var(--snowdrop-bg-chat);
+  color: var(--snowdrop-pane-title-color);
+  font-family: var(--snowdrop-font-mono);
+  font-size: var(--snowdrop-font-size-xs);
+  line-height: 14px;
+  letter-spacing: var(--snowdrop-tracking-label);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* ─── Rail: a text list of space names ─────────────────────────────────── */
+
+:root[data-shell='tui'] [data-snowdrop='rail'] {
+  width: 148px;
+}
+
+:root[data-shell='tui'] [data-snowdrop='rail'] [role='separator'] {
+  width: calc(100% - var(--snowdrop-space-5));
+  margin-inline: var(--snowdrop-space-3);
+}
+
+:root[data-shell='tui'] [data-snowdrop='rail'] [data-tone] {
+  width: 100%;
+  justify-content: flex-start;
+}
+
+:root[data-shell='tui'] [data-snowdrop='rail'] button[data-roving-item] {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: auto;
+  padding: 3px var(--snowdrop-space-3);
+  border: none;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  color: var(--snowdrop-text);
+  font-size: var(--snowdrop-font-size-ui);
+  text-align: left;
+}
+
+:root[data-shell='tui'] [data-snowdrop='rail'] [data-selected] button[data-roving-item],
+:root[data-shell='tui'] [data-snowdrop='rail'] button[data-roving-item]:hover {
+  background: var(--snowdrop-bg-hover);
+  box-shadow: none;
+  color: var(--snowdrop-text-strong);
+}
+
+:root[data-shell='tui'] [data-snowdrop='rail'] button[data-roving-item] > * {
+  display: none;
+}
+
+:root[data-shell='tui'] [data-snowdrop='rail'] button[data-roving-item]::before {
+  content: '  ' attr(data-rail-label);
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+:root[data-shell='tui'] [data-snowdrop='rail'] button[data-roving-item][data-selected]::before {
+  /* A literal bullet, not a \hex escape: CSS eats the whitespace right
+     after a hex escape as its terminator, so '\25CF ' silently drops the
+     space meant to separate it from the label. */
+  content: '● ' attr(data-rail-label);
+  color: var(--snowdrop-accent-text);
+}
+
+/* "Create a space": a plain muted list item, like every other row — not a
+   dashed button (RailTile.module.css's quiet-tone look is for the icon rail). */
+:root[data-shell='tui']
+  [data-snowdrop='rail']
+  [data-tone='quiet']
+  button[data-roving-item]::before {
+  content: '+ ' attr(data-rail-label);
+  color: var(--snowdrop-text-faint);
+}
+
+:root[data-shell='tui']
+  [data-snowdrop='rail']
+  [data-tone='quiet']
+  button[data-roving-item]:hover::before {
+  color: var(--snowdrop-text-muted);
+}
+
+/* The plain unread pip reads oddly as a floating dot in list rows; the
+   mention badge (kept, bracketed below) already says enough. */
+:root[data-shell='tui'] [data-snowdrop='rail'] [data-tone] > span[aria-hidden]:empty {
+  display: none;
+}
+
+:root[data-shell='tui'] [data-snowdrop='rail'] [data-variant='mention'] {
+  position: static;
+  margin-left: auto;
+  box-shadow: none;
+}
+
+/* ─── Sidebar: no avatars, a plain `>` marks the open conversation ─────── */
+
+:root[data-shell='tui'] [data-snowdrop='conversation-row'] button[data-roving-item] {
+  background: none;
+}
+
+:root[data-shell='tui'] [data-snowdrop='conversation-row'] button[data-roving-item]::before {
+  content: '  ';
+  flex: none;
+  color: var(--snowdrop-accent-text);
+  font-weight: var(--snowdrop-font-weight-bold);
+}
+
+:root[data-shell='tui']
+  [data-snowdrop='conversation-row'][data-selected]
+  button[data-roving-item]::before {
+  content: '> ';
+}
+
+:root[data-shell='tui']
+  [data-snowdrop='conversation-row']
+  button[data-roving-item]
+  > *:first-child {
+  display: none;
+}
+
+/* The secondary preview/typing line: `.text`'s 2nd child when present. */
+:root[data-shell='tui']
+  [data-snowdrop='conversation-row']
+  button[data-roving-item]
+  > *:nth-child(2)
+  > *:nth-child(2) {
+  display: none;
+}
+
+/* ─── Unread counts read `[3]`, not a filled pill ──────────────────────── */
+
+:root[data-shell='tui'] [data-variant='mention'],
+:root[data-shell='tui'] [data-variant='count'] {
+  background: none;
+  color: var(--snowdrop-danger-strong);
+  font-family: var(--snowdrop-font-mono);
+  font-weight: var(--snowdrop-font-weight-semibold);
+}
+
+:root[data-shell='tui'] [data-variant='count'] {
+  color: var(--snowdrop-text-muted);
+}
+
+:root[data-shell='tui'] [data-variant='mention']::before,
+:root[data-shell='tui'] [data-variant='count']::before {
+  content: '[';
+}
+
+:root[data-shell='tui'] [data-variant='mention']::after,
+:root[data-shell='tui'] [data-variant='count']::after {
+  content: ']';
+}
+
+/* ─── Messages: aligned time / author / text columns (compact rendering is
+       forced regardless of density by useShellStyle(); see MessageList.tsx).
+       `message-content` (name, body, and everything after it — notes, link
+       previews, attachments, reactions, plugin accessories) becomes a second
+       grid, name in column 1 and *everything else* in column 2: wrapped body
+       text, and every later sibling, therefore lines up under the text
+       column instead of back under the time gutter. */
+
+:root[data-shell='tui'] [data-snowdrop='message'][data-compact] {
+  grid-template-columns: 7ch minmax(0, 1fr);
+}
+
+:root[data-shell='tui'] [data-snowdrop='message-time'][data-variant='compact'] {
+  display: inline-block;
+  width: 6ch;
+  font-variant-numeric: tabular-nums;
+}
+
+:root[data-shell='tui'] [data-snowdrop='message'][data-compact] [data-snowdrop='message-content'] {
+  display: grid;
+  grid-template-columns: 14ch minmax(0, 1fr);
+  column-gap: var(--snowdrop-space-2);
+}
+
+:root[data-shell='tui']
+  [data-snowdrop='message'][data-compact]
+  [data-snowdrop='message-content']
+  > *:first-child {
+  grid-column: 1;
+  min-width: 0;
+}
+
+:root[data-shell='tui']
+  [data-snowdrop='message'][data-compact]
+  [data-snowdrop='message-content']
+  > *:not(:first-child) {
+  grid-column: 2;
+  min-width: 0;
+}
+
+:root[data-shell='tui'] [data-snowdrop='message-author'] {
+  display: block;
+  overflow: hidden;
+  width: 100%;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ─── Composer: a `>` prompt ────────────────────────────────────────────── */
+
+:root[data-shell='tui'] div:has(> [data-snowdrop='composer-input'])::before {
+  content: '>';
+  flex: none;
+  align-self: center;
+  color: var(--snowdrop-accent-text);
+  font-weight: var(--snowdrop-font-weight-bold);
+}
+
+/* ─── Appearance → Layout preview (AppearancePreview.tsx) ──────────────── */
+
+[aria-label='Preview'][data-shell='tui'] {
+  position: relative;
+  border: 1px solid var(--snowdrop-pane-border);
+  border-radius: var(--snowdrop-pane-radius);
+  background: var(--snowdrop-bg-chat);
+}
+
+[aria-label='Preview'][data-shell='tui']::before {
+  content: 'preview' / '';
+  position: absolute;
+  top: -0.65em;
+  left: var(--snowdrop-space-4);
+  padding: 0 4px;
+  background: var(--snowdrop-bg-chat);
+  color: var(--snowdrop-pane-title-color);
+  font-size: var(--snowdrop-font-size-xs);
+}

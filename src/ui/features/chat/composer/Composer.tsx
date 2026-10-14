@@ -142,7 +142,7 @@ function ComposerInner({ conversation }: { conversation: ConversationView }) {
       : `Message @${conversation.title}`;
 
   return (
-    <div className={styles.composer} data-snowdrop="composer">
+    <div className={styles.composer} data-snowdrop="composer" data-pane-title="message">
       {state.error && (
         <p className={styles.error} role="alert">
           {state.error}

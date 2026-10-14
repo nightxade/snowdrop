@@ -13,6 +13,7 @@ export { useNow } from './useNow';
 export { useFrozenWhile } from './useFrozenWhile';
 export { useRovingFocus, type RovingOrientation } from './useRovingFocus';
 export { ShellLayoutProvider, useShellLayout, type ShellLayout } from './ShellLayout';
+export { useShellStyle } from './useShellStyle';
 export {
   conversationFocusPolicyActive,
   conversationFocusTarget,

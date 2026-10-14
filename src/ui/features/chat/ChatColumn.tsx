@@ -38,6 +38,11 @@ function ChatColumnInner() {
   const kind = useStore(stores.conversations, (s) =>
     selected ? s.byId[selected]?.kind : undefined,
   );
+  // TUI shell only: the chat pane's border carries the open conversation's
+  // name (a real element, hidden outside the TUI shell; see tui.css).
+  const title = useStore(stores.conversations, (s) =>
+    selected ? s.byId[selected]?.title : undefined,
+  );
   const membersOpen = useStore(stores.ui, uiSelectors.memberListOpen);
   const showSearch = searchOpen && kind !== undefined && selected !== null;
   const showMembers = !showSearch && kind === 'group' && membersOpen && selected !== null;
@@ -47,6 +52,11 @@ function ChatColumnInner() {
 
   return (
     <main className={styles.column} data-snowdrop="chat" aria-label="Chat">
+      {/* aria-hidden: the conversation's name is already the chat header's
+          own heading; this is only the TUI shell's border title. */}
+      <span className={styles.titleTag} data-snowdrop="chat-title-tag" aria-hidden="true">
+        {title ?? 'chat'}
+      </span>
       {/* With nothing open the header would be an empty bar; keep it only for the drawer button. */}
       {(kind ?? drawer) && <ChatHeader conversationId={kind ? selected : null} />}
       <ConnectionBanner />

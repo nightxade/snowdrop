@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ManualScheduler } from '@/core/lib';
-import { createMemoryStorage, loadVersioned, saveVersioned } from '@/core/persistence';
+import {
+  APPEARANCE_BOOT_KEY,
+  createMemoryStorage,
+  loadVersioned,
+  saveVersioned,
+} from '@/core/persistence';
 import { localSchema, settingsSchema, spacesSchema, spacesSelectors } from '@/core/stores';
 import { STYLE_IDS } from '@/core/themes';
 import { createSnowdrop } from './createSnowdrop';
@@ -41,6 +46,21 @@ describe('createSnowdrop', () => {
     stores.settings.getState().update('appearance', { themeId: 'linen' });
     expect(document.documentElement.getAttribute('data-theme')).toBe('linen');
     expect(loadVersioned(storage, settingsSchema).appearance.themeId).toBe('linen');
+
+    // The TUI shell sets data-shell and is mirrored (plaintext) for the
+    // pre-unlock boot screens to pick up with no flash of the standard shell.
+    stores.settings.getState().update('appearance', { shell: 'tui' });
+    expect(document.documentElement.getAttribute('data-shell')).toBe('tui');
+    expect(JSON.parse(storage.getItem(APPEARANCE_BOOT_KEY) ?? '{}')).toMatchObject({
+      shell: 'tui',
+    });
+    stores.settings.getState().update('appearance', { shell: 'standard' });
+    expect(document.documentElement.hasAttribute('data-shell')).toBe(false);
+    // The palette command toggles it, same as the Appearance → Layout control.
+    await snowdrop.commands.execute('core.toggleTuiShell');
+    expect(stores.settings.getState().appearance.shell).toBe('tui');
+    await snowdrop.commands.execute('core.toggleTuiShell');
+    expect(stores.settings.getState().appearance.shell).toBe('standard');
 
     // Liveliness runs on the injected scheduler.
     const before = Object.values(stores.conversations.getState().byId).reduce(

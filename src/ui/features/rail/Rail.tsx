@@ -33,7 +33,7 @@ export function Rail() {
   });
 
   return (
-    <nav className={styles.rail} aria-label="Spaces" data-snowdrop="rail">
+    <nav className={styles.rail} aria-label="Spaces" data-snowdrop="rail" data-pane-title="spaces">
       <Scroller scrollbar="none" className={styles.scroller} onKeyDown={onKeyDown}>
         <RailTile
           label="Home"

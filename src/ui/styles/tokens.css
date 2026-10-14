@@ -102,6 +102,13 @@
   --snowdrop-header-height: 48px;
   --snowdrop-tile-size: 48px;
 
+  /* TUI shell (Appearance → Layout: TUI): boxed panes with titled borders. */
+  --snowdrop-pane-border: var(--snowdrop-text-faint);
+  --snowdrop-pane-border-focus: var(--snowdrop-accent);
+  --snowdrop-pane-radius: 4px;
+  --snowdrop-pane-gap: 14px;
+  --snowdrop-pane-title-color: var(--snowdrop-text-muted);
+
   /* Typography */
   --snowdrop-font-sans: 'Inter Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --snowdrop-font-mono: 'JetBrains Mono Variable', ui-monospace, 'SFMono-Regular', monospace;

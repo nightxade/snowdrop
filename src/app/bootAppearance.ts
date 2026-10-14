@@ -12,14 +12,15 @@ import { applyAppearance, type ThemeDocument } from '@/core/themes';
 export function applyBootAppearance(document: ThemeDocument): void {
   const settings = defaultSettings();
   const defaults = settings.appearance;
-  let boot: { themeId: string; density: string } = defaults;
+  let boot: { themeId: string; density: string; shell: string } = defaults;
   try {
     const raw = defaultStorage().getItem(APPEARANCE_BOOT_KEY);
     if (raw) {
-      const parsed = JSON.parse(raw) as { themeId?: unknown; density?: unknown };
+      const parsed = JSON.parse(raw) as { themeId?: unknown; density?: unknown; shell?: unknown };
       boot = {
         themeId: typeof parsed.themeId === 'string' ? parsed.themeId : defaults.themeId,
         density: typeof parsed.density === 'string' ? parsed.density : defaults.density,
+        shell: typeof parsed.shell === 'string' ? parsed.shell : defaults.shell,
       };
     }
   } catch {
@@ -31,5 +32,6 @@ export function applyBootAppearance(document: ThemeDocument): void {
     customCss: settings.customCss,
     themeId: boot.themeId,
     density: boot.density === 'compact' ? 'compact' : 'comfortable',
+    shell: boot.shell === 'tui' ? 'tui' : 'standard',
   });
 }

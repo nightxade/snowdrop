@@ -10,6 +10,8 @@ import type { BackendKind } from '@/core/backend';
 import { isRecord, type VersionedSchema } from '@/core/persistence';
 
 export type Density = 'comfortable' | 'compact';
+/** 'tui' is the boxed-panes, monospace layout (PLAN: TUI layout). */
+export type Shell = 'standard' | 'tui';
 export type ReducedMotion = 'system' | 'on' | 'off';
 export type NotificationMode = 'all' | 'mentions' | 'none';
 
@@ -18,6 +20,8 @@ export interface AppearanceSettings {
   /** Hex accent override, or null for the theme's own accent. */
   accent: string | null;
   density: Density;
+  /** 'tui' boxes every region with titled borders, monospace type and a status line. */
+  shell: Shell;
   /** 0.875–1.25 */
   fontScale: number;
   /** 0.8–1.5 */
@@ -151,6 +155,7 @@ export function defaultSettings(): Settings {
       themeId: 'dusk',
       accent: null,
       density: 'comfortable',
+      shell: 'standard',
       fontScale: 1,
       zoom: 1,
       saturation: 1,
@@ -338,6 +343,7 @@ export function parseSettings(data: unknown, options: SettingsParseOptions = {})
       themeId: str(a.themeId, d.appearance.themeId),
       accent: typeof a.accent === 'string' && HEX.test(a.accent) ? a.accent : null,
       density: oneOf(a.density, ['comfortable', 'compact'], d.appearance.density),
+      shell: oneOf(a.shell, ['standard', 'tui'], d.appearance.shell),
       fontScale: num(a.fontScale, d.appearance.fontScale, 0.875, 1.25),
       zoom: num(a.zoom, d.appearance.zoom, 0.8, 1.5),
       saturation: num(a.saturation, d.appearance.saturation, 0, 1),

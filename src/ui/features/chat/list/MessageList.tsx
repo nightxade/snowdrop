@@ -13,7 +13,7 @@ import { Virtuoso, type Components, type VirtuosoHandle } from 'react-virtuoso';
 import { useStore } from 'zustand';
 import type { ConversationId, MessageId, RenderItem } from '@/core/domain';
 import { conversationsSelectors } from '@/core/stores';
-import { setConversationListFocusResolver, useSnowdrop } from '@/ui/hooks';
+import { setConversationListFocusResolver, useShellStyle, useSnowdrop } from '@/ui/hooks';
 import { useChatController } from '../ChatController';
 import { MessageItem } from '../message/MessageItem';
 import { useRenderProbe } from '../lib/useRenderProbe';
@@ -108,8 +108,14 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
   const title = useStore(stores.conversations, (s) => s.byId[conversationId]?.title ?? '');
   const model = useListItems(conversationId);
   const { items, firstItemIndex, epoch, loaded, loading, hasMoreBefore, anchoredToPresent } = model;
-  const compact = useStore(stores.settings, (s) => s.appearance.density === 'compact');
-  const compactAvatars = useStore(stores.settings, (s) => s.appearance.showAvatarsInCompact);
+  // The TUI shell always shows one line per message, regardless of the
+  // Message density setting (reusing compact mode's own markup and layout),
+  // and never shows avatars.
+  const tui = useShellStyle();
+  const densityCompact = useStore(stores.settings, (s) => s.appearance.density === 'compact');
+  const showAvatarsInCompact = useStore(stores.settings, (s) => s.appearance.showAvatarsInCompact);
+  const compact = tui || densityCompact;
+  const compactAvatars = !tui && showAvatarsInCompact;
   const unread = useStore(stores.conversations, conversationsSelectors.unread(conversationId));
   const virtuoso = useRef<VirtuosoHandle>(null);
   const scroller = useRef<HTMLElement | null>(null);

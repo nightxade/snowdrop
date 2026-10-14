@@ -328,6 +328,10 @@ export class PluginRuntime {
         addAccessory: (entryId, component) =>
           track(r.composerAccessories.add({ id: entryId, component, owner: id })),
       },
+      statusBar: {
+        addItem: (entryId, component) =>
+          track(r.statusItems.add({ id: entryId, component, owner: id })),
+      },
       slash: {
         register: (command) => {
           if (r.findSlash(command.name))

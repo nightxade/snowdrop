@@ -57,6 +57,10 @@ export function RailTile({
       aria-label={a11yLabel}
       aria-current={selected ? 'page' : undefined}
       data-roving-item
+      // TUI shell only (src/ui/styles/tui.css): the text it lists the tile by,
+      // and whether to mark it current — inert markup otherwise.
+      data-rail-label={label}
+      data-selected={selected ? '' : undefined}
       tabIndex={selected ? 0 : -1}
       {...button}
     >

@@ -5,6 +5,7 @@ import {
   BREAKPOINTS,
   ShellLayoutProvider,
   useMediaQuery,
+  useShellStyle,
   useStores,
   type ShellLayout,
 } from '@/ui/hooks';
@@ -14,6 +15,7 @@ import { Sidebar } from '@/ui/features/sidebar';
 import { Drawer, TooltipProvider } from '@/ui/primitives';
 import { DemoBanner } from './DemoBanner';
 import { ModalHost } from './ModalHost';
+import { StatusLine } from './StatusLine';
 import { ToastBridge } from './ToastBridge';
 import { useConversationLifecycle } from './useConversationLifecycle';
 import { useCoreCommands } from './useCoreCommands';
@@ -23,6 +25,7 @@ import styles from './AppShell.module.css';
 /** The four-column layout (PLAN §4.1) and its responsive variants. */
 export function AppShell() {
   const stores = useStores();
+  const tui = useShellStyle();
   const narrow = useMediaQuery(BREAKPOINTS.members);
   const drawer = useMediaQuery(BREAKPOINTS.drawer);
   const selected = useStore(stores.ui, uiSelectors.selectedConversation);
@@ -76,6 +79,7 @@ export function AppShell() {
             )}
             <ChatColumn />
           </div>
+          {tui && <StatusLine />}
         </div>
         <ModalHost />
         <ToastBridge />

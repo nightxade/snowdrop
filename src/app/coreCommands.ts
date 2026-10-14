@@ -123,6 +123,15 @@ export function registerCoreCommands(
     },
   });
   commands.register({
+    id: 'core.toggleTuiShell',
+    title: 'Toggle TUI layout',
+    category: 'View',
+    run: () => {
+      const shell = settings().appearance.shell === 'tui' ? 'standard' : 'tui';
+      settings().update('appearance', { shell });
+    },
+  });
+  commands.register({
     id: 'core.toggleNotifications',
     title: 'Toggle desktop notifications',
     category: 'App',

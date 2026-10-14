@@ -18,9 +18,16 @@ const SAMPLE = [
 export function AppearancePreview() {
   const [a] = useSettingsSection('appearance');
   const now = useNow();
-  const compact = a.density === 'compact';
+  const tui = a.shell === 'tui';
+  const compact = tui || a.density === 'compact';
   return (
-    <div className={styles.preview} data-density={a.density} aria-label="Preview" role="img">
+    <div
+      className={styles.preview}
+      data-density={a.density}
+      data-shell={tui ? 'tui' : undefined}
+      aria-label="Preview"
+      role="img"
+    >
       {SAMPLE.map((m) => (
         <div key={m.name} className={styles.previewMsg}>
           {compact ? (

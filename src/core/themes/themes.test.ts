@@ -23,6 +23,7 @@ const base: AppearanceInput = {
   themeId: 'dusk',
   accent: null,
   density: 'comfortable',
+  shell: 'standard',
   fontScale: 1,
   zoom: 1,
   saturation: 1,
@@ -144,5 +145,20 @@ describe('applyAppearance', () => {
 
     expect(appendSpy).not.toHaveBeenCalled();
     appendSpy.mockRestore();
+  });
+
+  it('sets data-shell="tui" only for the TUI shell', () => {
+    const root = document.documentElement;
+    applyAppearance(document, { ...base, shell: 'tui' });
+    expect(root.getAttribute('data-shell')).toBe('tui');
+    applyAppearance(document, base);
+    expect(root.hasAttribute('data-shell')).toBe(false);
+  });
+
+  it('clearAppearance removes data-shell too', () => {
+    const root = document.documentElement;
+    applyAppearance(document, { ...base, shell: 'tui' });
+    clearAppearance(document);
+    expect(root.hasAttribute('data-shell')).toBe(false);
   });
 });

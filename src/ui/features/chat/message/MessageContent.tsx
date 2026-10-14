@@ -82,7 +82,7 @@ export function MessageContent({
         {!compact && !showHeader && <MessageMeta message={m} variant="gutter" quiet={menuOpen} />}
         {compact && <MessageMeta message={m} variant="compact" quiet={menuOpen} />}
       </div>
-      <div className={styles.content}>
+      <div className={styles.content} data-snowdrop="message-content">
         {showHeader && (
           <span className={styles.header}>
             {compact && compactAvatars && <span className={styles.compactAvatar}>{avatar}</span>}
@@ -90,6 +90,8 @@ export function MessageContent({
               <button
                 type="button"
                 className={styles.name}
+                data-snowdrop="message-author"
+                title={name}
                 style={{ '--name-color': color } as CSSProperties}
               >
                 {name}

@@ -50,6 +50,7 @@ export function MessageMeta({
       <time
         className={styles.time}
         data-variant={variant}
+        data-snowdrop="message-time"
         dateTime={new Date(m.sentAt).toISOString()}
       >
         {label}

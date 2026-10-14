@@ -66,6 +66,7 @@ import { registerCoreCommands } from './coreCommands';
 import { migrateLegacyScope, rebindScopedStore, scopedSchema, scopeFor } from './dataScope';
 import { installStallDetector } from './perf';
 import { createPluginHost } from './pluginHost';
+import { registerCoreStatusItems } from './statusItems';
 import {
   desktopAdmin,
   desktopLogAdmin,
@@ -265,8 +266,16 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
   // can read it straight from storage, before any vault is open, to paint
   // themselves in the user's theme instead of flashing the default one.
   let lastAppearanceBoot: string | undefined;
-  const writeAppearanceBoot = (appearance: { themeId: string; density: string }): void => {
-    const next = JSON.stringify({ themeId: appearance.themeId, density: appearance.density });
+  const writeAppearanceBoot = (appearance: {
+    themeId: string;
+    density: string;
+    shell: string;
+  }): void => {
+    const next = JSON.stringify({
+      themeId: appearance.themeId,
+      density: appearance.density,
+      shell: appearance.shell,
+    });
     if (next === lastAppearanceBoot) return;
     lastAppearanceBoot = next;
     storage.setItem(APPEARANCE_BOOT_KEY, next);
@@ -433,6 +442,7 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
   );
 
   registerCoreCommands(commands, stores, sync);
+  cleanups.push(...registerCoreStatusItems(registries, stores));
 
   // Appearance follows settings and plugin styles live.
   const doc = options.document;

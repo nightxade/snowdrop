@@ -784,4 +784,31 @@ describe('Vim mode: lifecycle', () => {
     typeIn('@');
     expect(screen.queryByRole('listbox')).not.toBeNull();
   });
+
+  it('shows its NORMAL/INSERT mode on the TUI shell status line, beside core’s items', async () => {
+    const { snowdrop } = await bootVim();
+    act(() => {
+      snowdrop.stores.settings.getState().update('appearance', { shell: 'tui' });
+    });
+    await settle();
+
+    const statusLine = document.querySelector('[data-snowdrop="status-line"]')!;
+    expect(statusLine).not.toBeNull();
+    // Core's own item (the open conversation) and the plugin's (the mode) sit
+    // in the same slot, in registration order — core first. The composer
+    // starts in Insert by default (Vim Mode's own "Start in Insert" setting).
+    expect(statusLine.textContent).toContain('Orchard · Engineering');
+    expect(statusLine.textContent).toContain('INSERT');
+
+    composer().focus();
+    press('Escape');
+    expect(statusLine.textContent).toContain('NORMAL');
+
+    // Toggling back to the standard shell unmounts it (no stale listeners).
+    act(() => {
+      snowdrop.stores.settings.getState().update('appearance', { shell: 'standard' });
+    });
+    await settle();
+    expect(document.querySelector('[data-snowdrop="status-line"]')).toBeNull();
+  });
 });

@@ -92,10 +92,34 @@ export function AppearancePage() {
           )}
         </SettingRow>
       </SettingsSection>
+      <SettingsSection id="shell" title="Layout">
+        <SettingRow
+          id="appearance.shell"
+          label="Layout"
+          description="TUI boxes every region with a titled border, monospace type and a status line. Colours and theme are unchanged."
+          control={(ids) => (
+            <Segmented
+              labelledBy={ids.labelId}
+              label="Layout"
+              value={a.shell}
+              options={[
+                { value: 'standard', label: 'Standard' },
+                { value: 'tui', label: 'TUI' },
+              ]}
+              onValueChange={(shell) => {
+                set({ shell });
+              }}
+            />
+          )}
+        />
+      </SettingsSection>
       <SettingsSection id="layout" title="Messages">
         <SettingRow
           id="appearance.density"
           label="Message density"
+          description={
+            a.shell === 'tui' ? 'TUI always shows messages one line per row.' : undefined
+          }
           stacked
           control={<AppearancePreview />}
         >

@@ -16,6 +16,7 @@ import type {
   SendTransform,
   SettingsPanel,
   SlashCommand,
+  StatusItemProps,
   TypingGuard,
 } from './registries';
 import type { SettingsSchema, SettingsValues } from './settings';
@@ -104,6 +105,10 @@ export interface PluginContext<S extends SettingsSchema = SettingsSchema> {
   /** Components rendered inside the composer field. */
   readonly composer: {
     addAccessory(id: string, component: ComponentLike<ComposerSlotProps>): Disposer;
+  };
+  /** Items in the TUI shell's status line (`status.items`); no-op while that shell isn't active. */
+  readonly statusBar: {
+    addItem(id: string, component: ComponentLike<StatusItemProps>): Disposer;
   };
   readonly slash: { register(command: SlashCommand): Disposer };
   readonly send: {

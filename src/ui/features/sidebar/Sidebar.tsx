@@ -5,7 +5,7 @@ import styles from './Sidebar.module.css';
 
 export function Sidebar() {
   return (
-    <aside className={styles.sidebar} data-snowdrop="sidebar">
+    <aside className={styles.sidebar} data-snowdrop="sidebar" data-pane-title="chats">
       <SidebarHeader />
       <ConversationList />
       <UserPanel />

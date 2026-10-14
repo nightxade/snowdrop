@@ -1,0 +1,44 @@
+.bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--snowdrop-space-4);
+  padding: 2px var(--snowdrop-space-4);
+  border-top: 1px solid var(--snowdrop-pane-border);
+  background: var(--snowdrop-bg-floating);
+  color: var(--snowdrop-text-muted);
+  font-family: var(--snowdrop-font-mono);
+  font-size: var(--snowdrop-font-size-xs);
+  line-height: 1.6;
+}
+
+.items {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--snowdrop-space-4);
+  min-width: 0;
+  overflow: hidden;
+}
+
+.items > *:not(:last-child)::after {
+  content: '│';
+  margin-left: var(--snowdrop-space-4);
+  color: var(--snowdrop-pane-border);
+}
+
+.help {
+  flex: none;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--snowdrop-text-muted);
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+}
+
+.help:hover,
+.help:focus-visible {
+  color: var(--snowdrop-text);
+}

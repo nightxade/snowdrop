@@ -7,6 +7,12 @@
   background: var(--snowdrop-bg-chat);
 }
 
+/* TUI shell only (src/ui/styles/tui.css positions and shows it): the
+   border's title, which follows the open conversation. */
+.titleTag {
+  display: none;
+}
+
 .body {
   position: relative;
   display: flex;
