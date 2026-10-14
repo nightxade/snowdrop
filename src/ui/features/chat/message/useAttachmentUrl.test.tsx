@@ -32,7 +32,7 @@ function Probe() {
     state.status === 'ready'
       ? `ready:${state.url}`
       : state.status === 'error'
-        ? `error:${state.message}`
+        ? `error:${state.kind}`
         : state.status;
   return (
     <div>
@@ -107,7 +107,7 @@ describe('useAttachmentUrl: no URL cache that can outlive the backend resolver',
     );
     expect(await screen.findByTestId('state')).toHaveProperty(
       'textContent',
-      'error:Download failed',
+      'error:download-failed',
     );
   });
 });

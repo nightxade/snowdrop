@@ -27,8 +27,11 @@ export interface LightboxProps {
   /** e.g. "Shared by Mira · Today at 14:02" */
   caption?: string | undefined;
   mediaStatus?: 'ready' | 'loading' | 'error' | 'unavailable';
+  /** A few words for why loading/`mediaStatus === 'error'` failed; a generic fallback otherwise. */
+  errorLabel?: string | undefined;
   onMediaError?: () => void;
-  onRetry?: () => void;
+  /** Omitted (no Retry button shown) when the failure is permanent. */
+  onRetry?: (() => void) | undefined;
 }
 
 /** Full-screen media viewer on the dialog primitive: ←/→ between items, Esc closes. */
@@ -40,6 +43,7 @@ export function Lightbox({
   onOpenChange,
   caption,
   mediaStatus = 'ready',
+  errorLabel,
   onMediaError,
   onRetry,
 }: LightboxProps) {
@@ -126,7 +130,7 @@ export function Lightbox({
                     ? 'Loading attachment…'
                     : mediaStatus === 'unavailable'
                       ? 'Not available on this device'
-                      : "Couldn't load attachment"}
+                      : (errorLabel ?? "Couldn't load attachment")}
                 </p>
                 {mediaStatus === 'error' && onRetry && <Button onClick={onRetry}>Retry</Button>}
               </div>

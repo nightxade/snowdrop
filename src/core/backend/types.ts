@@ -333,8 +333,17 @@ export interface ChatBackend {
    * type (never SVG or HTML); anything else is `application/octet-stream`.
    * The UI must use these URLs only as `<img>/<video>/<audio>` sources or
    * `<a download>` targets — never navigate to them or open them in a frame.
+   *
+   * `forceRefresh` skips any cached URL (and any in-flight request already
+   * sharing one) and always re-downloads — for a user-initiated retry, where
+   * handing back a cached URL that's already known not to work would make
+   * the retry a no-op.
    */
-  resolveAttachmentUrl?(conversationId: ConversationId, attachment: Attachment): Promise<string>;
+  resolveAttachmentUrl?(
+    conversationId: ConversationId,
+    attachment: Attachment,
+    options?: { forceRefresh?: boolean },
+  ): Promise<string>;
 
   /**
    * Marks transport position `cursor` (from a `checkpoint` event) as durably

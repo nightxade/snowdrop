@@ -210,6 +210,53 @@ describe('attachments', () => {
     await expect(second).resolves.toBe('blob:2');
     expect(pending).toHaveLength(2);
   });
+
+  it('forceRefresh bypasses the cache and re-downloads, revoking the stale URL', async () => {
+    let calls = 0;
+    const daemon = new FakeDaemon().handle('getAttachment', () => {
+      calls++;
+      return { result: { data: calls === 1 ? 'AAA=' : 'BBB=' } };
+    });
+    const revoked: string[] = [];
+    let n = 0;
+    const resolver = new AttachmentResolver({
+      rpc: new JsonRpcClient({ baseUrl: '', fetch: daemon.fetch }),
+      createObjectUrl: () => `blob:${++n}`,
+      revokeObjectUrl: (url) => revoked.push(url),
+    });
+
+    const first = await resolver.resolve({ id: 'a', contentType: 'image/png' });
+    expect(first).toBe('blob:1');
+
+    // Without forceRefresh: a cache hit, no second RPC call — this is what
+    // would make a plain "ask again" retry of a corrupt/stuck file a no-op.
+    await resolver.resolve({ id: 'a', contentType: 'image/png' });
+    expect(calls).toBe(1);
+
+    // forceRefresh: always a fresh download, and the stale cached URL is
+    // revoked immediately rather than being handed out to anything else.
+    const second = await resolver.resolve(
+      { id: 'a', contentType: 'image/png' },
+      {},
+      { forceRefresh: true },
+    );
+    expect(second).toBe('blob:2');
+    expect(calls).toBe(2);
+    expect(revoked).toContain('blob:1');
+  });
+
+  it('rejects an oversized attachment as kind too-large, without calling the daemon', async () => {
+    const daemon = new FakeDaemon();
+    const resolver = new AttachmentResolver({
+      rpc: new JsonRpcClient({ baseUrl: '', fetch: daemon.fetch }),
+      maxBytes: 10,
+    });
+
+    await expect(
+      resolver.resolve({ id: 'a', contentType: 'image/png', size: 11 }),
+    ).rejects.toMatchObject({ kind: 'too-large' });
+    expect(daemon.calls).toHaveLength(0);
+  });
 });
 
 describe('quote attachments and pin duration', () => {

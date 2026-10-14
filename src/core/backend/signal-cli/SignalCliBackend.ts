@@ -987,9 +987,10 @@ export class SignalCliBackend implements ChatBackend {
   async resolveAttachmentUrl(
     _conversationId: ConversationId,
     attachment: Attachment,
+    options?: { forceRefresh?: boolean },
   ): Promise<string> {
     this.assertAccount();
-    return this.attachments.resolve(attachment);
+    return this.attachments.resolve(attachment, {}, options);
   }
 
   /**

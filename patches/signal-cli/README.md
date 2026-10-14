@@ -363,6 +363,54 @@ deliver received emoji.
 
 Builds as `0.14.8-snowdrop-history.11`.
 
+## 0014: recoverable attachments
+
+signal-cli only ever held an attachment's `SignalServiceAttachmentPointer` — the CDN number, key,
+digest and size needed to download it — for the few seconds `IncomingMessageHandler` took to
+download it during receive. If that download failed (a network blip, one of the slow startup
+periods noted below) or the file was lost afterwards, the pointer was gone: `getAttachment` could
+only report "Could not find attachment with ID" forever, since nothing was left to retry from.
+This affected every attachment kind `AttachmentHelper.downloadAttachment` handles — ordinary
+`DataMessage` attachments, quote thumbnails, link-preview images, shared-contact avatars, stories,
+and this fork's custom emoji — and `SyncMessage` sent transcripts the same way, since they reuse
+the same `handleSignalServiceDataMessage` path. (Stickers are unaffected: they're fetched by pack
+id/key, which `StickerStore` already keeps permanently, not by per-message attachment id.) A
+second, independent bug compounded it: a failed download left a partially-written file behind
+instead of nothing, so a later read could find a file that looks present but is actually
+truncated — served without any error at all, rather than failing in a way `getAttachment` or a
+retry could do anything about.
+
+Fixes both:
+
+- `AttachmentPointerStore` (new; keyed by the same id `getAttachment` takes — the downloaded
+  file's name) persists each pointer as soon as it's seen, before
+  `AttachmentHelper.downloadAttachment` attempts the download, not after. Its table
+  (`snowdrop_attachment_pointer`) is created lazily with `CREATE TABLE IF NOT EXISTS` on first use,
+  the same way `HistoryStore`'s `snowdrop_history_*` tables are — not through `AccountDatabase`'s
+  own versioned schema. Bumping `AccountDatabase.DATABASE_VERSION` would mark the file as needing
+  at least this signal-cli version to open at all (breaking the documented rollback to plain
+  upstream signal-cli) and would collide with whatever version number upstream's own next schema
+  change picks.
+- `AttachmentHelper.retrieveAttachment(id)` re-downloads on demand from the persisted pointer when
+  the file isn't found, verifying the digest and size exactly as the original download does
+  (`retrieveAttachment(SignalServiceAttachment, OutputStream)`, unchanged). A CDN 404/410 (the
+  attachment expired) becomes a distinct `AttachmentNotAvailableException`, surfaced as a
+  `UserErrorException` ("Attachment is no longer available on the server…") rather than an
+  internal error; any other failure becomes an `IOErrorException` rather than
+  `UnexpectedErrorException`, since it isn't a bug. Only when no pointer was ever persisted at all
+  (an attachment received before this patch, or with attachments disabled) does the original
+  "Could not find attachment with ID" error remain.
+- `AttachmentStore.storeAttachment` now deletes the destination file if the download throws,
+  instead of leaving whatever was already written — so a failed attempt (the first one, or a
+  retry) always leaves "missing", never "corrupt", behind.
+
+Verification: `scripts/build-signal-cli.sh --test` (Java unit tests:
+`AttachmentPointerStoreTest`, round-tripping a pointer through the real account database file and
+through Wire proto encoding). The Snowdrop-side failure classification, retry UX and logging this
+motivated are covered by `npx vitest` in the main repo, not here.
+
+Builds as `0.14.8-snowdrop-history.12`.
+
 ## User-controlled phone verification
 
 Run this only when ready to add a test device on the phone. It uses a new data

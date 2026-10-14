@@ -46,7 +46,9 @@ export type SignalCliErrorKind =
   | 'internal' // -32603
   /** A send reached nobody; see `recipientFailures`. */
   | 'send-failed'
-  | 'aborted';
+  | 'aborted'
+  /** The file is bigger than we'll pull through JSON; rejected locally, before any RPC call. */
+  | 'too-large';
 
 export interface SignalCliErrorInit {
   code?: number;

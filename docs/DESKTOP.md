@@ -316,7 +316,7 @@ If neither is set, the command prints that one-time setup message instead
 of guessing — it's never hard-coded into a tracked file.
 
 It finishes with a short summary: whether signal-cli was built and/or
-installed (with its version, e.g. `0.14.8-snowdrop-history.11`), whether the
+installed (with its version, e.g. `0.14.8-snowdrop-history.12`), whether the
 AppImage was rebuilt (and its path), and anything you need to do next (close
 Snowdrop, or relaunch it from a freshly built AppImage). It exits non-zero
 with a clear message on failure (a build error, a missing `SNOWDROP_JDK`,

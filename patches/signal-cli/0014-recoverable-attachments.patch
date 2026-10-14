@@ -1,0 +1,410 @@
+diff --git a/build.gradle.kts b/build.gradle.kts
+index 4f900a7..c867712 100644
+--- a/build.gradle.kts
++++ b/build.gradle.kts
+@@ -10,7 +10,7 @@ plugins {
+ 
+ allprojects {
+     group = "org.asamk"
+-    version = "0.14.8-snowdrop-history.11"
++    version = "0.14.8-snowdrop-history.12"
+ 
+     // Snowdrop: substitute a locally-built, patched signal-service-java
+     // (snowdrop/patches/signal-service-java) for the stock turasa jar, when
+diff --git a/lib/src/main/java/org/asamk/signal/manager/api/AttachmentNotAvailableException.java b/lib/src/main/java/org/asamk/signal/manager/api/AttachmentNotAvailableException.java
+new file mode 100644
+index 0000000..5ae60bb
+--- /dev/null
++++ b/lib/src/main/java/org/asamk/signal/manager/api/AttachmentNotAvailableException.java
+@@ -0,0 +1,18 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.manager.api;
++
++import java.io.IOException;
++
++/**
++ * Thrown by {@code AttachmentHelper#retrieveAttachment(String)} when an attachment's file is
++ * missing locally and re-downloading it found the server no longer has it (the CDN returned 404
++ * or 410, typically because the attachment expired). Distinct from a plain {@link IOException} so
++ * callers — and, through the JSON-RPC error message, Snowdrop's UI — can tell "gone for good" from
++ * a transient download failure worth retrying.
++ */
++public class AttachmentNotAvailableException extends IOException {
++
++    public AttachmentNotAvailableException(String attachmentId, Throwable cause) {
++        super("Attachment is no longer available on the server: " + attachmentId, cause);
++    }
++}
+diff --git a/lib/src/main/java/org/asamk/signal/manager/helper/AttachmentHelper.java b/lib/src/main/java/org/asamk/signal/manager/helper/AttachmentHelper.java
+index 34e51e1..e4830b8 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/helper/AttachmentHelper.java
++++ b/lib/src/main/java/org/asamk/signal/manager/helper/AttachmentHelper.java
+@@ -1,13 +1,16 @@
+ package org.asamk.signal.manager.helper;
+ 
+ import org.asamk.signal.manager.api.AttachmentInvalidException;
++import org.asamk.signal.manager.api.AttachmentNotAvailableException;
+ import org.asamk.signal.manager.config.ServiceConfig;
+ import org.asamk.signal.manager.internal.SignalDependencies;
++import org.asamk.signal.manager.storage.AttachmentPointerStore;
+ import org.asamk.signal.manager.storage.AttachmentStore;
+ import org.asamk.signal.manager.util.AttachmentUtils;
+ import org.asamk.signal.manager.util.IOUtils;
+ import org.asamk.signal.manager.util.Utils;
+ import org.signal.libsignal.protocol.InvalidMessageException;
++import org.signal.network.exceptions.NonSuccessfulResponseCodeException;
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+ import org.whispersystems.signalservice.api.crypto.AttachmentCipherInputStream;
+@@ -21,6 +24,7 @@ import org.whispersystems.signalservice.internal.crypto.PaddingInputStream;
+ import org.whispersystems.signalservice.internal.push.http.ResumableUploadSpec;
+ 
+ import java.io.File;
++import java.io.FileNotFoundException;
+ import java.io.IOException;
+ import java.io.InputStream;
+ import java.io.OutputStream;
+@@ -34,12 +38,14 @@ public class AttachmentHelper {
+ 
+     private final SignalDependencies dependencies;
+     private final AttachmentStore attachmentStore;
++    private final AttachmentPointerStore attachmentPointerStore;
+     private final Context context;
+ 
+     public AttachmentHelper(final Context context) {
+         this.context = context;
+         this.dependencies = context.getDependencies();
+         this.attachmentStore = context.getAttachmentStore();
++        this.attachmentPointerStore = new AttachmentPointerStore(context.getAccount().getAccountDatabase());
+     }
+ 
+     public File getAttachmentFile(SignalServiceAttachmentPointer pointer) {
+@@ -47,7 +53,37 @@ public class AttachmentHelper {
+     }
+ 
+     public StreamDetails retrieveAttachment(final String id) throws IOException {
+-        return attachmentStore.retrieveAttachment(id);
++        try {
++            return attachmentStore.retrieveAttachment(id);
++        } catch (FileNotFoundException e) {
++            redownloadAttachment(id);
++            return attachmentStore.retrieveAttachment(id);
++        }
++    }
++
++    /**
++     * Re-downloads an attachment whose file is missing locally, from the pointer
++     * {@link #downloadAttachment} persisted when it was first received. A missing file no longer
++     * means {@code getAttachment} fails forever: a download that failed during receive (a network
++     * blip, one of the slow startup periods), or a file lost afterwards, can be recovered on
++     * demand here instead, verifying the digest and size exactly as the original download did.
++     *
++     * @throws FileNotFoundException if no pointer was ever persisted for this id (received before
++     * this was added, or with attachments disabled) — nothing to re-download from.
++     * @throws AttachmentNotAvailableException if the server confirms the attachment is gone (CDN
++     * 404/410), typically because it expired.
++     */
++    private void redownloadAttachment(final String id) throws IOException {
++        final var pointer = attachmentPointerStore.get(id)
++                .orElseThrow(() -> new FileNotFoundException("Could not find attachment with ID: " + id));
++        try {
++            attachmentStore.storeAttachment(pointer, outputStream -> retrieveAttachment(pointer, outputStream));
++        } catch (NonSuccessfulResponseCodeException e) {
++            if (e.code == 404 || e.code == 410) {
++                throw new AttachmentNotAvailableException(id, e);
++            }
++            throw e;
++        }
+     }
+ 
+     public byte[] retrieveHistoryAttachment(org.thoughtcrime.securesms.backup.v2.proto.Backups.FilePointer file) throws IOException {
+@@ -156,6 +192,10 @@ public class AttachmentHelper {
+         }
+ 
+         var pointer = attachment.asPointer();
++        // Persisted before the download is even attempted: a pointer is otherwise only ever held
++        // in memory for the few seconds this method runs, so a failure below (and any later loss
++        // of the downloaded file) would leave getAttachment with no way to recover it.
++        attachmentPointerStore.store(attachmentStore.getAttachmentFile(pointer).getName(), pointer);
+         if (pointer.getPreview().isPresent()) {
+             final var preview = pointer.getPreview().get();
+             try {
+diff --git a/lib/src/main/java/org/asamk/signal/manager/storage/AttachmentPointerStore.java b/lib/src/main/java/org/asamk/signal/manager/storage/AttachmentPointerStore.java
+new file mode 100644
+index 0000000..b4f7058
+--- /dev/null
++++ b/lib/src/main/java/org/asamk/signal/manager/storage/AttachmentPointerStore.java
+@@ -0,0 +1,107 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.manager.storage;
++
++import org.slf4j.Logger;
++import org.slf4j.LoggerFactory;
++import org.whispersystems.signalservice.api.InvalidMessageStructureException;
++import org.whispersystems.signalservice.api.messages.SignalServiceAttachmentPointer;
++import org.whispersystems.signalservice.api.util.AttachmentPointerUtil;
++import org.whispersystems.signalservice.internal.push.AttachmentPointer;
++
++import java.sql.SQLException;
++import java.util.Optional;
++
++/**
++ * Remembers the {@link SignalServiceAttachmentPointer} for each attachment signal-cli downloads,
++ * keyed by the same id {@code getAttachment} is called with (the downloaded file's name — see
++ * {@code AttachmentStore#getAttachmentFile}).
++ * <p>
++ * Without this, signal-cli only ever holds a pointer for the few seconds it takes to download
++ * during receive: a transient failure there (a network blip, one of the slow startup periods) —
++ * or the file being lost afterwards — left {@code getAttachment} unable to find the file and with
++ * nothing to retry, forever. {@link org.asamk.signal.manager.helper.AttachmentHelper} persists the
++ * pointer as soon as an attachment is seen (before attempting the download) and consults it to
++ * re-download on demand when the file isn't on disk.
++ * <p>
++ * Its table lives in the same account database as everything else, but — like
++ * {@code org.asamk.signal.manager.history.HistoryStore}'s {@code snowdrop_history_*} tables —
++ * outside {@link AccountDatabase}'s own versioned schema: a Snowdrop-only, {@code snowdrop_}-
++ * prefixed table created lazily with {@code CREATE TABLE IF NOT EXISTS} on first use, not gated
++ * behind a {@code DATABASE_VERSION} bump. Bumping that version would mark the database file as
++ * needing at least this signal-cli version to open (see {@code Database#initDb}'s "updated by a
++ * newer signal-cli version" check) — breaking the documented rollback to plain upstream
++ * signal-cli — and would collide with whatever version number upstream's own next schema change
++ * picks, silently skipping it on an account already marked past it.
++ */
++public class AttachmentPointerStore {
++
++    private static final Logger logger = LoggerFactory.getLogger(AttachmentPointerStore.class);
++    private static final String TABLE_ATTACHMENT_POINTER = "snowdrop_attachment_pointer";
++
++    private final Database database;
++
++    public AttachmentPointerStore(final Database database) {
++        this.database = database;
++        try (final var connection = database.getConnection(); final var statement = connection.createStatement()) {
++            statement.executeUpdate(("""
++                                     CREATE TABLE IF NOT EXISTS %s (
++                                       attachment_id TEXT PRIMARY KEY,
++                                       pointer BLOB NOT NULL
++                                     )
++                                     """).formatted(TABLE_ATTACHMENT_POINTER));
++        } catch (SQLException e) {
++            throw new RuntimeException("Failed to initialize attachment pointer storage", e);
++        }
++    }
++
++    /**
++     * Saves {@code pointer} under {@code attachmentId}, overwriting any previous pointer for the
++     * same id (e.g. a since-edited message's replacement attachment). Pointers with no digest or
++     * size are never stored: {@code AttachmentHelper} couldn't verify a re-download against them
++     * either, so there is nothing worth remembering.
++     */
++    public void store(final String attachmentId, final SignalServiceAttachmentPointer pointer) {
++        if (pointer.getDigest().isEmpty() || pointer.getSize().isEmpty()) {
++            return;
++        }
++        final byte[] bytes;
++        try {
++            bytes = AttachmentPointer.ADAPTER.encode(AttachmentPointerUtil.createAttachmentPointer(pointer));
++        } catch (RuntimeException e) {
++            logger.debug("Failed to serialize attachment pointer, not persisting it: {}", e.getMessage());
++            return;
++        }
++        final var sql = ("""
++                         INSERT INTO %s (attachment_id, pointer)
++                         VALUES (?, ?)
++                         ON CONFLICT (attachment_id) DO UPDATE SET pointer = excluded.pointer
++                         """).formatted(TABLE_ATTACHMENT_POINTER);
++        try (final var connection = database.getConnection(); final var statement = connection.prepareStatement(sql)) {
++            statement.setString(1, attachmentId);
++            statement.setBytes(2, bytes);
++            statement.executeUpdate();
++        } catch (SQLException e) {
++            logger.warn("Failed to persist attachment pointer, ignoring: {}", e.getMessage());
++        }
++    }
++
++    /** The persisted pointer for {@code attachmentId}, if any was ever recorded. */
++    public Optional<SignalServiceAttachmentPointer> get(final String attachmentId) {
++        final var sql = ("""
++                         SELECT pointer FROM %s WHERE attachment_id = ?
++                         """).formatted(TABLE_ATTACHMENT_POINTER);
++        try (final var connection = database.getConnection(); final var statement = connection.prepareStatement(sql)) {
++            statement.setString(1, attachmentId);
++            try (final var result = statement.executeQuery()) {
++                if (!result.next()) {
++                    return Optional.empty();
++                }
++                final var proto = AttachmentPointer.ADAPTER.decode(result.getBytes("pointer"));
++                return Optional.of(AttachmentPointerUtil.createSignalAttachmentPointer(proto));
++            }
++        } catch (SQLException | java.io.IOException | InvalidMessageStructureException e) {
++            logger.warn("Failed to read persisted attachment pointer, ignoring: {}", e.getMessage());
++            return Optional.empty();
++        }
++    }
++}
+diff --git a/lib/src/main/java/org/asamk/signal/manager/storage/AttachmentStore.java b/lib/src/main/java/org/asamk/signal/manager/storage/AttachmentStore.java
+index 00a284d..dc9e667 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/storage/AttachmentStore.java
++++ b/lib/src/main/java/org/asamk/signal/manager/storage/AttachmentStore.java
+@@ -11,6 +11,7 @@ import java.io.File;
+ import java.io.FileOutputStream;
+ import java.io.IOException;
+ import java.io.OutputStream;
++import java.nio.file.Files;
+ import java.util.Optional;
+ 
+ public class AttachmentStore {
+@@ -53,6 +54,12 @@ public class AttachmentStore {
+         createAttachmentsDir();
+         try (OutputStream output = new FileOutputStream(attachmentFile)) {
+             storer.store(output);
++        } catch (IOException e) {
++            // Whatever storer wrote before failing is partial (or, on retry, stale) data; leaving
++            // it behind would let a later read find a file that looks fine but silently serves
++            // truncated or corrupt bytes, rather than failing in a way that can be retried.
++            Files.deleteIfExists(attachmentFile.toPath());
++            throw e;
+         }
+     }
+ 
+diff --git a/lib/src/test/java/org/asamk/signal/manager/storage/AttachmentPointerStoreTest.java b/lib/src/test/java/org/asamk/signal/manager/storage/AttachmentPointerStoreTest.java
+new file mode 100644
+index 0000000..61c9ae7
+--- /dev/null
++++ b/lib/src/test/java/org/asamk/signal/manager/storage/AttachmentPointerStoreTest.java
+@@ -0,0 +1,100 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.manager.storage;
++
++import org.junit.jupiter.api.AfterEach;
++import org.junit.jupiter.api.BeforeEach;
++import org.junit.jupiter.api.Test;
++import org.junit.jupiter.api.io.TempDir;
++import org.whispersystems.signalservice.api.util.AttachmentPointerUtil;
++import org.whispersystems.signalservice.internal.push.AttachmentPointer;
++
++import java.nio.file.Path;
++
++import okio.ByteString;
++
++import static org.junit.jupiter.api.Assertions.assertEquals;
++import static org.junit.jupiter.api.Assertions.assertFalse;
++import static org.junit.jupiter.api.Assertions.assertTrue;
++
++class AttachmentPointerStoreTest {
++
++    @TempDir Path directory;
++
++    private AccountDatabase database;
++    private AttachmentPointerStore store;
++
++    @BeforeEach
++    void setUp() throws Exception {
++        database = AccountDatabase.init(directory.resolve("account.db").toFile());
++        store = new AttachmentPointerStore(database);
++    }
++
++    @AfterEach
++    void tearDown() {
++        database.close();
++    }
++
++    /** Complete enough for {@code AttachmentPointerUtil.createSignalAttachmentPointer} to accept. */
++    private static AttachmentPointer downloadablePointer(long cdnId, long size) {
++        var builder = new AttachmentPointer.Builder().cdnId(cdnId)
++                .cdnNumber(2)
++                .key(ByteString.of((byte) 1, (byte) 2, (byte) 3))
++                .contentType("image/jpeg")
++                .fileName("photo.jpg")
++                .uploadTimestamp(42L);
++        if (size >= 0) {
++            builder.digest(ByteString.of((byte) 4, (byte) 5)).size((int) size);
++        }
++        return builder.build();
++    }
++
++    @Test
++    void roundTripsAStoredPointer() throws Exception {
++        final var pointer = AttachmentPointerUtil.createSignalAttachmentPointer(downloadablePointer(7, 123));
++
++        store.store("att-1.jpg", pointer);
++        final var retrieved = store.get("att-1.jpg");
++
++        assertTrue(retrieved.isPresent());
++        assertEquals(pointer.getRemoteId(), retrieved.get().getRemoteId());
++        assertEquals(pointer.getContentType(), retrieved.get().getContentType());
++        assertEquals(pointer.getSize(), retrieved.get().getSize());
++        assertEquals(pointer.getFileName(), retrieved.get().getFileName());
++    }
++
++    @Test
++    void unknownIdIsEmpty() {
++        assertFalse(store.get("never-seen").isPresent());
++    }
++
++    @Test
++    void overwritesAPreviouslyStoredPointerForTheSameId() throws Exception {
++        store.store("att-1.jpg", AttachmentPointerUtil.createSignalAttachmentPointer(downloadablePointer(1, 100)));
++        store.store("att-1.jpg", AttachmentPointerUtil.createSignalAttachmentPointer(downloadablePointer(2, 200)));
++
++        final var retrieved = store.get("att-1.jpg");
++
++        assertTrue(retrieved.isPresent());
++        assertEquals(200, retrieved.get().getSize().orElse(-1));
++    }
++
++    @Test
++    void skipsPersistingAPointerWithNoDigestOrSize() throws Exception {
++        final var pointer = AttachmentPointerUtil.createSignalAttachmentPointer(downloadablePointer(1, -1));
++
++        store.store("att-1.jpg", pointer);
++
++        assertFalse(store.get("att-1.jpg").isPresent());
++    }
++
++    @Test
++    void survivesAcrossDatabaseReopens() throws Exception {
++        store.store("att-1.jpg", AttachmentPointerUtil.createSignalAttachmentPointer(downloadablePointer(1, 50)));
++        database.close();
++
++        database = AccountDatabase.init(directory.resolve("account.db").toFile());
++        store = new AttachmentPointerStore(database);
++
++        assertTrue(store.get("att-1.jpg").isPresent());
++    }
++}
+diff --git a/src/main/java/org/asamk/signal/commands/GetAttachmentCommand.java b/src/main/java/org/asamk/signal/commands/GetAttachmentCommand.java
+index c640ee8..1b9bfeb 100644
+--- a/src/main/java/org/asamk/signal/commands/GetAttachmentCommand.java
++++ b/src/main/java/org/asamk/signal/commands/GetAttachmentCommand.java
+@@ -4,10 +4,11 @@ import net.sourceforge.argparse4j.inf.Namespace;
+ import net.sourceforge.argparse4j.inf.Subparser;
+ 
+ import org.asamk.signal.commands.exceptions.CommandException;
+-import org.asamk.signal.commands.exceptions.UnexpectedErrorException;
++import org.asamk.signal.commands.exceptions.IOErrorException;
+ import org.asamk.signal.commands.exceptions.UserErrorException;
+ import org.asamk.signal.json.JsonAttachmentData;
+ import org.asamk.signal.manager.Manager;
++import org.asamk.signal.manager.api.AttachmentNotAvailableException;
+ import org.asamk.signal.output.JsonWriter;
+ import org.asamk.signal.output.OutputWriter;
+ import org.asamk.signal.output.PlainTextWriter;
+@@ -54,8 +55,16 @@ public class GetAttachmentCommand implements JsonRpcLocalCommand {
+             }
+         } catch (FileNotFoundException ex) {
+             throw new UserErrorException("Could not find attachment with ID: " + id, ex);
++        } catch (AttachmentNotAvailableException ex) {
++            // A confirmed, permanent loss (the CDN returned 404/410) rather than an unexpected
++            // error: UserErrorException, like the plain "not found" case above, so it isn't
++            // logged as a bug and reaches Snowdrop the same way.
++            throw new UserErrorException(ex.getMessage(), ex);
+         } catch (IOException ex) {
+-            throw new UnexpectedErrorException("An error occurred reading attachment: " + id, ex);
++            // Covers a failed on-demand re-download alongside any other read/IO failure: an
++            // anticipated, often-transient condition worth distinguishing from a genuine bug
++            // (UnexpectedErrorException, which logs at ERROR server-side).
++            throw new IOErrorException("An error occurred reading attachment: " + id, ex);
+         }
+     }
+ }

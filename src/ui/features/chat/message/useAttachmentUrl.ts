@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
+import { createLogger } from '@/core/lib';
 import type { Attachment, ConversationId } from '@/core/domain';
 import { useSnowdrop } from '@/ui/hooks';
+import { classifyAttachmentFailure, type AttachmentFailureKind } from '../lib/attachments';
+
+const log = createLogger('ui');
 
 export type AttachmentUrlState =
   | { status: 'ready'; url: string }
   | { status: 'loading' }
-  | { status: 'error'; message: string }
+  | { status: 'error'; kind: AttachmentFailureKind }
   /** No URL and the transport can't fetch one (e.g. an optimistic upload). */
   | { status: 'unavailable' };
 
@@ -23,6 +27,13 @@ export type AttachmentUrlState =
  * every mount keeps this in lockstep with it instead: a repeat ask for
  * something still cached there resolves on the same microtask (no visible
  * flicker), and an evicted entry is correctly re-downloaded.
+ *
+ * `error.kind` is a coarse, display-safe classification
+ * (`src/ui/features/chat/lib/attachments.ts`'s `classifyAttachmentFailure`/
+ * `attachmentFailureCopy`) — callers turn it into a label, a tooltip detail,
+ * and whether to show Retry at all. Every failure is logged once here, at
+ * warn, by that same classification only — never the raw error message,
+ * which can carry the attachment's id.
  */
 export function useAttachmentUrl(
   conversationId: ConversationId,
@@ -47,15 +58,19 @@ export function useAttachmentUrl(
   useEffect(() => {
     if (direct !== undefined || !backend.resolveAttachmentUrl) return;
     let cancelled = false;
+    // Every retry (attempt > 0, whether clicked or the one automatic retry
+    // after a media error) bypasses the resolver's cache: handing back a URL
+    // already known not to work would make the retry a no-op.
     backend
-      .resolveAttachmentUrl(conversationId, attachment)
+      .resolveAttachmentUrl(conversationId, attachment, { forceRefresh: attempt > 0 })
       .then((url) => {
         if (!cancelled) setResult({ key, attempt, state: { status: 'ready', url } });
       })
       .catch((error: unknown) => {
         if (cancelled) return;
-        const message = error instanceof Error ? error.message : 'Download failed';
-        setResult({ key, attempt, state: { status: 'error', message } });
+        const kind = classifyAttachmentFailure(error);
+        log.warn('attachment download failed', { kind });
+        setResult({ key, attempt, state: { status: 'error', kind } });
       });
     return () => {
       cancelled = true;
@@ -73,13 +88,19 @@ export function useAttachmentUrl(
       setAutoRetried(key);
       retry();
     } else {
+      // Logged here, once per actual media error event, rather than in the
+      // render below (which would re-log every unrelated re-render while
+      // this state persists).
+      log.warn('attachment download failed', {
+        kind: 'media-decode' satisfies AttachmentFailureKind,
+      });
       setMediaError({ key, attempt });
     }
   }, [direct, canResolve, autoRetried, key, attempt, retry]);
 
   let state: AttachmentUrlState;
   if (mediaError?.key === key && mediaError.attempt === attempt) {
-    state = { status: 'error', message: "Couldn't display this file" };
+    state = { status: 'error', kind: 'media-decode' };
   } else if (direct !== undefined) state = { status: 'ready', url: direct };
   else if (!canResolve) state = { status: 'unavailable' };
   else if (result?.key === key && result.attempt === attempt) state = result.state;

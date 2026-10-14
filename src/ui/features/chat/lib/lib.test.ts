@@ -4,7 +4,13 @@ import { encodeMentions, tokensInText } from '../composer/mentionTokens';
 import { findTrigger } from '../composer/triggers';
 import { formattingMarker } from '../composer/formatting';
 import { typingText } from '../composer/TypingLine';
-import { attachmentKind, fitMedia, formatBytes } from './attachments';
+import {
+  attachmentFailureCopy,
+  attachmentKind,
+  classifyAttachmentFailure,
+  fitMedia,
+  formatBytes,
+} from './attachments';
 import { createIndexTracker } from './indexTracker';
 import { toMarkdown } from './toMarkdown';
 
@@ -152,5 +158,57 @@ describe('attachments', () => {
     expect(formatBytes(512)).toBe('512 B');
     expect(formatBytes(1536)).toBe('1.5 KB');
     expect(formatBytes(20 * 1024 * 1024)).toBe('20 MB');
+  });
+});
+
+describe('classifyAttachmentFailure', () => {
+  it('reads kind and message off a duck-typed SignalCliError-shaped object', () => {
+    expect(classifyAttachmentFailure({ kind: 'timeout', message: 'too slow' })).toBe('timeout');
+    expect(classifyAttachmentFailure({ kind: 'too-large', message: 'nope' })).toBe('too-large');
+    expect(
+      classifyAttachmentFailure({ kind: 'user', message: 'Could not find attachment with ID: x' }),
+    ).toBe('missing-on-disk');
+    expect(
+      classifyAttachmentFailure({
+        kind: 'user',
+        message: 'Attachment is no longer available on the server: x',
+      }),
+    ).toBe('expired');
+    expect(
+      classifyAttachmentFailure({ kind: 'io', message: 'Attachment is no longer available: x' }),
+    ).toBe('expired');
+    expect(classifyAttachmentFailure({ kind: 'io', message: 'disk full' })).toBe('download-failed');
+    expect(classifyAttachmentFailure({ kind: 'internal', code: -32603, message: 'boom' })).toBe(
+      'rpc-error:-32603',
+    );
+  });
+
+  it('never needs the message to classify a code-only or plain error', () => {
+    expect(classifyAttachmentFailure({ code: -3 })).toBe('rpc-error:-3');
+    expect(classifyAttachmentFailure(new Error('Download failed'))).toBe('download-failed');
+    expect(classifyAttachmentFailure('not even an object')).toBe('download-failed');
+    expect(classifyAttachmentFailure(undefined)).toBe('download-failed');
+  });
+});
+
+describe('attachmentFailureCopy', () => {
+  it('shows no Retry for permanent failures', () => {
+    expect(attachmentFailureCopy('missing-on-disk').retryable).toBe(false);
+    expect(attachmentFailureCopy('expired').retryable).toBe(false);
+    expect(attachmentFailureCopy('too-large').retryable).toBe(false);
+    expect(attachmentFailureCopy('missing-on-disk').label).toBe('No longer available');
+    expect(attachmentFailureCopy('expired').label).toBe('No longer available');
+  });
+
+  it('offers Retry for failures another attempt could plausibly fix', () => {
+    expect(attachmentFailureCopy('download-failed').retryable).toBe(true);
+    expect(attachmentFailureCopy('timeout').retryable).toBe(true);
+    expect(attachmentFailureCopy('media-decode').retryable).toBe(true);
+    expect(attachmentFailureCopy('rpc-error:-32603').retryable).toBe(true);
+  });
+
+  it('gives media-decode its own label, distinct from a download failure', () => {
+    expect(attachmentFailureCopy('media-decode').label).toBe("Couldn't display");
+    expect(attachmentFailureCopy('download-failed').label).toBe("Couldn't download");
   });
 });

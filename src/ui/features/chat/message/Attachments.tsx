@@ -2,7 +2,14 @@ import { Download, FileText, ImageOff, Play, RotateCw } from 'lucide-react';
 import { lazy, memo, Suspense, useState, type CSSProperties } from 'react';
 import type { Attachment, ConversationId } from '@/core/domain';
 import { Tooltip, type LightboxItem } from '@/ui/primitives';
-import { attachmentKind, fitMedia, formatBytes, isGridMedia, safeHref } from '../lib/attachments';
+import {
+  attachmentFailureCopy,
+  attachmentKind,
+  fitMedia,
+  formatBytes,
+  isGridMedia,
+  safeHref,
+} from '../lib/attachments';
 import { useAttachmentUrl } from './useAttachmentUrl';
 import styles from './Attachments.module.css';
 
@@ -109,6 +116,7 @@ function AttachmentViewer({
   const selected = media[index];
   if (!selected) throw new Error('Attachment viewer index is out of range');
   const state = useAttachmentUrl(conversationId, selected);
+  const failure = state.status === 'error' ? attachmentFailureCopy(state.kind) : undefined;
   const items: LightboxItem[] = media.map((a, i) => {
     const src = i === index && state.status === 'ready' ? state.url : '';
     return {
@@ -127,8 +135,9 @@ function AttachmentViewer({
       items={items}
       index={index}
       mediaStatus={state.status}
+      errorLabel={failure?.label}
       onMediaError={state.onMediaError}
-      onRetry={state.retry}
+      onRetry={failure?.retryable ? state.retry : undefined}
     />
   );
 }
@@ -153,13 +162,14 @@ function MediaTile({ conversationId, attachment, pending, more, onOpen }: TilePr
 
   if (state.status !== 'ready') {
     const failed = state.status === 'error' || (state.status === 'unavailable' && !pending);
+    const failure = state.status === 'error' ? attachmentFailureCopy(state.kind) : undefined;
     return (
       <div className={styles.tile} data-state={failed ? 'error' : 'loading'} aria-label={name}>
         {failed ? (
-          <span className={styles.tileError}>
+          <span className={styles.tileError} title={failure?.detail}>
             <ImageOff size={20} aria-hidden />
-            <span>{state.status === 'unavailable' ? 'Not available' : "Couldn't load"}</span>
-            {state.status === 'error' && (
+            <span>{failure ? failure.label : 'Not available'}</span>
+            {failure?.retryable && (
               <button type="button" className={styles.retry} onClick={state.retry}>
                 <RotateCw size={12} aria-hidden /> Retry
               </button>
@@ -234,13 +244,14 @@ function FileCard({ conversationId, attachment, pending }: CardProps) {
   const state = useAttachmentUrl(conversationId, attachment);
   const name = attachment.fileName ?? 'Untitled file';
   const size = formatBytes(attachment.size);
+  const failure = state.status === 'error' ? attachmentFailureCopy(state.kind) : undefined;
   const meta =
     state.status === 'loading' || (state.status === 'unavailable' && pending)
       ? pending
         ? 'Uploading…'
         : 'Preparing…'
-      : state.status === 'error'
-        ? "Couldn't download"
+      : failure
+        ? failure.label
         : state.status === 'unavailable'
           ? 'Not available on this device'
           : size;
@@ -251,12 +262,14 @@ function FileCard({ conversationId, attachment, pending }: CardProps) {
         <span className={styles.cardName} title={name}>
           {name}
         </span>
-        <span className={styles.cardMeta}>{meta}</span>
+        <span className={styles.cardMeta} title={failure?.detail}>
+          {meta}
+        </span>
       </div>
       {state.status === 'ready' && (
         <DownloadButton url={state.url} fileName={attachment.fileName} />
       )}
-      {state.status === 'error' && (
+      {failure?.retryable && (
         <button type="button" className={styles.download} aria-label="Retry" onClick={state.retry}>
           <RotateCw size={16} aria-hidden />
         </button>

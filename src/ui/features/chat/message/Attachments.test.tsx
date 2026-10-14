@@ -60,7 +60,7 @@ describe('MediaTile: a dead "ready" URL re-resolves instead of sticking broken',
     // Re-resolved through the backend (not left as a permanently broken
     // image), and since that re-ask also fails, the error + Retry affordance
     // shows — matching a genuine `status: 'error'`, not a dead end.
-    expect(await screen.findByText("Couldn't load")).toBeTruthy();
+    expect(await screen.findByText("Couldn't download")).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy();
     expect(resolveAttachmentUrl).toHaveBeenCalledTimes(2);
 
@@ -91,7 +91,7 @@ describe('MediaTile: a dead "ready" URL re-resolves instead of sticking broken',
       fireEvent.error(document.querySelector('img')!);
     });
     // ...then it stops and offers a manual retry.
-    expect(await screen.findByText("Couldn't load")).toBeTruthy();
+    expect(await screen.findByText("Couldn't display")).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy();
     expect(resolveAttachmentUrl).toHaveBeenCalledTimes(2);
   });
@@ -130,7 +130,7 @@ describe('attachment viewer', () => {
     const dialog = await screen.findByRole('dialog');
     const image = await within(dialog).findByRole('img', { name: 'photo.png' });
     fireEvent.error(image);
-    expect(await within(dialog).findByText("Couldn't load attachment")).toBeTruthy();
+    expect(await within(dialog).findByText("Couldn't download")).toBeTruthy();
     resolve.mockResolvedValueOnce('blob:recovered');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Retry' }));
     expect(await within(dialog).findByRole('img', { name: 'photo.png' })).toHaveProperty(

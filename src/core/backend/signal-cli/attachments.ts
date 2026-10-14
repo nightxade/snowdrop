@@ -226,21 +226,43 @@ export class AttachmentResolver {
       });
   }
 
-  /** `scope` narrows the lookup (`recipient` or `groupId`), as getAttachment allows. */
-  resolve(attachment: Attachment, scope: RpcParams = {}): Promise<string> {
+  /**
+   * `scope` narrows the lookup (`recipient` or `groupId`), as getAttachment
+   * allows. `forceRefresh` bypasses both the success cache and any in-flight
+   * de-duplication, so a user-initiated retry can't just hand back the same
+   * (possibly corrupt — see `onMediaError`) URL it already has: it always
+   * starts a fresh download, revoking a cached URL immediately so nothing
+   * else hands it out meanwhile.
+   */
+  resolve(
+    attachment: Attachment,
+    scope: RpcParams = {},
+    options: { forceRefresh?: boolean } = {},
+  ): Promise<string> {
     if (attachment.url) return Promise.resolve(attachment.url);
-    const cached = this.cache.get(attachment.id);
-    if (cached) {
-      // Refresh LRU position.
-      this.cache.delete(attachment.id);
-      this.cache.set(attachment.id, cached);
-      return Promise.resolve(cached);
+    if (!options.forceRefresh) {
+      const cached = this.cache.get(attachment.id);
+      if (cached) {
+        // Refresh LRU position.
+        this.cache.delete(attachment.id);
+        this.cache.set(attachment.id, cached);
+        return Promise.resolve(cached);
+      }
+      const pending = this.inFlight.get(attachment.id);
+      if (pending) return pending;
+    } else {
+      const stale = this.cache.get(attachment.id);
+      if (stale) {
+        this.cache.delete(attachment.id);
+        this.revokeObjectUrl(stale);
+      }
     }
-    const pending = this.inFlight.get(attachment.id);
-    if (pending) return pending;
     if (attachment.size !== undefined && attachment.size > this.maxBytes) {
       return Promise.reject(
-        new SignalCliError('user', 'Attachment is too large to open here; open it on your phone.'),
+        new SignalCliError(
+          'too-large',
+          'Attachment is too large to open here; open it on your phone.',
+        ),
       );
     }
     const generation = this.generation;
