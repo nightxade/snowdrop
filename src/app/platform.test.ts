@@ -157,4 +157,29 @@ describe('installTerminalErrorLog (desktop log sink)', () => {
       ).toBe(true);
     });
   });
+
+  it('ignores the benign ResizeObserver loop warning, by message only', async () => {
+    (globalThis as Record<string, unknown>).__TAURI_INTERNALS__ = {};
+    installTerminalErrorLog();
+    const before = platform.sentLogs.length;
+    window.dispatchEvent(
+      Object.assign(new Event('error'), {
+        message: 'ResizeObserver loop completed with undelivered notifications.',
+      }),
+    );
+    // The older Chromium wording, still seen on some WebKitGTK builds.
+    window.dispatchEvent(
+      Object.assign(new Event('error'), { message: 'ResizeObserver loop limit exceeded' }),
+    );
+    const error = new Error('something else entirely');
+    window.dispatchEvent(Object.assign(new Event('error'), { error }));
+    await vi.waitFor(() => {
+      expect(platform.sentLogs.some((l) => l.message.includes('something else entirely'))).toBe(
+        true,
+      );
+    });
+    expect(platform.sentLogs.slice(before).some((l) => l.message.includes('ResizeObserver'))).toBe(
+      false,
+    );
+  });
 });

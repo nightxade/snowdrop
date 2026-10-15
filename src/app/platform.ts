@@ -194,6 +194,23 @@ export function desktopLogAdmin(): LogAdmin {
 }
 
 /**
+ * Benign browser noise some WebKitGTK (and older Chromium) builds still
+ * report as a real `window.onerror`, not just a console warning — logging
+ * it floods the desktop log with something nobody can act on. Matched by
+ * message only (both the current and the older Chromium wording), never by
+ * type, so nothing else gets swallowed with it.
+ */
+const BENIGN_WINDOW_ERRORS = new Set([
+  'ResizeObserver loop completed with undelivered notifications.',
+  'ResizeObserver loop limit exceeded',
+]);
+
+function isBenignWindowError(event: ErrorEvent): boolean {
+  const message = event.error instanceof Error ? event.error.message : event.message;
+  return BENIGN_WINDOW_ERRORS.has(message);
+}
+
+/**
  * Desktop and browser alike: an uncaught window error, an unhandled
  * rejection, or (via the returned reporter) a caught render error is logged
  * at scope `app` — console always (dev visibility), the desktop sink too
@@ -208,6 +225,7 @@ export function installTerminalErrorLog(): (error: unknown, where: string) => vo
     log.error(where, error);
   };
   window.addEventListener('error', (event) => {
+    if (isBenignWindowError(event)) return;
     report(event.error ?? event.message, 'uncaught error');
   });
   window.addEventListener('unhandledrejection', (event) => {
