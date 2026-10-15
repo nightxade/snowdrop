@@ -26,7 +26,7 @@ export const ConversationArea = memo(function ConversationArea({
     chat.focusComposer();
   });
   return (
-    <div className={styles.area} {...drop.handlers}>
+    <div className={styles.area} data-tui-flatten {...drop.handlers}>
       <MessagePane conversationId={conversationId} />
       <Composer conversationId={conversationId} />
       {drop.dragging && <DropOverlay target={title} />}

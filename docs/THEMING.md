@@ -170,8 +170,11 @@ derived), so a theme's value for them is ignored.
 | `pane-border`       | color  | `var(--snowdrop-text-faint)` | —             |
 | `pane-border-focus` | color  | `var(--snowdrop-accent)`     | —             |
 | `pane-radius`       | length | `4px`                        | —             |
-| `pane-gap`          | length | `14px`                       | —             |
 | `pane-title-color`  | color  | `var(--snowdrop-text-muted)` | —             |
+| `tui-gap`           | length | `8px`                        | —             |
+| `tui-pad-x`         | length | `1ch`                        | —             |
+| `tui-pad-y`         | length | `4px`                        | —             |
+| `tui-row`           | length | `1.6em`                      | —             |
 | `tui-type-scale`    | number | `1`                          | —             |
 
 #### Typography
@@ -415,6 +418,7 @@ instead.
 | ----------------------- | --------------------------------------------------------------- |
 | `app`                   | The whole shell                                                 |
 | `demo-banner`           | Persistent demo-mode banner above the shell                     |
+| `pane-area`             | TUI shell: the rail/sidebar/chat row of panes                   |
 | `rail`                  | Spaces rail                                                     |
 | `drawer`                | Rail + sidebar slide-over on narrow screens                     |
 | `status-line`           | TUI shell status line at the bottom of the window               |
@@ -433,11 +437,13 @@ instead.
 | `message-log`           | The message list                                                |
 | `conversation-intro`    | "Beginning of your conversation" block                          |
 | `history-skeleton`      | Loading placeholder rows                                        |
+| `day-divider`           | The date rule between days of messages                          |
 | `message`               | One message row (see attributes below)                          |
 | `message-body`          | The text of a message                                           |
 | `message-author`        | The author-name button in a message row                         |
 | `message-time`          | A message row's timestamp (has data-variant)                    |
 | `message-content`       | The name + body + trailing content of a message row             |
+| `message-quote`         | A message row's reply-to quote                                  |
 | `hover-bar`             | Message hover actions                                           |
 | `message-action-sheet`  | Long-press action sheet (touch)                                 |
 | `system-message`        | Joined / renamed / timer lines                                  |
@@ -485,9 +491,19 @@ instead.
 - Icon buttons carry `data-icon-button`.
 - In the TUI shell, a region's titled border reads `content: attr(data-pane-title)`
   from a `data-pane-title="…"` attribute on its `[data-snowdrop='…']` element
-  (the rail, sidebar, chat column and composer set it; the chat column's
-  updates to the open conversation's name). Rail tiles (spaces, folders, "Create
-  a space") carry `data-rail-label="…"`, the text the TUI shell lists them by.
+  (the rail, sidebar, user panel, composer and members set it; the chat
+  column's own title is a real element, `[data-snowdrop='chat-title-tag']`,
+  that tracks the open conversation's name). Rail tiles (spaces, folders,
+  "Create a space") carry `data-rail-label="…"`, the text the TUI shell lists
+  them by.
+- Also in the TUI shell, `data-tui-flatten` on a handful of layout-only
+  wrappers (ChatColumn's body/conversation/members slots, ConversationArea's
+  wrapper, the inline search slot) makes them `display: contents`, so the
+  message pane, composer, members panel and search panel become direct grid
+  items of the chat column instead of nested boxes; `data-tui-bare` on the
+  composer's inner wrappers drops their own fill/radius so the pane border is
+  the only chrome. Neither is a style hook — they carry no themeable meaning
+  of their own — so Custom CSS has no reason to target them.
 
 **Plugin slots: `[data-slot='…']`.** `message.decorations`,
 `message.accessories`, `composer.accessories`, `chat.header.buttons`,
@@ -501,33 +517,47 @@ unread-total and connection items, the Vim Mode plugin its NORMAL/INSERT pill).
 **Settings → Appearance → Layout: TUI** (also the "Toggle TUI layout" palette
 command) sets `appearance.shell = 'tui'`, which the engine mirrors to
 `data-shell="tui"` on `<html>` (see above) — colours and theme are unchanged,
-only the layout. One stylesheet, `src/ui/styles/tui.css`, scoped entirely under
-`:root[data-shell='tui']`, draws every region as a titled, bordered box using
-the stable `[data-snowdrop='…']` hooks and the pane tokens above: monospace
-type, square-ish corners, an accent border on the focused pane
-(`:focus-within`), and the same boxed treatment for popovers, modals and
-Settings (any `[role="dialog"]`). The rail becomes a plain text list of space
-names, messages render as one line (`time  name  text`, reusing compact-mode
-markup forced on regardless of the Message density setting), and unread counts
+only the layout. A folder of stylesheets, `src/ui/styles/tui/` (imported as
+one, `index.css`), scoped entirely under `:root[data-shell='tui']`, draws
+every region as a titled, bordered box on one shared canvas colour
+(`--snowdrop-bg-chat`) using the stable `[data-snowdrop='…']` hooks and the
+pane tokens above: monospace type, square-ish corners, an accent border on
+the focused pane (`:focus-within`), and the same boxed treatment for
+popovers, menus, tooltips and modals (`[role="dialog"]`, `[role="menu"]`,
+`[role="tooltip"]`).
+
+The pane row (`[data-snowdrop='pane-area']`) lays the rail, sidebar and chat
+column out with one gap (`--snowdrop-tui-gap`) between and around them; no
+pane carries its own margin. The sidebar is two stacked boxes, "chats"
+(`[data-snowdrop='sidebar']`) and "you" (`[data-snowdrop='user-panel']`). The
+chat column has its own inner grid: the chat header and message list read as
+one titled box (the chat pane), the composer is a second box directly under
+it, and members (or the in-conversation search panel) is a third, full-height
+box to their right — `data-tui-flatten` (see the attributes above) is what
+lets those pieces reach that grid as direct items instead of nested boxes.
+The rail becomes a plain text list of space names, messages render as one
+line each in a fixed `time / author / text` grid (reusing compact-mode markup
+forced on regardless of the Message density setting) with zero gap between
+rows — day and "new" dividers carry the rhythm instead — and unread counts
 read `[3]` instead of a pill. A status line along the bottom
-(`[data-snowdrop='status-line']`) shows the open conversation, total unread,
-connection state and (with Vim Mode on) the current mode, built from the
-`status.items` slot; "? for keys" opens the keyboard-shortcuts dialog.
+(`[data-snowdrop='status-line']`) shows, left to right, the current mode
+(Vim Mode, when enabled), the open conversation, total unread and connection
+state, built from the `status.items` slot; "? for keys" opens the
+keyboard-shortcuts dialog.
 
 Monospace glyphs are wider and taller than the sans stack at the same pixel
-size, so `tui.css` also re-declares every `font-size-*` token (and
+size, so `tui/tokens.css` also re-declares every `font-size-*` token (and
 `line-height-message`/`line-height-ui`) with smaller bases — body/message
 text around 13px, secondary and chrome text 10–12px, headings scaled up
 modestly from there — so the shell reads as a dense terminal UI instead of a
 size (or more) bigger than the standard one. Each still multiplies
 `--snowdrop-font-scale` (Settings → Appearance → Font size still works, scaled
 off its smaller TUI base) and `--snowdrop-tui-type-scale` (see
-[token reference](#pane-tui-shell) above): a
-theme or Custom CSS can set just that one token on `:root` to make the whole
-TUI shell denser or roomier without overriding every size. Row padding on the
-rail's text list and the sidebar's conversation rows is tightened to match
-(the sidebar's usual avatar/glyph-sized row height no longer applies, since
-the TUI shell hides that column).
+[token reference](#pane-tui-shell) above): a theme or Custom CSS can set just
+that one token on `:root` to make the whole TUI shell denser or roomier
+without overriding every size. Every list row (the rail, sidebar rows,
+members, menu items) shares one row height, `--snowdrop-tui-row`; every pane's
+inner padding is `--snowdrop-tui-pad-y` by `--snowdrop-tui-pad-x`.
 
 ## Security policy
 

@@ -1,0 +1,86 @@
+/*
+ * The TUI shell ("boxed panes"): Appearance → Layout: TUI, or the "Toggle
+ * TUI layout" palette command (`appearance.shell = 'tui'`, mirrored by the
+ * theme engine to `data-shell="tui"` on <html> — see core/themes/engine.ts).
+ * Colour and theme are untouched; this is layout and type only.
+ *
+ * Scoped entirely under `:root[data-shell='tui']` and built on the stable
+ * `[data-snowdrop='…']` hooks (docs/THEMING.md) plus a few attributes set by
+ * component markup: `data-pane-title` (the text a region's border reads),
+ * `data-rail-label` (what a rail tile is listed by) and `data-tui-flatten` /
+ * `data-tui-bare` (layout-only markers so the TUI grid can reach pieces that
+ * would otherwise be nested in a wrapper — see layout.css). Everything else
+ * here is selectors over markup that already existed — no forked components.
+ */
+
+:root[data-shell='tui'] {
+  /* Monospace everywhere, including portaled modals/popovers/tooltips: they
+     are still descendants of <html>, so the custom property reaches them. */
+  --snowdrop-font-sans: var(--snowdrop-font-mono);
+
+  /*
+   * The standard pixel sizes below are tuned for the sans stack; monospace
+   * glyphs are wider and taller at the same size, so re-declaring them here
+   * with smaller bases keeps the TUI shell reading like a dense terminal UI
+   * instead of a size (or more) bigger than the standard shell. Every value
+   * still runs through both `--snowdrop-font-scale` (Settings → Appearance →
+   * Text size) and `--snowdrop-tui-type-scale` (tokens.css; a single knob a
+   * theme or Custom CSS can use to tune the whole shell's density at once).
+   */
+  --snowdrop-font-size-xs: calc(10px * var(--snowdrop-font-scale) * var(--snowdrop-tui-type-scale));
+  --snowdrop-font-size-sm: calc(11px * var(--snowdrop-font-scale) * var(--snowdrop-tui-type-scale));
+  --snowdrop-font-size-ui: calc(12px * var(--snowdrop-font-scale) * var(--snowdrop-tui-type-scale));
+  --snowdrop-font-size-message: calc(
+    13px * var(--snowdrop-font-scale) * var(--snowdrop-tui-type-scale)
+  );
+  --snowdrop-font-size-header: calc(
+    14px * var(--snowdrop-font-scale) * var(--snowdrop-tui-type-scale)
+  );
+  --snowdrop-font-size-title: calc(
+    17px * var(--snowdrop-font-scale) * var(--snowdrop-tui-type-scale)
+  );
+  --snowdrop-font-size-display: calc(
+    24px * var(--snowdrop-font-scale) * var(--snowdrop-tui-type-scale)
+  );
+  --snowdrop-font-size-hero: calc(
+    35px * var(--snowdrop-font-scale) * var(--snowdrop-tui-type-scale)
+  );
+  --snowdrop-font-size-emoji-sm: calc(
+    16px * var(--snowdrop-font-scale) * var(--snowdrop-tui-type-scale)
+  );
+  --snowdrop-font-size-emoji: calc(
+    19px * var(--snowdrop-font-scale) * var(--snowdrop-tui-type-scale)
+  );
+  --snowdrop-line-height-message: 1.4;
+  --snowdrop-line-height-ui: 1.25;
+
+  /* Small, mostly-square corners. */
+  --snowdrop-radius-2xs: 0px;
+  --snowdrop-radius-xs: 2px;
+  --snowdrop-radius-sm: 2px;
+  --snowdrop-radius-md: 2px;
+  --snowdrop-radius-lg: 2px;
+  --snowdrop-radius-tile: 2px;
+  --snowdrop-radius-full: 2px;
+
+  /*
+   * shadow-* tokens bake a faint 1px light outline into the drop shadow
+   * itself (see tokens.css). Pane borders below replace that outline, so it
+   * is dropped here — otherwise a popover/modal would show two borders a
+   * pixel apart.
+   */
+  --snowdrop-shadow-menu: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --snowdrop-shadow-popout: 0 12px 32px rgba(0, 0, 0, 0.5);
+  --snowdrop-shadow-modal: 0 24px 64px rgba(0, 0, 0, 0.6);
+
+  /*
+   * Compact layout tokens re-tuned for the pane grid below. Rail: two
+   * leading spaces + up to ~16 characters of label (the longest demo space
+   * names, and "+ Create a space"), plus the row's own `--snowdrop-tui-pad-x`
+   * on each side.
+   */
+  --snowdrop-rail-width: 20ch;
+  --snowdrop-sidebar-width: 28ch;
+  --snowdrop-members-width: 26ch;
+  --snowdrop-header-height: calc(var(--snowdrop-tui-row) + 2 * var(--snowdrop-tui-pad-y));
+}

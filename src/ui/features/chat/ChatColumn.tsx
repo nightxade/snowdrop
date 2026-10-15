@@ -60,8 +60,12 @@ function ChatColumnInner() {
       {/* With nothing open the header would be an empty bar; keep it only for the drawer button. */}
       {(kind ?? drawer) && <ChatHeader conversationId={kind ? selected : null} />}
       <ConnectionBanner />
-      <div className={styles.body}>
-        <div className={styles.conversation}>
+      {/* data-tui-flatten (tui.css): in the TUI shell these wrappers collapse
+          (display: contents) so the message pane, composer and members panel
+          become direct grid items of `.column` instead of nested boxes — the
+          standard shell's flex layout is unaffected. */}
+      <div className={styles.body} data-tui-flatten>
+        <div className={styles.conversation} data-tui-flatten>
           {selected && kind ? (
             <>
               <ConversationArea key={selected} conversationId={selected} />
@@ -85,7 +89,7 @@ function ChatColumnInner() {
               <MembersPanel conversationId={selected} onClose={closeMembers} />
             </Drawer>
           ) : (
-            <div className={styles.members}>
+            <div className={styles.members} data-tui-flatten>
               <MembersPanel conversationId={selected} />
             </div>
           ))}
@@ -100,7 +104,7 @@ function NothingOpen() {
   const switcher = useKeybindLabel(CoreCommand.QuickSwitcher);
   const next = useKeybindLabel(CoreCommand.NextUnread);
   return (
-    <div className={styles.empty}>
+    <div className={styles.empty} data-snowdrop="message-pane">
       <SnowdropMark size={56} className={styles.mark} />
       <h1 className={styles.emptyTitle}>Pick a conversation</h1>
       <p className={styles.emptyBody}>Choose one from the list, or jump straight to one.</p>

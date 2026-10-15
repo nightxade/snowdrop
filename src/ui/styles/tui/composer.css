@@ -1,0 +1,95 @@
+/*
+ * Composer: a `>` prompt, a transparent field (no inner filled box) and the
+ * attach/emoji icons at the right. `data-tui-bare` (Composer.tsx) marks the
+ * two wrappers that used to carry the filled "shell"/"box" look — in the TUI
+ * shell the pane border is the only chrome, so they lose their own.
+ */
+
+:root[data-shell='tui'] [data-snowdrop='composer'] {
+  padding: var(--snowdrop-tui-pad-y) var(--snowdrop-tui-pad-x);
+}
+
+:root[data-shell='tui'] [data-tui-bare] {
+  border-radius: 0;
+  background: none;
+}
+
+:root[data-shell='tui'] [data-snowdrop='composer'] [role='alert'] {
+  margin-bottom: var(--snowdrop-tui-pad-y);
+}
+
+:root[data-shell='tui'] div:has(> [data-snowdrop='composer-input']) {
+  display: flex;
+  align-items: center;
+  min-height: var(--snowdrop-tui-row);
+  padding: 0;
+  gap: var(--snowdrop-tui-pad-x);
+}
+
+:root[data-shell='tui'] div:has(> [data-snowdrop='composer-input'])::before {
+  content: '>';
+  flex: none;
+  align-self: center;
+  color: var(--snowdrop-accent-text);
+  font-weight: var(--snowdrop-font-weight-bold);
+}
+
+:root[data-shell='tui'] [data-snowdrop='composer-input'] {
+  order: 1;
+  flex: 1;
+  min-height: 0;
+  padding: 0;
+}
+
+/* Attach and emoji icons move to the right of the input (the `>` prompt and
+   the field already read left to right; only the icons need reordering). */
+:root[data-shell='tui'] div:has(> [data-snowdrop='composer-input']) [aria-label='Upload a file'] {
+  order: 2;
+}
+
+:root[data-shell='tui']
+  div:has(> [data-snowdrop='composer-input'])
+  [data-slot='composer.accessories'] {
+  order: 3;
+}
+
+:root[data-shell='tui'] div:has(> [data-snowdrop='composer-input']) [aria-label='Emoji'] {
+  order: 4;
+}
+
+/* The composer's own INSERT/NORMAL chip duplicates the status line's; the
+   status line is the one place it shows in the TUI shell. */
+:root[data-shell='tui'] [data-snowdrop='composer'] [data-snowdrop='vim-mode'] {
+  display: none;
+}
+
+/* ─── Reply bar: restyled as one dim line, not a filled chip above the field ── */
+
+:root[data-shell='tui'] [data-snowdrop='reply-bar'] {
+  min-height: var(--snowdrop-tui-row);
+  margin-bottom: 1px;
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--snowdrop-text-faint);
+}
+
+:root[data-shell='tui'] [data-snowdrop='composer-link-preview'] {
+  border-radius: 0;
+  background: none;
+}
+
+/* ─── Attachments waiting to send: square, no filled tiles ──────────────── */
+
+:root[data-shell='tui'] [data-snowdrop='attachment-tray'] {
+  padding: var(--snowdrop-tui-pad-y) 0;
+  border-bottom: 1px solid var(--snowdrop-pane-border);
+}
+
+/* ─── Typing line: one dim row, reserved height only while it has text ──── */
+
+:root[data-shell='tui'] [data-snowdrop='typing-line'] {
+  height: auto;
+  min-height: var(--snowdrop-tui-row);
+  padding: 0;
+}

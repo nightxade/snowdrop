@@ -30,7 +30,12 @@ export function SearchSlot({
       <SearchPanel key={conversationId} conversation={conversation} onClose={close} />
     </Suspense>
   );
-  if (!narrow) return <div className={styles.side}>{panel}</div>;
+  if (!narrow)
+    return (
+      <div className={styles.side} data-tui-flatten>
+        {panel}
+      </div>
+    );
   return (
     <Drawer
       side="right"

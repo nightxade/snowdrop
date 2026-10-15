@@ -1,0 +1,16 @@
+/*
+ * Status line: mode chip first (Vim plugin's NORMAL/INSERT, filled block),
+ * then conversation / unread / connection; "? for keys" on the right. The
+ * items render in registration order (core's three, then the Vim plugin's);
+ * `order` puts the mode chip first without caring which order they mounted
+ * in — reordering a flex child doesn't change which DOM siblings count as
+ * "not last" for the `│` separators below.
+ */
+
+:root[data-shell='tui'] [data-snowdrop='status-line'] {
+  padding-inline: var(--snowdrop-tui-gap);
+}
+
+:root[data-shell='tui'] [data-snowdrop='status-line'] [data-snowdrop='vim-mode'] {
+  order: -1;
+}

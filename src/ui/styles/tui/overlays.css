@@ -1,0 +1,48 @@
+/*
+ * Popovers, menus, tooltips, the emoji picker, modals: a 1px pane border,
+ * pane radius (already square-ish from tokens.css above) and one-row-high
+ * items. `[role='dialog']` (Radix Popover/Dialog content) already gets the
+ * border from panes.css; this adds the roles/hooks that don't carry that
+ * role — context/dropdown menus (`role="menu"`), tooltips, and the two
+ * floating lists that aren't Radix popovers at all (the autocomplete
+ * suggestions and the emoji picker).
+ */
+
+:root[data-shell='tui'] [role='menu'],
+:root[data-shell='tui'] [role='tooltip'],
+:root[data-shell='tui'] [data-snowdrop='autocomplete'] {
+  box-sizing: border-box;
+  border: 1px solid var(--snowdrop-pane-border);
+  border-radius: var(--snowdrop-pane-radius);
+}
+
+/* The emoji picker's own popover (EmojiPicker.module.css `.popover`/`.root`;
+   no stable hook, but it's always the dialog-role content Radix renders —
+   already bordered by the `[role='dialog']` rule above). */
+
+:root[data-shell='tui'] [role='menu'] [role='menuitem'],
+:root[data-shell='tui'] [role='menu'] [role='menuitemcheckbox'] {
+  min-height: var(--snowdrop-tui-row);
+  border-radius: 0;
+}
+
+:root[data-shell='tui'] [data-snowdrop='autocomplete'] [role='option'] {
+  min-height: var(--snowdrop-tui-row);
+  border-radius: 0;
+}
+
+:root[data-shell='tui'] [role='dialog'] [role='option'],
+:root[data-shell='tui'] [role='dialog'] [role='row'] {
+  border-radius: 0;
+}
+
+/* "N new messages" / jump-to-present: a bordered strip, not a filled pill. */
+:root[data-shell='tui'] [data-snowdrop='new-messages-bar'],
+:root[data-shell='tui'] [data-snowdrop='jump-to-present'] {
+  height: var(--snowdrop-tui-row);
+  border: 1px solid var(--snowdrop-pane-border);
+  border-radius: var(--snowdrop-pane-radius);
+  background: var(--snowdrop-bg-chat);
+  color: var(--snowdrop-accent-text);
+  box-shadow: none;
+}

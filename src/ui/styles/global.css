@@ -2,7 +2,7 @@
 @import '@fontsource-variable/jetbrains-mono';
 @import './reset.css';
 @import './tokens.css';
-@import './tui.css';
+@import './tui/index.css';
 
 html,
 body,

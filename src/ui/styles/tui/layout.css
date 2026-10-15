@@ -1,0 +1,123 @@
+/*
+ * The pane grid: rail / sidebar ("chats" + "you") / chat column, each at
+ * their own natural width, one gap between and around them (PLAN: Canvas,
+ * spacing, rhythm). The chat column has its own inner grid: header +
+ * (optional banner) + message list stacked on the left, the composer below
+ * them, and members (or the in-conversation search panel) a full-height
+ * column on the right — see the "chat column" section below.
+ */
+
+:root[data-shell='tui'] [data-snowdrop='app'] {
+  display: flex;
+  flex-direction: column;
+}
+
+:root[data-shell='tui'] [data-snowdrop='pane-area'] {
+  display: flex;
+  align-items: stretch;
+  gap: var(--snowdrop-tui-gap);
+  padding: var(--snowdrop-tui-gap);
+}
+
+/* `.nav` (AppShell.module.css): rail + sidebar, at their own widths. */
+:root[data-shell='tui'] [data-snowdrop='drawer'],
+:root[data-shell='tui'] [data-snowdrop='pane-area'] > div:not([data-snowdrop]) {
+  display: flex;
+  gap: var(--snowdrop-tui-gap);
+}
+
+/* Chat column: the last pane-area child, filling the rest of the row. */
+:root[data-shell='tui'] [data-snowdrop='chat'] {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+/*
+ * Wrappers that exist purely to lay the standard shell out in a flex column
+ * (ChatColumn's `.body`/`.conversation`, ConversationArea's `.area`, the
+ * inline members slot, the search slot): collapsed in the TUI shell so the
+ * header, message pane, composer, members panel and search panel become
+ * direct grid items of the chat column below instead of nested boxes. This
+ * is the one thing that keeps the composer and members from ending up
+ * *inside* the chat pane's border (PLAN problem #3).
+ */
+:root[data-shell='tui'] [data-tui-flatten] {
+  display: contents;
+}
+
+:root[data-shell='tui'] [data-snowdrop='chat'] {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  column-gap: var(--snowdrop-tui-gap);
+  row-gap: 0;
+}
+
+/*
+ * `display: contents` promotes these to grid items for layout, but it
+ * doesn't change the DOM tree — a `>` child combinator still only sees the
+ * (now-invisible) wrapper divs, never the elements CSS actually renders as
+ * grid items. Every selector below is a descendant combinator on purpose.
+ */
+
+/* Members (wide) or the in-conversation search panel open a second column. */
+:root[data-shell='tui']
+  [data-snowdrop='chat']:has([data-snowdrop='members'], [data-snowdrop='search-panel']) {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+:root[data-shell='tui'] [data-snowdrop='chat'] [data-snowdrop='chat-header'] {
+  grid-row: 1;
+  grid-column: 1;
+}
+
+:root[data-shell='tui'] [data-snowdrop='chat'] [data-snowdrop='connection-banner'] {
+  grid-row: 2;
+  grid-column: 1;
+}
+
+:root[data-shell='tui'] [data-snowdrop='chat'] [data-snowdrop='message-pane'] {
+  grid-row: 3;
+  grid-column: 1;
+  min-height: 0;
+}
+
+:root[data-shell='tui'] [data-snowdrop='chat'] [data-snowdrop='composer'] {
+  grid-row: 4;
+  grid-column: 1;
+  margin-top: var(--snowdrop-tui-gap);
+}
+
+:root[data-shell='tui'] [data-snowdrop='chat'] [data-snowdrop='members'],
+:root[data-shell='tui'] [data-snowdrop='chat'] [data-snowdrop='search-panel'] {
+  grid-row: 1 / -1;
+  grid-column: 2;
+  align-self: stretch;
+}
+
+/* ─── Sidebar: a plain two-box column (AppShell owns the gap to the rail) ── */
+
+:root[data-shell='tui'] [data-snowdrop='user-panel'] {
+  flex: none;
+  margin-top: var(--snowdrop-tui-gap);
+}
+
+/* ─── Responsive ───────────────────────────────────────────────────────── */
+
+@media (max-width: 1099.98px) {
+  :root[data-shell='tui'] [data-snowdrop='chat']:has([data-snowdrop='search-panel']) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 759.98px) {
+  :root[data-shell='tui'] [data-snowdrop='pane-area'] {
+    padding: var(--snowdrop-tui-gap);
+  }
+
+  :root[data-shell='tui'] [data-snowdrop='drawer'] {
+    height: 100%;
+    padding: var(--snowdrop-tui-gap);
+  }
+}

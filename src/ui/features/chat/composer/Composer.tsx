@@ -150,6 +150,7 @@ function ComposerInner({ conversation }: { conversation: ConversationView }) {
       )}
       <div
         className={styles.shell}
+        data-tui-bare
         data-reply={replyTo ? '' : undefined}
         data-link-preview={state.linkPreview.url ? '' : undefined}
       >
@@ -164,7 +165,7 @@ function ComposerInner({ conversation }: { conversation: ConversationView }) {
           />
         )}
         <ComposerLinkPreview view={state.linkPreview} />
-        <div className={styles.box} ref={setField}>
+        <div className={styles.box} data-tui-bare ref={setField}>
           <AttachmentTray attachments={state.attachments} onRemove={state.removeAttachment} />
           <div className={styles.field}>
             <IconButton

@@ -1,0 +1,87 @@
+/* ─── Rail: a text list of space names, one row high ───────────────────── */
+
+:root[data-shell='tui'] [data-snowdrop='rail'] [role='separator'] {
+  width: calc(100% - 2 * var(--snowdrop-tui-pad-x));
+  margin-inline: var(--snowdrop-tui-pad-x);
+}
+
+:root[data-shell='tui'] [data-snowdrop='rail'] [data-tone] {
+  width: 100%;
+  /* RailTile.module.css's own `.item` padding (space-2 top/bottom) stacked
+     on top of the button's row height below, making rail rows taller than
+     every other list's rows. Zero it: the button's own min-height already
+     carries the one-row rhythm. */
+  padding-block: 0;
+  justify-content: flex-start;
+}
+
+:root[data-shell='tui'] [data-snowdrop='rail'] button[data-roving-item] {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: var(--snowdrop-tui-row);
+  height: auto;
+  padding: 0 var(--snowdrop-tui-pad-x);
+  border: none;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  color: var(--snowdrop-text);
+  font-size: var(--snowdrop-font-size-ui);
+  text-align: left;
+}
+
+:root[data-shell='tui'] [data-snowdrop='rail'] [data-selected] button[data-roving-item],
+:root[data-shell='tui'] [data-snowdrop='rail'] button[data-roving-item]:hover {
+  background: var(--snowdrop-bg-hover);
+  box-shadow: none;
+  color: var(--snowdrop-text-strong);
+}
+
+:root[data-shell='tui'] [data-snowdrop='rail'] button[data-roving-item] > * {
+  display: none;
+}
+
+:root[data-shell='tui'] [data-snowdrop='rail'] button[data-roving-item]::before {
+  content: '  ' attr(data-rail-label);
+  overflow: hidden;
+  white-space: pre;
+  text-overflow: ellipsis;
+}
+
+:root[data-shell='tui'] [data-snowdrop='rail'] button[data-roving-item][data-selected]::before {
+  /* A literal bullet, not a \hex escape: CSS eats the whitespace right
+     after a hex escape as its terminator, so '\25CF ' silently drops the
+     space meant to separate it from the label. */
+  content: '● ' attr(data-rail-label);
+  color: var(--snowdrop-accent-text);
+}
+
+/* "Create a space": a plain muted list item, like every other row — not a
+   dashed button (RailTile.module.css's quiet-tone look is for the icon rail). */
+:root[data-shell='tui']
+  [data-snowdrop='rail']
+  [data-tone='quiet']
+  button[data-roving-item]::before {
+  content: '+ ' attr(data-rail-label);
+  color: var(--snowdrop-text-faint);
+}
+
+:root[data-shell='tui']
+  [data-snowdrop='rail']
+  [data-tone='quiet']
+  button[data-roving-item]:hover::before {
+  color: var(--snowdrop-text-muted);
+}
+
+/* The plain unread pip reads oddly as a floating dot in list rows; the
+   mention badge (kept, bracketed in lists.css) already says enough. */
+:root[data-shell='tui'] [data-snowdrop='rail'] [data-tone] > span[aria-hidden]:empty {
+  display: none;
+}
+
+:root[data-shell='tui'] [data-snowdrop='rail'] [data-variant='mention'] {
+  position: static;
+  margin-left: auto;
+  box-shadow: none;
+}

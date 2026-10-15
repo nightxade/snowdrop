@@ -58,7 +58,7 @@ export function AppShell() {
           data-layout={drawer ? 'drawer' : narrow ? 'narrow' : 'wide'}
         >
           <DemoBanner />
-          <div className={styles.shell}>
+          <div className={styles.shell} data-snowdrop="pane-area">
             {drawer ? (
               <Drawer
                 open={navOpen}

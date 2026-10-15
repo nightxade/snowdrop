@@ -47,7 +47,12 @@ export function UserPanel() {
       : STATUS_TEXT[status];
 
   return (
-    <section className={styles.panel} aria-label="Your account" data-snowdrop="user-panel">
+    <section
+      className={styles.panel}
+      aria-label="Your account"
+      data-snowdrop="user-panel"
+      data-pane-title="you"
+    >
       <div className={styles.identity}>
         <Avatar
           fallback={initialsFor(name)}

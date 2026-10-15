@@ -1,0 +1,18 @@
+/*
+ * The TUI shell ("boxed panes"): Appearance → Layout: TUI, or the "Toggle
+ * TUI layout" palette command (`appearance.shell = 'tui'`, mirrored by the
+ * theme engine to `data-shell="tui"` on <html> — see core/themes/engine.ts).
+ * Colour and theme are untouched; this is layout only, entirely scoped under
+ * `:root[data-shell='tui']`. See docs/THEMING.md ("TUI layout") for the
+ * tokens and hooks this is built on.
+ */
+@import './tokens.css';
+@import './layout.css';
+@import './panes.css';
+@import './chat-pane.css';
+@import './rail.css';
+@import './lists.css';
+@import './messages.css';
+@import './composer.css';
+@import './overlays.css';
+@import './status.css';

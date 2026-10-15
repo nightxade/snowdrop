@@ -1,0 +1,182 @@
+/*
+ * Rows: one height everywhere (`--snowdrop-tui-row`) — sidebar, section
+ * headers, members, the user panel (rail.css covers the spaces rail;
+ * overlays.css covers menus/popovers).
+ */
+
+/* ─── User panel: no avatar, one line (name, status, then the icons) ───── */
+
+:root[data-shell='tui'] [data-snowdrop='user-panel'] {
+  min-height: var(--snowdrop-tui-row);
+  padding-inline: var(--snowdrop-tui-pad-x);
+}
+
+/* The avatar is `.identity`'s (the panel's first child) first child. */
+:root[data-shell='tui'] [data-snowdrop='user-panel'] > div:first-child > :first-child {
+  display: none;
+}
+
+:root[data-shell='tui'] [data-snowdrop='user-panel'] > div:first-child {
+  padding: 0;
+}
+
+:root[data-shell='tui'] [data-snowdrop='user-panel'] > div:first-child > div {
+  flex-direction: row;
+  align-items: baseline;
+  gap: var(--snowdrop-tui-pad-x);
+}
+
+/* Name (first) gets the room. Status (second — "Demo account", "Offline"…)
+   becomes a presence dot, same recipe as a titled border's generated
+   content: the real text stays for screen readers (font-size: 0 doesn't
+   remove it from the accessibility tree the way display/visibility would),
+   `::before` paints the dot in the status's own colour (already set by
+   UserPanel.module.css's `[data-status]` rules — `currentColor` reuses it
+   without repeating the online/connecting/offline/error mapping here). */
+:root[data-shell='tui'] [data-snowdrop='user-panel'] > div:first-child > div > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+:root[data-shell='tui'] [data-snowdrop='user-panel'] > div:first-child > div > :nth-child(2) {
+  flex: none;
+  width: auto;
+  overflow: visible;
+  font-size: 0;
+}
+
+:root[data-shell='tui']
+  [data-snowdrop='user-panel']
+  > div:first-child
+  > div
+  > :nth-child(2)::before {
+  content: '●';
+  color: currentColor;
+  font-size: var(--snowdrop-font-size-ui);
+}
+
+/* ─── Sidebar: a plain `>` marks the open conversation, no avatars ──────── */
+
+:root[data-shell='tui'] [data-snowdrop='sidebar-header'] {
+  padding: 0 var(--snowdrop-tui-pad-x);
+  border-bottom: 1px solid var(--snowdrop-pane-border);
+}
+
+:root[data-shell='tui'] [data-snowdrop='conversation-row'] {
+  margin: 0;
+}
+
+:root[data-shell='tui'] [data-snowdrop='conversation-row'] button[data-roving-item] {
+  min-height: var(--snowdrop-tui-row);
+  padding: 0 var(--snowdrop-tui-pad-x);
+  border-radius: 0;
+  background: none;
+}
+
+:root[data-shell='tui'] [data-snowdrop='conversation-row'] button[data-roving-item]::before {
+  content: '  ';
+  flex: none;
+  color: var(--snowdrop-accent-text);
+  font-weight: var(--snowdrop-font-weight-bold);
+}
+
+:root[data-shell='tui']
+  [data-snowdrop='conversation-row'][data-selected]
+  button[data-roving-item]::before {
+  content: '> ';
+}
+
+:root[data-shell='tui']
+  [data-snowdrop='conversation-row']
+  button[data-roving-item]
+  > *:first-child {
+  display: none;
+}
+
+/* The secondary preview/typing line: `.text`'s 2nd child when present. */
+:root[data-shell='tui']
+  [data-snowdrop='conversation-row']
+  button[data-roving-item]
+  > *:nth-child(2)
+  > *:nth-child(2) {
+  display: none;
+}
+
+/* The left-edge unread pip is hidden in TUI: the bracketed count already says enough. */
+:root[data-shell='tui'] [data-snowdrop='conversation-row'][data-unread]::before {
+  display: none;
+}
+
+/* ─── Section headers: `▾ teams`, lowercase, dim, one row ───────────────── */
+
+:root[data-shell='tui'] [data-snowdrop='section-header'] {
+  min-height: var(--snowdrop-tui-row);
+  margin: 0;
+  padding: 0 var(--snowdrop-tui-pad-x);
+  text-transform: lowercase;
+}
+
+/* ─── Unread counts read `[3]`, not a filled pill, and never wrap ───────── */
+
+:root[data-shell='tui'] [data-variant='mention'],
+:root[data-shell='tui'] [data-variant='count'] {
+  /* Badge.module.css's `.badge` is `display: inline-grid` with one auto-flow
+     row per child — fine for a single number, but the `[`/`]` generated
+     content added below would then stack as separate rows instead of
+     reading inline. `inline-flex` keeps every TUI list row one line tall,
+     and never wraps even in the narrower TUI sidebar. */
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  height: auto;
+  min-width: 0;
+  margin-left: auto;
+  padding: 0;
+  background: none;
+  color: var(--snowdrop-danger-strong);
+  font-family: var(--snowdrop-font-mono);
+  font-weight: var(--snowdrop-font-weight-semibold);
+  white-space: nowrap;
+}
+
+:root[data-shell='tui'] [data-variant='count'] {
+  color: var(--snowdrop-text-muted);
+}
+
+:root[data-shell='tui'] [data-variant='mention']::before,
+:root[data-shell='tui'] [data-variant='count']::before {
+  content: '[';
+}
+
+:root[data-shell='tui'] [data-variant='mention']::after,
+:root[data-shell='tui'] [data-variant='count']::after {
+  content: ']';
+}
+
+/* ─── Members: no avatars, status emoji right-aligned ───────────────────── */
+
+:root[data-shell='tui'] [data-snowdrop='members'] h3 {
+  min-height: var(--snowdrop-tui-row);
+  margin: 0;
+  padding: 0 var(--snowdrop-tui-pad-x);
+  text-transform: lowercase;
+}
+
+/* A blank half-row between groups ("admins · 2" members, then "members · 5")
+   — the pane's own top padding already clears the first heading. */
+:root[data-shell='tui'] [data-snowdrop='members'] h3:not(:first-of-type) {
+  margin-top: calc(var(--snowdrop-tui-row) / 2);
+}
+
+:root[data-shell='tui'] [data-snowdrop='member-row'] {
+  min-height: var(--snowdrop-tui-row);
+  padding: 0 var(--snowdrop-tui-pad-x);
+  border-radius: 0;
+}
+
+/* The avatar is the row's first child (MemberRow.tsx); the name already
+   grows to fill the row (MemberRow.module.css `.name { flex: 1 }`), which
+   pushes the status emoji after it to the row's right edge on its own. */
+:root[data-shell='tui'] [data-snowdrop='member-row'] > :first-child {
+  display: none;
+}

@@ -1,0 +1,110 @@
+/*
+ * Boxed panes: a titled 1px border on every region, all sharing the same
+ * canvas colour (PLAN: "one canvas" — only the status line gets a
+ * contrasting strip). The chat column's header + message list are a special
+ * case — two elements that together read as one box — see chat-pane.css.
+ */
+
+/*
+ * No `overflow: hidden` here: the titled border's title
+ * (`[data-pane-title]::before` below) sits *above* the pane's own top edge
+ * (`top: -0.65em`), and an overflow-clipped ancestor would cut it in half —
+ * exactly what hid "spaces"/"chats"/"you"/"members"'s titles down to their
+ * descenders while the chat pane's title (a sibling of `[data-snowdrop='chat'],
+ * never one of its clipped children — see chat-pane.css) rendered whole. At
+ * `--snowdrop-pane-radius: 2px` a sharp inner corner peeking past the round
+ * one isn't visible, so there's nothing to clip for.
+ */
+:root[data-shell='tui'] [data-snowdrop='rail'],
+:root[data-shell='tui'] [data-snowdrop='sidebar'],
+:root[data-shell='tui'] [data-snowdrop='user-panel'],
+:root[data-shell='tui'] [data-snowdrop='composer'],
+:root[data-shell='tui'] [data-snowdrop='members'],
+:root[data-shell='tui'] [data-snowdrop='search-panel'] {
+  position: relative;
+  box-sizing: border-box;
+  /* Keeps the first row clear of the top border — composer.css sets its own
+     full padding (it also needs the sides), which simply wins here. */
+  padding-top: var(--snowdrop-tui-pad-y);
+  border: 1px solid var(--snowdrop-pane-border);
+  border-radius: var(--snowdrop-pane-radius);
+  background: var(--snowdrop-bg-chat);
+}
+
+:root[data-shell='tui'] [data-snowdrop='rail']:focus-within,
+:root[data-shell='tui'] [data-snowdrop='sidebar']:focus-within,
+:root[data-shell='tui'] [data-snowdrop='user-panel']:focus-within,
+:root[data-shell='tui'] [data-snowdrop='composer']:focus-within,
+:root[data-shell='tui'] [data-snowdrop='members']:focus-within,
+:root[data-shell='tui'] [data-snowdrop='search-panel']:focus-within {
+  border-color: var(--snowdrop-pane-border-focus);
+}
+
+/*
+ * Modals and popovers already establish their own containing block (Radix
+ * positions them `fixed`/`absolute`, some inline — never `static`), so the
+ * title pseudo-element needs no `position` override here. Setting one would
+ * be actively harmful: FullScreenDialog's (Settings') content is `position:
+ * fixed` from its own CSS module class, and a same-or-higher-specificity
+ * `position: relative` here would turn that into an in-flow box instead of
+ * a viewport-covering overlay.
+ */
+:root[data-shell='tui'] [role='dialog'] {
+  box-sizing: border-box;
+  border: 1px solid var(--snowdrop-pane-border);
+  border-radius: var(--snowdrop-pane-radius);
+}
+
+/*
+ * The full-screen Settings dialog (the only `[role='dialog']` that also
+ * carries `data-pane-title`, set by FullScreenDialog.tsx) sits flush against
+ * the viewport (`inset: 0`) with no room above it for its titled border to
+ * sit in — the title would render off the top of the screen entirely. Inset
+ * it by the same gap every other pane gets, individual longhands (not
+ * `inset`, so this beats that shorthand's equal-specificity declaration).
+ */
+:root[data-shell='tui'] [role='dialog'][data-pane-title] {
+  top: var(--snowdrop-tui-gap);
+  right: var(--snowdrop-tui-gap);
+  bottom: var(--snowdrop-tui-gap);
+  left: var(--snowdrop-tui-gap);
+}
+
+/* Titled border: the title sits in the top edge, over a gap it cuts in the
+   line by painting the pane's own background behind the text. One shared
+   background everywhere a title cuts out, since every pane now sits on the
+   same canvas colour. */
+:root[data-shell='tui'] [data-pane-title]::before {
+  content: attr(data-pane-title) / '';
+  position: absolute;
+  top: -0.65em;
+  left: var(--snowdrop-tui-pad-x);
+  z-index: 1;
+  padding: 0 4px;
+  background: var(--snowdrop-bg-chat);
+  color: var(--snowdrop-pane-title-color);
+  font-family: var(--snowdrop-font-mono);
+  font-size: var(--snowdrop-font-size-xs);
+  letter-spacing: var(--snowdrop-tracking-label);
+  white-space: nowrap;
+}
+
+/* ─── Appearance → Layout preview (AppearancePreview.tsx) ──────────────── */
+
+[aria-label='Preview'][data-shell='tui'] {
+  position: relative;
+  border: 1px solid var(--snowdrop-pane-border);
+  border-radius: var(--snowdrop-pane-radius);
+  background: var(--snowdrop-bg-chat);
+}
+
+[aria-label='Preview'][data-shell='tui']::before {
+  content: 'preview' / '';
+  position: absolute;
+  top: -0.65em;
+  left: var(--snowdrop-tui-pad-x);
+  padding: 0 4px;
+  background: var(--snowdrop-bg-chat);
+  color: var(--snowdrop-pane-title-color);
+  font-size: var(--snowdrop-font-size-xs);
+}

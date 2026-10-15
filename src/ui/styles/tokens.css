@@ -106,8 +106,15 @@
   --snowdrop-pane-border: var(--snowdrop-text-faint);
   --snowdrop-pane-border-focus: var(--snowdrop-accent);
   --snowdrop-pane-radius: 4px;
-  --snowdrop-pane-gap: 14px;
   --snowdrop-pane-title-color: var(--snowdrop-text-muted);
+  /* The one gap: outer padding of the pane area, and every gap between panes
+     (horizontal and vertical) alike. */
+  --snowdrop-tui-gap: 8px;
+  /* Inner padding of every pane. */
+  --snowdrop-tui-pad-x: 1ch;
+  --snowdrop-tui-pad-y: 4px;
+  /* Height of every list row (spaces, chats, members, menu items) — one row height everywhere. */
+  --snowdrop-tui-row: 1.6em;
   /* Multiplies every font-size-* token while the TUI shell is active
      (src/ui/styles/tui.css) — one knob for a theme or Custom CSS to make the
      monospace shell denser or roomier without overriding each size. No

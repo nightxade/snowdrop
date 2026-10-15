@@ -1,0 +1,234 @@
+/*
+ * Messages: a strict three-column grid on every row — time / author / text —
+ * reused from compact mode's own markup (forced on regardless of the
+ * Message density setting; see MessageList.tsx). Zero vertical gap between
+ * rows, continuation or not: dividers carry the structure, not padding.
+ */
+
+/*
+ * The padding lives on the *scroller* (react-virtuoso's outer, scrolling
+ * element — `data-message-scroller`, set by MessageList.tsx's own
+ * `scrollerRef`), not on `[data-snowdrop='message-log']` itself: that's
+ * Virtuoso's inner "List" component, which carries its own inline
+ * `padding-top`/`padding-bottom` for virtualisation math that would just
+ * clobber a stylesheet rule on the same box. The scroller is also where
+ * keyboard focus actually lands (the roving tab stop's fallback), so the
+ * focus-ring opt-out belongs there too.
+ */
+:root[data-shell='tui'] [data-message-scroller] {
+  padding-block: var(--snowdrop-tui-pad-y);
+  scroll-padding-block: var(--snowdrop-tui-pad-y);
+}
+
+:root[data-shell='tui'] [data-snowdrop='message-log'] {
+  contain: paint;
+}
+
+:root[data-shell='tui'] [data-message-scroller]:focus-visible {
+  box-shadow: none;
+}
+
+/* Every row — group start or continuation — is exactly one line tall. */
+:root[data-shell='tui'] [data-group-start] {
+  padding-top: 0;
+}
+
+:root[data-shell='tui'] [data-snowdrop='message'][data-compact] {
+  grid-template-columns: 5ch minmax(0, 1fr);
+  column-gap: 1ch;
+  padding-inline: var(--snowdrop-tui-pad-x);
+}
+
+:root[data-shell='tui'] [data-snowdrop='message-time'][data-variant='compact'] {
+  display: inline-block;
+  width: 5ch;
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * 18ch, not the 16 characters of the longest demo name ("Mireille Tanaka"):
+ * measured against this mono webfont, the lettered advance width this grid
+ * actually renders at runs wider than the `ch` unit's own basis (WebKitGTK's
+ * variable-font metrics for letters vs. the digit the `ch` unit is defined
+ * from), so a literal `16ch` track clips a real 15-character name. 18ch is
+ * the measured, not theoretical, room 16 characters need here.
+ */
+:root[data-shell='tui'] [data-snowdrop='message'][data-compact] [data-snowdrop='message-content'] {
+  display: grid;
+  grid-template-columns: 18ch minmax(0, 1fr);
+  column-gap: 1ch;
+}
+
+:root[data-shell='tui']
+  [data-snowdrop='message'][data-compact]
+  [data-snowdrop='message-content']
+  > *:first-child {
+  grid-column: 1;
+  min-width: 0;
+}
+
+:root[data-shell='tui']
+  [data-snowdrop='message'][data-compact]
+  [data-snowdrop='message-content']
+  > *:not(:first-child) {
+  grid-column: 2;
+  min-width: 0;
+}
+
+:root[data-shell='tui'] [data-snowdrop='message-author'] {
+  display: block;
+  overflow: hidden;
+  width: 100%;
+  /* It's a <button>: the UA stylesheet centres button text and gives it its
+     own padding/border, both of which offset shorter names a char right of
+     "Mireille Tan…" and ate into the room the author column (messages.css,
+     above: widened to 18ch for exactly this) gives longer ones. */
+  padding: 0;
+  border: 0;
+  margin: 0;
+  background: none;
+  /* Regular, not the semibold MessageItem.module.css gives it: the variable
+     mono webfont's bold cuts measure slightly wider per character than its
+     regular cut, so this keeps the author column's width honestly
+     predictable. Names stay distinguishable by colour either way. */
+  font-weight: var(--snowdrop-font-weight-regular);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ─── Reply quote: one dim line above the body, no connector or avatar ──── */
+
+:root[data-shell='tui'] [data-snowdrop='message-quote'] {
+  position: static;
+  height: auto;
+  min-height: var(--snowdrop-tui-row);
+  margin-bottom: 0;
+}
+
+/*
+ * The quote sits in the row's own "quote" grid area (MessageItem.module.css),
+ * which spans the *whole* content column — the same column message-content's
+ * 18ch-author/1fr-text sub-grid lives in, but the quote isn't part of that
+ * sub-grid, so without this it starts flush at the author column's left edge
+ * instead of the text column the spec puts it above.
+ */
+:root[data-shell='tui'] [data-snowdrop='message-quote'][data-compact] {
+  min-width: 0;
+  margin-left: calc(18ch + 1ch);
+}
+
+/* The curved connector (`<span aria-hidden>`) is the quote's first child. */
+:root[data-shell='tui'] [data-snowdrop='message-quote'] > :first-child {
+  display: none;
+}
+
+:root[data-shell='tui'] [data-snowdrop='message-quote'] button {
+  line-height: inherit;
+}
+
+/* The avatar dot is the jump button's first child. */
+:root[data-shell='tui'] [data-snowdrop='message-quote'] button > :first-child {
+  display: none;
+}
+
+:root[data-shell='tui'] [data-snowdrop='message-quote']::before {
+  /* A box-drawing glyph, not an arrow: the mono webfont (JetBrains Mono)
+     doesn't carry U+21B1 and a system fallback drew the wrong shape. */
+  content: '└ ';
+  flex: none;
+  color: var(--snowdrop-text-faint);
+}
+
+:root[data-shell='tui'] [data-snowdrop='message-quote'] button > span:nth-child(2)::after {
+  content: ':';
+  color: var(--snowdrop-text-faint);
+}
+
+/* ─── Reactions: plain text, a border only on your own reaction ─────────── */
+
+:root[data-shell='tui'] [role='group'][aria-label='Reactions'] {
+  gap: var(--snowdrop-tui-pad-x);
+  margin-top: 0;
+}
+
+:root[data-shell='tui'] [role='group'][aria-label='Reactions'] button[aria-pressed] {
+  height: var(--snowdrop-tui-row);
+  padding: 0 4px;
+  border: 1px solid transparent;
+  border-radius: 0;
+  background: none;
+}
+
+:root[data-shell='tui'] [role='group'][aria-label='Reactions'] button[aria-pressed='true'] {
+  border-color: var(--snowdrop-accent);
+  background: none;
+}
+
+/* ─── Attachments / link previews: capped, bordered, square ─────────────── */
+
+:root[data-shell='tui'] [data-snowdrop='message-content'] img,
+:root[data-shell='tui'] [data-snowdrop='message-content'] video {
+  max-width: min(100%, 48ch);
+}
+
+:root[data-shell='tui'] [data-snowdrop='message-content'] [data-count] {
+  max-width: min(100%, 48ch);
+  max-height: calc(16 * var(--snowdrop-tui-row) * var(--snowdrop-line-height-message));
+  border: 1px solid var(--snowdrop-pane-border);
+  border-radius: var(--snowdrop-pane-radius);
+  margin-block: calc(var(--snowdrop-tui-row) / 4);
+}
+
+:root[data-shell='tui'] [data-snowdrop='message-content'] [data-count='1'] {
+  width: auto;
+  height: auto;
+}
+
+:root[data-shell='tui'] [data-snowdrop='message-content'] a[data-layout] {
+  width: min(100%, 48ch);
+  margin-block: calc(var(--snowdrop-tui-row) / 4);
+  border-color: var(--snowdrop-pane-border);
+  border-radius: var(--snowdrop-pane-radius);
+}
+
+/* ─── System/notice rows: time, dim `--` author, dim text, icon hidden ──── */
+
+:root[data-shell='tui'] [data-snowdrop='system-message'] {
+  grid-template-columns: 5ch minmax(0, 1fr) auto;
+  padding: 0 var(--snowdrop-tui-pad-x) 0 0;
+  min-height: var(--snowdrop-tui-row);
+}
+
+:root[data-shell='tui'] [data-snowdrop='system-message'] svg {
+  display: none;
+}
+
+/* ─── Day divider: a dim centred rule, one line ──────────────────────────── */
+
+:root[data-shell='tui'] [data-snowdrop='day-divider'] {
+  height: var(--snowdrop-tui-row);
+  padding: calc(var(--snowdrop-tui-row) / 2) var(--snowdrop-tui-pad-x);
+}
+
+/* ─── New divider: an accent rule with the word "new", no pill ──────────── */
+
+:root[data-shell='tui'] [data-snowdrop='new-divider'] {
+  height: var(--snowdrop-tui-row);
+  padding: 0 var(--snowdrop-tui-pad-x);
+}
+
+:root[data-shell='tui'] [data-snowdrop='new-divider']::before {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--snowdrop-accent);
+}
+
+:root[data-shell='tui'] [data-snowdrop='new-divider'] > * {
+  padding: 1px 8px;
+  border-radius: 0;
+  background: none;
+  color: var(--snowdrop-accent-text);
+  text-transform: lowercase;
+}

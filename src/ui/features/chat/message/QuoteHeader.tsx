@@ -25,7 +25,11 @@ export function QuoteHeader({ quote, nameFor, onJump, compact }: QuoteHeaderProp
     .trim();
   const firstAttachment = quote.attachments?.[0];
   return (
-    <div className={styles.quote} data-compact={compact ? '' : undefined}>
+    <div
+      className={styles.quote}
+      data-compact={compact ? '' : undefined}
+      data-snowdrop="message-quote"
+    >
       <span className={styles.connector} aria-hidden />
       <button
         type="button"

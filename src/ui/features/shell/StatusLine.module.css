@@ -21,10 +21,47 @@
   overflow: hidden;
 }
 
-.items > *:not(:last-child)::after {
-  content: '│';
-  margin-left: var(--snowdrop-space-4);
+/* Each item (and anything a plugin contributes) truncates on its own at
+   narrow widths rather than overlapping the next one or the help link. */
+.items > * {
+  overflow: hidden;
+  min-width: 0;
+  flex-shrink: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * A separator before every item except the first — *visual* first, not DOM
+ * first: the Vim Mode plugin's item (`[data-snowdrop='vim-mode']`) is
+ * reordered to the front with `order` (tui/status.css) without this
+ * component knowing Vim exists, which would leave a `:not(:last-child)`-style
+ * rule (DOM-order-based) painting a separator after whichever item ends up
+ * visually last instead of between items. Flipped around: every item gets a
+ * leading separator by default, the actual DOM-first item has it suppressed,
+ * that suppression is put back if a mode pill pushed it to 2nd place, and
+ * the mode pill (wherever it sits in the DOM) never gets one of its own.
+ */
+.items > * {
+  --status-sep: '│';
+}
+
+.items > *::before {
+  content: var(--status-sep);
+  margin-right: var(--snowdrop-space-4);
   color: var(--snowdrop-pane-border);
+}
+
+.items > *:first-child {
+  --status-sep: none;
+}
+
+.items:has([data-snowdrop='vim-mode']) > *:first-child {
+  --status-sep: '│';
+}
+
+.items > [data-snowdrop='vim-mode'] {
+  --status-sep: none;
 }
 
 .help {
