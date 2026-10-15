@@ -70,6 +70,13 @@ export interface KeyLayerContext {
   overlay: boolean;
   /** Set when target is 'composer'. */
   surface: TextSurface | null;
+  /**
+   * Set when target is 'input': true when the field holds a value its own
+   * Escape would clear first (SearchInput: "Escape clears first, then
+   * bubbles"). Lets a key layer leave that Escape to the field and only act
+   * once there's nothing left for the field to cancel.
+   */
+  inputHasValue?: boolean;
 }
 
 /** A key press as layers see it: a normalised token plus the raw event. */

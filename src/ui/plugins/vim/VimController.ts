@@ -42,6 +42,8 @@ export interface VimHost {
   /** Clipboard writes for "+y. */
   copy(text: string): void;
   toast(message: string): void;
+  /** Blurs the active element (document focus moves to the body). */
+  blur(): void;
   notificationsEnabled(): boolean;
   /** Id of the open conversation (the composer surface to put into Insert mode). */
   currentConversation(): string | null;
@@ -191,16 +193,48 @@ export class VimController {
     // only the "focus the composer" keys apply, and only when they match —
     // native activation (Space, Enter) must keep working on buttons.
     if (options.navigation && ctx.target === 'other') return this.onOtherKey(stroke, ctx);
+    // A non-composer text field (sidebar search, a rename box…): Esc is
+    // theirs first, same as any other key in an input.
+    if (options.navigation && ctx.target === 'input') return this.onInputKey(stroke, ctx);
     return false;
   }
 
   private onOtherKey(stroke: KeyStroke, ctx: KeyLayerContext): boolean {
     if (stroke.token === '<Esc>') {
-      if (!this.otherNav.isPending) return false;
-      this.otherNav.reset();
-      return true;
+      if (this.otherNav.isPending) {
+        this.otherNav.reset();
+        return true;
+      }
+      // Nothing pending to cancel: back to Normal mode on the message list.
+      return this.focusMessages();
     }
     return this.otherNav.feed(stroke.token, ctx) !== 'none';
+  }
+
+  /**
+   * Esc in a non-composer text field. The field's own Escape runs first when
+   * it would still do something visible — SearchInput, the one field in the
+   * app that gives Escape a meaning, clears a non-empty value and nothing
+   * else; `ctx.inputHasValue` mirrors exactly that check (see textSurfaces.ts)
+   * so Vim mode needn't know about SearchInput, or any other field, itself.
+   * Once there's nothing left to clear, Esc reaches the message list, as from any other control.
+   */
+  private onInputKey(stroke: KeyStroke, ctx: KeyLayerContext): boolean {
+    if (stroke.token !== '<Esc>' || ctx.inputHasValue) return false;
+    return this.focusMessages();
+  }
+
+  /**
+   * Esc with nothing left to cancel: focus the message list's current row.
+   * With no conversation open, FocusMessages is disabled (nothing to focus),
+   * so blur to the document body instead — j/k have nowhere to land, but
+   * J/K and space-switching still want a key layer, not a stray button.
+   */
+  private focusMessages(): boolean {
+    void this.host.execute(NavCommand.FocusMessages).then((ok) => {
+      if (!ok) this.host.blur();
+    });
+    return true;
   }
 
   private onNavKey(stroke: KeyStroke, ctx: KeyLayerContext): boolean {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { KeyLayerContext, KeyStroke } from '@/core/commands';
+import { NavCommand, type KeyLayerContext, type KeyStroke } from '@/core/commands';
 import { ModeStore } from './modeStore';
 import { VimController, type VimHost } from './VimController';
 
@@ -11,11 +11,18 @@ const listCtx: KeyLayerContext = { target: 'list', overlay: false, surface: null
 const otherCtx: KeyLayerContext = { target: 'other', overlay: false, surface: null };
 const otherOverlayCtx: KeyLayerContext = { target: 'other', overlay: true, surface: null };
 const inputCtx: KeyLayerContext = { target: 'input', overlay: false, surface: null };
+const emptyInputCtx: KeyLayerContext = { ...inputCtx, inputHasValue: false };
+const filledInputCtx: KeyLayerContext = { ...inputCtx, inputHasValue: true };
 
-function controller() {
+/** Waits for a host.execute() fire-and-forget promise (outside the counted-run queue) to settle. */
+const flush = () => new Promise((r) => setTimeout(r, 5));
+
+function controller(opts: { focusMessagesEnabled?: boolean } = {}) {
+  const { focusMessagesEnabled = true } = opts;
   const log: string[] = [];
   let inFlight = 0;
   let maxInFlight = 0;
+  let blurs = 0;
   const host: VimHost = {
     options: () => ({
       navigation: true,
@@ -26,6 +33,9 @@ function controller() {
     }),
     // An async command, like a conversation switch that awaits history.
     execute: async (id) => {
+      // FocusMessages is disabled when no conversation is open, same as the
+      // real command registry: resolves false, nothing runs.
+      if (id === NavCommand.FocusMessages && !focusMessagesEnabled) return false;
       inFlight++;
       maxInFlight = Math.max(maxInFlight, inFlight);
       log.push(`start ${id}`);
@@ -38,9 +48,12 @@ function controller() {
     toast: () => undefined,
     notificationsEnabled: () => true,
     currentConversation: () => null,
+    blur: () => {
+      blurs++;
+    },
   };
   const vim = new VimController(host, new ModeStore());
-  return { vim, log, maxInFlight: () => maxInFlight };
+  return { vim, log, maxInFlight: () => maxInFlight, blurs: () => blurs };
 }
 
 describe('VimController counted app commands', () => {
@@ -112,5 +125,42 @@ describe('VimController: focus-composer keys from a non-text control', () => {
     expect(vim.onKey({ token: '<Esc>', event: stroke('g').event }, otherCtx)).toBe(true);
     expect(vim.onKey(stroke('i'), otherCtx)).toBe(true); // fresh press, not "gi"
     expect(log.filter((l) => l === 'start core.focusComposer')).toHaveLength(1);
+  });
+});
+
+describe('VimController: Esc returns to the message list from anywhere', () => {
+  it('runs FocusMessages on target "other" with nothing pending', async () => {
+    const { vim, log } = controller();
+    expect(vim.onKey(stroke('<Esc>'), otherCtx)).toBe(true);
+    await flush();
+    expect(log).toContain(`start ${NavCommand.FocusMessages}`);
+  });
+
+  it('blurs to the document body when no conversation is open (FocusMessages disabled)', async () => {
+    const { vim, blurs } = controller({ focusMessagesEnabled: false });
+    expect(vim.onKey(stroke('<Esc>'), otherCtx)).toBe(true);
+    await flush();
+    expect(blurs()).toBe(1);
+  });
+
+  it('leaves Esc to a non-empty input field (its own Escape still applies)', async () => {
+    const { vim, log } = controller();
+    expect(vim.onKey(stroke('<Esc>'), filledInputCtx)).toBe(false);
+    await flush();
+    expect(log).toHaveLength(0);
+  });
+
+  it('runs FocusMessages on Esc from an empty input field', async () => {
+    const { vim, log } = controller();
+    expect(vim.onKey(stroke('<Esc>'), emptyInputCtx)).toBe(true);
+    await flush();
+    expect(log).toContain(`start ${NavCommand.FocusMessages}`);
+  });
+
+  it('leaves non-Esc keys in an input field alone either way', () => {
+    const { vim, log } = controller();
+    expect(vim.onKey(stroke('i'), emptyInputCtx)).toBe(false);
+    expect(vim.onKey(stroke('j'), filledInputCtx)).toBe(false);
+    expect(log).toHaveLength(0);
   });
 });

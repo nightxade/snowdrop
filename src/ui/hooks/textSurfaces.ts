@@ -27,6 +27,19 @@ function isTextField(el: Element): boolean {
   );
 }
 
+/**
+ * Whether a text field has something its own Escape would still clear —
+ * the same condition SearchInput's "Escape clears first, then bubbles"
+ * checks before it acts. No per-component hook: just the field's value (or,
+ * for a contenteditable, its text), the one generic signal every text field
+ * already exposes.
+ */
+function hasEscapableValue(el: Element): boolean {
+  if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) return el.value !== '';
+  if (el instanceof HTMLElement && el.isContentEditable) return el.textContent !== '';
+  return false;
+}
+
 const OVERLAY = '[role="dialog"],[role="alertdialog"],[role="menu"],[role="listbox"]';
 /** Open modal layers that own the keyboard even if focus hasn't moved into them yet. */
 const TOP_LAYER =
@@ -74,5 +87,10 @@ export function describeFocus(doc: Document, modalOpen: boolean): KeyLayerContex
   else if (active.hasAttribute('data-message-id') && active.hasAttribute('data-roving-item'))
     target = 'message';
   else if (active.hasAttribute('data-message-scroller')) target = 'list';
-  return { target, overlay, surface };
+  return {
+    target,
+    overlay,
+    surface,
+    ...(target === 'input' && active ? { inputHasValue: hasEscapableValue(active) } : {}),
+  };
 }

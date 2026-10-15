@@ -69,6 +69,9 @@ export function startVim(ctx: PluginContext<typeof settings>): void {
       toast: (message) => {
         ctx.toast(message, 'info');
       },
+      blur: () => {
+        (document.activeElement as HTMLElement | null)?.blur();
+      },
       notificationsEnabled: () => ctx.stores.settings.getState().notifications.enabled,
       currentConversation,
     },

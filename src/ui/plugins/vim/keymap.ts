@@ -158,7 +158,7 @@ export function vimHelp(leader: string): KeyHelpGroup[] {
         ['gt|gT', 'Next / previous space'],
         ['i|a|I|A', 'Focus the composer in Insert mode'],
         ['gi', 'Focus the composer, caret at the end of the draft (works from anywhere)'],
-        ['<Esc>', 'Clear a pending key sequence'],
+        ['<Esc>', 'Clear a pending key sequence, or back to the message list from anywhere'],
       ]),
     },
     {
