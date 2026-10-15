@@ -26,15 +26,20 @@
   gap: var(--snowdrop-tui-pad-x);
 }
 
-/* Name (first) gets the room. Status (second — "Demo account", "Offline"…)
-   becomes a presence dot, same recipe as a titled border's generated
-   content: the real text stays for screen readers (font-size: 0 doesn't
-   remove it from the accessibility tree the way display/visibility would),
-   `::before` paints the dot in the status's own colour (already set by
-   UserPanel.module.css's `[data-status]` rules — `currentColor` reuses it
-   without repeating the online/connecting/offline/error mapping here). */
+/*
+ * Name (first) gets the room and truncates on its own (`flex-shrink`, not
+ * `flex: 1` — a *growing* name box stretches past its own text, stranding
+ * the dot after that empty box instead of right against the text it's
+ * meant to sit beside). Status (second — "Demo account", "Offline"…)
+ * becomes a presence dot, same recipe as a titled border's generated
+ * content: the real text stays for screen readers (font-size: 0 doesn't
+ * remove it from the accessibility tree the way display/visibility would),
+ * `::before` paints the dot in the status's own colour (already set by
+ * UserPanel.module.css's `[data-status]` rules — `currentColor` reuses it
+ * without repeating the online/connecting/offline/error mapping here).
+ */
 :root[data-shell='tui'] [data-snowdrop='user-panel'] > div:first-child > div > :first-child {
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
 }
 
@@ -53,6 +58,23 @@
   content: '●';
   color: currentColor;
   font-size: var(--snowdrop-font-size-ui);
+}
+
+/* Icons: one row high, square, flush together — not the standard shell's
+   32px touch targets with their own internal gap. */
+:root[data-shell='tui'] [data-snowdrop='user-panel'] > div:last-child {
+  gap: 0;
+}
+
+:root[data-shell='tui'] [data-snowdrop='user-panel'] [data-icon-button] {
+  width: var(--snowdrop-tui-row);
+  height: var(--snowdrop-tui-row);
+  border-radius: 0;
+}
+
+:root[data-shell='tui'] [data-snowdrop='user-panel'] [data-icon-button] svg {
+  width: 14px;
+  height: 14px;
 }
 
 /* ─── Sidebar: a plain `>` marks the open conversation, no avatars ──────── */
@@ -162,9 +184,15 @@
   text-transform: lowercase;
 }
 
-/* A blank half-row between groups ("admins · 2" members, then "members · 5")
-   — the pane's own top padding already clears the first heading. */
-:root[data-shell='tui'] [data-snowdrop='members'] h3:not(:first-of-type) {
+/*
+ * A blank half-row between groups ("admins · 2" members, then "members · 5")
+ * — the pane's own top padding already clears the first heading.
+ * MemberList.tsx wraps each group's heading in its own `<section>`, so every
+ * `h3` is `:first-of-type` relative to its own one-heading parent; `+`
+ * instead reaches every section that has an earlier section sibling, i.e.
+ * every group but the first.
+ */
+:root[data-shell='tui'] [data-snowdrop='members'] section + section h3 {
   margin-top: calc(var(--snowdrop-tui-row) / 2);
 }
 
@@ -179,4 +207,22 @@
    pushes the status emoji after it to the row's right edge on its own. */
 :root[data-shell='tui'] [data-snowdrop='member-row'] > :first-child {
   display: none;
+}
+
+/*
+ * "(you)" is a nested span inside the name's own text ("Juniper Hale (you)"
+ * is one `.name` ellipsis box), so the usual `text-overflow: ellipsis` has
+ * no way to spare it — it just clips whichever characters are last, which
+ * happened to be "(you)" itself. Pulling it out of flow and reserving room
+ * for it means the ellipsis only ever eats into the name in front of it.
+ */
+:root[data-shell='tui'] [data-snowdrop='member-row'] > :first-child + *:has(> span) {
+  position: relative;
+  padding-right: 4.5ch;
+}
+
+:root[data-shell='tui'] [data-snowdrop='member-row'] > :first-child + * > span {
+  position: absolute;
+  top: 0;
+  right: 0;
 }

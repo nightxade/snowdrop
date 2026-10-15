@@ -36,13 +36,28 @@
   border-radius: 0;
 }
 
-/* "N new messages" / jump-to-present: a bordered strip, not a filled pill. */
+/* "N new messages" / jump-to-present: a bordered strip, not a filled pill,
+   sitting clearly inside the message area instead of right under the chat
+   header's own rule (its default `top` reads as touching it). */
 :root[data-shell='tui'] [data-snowdrop='new-messages-bar'],
 :root[data-shell='tui'] [data-snowdrop='jump-to-present'] {
+  top: calc(var(--snowdrop-space-3) + var(--snowdrop-tui-gap));
   height: var(--snowdrop-tui-row);
   border: 1px solid var(--snowdrop-pane-border);
   border-radius: var(--snowdrop-pane-radius);
   background: var(--snowdrop-bg-chat);
   color: var(--snowdrop-accent-text);
   box-shadow: none;
+}
+
+/*
+ * Icon buttons (header actions, the drawer hamburger, …): the global
+ * `:focus-visible` rule (global.css) draws a 2px outline 2px clear of the
+ * button, which reads as an unrelated floating square against a small
+ * square-cornered TUI icon. An inset accent ring, like every other focus
+ * state in this shell, keeps it inside the button's own box instead.
+ */
+:root[data-shell='tui'] [data-icon-button]:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--snowdrop-pane-border-focus);
 }

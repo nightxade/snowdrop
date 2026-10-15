@@ -118,6 +118,13 @@
   margin-left: calc(18ch + 1ch);
 }
 
+/* MessageItem.module.css pads the quote's wrapper (`.row[data-compact]
+   .quote`, 20px for the standard shell's connector); here the margin above
+   alone places it on the text column. */
+:root[data-shell='tui'] [data-snowdrop='message'] div:has(> [data-snowdrop='message-quote']) {
+  padding-left: 0;
+}
+
 /* The curved connector (`<span aria-hidden>`) is the quote's first child. */
 :root[data-shell='tui'] [data-snowdrop='message-quote'] > :first-child {
   display: none;
@@ -134,9 +141,12 @@
 
 :root[data-shell='tui'] [data-snowdrop='message-quote']::before {
   /* A box-drawing glyph, not an arrow: the mono webfont (JetBrains Mono)
-     doesn't carry U+21B1 and a system fallback drew the wrong shape. */
-  content: '└ ';
+     doesn't carry U+21B1 and a system fallback drew the wrong shape. A
+     trailing space in `content` collapses under normal whitespace
+     processing, so the gap to "Name:" is a margin instead. */
+  content: '└';
   flex: none;
+  margin-right: 1ch;
   color: var(--snowdrop-text-faint);
 }
 
