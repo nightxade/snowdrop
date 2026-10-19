@@ -67,6 +67,7 @@ describe('localStore', () => {
       conversations: { 'group:x': { pinned: false, muted: false, archived: false } },
       contactNotes: {},
       reactionUsage: {},
+      backfillRequested: {},
       seeded: false,
     });
   });

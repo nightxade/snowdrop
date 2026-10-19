@@ -26,7 +26,7 @@ export interface LightboxProps {
   onOpenChange: (open: boolean) => void;
   /** e.g. "Shared by Mira · Today at 14:02" */
   caption?: string | undefined;
-  mediaStatus?: 'ready' | 'loading' | 'error' | 'unavailable';
+  mediaStatus?: 'ready' | 'loading' | 'backfilling' | 'error' | 'unavailable';
   /** A few words for why loading/`mediaStatus === 'error'` failed; a generic fallback otherwise. */
   errorLabel?: string | undefined;
   onMediaError?: () => void;
@@ -128,9 +128,11 @@ export function Lightbox({
                 <p>
                   {mediaStatus === 'loading'
                     ? 'Loading attachment…'
-                    : mediaStatus === 'unavailable'
-                      ? 'Not available on this device'
-                      : (errorLabel ?? "Couldn't load attachment")}
+                    : mediaStatus === 'backfilling'
+                      ? 'Getting it from your phone…'
+                      : mediaStatus === 'unavailable'
+                        ? 'Not available on this device'
+                        : (errorLabel ?? "Couldn't load attachment")}
                 </p>
                 {mediaStatus === 'error' && onRetry && <Button onClick={onRetry}>Retry</Button>}
               </div>

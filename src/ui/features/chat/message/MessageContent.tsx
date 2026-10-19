@@ -142,11 +142,17 @@ export function MessageContent({
         {pending && m.body === '' && !editing && <PendingMark />}
         {!editing && !m.deleted && <MessageNotes message={m} nameFor={nameFor} />}
         {!editing && !m.deleted && preview && (
-          <LinkPreviewCard conversationId={conversationId} preview={preview} body={m.body} />
+          <LinkPreviewCard
+            conversationId={conversationId}
+            message={m}
+            preview={preview}
+            body={m.body}
+          />
         )}
         {m.attachments.length > 0 && (
           <Attachments
             conversationId={conversationId}
+            message={m}
             attachments={m.attachments}
             pending={pending}
             caption={name}

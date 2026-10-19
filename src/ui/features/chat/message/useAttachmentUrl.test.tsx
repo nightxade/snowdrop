@@ -9,25 +9,38 @@
  */
 import { act, cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { MessageRef } from '@/core/backend';
 import type { Attachment, ConversationId } from '@/core/domain';
+import { createLocalStore, createSessionStore } from '@/core/stores';
 import { SnowdropContextProvider, type AppServices } from '@/ui/hooks';
-import { useAttachmentUrl } from './useAttachmentUrl';
+import { ATTACHMENT_BACKFILL_TIMEOUT_MS, useAttachmentUrl } from './useAttachmentUrl';
 
 afterEach(cleanup);
 
 const conversationId = 'conv-1' as ConversationId;
 const attachment: Attachment = { id: 'att-1', contentType: 'image/png' };
+const message: MessageRef = { authorId: 'author-1', sentAt: 1_000 };
 
-function fakeApp(
-  resolveAttachmentUrl: (conversationId: ConversationId, attachment: Attachment) => Promise<string>,
-): AppServices {
+interface FakeBackend {
+  resolveAttachmentUrl: (conversationId: ConversationId, attachment: Attachment) => Promise<string>;
+  requestAttachmentBackfill?: (
+    conversationId: ConversationId,
+    targetAuthorId: string,
+    targetSentAt: number,
+    attachmentIds: string[],
+  ) => Promise<void>;
+  supportsAttachmentBackfill?: () => boolean;
+}
+
+function fakeApp(backend: FakeBackend): AppServices {
   return {
-    backend: { kind: 'signal-cli', resolveAttachmentUrl },
+    backend: { kind: 'signal-cli', ...backend },
+    stores: { session: createSessionStore(), local: createLocalStore() },
   } as unknown as AppServices;
 }
 
 function Probe() {
-  const state = useAttachmentUrl(conversationId, attachment);
+  const state = useAttachmentUrl(conversationId, message, attachment);
   const label =
     state.status === 'ready'
       ? `ready:${state.url}`
@@ -50,7 +63,7 @@ describe('useAttachmentUrl: no URL cache that can outlive the backend resolver',
       .fn<(conversationId: ConversationId, attachment: Attachment) => Promise<string>>()
       .mockResolvedValueOnce('blob:first')
       .mockResolvedValueOnce('blob:second');
-    const app = fakeApp(resolveAttachmentUrl);
+    const app = fakeApp({ resolveAttachmentUrl });
 
     const { unmount } = render(
       <SnowdropContextProvider value={app}>
@@ -78,7 +91,7 @@ describe('useAttachmentUrl: no URL cache that can outlive the backend resolver',
       .fn<(conversationId: ConversationId, attachment: Attachment) => Promise<string>>()
       .mockResolvedValueOnce('blob:first')
       .mockResolvedValueOnce('blob:second');
-    const app = fakeApp(resolveAttachmentUrl);
+    const app = fakeApp({ resolveAttachmentUrl });
 
     render(
       <SnowdropContextProvider value={app}>
@@ -98,7 +111,7 @@ describe('useAttachmentUrl: no URL cache that can outlive the backend resolver',
     const resolveAttachmentUrl = vi
       .fn<(conversationId: ConversationId, attachment: Attachment) => Promise<string>>()
       .mockRejectedValueOnce(new Error('Download failed'));
-    const app = fakeApp(resolveAttachmentUrl);
+    const app = fakeApp({ resolveAttachmentUrl });
 
     render(
       <SnowdropContextProvider value={app}>
@@ -109,5 +122,153 @@ describe('useAttachmentUrl: no URL cache that can outlive the backend resolver',
       'textContent',
       'error:download-failed',
     );
+  });
+});
+
+describe('useAttachmentUrl: attachment backfill (patches/signal-cli, "0016")', () => {
+  const backfillKey = `${message.authorId}\u0000${message.sentAt}`;
+  /** `classifyAttachmentFailure` reads `kind`/`message`, duck-typed — not a real SignalCliError. */
+  const missingOnDisk = { kind: 'user', message: 'Could not find attachment with ID: att-1' };
+
+  it('auto-requests a backfill once per message and shows "backfilling"', async () => {
+    const resolveAttachmentUrl = vi
+      .fn<(conversationId: ConversationId, attachment: Attachment) => Promise<string>>()
+      .mockRejectedValue(missingOnDisk);
+    const requestAttachmentBackfill = vi.fn().mockResolvedValue(undefined);
+    const app = fakeApp({
+      resolveAttachmentUrl,
+      requestAttachmentBackfill,
+      supportsAttachmentBackfill: () => true,
+    });
+
+    render(
+      <SnowdropContextProvider value={app}>
+        <Probe />
+      </SnowdropContextProvider>,
+    );
+    await screen.findByText('backfilling');
+    expect(requestAttachmentBackfill).toHaveBeenCalledTimes(1);
+    expect(requestAttachmentBackfill).toHaveBeenCalledWith(
+      conversationId,
+      message.authorId,
+      message.sentAt,
+      [attachment.id],
+    );
+
+    // A fresh mount for the same message (e.g. a restart) must not ask again.
+    cleanup();
+    render(
+      <SnowdropContextProvider value={app}>
+        <Probe />
+      </SnowdropContextProvider>,
+    );
+    await screen.findByText('error:missing-on-disk');
+    expect(requestAttachmentBackfill).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not request a backfill when the backend does not support it', async () => {
+    const resolveAttachmentUrl = vi
+      .fn<(conversationId: ConversationId, attachment: Attachment) => Promise<string>>()
+      .mockRejectedValue(missingOnDisk);
+    const app = fakeApp({ resolveAttachmentUrl });
+
+    render(
+      <SnowdropContextProvider value={app}>
+        <Probe />
+      </SnowdropContextProvider>,
+    );
+    await screen.findByText('error:missing-on-disk');
+  });
+
+  it('a "ready" answer retries the download automatically', async () => {
+    const resolveAttachmentUrl = vi
+      .fn<(conversationId: ConversationId, attachment: Attachment) => Promise<string>>()
+      .mockRejectedValueOnce(missingOnDisk)
+      .mockResolvedValueOnce('blob:recovered');
+    const requestAttachmentBackfill = vi.fn().mockResolvedValue(undefined);
+    const app = fakeApp({
+      resolveAttachmentUrl,
+      requestAttachmentBackfill,
+      supportsAttachmentBackfill: () => true,
+    });
+
+    render(
+      <SnowdropContextProvider value={app}>
+        <Probe />
+      </SnowdropContextProvider>,
+    );
+    await screen.findByText('backfilling');
+
+    act(() => {
+      app.stores.session
+        .getState()
+        .setAttachmentBackfill(backfillKey, { status: 'ready', attachmentIds: [attachment.id] });
+    });
+    await screen.findByText('ready:blob:recovered');
+    expect(resolveAttachmentUrl).toHaveBeenCalledTimes(2);
+  });
+
+  it('a "failed" answer settles on a backfill-specific error with a working Retry', async () => {
+    const resolveAttachmentUrl = vi
+      .fn<(conversationId: ConversationId, attachment: Attachment) => Promise<string>>()
+      .mockRejectedValue(missingOnDisk);
+    const requestAttachmentBackfill = vi.fn().mockResolvedValue(undefined);
+    const app = fakeApp({
+      resolveAttachmentUrl,
+      requestAttachmentBackfill,
+      supportsAttachmentBackfill: () => true,
+    });
+
+    render(
+      <SnowdropContextProvider value={app}>
+        <Probe />
+      </SnowdropContextProvider>,
+    );
+    await screen.findByText('backfilling');
+
+    act(() => {
+      app.stores.session
+        .getState()
+        .setAttachmentBackfill(backfillKey, { status: 'failed', attachmentIds: [attachment.id] });
+    });
+    await screen.findByText('error:backfill-failed');
+
+    // Retry re-asks even though this message was already asked once.
+    act(() => {
+      screen.getByRole('button', { name: 'retry' }).click();
+    });
+    await screen.findByText('backfilling');
+    expect(requestAttachmentBackfill).toHaveBeenCalledTimes(2);
+  });
+
+  it('times out ~2 minutes after asking, with no answer at all', async () => {
+    vi.useFakeTimers();
+    try {
+      const resolveAttachmentUrl = vi
+        .fn<(conversationId: ConversationId, attachment: Attachment) => Promise<string>>()
+        .mockRejectedValue(missingOnDisk);
+      const requestAttachmentBackfill = vi.fn().mockResolvedValue(undefined);
+      const app = fakeApp({
+        resolveAttachmentUrl,
+        requestAttachmentBackfill,
+        supportsAttachmentBackfill: () => true,
+      });
+
+      render(
+        <SnowdropContextProvider value={app}>
+          <Probe />
+        </SnowdropContextProvider>,
+      );
+      await vi.waitFor(() => {
+        expect(screen.getByTestId('state')).toHaveProperty('textContent', 'backfilling');
+      });
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(ATTACHMENT_BACKFILL_TIMEOUT_MS);
+      });
+      expect(screen.getByTestId('state')).toHaveProperty('textContent', 'error:backfill-timeout');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

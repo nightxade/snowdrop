@@ -64,7 +64,10 @@ import {
   encodeOutgoingPreview,
   type Thumbnailer,
 } from './attachments';
-import { supportsCustomEmojiDelivery as detectCustomEmojiSupport } from './capabilities';
+import {
+  supportsAttachmentBackfill as detectAttachmentBackfillSupport,
+  supportsCustomEmojiDelivery as detectCustomEmojiSupport,
+} from './capabilities';
 import { Directory } from './directory';
 import { describeError, SignalCliError } from './errors';
 import { GroupChangeTracker } from './groupChanges';
@@ -134,6 +137,33 @@ const SENT_QUOTES_MAX = 500;
 /** For commands whose result we don't need (it varies across daemon versions). */
 const ignoreResult = unknownValue;
 
+const ATTACHMENT_BACKFILL_STATUSES = new Set(['pending', 'ready', 'failed']);
+
+/**
+ * Parses the `attachmentBackfill` SSE event's data (patches/signal-cli's
+ * `{targetAuthor, targetTimestamp, status, attachmentIds}`) into the
+ * `BackendEvents['attachmentBackfill']` shape. Lenient like `learnSelf`/
+ * `learnPeers`: a malformed event is dropped rather than crashing the
+ * stream, since it's advisory (the attachment just stays however it was).
+ */
+function parseAttachmentBackfillEvent(
+  payload: unknown,
+): BackendEvents['attachmentBackfill'] | undefined {
+  if (!isRecord(payload)) return undefined;
+  const { targetAuthor, targetTimestamp, status, attachmentIds } = payload;
+  if (typeof targetAuthor !== 'string') return undefined;
+  if (typeof targetTimestamp !== 'number' && typeof targetTimestamp !== 'string') return undefined;
+  if (typeof status !== 'string' || !ATTACHMENT_BACKFILL_STATUSES.has(status)) return undefined;
+  if (!Array.isArray(attachmentIds) || !attachmentIds.every((id) => typeof id === 'string'))
+    return undefined;
+  return {
+    targetAuthorId: targetAuthor,
+    targetSentAt: Number(targetTimestamp),
+    status: status as 'pending' | 'ready' | 'failed',
+    attachmentIds,
+  };
+}
+
 const log = createLogger('signal-cli');
 
 /**
@@ -187,6 +217,8 @@ export class SignalCliBackend implements ChatBackend {
   private peers: DirectPeers | null = null;
   /** Whether the connected daemon can deliver custom emoji (see capabilities.ts). */
   private customEmojiSupported = false;
+  /** Whether the connected daemon implements attachment backfill (see capabilities.ts). */
+  private attachmentBackfillSupported = false;
 
   constructor(private readonly options: SignalCliBackendOptions) {
     this.clock = options.clock ?? systemClock;
@@ -279,7 +311,9 @@ export class SignalCliBackend implements ChatBackend {
     this.setStatus('connecting');
     try {
       await this.rpc.check({ timeoutMs: this.transport.checkTimeoutMs ?? 5_000 });
-      this.customEmojiSupported = detectCustomEmojiSupport(await this.probeVersion());
+      const version = await this.probeVersion();
+      this.customEmojiSupported = detectCustomEmojiSupport(version);
+      this.attachmentBackfillSupported = detectAttachmentBackfillSupport(version);
       this.selectAccount(await this.discoverAccount());
       // Stream first: nothing sent to us while we load the directory is missed.
       this.openStream();
@@ -314,6 +348,11 @@ export class SignalCliBackend implements ChatBackend {
   /** Whether the connected signal-cli build can deliver custom emoji images (see capabilities.ts). */
   supportsCustomEmojiDelivery(): boolean {
     return this.customEmojiSupported;
+  }
+
+  /** Whether the connected signal-cli build implements attachment backfill (see capabilities.ts). */
+  supportsAttachmentBackfill(): boolean {
+    return this.attachmentBackfillSupported;
   }
 
   /**
@@ -380,6 +419,7 @@ export class SignalCliBackend implements ChatBackend {
     this.attachments.clear();
     this.groupChanges.clear();
     this.customEmojiSupported = false;
+    this.attachmentBackfillSupported = false;
     this.setStatus('offline');
   }
 
@@ -551,6 +591,13 @@ export class SignalCliBackend implements ChatBackend {
       // Patched signal-cli only (patches/signal-cli/0012): the receive loop
       // drained the server's queue. No envelope; nothing to normalise.
       this.emitter.emit('caughtUp', undefined);
+    } else if (event.type === 'attachmentBackfill') {
+      // Patched signal-cli only (patches/signal-cli/0016): our primary
+      // answered a requestAttachmentBackfill call.
+      const payload: unknown = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+      const backfill = parseAttachmentBackfillEvent(payload);
+      if (backfill) this.emitter.emit('attachmentBackfill', backfill);
+      else this.debugLog('ignored malformed attachmentBackfill event');
     } else if (event.type !== 'receive') {
       this.debugLog(`ignored event "${event.type}"`);
     } else {
@@ -991,6 +1038,37 @@ export class SignalCliBackend implements ChatBackend {
   ): Promise<string> {
     this.assertAccount();
     return this.attachments.resolve(attachment, {}, options);
+  }
+
+  /**
+   * See `ChatBackend.requestAttachmentBackfill`. A no-op against a daemon
+   * that doesn't implement it (`supportsAttachmentBackfill` is false): the
+   * caller already decided to ask only because this returned true, but a
+   * backend swap or a stale capability check must not send an RPC the
+   * daemon would otherwise reject with "method not found".
+   */
+  async requestAttachmentBackfill(
+    conversationId: ConversationId,
+    targetAuthorId: string,
+    targetSentAt: number,
+    attachmentIds: readonly string[],
+  ): Promise<void> {
+    this.assertAccount();
+    if (!this.attachmentBackfillSupported) return;
+    const parsed = parseConversationId(conversationId);
+    if (!parsed) throw new SignalCliError('user', `Not a conversation id: ${conversationId}`);
+    const target =
+      parsed.kind === 'group' ? { groupId: parsed.target } : { recipient: parsed.target };
+    await this.rpc.call(
+      'requestAttachmentBackfill',
+      {
+        ...target,
+        targetAuthor: targetAuthorId,
+        targetTimestamp: String(targetSentAt),
+        attachmentIds,
+      },
+      ignoreResult,
+    );
   }
 
   /**

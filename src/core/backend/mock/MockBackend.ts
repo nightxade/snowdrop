@@ -304,6 +304,41 @@ export class MockBackend implements ChatBackend {
     this.world.readUpTo.set(conversationId, latest);
   }
 
+  supportsAttachmentBackfill(): boolean {
+    return true;
+  }
+
+  /**
+   * Simulates the phone's two-step answer (patches/signal-cli, "0016:
+   * attachment backfill"): a `pending` event right away, then `ready` after
+   * a short delay, through the same scheduler as everything else here — so
+   * a test with a fake scheduler can advance straight through it, and a
+   * real demo session shows the "Getting it from your phone…" state for a
+   * moment before the attachment resolves.
+   */
+  async requestAttachmentBackfill(
+    _conversationId: ConversationId,
+    targetAuthorId: string,
+    targetSentAt: number,
+    attachmentIds: readonly string[],
+  ): Promise<void> {
+    await this.delay();
+    this.emitter.emit('attachmentBackfill', {
+      targetAuthorId,
+      targetSentAt,
+      status: 'pending',
+      attachmentIds,
+    });
+    this.scheduler.setTimeout(() => {
+      this.emitter.emit('attachmentBackfill', {
+        targetAuthorId,
+        targetSentAt,
+        status: 'ready',
+        attachmentIds,
+      });
+    }, 1_500);
+  }
+
   async updateConversation(
     conversationId: ConversationId,
     patch: ConversationPatch,

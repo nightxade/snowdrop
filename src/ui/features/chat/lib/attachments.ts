@@ -111,7 +111,16 @@ export type AttachmentFailureKind =
   | 'timeout'
   | 'too-large'
   | 'media-decode'
-  | `rpc-error:${number}`;
+  | `rpc-error:${number}`
+  /**
+   * `missing-on-disk`/`expired` escalated to asking our primary for a
+   * backfill (patches/signal-cli, "0016: attachment backfill"), and the
+   * primary answered that it doesn't have the file either (or the request
+   * itself failed outright).
+   */
+  | 'backfill-failed'
+  /** Same escalation, but ~2 minutes passed with no answer at all. */
+  | 'backfill-timeout';
 
 interface ErrorLike {
   kind?: unknown;
@@ -192,6 +201,18 @@ export function attachmentFailureCopy(kind: AttachmentFailureKind): AttachmentFa
       return {
         label: "Couldn't download",
         detail: 'Downloading this file failed. Check your connection and try again.',
+        retryable: true,
+      };
+    case 'backfill-failed':
+      return {
+        label: 'No longer available',
+        detail: "Your phone doesn't have this file anymore.",
+        retryable: true,
+      };
+    case 'backfill-timeout':
+      return {
+        label: 'No longer available',
+        detail: "Your phone didn't answer — open Signal on your phone and try again.",
         retryable: true,
       };
     default:

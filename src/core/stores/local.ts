@@ -28,6 +28,15 @@ export interface LocalData {
   contactNotes: Record<string, string>;
   /** emoji → times used for a reaction; the hover bar offers the most used. */
   reactionUsage: Record<string, number>;
+  /**
+   * `${authorId}\u0000${sentAt}` → when we last asked our primary to
+   * backfill that message's attachments (patches/signal-cli, "0016:
+   * attachment backfill"), so a restart doesn't re-ask for something
+   * already pending or already answered. Only gates the *automatic*
+   * request on first failure; a user-clicked "Try again" always re-asks
+   * (see `useAttachmentUrl`).
+   */
+  backfillRequested: Record<string, number>;
   /** Demo defaults are applied once per install. */
   seeded: boolean;
 }
@@ -49,13 +58,21 @@ export interface LocalState extends LocalData {
   /** Empty notes are removed. */
   setNote(contactId: string, note: string): void;
   noteReactionUsed(emoji: string): void;
+  markBackfillRequested(key: string): void;
   seedDefaults(seed: LocalSeed): void;
 }
 
 export type LocalStore = StoreApi<LocalState>;
 
 export function defaultLocalData(): LocalData {
-  return { customEmoji: [], conversations: {}, contactNotes: {}, reactionUsage: {}, seeded: false };
+  return {
+    customEmoji: [],
+    conversations: {},
+    contactNotes: {},
+    reactionUsage: {},
+    backfillRequested: {},
+    seeded: false,
+  };
 }
 
 export function createLocalStore(initial: LocalData = defaultLocalData()): LocalStore {
@@ -117,6 +134,16 @@ export function createLocalStore(initial: LocalData = defaultLocalData()): Local
         return { reactionUsage: Object.fromEntries(kept) };
       });
     },
+    markBackfillRequested: (key) => {
+      set((s) => {
+        const next = { ...s.backfillRequested, [key]: Date.now() };
+        // Keep the map small: only the most recently requested survive.
+        const kept = Object.entries(next)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, MAX_TRACKED_BACKFILL_REQUESTS);
+        return { backfillRequested: Object.fromEntries(kept) };
+      });
+    },
     seedDefaults: (seed) => {
       if (get().seeded) return;
       for (const id of seed.pinned ?? []) get().setPinned(id, true);
@@ -127,6 +154,7 @@ export function createLocalStore(initial: LocalData = defaultLocalData()): Local
 }
 
 const MAX_TRACKED_REACTIONS = 24;
+const MAX_TRACKED_BACKFILL_REQUESTS = 200;
 /** Offered before the user has reacted enough for a personal top list. */
 export const DEFAULT_QUICK_REACTIONS: readonly string[] = ['👍', '❤️', '😂'];
 
@@ -158,6 +186,7 @@ export function selectLocalData(s: LocalState): LocalData {
     conversations: s.conversations,
     contactNotes: s.contactNotes,
     reactionUsage: s.reactionUsage,
+    backfillRequested: s.backfillRequested,
     seeded: s.seeded,
   };
 }
@@ -178,11 +207,22 @@ export function mergeLocalData(existing: LocalData, incoming: LocalData): LocalD
       .sort((a, b) => b[1] - a[1])
       .slice(0, MAX_TRACKED_REACTIONS),
   );
+  // The later request survives a conflict; this is a dedup cache, not data worth reconciling closely.
+  const backfillRequested: Record<string, number> = { ...existing.backfillRequested };
+  for (const [key, requestedAt] of Object.entries(incoming.backfillRequested)) {
+    backfillRequested[key] = Math.max(backfillRequested[key] ?? 0, requestedAt);
+  }
+  const trimmedBackfillRequested = Object.fromEntries(
+    Object.entries(backfillRequested)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, MAX_TRACKED_BACKFILL_REQUESTS),
+  );
   return {
     customEmoji: parseCustomEmojiLibrary([...existing.customEmoji, ...incoming.customEmoji]),
     conversations: { ...incoming.conversations, ...existing.conversations },
     contactNotes: { ...incoming.contactNotes, ...existing.contactNotes },
     reactionUsage: trimmed,
+    backfillRequested: trimmedBackfillRequested,
     seeded: existing.seeded || incoming.seeded,
   };
 }
@@ -226,11 +266,19 @@ export const localSchema: VersionedSchema<LocalData> = {
           reactionUsage[emoji] = count;
       }
     }
+    const backfillRequested: Record<string, number> = {};
+    if (isRecord(data.backfillRequested)) {
+      for (const [key, requestedAt] of Object.entries(data.backfillRequested)) {
+        if (typeof requestedAt === 'number' && Number.isFinite(requestedAt) && requestedAt > 0)
+          backfillRequested[key] = requestedAt;
+      }
+    }
     return {
       customEmoji: parseCustomEmojiLibrary(data.customEmoji),
       conversations,
       contactNotes,
       reactionUsage,
+      backfillRequested,
       seeded: data.seeded === true,
     };
   },

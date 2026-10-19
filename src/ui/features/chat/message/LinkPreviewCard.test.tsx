@@ -1,12 +1,15 @@
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { MessageRef } from '@/core/backend';
 import type { Attachment, ConversationId, LinkPreview } from '@/core/domain';
+import { createLocalStore, createSessionStore } from '@/core/stores';
 import { SnowdropContextProvider, type AppServices } from '@/ui/hooks';
 import { LinkPreviewCard } from './LinkPreviewCard';
 
 afterEach(cleanup);
 
 const conversationId = 'conv-1' as ConversationId;
+const message: MessageRef = { authorId: 'author-1', sentAt: 1_000 };
 
 function fakeApp(
   resolveAttachmentUrl: (
@@ -14,13 +17,21 @@ function fakeApp(
     attachment: Attachment,
   ) => Promise<string> = vi.fn().mockResolvedValue('blob:preview-image'),
 ): AppServices {
-  return { backend: { kind: 'signal-cli', resolveAttachmentUrl } } as unknown as AppServices;
+  return {
+    backend: { kind: 'signal-cli', resolveAttachmentUrl },
+    stores: { session: createSessionStore(), local: createLocalStore() },
+  } as unknown as AppServices;
 }
 
 function renderCard(preview: LinkPreview, body: string, app: AppServices = fakeApp()) {
   return render(
     <SnowdropContextProvider value={app}>
-      <LinkPreviewCard conversationId={conversationId} preview={preview} body={body} />
+      <LinkPreviewCard
+        conversationId={conversationId}
+        message={message}
+        preview={preview}
+        body={body}
+      />
     </SnowdropContextProvider>,
   );
 }

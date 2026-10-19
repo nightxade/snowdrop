@@ -97,6 +97,42 @@
   font-size: var(--snowdrop-font-size-sm);
 }
 
+/* "Getting it from your phone…" (attachment backfill, patches/signal-cli 0016) — same layout as
+   .tileError but never implies failure, so it keeps its own class. */
+.tileStatus {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--snowdrop-space-2);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
+  text-align: center;
+  padding: 0 var(--snowdrop-space-2);
+}
+
+.spin {
+  animation: spin 1.2s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: none;
+  }
+}
+
+:root[data-reduced-motion='on'] .spin {
+  animation: none;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .retry {
   display: inline-flex;
   align-items: center;

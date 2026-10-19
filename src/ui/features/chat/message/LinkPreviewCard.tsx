@@ -1,4 +1,5 @@
 import { Link as LinkIcon } from 'lucide-react';
+import type { MessageRef } from '@/core/backend';
 import type { ConversationId, LinkPreview } from '@/core/domain';
 import { fitMedia } from '../lib/attachments';
 import { isWidePreviewImage, previewDomain, previewUrlInText } from '../lib/linkPreviews';
@@ -7,6 +8,8 @@ import styles from './LinkPreviewCard.module.css';
 
 export interface LinkPreviewCardProps {
   conversationId: ConversationId;
+  /** Identifies the message this preview belongs to, for attachment backfill requests. */
+  message: MessageRef;
   preview: LinkPreview;
   /** The message's own body — the card is hidden unless `preview.url` is still in it. */
   body: string;
@@ -21,7 +24,7 @@ const WIDE_BOX = { width: 400, height: 220 };
  * and only ever opens `preview.url`, the same way a plain link in the
  * message text does (new tab, no referrer).
  */
-export function LinkPreviewCard({ conversationId, preview, body }: LinkPreviewCardProps) {
+export function LinkPreviewCard({ conversationId, message, preview, body }: LinkPreviewCardProps) {
   if (!previewUrlInText(preview, body)) return null;
   const wide = isWidePreviewImage(preview.image);
   const domain = previewDomain(preview.url);
@@ -43,7 +46,12 @@ export function LinkPreviewCard({ conversationId, preview, body }: LinkPreviewCa
         {preview.description && <span className={styles.description}>{preview.description}</span>}
       </span>
       {preview.image && (
-        <PreviewImage conversationId={conversationId} attachment={preview.image} wide={wide} />
+        <PreviewImage
+          conversationId={conversationId}
+          message={message}
+          attachment={preview.image}
+          wide={wide}
+        />
       )}
     </a>
   );
@@ -51,14 +59,16 @@ export function LinkPreviewCard({ conversationId, preview, body }: LinkPreviewCa
 
 function PreviewImage({
   conversationId,
+  message,
   attachment,
   wide,
 }: {
   conversationId: ConversationId;
+  message: MessageRef;
   attachment: NonNullable<LinkPreview['image']>;
   wide: boolean;
 }) {
-  const state = useAttachmentUrl(conversationId, attachment);
+  const state = useAttachmentUrl(conversationId, message, attachment);
   const box = fitMedia(attachment, wide ? WIDE_BOX : THUMB_BOX);
   const style = { width: box.width, aspectRatio: `${box.width} / ${box.height}` };
   if (state.status !== 'ready') {

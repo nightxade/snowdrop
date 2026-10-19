@@ -256,4 +256,38 @@ describe('MockBackend', () => {
     await backend.updateConversation(conv, { title: 'Book Nook 📚' });
     expect(fn).toHaveBeenCalledWith(expect.objectContaining({ title: 'Book Nook 📚' }));
   });
+
+  it('simulates attachment backfill: a pending event, then ready after a delay', async () => {
+    const { backend, scheduler } = setup();
+    await backend.connect();
+    expect(backend.supportsAttachmentBackfill()).toBe(true);
+    const conv = backend.world.conversationIds.get('dm-lucia')!;
+    const events = collect(backend, 'attachmentBackfill');
+
+    await backend.requestAttachmentBackfill(conv, 'author-1', 1_000, ['att-1', 'att-2']);
+    expect(events).toEqual([
+      {
+        targetAuthorId: 'author-1',
+        targetSentAt: 1_000,
+        status: 'pending',
+        attachmentIds: ['att-1', 'att-2'],
+      },
+    ]);
+
+    scheduler.advance(1_500);
+    expect(events).toEqual([
+      {
+        targetAuthorId: 'author-1',
+        targetSentAt: 1_000,
+        status: 'pending',
+        attachmentIds: ['att-1', 'att-2'],
+      },
+      {
+        targetAuthorId: 'author-1',
+        targetSentAt: 1_000,
+        status: 'ready',
+        attachmentIds: ['att-1', 'att-2'],
+      },
+    ]);
+  });
 });

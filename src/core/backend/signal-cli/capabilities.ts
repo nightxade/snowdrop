@@ -23,3 +23,21 @@ export function supportsCustomEmojiDelivery(version: string | undefined): boolea
   if (!match?.[1]) return false;
   return Number(match[1]) >= MIN_CUSTOM_EMOJI_PATCH_LEVEL;
 }
+
+/**
+ * Whether a running signal-cli build implements `requestAttachmentBackfill`
+ * and the `attachmentBackfill` notification (patches/signal-cli, "0016:
+ * attachment backfill"). Signal-cli's own capability advertisement
+ * (`attachmentBackfill = !isPrimaryDevice`) predates this patch and is
+ * unconditional on *any* build, patched or not, so it can't be used to
+ * detect support here — only the version string can. Same
+ * `snowdrop-history.N` scheme as custom emoji, just a different threshold.
+ */
+export const MIN_ATTACHMENT_BACKFILL_PATCH_LEVEL = 14;
+
+export function supportsAttachmentBackfill(version: string | undefined): boolean {
+  if (!version) return false;
+  const match = SNOWDROP_PATCH_LEVEL.exec(version);
+  if (!match?.[1]) return false;
+  return Number(match[1]) >= MIN_ATTACHMENT_BACKFILL_PATCH_LEVEL;
+}

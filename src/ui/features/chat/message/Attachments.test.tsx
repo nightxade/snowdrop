@@ -10,7 +10,9 @@
  */
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { MessageRef } from '@/core/backend';
 import type { Attachment, ConversationId } from '@/core/domain';
+import { createLocalStore, createSessionStore } from '@/core/stores';
 import { SnowdropContextProvider, type AppServices } from '@/ui/hooks';
 import { TooltipProvider } from '@/ui/primitives';
 import { Attachments } from './Attachments';
@@ -18,11 +20,15 @@ import { Attachments } from './Attachments';
 afterEach(cleanup);
 
 const conversationId = 'conv-1' as ConversationId;
+const message: MessageRef = { authorId: 'author-1', sentAt: 1_000 };
 
 function fakeApp(
   resolveAttachmentUrl: (conversationId: ConversationId, attachment: Attachment) => Promise<string>,
 ): AppServices {
-  return { backend: { kind: 'signal-cli', resolveAttachmentUrl } } as unknown as AppServices;
+  return {
+    backend: { kind: 'signal-cli', resolveAttachmentUrl },
+    stores: { session: createSessionStore(), local: createLocalStore() },
+  } as unknown as AppServices;
 }
 
 function renderTile(
@@ -32,7 +38,12 @@ function renderTile(
   return render(
     <SnowdropContextProvider value={fakeApp(resolveAttachmentUrl)}>
       <TooltipProvider>
-        <Attachments conversationId={conversationId} attachments={[attachment]} pending={false} />
+        <Attachments
+          conversationId={conversationId}
+          message={message}
+          attachments={[attachment]}
+          pending={false}
+        />
       </TooltipProvider>
     </SnowdropContextProvider>,
   );
@@ -146,6 +157,7 @@ describe('attachment viewer', () => {
         <TooltipProvider>
           <Attachments
             conversationId={conversationId}
+            message={message}
             pending={false}
             attachments={Array.from({ length: 5 }, (_, i) => ({
               id: `${i}`,

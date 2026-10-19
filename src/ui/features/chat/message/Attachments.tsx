@@ -1,5 +1,6 @@
-import { Download, FileText, ImageOff, Play, RotateCw } from 'lucide-react';
+import { Download, FileText, ImageOff, Loader2, Play, RotateCw } from 'lucide-react';
 import { lazy, memo, Suspense, useState, type CSSProperties } from 'react';
+import type { MessageRef } from '@/core/backend';
 import type { Attachment, ConversationId } from '@/core/domain';
 import { Tooltip, type LightboxItem } from '@/ui/primitives';
 import {
@@ -15,6 +16,8 @@ import styles from './Attachments.module.css';
 
 export interface AttachmentsProps {
   conversationId: ConversationId;
+  /** Identifies the message these attachments belong to, for attachment backfill requests. */
+  message: MessageRef;
   attachments: readonly Attachment[];
   /** Upload in progress (optimistic message). */
   pending: boolean;
@@ -30,12 +33,16 @@ const Lightbox = lazy(() =>
 
 export const Attachments = memo(function Attachments({
   conversationId,
+  message,
   attachments,
   pending,
   caption,
 }: AttachmentsProps) {
   const media = attachments.filter((a) => isGridMedia(a));
   const others = attachments.filter((a) => !isGridMedia(a));
+  // The *whole* message's attachment ids, in order: a backfill request names
+  // all of them, not just whichever one failed (see useAttachmentUrl).
+  const attachmentIds = attachments.map((a) => a.id);
   const [viewer, setViewer] = useState<number | null>(null);
   // Mounted on first open, then kept: unmounting an open Radix dialog can leave the page inert.
   const [viewerMounted, setViewerMounted] = useState(false);
@@ -64,6 +71,8 @@ export const Attachments = memo(function Attachments({
             <MediaTile
               key={a.id}
               conversationId={conversationId}
+              message={message}
+              attachmentIds={attachmentIds}
               attachment={a}
               pending={pending}
               more={i === shown.length - 1 && overflow > 0 ? overflow : 0}
@@ -74,15 +83,31 @@ export const Attachments = memo(function Attachments({
       )}
       {others.map((a) =>
         attachmentKind(a) === 'audio' ? (
-          <AudioCard key={a.id} conversationId={conversationId} attachment={a} pending={pending} />
+          <AudioCard
+            key={a.id}
+            conversationId={conversationId}
+            message={message}
+            attachmentIds={attachmentIds}
+            attachment={a}
+            pending={pending}
+          />
         ) : (
-          <FileCard key={a.id} conversationId={conversationId} attachment={a} pending={pending} />
+          <FileCard
+            key={a.id}
+            conversationId={conversationId}
+            message={message}
+            attachmentIds={attachmentIds}
+            attachment={a}
+            pending={pending}
+          />
         ),
       )}
       {media.length > 0 && viewerMounted && (
         <Suspense fallback={null}>
           <AttachmentViewer
             conversationId={conversationId}
+            message={message}
+            attachmentIds={attachmentIds}
             media={media}
             index={Math.min(viewer ?? 0, media.length - 1)}
             onIndexChange={setViewer}
@@ -101,11 +126,15 @@ export const Attachments = memo(function Attachments({
 /** Resolve the selected item independently of thumbnail and blob-cache lifetimes. */
 function AttachmentViewer({
   conversationId,
+  message,
+  attachmentIds,
   media,
   index,
   ...props
 }: {
   conversationId: ConversationId;
+  message: MessageRef;
+  attachmentIds: readonly string[];
   media: readonly Attachment[];
   index: number;
   open: boolean;
@@ -115,7 +144,7 @@ function AttachmentViewer({
 }) {
   const selected = media[index];
   if (!selected) throw new Error('Attachment viewer index is out of range');
-  const state = useAttachmentUrl(conversationId, selected);
+  const state = useAttachmentUrl(conversationId, message, selected, attachmentIds);
   const failure = state.status === 'error' ? attachmentFailureCopy(state.kind) : undefined;
   const items: LightboxItem[] = media.map((a, i) => {
     const src = i === index && state.status === 'ready' ? state.url : '';
@@ -149,14 +178,24 @@ function singleStyle(a: Attachment): CSSProperties {
 
 interface TileProps {
   conversationId: ConversationId;
+  message: MessageRef;
+  attachmentIds: readonly string[];
   attachment: Attachment;
   pending: boolean;
   more: number;
   onOpen: (a: Attachment) => void;
 }
 
-function MediaTile({ conversationId, attachment, pending, more, onOpen }: TileProps) {
-  const state = useAttachmentUrl(conversationId, attachment);
+function MediaTile({
+  conversationId,
+  message,
+  attachmentIds,
+  attachment,
+  pending,
+  more,
+  onOpen,
+}: TileProps) {
+  const state = useAttachmentUrl(conversationId, message, attachment, attachmentIds);
   const video = attachmentKind(attachment) === 'video';
   const name = attachment.fileName ?? (video ? 'Video' : 'Image');
 
@@ -174,6 +213,11 @@ function MediaTile({ conversationId, attachment, pending, more, onOpen }: TilePr
                 <RotateCw size={12} aria-hidden /> Retry
               </button>
             )}
+          </span>
+        ) : state.status === 'backfilling' ? (
+          <span className={styles.tileStatus}>
+            <Loader2 size={20} className={styles.spin} aria-hidden />
+            <span>Getting it from your phone…</span>
           </span>
         ) : null}
       </div>
@@ -224,6 +268,8 @@ function MediaTile({ conversationId, attachment, pending, more, onOpen }: TilePr
 
 interface CardProps {
   conversationId: ConversationId;
+  message: MessageRef;
+  attachmentIds: readonly string[];
   attachment: Attachment;
   pending: boolean;
 }
@@ -240,8 +286,8 @@ function DownloadButton({ url, fileName }: { url: string; fileName: string | und
   );
 }
 
-function FileCard({ conversationId, attachment, pending }: CardProps) {
-  const state = useAttachmentUrl(conversationId, attachment);
+function FileCard({ conversationId, message, attachmentIds, attachment, pending }: CardProps) {
+  const state = useAttachmentUrl(conversationId, message, attachment, attachmentIds);
   const name = attachment.fileName ?? 'Untitled file';
   const size = formatBytes(attachment.size);
   const failure = state.status === 'error' ? attachmentFailureCopy(state.kind) : undefined;
@@ -250,11 +296,13 @@ function FileCard({ conversationId, attachment, pending }: CardProps) {
       ? pending
         ? 'Uploading…'
         : 'Preparing…'
-      : failure
-        ? failure.label
-        : state.status === 'unavailable'
-          ? 'Not available on this device'
-          : size;
+      : state.status === 'backfilling'
+        ? 'Getting it from your phone…'
+        : failure
+          ? failure.label
+          : state.status === 'unavailable'
+            ? 'Not available on this device'
+            : size;
   return (
     <div className={styles.card}>
       <FileText className={styles.cardIcon} size={28} strokeWidth={1.5} aria-hidden />
@@ -278,10 +326,18 @@ function FileCard({ conversationId, attachment, pending }: CardProps) {
   );
 }
 
-function AudioCard({ conversationId, attachment, pending }: CardProps) {
-  const state = useAttachmentUrl(conversationId, attachment);
+function AudioCard({ conversationId, message, attachmentIds, attachment, pending }: CardProps) {
+  const state = useAttachmentUrl(conversationId, message, attachment, attachmentIds);
   if (state.status !== 'ready')
-    return <FileCard conversationId={conversationId} attachment={attachment} pending={pending} />;
+    return (
+      <FileCard
+        conversationId={conversationId}
+        message={message}
+        attachmentIds={attachmentIds}
+        attachment={attachment}
+        pending={pending}
+      />
+    );
   return (
     <div className={styles.card} data-audio="">
       <div className={styles.cardText}>

@@ -55,6 +55,7 @@ export function useCustomEmojiResolver(
     <EmojiSource
       key={e.name}
       conversationId={conversationId}
+      message={message}
       name={e.name}
       attachment={e.attachment}
       onResolved={onResolved}
@@ -67,16 +68,18 @@ export function useCustomEmojiResolver(
 /** Downloads one delivered emoji and reports its URL (or `undefined` until ready). */
 function EmojiSource({
   conversationId,
+  message,
   name,
   attachment,
   onResolved,
 }: {
   conversationId: ConversationId;
+  message: Pick<Message, 'authorId' | 'sentAt'>;
   name: string;
   attachment: Message['attachments'][number];
   onResolved: (name: string, url: string | undefined) => void;
 }) {
-  const state = useAttachmentUrl(conversationId, attachment);
+  const state = useAttachmentUrl(conversationId, message, attachment);
   const url = state.status === 'ready' ? state.url : undefined;
   useEffect(() => {
     onResolved(name, url);

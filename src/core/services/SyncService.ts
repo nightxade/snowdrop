@@ -594,6 +594,21 @@ export class SyncService {
       },
       true,
     );
+    // Ephemeral, like status/typing: a stale answer waiting behind the
+    // initial sync backlog would show "Getting it from your phone…" long
+    // after it was actually resolved.
+    on(
+      'attachmentBackfill',
+      (e) => {
+        this.deps.stores.session
+          .getState()
+          .setAttachmentBackfill(`${e.targetAuthorId}\u0000${e.targetSentAt}`, {
+            status: e.status,
+            attachmentIds: e.attachmentIds,
+          });
+      },
+      true,
+    );
     on('conversationUpdated', (conv) => {
       // Protocol fields only; local state lives in localStore and is untouched.
       this.deps.stores.conversations.getState().upsert(conv);

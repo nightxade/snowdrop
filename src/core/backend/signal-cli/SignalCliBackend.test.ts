@@ -121,7 +121,8 @@ function daemonWithAccount() {
     .reply('updateGroup', { timestamp: 1, results: [] })
     .reply('updateContact', {})
     .reply('sendSyncRequest', {})
-    .reply('getAttachment', { data: 'aGVsbG8=' });
+    .reply('getAttachment', { data: 'aGVsbG8=' })
+    .reply('requestAttachmentBackfill', { accepted: true });
   return { daemon, groups, contacts };
 }
 
@@ -422,6 +423,109 @@ describe('SignalCliBackend: connection', () => {
     // No 'version' handler configured: FakeDaemon answers method-not-found.
     const { backend } = await connected({ daemon });
     expect(backend.supportsCustomEmojiDelivery()).toBe(false);
+    await backend.disconnect();
+  });
+
+  it('detects attachment-backfill support from the connected daemon version string (patches/signal-cli 0016)', async () => {
+    const { daemon } = daemonWithAccount();
+    daemon.reply('version', { version: '0.14.8-snowdrop-history.14' });
+    const { backend } = await connected({ daemon });
+    expect(backend.supportsAttachmentBackfill()).toBe(true);
+    await backend.disconnect();
+    // A fresh connect to a daemon that doesn't support it drops back to false.
+    expect(backend.supportsAttachmentBackfill()).toBe(false);
+  });
+
+  it('treats an older patched build as no attachment-backfill support', async () => {
+    const { daemon } = daemonWithAccount();
+    daemon.reply('version', { version: '0.14.8-snowdrop-history.13' });
+    const { backend } = await connected({ daemon });
+    expect(backend.supportsAttachmentBackfill()).toBe(false);
+    await backend.disconnect();
+  });
+});
+
+describe('SignalCliBackend: attachment backfill (patches/signal-cli 0016)', () => {
+  it('sends requestAttachmentBackfill with the DM recipient, author, timestamp and attachment ids', async () => {
+    const { daemon } = daemonWithAccount();
+    daemon.reply('version', { version: '0.14.8-snowdrop-history.14' });
+    const { backend } = await connected({ daemon });
+    const conversationId = directConversationId(ALICE);
+
+    await backend.requestAttachmentBackfill(conversationId, ALICE, T0, ['att-1', 'att-2']);
+
+    expect(daemon.callsTo('requestAttachmentBackfill')).toEqual([
+      {
+        recipient: ALICE,
+        targetAuthor: ALICE,
+        // A 64-bit timestamp travels as a decimal string, like other int64 RPC fields.
+        targetTimestamp: String(T0),
+        attachmentIds: ['att-1', 'att-2'],
+        account: SELF_ACI,
+      },
+    ]);
+    await backend.disconnect();
+  });
+
+  it('sends the group id instead of a recipient for a group conversation', async () => {
+    const { daemon } = daemonWithAccount();
+    daemon.reply('version', { version: '0.14.8-snowdrop-history.14' });
+    const { backend } = await connected({ daemon });
+
+    await backend.requestAttachmentBackfill(GROUP, ALICE, T0, ['att-1']);
+
+    const [call] = daemon.callsTo('requestAttachmentBackfill');
+    expect(call).toMatchObject({
+      groupId: GROUP_ID,
+      targetAuthor: ALICE,
+      targetTimestamp: String(T0),
+    });
+    expect(call).not.toHaveProperty('recipient');
+    await backend.disconnect();
+  });
+
+  it('is a no-op against a daemon that does not support it', async () => {
+    const { daemon } = daemonWithAccount();
+    // No 'version' handler: supportsAttachmentBackfill() is false.
+    const { backend } = await connected({ daemon });
+
+    await backend.requestAttachmentBackfill(directConversationId(ALICE), ALICE, T0, ['att-1']);
+
+    expect(daemon.callsTo('requestAttachmentBackfill')).toEqual([]);
+    await backend.disconnect();
+  });
+
+  it('maps an attachmentBackfill SSE event to the backend event', async () => {
+    const { backend, daemon } = await connected();
+    const events = collect(backend, 'attachmentBackfill');
+    daemon.lastStream!.push(
+      `id:run-10\nevent:attachmentBackfill\ndata:${JSON.stringify({
+        targetAuthor: ALICE,
+        targetTimestamp: T0,
+        status: 'ready',
+        attachmentIds: ['att-1', 'att-2'],
+      })}\n\n`,
+    );
+    await flush();
+    await backend.idle();
+    expect(events).toEqual([
+      {
+        targetAuthorId: ALICE,
+        targetSentAt: T0,
+        status: 'ready',
+        attachmentIds: ['att-1', 'att-2'],
+      },
+    ]);
+    await backend.disconnect();
+  });
+
+  it('ignores a malformed attachmentBackfill event instead of crashing the stream', async () => {
+    const { backend, daemon } = await connected();
+    const events = collect(backend, 'attachmentBackfill');
+    daemon.lastStream!.push(`id:run-11\nevent:attachmentBackfill\ndata:${JSON.stringify({})}\n\n`);
+    await flush();
+    await backend.idle();
+    expect(events).toEqual([]);
     await backend.disconnect();
   });
 });

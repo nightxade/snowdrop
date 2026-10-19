@@ -252,6 +252,20 @@ export interface BackendEvents {
    * Only transports that can resume (signal-cli's SSE ids) emit it.
    */
   checkpoint: { cursor: string };
+  /**
+   * Our primary answered a `requestAttachmentBackfill` call (patches/
+   * signal-cli, "0016: attachment backfill"). `pending` means the phone is
+   * still looking and a later event for the same message may follow;
+   * `ready` means whatever it still had was re-uploaded and any of
+   * `attachmentIds` may now resolve; `failed` means it doesn't know the
+   * message, or its answer didn't otherwise match the request.
+   */
+  attachmentBackfill: {
+    targetAuthorId: string;
+    targetSentAt: number;
+    status: 'pending' | 'ready' | 'failed';
+    attachmentIds: readonly string[];
+  };
 }
 
 export interface LinkFlow {
@@ -344,6 +358,30 @@ export interface ChatBackend {
     attachment: Attachment,
     options?: { forceRefresh?: boolean },
   ): Promise<string>;
+
+  /**
+   * Whether the connected backend can answer `requestAttachmentBackfill` at
+   * all (patches/signal-cli's "0016: attachment backfill" — an older
+   * patched build, or upstream signal-cli, advertises none of this).
+   * Adapters without the capability (the mock always supports it; a future
+   * adapter without an equivalent would omit both this and the method
+   * below) omit this, which is the same as always returning false.
+   */
+  supportsAttachmentBackfill?(): boolean;
+
+  /**
+   * Asks our primary device to re-upload a message's attachments, for when
+   * the file behind an id is gone (`missing-on-disk`) or its CDN copy
+   * expired (`expired`) and nothing local is left to retry from. The actual
+   * outcome arrives later as an `attachmentBackfill` event; this call only
+   * starts the request (and may resolve before any answer does).
+   */
+  requestAttachmentBackfill?(
+    conversationId: ConversationId,
+    targetAuthorId: string,
+    targetSentAt: number,
+    attachmentIds: readonly string[],
+  ): Promise<void>;
 
   /**
    * Marks transport position `cursor` (from a `checkpoint` event) as durably

@@ -73,6 +73,7 @@ describe('migrateLegacyScope', () => {
       conversations: {},
       contactNotes: { alice: 'met at work' },
       reactionUsage: {},
+      backfillRequested: {},
       seeded: false,
     });
     migrateLegacyScope(storage, localSchema, 'signal-cli:+1', mergeLocalData);
@@ -90,6 +91,7 @@ describe('migrateLegacyScope', () => {
       conversations: {},
       contactNotes: { alice: 'already here' },
       reactionUsage: {},
+      backfillRequested: {},
       seeded: true,
     });
     saveVersioned(storage, localSchema, {
@@ -97,6 +99,7 @@ describe('migrateLegacyScope', () => {
       conversations: {},
       contactNotes: { alice: 'legacy value', bob: 'legacy only' },
       reactionUsage: {},
+      backfillRequested: {},
       seeded: true,
     });
     migrateLegacyScope(storage, localSchema, 'signal-cli:+1', mergeLocalData);
@@ -173,6 +176,7 @@ describe('rebindScopedStore', () => {
       conversations: {},
       contactNotes: { alice: 'known already' },
       reactionUsage: {},
+      backfillRequested: {},
       seeded: false,
     });
     const store = createLocalStore();

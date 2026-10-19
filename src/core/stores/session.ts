@@ -48,6 +48,14 @@ export interface SessionState {
   catchingUp: boolean;
   /** See `HistoryImportProgress`. */
   historyImport: HistoryImportProgress;
+  /**
+   * Latest `attachmentBackfill` event per message (patches/signal-cli,
+   * "0016: attachment backfill"), keyed by `${authorId}\u0000${sentAt}` —
+   * read by `useAttachmentUrl` to drive the "Getting it from your
+   * phone…" / retry UI. Ephemeral (session-only): a restart shows the
+   * attachment's plain failure state instead, with a manual retry.
+   */
+  attachmentBackfills: Record<string, AttachmentBackfillStatus>;
 
   setBackendKind(kind: BackendKind | null): void;
   setStatus(status: ConnectionStatus): void;
@@ -56,6 +64,14 @@ export interface SessionState {
   setReady(ready: boolean): void;
   setCatchingUp(catchingUp: boolean): void;
   setHistoryImport(patch: Partial<HistoryImportProgress>): void;
+  setAttachmentBackfill(key: string, status: AttachmentBackfillStatus): void;
+  /** Call right before sending a new request for `key`, so a stale answer from an earlier one can't leak into it. */
+  clearAttachmentBackfill(key: string): void;
+}
+
+export interface AttachmentBackfillStatus {
+  status: 'pending' | 'ready' | 'failed';
+  attachmentIds: readonly string[];
 }
 
 export type SessionStore = StoreApi<SessionState>;
@@ -70,6 +86,7 @@ export function createSessionStore(): SessionStore {
     ready: false,
     catchingUp: false,
     historyImport: IDLE_HISTORY_IMPORT,
+    attachmentBackfills: {},
     setBackendKind: (backendKind) => {
       set({ backendKind });
     },
@@ -91,6 +108,15 @@ export function createSessionStore(): SessionStore {
     setHistoryImport: (patch) => {
       set((s) => ({ historyImport: { ...s.historyImport, ...patch } }));
     },
+    setAttachmentBackfill: (key, status) => {
+      set((s) => ({ attachmentBackfills: { ...s.attachmentBackfills, [key]: status } }));
+    },
+    clearAttachmentBackfill: (key) => {
+      set((s) => {
+        const { [key]: _removed, ...rest } = s.attachmentBackfills;
+        return { attachmentBackfills: rest };
+      });
+    },
   }));
 }
 
@@ -104,4 +130,6 @@ export const sessionSelectors = {
   errorKind: (s: SessionState) => s.errorKind,
   catchingUp: (s: SessionState) => s.catchingUp,
   historyImport: (s: SessionState) => s.historyImport,
+  attachmentBackfill: (authorId: string, sentAt: number) => (s: SessionState) =>
+    s.attachmentBackfills[`${authorId}\u0000${sentAt}`],
 };
