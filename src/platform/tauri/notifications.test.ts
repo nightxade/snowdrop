@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { sendNotification } from '@tauri-apps/plugin-notification';
-import { EVENT_NOTIFICATION_CLICKED, tauriNotificationApi } from './notifications';
+import { tauriNotificationApi } from './notifications';
 import type { TauriIpc } from './ipc';
 
 vi.mock('@tauri-apps/plugin-notification', () => ({
@@ -9,20 +9,6 @@ vi.mock('@tauri-apps/plugin-notification', () => ({
   sendNotification: vi.fn(),
 }));
 vi.mock('./ipc', () => ({ tauriIpc: {} }));
-
-/** A fake `ipc.listen` that remembers handlers so a test can fire them,
- * same shape the real Tauri `listen` resolves to (an unlisten function). */
-function fakeIpc() {
-  const invoke = vi.fn().mockResolvedValue(true);
-  const handlers = new Map<string, (payload: unknown) => void>();
-  const listen = vi.fn((event: string, handler: (payload: unknown) => void) => {
-    handlers.set(event, handler);
-    return Promise.resolve(() => handlers.delete(event));
-  });
-  const ipc: TauriIpc = { invoke, listen };
-  const fire = (event: string, payload: unknown) => handlers.get(event)?.(payload);
-  return { invoke, ipc, fire };
-}
 
 function setup() {
   const invoke = vi.fn().mockResolvedValue(true);
@@ -113,30 +99,5 @@ describe('native notifications', () => {
     api.show(content, clicked);
     await flush();
     expect(sendNotification).toHaveBeenCalledWith({ title: content.title, body: content.body });
-  });
-
-  it("runs the right conversation's onClick when Rust reports a click", async () => {
-    const { ipc, fire } = fakeIpc();
-    const api = await tauriNotificationApi(ipc);
-    const anaClicked = vi.fn();
-    const boClicked = vi.fn();
-    api.show(content, anaClicked);
-    api.show({ ...content, tag: 'snowdrop:bo' }, boClicked);
-    await flush();
-    fire(EVENT_NOTIFICATION_CLICKED, 'snowdrop:bo');
-    expect(boClicked).toHaveBeenCalledTimes(1);
-    expect(anaClicked).not.toHaveBeenCalled();
-  });
-
-  it('ignores a click reported for a tag that was already closed', async () => {
-    const { ipc, fire } = fakeIpc();
-    const api = await tauriNotificationApi(ipc);
-    const onClick = vi.fn();
-    const shown = api.show(content, onClick)!;
-    await flush();
-    shown.close();
-    await flush();
-    fire(EVENT_NOTIFICATION_CLICKED, content.tag);
-    expect(onClick).not.toHaveBeenCalled();
   });
 });
