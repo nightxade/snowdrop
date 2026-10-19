@@ -64,14 +64,19 @@
   --snowdrop-radius-full: 2px;
 
   /*
-   * shadow-* tokens bake a faint 1px light outline into the drop shadow
-   * itself (see tokens.css). Pane borders below replace that outline, so it
-   * is dropped here — otherwise a popover/modal would show two borders a
-   * pixel apart.
+   * No elevation shadows anywhere in TUI (PLAN: "no shadows/pills/fills
+   * except the status-line mode chip") — every menu, popover, modal, the
+   * emoji picker, the autocomplete popover, the hover-actions toolbar, the
+   * members sheet and the lightbox already get a 1px pane border instead
+   * (panes.css/overlays.css), so the blurred drop shadow these three tokens
+   * used to carry would just double up with that border as a soft halo
+   * around it. One redefinition here reaches every one of them, since they
+   * all read elevation through these tokens rather than their own
+   * box-shadow values.
    */
-  --snowdrop-shadow-menu: 0 8px 24px rgba(0, 0, 0, 0.45);
-  --snowdrop-shadow-popout: 0 12px 32px rgba(0, 0, 0, 0.5);
-  --snowdrop-shadow-modal: 0 24px 64px rgba(0, 0, 0, 0.6);
+  --snowdrop-shadow-menu: none;
+  --snowdrop-shadow-popout: none;
+  --snowdrop-shadow-modal: none;
 
   /*
    * Compact layout tokens re-tuned for the pane grid below. Rail: two

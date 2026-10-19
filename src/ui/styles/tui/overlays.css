@@ -10,7 +10,8 @@
 
 :root[data-shell='tui'] [role='menu'],
 :root[data-shell='tui'] [role='tooltip'],
-:root[data-shell='tui'] [data-snowdrop='autocomplete'] {
+:root[data-shell='tui'] [data-snowdrop='autocomplete'],
+:root[data-shell='tui'] [data-snowdrop='hover-bar'] {
   box-sizing: border-box;
   border: 1px solid var(--snowdrop-pane-border);
   border-radius: var(--snowdrop-pane-radius);
@@ -36,18 +37,120 @@
   border-radius: 0;
 }
 
-/* "N new messages" / jump-to-present: a bordered strip, not a filled pill,
-   sitting clearly inside the message area instead of right under the chat
-   header's own rule (its default `top` reads as touching it). */
+/*
+ * Jump-to-present and "N new messages": both are small bordered mono chips
+ * in TUI — `[3 new ↓]` / `[latest ↓]` bottom-right of the message pane,
+ * `[12 new ↓] │ mark read` top-right — not bars or pills.
+ *
+ * The hooks live on the actual button/bar, not on a positioning wrapper
+ * around it, so the rules below only ever touch content-sized elements —
+ * `.jumpWrap` (JumpToPresent) and `.bar` (NewMessagesBar) are themselves the
+ * positioned elements and both stretch edge-to-edge-ish by default (full
+ * width / `left/right: --snowdrop-space-7`) to center or span a full-width
+ * bar in the standard shell. Re-pinning them to a corner, inset by one gap,
+ * is what keeps either from reading as "a whole bar" (the reported bug).
+ */
+:root[data-shell='tui'] div:has(> [data-snowdrop='jump-to-present']) {
+  right: var(--snowdrop-tui-gap);
+  bottom: var(--snowdrop-tui-gap);
+  left: auto;
+  justify-content: flex-end;
+}
+
+:root[data-shell='tui'] [data-snowdrop='new-messages-bar'] {
+  top: var(--snowdrop-tui-gap);
+  right: var(--snowdrop-tui-gap);
+  left: auto;
+  width: fit-content;
+  height: var(--snowdrop-tui-row);
+}
+
 :root[data-shell='tui'] [data-snowdrop='new-messages-bar'],
 :root[data-shell='tui'] [data-snowdrop='jump-to-present'] {
-  top: calc(var(--snowdrop-space-3) + var(--snowdrop-tui-gap));
-  height: var(--snowdrop-tui-row);
   border: 1px solid var(--snowdrop-pane-border);
   border-radius: var(--snowdrop-pane-radius);
   background: var(--snowdrop-bg-chat);
   color: var(--snowdrop-accent-text);
+  font-family: var(--snowdrop-font-mono);
+  font-size: var(--snowdrop-font-size-xs);
+  font-weight: var(--snowdrop-font-weight-regular);
   box-shadow: none;
+}
+
+:root[data-shell='tui'] [data-snowdrop='jump-to-present'] {
+  height: var(--snowdrop-tui-row);
+  padding: 0 var(--snowdrop-tui-pad-x);
+}
+
+:root[data-shell='tui'] [data-snowdrop='jump-to-present']:not([data-new]) {
+  color: var(--snowdrop-text-muted);
+}
+
+:root[data-shell='tui'] [data-snowdrop='jump-to-present']:hover,
+:root[data-shell='tui'] [data-snowdrop='jump-to-present'][data-new]:hover {
+  background: var(--snowdrop-bg-chat);
+  border-color: var(--snowdrop-pane-border-focus);
+}
+
+:root[data-shell='tui'] [data-snowdrop='new-messages-bar'] > button {
+  padding-inline: var(--snowdrop-tui-pad-x);
+}
+
+:root[data-shell='tui'] [data-snowdrop='new-messages-bar'] > button:hover {
+  background: var(--snowdrop-bg-hover);
+}
+
+/*
+ * Toasts (sonner, mounted once at the app root — Toaster.tsx): square
+ * bordered chip instead of a floating rounded card with a drop shadow and a
+ * coloured accent bar down the left edge. Tone still reads through the icon
+ * colour (`.success`/`.error`/`.info` already colour `.icon` — untouched),
+ * not a fill. Toaster.tsx pushes the TUI offset up so toasts clear the
+ * jump-to-present/new-messages chip docked in the same corner of the message
+ * pane instead of painting over it.
+ */
+:root[data-shell='tui'] [data-sonner-toast] {
+  border: 1px solid var(--snowdrop-pane-border);
+  border-left: 1px solid var(--snowdrop-pane-border);
+  border-radius: var(--snowdrop-pane-radius);
+  background: var(--snowdrop-bg-chat);
+  box-shadow: none;
+  font-family: var(--snowdrop-font-mono);
+}
+
+/*
+ * Drag-and-drop overlay (DropOverlay.tsx): the card is a rounded, shadowed,
+ * filled card with a filled accent circle around its icon — none of which
+ * exists elsewhere in TUI. No stable hook on the card/icon themselves (one
+ * un-hooked `<div>`/`<span>` each inside the hooked scrim), so the direct
+ * child combinator reaches them instead of adding hooks for two elements
+ * nothing else needs to target.
+ */
+:root[data-shell='tui'] [data-snowdrop='drop-overlay'] > div {
+  border: 1px dashed var(--snowdrop-pane-border-focus);
+  border-radius: var(--snowdrop-pane-radius);
+  background: var(--snowdrop-bg-chat);
+  box-shadow: none;
+}
+
+:root[data-shell='tui'] [data-snowdrop='drop-overlay'] > div > span {
+  border-radius: 0;
+  background: none;
+  color: var(--snowdrop-accent-text);
+}
+
+/*
+ * Avatars that are still shown at all in TUI (sidebar/member-row/user-panel
+ * avatars are hidden outright — lists.css) square off instead of staying
+ * circular: search results, pinned messages, the mentions inbox (all
+ * MessageResult.tsx), the @ autocomplete, quote headers and the profile
+ * popout. `[data-shape]` (Avatar.tsx) is on every avatar regardless of
+ * `shape="circle"`/`"rounded"`; its first child is the coloured face, its
+ * second (when present) the status-dot ring — both pick up the same pane
+ * radius instead of their own full/30% one.
+ */
+:root[data-shell='tui'] [data-shape] > span {
+  border-radius: var(--snowdrop-pane-radius);
 }
 
 /*

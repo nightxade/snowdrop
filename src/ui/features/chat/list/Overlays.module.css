@@ -56,6 +56,14 @@
   flex: none;
 }
 
+/* TUI only (see NewMessagesBar.tsx): the dim separator between the two
+   actions when the bar is a compact chip instead of a full-width strip. */
+.barSep {
+  flex: none;
+  align-self: center;
+  color: var(--snowdrop-text-faint);
+}
+
 .jumpWrap {
   position: absolute;
   z-index: 3;
