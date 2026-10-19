@@ -1,0 +1,1231 @@
+diff --git a/build.gradle.kts b/build.gradle.kts
+index af0650a..3901da4 100644
+--- a/build.gradle.kts
++++ b/build.gradle.kts
+@@ -10,7 +10,7 @@ plugins {
+ 
+ allprojects {
+     group = "org.asamk"
+-    version = "0.14.8-snowdrop-history.13"
++    version = "0.14.8-snowdrop-history.14"
+ 
+     // Snowdrop: substitute a locally-built, patched signal-service-java
+     // (snowdrop/patches/signal-service-java) for the stock turasa jar, when
+diff --git a/lib/src/main/java/org/asamk/signal/manager/Manager.java b/lib/src/main/java/org/asamk/signal/manager/Manager.java
+index 2f60804..b1fd26a 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/Manager.java
++++ b/lib/src/main/java/org/asamk/signal/manager/Manager.java
+@@ -3,6 +3,7 @@ package org.asamk.signal.manager;
+ import com.google.i18n.phonenumbers.PhoneNumberUtil;
+ 
+ import org.asamk.signal.manager.api.AlreadyReceivingException;
++import org.asamk.signal.manager.api.AttachmentBackfillResult;
+ import org.asamk.signal.manager.api.AttachmentInvalidException;
+ import org.asamk.signal.manager.api.CallInfo;
+ import org.asamk.signal.manager.api.CallOffer;
+@@ -406,6 +407,28 @@ public interface Manager extends Closeable {
+ 
+     void removeCaughtUpWithOldMessagesListener(Runnable listener);
+ 
++    /**
++     * Asks our own primary device to re-upload a message's attachments, for when the file
++     * behind an id is gone or its CDN copy has expired and nothing local is left to retry from
++     * (patch 0014's recovery path has nothing to re-download). {@code attachmentIds} are the
++     * message's attachment ids in the order Snowdrop already knows them, including history
++     * attachment ids (patch 0007); a response maps its pointers back onto these by index.
++     *
++     * @return true if a new request was sent; false if one was already pending for this exact
++     * message (same author + sentTimestamp) and this call was coalesced into it instead.
++     */
++    boolean requestAttachmentBackfill(
++            RecipientIdentifier targetConversation,
++            RecipientIdentifier.Single targetAuthor,
++            long targetTimestamp,
++            List<String> attachmentIds
++    );
++
++    /** Notified once per {@code SyncMessage.attachmentBackfillResponse} our primary answers with. */
++    void addAttachmentBackfillListener(AttachmentBackfillListener listener);
++
++    void removeAttachmentBackfillListener(AttachmentBackfillListener listener);
++
+     boolean isReceiving();
+ 
+     /**
+@@ -529,4 +552,9 @@ public interface Manager extends Closeable {
+ 
+         void handleCallEvent(CallInfo callInfo, String reason);
+     }
++
++    interface AttachmentBackfillListener {
++
++        void handle(AttachmentBackfillResult result);
++    }
+ }
+diff --git a/lib/src/main/java/org/asamk/signal/manager/api/AttachmentBackfillResult.java b/lib/src/main/java/org/asamk/signal/manager/api/AttachmentBackfillResult.java
+new file mode 100644
+index 0000000..8971f66
+--- /dev/null
++++ b/lib/src/main/java/org/asamk/signal/manager/api/AttachmentBackfillResult.java
+@@ -0,0 +1,27 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.manager.api;
++
++import java.util.List;
++
++/**
++ * The outcome of a {@code SyncMessage.attachmentBackfillResponse}, matched back to the request it
++ * answers. Delivered to {@link org.asamk.signal.manager.Manager.AttachmentBackfillListener}s and
++ * from there to the JSON-RPC {@code attachmentBackfill} notification (see
++ * {@code SignalJsonRpcDispatcherHandler}).
++ */
++public record AttachmentBackfillResult(
++        String targetAuthor,
++        long targetTimestamp,
++        Status status,
++        List<String> attachmentIds
++) {
++
++    public enum Status {
++        /** The phone is still looking; a later response for the same message may still arrive. */
++        PENDING,
++        /** The phone answered; any attachment it still had was stored and can now be re-downloaded. */
++        READY,
++        /** The phone doesn't know this message, or its answer didn't match the request. */
++        FAILED
++    }
++}
+diff --git a/lib/src/main/java/org/asamk/signal/manager/helper/AttachmentBackfillHelper.java b/lib/src/main/java/org/asamk/signal/manager/helper/AttachmentBackfillHelper.java
+new file mode 100644
+index 0000000..1f92f7c
+--- /dev/null
++++ b/lib/src/main/java/org/asamk/signal/manager/helper/AttachmentBackfillHelper.java
+@@ -0,0 +1,217 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.manager.helper;
++
++import org.asamk.signal.manager.Manager;
++import org.asamk.signal.manager.api.AttachmentBackfillResult;
++import org.asamk.signal.manager.api.RecipientIdentifier;
++import org.asamk.signal.manager.storage.AttachmentBackfillStore;
++import org.slf4j.Logger;
++import org.slf4j.LoggerFactory;
++import org.whispersystems.signalservice.api.messages.SignalServiceAttachmentPointer;
++import org.whispersystems.signalservice.api.messages.multidevice.SignalServiceSyncMessage;
++import org.whispersystems.signalservice.api.push.SignalServiceAddress;
++import org.whispersystems.signalservice.api.util.AttachmentPointerUtil;
++import org.whispersystems.signalservice.internal.push.AddressableMessage;
++import org.whispersystems.signalservice.internal.push.ConversationIdentifier;
++import org.whispersystems.signalservice.internal.push.SyncMessage;
++
++import java.util.HashSet;
++import java.util.List;
++import java.util.Set;
++import java.util.function.BiConsumer;
++import java.util.function.Consumer;
++
++import okio.ByteString;
++
++/**
++ * Sends {@code SyncMessage.attachmentBackfillRequest} to our own linked devices (in practice, the
++ * primary — only it can actually answer) and processes the {@code
++ * SyncMessage.attachmentBackfillResponse} that comes back, mapping any re-uploaded attachment onto
++ * {@code AttachmentPointerStore} under the same id Snowdrop already knows it by, so {@code
++ * getAttachment}'s existing on-demand re-download path (patch 0014) just works.
++ * <p>
++ * Pending requests are tracked in {@link AttachmentBackfillStore} by (author, sentTimestamp) —
++ * the same pair the wire protocol's {@code AddressableMessage} identifies a message by — so a
++ * repeated request for a message that's already waiting on an answer is coalesced rather than
++ * sent again, and an answer can be matched back to the ids that were actually asked for.
++ */
++public class AttachmentBackfillHelper {
++
++    private static final Logger logger = LoggerFactory.getLogger(AttachmentBackfillHelper.class);
++
++    private final AttachmentBackfillStore store;
++    private final Consumer<SyncMessage.AttachmentBackfillRequest> sender;
++    private final BiConsumer<String, SignalServiceAttachmentPointer> pointerSink;
++    private final Set<Manager.AttachmentBackfillListener> listeners = new HashSet<>();
++
++    public AttachmentBackfillHelper(final Context context) {
++        this(new AttachmentBackfillStore(context.getAccount().getAccountDatabase()),
++                request -> context.getSendHelper()
++                        .sendSyncMessage(SignalServiceSyncMessage.forAttachmentBackfillRequest(request)),
++                context.getAttachmentHelper()::storeBackfilledPointer);
++    }
++
++    /** Exposed for tests: sending and pointer storage are injected instead of needing a real {@link Context}. */
++    AttachmentBackfillHelper(
++            final AttachmentBackfillStore store,
++            final Consumer<SyncMessage.AttachmentBackfillRequest> sender,
++            final BiConsumer<String, SignalServiceAttachmentPointer> pointerSink
++    ) {
++        this.store = store;
++        this.sender = sender;
++        this.pointerSink = pointerSink;
++    }
++
++    public void addListener(final Manager.AttachmentBackfillListener listener) {
++        synchronized (listeners) {
++            listeners.add(listener);
++        }
++    }
++
++    public void removeListener(final Manager.AttachmentBackfillListener listener) {
++        synchronized (listeners) {
++            listeners.remove(listener);
++        }
++    }
++
++    /**
++     * @return true if a new request was sent to our primary; false if one was already pending
++     * for this exact message and this call coalesced into it instead of asking again.
++     */
++    public boolean request(
++            final RecipientIdentifier targetConversation,
++            final RecipientIdentifier.Single targetAuthor,
++            final long targetTimestamp,
++            final List<String> attachmentIds
++    ) {
++        final var authorKey = targetAuthor.getIdentifier();
++        if (store.get(authorKey, targetTimestamp).isPresent()) {
++            logger.debug("Attachment backfill already pending for this message, not asking again.");
++            return false;
++        }
++        store.store(authorKey, targetTimestamp, attachmentIds);
++
++        final var backfillRequest = new SyncMessage.AttachmentBackfillRequest.Builder()
++                .targetMessage(addressableMessage(targetAuthor, targetTimestamp))
++                .targetConversation(conversationIdentifier(targetConversation))
++                .build();
++        sender.accept(backfillRequest);
++        return true;
++    }
++
++    /**
++     * Handles a {@code SyncMessage.attachmentBackfillResponse}. Only a response from device id
++     * {@link SignalServiceAddress#DEFAULT_DEVICE_ID} (our primary) is trusted; a sync message's
++     * fanout can reach our other linked devices too, but only the primary can actually answer
++     * this request, so a response claiming to come from anywhere else is ignored.
++     */
++    public void handleResponse(final int senderDeviceId, final SyncMessage.AttachmentBackfillResponse response) {
++        if (senderDeviceId != SignalServiceAddress.DEFAULT_DEVICE_ID) {
++            logger.warn("Received attachment backfill response from non-primary device {}, ignoring.", senderDeviceId);
++            return;
++        }
++        final var targetMessage = response.targetMessage;
++        final var authorKey = targetMessage == null ? null : addressKey(targetMessage);
++        if (authorKey == null || targetMessage.sentTimestamp == null) {
++            logger.warn("Received attachment backfill response with no usable target message, ignoring.");
++            return;
++        }
++        final var targetTimestamp = targetMessage.sentTimestamp;
++        final var pending = store.get(authorKey, targetTimestamp);
++        if (pending.isEmpty()) {
++            logger.debug("Received attachment backfill response for an unknown or already-resolved request, ignoring.");
++            return;
++        }
++
++        final var attachmentIds = pending.get().attachmentIds();
++        final AttachmentBackfillResult.Status status;
++        if (response.error != null) {
++            status = AttachmentBackfillResult.Status.FAILED;
++            store.remove(authorKey, targetTimestamp);
++        } else {
++            final var items = response.attachments == null
++                    ? List.<SyncMessage.AttachmentBackfillResponse.AttachmentData>of()
++                    : response.attachments.attachments;
++            if (items.size() != attachmentIds.size()) {
++                logger.warn("Attachment backfill response had {} attachments, expected {}; failing.",
++                        items.size(),
++                        attachmentIds.size());
++                status = AttachmentBackfillResult.Status.FAILED;
++                store.remove(authorKey, targetTimestamp);
++            } else {
++                storeResolvedPointers(attachmentIds, items);
++                final var stillPending = items.stream()
++                        .anyMatch(item -> item.status == SyncMessage.AttachmentBackfillResponse.AttachmentData.Status.PENDING);
++                if (stillPending) {
++                    // Keep the request: a later response for the same message is still coming.
++                    status = AttachmentBackfillResult.Status.PENDING;
++                } else {
++                    status = AttachmentBackfillResult.Status.READY;
++                    store.remove(authorKey, targetTimestamp);
++                }
++            }
++        }
++        notifyListeners(new AttachmentBackfillResult(authorKey, targetTimestamp, status, attachmentIds));
++    }
++
++    /** Stores whatever pointers the phone actually sent; a PENDING or TERMINAL_ERROR item has none. */
++    private void storeResolvedPointers(
++            final List<String> attachmentIds,
++            final List<SyncMessage.AttachmentBackfillResponse.AttachmentData> items
++    ) {
++        for (var i = 0; i < attachmentIds.size(); i++) {
++            final var item = items.get(i);
++            if (item.attachment == null) {
++                continue;
++            }
++            final var id = attachmentIds.get(i);
++            try {
++                final var pointer = AttachmentPointerUtil.createSignalAttachmentPointer(item.attachment);
++                pointerSink.accept(id, pointer);
++            } catch (Exception e) {
++                logger.warn("Failed to store backfilled pointer for attachment {}, ignoring: {}", id, e.getMessage());
++            }
++        }
++    }
++
++    private void notifyListeners(final AttachmentBackfillResult result) {
++        final Set<Manager.AttachmentBackfillListener> current;
++        synchronized (listeners) {
++            current = Set.copyOf(listeners);
++        }
++        for (final var listener : current) {
++            listener.handle(result);
++        }
++    }
++
++    private static String addressKey(final AddressableMessage message) {
++        return message.authorServiceId != null ? message.authorServiceId : message.authorE164;
++    }
++
++    private static AddressableMessage addressableMessage(final RecipientIdentifier.Single author, final long sentTimestamp) {
++        final var builder = new AddressableMessage.Builder().sentTimestamp(sentTimestamp);
++        switch (author) {
++            case RecipientIdentifier.Uuid uuid -> builder.authorServiceId(uuid.uuid().toString());
++            case RecipientIdentifier.Pni pni -> builder.authorServiceId(pni.getIdentifier());
++            case RecipientIdentifier.Number number -> builder.authorE164(number.number());
++            case RecipientIdentifier.Username username -> throw new IllegalArgumentException(
++                    "Attachment backfill needs an ACI, PNI or phone number author, not a username");
++        }
++        return builder.build();
++    }
++
++    private static ConversationIdentifier conversationIdentifier(final RecipientIdentifier target) {
++        final var builder = new ConversationIdentifier.Builder();
++        switch (target) {
++            case RecipientIdentifier.Group group -> builder.threadGroupId(ByteString.of(group.groupId().serialize()));
++            case RecipientIdentifier.Uuid uuid -> builder.threadServiceId(uuid.uuid().toString());
++            case RecipientIdentifier.Pni pni -> builder.threadServiceId(pni.getIdentifier());
++            case RecipientIdentifier.Number number -> builder.threadE164(number.number());
++            case RecipientIdentifier.Username username -> throw new IllegalArgumentException(
++                    "Attachment backfill needs an ACI, PNI, phone number or group conversation, not a username");
++            case RecipientIdentifier.NoteToSelf noteToSelf -> throw new IllegalArgumentException(
++                    "Attachment backfill does not apply to Note to Self");
++        }
++        return builder.build();
++    }
++}
+diff --git a/lib/src/main/java/org/asamk/signal/manager/helper/AttachmentHelper.java b/lib/src/main/java/org/asamk/signal/manager/helper/AttachmentHelper.java
+index e4830b8..6aeb38a 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/helper/AttachmentHelper.java
++++ b/lib/src/main/java/org/asamk/signal/manager/helper/AttachmentHelper.java
+@@ -86,6 +86,42 @@ public class AttachmentHelper {
+         }
+     }
+ 
++    /**
++     * Stores a pointer our primary sent back for an attachment backfill request, under the same
++     * id Snowdrop already knows this attachment by (the original request's {@code attachmentIds}
++     * entry at that index — see {@code AttachmentBackfillHelper}). Deletes any stale partial file
++     * left under that id first, so the existing {@code getAttachment} → {@link #retrieveAttachment}
++     * re-download path (patch 0014) starts clean rather than possibly finding leftovers from the
++     * earlier failed download.
++     */
++    public void storeBackfilledPointer(final String id, final SignalServiceAttachmentPointer pointer) {
++        attachmentStore.deleteAttachment(id);
++        attachmentPointerStore.store(id, pointer);
++    }
++
++    /**
++     * Re-downloads a history attachment (patch 0007's {@code history:…} ids) using a pointer our
++     * primary sent back for a backfill request, for when the archived transit pointer itself is
++     * no longer usable (expired or absent). Unlike an ordinary attachment, a history attachment
++     * has no pointer of its own ever persisted to fall back to — this is the only path back to it.
++     *
++     * @throws FileNotFoundException if no backfilled pointer was ever stored for this id.
++     */
++    public byte[] retrieveBackfilledHistoryAttachment(final String id) throws IOException {
++        final var pointer = attachmentPointerStore.get(id)
++                .orElseThrow(() -> new FileNotFoundException("Could not find attachment with ID: " + id));
++        final var output = new java.io.ByteArrayOutputStream();
++        try {
++            retrieveAttachment(pointer, output);
++        } catch (NonSuccessfulResponseCodeException e) {
++            if (e.code == 404 || e.code == 410) {
++                throw new AttachmentNotAvailableException(id, e);
++            }
++            throw e;
++        }
++        return output.toByteArray();
++    }
++
+     public byte[] retrieveHistoryAttachment(org.thoughtcrime.securesms.backup.v2.proto.Backups.FilePointer file) throws IOException {
+         return org.asamk.signal.manager.history.HistoryAttachment.download(file, (request, temporary) -> {
+             try {
+diff --git a/lib/src/main/java/org/asamk/signal/manager/helper/Context.java b/lib/src/main/java/org/asamk/signal/manager/helper/Context.java
+index e75378e..af01b06 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/helper/Context.java
++++ b/lib/src/main/java/org/asamk/signal/manager/helper/Context.java
+@@ -22,6 +22,7 @@ public class Context implements AutoCloseable {
+     private final JobExecutor jobExecutor;
+ 
+     private AccountHelper accountHelper;
++    private AttachmentBackfillHelper attachmentBackfillHelper;
+     private AttachmentHelper attachmentHelper;
+     private CallManager callManager;
+     private ContactHelper contactHelper;
+@@ -89,6 +90,11 @@ public class Context implements AutoCloseable {
+         return getOrCreate(() -> accountHelper, () -> accountHelper = new AccountHelper(this));
+     }
+ 
++    public AttachmentBackfillHelper getAttachmentBackfillHelper() {
++        return getOrCreate(() -> attachmentBackfillHelper,
++                () -> attachmentBackfillHelper = new AttachmentBackfillHelper(this));
++    }
++
+     public AttachmentHelper getAttachmentHelper() {
+         return getOrCreate(() -> attachmentHelper, () -> attachmentHelper = new AttachmentHelper(this));
+     }
+diff --git a/lib/src/main/java/org/asamk/signal/manager/helper/IncomingMessageHandler.java b/lib/src/main/java/org/asamk/signal/manager/helper/IncomingMessageHandler.java
+index 267e021..e4953bd 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/helper/IncomingMessageHandler.java
++++ b/lib/src/main/java/org/asamk/signal/manager/helper/IncomingMessageHandler.java
+@@ -781,6 +781,10 @@ public final class IncomingMessageHandler {
+                 actions.add(RetrieveDeviceNameAction.create());
+             }
+         }
++        if (syncMessage.getAttachmentBackfillResponse().isPresent()) {
++            context.getAttachmentBackfillHelper()
++                    .handleResponse(sender.deviceId(), syncMessage.getAttachmentBackfillResponse().get());
++        }
+         return new Pair<>(actions, longTexts);
+     }
+ 
+diff --git a/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java b/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
+index 8413672..2f1e768 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
++++ b/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
+@@ -1963,6 +1963,27 @@ public class ManagerImpl implements Manager {
+         }
+     }
+ 
++    @Override
++    public boolean requestAttachmentBackfill(
++            final RecipientIdentifier targetConversation,
++            final RecipientIdentifier.Single targetAuthor,
++            final long targetTimestamp,
++            final List<String> attachmentIds
++    ) {
++        return context.getAttachmentBackfillHelper()
++                .request(targetConversation, targetAuthor, targetTimestamp, attachmentIds);
++    }
++
++    @Override
++    public void addAttachmentBackfillListener(final AttachmentBackfillListener listener) {
++        context.getAttachmentBackfillHelper().addListener(listener);
++    }
++
++    @Override
++    public void removeAttachmentBackfillListener(final AttachmentBackfillListener listener) {
++        context.getAttachmentBackfillHelper().removeListener(listener);
++    }
++
+     @Override
+     public void addCallEventListener(final CallEventListener listener) {
+         context.getCallManager().addCallEventListener(listener);
+@@ -1976,12 +1997,25 @@ public class ManagerImpl implements Manager {
+     @Override
+     public InputStream retrieveAttachment(final String id) throws IOException {
+         if (id.startsWith("history:")) {
+-            var store = getHistoryStore();
+-            var pointer = store.attachment(id, System.currentTimeMillis());
+-            var bytes = context.getAttachmentHelper().retrieveHistoryAttachment(pointer);
+-            // A download may outlast the message's timer or an archive replacement.
+-            store.attachment(id, System.currentTimeMillis());
+-            return new java.io.ByteArrayInputStream(bytes);
++            try {
++                var store = getHistoryStore();
++                var pointer = store.attachment(id, System.currentTimeMillis());
++                var bytes = context.getAttachmentHelper().retrieveHistoryAttachment(pointer);
++                // A download may outlast the message's timer or an archive replacement.
++                store.attachment(id, System.currentTimeMillis());
++                return new java.io.ByteArrayInputStream(bytes);
++            } catch (IOException historyError) {
++                // The archived transit pointer is expired/absent: a backfilled pointer (requested
++                // via requestAttachmentBackfill, patch 0016) is the only other way back to it.
++                // Only fall back when one actually exists — otherwise the original error, which
++                // names the real cause, is more useful than a generic "not found".
++                try {
++                    var bytes = context.getAttachmentHelper().retrieveBackfilledHistoryAttachment(id);
++                    return new java.io.ByteArrayInputStream(bytes);
++                } catch (FileNotFoundException noBackfill) {
++                    throw historyError;
++                }
++            }
+         }
+         return context.getAttachmentHelper().retrieveAttachment(id).getStream();
+     }
+diff --git a/lib/src/main/java/org/asamk/signal/manager/storage/AttachmentBackfillStore.java b/lib/src/main/java/org/asamk/signal/manager/storage/AttachmentBackfillStore.java
+new file mode 100644
+index 0000000..f37173b
+--- /dev/null
++++ b/lib/src/main/java/org/asamk/signal/manager/storage/AttachmentBackfillStore.java
+@@ -0,0 +1,128 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.manager.storage;
++
++import org.slf4j.Logger;
++import org.slf4j.LoggerFactory;
++
++import java.sql.SQLException;
++import java.util.List;
++import java.util.Optional;
++import java.util.concurrent.TimeUnit;
++
++/**
++ * Remembers the attachment ids a message's backfill request asked the phone for, keyed by the
++ * same (author, sentTimestamp) pair that identifies that message on the wire ({@code
++ * AddressableMessage}). {@link org.asamk.signal.manager.helper.AttachmentBackfillHelper} consults
++ * this when a {@code SyncMessage.attachmentBackfillResponse} comes back, to map the response's
++ * pointers back onto the original attachment ids by index, and to coalesce a repeated request for
++ * a message that's already pending.
++ * <p>
++ * Its table lives in the same account database as everything else, but — like {@code
++ * AttachmentPointerStore}'s {@code snowdrop_attachment_pointer} — outside {@link AccountDatabase}'s
++ * own versioned schema: created lazily with {@code CREATE TABLE IF NOT EXISTS} on first use, not
++ * gated behind a {@code DATABASE_VERSION} bump (see that class's javadoc for why).
++ */
++public class AttachmentBackfillStore {
++
++    private static final Logger logger = LoggerFactory.getLogger(AttachmentBackfillStore.class);
++    private static final String TABLE_ATTACHMENT_BACKFILL = "snowdrop_attachment_backfill";
++
++    /** Ids never contain this; see {@link #store}. */
++    private static final String ID_SEPARATOR = "\n";
++
++    /** A request nobody answered for this long is abandoned rather than kept forever. */
++    private static final long MAX_AGE_MILLIS = TimeUnit.DAYS.toMillis(1);
++
++    private final Database database;
++
++    public AttachmentBackfillStore(final Database database) {
++        this.database = database;
++        try (final var connection = database.getConnection(); final var statement = connection.createStatement()) {
++            statement.executeUpdate(("""
++                                     CREATE TABLE IF NOT EXISTS %s (
++                                       target_author TEXT NOT NULL,
++                                       target_timestamp INTEGER NOT NULL,
++                                       attachment_ids TEXT NOT NULL,
++                                       created_at INTEGER NOT NULL,
++                                       PRIMARY KEY (target_author, target_timestamp)
++                                     )
++                                     """).formatted(TABLE_ATTACHMENT_BACKFILL));
++        } catch (SQLException e) {
++            throw new RuntimeException("Failed to initialize attachment backfill storage", e);
++        }
++    }
++
++    public record PendingRequest(List<String> attachmentIds, long createdAt) {}
++
++    /**
++     * Records a new pending request, pruning any requests old enough that nobody is still
++     * waiting on an answer for them. Does nothing to an existing row for the same message — call
++     * {@link #get} first to coalesce a repeated request instead of resending it.
++     */
++    public void store(final String targetAuthor, final long targetTimestamp, final List<String> attachmentIds) {
++        pruneOlderThan(System.currentTimeMillis() - MAX_AGE_MILLIS);
++        final var sql = ("""
++                         INSERT INTO %s (target_author, target_timestamp, attachment_ids, created_at)
++                         VALUES (?, ?, ?, ?)
++                         ON CONFLICT (target_author, target_timestamp)
++                           DO UPDATE SET attachment_ids = excluded.attachment_ids, created_at = excluded.created_at
++                         """).formatted(TABLE_ATTACHMENT_BACKFILL);
++        try (final var connection = database.getConnection(); final var statement = connection.prepareStatement(sql)) {
++            statement.setString(1, targetAuthor);
++            statement.setLong(2, targetTimestamp);
++            statement.setString(3, String.join(ID_SEPARATOR, attachmentIds));
++            statement.setLong(4, System.currentTimeMillis());
++            statement.executeUpdate();
++        } catch (SQLException e) {
++            logger.warn("Failed to persist pending attachment backfill request, ignoring: {}", e.getMessage());
++        }
++    }
++
++    /** The pending request for this message, if one is still outstanding. */
++    public Optional<PendingRequest> get(final String targetAuthor, final long targetTimestamp) {
++        final var sql = ("""
++                         SELECT attachment_ids, created_at FROM %s
++                         WHERE target_author = ? AND target_timestamp = ?
++                         """).formatted(TABLE_ATTACHMENT_BACKFILL);
++        try (final var connection = database.getConnection(); final var statement = connection.prepareStatement(sql)) {
++            statement.setString(1, targetAuthor);
++            statement.setLong(2, targetTimestamp);
++            try (final var result = statement.executeQuery()) {
++                if (!result.next()) {
++                    return Optional.empty();
++                }
++                final var ids = List.of(result.getString("attachment_ids").split(ID_SEPARATOR));
++                return Optional.of(new PendingRequest(ids, result.getLong("created_at")));
++            }
++        } catch (SQLException e) {
++            logger.warn("Failed to read pending attachment backfill request, ignoring: {}", e.getMessage());
++            return Optional.empty();
++        }
++    }
++
++    /** Called once a response resolves a request, terminally or not: nothing further to wait for. */
++    public void remove(final String targetAuthor, final long targetTimestamp) {
++        final var sql = ("""
++                         DELETE FROM %s WHERE target_author = ? AND target_timestamp = ?
++                         """).formatted(TABLE_ATTACHMENT_BACKFILL);
++        try (final var connection = database.getConnection(); final var statement = connection.prepareStatement(sql)) {
++            statement.setString(1, targetAuthor);
++            statement.setLong(2, targetTimestamp);
++            statement.executeUpdate();
++        } catch (SQLException e) {
++            logger.warn("Failed to remove resolved attachment backfill request, ignoring: {}", e.getMessage());
++        }
++    }
++
++    private void pruneOlderThan(final long cutoffMillis) {
++        final var sql = ("""
++                         DELETE FROM %s WHERE created_at < ?
++                         """).formatted(TABLE_ATTACHMENT_BACKFILL);
++        try (final var connection = database.getConnection(); final var statement = connection.prepareStatement(sql)) {
++            statement.setLong(1, cutoffMillis);
++            statement.executeUpdate();
++        } catch (SQLException e) {
++            logger.warn("Failed to prune stale attachment backfill requests, ignoring: {}", e.getMessage());
++        }
++    }
++}
+diff --git a/lib/src/main/java/org/asamk/signal/manager/storage/AttachmentStore.java b/lib/src/main/java/org/asamk/signal/manager/storage/AttachmentStore.java
+index dc9e667..fb7bed3 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/storage/AttachmentStore.java
++++ b/lib/src/main/java/org/asamk/signal/manager/storage/AttachmentStore.java
+@@ -50,6 +50,22 @@ public class AttachmentStore {
+         return Utils.createStreamDetailsFromFile(attachmentFile);
+     }
+ 
++    /**
++     * Removes whatever is on disk for {@code id}, if anything, so a stale or partial file left
++     * behind by an earlier failed download can't be mistaken for the one a freshly backfilled
++     * pointer is about to be re-downloaded into. A no-op if there's nothing there.
++     */
++    public void deleteAttachment(final String id) {
++        final var safeId = sanitizeId(id);
++        final var attachmentFile = new File(attachmentsPath, safeId);
++        try {
++            Files.deleteIfExists(attachmentFile.toPath());
++        } catch (IOException e) {
++            // Ignored: storeAttachment below opens the file for writing anyway (truncating any
++            // survivor), so this is just a best-effort cleanup, not something worth failing over.
++        }
++    }
++
+     private void storeAttachment(final File attachmentFile, final AttachmentStorer storer) throws IOException {
+         createAttachmentsDir();
+         try (OutputStream output = new FileOutputStream(attachmentFile)) {
+diff --git a/lib/src/test/java/org/asamk/signal/manager/helper/AttachmentBackfillHelperTest.java b/lib/src/test/java/org/asamk/signal/manager/helper/AttachmentBackfillHelperTest.java
+new file mode 100644
+index 0000000..ae5454b
+--- /dev/null
++++ b/lib/src/test/java/org/asamk/signal/manager/helper/AttachmentBackfillHelperTest.java
+@@ -0,0 +1,236 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.manager.helper;
++
++import org.asamk.signal.manager.api.AttachmentBackfillResult;
++import org.asamk.signal.manager.api.GroupId;
++import org.asamk.signal.manager.api.RecipientIdentifier;
++import org.asamk.signal.manager.storage.AccountDatabase;
++import org.asamk.signal.manager.storage.AttachmentBackfillStore;
++import org.junit.jupiter.api.AfterEach;
++import org.junit.jupiter.api.BeforeEach;
++import org.junit.jupiter.api.Test;
++import org.junit.jupiter.api.io.TempDir;
++import org.whispersystems.signalservice.api.push.SignalServiceAddress;
++import org.whispersystems.signalservice.internal.push.AddressableMessage;
++import org.whispersystems.signalservice.internal.push.AttachmentPointer;
++import org.whispersystems.signalservice.internal.push.SyncMessage;
++import org.whispersystems.signalservice.internal.push.SyncMessage.AttachmentBackfillResponse.AttachmentData;
++
++import java.nio.file.Path;
++import java.util.ArrayList;
++import java.util.HashMap;
++import java.util.List;
++import java.util.Map;
++import java.util.UUID;
++
++import okio.ByteString;
++
++import static org.junit.jupiter.api.Assertions.assertEquals;
++import static org.junit.jupiter.api.Assertions.assertFalse;
++import static org.junit.jupiter.api.Assertions.assertTrue;
++
++class AttachmentBackfillHelperTest {
++
++    private static final UUID AUTHOR = UUID.fromString("00000000-0000-0000-0000-0000000000a1");
++    private static final long TIMESTAMP = 1_700_000_000_000L;
++
++    @TempDir Path directory;
++
++    private AccountDatabase database;
++    private AttachmentBackfillStore store;
++    private final List<SyncMessage.AttachmentBackfillRequest> sentRequests = new ArrayList<>();
++    private final Map<String, org.whispersystems.signalservice.api.messages.SignalServiceAttachmentPointer> storedPointers =
++            new HashMap<>();
++    private final List<AttachmentBackfillResult> notifications = new ArrayList<>();
++    private AttachmentBackfillHelper helper;
++
++    @BeforeEach
++    void setUp() throws Exception {
++        database = AccountDatabase.init(directory.resolve("account.db").toFile());
++        store = new AttachmentBackfillStore(database);
++        helper = new AttachmentBackfillHelper(store, sentRequests::add, storedPointers::put);
++        helper.addListener(notifications::add);
++    }
++
++    @AfterEach
++    void tearDown() {
++        database.close();
++    }
++
++    /** Complete enough for {@code AttachmentPointerUtil.createSignalAttachmentPointer} to accept. */
++    private static AttachmentPointer downloadablePointer(final long cdnId) {
++        return new AttachmentPointer.Builder().cdnId(cdnId)
++                .cdnNumber(2)
++                .key(ByteString.of((byte) 1, (byte) 2, (byte) 3))
++                .contentType("image/jpeg")
++                .fileName("photo.jpg")
++                .uploadTimestamp(42L)
++                .digest(ByteString.of((byte) 4, (byte) 5))
++                .size(100)
++                .build();
++    }
++
++    private static AttachmentBackfillResponseBuilder response() {
++        return new AttachmentBackfillResponseBuilder();
++    }
++
++    /** Small fluent wrapper so each test's response shape reads as what it's asserting about. */
++    private static final class AttachmentBackfillResponseBuilder {
++
++        private final List<AttachmentData> items = new ArrayList<>();
++        private SyncMessage.AttachmentBackfillResponse.Error error;
++
++        AttachmentBackfillResponseBuilder withPointer(final long cdnId) {
++            items.add(new AttachmentData.Builder().attachment(downloadablePointer(cdnId)).build());
++            return this;
++        }
++
++        AttachmentBackfillResponseBuilder withPending() {
++            items.add(new AttachmentData.Builder().status(AttachmentData.Status.PENDING).build());
++            return this;
++        }
++
++        AttachmentBackfillResponseBuilder withTerminalError() {
++            items.add(new AttachmentData.Builder().status(AttachmentData.Status.TERMINAL_ERROR).build());
++            return this;
++        }
++
++        AttachmentBackfillResponseBuilder notFound() {
++            this.error = SyncMessage.AttachmentBackfillResponse.Error.MESSAGE_NOT_FOUND;
++            return this;
++        }
++
++        SyncMessage.AttachmentBackfillResponse build() {
++            final var builder = new SyncMessage.AttachmentBackfillResponse.Builder().targetMessage(
++                    new AddressableMessage.Builder().authorServiceId(AUTHOR.toString()).sentTimestamp(TIMESTAMP).build());
++            if (error != null) {
++                return builder.error(error).build();
++            }
++            return builder.attachments(new SyncMessage.AttachmentBackfillResponse.AttachmentDataList.Builder()
++                    .attachments(items)
++                    .build()).build();
++        }
++    }
++
++    @Test
++    void sendsANewRequestAndTracksItAsPending() {
++        final var accepted = helper.request(new RecipientIdentifier.Uuid(UUID.randomUUID()),
++                new RecipientIdentifier.Uuid(AUTHOR),
++                TIMESTAMP,
++                List.of("att-1.jpg", "att-2.jpg"));
++
++        assertTrue(accepted);
++        assertEquals(1, sentRequests.size());
++        assertTrue(store.get(AUTHOR.toString(), TIMESTAMP).isPresent());
++    }
++
++    @Test
++    void coalescesARepeatedRequestForTheSameMessage() {
++        final var conversation = new RecipientIdentifier.Group(GroupId.unknownVersion(new byte[]{1, 2, 3}));
++        final var author = new RecipientIdentifier.Uuid(AUTHOR);
++
++        final var first = helper.request(conversation, author, TIMESTAMP, List.of("att-1.jpg"));
++        final var second = helper.request(conversation, author, TIMESTAMP, List.of("att-1.jpg"));
++
++        assertTrue(first);
++        assertFalse(second);
++        assertEquals(1, sentRequests.size());
++    }
++
++    @Test
++    void responseMapsPointersBackOntoAttachmentIdsByIndex() {
++        store.store(AUTHOR.toString(), TIMESTAMP, List.of("att-1.jpg", "att-2.jpg"));
++
++        helper.handleResponse(SignalServiceAddress.DEFAULT_DEVICE_ID,
++                response().withPointer(11).withPointer(22).build());
++
++        assertEquals(2, storedPointers.size());
++        assertTrue(storedPointers.containsKey("att-1.jpg"));
++        assertTrue(storedPointers.containsKey("att-2.jpg"));
++        assertEquals(1, notifications.size());
++        assertEquals(AttachmentBackfillResult.Status.READY, notifications.get(0).status());
++        assertFalse(store.get(AUTHOR.toString(), TIMESTAMP).isPresent());
++    }
++
++    @Test
++    void pendingResponseIsFollowedByAReadyOne() {
++        store.store(AUTHOR.toString(), TIMESTAMP, List.of("att-1.jpg", "att-2.jpg"));
++
++        helper.handleResponse(SignalServiceAddress.DEFAULT_DEVICE_ID,
++                response().withPointer(11).withPending().build());
++
++        assertEquals(1, notifications.size());
++        assertEquals(AttachmentBackfillResult.Status.PENDING, notifications.get(0).status());
++        // One attachment already resolved even while the other is still pending.
++        assertEquals(1, storedPointers.size());
++        assertTrue(storedPointers.containsKey("att-1.jpg"));
++        // The request is kept: a later response for the same message is still expected.
++        assertTrue(store.get(AUTHOR.toString(), TIMESTAMP).isPresent());
++
++        helper.handleResponse(SignalServiceAddress.DEFAULT_DEVICE_ID,
++                response().withPointer(11).withPointer(22).build());
++
++        assertEquals(2, notifications.size());
++        assertEquals(AttachmentBackfillResult.Status.READY, notifications.get(1).status());
++        assertEquals(2, storedPointers.size());
++        assertFalse(store.get(AUTHOR.toString(), TIMESTAMP).isPresent());
++    }
++
++    @Test
++    void terminalErrorResolvesWithoutStoringThatAttachment() {
++        store.store(AUTHOR.toString(), TIMESTAMP, List.of("att-1.jpg", "att-2.jpg"));
++
++        helper.handleResponse(SignalServiceAddress.DEFAULT_DEVICE_ID,
++                response().withPointer(11).withTerminalError().build());
++
++        assertEquals(1, notifications.size());
++        assertEquals(AttachmentBackfillResult.Status.READY, notifications.get(0).status());
++        assertEquals(1, storedPointers.size());
++        assertTrue(storedPointers.containsKey("att-1.jpg"));
++        assertFalse(storedPointers.containsKey("att-2.jpg"));
++    }
++
++    @Test
++    void messageNotFoundFails() {
++        store.store(AUTHOR.toString(), TIMESTAMP, List.of("att-1.jpg"));
++
++        helper.handleResponse(SignalServiceAddress.DEFAULT_DEVICE_ID, response().notFound().build());
++
++        assertEquals(1, notifications.size());
++        assertEquals(AttachmentBackfillResult.Status.FAILED, notifications.get(0).status());
++        assertTrue(storedPointers.isEmpty());
++        assertFalse(store.get(AUTHOR.toString(), TIMESTAMP).isPresent());
++    }
++
++    @Test
++    void mismatchedAttachmentCountFails() {
++        store.store(AUTHOR.toString(), TIMESTAMP, List.of("att-1.jpg", "att-2.jpg"));
++
++        helper.handleResponse(SignalServiceAddress.DEFAULT_DEVICE_ID, response().withPointer(11).build());
++
++        assertEquals(1, notifications.size());
++        assertEquals(AttachmentBackfillResult.Status.FAILED, notifications.get(0).status());
++        assertTrue(storedPointers.isEmpty());
++        assertFalse(store.get(AUTHOR.toString(), TIMESTAMP).isPresent());
++    }
++
++    @Test
++    void responseFromAForeignDeviceIsIgnored() {
++        store.store(AUTHOR.toString(), TIMESTAMP, List.of("att-1.jpg"));
++
++        helper.handleResponse(SignalServiceAddress.DEFAULT_DEVICE_ID + 1, response().withPointer(11).build());
++
++        assertTrue(notifications.isEmpty());
++        assertTrue(storedPointers.isEmpty());
++        // Still pending: a genuine answer from the primary may still arrive.
++        assertTrue(store.get(AUTHOR.toString(), TIMESTAMP).isPresent());
++    }
++
++    @Test
++    void responseForAnUnknownRequestIsIgnored() {
++        helper.handleResponse(SignalServiceAddress.DEFAULT_DEVICE_ID, response().withPointer(11).build());
++
++        assertTrue(notifications.isEmpty());
++        assertTrue(storedPointers.isEmpty());
++    }
++}
+diff --git a/lib/src/test/java/org/asamk/signal/manager/storage/AttachmentBackfillStoreTest.java b/lib/src/test/java/org/asamk/signal/manager/storage/AttachmentBackfillStoreTest.java
+new file mode 100644
+index 0000000..d547a74
+--- /dev/null
++++ b/lib/src/test/java/org/asamk/signal/manager/storage/AttachmentBackfillStoreTest.java
+@@ -0,0 +1,97 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.manager.storage;
++
++import org.junit.jupiter.api.AfterEach;
++import org.junit.jupiter.api.BeforeEach;
++import org.junit.jupiter.api.Test;
++import org.junit.jupiter.api.io.TempDir;
++
++import java.nio.file.Path;
++import java.util.List;
++import java.util.concurrent.TimeUnit;
++
++import static org.junit.jupiter.api.Assertions.assertEquals;
++import static org.junit.jupiter.api.Assertions.assertFalse;
++import static org.junit.jupiter.api.Assertions.assertTrue;
++
++class AttachmentBackfillStoreTest {
++
++    @TempDir Path directory;
++
++    private AccountDatabase database;
++    private AttachmentBackfillStore store;
++
++    @BeforeEach
++    void setUp() throws Exception {
++        database = AccountDatabase.init(directory.resolve("account.db").toFile());
++        store = new AttachmentBackfillStore(database);
++    }
++
++    @AfterEach
++    void tearDown() {
++        database.close();
++    }
++
++    @Test
++    void roundTripsAPendingRequest() {
++        store.store("author-1", 1000L, List.of("att-1.jpg", "att-2.jpg"));
++
++        final var pending = store.get("author-1", 1000L);
++
++        assertTrue(pending.isPresent());
++        assertEquals(List.of("att-1.jpg", "att-2.jpg"), pending.get().attachmentIds());
++    }
++
++    @Test
++    void unknownRequestIsEmpty() {
++        assertFalse(store.get("author-1", 1000L).isPresent());
++    }
++
++    @Test
++    void removedRequestIsGone() {
++        store.store("author-1", 1000L, List.of("att-1.jpg"));
++
++        store.remove("author-1", 1000L);
++
++        assertFalse(store.get("author-1", 1000L).isPresent());
++    }
++
++    @Test
++    void distinguishesRequestsByAuthorAndTimestamp() {
++        store.store("author-1", 1000L, List.of("att-1.jpg"));
++        store.store("author-2", 1000L, List.of("att-2.jpg"));
++        store.store("author-1", 2000L, List.of("att-3.jpg"));
++
++        assertEquals(List.of("att-1.jpg"), store.get("author-1", 1000L).orElseThrow().attachmentIds());
++        assertEquals(List.of("att-2.jpg"), store.get("author-2", 1000L).orElseThrow().attachmentIds());
++        assertEquals(List.of("att-3.jpg"), store.get("author-1", 2000L).orElseThrow().attachmentIds());
++    }
++
++    @Test
++    void survivesAcrossDatabaseReopens() throws Exception {
++        store.store("author-1", 1000L, List.of("att-1.jpg"));
++        database.close();
++
++        database = AccountDatabase.init(directory.resolve("account.db").toFile());
++        store = new AttachmentBackfillStore(database);
++
++        assertTrue(store.get("author-1", 1000L).isPresent());
++    }
++
++    @Test
++    void storingPrunesRequestsOlderThanADay() throws Exception {
++        store.store("stale-author", 1000L, List.of("att-1.jpg"));
++        try (final var connection = database.getConnection();
++                final var statement = connection.prepareStatement(
++                        "UPDATE snowdrop_attachment_backfill SET created_at = ? WHERE target_author = ?")) {
++            statement.setLong(1, System.currentTimeMillis() - TimeUnit.DAYS.toMillis(2));
++            statement.setString(2, "stale-author");
++            statement.executeUpdate();
++        }
++
++        store.store("fresh-author", 2000L, List.of("att-2.jpg"));
++
++        assertFalse(store.get("stale-author", 1000L).isPresent());
++        assertTrue(store.get("fresh-author", 2000L).isPresent());
++    }
++}
+diff --git a/src/main/java/org/asamk/signal/commands/Commands.java b/src/main/java/org/asamk/signal/commands/Commands.java
+index 911d8de..bd6bc40 100644
+--- a/src/main/java/org/asamk/signal/commands/Commands.java
++++ b/src/main/java/org/asamk/signal/commands/Commands.java
+@@ -46,6 +46,7 @@ public class Commands {
+         addCommand(new RemoveDeviceCommand());
+         addCommand(new RemovePinCommand());
+         addCommand(new RemoteDeleteCommand());
++        addCommand(new RequestAttachmentBackfillCommand());
+         addCommand(new SendAdminDeleteCommand());
+         addCommand(new SendCommand());
+         addCommand(new SendContactsCommand());
+diff --git a/src/main/java/org/asamk/signal/commands/RequestAttachmentBackfillCommand.java b/src/main/java/org/asamk/signal/commands/RequestAttachmentBackfillCommand.java
+new file mode 100644
+index 0000000..6e4c245
+--- /dev/null
++++ b/src/main/java/org/asamk/signal/commands/RequestAttachmentBackfillCommand.java
+@@ -0,0 +1,91 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.commands;
++
++import net.sourceforge.argparse4j.inf.Namespace;
++import net.sourceforge.argparse4j.inf.Subparser;
++
++import org.asamk.signal.commands.exceptions.CommandException;
++import org.asamk.signal.commands.exceptions.UserErrorException;
++import org.asamk.signal.manager.Manager;
++import org.asamk.signal.manager.api.RecipientIdentifier;
++import org.asamk.signal.output.JsonWriter;
++import org.asamk.signal.output.OutputWriter;
++import org.asamk.signal.output.PlainTextWriter;
++import org.asamk.signal.util.CommandUtil;
++
++import java.util.List;
++import java.util.Map;
++
++/**
++ * Asks our own primary device to re-upload a message's attachments (Signal's {@code
++ * SyncMessage.attachmentBackfillRequest}/{@code attachmentBackfillResponse} pair). See patches/
++ * signal-cli/README.md "0016: attachment backfill" for the full protocol and the {@code
++ * attachmentBackfill} notification this eventually produces.
++ */
++public class RequestAttachmentBackfillCommand implements JsonRpcLocalCommand {
++
++    @Override
++    public String getName() {
++        return "requestAttachmentBackfill";
++    }
++
++    @Override
++    public void attachToSubparser(final Subparser subparser) {
++        subparser.help("Ask our primary device to re-upload a message's attachments.");
++        var mut = subparser.addMutuallyExclusiveGroup().required(true);
++        mut.addArgument("--recipient").help("DM peer the message belongs to.");
++        mut.addArgument("-g", "--group-id").help("Group the message belongs to.");
++        subparser.addArgument("--target-author")
++                .required(true)
++                .help("The message's sender (ACI, PNI or phone number), as Snowdrop already knows it.");
++        subparser.addArgument("--target-timestamp")
++                .required(true)
++                .help("The message's sentTimestamp, as a decimal string.");
++        subparser.addArgument("--attachment-ids")
++                .required(true)
++                .nargs("+")
++                .help("Attachment ids to backfill, in the message's own attachment order.");
++    }
++
++    @Override
++    public void handleCommand(
++            final Namespace ns,
++            final Manager m,
++            final OutputWriter outputWriter
++    ) throws CommandException {
++        final var recipientString = ns.getString("recipient");
++        final var groupIdString = ns.getString("group-id");
++        final var targetAuthorString = ns.getString("target-author");
++        final var targetTimestampString = ns.getString("target-timestamp");
++        final List<?> rawAttachmentIds = ns.getList("attachment-ids");
++
++        if (rawAttachmentIds == null || rawAttachmentIds.isEmpty()) {
++            throw new UserErrorException("Missing attachment-ids parameter");
++        }
++        final var attachmentIds = rawAttachmentIds.stream().map(String.class::cast).toList();
++
++        final long targetTimestamp;
++        try {
++            targetTimestamp = Long.parseLong(targetTimestampString);
++        } catch (NumberFormatException | NullPointerException e) {
++            throw new UserErrorException("Invalid target-timestamp: " + targetTimestampString);
++        }
++
++        final RecipientIdentifier targetConversation = groupIdString != null
++                ? new RecipientIdentifier.Group(CommandUtil.getGroupId(groupIdString))
++                : CommandUtil.getSingleRecipientIdentifier(recipientString, m.getSelfNumber());
++        final var targetAuthor = CommandUtil.getSingleRecipientIdentifier(targetAuthorString, m.getSelfNumber());
++
++        final boolean accepted;
++        try {
++            accepted = m.requestAttachmentBackfill(targetConversation, targetAuthor, targetTimestamp, attachmentIds);
++        } catch (IllegalArgumentException e) {
++            throw new UserErrorException(e.getMessage(), e);
++        }
++
++        switch (outputWriter) {
++            case PlainTextWriter writer -> writer.println(accepted ? "Requested" : "Already pending");
++            case JsonWriter writer -> writer.write(Map.of("accepted", accepted));
++        }
++    }
++}
+diff --git a/src/main/java/org/asamk/signal/dbus/DbusManagerImpl.java b/src/main/java/org/asamk/signal/dbus/DbusManagerImpl.java
+index 7837c1d..28109b6 100644
+--- a/src/main/java/org/asamk/signal/dbus/DbusManagerImpl.java
++++ b/src/main/java/org/asamk/signal/dbus/DbusManagerImpl.java
+@@ -730,6 +730,27 @@ public class DbusManagerImpl implements Manager {
+         // Not supported over DBus
+     }
+ 
++    @Override
++    public boolean requestAttachmentBackfill(
++            final RecipientIdentifier targetConversation,
++            final RecipientIdentifier.Single targetAuthor,
++            final long targetTimestamp,
++            final List<String> attachmentIds
++    ) {
++        // Not supported over DBus
++        return false;
++    }
++
++    @Override
++    public void addAttachmentBackfillListener(final AttachmentBackfillListener listener) {
++        // Not supported over DBus
++    }
++
++    @Override
++    public void removeAttachmentBackfillListener(final AttachmentBackfillListener listener) {
++        // Not supported over DBus
++    }
++
+     @Override
+     public boolean isReceiving() {
+         synchronized (messageHandlers) {
+diff --git a/src/main/java/org/asamk/signal/jsonrpc/SignalJsonRpcDispatcherHandler.java b/src/main/java/org/asamk/signal/jsonrpc/SignalJsonRpcDispatcherHandler.java
+index 70086a0..e88b923 100644
+--- a/src/main/java/org/asamk/signal/jsonrpc/SignalJsonRpcDispatcherHandler.java
++++ b/src/main/java/org/asamk/signal/jsonrpc/SignalJsonRpcDispatcherHandler.java
+@@ -45,6 +45,7 @@ public class SignalJsonRpcDispatcherHandler {
+ 
+     private final Map<Integer, ArrayList<Pair<Manager, Manager.ReceiveMessageHandler>>> receiveHandlers = new HashMap<>();
+     private final Map<Integer, ArrayList<Pair<Manager, Runnable>>> caughtUpHandlers = new HashMap<>();
++    private final Map<Integer, ArrayList<Pair<Manager, Manager.AttachmentBackfillListener>>> attachmentBackfillHandlers = new HashMap<>();
+     private final Map<Integer, ArrayList<Pair<Manager, Manager.CallEventListener>>> callEventHandlers = new HashMap<>();
+     private SignalJsonRpcCommandHandler commandHandler;
+ 
+@@ -71,6 +72,8 @@ public class SignalJsonRpcDispatcherHandler {
+                 createReceiveHandler(m, subscriptionId, false))));
+         c.addOnManagerAddedHandler(m -> caughtUpHandlers.forEach((subscriptionId, handlers) -> handlers.add(
+                 createCaughtUpHandler(m, subscriptionId, false))));
++        c.addOnManagerAddedHandler(m -> attachmentBackfillHandlers.forEach((subscriptionId, handlers) -> handlers.add(
++                createAttachmentBackfillHandler(m, subscriptionId, false))));
+         c.addOnManagerAddedHandler(m -> callEventHandlers.forEach((subscriptionId, handlers) -> handlers.add(
+                 createCallEventHandler(m, subscriptionId))));
+ 
+@@ -159,6 +162,10 @@ public class SignalJsonRpcDispatcherHandler {
+                 .map(m -> createCaughtUpHandler(m, subscriptionId, internalSubscription))
+                 .collect(Collectors.toCollection(ArrayList::new));
+         caughtUpHandlers.put(subscriptionId, caughtUp);
++        final var attachmentBackfill = managers.stream()
++                .map(m -> createAttachmentBackfillHandler(m, subscriptionId, internalSubscription))
++                .collect(Collectors.toCollection(ArrayList::new));
++        attachmentBackfillHandlers.put(subscriptionId, attachmentBackfill);
+ 
+         return subscriptionId;
+     }
+@@ -226,9 +233,48 @@ public class SignalJsonRpcDispatcherHandler {
+         return new Pair<>(m, listener);
+     }
+ 
++    /**
++     * Notifies subscribers each time our primary answers a {@code requestAttachmentBackfill}
++     * call, mirroring {@link #createCaughtUpHandler} but with the result as its payload. See
++     * patches/signal-cli/README.md "0016: attachment backfill".
++     */
++    private Pair<Manager, Manager.AttachmentBackfillListener> createAttachmentBackfillHandler(
++            final Manager m,
++            final int subscriptionId,
++            final boolean internalSubscription
++    ) {
++        final Manager.AttachmentBackfillListener listener = result -> {
++            final var resultMap = new HashMap<String, Object>();
++            resultMap.put("targetAuthor", result.targetAuthor());
++            resultMap.put("targetTimestamp", result.targetTimestamp());
++            resultMap.put("status", result.status().name().toLowerCase());
++            resultMap.put("attachmentIds", result.attachmentIds());
++            ContainerNode<?> params;
++            if (internalSubscription) {
++                params = objectMapper.valueToTree(resultMap);
++            } else {
++                final var paramsNode = new ObjectNode(objectMapper.getNodeFactory());
++                paramsNode.set("subscription", IntNode.valueOf(subscriptionId));
++                paramsNode.set("result", objectMapper.valueToTree(resultMap));
++                params = paramsNode;
++            }
++            final var jsonRpcRequest = JsonRpcRequest.forNotification("attachmentBackfill", params, null);
++            try {
++                jsonRpcSender.sendRequest(jsonRpcRequest);
++            } catch (AssertionError e) {
++                if (e.getCause() instanceof ClosedChannelException) {
++                    unsubscribeReceive(subscriptionId);
++                }
++            }
++        };
++        m.addAttachmentBackfillListener(listener);
++        return new Pair<>(m, listener);
++    }
++
+     private boolean unsubscribeReceive(final int subscriptionId) {
+         final var handlers = receiveHandlers.remove(subscriptionId);
+         final var caughtUp = caughtUpHandlers.remove(subscriptionId);
++        final var attachmentBackfill = attachmentBackfillHandlers.remove(subscriptionId);
+         if (handlers == null) {
+             return false;
+         }
+@@ -240,6 +286,11 @@ public class SignalJsonRpcDispatcherHandler {
+                 unsubscribeCaughtUpHandler(pair);
+             }
+         }
++        if (attachmentBackfill != null) {
++            for (final var pair : attachmentBackfill) {
++                unsubscribeAttachmentBackfillHandler(pair);
++            }
++        }
+         return true;
+     }
+ 
+@@ -261,6 +312,9 @@ public class SignalJsonRpcDispatcherHandler {
+             receiveHandlers.clear();
+             caughtUpHandlers.forEach((_subscriptionId, handlers) -> handlers.forEach(this::unsubscribeCaughtUpHandler));
+             caughtUpHandlers.clear();
++            attachmentBackfillHandlers.forEach((_subscriptionId, handlers) -> handlers.forEach(
++                    this::unsubscribeAttachmentBackfillHandler));
++            attachmentBackfillHandlers.clear();
+             unsubscribeAllCallEvents();
+         }
+     }
+@@ -275,6 +329,10 @@ public class SignalJsonRpcDispatcherHandler {
+         pair.first().removeCaughtUpWithOldMessagesListener(pair.second());
+     }
+ 
++    private void unsubscribeAttachmentBackfillHandler(final Pair<Manager, Manager.AttachmentBackfillListener> pair) {
++        pair.first().removeAttachmentBackfillListener(pair.second());
++    }
++
+     private Command getCommand(final String method) {
+         if ("subscribeReceive".equals(method)) {
+             return new SubscribeReceiveCommand();

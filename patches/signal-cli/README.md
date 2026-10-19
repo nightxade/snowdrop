@@ -469,6 +469,74 @@ No signal-service-java change was needed or made; this is a signal-cli-only fix.
 
 Builds as `0.14.8-snowdrop-history.13`.
 
+## 0016: attachment backfill
+
+0014 lets a failed download retry from its own persisted pointer, but that pointer only ever
+existed if signal-cli itself received the attachment in the first place. Two cases have nothing
+to retry from at all: a file the old vault-sync bug deleted from disk before 0014 started
+persisting pointers (`missing-on-disk`), and a transit CDN object that has since expired
+(`expired`) — including a history attachment's (0007) archived transit pointer, which 0007 never
+persists anywhere past the single download attempt. Signal has a protocol for exactly this: a
+linked device asks its primary to re-upload a message's attachments.
+
+`requestAttachmentBackfill` sends `SyncMessage.attachmentBackfillRequest` (already supported by
+the patched signal-service-java's `SignalServiceSyncMessage.forAttachmentBackfillRequest`/
+`getAttachmentBackfillResponse` — no signal-service-java patch needed) to our own linked devices:
+
+```
+requestAttachmentBackfill { recipient | groupId, targetAuthor, targetTimestamp, attachmentIds }
+```
+
+`recipient`/`groupId` (mutually exclusive) is the conversation the message belongs to;
+`targetAuthor` its sender; `targetTimestamp` its `sentTimestamp`; `attachmentIds` the message's
+attachment ids in order, exactly as Snowdrop already has them (including 0007's `history:…` ids).
+These become the wire protocol's `AddressableMessage` (author + sentTimestamp) and
+`ConversationIdentifier` (thread ACI/e164 or group id). A pending request is persisted in a
+lazily created `snowdrop_attachment_backfill` table (`CREATE TABLE IF NOT EXISTS`, like 0014's
+`snowdrop_attachment_pointer` — never a `DATABASE_VERSION` bump), keyed by (author,
+sentTimestamp) with a created-at time; requests older than a day are pruned opportunistically.
+A repeated request for a message already pending is coalesced — the phone isn't asked twice.
+
+When a `SyncMessage.attachmentBackfillResponse` comes back, only one from device id
+`DEFAULT_DEVICE_ID` (our primary) is trusted; a sync message's fanout can reach our other linked
+devices too, but only the primary can actually answer, so a response from anywhere else is
+ignored. The response's attachments list is matched positionally against the pending request's
+`attachmentIds`: each resolved `AttachmentPointer` is stored in `AttachmentPointerStore` — 0014's
+store — under that original id, deleting any stale partial file first, so the existing
+`getAttachment` → on-demand re-download path just works unmodified for ordinary attachments.
+History attachment ids have no such existing fallback (0007 never persists a pointer for them at
+all), so `AttachmentHelper.retrieveBackfilledHistoryAttachment` and `ManagerImpl.retrieveAttachment`
+gained one: a `history:…` id whose archived transit download fails now falls back to a backfilled
+pointer, when one was actually stored, before giving up with the original error.
+
+Each item in the response is `PENDING` (no pointer yet, another response will follow),
+`TERMINAL_ERROR` (that one attachment specifically is gone for good), or carries a pointer. Any
+item count mismatch against the request, or a `MESSAGE_NOT_FOUND` error, fails the whole request.
+Resolving emits a JSON-RPC notification, following how 0012's `receiveCaughtUp` is emitted
+(one listener per manager, subscribed wherever `receive`/`receiveCaughtUp` already are):
+
+```
+{"jsonrpc":"2.0","method":"attachmentBackfill","params":{"targetAuthor":"…","targetTimestamp":…,"status":"pending|ready|failed","attachmentIds":["…"]}}
+```
+
+`pending` while at least one item in a response is still `PENDING` (the request stays open for a
+later response); `ready` once every item has resolved, one way or another (an individual
+`TERMINAL_ERROR` item just has no pointer to show for it); `failed` on `MESSAGE_NOT_FOUND` or a
+count mismatch. No attachment key, digest or message content is ever logged.
+
+Verification: `scripts/build-signal-cli.sh --test` (Java unit tests —
+`AttachmentBackfillStoreTest`: pending-request round trip, removal, per-(author, timestamp)
+isolation, reopened-database survival, age-based pruning; `AttachmentBackfillHelperTest`: a new
+request is sent and tracked pending, a repeated one is coalesced, a response maps pointers back
+onto attachment ids by index, a `PENDING` response is followed by a `READY` one, a
+`TERMINAL_ERROR` item resolves without a pointer for just that one, `MESSAGE_NOT_FOUND` and a
+mismatched count both fail, and a response from a non-primary device id is ignored outright).
+The Snowdrop-side auto-request/retry UX this motivated is covered by `npx vitest` in the main
+repo, not here. Not verified here: an actual phone answering a real `attachmentBackfillRequest`
+over Signal's servers — that's the user's to do.
+
+Builds as `0.14.8-snowdrop-history.14`.
+
 ## User-controlled phone verification
 
 Run this only when ready to add a test device on the phone. It uses a new data
