@@ -48,6 +48,12 @@ pub const EVENT_INSTALL_PROGRESS: &str = "signal-cli-install-progress";
 /// prevents so the frontend gets a chance to flush its own last write first.
 /// Answered by the `app_close_ready` command.
 pub const EVENT_FLUSH_BEFORE_CLOSE: &str = "snowdrop://flush-before-close";
+/// Clicking a desktop notification (`notifications.rs`'s click listener,
+/// Linux only today — see its module doc comment): payload is the exact
+/// `tag` passed to `notification_show`, so the frontend's own per-tag
+/// click handler (`src/platform/tauri/notifications.ts`) can find and run
+/// it, same as the browser `Notification` API's `onclick` would.
+pub const EVENT_NOTIFICATION_CLICKED: &str = "snowdrop://notification-clicked";
 /// How long the close handshake waits for `app_close_ready` before exiting
 /// anyway — a frontend that never answers (crashed, stuck, or simply absent
 /// in a test harness) must never make the app unclosable.
@@ -241,6 +247,14 @@ pub fn run() {
             // borrows a fresh one.)
             app.manage(Arc::new(std::sync::Mutex::new(tray::init(app.handle()))));
             app.manage(Arc::new(tray::CloseToTray::new()));
+            // Click-to-open for desktop notifications (Linux only — see
+            // notifications.rs's module doc comment for the other
+            // platforms' gap). Runs for the rest of the app's life.
+            #[cfg(target_os = "linux")]
+            {
+                let notifications = app.state::<Arc<notifications::Notifications>>().inner().clone();
+                notifications::spawn_click_listener(app.handle().clone(), notifications);
+            }
             Ok(())
         })
         .on_window_event(|window, event| {

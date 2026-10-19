@@ -595,6 +595,25 @@ Linux, `Shell_NotifyIcon` on Windows, `NSStatusItem` on macOS.
   settings store is otherwise invisible to Rust) — see the debounced,
   change-only `app_set_unread` wiring in `src/app/unreadSync.ts`/
   `src/app/createSnowdrop.ts` for the matching unread-count path.
+- **Clicking a notification** brings Snowdrop back (same as "Show Snowdrop"
+  above, including from hidden-to-tray) and opens the conversation it was
+  about. **Linux**: `notifications.rs` asks for the `"default"` action when
+  showing a notification and runs a background thread, for the app's whole
+  life, listening for the freedesktop `ActionInvoked` (a click),
+  `ActivationToken` (Notifications spec 1.2) and `NotificationClosed`
+  signals — the first maps the clicked id back to its `tag` and emits
+  `EVENT_NOTIFICATION_CLICKED` to the frontend with it (handled in
+  `src/platform/tauri/notifications.ts`, which runs the same `onClick`
+  `NotificationService.handle` already registered — the exact path the quick
+  switcher uses to select a conversation, Vim focus policy included); the
+  second is a best-effort Wayland fix (GNOME/KDE otherwise just flash the
+  taskbar entry instead of actually raising the window) — the token, when a
+  server sends one, is set as the window's GTK startup id right before its
+  `present()` call; the third drops the id↔tag bookkeeping once the server
+  reports it closed (dismissed, replaced, or our own `notification_close`).
+  **macOS/Windows**: `tauri-plugin-notification`'s desktop backend has no
+  click/action callback at all (only title/body/icon/sound reach the
+  notification itself) — a known gap; clicking one there does nothing today.
 - **Rendering**: the badge is drawn at runtime onto the bundle's own
   128×128 icon (`icons/128x128.png`, supersampled relative to the actual
   tray size so the host's own downscale stays crisp — "crisp on HiDPI" per
@@ -617,6 +636,12 @@ painter (zero unread leaves the icon untouched; a nonzero one paints red),
 the render cache (keyed by label, not raw count), and `close_decision`'s
 four combinations. TS tests (`unreadSync.test.ts`, `settings.test.ts`)
 cover the debounce/change-only subscriber and the `closeToTray` setting.
+Unit tests (`cargo test notifications::`) cover the id↔tag click bookkeeping
+and the signal-name/action-key parsing, pure and run without a D-Bus
+connection (the one test that needs a real/private session bus, replacement
+behaviour, stays `#[ignore]`d as before). `notifications.test.ts` covers the
+frontend half: a reported click runs the matching tag's `onClick` and not
+another conversation's, and a click reported after `close()` is a no-op.
 
 ## GPL compliance
 
