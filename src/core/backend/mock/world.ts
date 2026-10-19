@@ -20,6 +20,7 @@ import {
   type ConversationId,
   type Message,
   type Reaction,
+  type RecipientReceipt,
 } from '@/core/domain';
 import {
   CASUAL_LINES,
@@ -124,6 +125,43 @@ function buildBulkMessages(
     });
   }
   return messages;
+}
+
+/**
+ * The last `RECENT_OWN_RECEIPTS.length` own messages get these states,
+ * newest first: still in flight, delivered to everyone, read by the first
+ * recipient only (groups show this as "partially read" until the rest catch
+ * up), then fully read. Fewer own messages than this just uses what there is.
+ */
+const RECENT_OWN_RECEIPTS: readonly ('sent' | 'delivered' | 'read' | 'mixed')[] = [
+  'sent',
+  'delivered',
+  'mixed',
+  'read',
+];
+
+/** Seeds `receipts` (and the row-level `status`) on the newest own messages; see above. */
+function seedOwnReceipts(ownMessages: readonly Message[], recipients: readonly string[]): void {
+  const recent = ownMessages.slice(-RECENT_OWN_RECEIPTS.length);
+  const plan = RECENT_OWN_RECEIPTS.slice(RECENT_OWN_RECEIPTS.length - recent.length);
+  recent.forEach((message, i) => {
+    // `plan` is built to the same length as `recent`; the fallback only
+    // satisfies noUncheckedIndexedAccess.
+    const state = plan[i] ?? 'sent';
+    if (state === 'sent' || recipients.length === 0) {
+      message.status = 'sent';
+      return;
+    }
+    const receipts: Record<string, RecipientReceipt> = {};
+    recipients.forEach((recipientId, r) => {
+      // 'mixed': only the first recipient has read it yet — the rest are
+      // merely delivered, same as a group mid-read in real use.
+      const status = state === 'mixed' && r > 0 ? 'delivered' : state === 'mixed' ? 'read' : state;
+      receipts[recipientId] = { status, at: message.sentAt + (r + 1) * 20_000 };
+    });
+    message.receipts = receipts;
+    message.status = state === 'mixed' ? 'read' : state;
+  });
 }
 
 function startOfDay(ts: number): number {
@@ -383,9 +421,14 @@ class ConversationBuilder {
       messages.push(message);
     }
 
-    // The newest own message is merely delivered, which makes the status UI visible.
-    const lastOwn = messages.findLast((m) => m.authorId === this.selfId && m.kind === 'normal');
-    if (lastOwn) lastOwn.status = 'delivered';
+    // Give the last few own messages a spread of delivery states (sent →
+    // delivered → partially-read-in-groups → fully read), so the status
+    // indicator and the Message details view both have something to show
+    // the moment the demo opens — see RECENT_OWN_RECEIPTS.
+    seedOwnReceipts(
+      messages.filter((m) => m.authorId === this.selfId && m.kind === 'normal' && !m.deleted),
+      this.memberIds.filter((id) => id !== this.selfId),
+    );
 
     const unread = this.seed.unread ?? 0;
     let readUpTo = messages.at(-1)?.sentAt ?? 0;

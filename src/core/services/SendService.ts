@@ -33,6 +33,7 @@ import {
   escapeMarkdown,
   isPendingMessageId,
   mergeOutgoingCommit,
+  mergeReceipts,
   messageId,
   parseMarkdownToRanges,
   pendingMessageId,
@@ -346,6 +347,8 @@ export class SendService {
     const pendingRow =
       stores.messages.getState().findByNonce(out.conversationId, nonce) ??
       (await repository.get(pendingId));
+    // A receipt (and who it was from) may already have arrived for this timestamp.
+    const early = this.receipts.take(result.sentAt, clock.now());
     // What was actually sent — queued edits/reactions are replayed below.
     const final: Message = {
       id: messageId(selfId, result.sentAt),
@@ -357,8 +360,7 @@ export class SendService {
       ranges: out.input.ranges,
       attachments: withLocalUrls(result.attachments, pendingRow?.attachments),
       reactions: [],
-      // A receipt may already have arrived for this timestamp.
-      status: advanceStatus('sent', this.receipts.take(result.sentAt, clock.now()) ?? 'sent'),
+      status: advanceStatus('sent', early?.status ?? 'sent'),
       kind: 'normal',
       nonce,
       ...(pendingRow?.seq === undefined ? {} : { seq: pendingRow.seq }),
@@ -369,6 +371,7 @@ export class SendService {
       ...(result.recipientFailures?.length
         ? { failedRecipients: result.recipientFailures.map((f) => f.recipientId) }
         : {}),
+      ...(early?.recipients ? { receipts: early.recipients } : {}),
     };
 
     // Merge (not overwrite): a sync echo or receipts may have landed already.
@@ -380,10 +383,14 @@ export class SendService {
     const late = this.receipts.take(result.sentAt, clock.now());
     if (late !== undefined) {
       stored =
-        (await repository.update(stored.id, (m) => ({
-          ...m,
-          status: advanceStatus(m.status, late),
-        }))) ?? stored;
+        (await repository.update(stored.id, (m) => {
+          const receipts = mergeReceipts(m.receipts, late.recipients);
+          return {
+            ...m,
+            status: advanceStatus(m.status, late.status),
+            ...(receipts ? { receipts } : {}),
+          };
+        })) ?? stored;
     }
     // A delete/reaction/edit/pin that targeted this message before the send
     // was acknowledged (it only has an id to target once the backend echoes

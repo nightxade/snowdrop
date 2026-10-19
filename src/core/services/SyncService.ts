@@ -18,6 +18,7 @@ import {
   applyDelete,
   applyEdit,
   applyReaction,
+  applyRecipientReceipt,
   colorForId,
   directConversationId,
   mergeDuplicate,
@@ -781,12 +782,19 @@ export class SyncService {
       const id = messageId(selfId, sentAt);
       const advance = (m: Message): Message => {
         const next = advanceStatus(m.status, status);
-        return next === m.status ? m : { ...m, status: next };
+        // Narrowed by RECEIPT_STATUS's range: every value it maps to is
+        // 'delivered' or 'read', never 'pending'/'sent'/'failed'.
+        const receipts =
+          status === 'delivered' || status === 'read'
+            ? applyRecipientReceipt(m.receipts, e.authorId, status, this.deps.clock.now())
+            : m.receipts;
+        if (next === m.status && receipts === m.receipts) return m;
+        return { ...m, status: next, ...(receipts ? { receipts } : {}) };
       };
       const updated = await this.deps.repository.update(id, advance);
       if (!updated) {
         // Our send hasn't been acknowledged yet; SendService applies this on reconcile.
-        this.receipts.hold(sentAt, status, this.deps.clock.now());
+        this.receipts.hold(sentAt, e.authorId, status, this.deps.clock.now());
         continue;
       }
       this.deps.stores.messages.getState().update(updated.conversationId, id, advance);

@@ -46,6 +46,60 @@
 }
 
 /*
+ * The delivery/read mark: a mono glyph at the right end of the row's first
+ * line, outside the time/author/text grid, so the grid's columns stay the
+ * same on every row and the mark never wraps onto a second line. Rows that
+ * carry one reserve its width on the right so long text can't run under it.
+ */
+:root[data-shell='tui'] [data-snowdrop='message'][data-compact] {
+  position: relative;
+}
+
+:root[data-shell='tui']
+  [data-snowdrop='message'][data-compact]:has([data-snowdrop='message-status']) {
+  padding-inline-end: calc(var(--snowdrop-tui-pad-x) + 3ch);
+}
+
+:root[data-shell='tui'] [data-snowdrop='message-status'] {
+  /* No `top`: it keeps its static position, the time's line (below any
+     reply quote), while `right` pins it to the row's edge. */
+  position: absolute;
+  right: var(--snowdrop-tui-pad-x);
+  display: block;
+  width: 2ch;
+  margin: 0;
+  color: var(--snowdrop-text-faint);
+  line-height: inherit;
+  text-align: right;
+  white-space: nowrap;
+}
+
+:root[data-shell='tui'] [data-snowdrop='message-status'] svg {
+  display: none;
+}
+
+:root[data-shell='tui'] [data-snowdrop='message-status']::before {
+  font-variant-numeric: tabular-nums;
+}
+
+:root[data-shell='tui'] [data-snowdrop='message-status'][data-status='pending']::before {
+  content: '○';
+}
+
+:root[data-shell='tui'] [data-snowdrop='message-status'][data-status='sent']::before {
+  content: '✓';
+}
+
+:root[data-shell='tui'] [data-snowdrop='message-status'][data-status='delivered']::before {
+  content: '✓✓';
+}
+
+:root[data-shell='tui'] [data-snowdrop='message-status'][data-status='read']::before {
+  content: '✓✓';
+  color: var(--snowdrop-accent-text);
+}
+
+/*
  * 18ch, not the 16 characters of the longest demo name ("Mireille Tanaka"):
  * measured against this mono webfont, the lettered advance width this grid
  * actually renders at runs wider than the `ch` unit's own basis (WebKitGTK's

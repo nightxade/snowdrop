@@ -18,8 +18,10 @@ import {
   applyDelete,
   applyEdit,
   applyReaction,
+  applyRecipientReceipt,
   mergeDuplicate,
   mergeOutgoingCommit,
+  mergeReceipts,
   summarizeReactions,
 } from './messageOps';
 import { makeMessage } from './testing';
@@ -188,6 +190,40 @@ describe('messageOps', () => {
     expect(advanceStatus('failed', 'sent')).toBe('sent');
   });
 
+  it('records a recipient receipt, never downgrading a recipient already read', () => {
+    let receipts = applyRecipientReceipt(undefined, 'alice', 'delivered', 100);
+    expect(receipts).toEqual({ alice: { status: 'delivered', at: 100 } });
+    receipts = applyRecipientReceipt(receipts, 'alice', 'read', 200);
+    expect(receipts).toEqual({ alice: { status: 'read', at: 200 } });
+    // Out of order: a stale "delivered" behind the "read" already recorded is dropped.
+    receipts = applyRecipientReceipt(receipts, 'alice', 'delivered', 300);
+    expect(receipts).toEqual({ alice: { status: 'read', at: 200 } });
+    // A second recipient is tracked independently.
+    receipts = applyRecipientReceipt(receipts, 'bob', 'delivered', 150);
+    expect(receipts).toEqual({
+      alice: { status: 'read', at: 200 },
+      bob: { status: 'delivered', at: 150 },
+    });
+  });
+
+  it('merges per-recipient receipts from two copies, keeping the higher status each', () => {
+    const existing = {
+      alice: { status: 'read' as const, at: 10 },
+      bob: { status: 'delivered' as const, at: 20 },
+    };
+    const incoming = {
+      alice: { status: 'delivered' as const, at: 999 },
+      carol: { status: 'read' as const, at: 5 },
+    };
+    expect(mergeReceipts(existing, incoming)).toEqual({
+      alice: { status: 'read', at: 10 },
+      bob: { status: 'delivered', at: 20 },
+      carol: { status: 'read', at: 5 },
+    });
+    expect(mergeReceipts(undefined, undefined)).toBeUndefined();
+    expect(mergeReceipts(existing, undefined)).toBe(existing);
+  });
+
   it('applies edits and deletions', () => {
     const m = makeMessage({ body: 'old', quote: { authorId: 'x', sentAt: 1, text: 'q' } });
     const edited = applyEdit(m, { body: 'new', ranges: [], editedAt: 5 });
@@ -233,13 +269,22 @@ describe('messageOps', () => {
       status: 'read',
       seq: 7,
       reactions: [r('👍', 'b')],
+      receipts: { alice: { status: 'read', at: 10 } },
     });
-    const redelivered = makeMessage({ body: 'original', status: 'delivered', seq: 99 });
+    const redelivered = makeMessage({
+      body: 'original',
+      status: 'delivered',
+      seq: 99,
+      receipts: { alice: { status: 'delivered', at: 999 }, bob: { status: 'delivered', at: 5 } },
+    });
     expect(mergeDuplicate(stored, redelivered)).toMatchObject({
       body: 'edited',
       status: 'read',
       seq: 7,
       reactions: [r('👍', 'b')],
+      // Alice's earlier "read" isn't downgraded by the redelivery's "delivered";
+      // Bob's receipt (only on the redelivered copy) still comes through.
+      receipts: { alice: { status: 'read', at: 10 }, bob: { status: 'delivered', at: 5 } },
     });
     const newer = makeMessage({ body: 'newer', editedAt: 60, edits: 2 });
     expect(mergeDuplicate(stored, newer)).toMatchObject({ body: 'newer', edits: 2, seq: 7 });

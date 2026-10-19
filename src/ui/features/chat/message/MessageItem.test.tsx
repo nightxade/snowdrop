@@ -125,6 +125,31 @@ describe('<MessageItem /> failed send', () => {
     fireEvent.click(within(row).getByRole('button', { name: 'Delete' }));
     expect(discard).toHaveBeenCalledWith(conv, own.nonce);
   });
+
+  it('shows no status mark for a failed send', async () => {
+    const { row } = await withOwnMessage({ fail: true });
+    expect(within(row).queryByLabelText('Sent')).toBeNull();
+    expect(within(row).queryByLabelText('Delivered')).toBeNull();
+    expect(within(row).queryByLabelText('Read')).toBeNull();
+  });
+});
+
+describe('<MessageItem /> status mark', () => {
+  it('shows an accessible mark after the timestamp, reflecting the message status', async () => {
+    const { own, row } = await withOwnMessage();
+    expect(own.status).toBe('sent');
+    const mark = within(row).getByLabelText('Sent');
+    expect(mark.getAttribute('data-snowdrop')).toBe('message-status');
+    expect(mark.getAttribute('data-status')).toBe('sent');
+  });
+
+  it('is hidden when Settings → Privacy → "Show read receipts" is off', async () => {
+    const { snowdrop, row } = await withOwnMessage();
+    act(() => {
+      snowdrop.stores.settings.getState().update('behaviour', { showReadReceipts: false });
+    });
+    expect(within(row).queryByLabelText('Sent')).toBeNull();
+  });
 });
 
 describe('<MessageItem /> custom emoji delivery', () => {

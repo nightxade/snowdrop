@@ -34,6 +34,10 @@ export const STYLE_HOOKS = [
   { hook: 'message-body', what: 'The text of a message' },
   { hook: 'message-author', what: 'The author-name button in a message row' },
   { hook: 'message-time', what: 'A message row’s timestamp (has data-variant)' },
+  {
+    hook: 'message-status',
+    what: 'Delivery/read mark after an outgoing message’s meta (has data-status)',
+  },
   { hook: 'message-content', what: 'The name + body + trailing content of a message row' },
   { hook: 'message-quote', what: 'A message row’s reply-to quote' },
   { hook: 'hover-bar', what: 'Message hover actions' },

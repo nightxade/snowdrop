@@ -160,6 +160,19 @@ export type MessageStatus = 'pending' | 'sent' | 'delivered' | 'read' | 'failed'
 
 export type MessageKind = 'normal' | 'system';
 
+/**
+ * A recipient's furthest-reached receipt for one of our outgoing messages
+ * (Message details / "Read by, Delivered to"). Never regresses, same rule as
+ * `status` (see `advanceStatus`/`applyRecipientReceipt`); absent for a
+ * recipient we haven't heard a receipt from yet (they're implicitly "sent
+ * to"). `at` is when *this device* learned of the receipt — Signal's receipt
+ * messages don't carry the recipient's own read time, only ours.
+ */
+export interface RecipientReceipt {
+  status: 'delivered' | 'read';
+  at: number;
+}
+
 export interface Message {
   id: MessageId;
   conversationId: ConversationId;
@@ -211,6 +224,14 @@ export interface Message {
   failedRecipients?: string[];
   /** Why a `failed` status happened, when it's more specific than "send failed". */
   failureReason?: string;
+  /**
+   * Per-recipient delivery/read state of an outgoing message (groups and
+   * DMs alike), keyed by recipient id. Only ever set on messages we sent;
+   * `status` stays the single row-level summary (the *highest* status any
+   * recipient reached, same as Signal Desktop) — this is the detail behind
+   * it, shown in the "Message details" view.
+   */
+  receipts?: Record<string, RecipientReceipt>;
   /**
    * Client nonce of an outgoing message. Kept after acknowledgement (in memory
    * and storage) so render keys survive the pending → acknowledged id swap.

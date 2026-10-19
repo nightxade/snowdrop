@@ -1,0 +1,57 @@
+.empty {
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-ui);
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--snowdrop-space-2);
+}
+
+.group + .group {
+  margin-top: var(--snowdrop-space-5);
+}
+
+.heading {
+  margin: 0;
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
+  font-weight: var(--snowdrop-font-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--snowdrop-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--snowdrop-space-3);
+  padding: var(--snowdrop-space-2) 0;
+}
+
+.name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--snowdrop-font-size-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* A contact name is attacker-controlled (profile data); contain any bidi controls. */
+  unicode-bidi: isolate;
+}
+
+.when {
+  flex-shrink: 0;
+  color: var(--snowdrop-text-faint);
+  font-size: var(--snowdrop-font-size-sm);
+  white-space: nowrap;
+}

@@ -3,7 +3,14 @@
  * pipeline and the mock backend, so every layer applies protocol semantics
  * identically.
  */
-import type { BodyRange, LinkPreview, Message, MessageStatus, Reaction } from './types';
+import type {
+  BodyRange,
+  LinkPreview,
+  Message,
+  MessageStatus,
+  Reaction,
+  RecipientReceipt,
+} from './types';
 
 /** Signal allows one reaction per author per message; a new one replaces the old. */
 export function applyReaction(
@@ -31,6 +38,39 @@ const STATUS_RANK: Record<MessageStatus, number> = {
 /** Receipts may arrive out of order; status only ever moves forward. */
 export function advanceStatus(current: MessageStatus, next: MessageStatus): MessageStatus {
   return STATUS_RANK[next] > STATUS_RANK[current] ? next : current;
+}
+
+const RECIPIENT_RANK: Record<RecipientReceipt['status'], number> = { delivered: 1, read: 2 };
+
+/**
+ * Records one recipient's receipt for an outgoing message (Message details'
+ * "Read by" / "Delivered to"). Like `advanceStatus`, a recipient's own state
+ * only ever moves forward — a `delivered` that arrives after a `read` (a
+ * stale retry, or events out of order) is dropped rather than downgrading
+ * them back to "delivered to".
+ */
+export function applyRecipientReceipt(
+  receipts: Message['receipts'],
+  recipientId: string,
+  status: RecipientReceipt['status'],
+  at: number,
+): Message['receipts'] {
+  const existing = receipts?.[recipientId];
+  if (existing && RECIPIENT_RANK[existing.status] >= RECIPIENT_RANK[status]) return receipts;
+  return { ...receipts, [recipientId]: { status, at } };
+}
+
+/** Folds every entry of `incoming` into `existing`, each through `applyRecipientReceipt`. */
+export function mergeReceipts(
+  existing: Message['receipts'],
+  incoming: Message['receipts'],
+): Message['receipts'] {
+  if (!incoming) return existing;
+  let merged = existing;
+  for (const [recipientId, r] of Object.entries(incoming)) {
+    merged = applyRecipientReceipt(merged, recipientId, r.status, r.at);
+  }
+  return merged;
 }
 
 /**
@@ -82,10 +122,12 @@ export function applyDelete(message: Message, deletedBy?: string): Message {
  * pinning, local seq — and delivery status only ever advances.
  */
 export function mergeDuplicate(existing: Message, incoming: Message): Message {
+  const receipts = mergeReceipts(existing.receipts, incoming.receipts);
   const merged: Message = {
     ...incoming,
     ...existing,
     status: advanceStatus(existing.status, incoming.status),
+    ...(receipts ? { receipts } : {}),
   };
   // A newer edit carried by the incoming copy still applies.
   if (

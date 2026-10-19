@@ -35,6 +35,7 @@ import { ConfirmDelete } from './ConfirmDelete';
 import { HoverBar } from './HoverBar';
 import { MessageActionSheet } from './MessageActionSheet';
 import { MessageContent } from './MessageContent';
+import { MessageDetails } from './MessageDetails';
 import { buildMessageMenu, type DeleteKind } from './messageMenu';
 import { QuoteHeader } from './QuoteHeader';
 import { firstControl, useInertUntilEntered, useLongPress, useMessageNames } from './rowHooks';
@@ -92,6 +93,7 @@ export const MessageItem = memo(function MessageItem({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [confirm, setConfirm] = useState<DeleteKind | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const longPress = useLongPress(() => {
     setSheetOpen(true);
   });
@@ -207,6 +209,9 @@ export const MessageItem = memo(function MessageItem({
         setPickerOpen(true);
       },
       requestDelete,
+      openDetails: () => {
+        setDetailsOpen(true);
+      },
     });
   const leaveRow = () => {
     rows.enter(null);
@@ -396,6 +401,7 @@ export const MessageItem = memo(function MessageItem({
           }}
         />
       )}
+      {detailsOpen && <MessageDetails message={m} onOpenChange={setDetailsOpen} />}
     </>
   );
 });

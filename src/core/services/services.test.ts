@@ -792,6 +792,58 @@ describe('SendService', () => {
     expect(messagesSelectors.list(id)(stores.messages.getState()).at(-1)?.status).toBe('read');
   });
 
+  it('records a per-recipient receipt (authorId) alongside the row-level status', async () => {
+    const s = await setup();
+    const id = s.conv('orchard-eng');
+    await s.history.open(id);
+    const [recipient] = s.backend.world.conversations
+      .get(id)!
+      .memberIds.filter((m) => m !== s.selfId);
+    await s.send.send(draft(id, 'ping'));
+    await flush();
+    const sent = s.list(id).findLast((m) => m.authorId === s.selfId)!;
+    s.backend.emit('receipt', { authorId: recipient!, sentAts: [sent.sentAt], type: 'delivered' });
+    await s.sync.idle();
+    const row = s.list(id).find((m) => m.id === sent.id)!;
+    expect(row.receipts?.[recipient!]).toMatchObject({ status: 'delivered' });
+  });
+
+  it('(highest status rule) a group row shows "read" once any one recipient has, even while others are only delivered', async () => {
+    const s = await setup();
+    const id = s.conv('orchard-eng');
+    await s.history.open(id);
+    const members = s.backend.world.conversations.get(id)!.memberIds.filter((m) => m !== s.selfId);
+    const [first, second] = members;
+    await s.send.send(draft(id, 'status check'));
+    await flush();
+    const sent = s.list(id).findLast((m) => m.authorId === s.selfId)!;
+    s.backend.emit('receipt', { authorId: first!, sentAts: [sent.sentAt], type: 'delivered' });
+    s.backend.emit('receipt', { authorId: second!, sentAts: [sent.sentAt], type: 'read' });
+    await s.sync.idle();
+    const row = s.list(id).find((m) => m.id === sent.id)!;
+    expect(row.status).toBe('read');
+    expect(row.receipts?.[first!]).toMatchObject({ status: 'delivered' });
+    expect(row.receipts?.[second!]).toMatchObject({ status: 'read' });
+  });
+
+  it('drops an out-of-order "delivered" that arrives behind a recipient already marked "read"', async () => {
+    const s = await setup();
+    const id = s.conv('orchard-eng');
+    await s.history.open(id);
+    const [recipient] = s.backend.world.conversations
+      .get(id)!
+      .memberIds.filter((m) => m !== s.selfId);
+    await s.send.send(draft(id, 'order check'));
+    await flush();
+    const sent = s.list(id).findLast((m) => m.authorId === s.selfId)!;
+    s.backend.emit('receipt', { authorId: recipient!, sentAts: [sent.sentAt], type: 'read' });
+    s.backend.emit('receipt', { authorId: recipient!, sentAts: [sent.sentAt], type: 'delivered' });
+    await s.sync.idle();
+    const row = s.list(id).find((m) => m.id === sent.id)!;
+    expect(row.status).toBe('read');
+    expect(row.receipts?.[recipient!]).toMatchObject({ status: 'read' });
+  });
+
   it('marks failures, retries and discards', async () => {
     const { stores, send, backend, conv, onError, repository, history } = await setup();
     const id = conv('orchard-eng');

@@ -1,6 +1,7 @@
 import {
   Copy,
   Hash,
+  Info,
   Pencil,
   Pin,
   PinOff,
@@ -23,6 +24,8 @@ export interface MenuCallbacks {
   openPicker: () => void;
   /** Asks before deleting (skipped when Shift is held). */
   requestDelete: (kind: DeleteKind) => void;
+  /** Opens the "Message details" dialog (own messages only — see MessageDetails). */
+  openDetails: () => void;
 }
 
 const ICON = 16;
@@ -127,6 +130,16 @@ export function buildMessageMenu(
             },
           },
     );
+  }
+
+  if (p.own && !p.failed && m.kind === 'normal' && !m.deleted) {
+    entries.push({
+      kind: 'item',
+      id: 'details',
+      label: 'Message details',
+      icon: <Info size={ICON} />,
+      onSelect: cb.openDetails,
+    });
   }
 
   if (m.kind === 'normal' && !m.deleted && m.body !== '') {

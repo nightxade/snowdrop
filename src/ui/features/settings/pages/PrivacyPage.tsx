@@ -40,6 +40,21 @@ export function PrivacyPage() {
           )}
         />
         <SettingRow
+          id="privacy.showReceipts"
+          label="Show read receipts on your messages"
+          description="Shows the small delivered/read mark after your own messages, and who’s read a group message in its Message details. Off hides the mark (a failed send still shows); this is purely a display choice and doesn’t change what you send or receive above."
+          control={(ids) => (
+            <Switch
+              id={ids.id}
+              aria-describedby={ids.descriptionId}
+              checked={behaviour.showReadReceipts}
+              onCheckedChange={(v) => {
+                setBehaviour({ showReadReceipts: v });
+              }}
+            />
+          )}
+        />
+        <SettingRow
           id="privacy.typing"
           label="Send typing indicators"
           description="When on, people see “typing…” while you write to them. Off applies to every conversation."

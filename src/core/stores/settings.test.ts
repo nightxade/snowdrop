@@ -112,6 +112,18 @@ describe('settingsStore', () => {
     expect(parseSettings({ behaviour: { closeToTray: 'nope' } }).behaviour).toEqual(d.behaviour);
   });
 
+  it('defaults showReadReceipts to on and parses it as a plain boolean', () => {
+    const d = defaultSettings();
+    expect(d.behaviour.showReadReceipts).toBe(true);
+    expect(parseSettings({ behaviour: { showReadReceipts: false } }).behaviour).toEqual({
+      ...d.behaviour,
+      showReadReceipts: false,
+    });
+    expect(parseSettings({ behaviour: { showReadReceipts: 'nope' } }).behaviour).toEqual(
+      d.behaviour,
+    );
+  });
+
   it('parses the desktop connection, falling back field by field', () => {
     const parsed = parseSettings({
       connection: {

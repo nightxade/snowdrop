@@ -44,6 +44,20 @@
   color: var(--snowdrop-accent-text);
 }
 
+/* Delivery/read mark on your own messages (header/gutter/compact variants alike). */
+.status {
+  display: inline-grid;
+  place-items: center;
+  margin-left: var(--snowdrop-space-1);
+  color: var(--snowdrop-text-faint);
+  vertical-align: -1px;
+  transition: color var(--snowdrop-duration-fast) var(--snowdrop-ease);
+}
+
+.status[data-status='read'] {
+  color: var(--snowdrop-accent-text);
+}
+
 .notes {
   display: flex;
   flex-wrap: wrap;

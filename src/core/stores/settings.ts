@@ -55,6 +55,15 @@ export interface BehaviourSettings {
   enterToSend: boolean;
   sendTypingIndicators: boolean;
   sendReadReceipts: boolean;
+  /**
+   * Shows the delivered/read status mark on your own messages. Kept separate
+   * from `sendReadReceipts`: receiving other people's receipts doesn't
+   * depend on whether you send yours (Signal's own apps tie the two
+   * together; Snowdrop doesn't — see Settings → Privacy). Off shows at most
+   * "Delivered" (sent is implicit, like showing nothing); a failed send
+   * still always shows.
+   */
+  showReadReceipts: boolean;
   /** Convert markdown to native Signal formatting on send. */
   markdown: boolean;
   /**
@@ -190,6 +199,7 @@ export function defaultSettings(): Settings {
       enterToSend: true,
       sendTypingIndicators: true,
       sendReadReceipts: true,
+      showReadReceipts: true,
       markdown: true,
       linkPreviews: true,
       focusComposerOnOpen: false,
@@ -384,6 +394,7 @@ export function parseSettings(data: unknown, options: SettingsParseOptions = {})
       enterToSend: bool(b.enterToSend, d.behaviour.enterToSend),
       sendTypingIndicators: bool(b.sendTypingIndicators, d.behaviour.sendTypingIndicators),
       sendReadReceipts: bool(b.sendReadReceipts, d.behaviour.sendReadReceipts),
+      showReadReceipts: bool(b.showReadReceipts, d.behaviour.showReadReceipts),
       markdown: bool(b.markdown, d.behaviour.markdown),
       linkPreviews: bool(b.linkPreviews, d.behaviour.linkPreviews),
       focusComposerOnOpen: bool(b.focusComposerOnOpen, d.behaviour.focusComposerOnOpen),
