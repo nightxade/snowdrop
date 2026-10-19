@@ -72,6 +72,15 @@ export interface DesktopInfo {
   /** signal-cli's data directory (the linked account lives here). */
   dataDir: string;
   logFile: string | null;
+  /**
+   * Whether a system tray icon exists at all on this host
+   * (src-tauri/src/tray.rs) — false on Linux with no AppIndicator/
+   * StatusNotifierItem host (plain GNOME without the extension, a minimal
+   * WM, most containers), or if building the tray icon failed for some
+   * other reason. Settings → Behaviour hides "Keep running in the tray"
+   * when this is false.
+   */
+  trayAvailable: boolean;
 }
 
 /** The signal-cli release this build downloads, for the host it's running on. */

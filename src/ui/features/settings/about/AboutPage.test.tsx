@@ -18,6 +18,7 @@ const BUNDLED_INFO: DesktopInfo = {
   signalCliSource: 'Exact source: https://github.com/AsamK/signal-cli/tree/v0.14.8',
   dataDir: '/home/me/.local/share/local.snowdrop.desktop/signal-cli',
   logFile: '/home/me/.local/share/local.snowdrop.desktop/logs/signal-cli.log',
+  trayAvailable: false,
 };
 
 const DOWNLOADED_INFO: DesktopInfo = {
@@ -27,6 +28,7 @@ const DOWNLOADED_INFO: DesktopInfo = {
   signalCliSource: null,
   dataDir: '/home/me/.local/share/local.snowdrop.desktop/signal-cli',
   logFile: '/home/me/.local/share/local.snowdrop.desktop/logs/signal-cli.log',
+  trayAvailable: false,
 };
 
 let desktopInfo: DesktopInfo = BUNDLED_INFO;

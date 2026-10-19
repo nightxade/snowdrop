@@ -23,6 +23,7 @@ function fakeAdmin(overrides: Partial<DesktopAdmin> = {}): DesktopAdmin {
         signalCliSource: null,
         dataDir: '',
         logFile: null,
+        trayAvailable: false,
       }),
     pinnedRelease: () =>
       Promise.resolve({

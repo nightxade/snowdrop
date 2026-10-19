@@ -33,6 +33,8 @@ fn main() {
             "storage_sign_out",
             "app_restart",
             "app_close_ready",
+            "app_set_unread",
+            "app_set_close_to_tray",
             "frontend_log",
             "log_set_verbose",
             "log_recent",

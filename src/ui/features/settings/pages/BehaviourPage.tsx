@@ -1,12 +1,32 @@
+import { useEffect, useState } from 'react';
 import { useSnowdrop } from '@/ui/hooks';
 import { Segmented, Switch } from '@/ui/primitives';
 import { SettingRow } from '../rows/SettingRow';
 import { SettingsSection } from '../rows/SettingsSection';
 import { useSettingsSection } from '../useSettingsSection';
 
+/** Settings → Behaviour's "Keep running in the tray" only makes sense when
+ * there's a tray to keep it in (desktop only, and only once `desktop.info()`
+ * has answered — see `AboutPage.tsx`'s matching `useDesktopInfo`). */
+function useTrayAvailable(): boolean {
+  const { desktop } = useSnowdrop();
+  const [available, setAvailable] = useState(false);
+  useEffect(() => {
+    let live = true;
+    void desktop?.info().then((info) => {
+      if (live) setAvailable(info.trayAvailable);
+    });
+    return () => {
+      live = false;
+    };
+  }, [desktop]);
+  return available;
+}
+
 export function BehaviourPage() {
   const app = useSnowdrop();
   const [b, set] = useSettingsSection('behaviour');
+  const trayAvailable = useTrayAvailable();
   return (
     <SettingsSection>
       <SettingRow
@@ -74,6 +94,23 @@ export function BehaviourPage() {
               checked={b.linkPreviews}
               onCheckedChange={(v) => {
                 set({ linkPreviews: v });
+              }}
+            />
+          )}
+        />
+      )}
+      {trayAvailable && (
+        <SettingRow
+          id="behaviour.closeToTray"
+          label="Keep running in the tray when the window is closed"
+          description="Closing the window hides Snowdrop behind its tray icon instead of quitting — messages keep syncing and notifications keep working. Use Quit Snowdrop from the tray icon's menu to actually exit."
+          control={(ids) => (
+            <Switch
+              id={ids.id}
+              aria-describedby={ids.descriptionId}
+              checked={b.closeToTray}
+              onCheckedChange={(v) => {
+                set({ closeToTray: v });
               }}
             />
           )}

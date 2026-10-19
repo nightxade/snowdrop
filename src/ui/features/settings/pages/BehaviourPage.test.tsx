@@ -1,8 +1,24 @@
 import { act, cleanup, fireEvent, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
+import type { DesktopInfo } from '@/core/backend';
 import type { Snowdrop } from '@/app/createSnowdrop';
 import { bootSnowdrop, renderWithSnowdrop } from '@/test/renderWithSnowdrop';
 import { BehaviourPage } from './BehaviourPage';
+
+const DESKTOP_INFO: DesktopInfo = {
+  managedSignalCli: null,
+  signalCliReleaseUrl: null,
+  signalCliLicense: null,
+  signalCliSource: null,
+  dataDir: '',
+  logFile: null,
+  trayAvailable: true,
+};
+
+/** Simulates the desktop build's `DesktopAdmin` far enough for `info()` — the row's own fetch doesn't care about anything else on it. */
+function fakeDesktopInfo(info: DesktopInfo): { info: () => Promise<DesktopInfo> } {
+  return { info: () => Promise.resolve(info) };
+}
 
 let snowdrop: Snowdrop | null = null;
 afterEach(async () => {
@@ -55,6 +71,54 @@ describe('Settings → Behaviour: link previews', () => {
     });
 
     expect(snowdrop.stores.settings.getState().behaviour.linkPreviews).toBe(false);
+    expect(toggle.getAttribute('aria-checked')).toBe('false');
+  });
+});
+
+describe('Settings → Behaviour: keep running in the tray', () => {
+  it('is not offered when there is no desktop admin (the browser build)', async () => {
+    snowdrop = await bootSnowdrop();
+    expect(snowdrop.desktop).toBeNull();
+    renderWithSnowdrop(snowdrop, <BehaviourPage />);
+    expect(
+      screen.queryByRole('switch', { name: 'Keep running in the tray when the window is closed' }),
+    ).toBeNull();
+  });
+
+  it('is not offered when the desktop build has no tray (trayAvailable: false)', async () => {
+    snowdrop = await bootSnowdrop();
+    (snowdrop as { desktop: unknown }).desktop = fakeDesktopInfo({
+      ...DESKTOP_INFO,
+      trayAvailable: false,
+    });
+    renderWithSnowdrop(snowdrop, <BehaviourPage />);
+    // Lets `desktop.info()` (a resolved promise, but still a microtask)
+    // settle before asserting the row never appears — otherwise this would
+    // pass trivially before the effect even runs.
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(
+      screen.queryByRole('switch', { name: 'Keep running in the tray when the window is closed' }),
+    ).toBeNull();
+  });
+
+  it('is on by default and flips the setting when offered (desktop with a tray)', async () => {
+    snowdrop = await bootSnowdrop();
+    (snowdrop as { desktop: unknown }).desktop = fakeDesktopInfo(DESKTOP_INFO);
+    renderWithSnowdrop(snowdrop, <BehaviourPage />);
+
+    const toggle = await screen.findByRole('switch', {
+      name: 'Keep running in the tray when the window is closed',
+    });
+    expect(snowdrop.stores.settings.getState().behaviour.closeToTray).toBe(true);
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
+
+    act(() => {
+      fireEvent.click(toggle);
+    });
+
+    expect(snowdrop.stores.settings.getState().behaviour.closeToTray).toBe(false);
     expect(toggle.getAttribute('aria-checked')).toBe('false');
   });
 });

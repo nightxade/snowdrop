@@ -76,6 +76,17 @@ export interface BehaviourSettings {
    * while actually diagnosing something.
    */
   verboseLogging: boolean;
+  /**
+   * Desktop only. On: the main window's close button hides it behind the
+   * tray icon instead of quitting (`src-tauri/src/tray.rs` decides this per
+   * close, since it also needs a tray to actually exist); the tray menu's
+   * own "Quit Snowdrop" always quits regardless. Off, or no tray on this
+   * platform/session: today's behaviour — closing always quits. Defaults to
+   * on; harmless with no tray, since Rust only ever hides when one exists
+   * (`tray::close_decision`) — Settings → Behaviour hides this toggle
+   * itself in that case, but the stored value doesn't need to know why.
+   */
+  closeToTray: boolean;
 }
 
 export interface ConnectionSettings {
@@ -183,6 +194,7 @@ export function defaultSettings(): Settings {
       linkPreviews: true,
       focusComposerOnOpen: false,
       verboseLogging: false,
+      closeToTray: true,
     },
     connection: {
       backend: null,
@@ -376,6 +388,7 @@ export function parseSettings(data: unknown, options: SettingsParseOptions = {})
       linkPreviews: bool(b.linkPreviews, d.behaviour.linkPreviews),
       focusComposerOnOpen: bool(b.focusComposerOnOpen, d.behaviour.focusComposerOnOpen),
       verboseLogging: bool(b.verboseLogging, d.behaviour.verboseLogging),
+      closeToTray: bool(b.closeToTray, d.behaviour.closeToTray),
     },
     connection: {
       backend:

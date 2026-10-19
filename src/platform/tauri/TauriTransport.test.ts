@@ -278,7 +278,11 @@ describe('desktop admin', () => {
     expect(ipc.invoke).toHaveBeenLastCalledWith('signal_cli_locate', {
       binaryPath: 'signal-cli',
     });
-    ipc.invoke.mockResolvedValueOnce({ managedSignalCli: '0.14.8', dataDir: '/d' });
+    ipc.invoke.mockResolvedValueOnce({
+      managedSignalCli: '0.14.8',
+      dataDir: '/d',
+      trayAvailable: true,
+    });
     await admin.info();
     await admin.info();
     expect(ipc.invoke.mock.calls.filter(([c]) => c === 'desktop_info')).toHaveLength(1);
@@ -313,6 +317,7 @@ describe('desktop admin', () => {
       signalCliSource: null,
       dataDir: '',
       logFile: null,
+      trayAvailable: false,
     });
   });
 

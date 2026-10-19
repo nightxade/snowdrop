@@ -39,6 +39,8 @@
     "allow-storage-sign-out",
     "allow-app-restart",
     "allow-app-close-ready",
+    "allow-app-set-unread",
+    "allow-app-set-close-to-tray",
     "allow-frontend-log",
     "allow-log-set-verbose",
     "allow-log-recent",

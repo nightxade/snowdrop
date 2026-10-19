@@ -9,6 +9,7 @@ import type { ChatBackend, DesktopAdmin, OutgoingLinkPreview, StorageAdmin } fro
 // Type-only: the adapter itself is loaded on demand (its own chunk).
 import type { FetchLike } from '@/core/backend/signal-cli';
 import { type CommandRegistry, isMacPlatform, KeybindDispatcher } from '@/core/commands';
+import type { ConversationId } from '@/core/domain';
 import {
   createLogger,
   systemClock,
@@ -50,6 +51,7 @@ import {
   selectSettingsData,
   selectSpacesData,
   spacesSchema,
+  totalUnread,
   type Stores,
 } from '@/core/stores';
 import { applyAppearance, toTheme, type ThemeDocument } from '@/core/themes';
@@ -67,12 +69,15 @@ import { migrateLegacyScope, rebindScopedStore, scopedSchema, scopeFor } from '.
 import { installStallDetector } from './perf';
 import { createPluginHost } from './pluginHost';
 import { registerCoreStatusItems } from './statusItems';
+import { UnreadSync } from './unreadSync';
 import {
   desktopAdmin,
   desktopLogAdmin,
   desktopLinkPreviewFetch,
   desktopNotificationApi,
   desktopClipboardFiles,
+  desktopSetCloseToTray,
+  desktopSetUnread,
   desktopStorageAdmin,
   installDesktopLinks,
   isTauri,
@@ -302,6 +307,47 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
         void logs?.setVerbose(s.behaviour.verboseLogging);
     }),
   );
+
+  // Tray badge, taskbar/dock badge and window title (desktop only;
+  // src-tauri/src/tray.rs). `unreadSync` debounces and only sends on
+  // change; `totalUnread` is the same total the TUI shell's own status
+  // line uses (muted chats excluded — core/stores/views.ts).
+  if (isTauri()) {
+    const unreadSync = new UnreadSync(
+      scheduler,
+      () => {
+        const { unread, byId } = stores.conversations.getState();
+        const local = stores.local.getState().conversations;
+        return totalUnread(unread, local, Object.keys(byId) as ConversationId[], clock.now());
+      },
+      ({ count, mentions }) => {
+        desktopSetUnread(count, mentions);
+      },
+    );
+    unreadSync.flush();
+    cleanups.push(
+      stores.conversations.subscribe((s, prev) => {
+        if (s.unread !== prev.unread || s.byId !== prev.byId) unreadSync.notify();
+      }),
+      stores.local.subscribe((s, prev) => {
+        if (s.conversations !== prev.conversations) unreadSync.notify();
+      }),
+      () => {
+        unreadSync.dispose();
+      },
+    );
+
+    // Mirrors Settings → Behaviour's "Keep running in the tray" into Rust,
+    // which decides hide-vs-quit at the main window's close — Rust has no
+    // access to this store itself.
+    desktopSetCloseToTray(stores.settings.getState().behaviour.closeToTray);
+    cleanups.push(
+      stores.settings.subscribe((s, prev) => {
+        if (s.behaviour.closeToTray !== prev.behaviour.closeToTray)
+          desktopSetCloseToTray(s.behaviour.closeToTray);
+      }),
+    );
+  }
 
   const appLog = createLogger('app');
   const reportError = (error: unknown, context: string): void => {

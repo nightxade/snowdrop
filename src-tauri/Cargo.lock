@@ -3954,6 +3954,7 @@ dependencies = [
  "keyring",
  "libc",
  "log",
+ "png 0.18.1",
  "regex",
  "reqwest 0.12.28",
  "rusqlite",

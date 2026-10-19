@@ -24,7 +24,9 @@ default = []
 bundled-sidecar = []
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# `tray-icon`: the system tray (StatusNotifierItem/AppIndicator on Linux,
+# Shell_NotifyIcon on Windows, NSStatusItem on macOS — see `tray.rs`).
+tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-notification = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-single-instance = "2"
@@ -43,6 +45,15 @@ futures-util = { version = "0.3", default-features = false, features = ["std"] }
 html5gum = "0.8"
 # The preview image's pixel size, read from its header only (no full decode).
 imagesize = "0.15"
+# Decodes the embedded tray icon (`tray.rs`) into raw RGBA so the badge
+# renderer can draw directly on it, and nothing else. `png` is already a
+# transitive dependency at this exact version (muda/tray-icon and
+# tauri-codegen's own icon handling both pull it in), so this adds no new
+# crate to the tree. Tauri's own `image-png` feature would do the decode for
+# us instead, but it pulls in the much larger `image` crate (and that
+# crate's own extra dependencies) just for this one call; going straight to
+# `png` avoids all of that for a single decode.
+png = "0.18"
 # Link previews resolve relative image URLs and re-validate every redirect
 # hop against the same URL type reqwest/the browser use.
 url = "2"

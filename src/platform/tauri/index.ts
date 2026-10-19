@@ -11,6 +11,8 @@ export { EVENT_FLUSH_BEFORE_CLOSE, onFlushBeforeClose } from './closeHandshake';
 export {
   appCloseReady,
   appRestart,
+  appSetCloseToTray,
+  appSetUnread,
   createDesktopAdmin,
   createStorageAdmin,
   storageCreateRecovery,

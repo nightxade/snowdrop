@@ -87,6 +87,7 @@ const desktopInfoShape: Decoder<DesktopInfo> = object({
   signalCliSource: nullable(str),
   dataDir: str,
   logFile: nullable(str),
+  trayAvailable: bool,
 });
 
 export function validateDesktopInfo(command: string, value: unknown): DesktopInfo {

@@ -16,6 +16,7 @@ use crate::secrets::{self, KeyringStatus, KeyringStore};
 use crate::service::{ConnectInfo, ProbeResult, Service};
 use crate::signal_cli_install::{self, InstallState, InstallStatus, PinnedAsset};
 use crate::storage::{SetupMode, StorageService, StorageStatus, UnlockMethod};
+use crate::tray;
 use crate::CloseGate;
 
 type Svc<'a> = State<'a, Arc<Service>>;
@@ -206,6 +207,11 @@ pub struct DesktopInfo {
     signal_cli_source: Option<String>,
     data_dir: String,
     log_file: Option<String>,
+    /// Whether a system tray icon exists at all on this host (`tray.rs`) —
+    /// false on Linux with no AppIndicator/StatusNotifierItem host, or if
+    /// building the tray icon failed for some other reason. Settings →
+    /// Behaviour hides "Keep running in the tray" when this is false.
+    tray_available: bool,
 }
 
 /// Reads the install status and (in a bundled build) a couple of licence
@@ -243,6 +249,7 @@ pub async fn desktop_info(app: AppHandle) -> DesktopInfo {
             signal_cli_source,
             data_dir: paths.data_dir.display().to_string(),
             log_file: paths.log_file.as_ref().map(|p| p.display().to_string()),
+            tray_available: tray::available(&app),
         }
     })
     .await
@@ -512,6 +519,34 @@ pub fn app_close_ready(app: AppHandle, gate: CloseLatch<'_>) {
     if gate.fire() {
         app.exit(0);
     }
+}
+
+/// Mirrors the frontend's computed total unread (`totalUnread` in
+/// src/core/stores/views.ts — muted chats excluded, the same total the TUI
+/// shell's own status line shows) to the tray badge/tooltip/title, the
+/// taskbar/dock badge and the window title (`tray::set_unread`). Called
+/// from a debounced, change-only subscriber on the frontend
+/// (`src/app/unreadSync.ts`), so this itself just applies whatever it's
+/// given.
+#[tauri::command]
+pub fn app_set_unread(app: AppHandle, count: u32, _mentions: u32) {
+    let _t = CommandTimer::start("app_set_unread");
+    // `mentions` isn't used by the badge today — `count` already is "the
+    // same total the status line uses", per the brief — but it's accepted
+    // here so a future affordance (e.g. a mention-only indicator while
+    // muted) never needs a new command, just a new use of this parameter.
+    tray::set_unread(&app, count);
+}
+
+/// Mirrors Settings → Behaviour's "Keep running in the tray"
+/// (`behaviour.closeToTray`, src/core/stores/settings.ts) so the main
+/// window's `CloseRequested` (`lib.rs`) can decide hide-vs-quit
+/// (`tray::close_decision`) — Rust has no access to the frontend's own
+/// settings store to read it directly.
+#[tauri::command]
+pub fn app_set_close_to_tray(app: AppHandle, enabled: bool) {
+    let _t = CommandTimer::start("app_set_close_to_tray");
+    app.state::<Arc<tray::CloseToTray>>().set(enabled);
 }
 
 pub fn is_external_url(url: &str) -> bool {

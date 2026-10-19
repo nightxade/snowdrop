@@ -117,6 +117,29 @@ export function installDesktopLinks(): void {
 }
 
 /**
+ * Mirrors the total unread count to the tray badge, taskbar/dock badge and
+ * window title (src-tauri/src/tray.rs). Fire-and-forget, same as every
+ * other platform-gated call here — `src/app/unreadSync.ts` is what
+ * debounces and de-duplicates calls into this.
+ */
+export function desktopSetUnread(count: number, mentions: number): void {
+  void platform()
+    .then((m) => m.appSetUnread(count, mentions))
+    .catch(() => {});
+}
+
+/**
+ * Mirrors Settings → Behaviour's "Keep running in the tray" setting into
+ * Rust, which decides hide-vs-quit at the main window's close
+ * (src-tauri/src/tray.rs).
+ */
+export function desktopSetCloseToTray(enabled: boolean): void {
+  void platform()
+    .then((m) => m.appSetCloseToTray(enabled))
+    .catch(() => {});
+}
+
+/**
  * The close handshake (docs/ENCRYPTION.md, "Close handshake"): lazily wires
  * up `onFlushBeforeClose` the same way the other desktop services above do,
  * so `StorageGate` (the one caller) never has to load `@tauri-apps/*`

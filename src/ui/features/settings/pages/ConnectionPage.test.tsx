@@ -22,6 +22,7 @@ function fakeDesktopAdmin(): DesktopAdmin {
     signalCliSource: null,
     dataDir: '/home/me/.local/share/signal-cli',
     logFile: null,
+    trayAvailable: false,
   };
   return {
     probe: (): Promise<DesktopProbeResult> =>

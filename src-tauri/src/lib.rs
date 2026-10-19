@@ -24,6 +24,7 @@ pub mod secrets;
 pub mod service;
 pub mod signal_cli_install;
 pub mod storage;
+pub mod tray;
 pub mod vault;
 pub mod vault_bridge;
 
@@ -88,12 +89,36 @@ impl EventSink for WebviewSink {
     }
 }
 
-fn focus_main(app: &AppHandle) {
+/// Shows, un-minimizes and focuses the main window — single-instance
+/// relaunch (below) and the tray's "Show Snowdrop"/left-click (`tray.rs`)
+/// all land here. Always shows; never hides (see `tray.rs`'s
+/// `toggle_or_focus` for the hide-aware variant tray left-click uses).
+pub(crate) fn focus_main(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
     }
+}
+
+/// Starts the close handshake (docs/ENCRYPTION.md, "signal-cli vault"):
+/// emits [`EVENT_FLUSH_BEFORE_CLOSE`] and arms [`CLOSE_FALLBACK`], same as a
+/// normal window close. Also used by the tray menu's "Quit Snowdrop"
+/// (`tray.rs`), which must always actually quit regardless of the
+/// close-to-tray setting — unlike the window's own close button, which may
+/// just hide it instead (see the `CloseRequested` handler below).
+pub(crate) fn begin_quit(window: &tauri::WebviewWindow, gate: Arc<CloseGate>) {
+    if let Err(e) = window.emit(EVENT_FLUSH_BEFORE_CLOSE, ()) {
+        log::warn!("couldn't notify the frontend before closing: {e}");
+    }
+    let handle = window.app_handle().clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(CLOSE_FALLBACK).await;
+        if gate.fire() {
+            log::warn!("snowdrop: the frontend never answered the close handshake; exiting anyway.");
+            handle.exit(0);
+        }
+    });
 }
 
 /// See `appimage::run_as_warmup_child_if_requested`: must be called at the
@@ -210,6 +235,12 @@ pub fn run() {
             app.manage(std::sync::Mutex::new(storage_service));
             app.manage(Arc::new(InstallState::new(app_data_dir)));
             app.manage(Arc::new(CloseGate::new()));
+            // See `tray::init`'s own doc comment for why this never panics
+            // or fails `setup()` even with no usable tray host. (`handle`
+            // was already moved into `WebviewSink` above; `app.handle()`
+            // borrows a fresh one.)
+            app.manage(Arc::new(std::sync::Mutex::new(tray::init(app.handle()))));
+            app.manage(Arc::new(tray::CloseToTray::new()));
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -220,18 +251,22 @@ pub fn run() {
             }
             let WindowEvent::CloseRequested { api, .. } = event else { return };
             api.prevent_close();
-            if let Err(e) = window.emit(EVENT_FLUSH_BEFORE_CLOSE, ()) {
-                log::warn!("couldn't notify the frontend before closing: {e}");
-            }
-            let gate = window.state::<Arc<CloseGate>>().inner().clone();
-            let handle = window.app_handle().clone();
-            tauri::async_runtime::spawn(async move {
-                tokio::time::sleep(CLOSE_FALLBACK).await;
-                if gate.fire() {
-                    log::warn!("snowdrop: the frontend never answered the close handshake; exiting anyway.");
-                    handle.exit(0);
+            let handle = window.app_handle();
+            match tray::close_decision(tray::available(handle), tray::close_to_tray(handle)) {
+                tray::CloseAction::Hide => {
+                    let _ = window.hide();
                 }
-            });
+                tray::CloseAction::Quit => {
+                    // `begin_quit` takes a `WebviewWindow` (it's also called
+                    // from the tray menu, which only ever has one of those
+                    // to hand) — re-fetched here since this handler's own
+                    // `window` is the plain `Window` half.
+                    if let Some(webview_window) = handle.get_webview_window("main") {
+                        let gate = handle.state::<Arc<CloseGate>>().inner().clone();
+                        begin_quit(&webview_window, gate);
+                    }
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             commands::clipboard_read_files,

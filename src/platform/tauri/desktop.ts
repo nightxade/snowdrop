@@ -156,6 +156,31 @@ export async function appCloseReady(ipc: TauriIpc = tauriIpc): Promise<void> {
   await ipc.invoke('app_close_ready');
 }
 
+/**
+ * Mirrors the computed total unread (`totalUnread` in core/stores/views.ts)
+ * to the tray badge, taskbar/dock badge and window title
+ * (`src-tauri/src/tray.rs`). See `./unreadSync.ts` for the debounced,
+ * change-only caller.
+ */
+export async function appSetUnread(
+  count: number,
+  mentions: number,
+  ipc: TauriIpc = tauriIpc,
+): Promise<void> {
+  await ipc.invoke('app_set_unread', { count, mentions });
+}
+
+/**
+ * Mirrors Settings → Behaviour's "Keep running in the tray" setting
+ * (`behaviour.closeToTray`) into Rust, which decides hide-vs-quit at the
+ * main window's `CloseRequested` (`src-tauri/src/tray.rs`,
+ * `src-tauri/src/lib.rs`) — Rust has no access to the frontend's own
+ * settings store to read it directly.
+ */
+export async function appSetCloseToTray(enabled: boolean, ipc: TauriIpc = tauriIpc): Promise<void> {
+  await ipc.invoke('app_set_close_to_tray', { enabled });
+}
+
 /** Bundles the `storage_*` wrappers above into the shape `StorageGate` (and Settings) depend on. */
 export function createStorageAdmin(ipc: TauriIpc = tauriIpc): StorageAdmin {
   return {
@@ -213,6 +238,7 @@ export function createDesktopAdmin(ipc: TauriIpc = tauriIpc): DesktopAdmin {
             signalCliSource: null,
             dataDir: '',
             logFile: null,
+            trayAvailable: false,
           };
         });
       return info;

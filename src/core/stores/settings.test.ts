@@ -102,6 +102,16 @@ describe('settingsStore', () => {
     expect(parseSettings({ behaviour: { verboseLogging: 'yes' } }).behaviour).toEqual(d.behaviour);
   });
 
+  it('defaults closeToTray to on and parses it as a plain boolean', () => {
+    const d = defaultSettings();
+    expect(d.behaviour.closeToTray).toBe(true);
+    expect(parseSettings({ behaviour: { closeToTray: false } }).behaviour).toEqual({
+      ...d.behaviour,
+      closeToTray: false,
+    });
+    expect(parseSettings({ behaviour: { closeToTray: 'nope' } }).behaviour).toEqual(d.behaviour);
+  });
+
   it('parses the desktop connection, falling back field by field', () => {
     const parsed = parseSettings({
       connection: {

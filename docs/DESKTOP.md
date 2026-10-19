@@ -542,6 +542,82 @@ yourself (a JRE, 25 or newer for current releases — see
 External-daemon mode (`signal-cli daemon --http ...`, loopback only) works
 the same way on any platform.
 
+## System tray and badges
+
+`src-tauri/src/tray.rs` adds a system tray icon with an unread-count badge
+(Tauri v2's built-in `tray-icon` feature): StatusNotifierItem/AppIndicator on
+Linux, `Shell_NotifyIcon` on Windows, `NSStatusItem` on macOS.
+
+- **Left click** shows + focuses the window, or hides it again if it's
+  already the focused, visible window. **Linux never delivers this event at
+  all** (Tauri's own doc on `TrayIconEvent`) — the menu's "Show Snowdrop" is
+  the one affordance guaranteed on every host.
+- **Menu**: "Show Snowdrop", a separator, "Quit Snowdrop" (always runs the
+  real close handshake — `EVENT_FLUSH_BEFORE_CLOSE`/`CloseGate` in `lib.rs`
+  — regardless of "Keep running in the tray", below). No "Mark all as read":
+  there's no command for marking _every_ conversation read today, only
+  per-space/per-folder and per-conversation ones, so nothing to wire up yet.
+- **Badge**: the tray icon is re-rendered (and cached per label) with a red
+  circle and a white digit, or "9+" for ten or more — capped at one glyph
+  rather than two exact digits, since a single big glyph stays legible where
+  two small ones would just blur at the ~22–24px most tray hosts actually
+  show it at. The count is `totalUnread(...).count` from
+  `src/core/stores/views.ts`, the same the TUI shell's own status line uses
+  (muted chats excluded). Zero unread is the plain icon. The tooltip/title
+  reads "Snowdrop" or "Snowdrop — 3 unread".
+- **Taskbar/dock badge and window title** (best effort): the real, uncapped
+  count via `WebviewWindow::set_badge_count` (Unity LauncherEntry over
+  D-Bus on Linux — which KDE's task manager and GNOME docks both honour —
+  and the dock badge on macOS) or `set_overlay_icon` on Windows (where
+  `set_badge_count` is unsupported), plus a "Snowdrop (3)" window-title
+  fallback many window managers show regardless.
+- **Linux without an AppIndicator-capable library, or no tray host at all**
+  (plain GNOME without the extension, a minimal WM, most containers): the
+  app runs with no tray rather than crashing. `tray-icon`'s default Linux
+  backend (`libappindicator`) `dlopen`s `libayatana-appindicator3.so.1` or
+  `libappindicator3.so.1` the first time a tray icon is built, and
+  **panics** if neither exists — with this binary's release profile at
+  `panic = "abort"` (`Cargo.toml`), nothing downstream, not even
+  `catch_unwind`, could rescue that. `appindicator_available` probes for the
+  same two library names first, with a bare, non-panicking
+  `dlopen`/`dlclose` (`libc`, already a dependency), and the tray is simply
+  never built when neither loads. `desktop_info` reports this to the
+  frontend as `trayAvailable`, which Settings → Behaviour uses to hide "Keep
+  running in the tray" (`behaviour.closeToTray`) when there's nothing to
+  close to.
+- **Close to tray** (`behaviour.closeToTray`, default on): when a tray
+  exists and the setting is on, the main window's `CloseRequested` hides it
+  instead of running the quit handshake (`tray::close_decision`, a pure
+  function of `tray_available × closeToTray`); single-instance relaunch
+  (`focus_main`) re-shows a hidden window the same as any other, and
+  notifications and the tray badge keep updating while hidden. Rust mirrors
+  the setting itself via the `app_set_close_to_tray` command (the frontend
+  settings store is otherwise invisible to Rust) — see the debounced,
+  change-only `app_set_unread` wiring in `src/app/unreadSync.ts`/
+  `src/app/createSnowdrop.ts` for the matching unread-count path.
+- **Rendering**: the badge is drawn at runtime onto the bundle's own
+  128×128 icon (`icons/128x128.png`, supersampled relative to the actual
+  tray size so the host's own downscale stays crisp — "crisp on HiDPI" per
+  the brief), decoded with the `png` crate (already a transitive dependency
+  at this version via `tauri-codegen`/`muda`, so this adds no new crate —
+  `Cargo.toml` has the full reasoning) rather than `tauri`'s own
+  `image-png` feature, which would pull in the much larger `image` crate
+  for a single decode. The digits themselves are a tiny embedded 3×5 pixel
+  font, not a real font library.
+- **Linux packaging**: the deb's `depends` includes
+  `libayatana-appindicator3-1` (`tauri.conf.json`). The AppImage target
+  stays in `bundle.targets` for local testing, but isn't published — the
+  AppIndicator library above is `dlopen`'d at runtime, not linked, so the
+  AppImage bundler's usual automatic dependency scan (which only follows
+  normal ELF `NEEDED` entries) won't pick it up, and this hasn't been
+  verified end-to-end yet.
+
+Unit tests (`cargo test tray::`) cover the badge label mapping, the pixel
+painter (zero unread leaves the icon untouched; a nonzero one paints red),
+the render cache (keyed by label, not raw count), and `close_decision`'s
+four combinations. TS tests (`unreadSync.test.ts`, `settings.test.ts`)
+cover the debounce/change-only subscriber and the `closeToTray` setting.
+
 ## GPL compliance
 
 signal-cli is GPL-3.0, written by AsamK and contributors. In the **default**
