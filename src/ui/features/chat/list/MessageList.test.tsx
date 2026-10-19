@@ -279,6 +279,70 @@ describe('focus() vs focusLatest()', () => {
   });
 });
 
+describe('prefetching older history', () => {
+  it('requests the next page before the reader reaches the physical top, coalescing repeat triggers', async () => {
+    const snowdrop = await bootSnowdrop();
+    snowdrops.push(snowdrop);
+    const { conv } = await withHistory(snowdrop, 300);
+    await act(async () => {
+      snowdrop.stores.ui.getState().selectConversation(conv.id);
+      await snowdrop.history.open(conv.id);
+    });
+    const chat = new ChatController();
+    renderWithSnowdrop(
+      snowdrop,
+      <VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 48 }}>
+        <ChatControllerProvider value={chat}>
+          <MessagePane conversationId={conv.id} />
+        </ChatControllerProvider>
+      </VirtuosoMockContext.Provider>,
+    );
+    await settle(snowdrop);
+
+    const scroller = document.querySelector<HTMLElement>('[data-message-scroller]')!;
+    // Virtuoso's mock only renders rows once its scroller sees a scroll event.
+    await waitFor(
+      () => {
+        act(() => {
+          scroller.dispatchEvent(new Event('scroll'));
+        });
+        expect(document.querySelectorAll('[data-message-id]').length).toBeGreaterThan(0);
+      },
+      { timeout: 3000 },
+    );
+
+    const loadOlder = vi.spyOn(snowdrop.history, 'loadOlder');
+    // Holds the first page load open, so a second trigger lands while it's
+    // still in flight — the race `page()`'s coalescing exists for.
+    let resolveFirstPage!: (messages: Message[]) => void;
+    const pending = new Promise<Message[]>((resolve) => {
+      resolveFirstPage = resolve;
+    });
+    const pageSpy = vi.spyOn(snowdrop.repository, 'page').mockImplementationOnce(() => pending);
+
+    // A few rows short of the literal top (not 0): only the rangeChanged-driven
+    // prefetch — not startReached, which needs the physical boundary — can
+    // explain a call from here.
+    await act(async () => {
+      scroller.scrollTop = 3 * 48;
+      scroller.dispatchEvent(new Event('scroll'));
+      await Promise.resolve(); // let Virtuoso's mock engine process the scroll
+    });
+    expect(loadOlder).toHaveBeenCalledWith(conv.id);
+    expect(pageSpy).toHaveBeenCalledTimes(1);
+
+    // A second trigger while that load is still pending (a fast fling fires
+    // several scroll events before a page lands) must not start another one.
+    act(() => {
+      scroller.dispatchEvent(new Event('scroll'));
+    });
+    expect(pageSpy).toHaveBeenCalledTimes(1);
+
+    resolveFirstPage([]);
+    await settle(snowdrop);
+  });
+});
+
 describe('reactions', () => {
   it('labels who reacted, you first', () => {
     const names: Record<string, string> = { a: 'Ada', b: 'Bo', c: 'Cy', d: 'Di' };

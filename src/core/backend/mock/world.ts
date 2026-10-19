@@ -63,6 +63,67 @@ export interface MockWorld {
 export interface WorldOptions {
   seed: number;
   now: number;
+  /**
+   * Scroll-performance harness only: prepends `count` synthetic older
+   * messages (mixed lengths, occasional images) to one conversation, so
+   * there are thousands of pages to page through. See `MockBackendOptions.bulkMessages`.
+   */
+  bulk?: { count: number; conversationKey?: string };
+}
+
+/** `WorldOptions.bulk`'s default target when no `conversationKey` is given. */
+const DEFAULT_BULK_CONVERSATION = 'orchard-eng';
+/** Spacing between synthetic bulk messages. */
+const BULK_STEP_MS = 90_000;
+/** Roughly one image every 20 messages, one long/multi-sentence message every 7. */
+const BULK_IMAGE_EVERY = 23;
+const BULK_LONG_EVERY = 7;
+const BULK_IMAGE_KINDS: readonly ImageKind[] = ['peaks', 'sunset', 'bars', 'palette', 'garden'];
+/** Longer than the casual filler pool, to vary row height the way real chatter does. */
+const BULK_LONG_LINES: readonly string[] = [
+  "Catching up after being out for a bit: here's the longer version, since a couple of people asked for more context than the one-line summary above — happy to go deeper on any of this if it's useful.",
+  'Quick recap of where we landed, written out in full this time so it is easy to point people at later instead of reconstructing it from several separate messages.',
+  'Not blocking anyone on this, just leaving a note here so future readers have the reasoning written down instead of only the decision.',
+];
+
+/** A run of synthetic older messages, oldest first, ending just before `beforeSentAt`. */
+function buildBulkMessages(
+  rnd: Random,
+  conversationId: ConversationId,
+  authorIds: readonly [string, string],
+  beforeSentAt: number,
+  count: number,
+): Message[] {
+  const messages: Message[] = [];
+  for (let i = 0; i < count; i++) {
+    const sentAt = beforeSentAt - (count - i) * BULK_STEP_MS;
+    const authorId = authorIds[i % 2] as string;
+    const body = i % BULK_LONG_EVERY === 0 ? rnd.pick(BULK_LONG_LINES) : rnd.pick(CASUAL_LINES);
+    const attachments: Attachment[] =
+      i % BULK_IMAGE_EVERY === 0
+        ? [
+            generateImageAttachment(
+              rnd,
+              BULK_IMAGE_KINDS[(i / BULK_IMAGE_EVERY) % BULK_IMAGE_KINDS.length] as ImageKind,
+              `bulk-${sentAt.toString(36)}`,
+            ),
+          ]
+        : [];
+    messages.push({
+      id: messageId(authorId, sentAt),
+      conversationId,
+      authorId,
+      sentAt,
+      receivedAt: sentAt,
+      body,
+      ranges: [],
+      attachments,
+      reactions: [],
+      status: 'read',
+      kind: 'normal',
+    });
+  }
+  return messages;
 }
 
 function startOfDay(ts: number): number {
@@ -337,7 +398,7 @@ class ConversationBuilder {
   }
 }
 
-export function buildWorld({ seed, now }: WorldOptions): MockWorld {
+export function buildWorld({ seed, now, bulk }: WorldOptions): MockWorld {
   // Identities come from their own stream so they're stable across launches
   // (persisted spaces reference them) even though content depends on `now`.
   const idRnd = new Random(seed);
@@ -388,6 +449,15 @@ export function buildWorld({ seed, now }: WorldOptions): MockWorld {
     builder.addScripted(seedConv.scripted ?? [], anchor);
     builder.reserveUnread(seedConv.unread ?? 0);
     const { messages, readUpTo: cursor } = builder.build(id, nameFor);
+    let history = messages;
+    if (seedConv.key === (bulk?.conversationKey ?? DEFAULT_BULK_CONVERSATION) && bulk) {
+      const other = memberIds.find((m) => m !== self.id) ?? self.id;
+      const earliest = messages[0]?.sentAt ?? now;
+      history = [
+        ...buildBulkMessages(rnd, id, [self.id, other], earliest, bulk.count),
+        ...messages,
+      ];
+    }
 
     const conversation: Conversation = {
       id,
@@ -401,7 +471,7 @@ export function buildWorld({ seed, now }: WorldOptions): MockWorld {
     if (seedConv.description) conversation.description = seedConv.description;
 
     conversations.set(id, conversation);
-    histories.set(id, messages);
+    histories.set(id, history);
     readUpTo.set(id, cursor);
     pools.set(id, [...seedConv.lines, ...CASUAL_LINES]);
     if (seedConv.lively) lively.push(id);

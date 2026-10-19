@@ -37,7 +37,7 @@ export interface BackendEnvironment {
   /** Persists a connection setting the adapter discovered (signal-cli's account). */
   updateConnection(patch: Partial<ConnectionSettings>): void;
   /** Test and host overrides. */
-  overrides: { fetch?: FetchLike; mockLatencyMs?: number };
+  overrides: { fetch?: FetchLike; mockLatencyMs?: number; mockBulkMessages?: number };
 }
 
 export type ChatBackendFactory = (env: BackendEnvironment) => ChatBackend;
@@ -132,6 +132,9 @@ const mockBackend: BackendRegistration = {
             clock: env.clock,
             scheduler: env.scheduler,
             latencyMs: env.overrides.mockLatencyMs ?? 120,
+            ...(env.overrides.mockBulkMessages
+              ? { bulkMessages: env.overrides.mockBulkMessages }
+              : {}),
           }),
     ),
   capabilities: new Set(['fetchHistory', 'adminDelete', 'pinMessage', 'updateConversation']),

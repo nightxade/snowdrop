@@ -54,6 +54,13 @@ export interface MockBackendOptions {
   liveliness?: LivelinessOptions;
   /** Pre-built world (tests); otherwise built from seed + clock. */
   world?: MockWorld;
+  /**
+   * Scroll-performance harness only (`?mockBulkMessages=` in the browser):
+   * prepends this many synthetic older messages to one conversation's
+   * history, so paging has thousands of pages to work through. Ignored when
+   * `world` is given. See `scratch/wk/` for the scenario that uses it.
+   */
+  bulkMessages?: number;
 }
 
 export class MockBackendError extends Error {
@@ -81,7 +88,13 @@ export class MockBackend implements ChatBackend {
     this.scheduler = options.scheduler ?? systemScheduler;
     this.latencyMs = options.latencyMs ?? 0;
     this.rnd = new Random(seed ^ 0x5eed);
-    this.world = options.world ?? buildWorld({ seed, now: this.clock.now() });
+    this.world =
+      options.world ??
+      buildWorld({
+        seed,
+        now: this.clock.now(),
+        ...(options.bulkMessages ? { bulk: { count: options.bulkMessages } } : {}),
+      });
     this.liveliness = new Liveliness(
       {
         world: this.world,

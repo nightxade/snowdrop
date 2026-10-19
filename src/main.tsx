@@ -62,11 +62,23 @@ if (isTauri()) {
  * Browser/dev/mock mode only: there's no vault, so storage stays exactly as
  * it was before encrypted storage existed (plaintext, via the defaults
  * `createSnowdrop` already falls back to).
+ *
+ * `?mockLatencyMs=`/`?mockBulkMessages=`: scroll-performance harness knobs
+ * for local testing, unused otherwise — they stand in for the desktop's IPC
+ * latency and a long local history so scrolling through thousands of
+ * messages is reproducible without a real signal-cli account.
  */
 function bootBrowser(container: HTMLElement): void {
   const params = new URLSearchParams(window.location.search);
   const safeMode = params.get('safe') === '1';
-  const snowdrop = createSnowdrop({ document, safeMode });
+  const mockLatencyMs = intParam(params, 'mockLatencyMs');
+  const mockBulkMessages = intParam(params, 'mockBulkMessages');
+  const snowdrop = createSnowdrop({
+    document,
+    safeMode,
+    ...(mockLatencyMs === undefined ? {} : { mockLatencyMs }),
+    ...(mockBulkMessages === undefined ? {} : { mockBulkMessages }),
+  });
   // Never unmounts, so the cleanup function (removed listeners) is never
   // needed here — it matters for DesktopBootedApp, which can re-run this
   // per instance.
@@ -91,4 +103,12 @@ function bootBrowser(container: HTMLElement): void {
       </AppErrorBoundary>
     </StrictMode>,
   );
+}
+
+/** A positive-integer query param, or undefined if absent/invalid. */
+function intParam(params: URLSearchParams, name: string): number | undefined {
+  const raw = params.get(name);
+  if (raw === null) return undefined;
+  const n = Number(raw);
+  return Number.isInteger(n) && n > 0 ? n : undefined;
 }

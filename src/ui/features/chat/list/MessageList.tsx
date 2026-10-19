@@ -25,6 +25,7 @@ import { JumpToPresent } from './JumpToPresent';
 import { LiveAnnouncer } from './LiveAnnouncer';
 import { NewDivider } from './NewDivider';
 import { NewMessagesBar } from './NewMessagesBar';
+import { prefetchEdges } from './prefetch';
 import { RowState, RowStateProvider } from './rowState';
 import { SystemRow } from './SystemRow';
 import { useListItems } from './useListItems';
@@ -460,7 +461,17 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
           rangeChanged={(range) => {
             firstRendered.current = range.startIndex - firstItemIndex;
             measureDivider();
+            if (!loaded) return;
+            const decision = prefetchEdges(range, firstItemIndex, items.length, {
+              hasMoreBefore,
+              anchoredToPresent,
+            });
+            if (decision.loadOlder) void history.loadOlder(conversationId);
+            if (decision.loadNewer) void history.loadNewer(conversationId);
           }}
+          // Backstops rangeChanged's prefetch for a fling fast enough to skip
+          // straight past the threshold in one jump (both are coalescing, so
+          // calling both here costs nothing extra).
           startReached={() => {
             if (loaded && hasMoreBefore) void history.loadOlder(conversationId);
           }}

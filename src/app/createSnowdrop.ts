@@ -96,6 +96,8 @@ export interface SnowdropOptions {
   scheduler?: Scheduler;
   /** Mock network latency in ms. */
   mockLatencyMs?: number;
+  /** Scroll-performance harness only (`?mockBulkMessages=`): see `MockBackendOptions.bulkMessages`. */
+  mockBulkMessages?: number;
   /** signal-cli transport override (tests). */
   fetch?: FetchLike;
   /** Message repository override (tests); defaults per backend. */
@@ -325,6 +327,9 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
       overrides: {
         ...(options.fetch ? { fetch: options.fetch } : {}),
         ...(options.mockLatencyMs === undefined ? {} : { mockLatencyMs: options.mockLatencyMs }),
+        ...(options.mockBulkMessages === undefined
+          ? {}
+          : { mockBulkMessages: options.mockBulkMessages }),
       },
     },
     options.repository,
