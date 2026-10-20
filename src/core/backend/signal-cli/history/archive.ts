@@ -16,8 +16,8 @@ function invalid(message: string): never {
 
 /** An account-bound snapshot. A partial directory is never exposed to callers. */
 export class HistoryArchive {
-  /** chatHasMessages answers, per chat, for this archive's lifetime. */
-  private readonly hasMessages = new Map<string, Promise<boolean>>();
+  /** chatLatestMessageAt answers, per chat, for this archive's lifetime. */
+  private readonly latestMessageAt = new Map<string, Promise<number | undefined>>();
 
   private constructor(
     private readonly rpc: JsonRpcClient,
@@ -106,35 +106,49 @@ export class HistoryArchive {
   }
 
   /**
-   * Whether a chat has at least one real message, for deciding whether a
-   * history-only conversation belongs in the list at all (see
-   * SignalCliBackend.listConversations). Matches the phone, which lists a
-   * chat only once it has a message: system entries (`updateMessage` —
-   * safety number changes, "joined Signal", profile and timer changes) don't
-   * count. Pages newest-first and stops at the first real message, so it's
-   * one indexed lookup for almost every chat (patches/signal-cli 0005's
-   * chat_id index); there's no per-chat count query to use instead. Cached:
-   * the archive is a snapshot, so later listings (every refresh) don't
-   * repeat the lookups. A failed lookup isn't cached.
+   * The newest real message's own timestamp (Backups.proto ChatItem's
+   * `dateSent` — the sender's clock, present on every item whether incoming
+   * or outgoing), or undefined if the chat has none. Used both to decide
+   * whether a history-only conversation belongs in the list at all, and to
+   * order it like the phone (see SignalCliBackend.listConversations):
+   * `dateSent` rather than `dateReceived`/`dateServerSent` (incoming-only,
+   * and this device's own receive/server time rather than a value every
+   * item carries) so it lines up with a live message's own `sentAt` (see
+   * `notePeer`) — a backlog delivered in a burst at startup then still lands
+   * in the same relative order the phone shows, not clustered around "now".
+   *
+   * Matches the phone, which lists/orders a chat only by a real message:
+   * system entries (`updateMessage` — safety number changes, "joined
+   * Signal", profile and timer changes) don't count. Pages newest-first and
+   * stops at the first real entry (scanning each page back to front, since
+   * `chatPage` orders entries oldest-to-newest), so it's one indexed lookup
+   * for almost every chat (patches/signal-cli 0005's chat_id index); there's
+   * no per-chat max/count query to use instead. Cached: the archive is a
+   * snapshot, so later listings (every refresh) don't repeat the lookups. A
+   * failed lookup isn't cached.
    */
-  chatHasMessages(chatId: string): Promise<boolean> {
-    let answer = this.hasMessages.get(chatId);
+  chatLatestMessageAt(chatId: string): Promise<number | undefined> {
+    let answer = this.latestMessageAt.get(chatId);
     if (!answer) {
-      answer = this.findRealMessage(chatId);
-      this.hasMessages.set(chatId, answer);
-      answer.catch(() => this.hasMessages.delete(chatId));
+      answer = this.findLatestReal(chatId);
+      this.latestMessageAt.set(chatId, answer);
+      answer.catch(() => this.latestMessageAt.delete(chatId));
     }
     return answer;
   }
 
-  private async findRealMessage(chatId: string): Promise<boolean> {
+  private async findLatestReal(chatId: string): Promise<number | undefined> {
     let before: string | undefined;
     for (let limit = 8; ; limit = PAGE_SIZE) {
       const page = await this.chatPage(chatId, before, limit);
-      // chatPage has already checked every entry's chatItem is a record.
+      // chatPage has already checked every entry's chatItem is a record;
+      // entries page oldest-to-newest, so scan back to front for the newest.
       const items = page.entries.map((entry) => entry.frame.chatItem as Record<string, unknown>);
-      if (items.some((item) => !isRecord(item.updateMessage))) return true;
-      if (!page.hasMore) return false;
+      for (let i = items.length - 1; i >= 0; i--) {
+        const item = items[i];
+        if (item && !isRecord(item.updateMessage)) return timestamp(item.dateSent);
+      }
+      if (!page.hasMore) return undefined;
       before = page.nextCursor;
     }
   }

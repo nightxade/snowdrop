@@ -233,6 +233,62 @@ describe('phone history archive paging', () => {
     await expect(open()).rejects.toThrow('changed');
   });
 
+  it("answers chatLatestMessageAt with the newest real message's own dateSent, skipping a newer system entry", async () => {
+    const { daemon, open } = fixture();
+    const archive = await open();
+    daemon.reply(
+      'getHistoryChat',
+      page(
+        [
+          {
+            cursor: '3',
+            frame: {
+              chatItem: { chatId: '3', dateSent: '500', standardMessage: { text: { body: 'hi' } } },
+            },
+          },
+          {
+            cursor: '4',
+            frame: {
+              chatItem: {
+                chatId: '3',
+                dateSent: '900',
+                updateMessage: { simpleUpdate: { type: 'JOINED_SIGNAL' } },
+              },
+            },
+          },
+        ],
+        '3',
+      ),
+    );
+    await expect(archive?.chatLatestMessageAt('3')).resolves.toBe(500);
+    // Cached for the archive's lifetime: a second call makes no further request.
+    const before = daemon.callsTo('getHistoryChat').length;
+    await archive?.chatLatestMessageAt('3');
+    expect(daemon.callsTo('getHistoryChat')).toHaveLength(before);
+  });
+
+  it('answers chatLatestMessageAt with undefined for a chat with only system entries, across pages', async () => {
+    const { daemon, open } = fixture();
+    const archive = await open();
+    const system = (cursor: string) => ({
+      cursor,
+      frame: {
+        chatItem: {
+          chatId: '3',
+          dateSent: cursor,
+          updateMessage: { simpleUpdate: { type: 'JOINED_SIGNAL' } },
+        },
+      },
+    });
+    daemon.handle('getHistoryChat', (params) => ({
+      result:
+        params.before === '5'
+          ? page([system('3'), system('4')], '3')
+          : page([system('5'), system('6')], '5', true),
+    }));
+    await expect(archive?.chatLatestMessageAt('3')).resolves.toBeUndefined();
+  });
+
   it('rejects chat pages from a different chat, snapshot, or cursor range', async () => {
     const { daemon, open } = fixture();
     const archive = await open();

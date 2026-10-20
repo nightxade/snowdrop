@@ -135,3 +135,35 @@ export function searchTerms(text: string): string[] {
     .split(/\s+/u)
     .filter((t) => t.length > 0);
 }
+
+/** Newest-first batches; one round trip answers almost every conversation. */
+const REAL_MESSAGE_PAGE = 50;
+
+/**
+ * The newest real (non-system) message stored for a conversation, paging
+ * back from the latest batch, or undefined if it has none. `latest()`
+ * answers the absolute newest *stored* message regardless of kind — a
+ * system line (a decrypt failure, a timer change) is stored too, so the
+ * conversation can show it, but it must never stand in for "this
+ * conversation has a real message" (ordering a chat like the phone, or
+ * telling a stale peer-metadata-only direct conversation from one that
+ * genuinely has history — see SyncService's `seedConversation` and
+ * `dropStaleDirects`).
+ */
+export async function latestRealMessage(
+  repository: MessageRepository,
+  conversationId: ConversationId,
+): Promise<Message | undefined> {
+  let before: number | undefined;
+  for (;;) {
+    const page = await repository.page(conversationId, {
+      ...(before === undefined ? {} : { before }),
+      limit: REAL_MESSAGE_PAGE,
+    });
+    if (page.length === 0) return undefined;
+    const real = [...page].reverse().find((m) => m.kind === 'normal');
+    if (real) return real;
+    before = page[0]?.seq;
+    if (before === undefined) return undefined;
+  }
+}

@@ -775,14 +775,28 @@ describe('SignalCliBackend: directory', () => {
     await backend.disconnect();
   });
 
-  it('applies DM timer changes to the conversation', async () => {
+  it('applies DM timer changes to an already-active conversation', async () => {
     const { backend } = await connected();
+    // Alice must already be a real DM: a timer change alone must not
+    // announce (and so list) one that isn't (see the next test).
+    await backend.ingest(fixtures.dmText);
     const updates = collect(backend, 'conversationUpdated');
     await backend.ingest(fixtures.expirationDm);
     expect(updates.at(-1)).toMatchObject({
       id: directConversationId(ALICE),
       expireTimerSec: 604_800,
     });
+    await backend.disconnect();
+  });
+
+  it('a timer change alone never announces (or lists) a DM with no other activity', async () => {
+    const { backend } = await connected();
+    const updates = collect(backend, 'conversationUpdated');
+    await backend.ingest(fixtures.expirationDm);
+    expect(updates).toEqual([]);
+    expect(
+      (await backend.listConversations()).find((c) => c.id === directConversationId(ALICE)),
+    ).toBeUndefined();
     await backend.disconnect();
   });
 });
@@ -1089,6 +1103,57 @@ describe('SignalCliBackend + SyncService', () => {
     expect(storage.getItem(`snowdrop.signal-cli.cursor.http.${SELF_ACI}`)).toBe('r-3');
     await sync.stop();
     expect(stores.session.getState().status).toBe('offline');
+  });
+
+  it('drops a persisted stale peer (no real message anywhere), but keeps one once a real message is seeded', async () => {
+    const { backend, storage, scheduler } = setup();
+    // Bob: a peer entry persisted by the since-fixed bug that let a system
+    // line alone touch and list a DM — no real message anywhere, in the
+    // repository or in history (this daemon has none).
+    storage.setItem(
+      `snowdrop.signal-cli.peers.${SELF_ACI}`,
+      JSON.stringify({ peers: { [BOB]: T0 }, aliases: {} }),
+    );
+    const stores = createStores();
+    const repository = new MemoryMessageRepository();
+    const sync = new SyncService({ backend, repository, stores, clock: scheduler, scheduler });
+    await sync.start();
+    await flush();
+    expect(stores.conversations.getState().byId[directConversationId(BOB)]).toBeUndefined();
+
+    // Alice: a real message arrives live — the same repository check that
+    // dropped Bob confirms her instead, once her message is stored.
+    await backend.ingest(fixtures.dmText);
+    await flush();
+    await sync.idle();
+    expect(stores.conversations.getState().byId[directConversationId(ALICE)]).toMatchObject({
+      title: 'Alice Liddell',
+    });
+    await sync.stop();
+  });
+
+  it("a system line after a real message never moves its DM up, and doesn't un-drop a stale one", async () => {
+    const { backend, scheduler } = setup();
+    const stores = createStores();
+    const repository = new MemoryMessageRepository();
+    const sync = new SyncService({ backend, repository, stores, clock: scheduler, scheduler });
+    await sync.start();
+    await flush();
+    await backend.ingest(fixtures.dmText); // Alice: a real message, sentAt T0.
+    await flush();
+    await sync.idle();
+    const before =
+      stores.conversations.getState().byId[directConversationId(ALICE)]?.lastActivityAt;
+    expect(before).toBe(T0);
+    // A later timer change (sentAt T0 + 70, newer than Alice's real
+    // message) is still just a system line: it must not move her up.
+    await backend.ingest(fixtures.expirationDm);
+    await flush();
+    await sync.idle();
+    expect(stores.conversations.getState().byId[directConversationId(ALICE)]?.lastActivityAt).toBe(
+      before,
+    );
+    await sync.stop();
   });
 });
 
@@ -1439,10 +1504,103 @@ describe('imported phone history', () => {
     await flush();
     const conversations = await backend.listConversations();
     expect(conversations).toEqual([
-      expect.objectContaining({ id: directConversationId(CAROL), historyArchived: true }),
+      expect.objectContaining({
+        id: directConversationId(CAROL),
+        historyArchived: true,
+        lastActivityAt: 1000, // Carol's real message's own dateSent, not 0 or her chat's system entry.
+      }),
     ]);
     expect(conversations.find((c) => c.id === directConversationId(DINAH))).toBeUndefined();
     expect(conversations.find((c) => c.id === directConversationId(EVAN))).toBeUndefined();
+    await backend.disconnect();
+  });
+
+  it('orders a live DM and a live group by the max of their own activity and history', async () => {
+    const recipient = (cursor: string, id: string, aci: string, name: string) => ({
+      cursor,
+      frame: {
+        recipient: {
+          id,
+          contact: {
+            aci: Buffer.from(aci.replaceAll('-', ''), 'hex').toString('base64'),
+            profileGivenName: name,
+          },
+        },
+      },
+    });
+    const realItem = (chatId: string, dateSent: string) => ({
+      archiveId: 'snapshot',
+      entries: [{ cursor: '9', frame: { chatItem: { chatId, dateSent } } }],
+      nextCursor: '9',
+      hasMore: false,
+    });
+    const { daemon } = daemonWithAccount();
+    daemon.reply('getHistoryDirectory', {
+      archiveId: 'snapshot',
+      entries: [
+        { cursor: '1', frame: { recipient: { id: '1', self: {} } } },
+        recipient('2', '2', ALICE, 'Alice'),
+        // Alice's chat: a real history message older than her live activity below.
+        { cursor: '3', frame: { chat: { id: '10', recipientId: '2' } } },
+        // The Climbing Club group (already a live member, see
+        // daemonWithAccount): a real history message, but no live-received
+        // message this session, so `toGroupConversation`'s own 0 would
+        // otherwise leave it unordered.
+        {
+          cursor: '4',
+          frame: {
+            recipient: { id: '3', group: { snapshot: { title: { title: 'Climbing Club' } } } },
+            signalGroupId: GROUP_ID,
+          },
+        },
+        { cursor: '5', frame: { chat: { id: '11', recipientId: '3' } } },
+      ],
+      nextCursor: '5',
+      hasMore: false,
+    });
+    daemon.handle('getHistoryChat', (params) => ({
+      result:
+        params.chatId === '10'
+          ? realItem('10', '500')
+          : params.chatId === '11'
+            ? realItem('11', '600')
+            : { archiveId: 'snapshot', entries: [], hasMore: false },
+    }));
+    const { backend } = setup({ daemon });
+    await backend.connect();
+    await flush();
+    // Alice's live activity (from dmText, sentAt T0) is newer than her history (500).
+    await backend.ingest(fixtures.dmText);
+    const conversations = await backend.listConversations();
+    expect(conversations.find((c) => c.id === directConversationId(ALICE))).toMatchObject({
+      lastActivityAt: T0,
+    });
+    expect(conversations.find((c) => c.id === GROUP)).toMatchObject({ lastActivityAt: 600 });
+    await backend.disconnect();
+  });
+
+  it('a decrypt failure or a disappearing-timer change alone never lists or bumps a DM', async () => {
+    const { backend } = await connected();
+    const updates = collect(backend, 'conversationUpdated');
+    await backend.ingest({
+      account: SELF_NUMBER,
+      exception: { message: 'Untrusted identity', type: 'UntrustedIdentityException' },
+      envelope: {
+        source: BOB_NUMBER,
+        sourceNumber: BOB_NUMBER,
+        sourceUuid: BOB,
+        sourceName: 'Bob Ross',
+        sourceDevice: 1,
+        timestamp: T0 + 7,
+        serverReceivedTimestamp: T0 + 8,
+        serverDeliveredTimestamp: T0 + 9,
+      },
+    });
+    await backend.ingest(fixtures.expirationDm); // Alice: disappearing-timer change, no content.
+    expect(updates).toEqual([]); // Neither system line announced a conversation.
+    const conversations = await backend.listConversations();
+    expect(conversations.find((c) => c.id === directConversationId(BOB))).toBeUndefined();
+    expect(conversations.find((c) => c.id === directConversationId(ALICE))).toBeUndefined();
     await backend.disconnect();
   });
 });

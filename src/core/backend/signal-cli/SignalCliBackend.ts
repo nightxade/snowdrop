@@ -734,7 +734,11 @@ export class SignalCliBackend implements ChatBackend {
       case 'message': {
         const message = event.payload;
         this.noteUnknown(message.conversationId, message.authorId);
-        this.notePeer(message.conversationId, message.receivedAt);
+        // Only a real message lists a DM or bumps its activity (see
+        // notePeer): a system line (a decrypt failure, a timer change) is
+        // still stored and shown in an already-listed conversation, but must
+        // never create or raise one on its own.
+        if (message.kind === 'normal') this.notePeer(message.conversationId, message.sentAt);
         this.emitter.emit('message', message);
         return;
       }
@@ -786,7 +790,14 @@ export class SignalCliBackend implements ChatBackend {
     }
   }
 
-  /** Remembers a DM peer; announces the conversation the first time we see it. */
+  /**
+   * Remembers a DM peer; announces the conversation the first time we see
+   * it. `at` is always a real message's own `sentAt` (never a system line's,
+   * and never this device's local receive time) — see the `kind === 'normal'`
+   * guard at both call sites, and `chatLatestMessageAt`'s doc for why
+   * `sentAt` rather than receive time keeps a replayed backlog in the
+   * phone's order.
+   */
   private notePeer(conversationId: ConversationId, at: number): void {
     const parsed = parseConversationId(conversationId);
     if (parsed?.kind !== 'direct' || !this.peers) return;
@@ -812,7 +823,14 @@ export class SignalCliBackend implements ChatBackend {
     if (!parsed) return;
     if (parsed.kind === 'direct') {
       this.directory.setDmTimer(parsed.target, seconds);
-      this.emitter.emit('conversationUpdated', this.directConversation(parsed.target, 0));
+      // Same rule as onContactChanged: a timer change alone (no content of
+      // its own — see normalise/envelope.ts's isExpirationUpdate branch)
+      // must not announce, and so list, a DM we've never otherwise talked
+      // to. Once a real message does arrive, directConversation reads the
+      // timer set here fresh, so nothing is lost by not announcing it now.
+      if (this.peers?.has(parsed.target)) {
+        this.emitter.emit('conversationUpdated', this.directConversation(parsed.target, 0));
+      }
       return;
     }
     const group = this.directory.group(conversationId);
@@ -926,11 +944,20 @@ export class SignalCliBackend implements ChatBackend {
 
   /**
    * Matches the phone: a direct conversation (Note to Self included, no
-   * special-casing) is listed only if it has at least one message —
+   * special-casing) is listed only if it has at least one real message —
    * `this.peers` (durably persisted, see peers.ts) for local/live activity,
    * or the history archive for an imported one. A group we're a current
    * member of is always listed (`Directory.loadGroups` already filters to
    * `isMember`), same as the phone showing a group before anyone writes.
+   * `lastActivityAt` is the newest real message's own timestamp, live or
+   * from history, whichever is greater — never a system line's (see
+   * `chatLatestMessageAt`'s doc for the live/history field choice).
+   *
+   * A peer-sourced DM this still lists purely because of a stale persisted
+   * touch (from a since-fixed bug that let a system line count) isn't
+   * something this method alone can tell apart from a real one: the
+   * repository that would prove it lives on the SyncService side, which
+   * filters those back out — see its `dropStaleDirects`.
    *
    * Signal's profileSharing ("you've chatted, or accepted their message
    * request") is deliberately *not* used to list an empty DM: it fires for
@@ -950,41 +977,65 @@ export class SignalCliBackend implements ChatBackend {
     }
     const history = await this.loadHistory();
     const live = new Set([...groups, ...dms.values()].map((conversation) => conversation.id));
+    // Per-id: the archive's newest real message (for ordering *and*
+    // existence) and its archived-on-the-phone hint — looked up for every
+    // history conversation, including ones a live source also lists (its
+    // own activity still has to be maxed against history below), and kept
+    // in these side maps since a live conversation is never taken from
+    // `merged` itself (see the final loop).
+    const historyLatestAt = new Map<string, number>();
+    const historyArchivedIds = new Set<string>();
     const merged = new Map<string, Conversation>();
+    let historyOnlyExcluded = 0;
     if (history) {
-      // A history-only chat (no live membership/activity) is listed only if
-      // the archive actually has a message for it — one cheap indexed
-      // lookup per candidate (see HistoryArchive.chatHasMessages), skipped
-      // entirely for ids a live source already justifies listing.
       const checked = await Promise.all(
         history.directory.conversations().map(async (conversation) => {
-          if (live.has(conversation.id)) return conversation;
           const chatId = history.directory.chatId(conversation.id);
-          const hasMessages = chatId !== undefined && (await history.chatHasMessages(chatId));
-          return hasMessages ? conversation : null;
+          const at = chatId !== undefined ? await history.chatLatestMessageAt(chatId) : undefined;
+          if (at !== undefined) historyLatestAt.set(conversation.id, at);
+          if (conversation.historyArchived) historyArchivedIds.add(conversation.id);
+          if (live.has(conversation.id)) return null;
+          // A history-only chat (no live membership/activity) is listed
+          // only if the archive actually has a real message for it.
+          if (at === undefined) {
+            historyOnlyExcluded++;
+            return null;
+          }
+          return { ...conversation, lastActivityAt: at, historyHasMessages: true };
         }),
       );
       for (const conversation of checked) {
         if (conversation) merged.set(conversation.id, conversation);
       }
     }
-    // Live sources always win on conflict, but keep the archived-on-the-phone
-    // hint the history entry may have carried (see Conversation.historyArchived):
-    // a group/DM can be both currently active and archived on the phone.
+    // Live sources always win on conflict: take the max of their own
+    // activity with whatever the archive knows for the same id (a real
+    // message that predates this session's peers/group cache, or simply an
+    // older one than the live value already carries), and keep the
+    // archived-on-the-phone hint a history entry may have carried (see
+    // Conversation.historyArchived) — a group/DM can be both currently
+    // active and archived on the phone.
     for (const conversation of [...groups, ...dms.values()]) {
-      const historyArchived = merged.get(conversation.id)?.historyArchived;
-      merged.set(
-        conversation.id,
-        historyArchived ? { ...conversation, historyArchived: true } : conversation,
-      );
+      const historyAt = historyLatestAt.get(conversation.id) ?? 0;
+      merged.set(conversation.id, {
+        ...conversation,
+        lastActivityAt: Math.max(conversation.lastActivityAt, historyAt),
+        ...(historyArchivedIds.has(conversation.id) ? { historyArchived: true } : {}),
+        ...(historyLatestAt.has(conversation.id) ? { historyHasMessages: true } : {}),
+      });
     }
     if (!this.listingLogged) {
-      // Counts only (never names or ids): enough to tell which rule listed what.
+      // Counts only (never names or ids): enough to tell which rule listed
+      // (or, for history, dropped) what. A peer-sourced DM with no real
+      // message anywhere (a stale entry persisted by a since-fixed bug) is
+      // excluded on the SyncService side instead — it alone has the local
+      // repository; see its own one-time log.
       this.listingLogged = true;
       log.info('conversations listed', {
         groups: groups.length,
         directWithActivity: dms.size,
         fromHistory: merged.size - live.size,
+        historyOnlyExcluded,
       });
     }
     return [...merged.values()];
@@ -1154,7 +1205,8 @@ export class SignalCliBackend implements ChatBackend {
     }
     if (input.quote) this.rememberQuote(input.conversationId, result.timestamp, input.quote);
     const failures = recipientFailures(result);
-    this.notePeer(input.conversationId, this.clock.now());
+    // The message's own sentAt (not "now"), consistent with every other notePeer call.
+    this.notePeer(input.conversationId, result.timestamp);
     const out: SendResult = { sentAt: result.timestamp };
     if (encoded.length > 0) out.attachments = encoded.map((e) => e.attachment);
     if (encodedPreview) out.preview = encodedPreview.preview;

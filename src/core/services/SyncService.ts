@@ -38,7 +38,7 @@ import {
   type Scheduler,
   type Unsubscribe,
 } from '@/core/lib';
-import type { MessageRepository } from '@/core/persistence';
+import { latestRealMessage, type MessageRepository } from '@/core/persistence';
 import { computeUnread, uiSelectors, type Stores } from '@/core/stores';
 import { CatchUpTracker } from './CatchUpTracker';
 import { PendingOpsBuffer } from './PendingOpsBuffer';
@@ -150,6 +150,15 @@ export class SyncService {
   private readonly catchUpTracker: CatchUpTracker;
   /** A pending steady-state retry after `account-unavailable` (see `doStart`'s catch). */
   private accountRetryCancel: Cancel | null = null;
+  /**
+   * Direct conversations already confirmed (this instance's lifetime) to
+   * have a real message in the repository — skips re-checking them on every
+   * `dropStaleDirects` call. A real message is never retroactively un-real,
+   * so nothing ever needs to leave this set.
+   */
+  private readonly confirmedReal = new Set<ConversationId>();
+  /** `dropStaleDirects` logs its one-time count the same way the backend's own listing does. */
+  private staleDropLogged = false;
 
   constructor(private readonly deps: SyncServiceDeps) {
     this.receipts = deps.receipts ?? new ReceiptBuffer();
@@ -300,16 +309,42 @@ export class SyncService {
 
     await this.recoverHistoryTimers();
     const cursors = await repository.getReadCursors();
-    await Promise.all(
+    const seeded = await Promise.all(
       conversations.map(async (conv) => {
-        cursors.set(conv.id, await this.seedConversation(conv, cursors.get(conv.id)));
+        const result = await this.seedConversation(conv, cursors.get(conv.id));
+        cursors.set(conv.id, result.cursor);
+        return { conv, hasRealMessage: result.hasRealMessage };
       }),
     );
+    // A direct conversation only reachable through peer metadata (never a
+    // group, which the phone lists by membership alone) that still has no
+    // real message anywhere now that seeding above pulled in whatever
+    // history it has: a peer persisted by the since-fixed bug that let a
+    // system line list and bump a DM. Dropped here, not excluded from
+    // `conversations` up front, because bumpActivity above needs the store
+    // entry to already exist to compare against (see `seedConversation`).
+    const stale = seeded
+      .filter(({ conv, hasRealMessage }) => !hasRealMessage && this.mayDropAsStale(conv))
+      .map(({ conv }) => conv.id);
+    for (const { conv, hasRealMessage } of seeded) {
+      if (hasRealMessage) this.confirmedReal.add(conv.id);
+    }
+    if (stale.length > 0) {
+      stores.conversations.getState().removeMany(stale);
+      for (const id of stale) cursors.delete(id);
+    }
+    if (!this.staleDropLogged) {
+      // Counts only (never names or ids), same discipline as the backend's
+      // own "conversations listed" log.
+      this.staleDropLogged = true;
+      log.info('conversations listed', { staleDirectsDropped: stale.length });
+    }
+    const listed = conversations.filter((c) => !stale.includes(c.id));
     while ((await this.purgeExpired()) === 500) {
       // Drain expired cache entries before setting ready or exposing message previews.
     }
     stores.conversations.getState().setReadCursors(Object.fromEntries(cursors));
-    await Promise.all(conversations.map((c) => this.recomputeUnread(c.id)));
+    await Promise.all(listed.map((c) => this.recomputeUnread(c.id)));
   }
 
   /**
@@ -327,11 +362,16 @@ export class SyncService {
     }
   }
 
-  /** Makes sure a conversation has local history and a read cursor (a seq). */
+  /**
+   * Makes sure a conversation has local history and a read cursor (a seq),
+   * and reports whether it has a real (non-system) message anywhere in
+   * local storage now that this has run — used to drop a stale peer-only
+   * direct conversation (see `initialSync`).
+   */
   private async seedConversation(
     conv: Conversation,
     storedCursor: number | undefined,
-  ): Promise<number> {
+  ): Promise<{ cursor: number; hasRealMessage: boolean }> {
     const { backend, repository, stores } = this.deps;
     let cursor = storedCursor;
     if (backend.fetchHistory && (await repository.count(conv.id)) === 0) {
@@ -347,16 +387,21 @@ export class SyncService {
         cursor = read.at(-1)?.seq ?? (stored[0]?.seq ?? 1) - 1;
       }
     }
+    // The sidebar preview shows the absolute newest stored message, system
+    // lines included (that's the existing, intentional behaviour); ordering
+    // (`bumpActivity`) must never move for one, so it's computed separately
+    // — reusing `latest` without another lookup in the common case where
+    // it's already real.
     const latest = await repository.latest(conv.id);
-    if (latest) {
-      stores.conversations.getState().bumpActivity(conv.id, latest.receivedAt);
-      stores.conversations.getState().noteLatest(latest);
-    }
+    if (latest) stores.conversations.getState().noteLatest(latest);
+    const latestReal =
+      latest?.kind === 'normal' ? latest : await latestRealMessage(repository, conv.id);
+    if (latestReal) stores.conversations.getState().bumpActivity(conv.id, latestReal.sentAt);
     // First sight with no read info: everything stored *before this session* is
     // read. Live events are gated until after this, so they still count.
     cursor ??= latest?.seq ?? 0;
     if (cursor !== storedCursor) await repository.setReadCursor(conv.id, cursor);
-    return cursor;
+    return { cursor, hasRealMessage: latestReal !== undefined };
   }
 
   /** Recounts from the cursor; only reads unread messages, never the whole history. */
@@ -627,8 +672,7 @@ export class SyncService {
       true,
     );
     on('conversationUpdated', (conv) => {
-      // Protocol fields only; local state lives in localStore and is untouched.
-      this.deps.stores.conversations.getState().upsert(conv);
+      this.upsertConversation(conv);
     });
     on('message', (m, live) => this.onMessage(m, live));
     on('messageEdited', (e) =>
@@ -693,10 +737,17 @@ export class SyncService {
     const { message, created } = await repository.upsert(toStore, mergeDuplicate);
     const id = message.conversationId;
     stores.messages.getState().appendLive(message);
-    stores.conversations.getState().bumpActivity(id, message.receivedAt);
+    // System lines (decrypt failures, timer changes) are stored and shown
+    // like any other message, but must never move a chat up or (below)
+    // create one on their own — only a real message does either.
+    if (message.kind === 'normal') {
+      stores.conversations.getState().bumpActivity(id, message.sentAt);
+      this.confirmedReal.add(id);
+    }
     stores.conversations.getState().noteLatest(message);
     stores.typing.getState().setTyping(id, message.authorId, false, this.deps.clock.now());
-    if (!stores.conversations.getState().byId[id]) this.ensureConversation(message);
+    if (message.kind === 'normal' && !stores.conversations.getState().byId[id])
+      this.ensureConversation(message);
     if (message.expiresAt !== undefined)
       this.schedulePurge(message.expiresAt - this.deps.clock.now());
     // A re-delivery must not count twice or re-notify plugins.
@@ -724,9 +775,36 @@ export class SyncService {
   }
 
   /**
-   * A message for a conversation we don't know yet (someone new messaged
-   * us, or we were added to a group). DMs can be synthesised immediately so
-   * the message is visible; groups need the backend's metadata.
+   * Protocol fields only; local state lives in localStore and is untouched.
+   * A direct conversation neither already listed nor yet confirmed to have
+   * a real message (`confirmedReal` — set once `seedConversation` or
+   * `dropStaleDirects` has actually checked the repository) is never
+   * created from this alone: a stale persisted peer's own profile/timer
+   * refresh (`onContactChanged`, `applyTimer`) must not resurrect it
+   * between one `dropStaleDirects` pass and the next. A genuinely new DM is
+   * still listed immediately, through the real message that justifies it
+   * (`ensureConversation`, called from `onMessage`), which refreshes the
+   * full list right after anyway.
+   */
+  private upsertConversation(conv: Conversation): void {
+    const { stores } = this.deps;
+    if (
+      parseConversationId(conv.id)?.kind === 'direct' &&
+      !stores.conversations.getState().byId[conv.id] &&
+      !this.confirmedReal.has(conv.id)
+    ) {
+      return;
+    }
+    stores.conversations.getState().upsert(conv);
+  }
+
+  /**
+   * A *real* message for a conversation we don't know yet (someone new
+   * messaged us, or we were added to a group) — never called for a system
+   * line (see `onMessage`), so a decrypt failure or a timer change for a
+   * stranger can never list their DM on its own. DMs can be synthesised
+   * immediately so the message is visible; groups need the backend's
+   * metadata.
    */
   private ensureConversation(message: Message): void {
     const parsed = parseConversationId(message.conversationId);
@@ -746,7 +824,7 @@ export class SyncService {
         memberIds: [selfId, peer],
         adminIds: [],
         expireTimerSec: 0,
-        lastActivityAt: message.receivedAt,
+        lastActivityAt: message.sentAt,
       });
     }
     void this.refreshConversations();
@@ -916,6 +994,12 @@ export class SyncService {
         try {
           const conversations = await this.deps.backend.listConversations();
           this.deps.stores.conversations.getState().upsertMany(conversations);
+          // The backend can't tell a stale persisted peer from a real one
+          // (see SignalCliBackend.listConversations's doc); re-apply the
+          // same drop every refresh, or a stale entry excluded at initial
+          // sync would reappear the moment anything else re-lists.
+          const stale = await this.dropStaleDirects(conversations);
+          if (stale.length > 0) this.deps.stores.conversations.getState().removeMany(stale);
         } catch (error) {
           this.onError(error, 'conversation refresh failed');
         }
@@ -923,6 +1007,46 @@ export class SyncService {
       this.refreshing = null;
     })();
     return this.refreshing;
+  }
+
+  /**
+   * A direct conversation that could be a stale peer: not one whose real
+   * messages are still only in the backend's history archive (none stored
+   * locally yet), and not one open in any space — opening a contact's DM
+   * creates an empty placeholder (openDirectConversation) that must not
+   * vanish under the user before they've written anything.
+   */
+  private mayDropAsStale(conv: Conversation): boolean {
+    if (parseConversationId(conv.id)?.kind !== 'direct' || conv.historyHasMessages) return false;
+    const open = this.deps.stores.ui.getState().selectedConversationBySpace;
+    return !Object.values(open).includes(conv.id);
+  }
+
+  /**
+   * Ids of direct conversations with no real (non-system) message anywhere
+   * in local storage — a peer persisted by the since-fixed bug that let a
+   * system line (a decrypt failure, a timer change) list and bump a DM.
+   * Never a group, which the phone lists by membership alone regardless of
+   * messages. Safe to call any time after initial sync: by then, every
+   * pre-existing conversation's history (if any) has already been pulled
+   * in, and a conversation new to *this* call is only ever reached through
+   * `ensureConversation`, for a message already stored by the time it is.
+   */
+  private async dropStaleDirects(
+    conversations: readonly Conversation[],
+  ): Promise<ConversationId[]> {
+    const { repository } = this.deps;
+    const candidates = conversations.filter(
+      (c) => this.mayDropAsStale(c) && !this.confirmedReal.has(c.id),
+    );
+    const checked = await Promise.all(
+      candidates.map(async (c) => {
+        const real = (await latestRealMessage(repository, c.id)) !== undefined;
+        if (real) this.confirmedReal.add(c.id);
+        return real ? null : c.id;
+      }),
+    );
+    return checked.filter((id): id is ConversationId => id !== null);
   }
 }
 

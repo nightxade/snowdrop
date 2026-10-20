@@ -59,6 +59,12 @@ export interface Conversation {
    * own yet, and never touches it again afterwards (see core/stores/local.ts).
    */
   historyArchived?: boolean;
+  /**
+   * The backend's history archive has at least one real message for this
+   * conversation, whether or not any is stored locally yet. SyncService
+   * never drops such a direct conversation as stale (see dropStaleDirects).
+   */
+  historyHasMessages?: boolean;
 }
 
 /** Device-local per-conversation state (never sent to Signal). */

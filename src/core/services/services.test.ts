@@ -192,6 +192,35 @@ describe('SyncService: initial sync', () => {
     });
   });
 
+  it('drops an empty direct conversation, unless its messages are only in history or it is open', async () => {
+    const stores = createStores();
+    const { backend, sync } = await setup({ stores, start: false, noServerHistory: true });
+    const selfId = backend.world.self.id;
+    const empty = (peer: string, extra: object = {}) => ({
+      id: directConversationId(peer),
+      kind: 'direct' as const,
+      title: peer,
+      memberIds: [selfId, peer],
+      adminIds: [],
+      expireTimerSec: 0,
+      lastActivityAt: 0,
+      ...extra,
+    });
+    const list = backend.listConversations.bind(backend);
+    backend.listConversations = async () => [
+      ...(await list()),
+      empty('stale-peer'),
+      empty('history-only', { historyHasMessages: true }),
+      empty('opened'),
+    ];
+    stores.ui.getState().selectConversation(directConversationId('opened'), 'home');
+    await sync.start();
+    const byId = stores.conversations.getState().byId;
+    expect(byId[directConversationId('stale-peer')]).toBeUndefined();
+    expect(byId[directConversationId('history-only')]).toBeDefined();
+    expect(byId[directConversationId('opened')]).toBeDefined();
+  });
+
   it('(A) buffers events until the initial sync is done, so offline messages count as unread', async () => {
     const scheduler = new ManualScheduler(NOW);
     const backend = new MockBackend({ seed: 7, clock: scheduler, scheduler });

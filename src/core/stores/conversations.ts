@@ -33,6 +33,8 @@ export interface ConversationsState {
   upsertMany(conversations: readonly Conversation[]): void;
   /** Replaces protocol fields, keeping the newest local activity time. */
   upsert(conversation: Conversation): void;
+  /** Drops conversations that turned out not to belong (see SyncService's stale-peer filter). */
+  removeMany(ids: readonly ConversationId[]): void;
   /** Moves lastActivityAt forward (never backward: late events must not reorder the list). */
   bumpActivity(id: ConversationId, at: number): void;
   setReadCursors(cursors: Record<ConversationId, number>): void;
@@ -123,6 +125,15 @@ export function createConversationsStore(): ConversationsStore {
       },
       upsert: (conversation) => {
         get().upsertMany([conversation]);
+      },
+      removeMany: (ids) => {
+        if (ids.length === 0) return;
+        const drop = new Set<ConversationId>(ids);
+        set((s) => ({
+          byId: Object.fromEntries(
+            Object.entries(s.byId).filter(([id]) => !drop.has(id as ConversationId)),
+          ),
+        }));
       },
       bumpActivity: (id, at) => {
         const current = get().byId[id];
