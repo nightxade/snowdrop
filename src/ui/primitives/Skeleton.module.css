@@ -9,6 +9,11 @@
   animation: shimmer 1.4s linear infinite;
 }
 
+/* Off-screen placeholder groups (see useInView) stop repainting every frame. */
+[data-shimmer='off'] .skeleton {
+  animation-play-state: paused;
+}
+
 .skeleton[data-radius='sm'] {
   border-radius: var(--snowdrop-radius-sm);
 }

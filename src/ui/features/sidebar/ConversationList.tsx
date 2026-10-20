@@ -2,7 +2,7 @@ import { Inbox } from 'lucide-react';
 import { Fragment, useId, useState } from 'react';
 import { useStore } from 'zustand';
 import { HOME, sessionSelectors, type HomeSection } from '@/core/stores';
-import { useRovingFocus, useStores } from '@/ui/hooks';
+import { useInView, useRovingFocus, useStores } from '@/ui/hooks';
 import { EmptyState, Scroller, Skeleton } from '@/ui/primitives';
 import { CategoryHeader } from './CategoryHeader';
 import { ConversationRow } from './ConversationRow';
@@ -156,9 +156,16 @@ export function ConversationList() {
   );
 }
 
-function ListSkeleton() {
+export function ListSkeleton() {
+  const [ref, inView] = useInView<HTMLDivElement>();
   return (
-    <div className={styles.skeleton} aria-busy="true" aria-label="Loading conversations">
+    <div
+      ref={ref}
+      className={styles.skeleton}
+      aria-busy="true"
+      aria-label="Loading conversations"
+      data-shimmer={inView ? undefined : 'off'}
+    >
       <Skeleton width={96} height={10} />
       {[0.72, 0.55, 0.8, 0.62, 0.48, 0.7, 0.58].map((w, i) => (
         <div key={i} className={styles.skeletonRow}>

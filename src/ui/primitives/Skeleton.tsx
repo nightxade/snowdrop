@@ -8,7 +8,7 @@ export interface SkeletonProps {
   className?: string | undefined;
 }
 
-/** Placeholder block; shimmer stops under reduced motion. */
+/** Placeholder block; shimmer stops under reduced motion (global.css) and while an ancestor marks it `data-shimmer="off"`. */
 export function Skeleton({ width = '100%', height = 12, radius = 'xs', className }: SkeletonProps) {
   const style: CSSProperties = { width, height };
   return (
