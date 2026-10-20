@@ -2,9 +2,13 @@
  * Main-thread stall detector (desktop and browser): a user on Linux/
  * Hyprland sees the whole window freeze for a couple of seconds, e.g. when
  * opening Settings or closing a popup. Rather than guess, this watches for
- * the freeze directly — a gap between animation frames — and logs it with
+ * the freeze directly — a heartbeat timer firing late — and logs it with
  * just enough context (route, open modal, in-flight IPC command) to tell
  * which of those moments it was, without logging any message content.
+ *
+ * A timer, not a `requestAnimationFrame` loop: an always-running rAF loop
+ * makes WebKitGTK composite every frame, which kept an idle window at
+ * ~25% CPU. A late timer measures the same main-thread block for free.
  *
  * Installed once from the composition root (`createSnowdrop.ts`), only
  * when a real `document` is available (never in headless tests).
@@ -13,7 +17,9 @@ import { createLogger } from '@/core/lib';
 import type { Stores, UiState } from '@/core/stores';
 import { desktopLastIpcCommand } from './platform';
 
-/** A gap longer than this between animation frames counts as a stall. */
+/** How often the heartbeat is scheduled. */
+const HEARTBEAT_MS = 250;
+/** A heartbeat this much later than scheduled counts as a stall. */
 const STALL_THRESHOLD_MS = 500;
 /** At most one stall line every 5s, so a rough patch doesn't flood the log. */
 const LOG_INTERVAL_MS = 5000;
@@ -49,41 +55,41 @@ function describeStall(stores: Stores, gapStart: number, gapEnd: number): string
 }
 
 /**
- * Starts watching `requestAnimationFrame` gaps. Paused while
- * `document.hidden` (a backgrounded window is expected to skip frames, not
- * a stall), with an immediate reset on becoming visible again so a long
+ * Starts a heartbeat timer and reports when it fires late. Paused while
+ * `document.hidden` (a backgrounded window's timers are throttled, not
+ * stalled), with an immediate reset on becoming visible again so a long
  * background spell is never itself reported as one huge gap. Returns a
  * disposer.
  */
 export function installStallDetector(stores: Stores): () => void {
-  let frame = 0;
-  let lastFrameAt = now();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let lastBeatAt = now();
   let lastLoggedAt = -Infinity;
   let stopped = false;
 
   const onVisibilityChange = (): void => {
-    if (!document.hidden) lastFrameAt = now();
+    if (!document.hidden) lastBeatAt = now();
   };
   document.addEventListener('visibilitychange', onVisibilityChange);
 
-  const tick = (): void => {
+  const beat = (): void => {
     if (stopped) return;
     const current = now();
     if (!document.hidden) {
-      const gap = current - lastFrameAt;
-      if (gap > STALL_THRESHOLD_MS && current - lastLoggedAt >= LOG_INTERVAL_MS) {
+      const late = current - lastBeatAt - HEARTBEAT_MS;
+      if (late > STALL_THRESHOLD_MS && current - lastLoggedAt >= LOG_INTERVAL_MS) {
         lastLoggedAt = current;
-        log.warn(`UI stalled ${Math.round(gap)} ms`, describeStall(stores, lastFrameAt, current));
+        log.warn(`UI stalled ${Math.round(late)} ms`, describeStall(stores, lastBeatAt, current));
       }
     }
-    lastFrameAt = current;
-    frame = requestAnimationFrame(tick);
+    lastBeatAt = current;
+    timer = setTimeout(beat, HEARTBEAT_MS);
   };
-  frame = requestAnimationFrame(tick);
+  timer = setTimeout(beat, HEARTBEAT_MS);
 
   return () => {
     stopped = true;
-    cancelAnimationFrame(frame);
+    clearTimeout(timer);
     document.removeEventListener('visibilitychange', onVisibilityChange);
   };
 }
