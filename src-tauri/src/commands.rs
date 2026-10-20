@@ -81,8 +81,14 @@ const ALLOWED_METHODS: &[&str] = &[
     "version",
 ];
 
+#[cfg(test)]
 fn is_allowed_method(method: &str) -> bool {
-    ALLOWED_METHODS.contains(&method)
+    allowed_method(method).is_some()
+}
+
+/// The allow-list's own `'static` copy of `method`, if it's allowed.
+fn allowed_method(method: &str) -> Option<&'static str> {
+    ALLOWED_METHODS.iter().copied().find(|m| *m == method)
 }
 
 #[tauri::command]
@@ -107,10 +113,10 @@ pub async fn signal_cli_request(
     params: Option<Map<String, Value>>,
     timeout_ms: Option<u64>,
 ) -> Result<Value, Error> {
-    let _t = CommandTimer::start("signal_cli_request");
-    if !is_allowed_method(&method) {
+    let Some(allowed) = allowed_method(&method) else {
         return Err(Error::new(ErrorKind::Config, format!("{method} is not a method Snowdrop's UI may call.")));
-    }
+    };
+    let _t = CommandTimer::start_with_detail("signal_cli_request", allowed);
     let timeout = Duration::from_millis(timeout_ms.unwrap_or(30_000)).min(MAX_TIMEOUT);
     service.request(&method, params, timeout).await
 }

@@ -16,26 +16,37 @@ const SLOW_MS: u128 = 200;
 /// at the call site.
 pub struct CommandTimer {
     name: &'static str,
+    detail: Option<&'static str>,
     started: Instant,
 }
 
 impl CommandTimer {
     pub fn start(name: &'static str) -> Self {
-        Self { name, started: Instant::now() }
+        Self { name, detail: None, started: Instant::now() }
+    }
+
+    /// Like [`CommandTimer::start`], plus a fixed label logged after the name
+    /// (e.g. which signal-cli method a `signal_cli_request` carried). Static
+    /// only, so it can never carry an argument.
+    pub fn start_with_detail(name: &'static str, detail: &'static str) -> Self {
+        Self { name, detail: Some(detail), started: Instant::now() }
     }
 }
 
 impl Drop for CommandTimer {
     fn drop(&mut self) {
-        log_if_slow(self.name, self.started.elapsed().as_millis(), SLOW_MS);
+        log_if_slow(self.name, self.detail, self.started.elapsed().as_millis(), SLOW_MS);
     }
 }
 
 /// Split out of `Drop` so the threshold is a parameter the tests can shrink,
 /// instead of actually sleeping past [`SLOW_MS`].
-fn log_if_slow(name: &str, ms: u128, threshold: u128) {
+fn log_if_slow(name: &str, detail: Option<&str>, ms: u128, threshold: u128) {
     if ms > threshold {
-        log::warn!(target: "rust:perf", "{name} took {ms} ms");
+        match detail {
+            Some(detail) => log::warn!(target: "rust:perf", "{name} {detail} took {ms} ms"),
+            None => log::warn!(target: "rust:perf", "{name} took {ms} ms"),
+        }
     }
 }
 
@@ -53,8 +64,9 @@ mod tests {
         // No in-process subscriber to assert against (the app installs its
         // own `Log` impl at runtime — see `applog.rs`); this only proves
         // the comparison is the right way round and never panics.
-        log_if_slow("under", 100, 200);
-        log_if_slow("at", 200, 200);
-        log_if_slow("over", 201, 200);
+        log_if_slow("under", None, 100, 200);
+        log_if_slow("at", None, 200, 200);
+        log_if_slow("over", None, 201, 200);
+        log_if_slow("over", Some("detail"), 201, 200);
     }
 }
