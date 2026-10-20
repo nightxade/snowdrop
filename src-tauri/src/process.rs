@@ -61,6 +61,9 @@ impl Backoff {
 pub struct ProcessOptions {
     pub program: PathBuf,
     pub args: Vec<OsString>,
+    /// Extra environment variables for the child only (e.g. `MALLOC_ARENA_MAX`
+    /// on Linux, `config::spawn_env`); the child otherwise inherits ours.
+    pub envs: Vec<(OsString, OsString)>,
     pub backoff: Backoff,
     /// How long `shutdown` waits after closing stdin before killing.
     pub grace: Duration,
@@ -197,6 +200,7 @@ async fn supervise(shared: Arc<Shared>, options: ProcessOptions, mut shutdown: w
         let mut command = Command::new(&options.program);
         command
             .args(&options.args)
+            .envs(options.envs.iter().map(|(k, v)| (k.as_os_str(), v.as_os_str())))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

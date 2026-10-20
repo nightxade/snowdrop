@@ -93,16 +93,19 @@ export interface AppServices {
   historyImport: Pick<HistoryImportService, 'retry'>;
   /**
    * The only transport capabilities the UI may touch directly: its kind,
-   * lazy attachment URLs (render-only, see ChatBackend.resolveAttachmentUrl),
-   * and attachment backfill (`useAttachmentUrl` — the actual outcome still
-   * arrives through the sync engine as a `session.attachmentBackfills`
-   * update, not read back from here). Everything else goes through the
-   * services.
+   * lazy attachment URLs (render-only, see ChatBackend.resolveAttachmentUrl,
+   * plus the retain/release pair `useAttachmentUrl` uses to keep an
+   * on-screen one from being evicted), and attachment backfill
+   * (`useAttachmentUrl` — the actual outcome still arrives through the sync
+   * engine as a `session.attachmentBackfills` update, not read back from
+   * here). Everything else goes through the services.
    */
   backend: Pick<
     ChatBackend,
     | 'kind'
     | 'resolveAttachmentUrl'
+    | 'retainAttachmentUrl'
+    | 'releaseAttachmentUrl'
     | 'link'
     | 'supportsAttachmentBackfill'
     | 'requestAttachmentBackfill'

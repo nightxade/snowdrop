@@ -574,8 +574,10 @@ checking the process still started and exited 0. That path does still log
 an `[error][aot]` line to stderr on every launch, though, so shipping it
 would also need `-Xlog:aot=off` to keep it from spamming the log.
 
-The eighteenth patch (`0018-jvm-footprint.patch`) adds `-Xmx1024m` and
-`-XX:+UseCompactObjectHeaders` to the same `applicationDefaultJvmArgs`.
+The eighteenth patch (`0018-jvm-footprint.patch`) adds `-Xmx1024m`,
+`-XX:+UseCompactObjectHeaders`, `-XX:G1PeriodicGCInterval=120000`,
+`-XX:MinHeapFreeRatio=10` and `-XX:MaxHeapFreeRatio=30` to the same
+`applicationDefaultJvmArgs`.
 Measured against the built dist in `jsonRpc`
 mode (cold, throwaway config dir, no account, median of 5 interleaved runs,
 idle PSS via `/proc/<pid>/smaps_rollup`): idle PSS didn't move measurably
@@ -601,8 +603,43 @@ AES-GCM+SHA-256 benchmark ~9x slower (C2's crypto-loop optimizations never
 kick in), which fails the "100 MB+ attachments must still work" bar.
 `-Xss512k` and `-XX:+UseStringDeduplication` showed no measurable change in
 this harness (too few threads/strings without a real account to show it
-either way) and were dropped rather than shipped on faith. No version bump:
-flags only, same jar, same behaviour Snowdrop's capability checks see.
+either way) and were dropped rather than shipped on faith.
+
+A later pass (same patch, amended rather than a new one — nothing about this
+is committed to any user's installed copy yet) addressed a gap the above
+measurement couldn't see: all of it was taken at idle, after the process had
+settled, never _after a burst_. The real session this pass was planned
+against showed the daemon's heap had only 33 MB live in a 100 MB committed
+heap — plausible after a burst of JSON-RPC traffic that G1 never got a
+reason to shrink back down from, since nothing forces a GC once allocation
+stops. `-XX:G1PeriodicGCInterval=120000` runs a concurrent cycle on a
+2-minute idle timer so that comes back down on its own. Verified directly
+against the jlinked runtime with a throwaway config and no account (`jcmd
+<pid> GC.heap_info`, `-Xlog:gc`): a burst of 6,000 JSON-RPC calls (padded
+params, to force real allocation) pushed committed heap from a 50 MB
+baseline to 278 MB; with the interval temporarily set to 8 s for faster
+iteration, two periodic cycles later (~20 s) it was back to 55 MB, and PSS
+back near its original 143 MB. Every periodic pause logged 1-2 ms, and the
+idle CPU cost of running them was about 4 centiseconds of CPU time over
+that 20 s window (`/proc/<pid>/stat`) — negligible. 120 s sits inside the
+60-300 s range that trades promptness against how often an otherwise-idle
+process wakes up; nothing here is latency-sensitive enough to want it
+sooner. `-XX:MinHeapFreeRatio=10`/`-XX:MaxHeapFreeRatio=30` (below G1's own
+default free-ratio targets) make each of those collections return more of
+the freed heap to the OS instead of holding it as slack: measured together
+with the interval above, the same kind of burst-then-idle cycle came back
+to 25 MB committed instead of 55 MB, at a similarly negligible idle CPU
+cost (~8 centiseconds over 20 s). Both flags only change G1's heap-resize
+policy at GC pause boundaries, not its collection algorithm or the JIT
+tiers the AES-GCM throughput benchmark above depends on, and every pause
+logged during and after the burst stayed in the 1-13 ms range, well short
+of the kind of throughput cost `-XX:TieredStopAtLevel=1` had.
+No version bump for any of this: flags only, same jar, same behaviour
+Snowdrop's capability checks see. What a throwaway, no-account dist can't
+show: real account traffic's actual allocation pattern and burst timing,
+and whether 120 s is the right trade-off for how the user's own session
+idles — only their own running app, left alone afterward, can confirm the
+committed-heap number this was aimed at actually comes back down.
 
 ## User-controlled phone verification
 

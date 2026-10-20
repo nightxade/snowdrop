@@ -197,19 +197,48 @@ export async function encodeOutgoingPreview(
 
 export interface AttachmentResolverOptions {
   rpc: JsonRpcClient;
-  /** Object URLs kept alive at once; the oldest are revoked beyond this. */
+  /** Object URLs kept alive at once; the oldest unreferenced ones are revoked beyond this. */
   maxEntries?: number;
   /** Refuse to pull files larger than this through JSON (base64 inflates by a third). */
   maxBytes?: number;
+  /**
+   * Total decoded bytes kept across every cached entry; the oldest
+   * unreferenced ones are revoked beyond this, the same as `maxEntries` but
+   * sized for what's actually held in memory rather than entry count alone
+   * (a photo and a 100 MB video both count as "one entry"). Defaults to
+   * 64 MB — big enough that scrolling back through recently-seen photos is
+   * still usually a cache hit (a screenful of them runs a few MB each), small
+   * enough that it doesn't by itself explain the kind of WebKitWebProcess
+   * growth an uncapped 200-entry cache can cause. A single retained entry
+   * (see `retain`) may push the live total above this; it's a target for
+   * what's otherwise idle, not a hard ceiling.
+   */
+  maxCacheBytes?: number;
   createObjectUrl?: (blob: Blob) => string;
   revokeObjectUrl?: (url: string) => void;
 }
 
+interface CacheEntry {
+  url: string;
+  /** Decoded byte length of the blob behind `url` (`maxCacheBytes` accounting). */
+  bytes: number;
+}
+
 export class AttachmentResolver {
-  private readonly cache = new Map<string, string>();
+  private readonly cache = new Map<string, CacheEntry>();
   private readonly inFlight = new Map<string, Promise<string>>();
+  /**
+   * How many mounted components currently hold each id's URL (`retain`/
+   * `release`, from `useAttachmentUrl` and anything else that keeps one
+   * past a single render) — any id with a count above zero is skipped by
+   * `evict()` no matter how far over budget the cache is.
+   */
+  private readonly refCounts = new Map<string, number>();
   private readonly maxEntries: number;
   private readonly maxBytes: number;
+  private readonly maxCacheBytes: number;
+  /** Sum of every cached entry's `bytes`; kept incrementally rather than summed on each evict(). */
+  private cachedBytes = 0;
   private readonly createObjectUrl: (blob: Blob) => string;
   private readonly revokeObjectUrl: (url: string) => void;
   /** Bumped by clear() so late downloads from a previous session are discarded. */
@@ -218,6 +247,7 @@ export class AttachmentResolver {
   constructor(private readonly options: AttachmentResolverOptions) {
     this.maxEntries = options.maxEntries ?? 200;
     this.maxBytes = options.maxBytes ?? MAX_ATTACHMENT_BYTES;
+    this.maxCacheBytes = options.maxCacheBytes ?? 64 * 1024 * 1024;
     this.createObjectUrl = options.createObjectUrl ?? ((blob) => URL.createObjectURL(blob));
     this.revokeObjectUrl =
       options.revokeObjectUrl ??
@@ -246,7 +276,7 @@ export class AttachmentResolver {
         // Refresh LRU position.
         this.cache.delete(attachment.id);
         this.cache.set(attachment.id, cached);
-        return Promise.resolve(cached);
+        return Promise.resolve(cached.url);
       }
       const pending = this.inFlight.get(attachment.id);
       if (pending) return pending;
@@ -254,7 +284,8 @@ export class AttachmentResolver {
       const stale = this.cache.get(attachment.id);
       if (stale) {
         this.cache.delete(attachment.id);
-        this.revokeObjectUrl(stale);
+        this.cachedBytes -= stale.bytes;
+        this.revokeObjectUrl(stale.url);
       }
     }
     if (attachment.size !== undefined && attachment.size > this.maxBytes) {
@@ -267,12 +298,12 @@ export class AttachmentResolver {
     }
     const generation = this.generation;
     const promise = this.download(attachment, scope)
-      .then((url) => {
+      .then(({ url, bytes }) => {
         if (generation !== this.generation) {
           this.revokeObjectUrl(url);
           throw new SignalCliError('aborted', 'Disconnected while downloading the attachment');
         }
-        this.remember(attachment.id, url);
+        this.remember(attachment.id, url, bytes);
         return url;
       })
       .finally(() => {
@@ -283,15 +314,41 @@ export class AttachmentResolver {
     return promise;
   }
 
-  /** Revokes every object URL (on disconnect/dispose). */
-  clear(): void {
-    this.generation++;
-    for (const url of this.cache.values()) this.revokeObjectUrl(url);
-    this.cache.clear();
-    this.inFlight.clear();
+  /**
+   * Marks `id`'s cached entry as in use by a mounted component (an `<img>`/
+   * `<video>`/`<audio>` showing it, a lightbox holding it open, an in-flight
+   * download someone is waiting on). Pairs with `release`; counted, so two
+   * simultaneous viewers of the same attachment (a grid thumbnail and an
+   * open lightbox) both need to release before it becomes evictable. Safe
+   * to call for an id that isn't cached yet (the download may still be in
+   * flight, or may never have started) — it just waits there for `remember`.
+   */
+  retain(id: string): void {
+    this.refCounts.set(id, (this.refCounts.get(id) ?? 0) + 1);
   }
 
-  private async download(attachment: Attachment, scope: RpcParams): Promise<string> {
+  /** Releases a previous `retain`; may make `id` eligible for eviction. */
+  release(id: string): void {
+    const count = this.refCounts.get(id) ?? 0;
+    if (count <= 1) this.refCounts.delete(id);
+    else this.refCounts.set(id, count - 1);
+    this.evict();
+  }
+
+  /** Revokes every object URL (on disconnect/dispose), regardless of retains. */
+  clear(): void {
+    this.generation++;
+    for (const entry of this.cache.values()) this.revokeObjectUrl(entry.url);
+    this.cache.clear();
+    this.inFlight.clear();
+    this.refCounts.clear();
+    this.cachedBytes = 0;
+  }
+
+  private async download(
+    attachment: Attachment,
+    scope: RpcParams,
+  ): Promise<{ url: string; bytes: number }> {
     const { data } = await this.options.rpc.call(
       'getAttachment',
       { id: attachment.id, ...scope },
@@ -299,18 +356,33 @@ export class AttachmentResolver {
       // Large files take a while to base64 through JSON.
       { timeoutMs: 120_000 },
     );
+    const bytes = base64ToBytes(data);
     // Never label the bytes with an unvetted, sender-chosen type (XSS).
-    const blob = new Blob([base64ToBytes(data)], { type: safeMediaType(attachment.contentType) });
-    return this.createObjectUrl(blob);
+    const blob = new Blob([bytes], { type: safeMediaType(attachment.contentType) });
+    return { url: this.createObjectUrl(blob), bytes: blob.size };
   }
 
-  private remember(id: string, url: string): void {
-    this.cache.set(id, url);
-    while (this.cache.size > this.maxEntries) {
-      const [oldestId, oldestUrl] = this.cache.entries().next().value ?? [];
-      if (oldestId === undefined || oldestUrl === undefined) break;
-      this.cache.delete(oldestId);
-      this.revokeObjectUrl(oldestUrl);
+  private remember(id: string, url: string, bytes: number): void {
+    this.cache.set(id, { url, bytes });
+    this.cachedBytes += bytes;
+    this.evict();
+  }
+
+  /**
+   * Evicts entries beyond `maxEntries` or `maxCacheBytes`, oldest first,
+   * skipping any id a mounted component still `retain`s — those are left in
+   * place (and the cache left over budget) rather than revoked out from
+   * under what's on screen. Map iteration is insertion order, and `resolve`
+   * re-inserts on every cache hit, so "oldest" here is "least recently
+   * resolved", i.e. LRU.
+   */
+  private evict(): void {
+    for (const [id, entry] of this.cache) {
+      if (this.cache.size <= this.maxEntries && this.cachedBytes <= this.maxCacheBytes) break;
+      if ((this.refCounts.get(id) ?? 0) > 0) continue;
+      this.cache.delete(id);
+      this.cachedBytes -= entry.bytes;
+      this.revokeObjectUrl(entry.url);
     }
   }
 }

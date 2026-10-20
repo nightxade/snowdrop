@@ -274,6 +274,7 @@ impl Service {
                 let options = ProcessOptions {
                     program: binary.path.clone(),
                     args: config::spawn_args(&config_dir, account.as_deref()),
+                    envs: config::spawn_env(std::env::var_os("MALLOC_ARENA_MAX").as_deref()),
                     backoff: self.timeouts.backoff.clone(),
                     grace: self.timeouts.grace,
                 };

@@ -13,6 +13,7 @@
  * attached once it arrives; `getStatus()` is "connecting" until then.
  */
 import type { BackendEvents, BackendKind, ChatBackend } from '@/core/backend';
+import type { Attachment } from '@/core/domain';
 import type { Unsubscribe } from '@/core/lib';
 
 export const OPTIONAL_METHODS = [
@@ -23,6 +24,8 @@ export const OPTIONAL_METHODS = [
   'pinMessage',
   'updateConversation',
   'resolveAttachmentUrl',
+  'retainAttachmentUrl',
+  'releaseAttachmentUrl',
   'acknowledge',
   'link',
   'syncContactsAndGroups',
@@ -54,6 +57,10 @@ export function deferredBackend(
   let real: ChatBackend | null = null;
   const subscriptions = new Set<Subscription>();
   const acks: string[] = [];
+  // A retain/release pair made before the adapter loads must still land in
+  // order once it does — an id retained then released while still
+  // "connecting" must not end up retained forever (or vice versa).
+  const attachmentRefs: Array<{ retain: boolean; attachment: Attachment }> = [];
   // Avoid an unhandled rejection before a call observes it; calls reject with the error.
   ready.then(
     (backend) => {
@@ -66,6 +73,10 @@ export function deferredBackend(
           );
       }
       for (const cursor of acks.splice(0)) backend.acknowledge?.(cursor);
+      for (const { retain, attachment } of attachmentRefs.splice(0)) {
+        if (retain) backend.retainAttachmentUrl?.(attachment);
+        else backend.releaseAttachmentUrl?.(attachment);
+      }
     },
     () => undefined,
   );
@@ -126,6 +137,16 @@ export function deferredBackend(
       call((b) =>
         b.resolveAttachmentUrl ? b.resolveAttachmentUrl(c, a) : missing('resolveAttachmentUrl'),
       );
+  if (caps.has('retainAttachmentUrl'))
+    backend.retainAttachmentUrl = (a) => {
+      if (real) real.retainAttachmentUrl?.(a);
+      else attachmentRefs.push({ retain: true, attachment: a });
+    };
+  if (caps.has('releaseAttachmentUrl'))
+    backend.releaseAttachmentUrl = (a) => {
+      if (real) real.releaseAttachmentUrl?.(a);
+      else attachmentRefs.push({ retain: false, attachment: a });
+    };
   if (caps.has('acknowledge'))
     backend.acknowledge = (cursor) => {
       if (real) real.acknowledge?.(cursor);

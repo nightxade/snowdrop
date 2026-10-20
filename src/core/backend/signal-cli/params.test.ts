@@ -257,6 +257,110 @@ describe('attachments', () => {
     ).rejects.toMatchObject({ kind: 'too-large' });
     expect(daemon.calls).toHaveLength(0);
   });
+
+  /** A downloaded blob of exactly `n` bytes, for exercising `maxCacheBytes`. */
+  const sized = (n: number): string => bytesToBase64(new Uint8Array(n));
+
+  it('evicts least-recently-used entries over the byte budget, skipping ones still in use', async () => {
+    const sizes: Record<string, number> = { a: 40, b: 40, c: 40, d: 40 };
+    const daemon = new FakeDaemon().handle('getAttachment', (params) => ({
+      result: { data: sized(sizes[params.id as string] ?? 0) },
+    }));
+    const revoked: string[] = [];
+    let n = 0;
+    const resolver = new AttachmentResolver({
+      rpc: new JsonRpcClient({ baseUrl: '', fetch: daemon.fetch }),
+      maxCacheBytes: 100,
+      createObjectUrl: () => `blob:${++n}`,
+      revokeObjectUrl: (url) => revoked.push(url),
+    });
+
+    const a = await resolver.resolve({ id: 'a', contentType: 'image/png' });
+    const b = await resolver.resolve({ id: 'b', contentType: 'image/png' });
+    expect(revoked).toEqual([]); // 80 bytes total, under the 100-byte budget
+
+    // "a" is shown in an open lightbox: a download that pushes the cache
+    // over budget must skip it and evict the next-oldest unreferenced entry.
+    resolver.retain('a');
+    await resolver.resolve({ id: 'c', contentType: 'image/png' }); // 120 bytes total
+    expect(revoked).toEqual([b]); // "b" was the oldest entry not in use
+
+    // Releasing "a" doesn't evict it by itself (a + c is still only 80 bytes)...
+    resolver.release('a');
+    expect(revoked).toEqual([b]);
+
+    // ...but a later download that pushes the cache over budget again now
+    // evicts it too, since nothing retains it any more.
+    await resolver.resolve({ id: 'd', contentType: 'image/png' }); // 120 bytes total
+    expect(revoked).toEqual([b, a]);
+  });
+
+  it('still evicts by entry count under the byte budget', async () => {
+    const daemon = new FakeDaemon().reply('getAttachment', { data: sized(1) });
+    const revoked: string[] = [];
+    let n = 0;
+    const resolver = new AttachmentResolver({
+      rpc: new JsonRpcClient({ baseUrl: '', fetch: daemon.fetch }),
+      maxEntries: 2,
+      maxCacheBytes: 1_000_000,
+      createObjectUrl: () => `blob:${++n}`,
+      revokeObjectUrl: (url) => revoked.push(url),
+    });
+
+    const a = await resolver.resolve({ id: 'a', contentType: 'image/png' });
+    await resolver.resolve({ id: 'b', contentType: 'image/png' });
+    await resolver.resolve({ id: 'c', contentType: 'image/png' });
+    expect(revoked).toEqual([a]);
+  });
+
+  it('a single file larger than the whole budget is kept while retained, and evicted on release', async () => {
+    const daemon = new FakeDaemon().reply('getAttachment', { data: sized(500) });
+    const revoked: string[] = [];
+    let n = 0;
+    const resolver = new AttachmentResolver({
+      rpc: new JsonRpcClient({ baseUrl: '', fetch: daemon.fetch }),
+      maxCacheBytes: 100,
+      createObjectUrl: () => `blob:${++n}`,
+      revokeObjectUrl: (url) => revoked.push(url),
+    });
+
+    resolver.retain('big');
+    const url = await resolver.resolve({ id: 'big', contentType: 'video/mp4' });
+    expect(revoked).toEqual([]); // 500 bytes alone is already over the 100-byte budget, but it's in use
+
+    resolver.release('big');
+    expect(revoked).toEqual([url]); // nothing references it any more
+  });
+
+  it('two retains on the same entry both need releasing before it becomes evictable', async () => {
+    const sizes: Record<string, number> = { a: 60, b: 60 };
+    const daemon = new FakeDaemon().handle('getAttachment', (params) => ({
+      result: { data: sized(sizes[params.id as string] ?? 0) },
+    }));
+    const revoked: string[] = [];
+    let n = 0;
+    const resolver = new AttachmentResolver({
+      rpc: new JsonRpcClient({ baseUrl: '', fetch: daemon.fetch }),
+      maxCacheBytes: 100,
+      createObjectUrl: () => `blob:${++n}`,
+      revokeObjectUrl: (url) => revoked.push(url),
+    });
+
+    // Two mounted components (e.g. a grid thumbnail and an open lightbox)
+    // both show "a"; "b" is retained once, by something else entirely.
+    resolver.retain('a');
+    resolver.retain('a');
+    resolver.retain('b');
+    const a = await resolver.resolve({ id: 'a', contentType: 'image/png' });
+    await resolver.resolve({ id: 'b', contentType: 'image/png' }); // 120 bytes total, over budget
+    expect(revoked).toEqual([]); // both entries are in use; neither is evictable
+
+    resolver.release('a');
+    expect(revoked).toEqual([]); // one retain on "a" remains, and "b" is still retained
+
+    resolver.release('a');
+    expect(revoked).toEqual([a]); // "a" is now unreferenced; "b" is still in use and survives
+  });
 });
 
 describe('quote attachments and pin duration', () => {

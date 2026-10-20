@@ -207,6 +207,8 @@ const signalCliBackend: BackendRegistration = {
     'pinMessage',
     'updateConversation',
     'resolveAttachmentUrl',
+    'retainAttachmentUrl',
+    'releaseAttachmentUrl',
     'acknowledge',
     'link',
     'syncContactsAndGroups',

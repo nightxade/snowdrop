@@ -106,6 +106,26 @@ export function useAttachmentUrl(
     setAttempt((n) => n + 1);
   }, []);
 
+  // Claims this attachment's cached URL for as long as this hook instance
+  // stays mounted, so the backend's own cache (signal-cli's
+  // `AttachmentResolver`, bounded by entry count and total bytes) never
+  // evicts one still shown on screen — an image, a playing video/audio, or
+  // an open lightbox. Keyed on identity alone, not `attempt`: a retry's
+  // cleanup-then-rerun must not let the ref count touch zero in between,
+  // which could let an unrelated eviction elsewhere revoke the very URL
+  // about to be swapped in. Backends without the pair (the mock; its
+  // attachments always carry a `url`, so there's nothing to protect) simply
+  // skip this.
+  useEffect(() => {
+    if (direct !== undefined || !backend.retainAttachmentUrl || !backend.releaseAttachmentUrl)
+      return;
+    backend.retainAttachmentUrl(attachment);
+    return () => {
+      backend.releaseAttachmentUrl?.(attachment);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, direct, backend]);
+
   useEffect(() => {
     if (direct !== undefined || !backend.resolveAttachmentUrl) return;
     let cancelled = false;

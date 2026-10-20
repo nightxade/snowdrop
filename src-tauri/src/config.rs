@@ -231,6 +231,27 @@ pub fn spawn_args(config_dir: &Path, account: Option<&str>) -> Vec<OsString> {
     args
 }
 
+/// Extra environment for the spawned signal-cli child, on top of whatever it
+/// inherits from us. Linux only, and only `MALLOC_ARENA_MAX`: glibc's malloc
+/// gives each thread its own arena (up to 8x the core count) to cut lock
+/// contention, and each arena holds on to its own freed memory, so a busy
+/// JVM's many threads leave many partly used arenas resident — libsignal's
+/// JNI bridge and the rest of the
+/// JVM's native allocations go through glibc malloc, not the JVM heap, so
+/// this is separate from (and not fixed by) any `-Xmx`/G1 tuning. Capped at 2
+/// arenas rather than 1 (serializing every malloc onto a single arena) to
+/// keep concurrent native calls from contending hard on it. `existing` is
+/// whatever the user already has set for this variable in their own
+/// environment (`std::env::var_os`, read by the caller) — never overridden,
+/// since glibc allocator tuning is exactly the kind of thing a user might
+/// already have a reason of their own to set.
+pub fn spawn_env(existing: Option<&OsStr>) -> Vec<(OsString, OsString)> {
+    if !cfg!(target_os = "linux") || existing.is_some() {
+        return Vec::new();
+    }
+    vec![("MALLOC_ARENA_MAX".into(), "2".into())]
+}
+
 /// A parsed external daemon URL: `http://<loopback>[:port][/base]`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DaemonUrl {
@@ -448,5 +469,25 @@ mod tests {
         fs::set_permissions(dir, fs::Permissions::from_mode(0o777)).unwrap();
         secure_dir(dir).unwrap();
         assert_eq!(dir.metadata().unwrap().permissions().mode() & 0o777, 0o700);
+    }
+
+    #[test]
+    fn spawn_env_never_overrides_an_existing_malloc_arena_max() {
+        assert_eq!(spawn_env(Some(OsStr::new("4"))), Vec::new());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn spawn_env_caps_malloc_arenas_on_linux_when_unset() {
+        assert_eq!(
+            spawn_env(None),
+            vec![(OsString::from("MALLOC_ARENA_MAX"), OsString::from("2"))],
+        );
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    #[test]
+    fn spawn_env_is_a_no_op_off_linux() {
+        assert_eq!(spawn_env(None), Vec::new());
     }
 }

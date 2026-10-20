@@ -360,6 +360,20 @@ export interface ChatBackend {
   ): Promise<string>;
 
   /**
+   * Marks an attachment's resolved URL as in use by a mounted component
+   * (an `<img>`/`<video>`/`<audio>` showing it, a lightbox holding it open).
+   * Pairs with `releaseAttachmentUrl`. Adapters that cache and evict
+   * `resolveAttachmentUrl`'s URLs (signal-cli) use this to keep a byte/entry
+   * budget from revoking one still on screen; adapters whose attachments
+   * always carry a `url` (the mock) omit both this and `releaseAttachmentUrl`
+   * since there's nothing of theirs to protect.
+   */
+  retainAttachmentUrl?(attachment: Attachment): void;
+
+  /** Releases a previous `retainAttachmentUrl`. */
+  releaseAttachmentUrl?(attachment: Attachment): void;
+
+  /**
    * Whether the connected backend can answer `requestAttachmentBackfill` at
    * all (patches/signal-cli's "0016: attachment backfill" — an older
    * patched build, or upstream signal-cli, advertises none of this).

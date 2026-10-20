@@ -531,8 +531,8 @@ pub fn app_close_ready(app: AppHandle, gate: CloseLatch<'_>) {
 #[tauri::command]
 pub fn app_set_unread(app: AppHandle, count: u32, _mentions: u32) {
     let _t = CommandTimer::start("app_set_unread");
-    // `mentions` isn't used by the badge today — `count` already is "the
-    // same total the status line uses", per the brief — but it's accepted
+    // `mentions` isn't used by the badge today — `count` already is the
+    // same total the status line uses — but it's accepted
     // here so a future affordance (e.g. a mention-only indicator while
     // muted) never needs a new command, just a new use of this parameter.
     tray::set_unread(&app, count);

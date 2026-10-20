@@ -362,6 +362,19 @@ Leaving it unset runs signal-cli in multi-account mode.
 servers until the UI's first `subscribeReceive`, so nothing arrives before
 anyone is listening.
 
+### Environment
+
+The spawned child otherwise inherits our environment as-is; the one addition
+is `MALLOC_ARENA_MAX=2` (`config::spawn_env`), Linux only, and only when the
+user doesn't already have that variable set. glibc gives each thread its own
+malloc arena (up to 8x the core count) to cut lock contention, and each one
+reserves address space up front whether or not it's ever filled — libsignal's
+JNI bridge and the rest of the JVM's native (non-heap) allocations go through
+glibc malloc, so this is separate from, and not fixed by, any `-Xmx`/G1 tuning
+(see patches/signal-cli/README.md's "0018"). Capped at 2 rather than 1 (which
+would serialize every malloc onto a single arena) to avoid trading memory for
+contention under concurrent native calls.
+
 ### Data directory
 
 Signal-cli's `--config` directory defaults to
@@ -597,8 +610,7 @@ Linux, `Shell_NotifyIcon` on Windows, `NSStatusItem` on macOS.
   `src/app/createSnowdrop.ts` for the matching unread-count path.
 - **Rendering**: the badge is drawn at runtime onto the bundle's own
   128×128 icon (`icons/128x128.png`, supersampled relative to the actual
-  tray size so the host's own downscale stays crisp — "crisp on HiDPI" per
-  the brief), decoded with the `png` crate (already a transitive dependency
+  tray size so the host's own downscale stays crisp on HiDPI), decoded with the `png` crate (already a transitive dependency
   at this version via `tauri-codegen`/`muda`, so this adds no new crate —
   `Cargo.toml` has the full reasoning) rather than `tauri`'s own
   `image-png` feature, which would pull in the much larger `image` crate

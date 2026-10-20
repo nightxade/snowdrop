@@ -134,6 +134,7 @@ async fn process_matches_responses_and_forwards_notifications() {
         ProcessOptions {
             program: fake(),
             args: snowdrop_lib::config::spawn_args(&dir, None),
+            envs: Vec::new(),
             backoff: fast_backoff(),
             grace: Duration::from_secs(2),
         },
@@ -181,6 +182,7 @@ async fn process_restarts_after_a_crash() {
         ProcessOptions {
             program: fake(),
             args: snowdrop_lib::config::spawn_args(&dir, None),
+            envs: Vec::new(),
             backoff: fast_backoff(),
             grace: Duration::from_secs(2),
         },

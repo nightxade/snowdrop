@@ -1122,6 +1122,14 @@ export class SignalCliBackend implements ChatBackend {
     return this.attachments.resolve(attachment, {}, options);
   }
 
+  retainAttachmentUrl(attachment: Attachment): void {
+    this.attachments.retain(attachment.id);
+  }
+
+  releaseAttachmentUrl(attachment: Attachment): void {
+    this.attachments.release(attachment.id);
+  }
+
   /**
    * See `ChatBackend.requestAttachmentBackfill`. A no-op against a daemon
    * that doesn't implement it (`supportsAttachmentBackfill` is false): the

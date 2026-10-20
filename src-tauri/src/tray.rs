@@ -363,7 +363,7 @@ fn build_tray(app: &AppHandle, icon: Image<'static>) -> Option<TrayIcon> {
     // No "Mark all as read": there's no command for marking *every*
     // conversation read today (only per-space/per-folder, in
     // src/ui/features/spaces/useSpaceMenu.tsx, and per-conversation,
-    // CoreCommand.MarkRead) — only wiring up what already exists, per brief.
+    // CoreCommand.MarkRead) — only wiring up what already exists.
     let menu = match MenuBuilder::new(app)
         .text("show", "Show Snowdrop")
         .separator()
@@ -581,7 +581,7 @@ mod tests {
     }
 
     #[test]
-    fn tooltip_and_title_text_match_the_brief() {
+    fn tooltip_and_title_text() {
         assert_eq!(tooltip_text(0), "Snowdrop");
         assert_eq!(tooltip_text(3), "Snowdrop — 3 unread");
         assert_eq!(window_title(0), "Snowdrop");

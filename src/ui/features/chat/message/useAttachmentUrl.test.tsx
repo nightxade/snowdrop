@@ -23,6 +23,8 @@ const message: MessageRef = { authorId: 'author-1', sentAt: 1_000 };
 
 interface FakeBackend {
   resolveAttachmentUrl: (conversationId: ConversationId, attachment: Attachment) => Promise<string>;
+  retainAttachmentUrl?: (attachment: Attachment) => void;
+  releaseAttachmentUrl?: (attachment: Attachment) => void;
   requestAttachmentBackfill?: (
     conversationId: ConversationId,
     targetAuthorId: string,
@@ -270,5 +272,59 @@ describe('useAttachmentUrl: attachment backfill (patches/signal-cli, "0016")', (
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('useAttachmentUrl: retain/release (keeps the backend from evicting an on-screen URL)', () => {
+  it('retains on mount and releases on unmount, once each, regardless of retries', async () => {
+    const resolveAttachmentUrl = vi
+      .fn<(conversationId: ConversationId, attachment: Attachment) => Promise<string>>()
+      .mockResolvedValueOnce('blob:first')
+      .mockResolvedValueOnce('blob:second');
+    const retainAttachmentUrl = vi.fn();
+    const releaseAttachmentUrl = vi.fn();
+    const app = fakeApp({ resolveAttachmentUrl, retainAttachmentUrl, releaseAttachmentUrl });
+
+    const { unmount } = render(
+      <SnowdropContextProvider value={app}>
+        <Probe />
+      </SnowdropContextProvider>,
+    );
+    await screen.findByText('ready:blob:first');
+    expect(retainAttachmentUrl).toHaveBeenCalledTimes(1);
+    expect(retainAttachmentUrl).toHaveBeenCalledWith(attachment);
+    expect(releaseAttachmentUrl).not.toHaveBeenCalled();
+
+    // A retry re-resolves through the backend, but it's still the same
+    // mounted component holding the same claim — must not release and
+    // re-retain in between (which would let an eviction elsewhere slip in
+    // while this component still has the URL on screen).
+    act(() => {
+      screen.getByRole('button', { name: 'retry' }).click();
+    });
+    await screen.findByText('ready:blob:second');
+    expect(retainAttachmentUrl).toHaveBeenCalledTimes(1);
+    expect(releaseAttachmentUrl).not.toHaveBeenCalled();
+
+    unmount();
+    expect(releaseAttachmentUrl).toHaveBeenCalledTimes(1);
+    expect(releaseAttachmentUrl).toHaveBeenCalledWith(attachment);
+  });
+
+  it('does nothing when the backend has no retain/release (e.g. attachments that always carry a url)', async () => {
+    const resolveAttachmentUrl = vi
+      .fn<(conversationId: ConversationId, attachment: Attachment) => Promise<string>>()
+      .mockResolvedValue('blob:first');
+    const app = fakeApp({ resolveAttachmentUrl });
+
+    const { unmount } = render(
+      <SnowdropContextProvider value={app}>
+        <Probe />
+      </SnowdropContextProvider>,
+    );
+    await screen.findByText('ready:blob:first');
+    // Nothing to assert beyond "doesn't throw" — the fake backend has no
+    // retainAttachmentUrl/releaseAttachmentUrl at all.
+    unmount();
   });
 });
