@@ -1353,9 +1353,10 @@ describe('imported phone history', () => {
     await backend.disconnect();
   });
 
-  it('lists a history-only chat only if it has a message, carrying the phone archived hint', async () => {
+  it('lists a history-only chat only if it has a real message (not just system entries), carrying the phone archived hint', async () => {
     const CAROL = 'c6666666-6666-4666-8666-666666666666';
     const DINAH = 'd7777777-7777-4777-8777-777777777777';
+    const EVAN = 'e8888888-8888-4888-8888-888888888888';
     const recipient = (cursor: string, id: string, aci: string, name: string) => ({
       cursor,
       frame: {
@@ -1382,8 +1383,11 @@ describe('imported phone history', () => {
         { cursor: '4', frame: { chat: { id: '10', recipientId: '2', archived: true } } },
         // Dinah's chat: present in the archive, but never had a message.
         { cursor: '5', frame: { chat: { id: '11', recipientId: '3' } } },
+        recipient('6', '4', EVAN, 'Evan'),
+        // Evan's chat: only a system entry ("joined Signal"), no real message.
+        { cursor: '7', frame: { chat: { id: '12', recipientId: '4' } } },
       ],
-      nextCursor: '5',
+      nextCursor: '7',
       hasMore: false,
     });
     daemon.handle('getHistoryChat', (params) => ({
@@ -1408,7 +1412,27 @@ describe('imported phone history', () => {
               nextCursor: '6',
               hasMore: false,
             }
-          : { archiveId: 'snapshot', entries: [], hasMore: false },
+          : params.chatId === '12'
+            ? {
+                archiveId: 'snapshot',
+                entries: [
+                  {
+                    cursor: '9',
+                    frame: {
+                      chatItem: {
+                        chatId: '12',
+                        authorId: '4',
+                        dateSent: '2000',
+                        incoming: { dateReceived: '2001' },
+                        updateMessage: { simpleUpdate: { type: 'JOINED_SIGNAL' } },
+                      },
+                    },
+                  },
+                ],
+                nextCursor: '9',
+                hasMore: false,
+              }
+            : { archiveId: 'snapshot', entries: [], hasMore: false },
     }));
     const { backend } = setup({ daemon });
     await backend.connect();
@@ -1418,6 +1442,7 @@ describe('imported phone history', () => {
       expect.objectContaining({ id: directConversationId(CAROL), historyArchived: true }),
     ]);
     expect(conversations.find((c) => c.id === directConversationId(DINAH))).toBeUndefined();
+    expect(conversations.find((c) => c.id === directConversationId(EVAN))).toBeUndefined();
     await backend.disconnect();
   });
 });

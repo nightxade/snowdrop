@@ -219,6 +219,8 @@ export class SignalCliBackend implements ChatBackend {
   private customEmojiSupported = false;
   /** Whether the connected daemon implements attachment backfill (see capabilities.ts). */
   private attachmentBackfillSupported = false;
+  /** listConversations logs its counts once per backend, not on every refresh. */
+  private listingLogged = false;
 
   constructor(private readonly options: SignalCliBackendOptions) {
     this.clock = options.clock ?? systemClock;
@@ -975,6 +977,15 @@ export class SignalCliBackend implements ChatBackend {
         conversation.id,
         historyArchived ? { ...conversation, historyArchived: true } : conversation,
       );
+    }
+    if (!this.listingLogged) {
+      // Counts only (never names or ids): enough to tell which rule listed what.
+      this.listingLogged = true;
+      log.info('conversations listed', {
+        groups: groups.length,
+        directWithActivity: dms.size,
+        fromHistory: merged.size - live.size,
+      });
     }
     return [...merged.values()];
   }

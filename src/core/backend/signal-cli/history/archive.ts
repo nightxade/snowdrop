@@ -106,23 +106,37 @@ export class HistoryArchive {
   }
 
   /**
-   * Cheap "does this chat have at least one surviving message" check, for
-   * deciding whether a history-only conversation belongs in the list at all
-   * (see SignalCliBackend.listConversations). A single indexed lookup
-   * (patches/signal-cli 0005's chat_id index) for the newest entry, `LIMIT
-   * 1` — never a full page walk, and there's no cheaper per-chat query
-   * (count/last-message) the daemon exposes. Cached: the archive is a
-   * snapshot, so later listings (every refresh) don't repeat the lookups. A
-   * failed lookup isn't cached.
+   * Whether a chat has at least one real message, for deciding whether a
+   * history-only conversation belongs in the list at all (see
+   * SignalCliBackend.listConversations). Matches the phone, which lists a
+   * chat only once it has a message: system entries (`updateMessage` —
+   * safety number changes, "joined Signal", profile and timer changes) don't
+   * count. Pages newest-first and stops at the first real message, so it's
+   * one indexed lookup for almost every chat (patches/signal-cli 0005's
+   * chat_id index); there's no per-chat count query to use instead. Cached:
+   * the archive is a snapshot, so later listings (every refresh) don't
+   * repeat the lookups. A failed lookup isn't cached.
    */
   chatHasMessages(chatId: string): Promise<boolean> {
     let answer = this.hasMessages.get(chatId);
     if (!answer) {
-      answer = this.chatPage(chatId, undefined, 1).then((page) => page.entries.length > 0);
+      answer = this.findRealMessage(chatId);
       this.hasMessages.set(chatId, answer);
       answer.catch(() => this.hasMessages.delete(chatId));
     }
     return answer;
+  }
+
+  private async findRealMessage(chatId: string): Promise<boolean> {
+    let before: string | undefined;
+    for (let limit = 8; ; limit = PAGE_SIZE) {
+      const page = await this.chatPage(chatId, before, limit);
+      // chatPage has already checked every entry's chatItem is a record.
+      const items = page.entries.map((entry) => entry.frame.chatItem as Record<string, unknown>);
+      if (items.some((item) => !isRecord(item.updateMessage))) return true;
+      if (!page.hasMore) return false;
+      before = page.nextCursor;
+    }
   }
 
   /** `markRead: false` inspects deadlines without starting timers during recovery. */
