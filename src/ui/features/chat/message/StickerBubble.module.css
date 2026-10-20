@@ -6,16 +6,16 @@
  */
 .image {
   display: block;
-  max-width: 160px;
-  max-height: 160px;
+  max-width: 120px;
+  max-height: 120px;
   margin-top: var(--snowdrop-space-1);
 }
 
 .placeholder {
   display: grid;
   place-items: center;
-  width: 128px;
-  height: 128px;
+  width: 120px;
+  height: 120px;
   margin-top: var(--snowdrop-space-1);
   color: var(--snowdrop-text-faint);
   opacity: 0;

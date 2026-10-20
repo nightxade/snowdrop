@@ -11,7 +11,7 @@ export interface StickerBubbleProps {
 
 /**
  * A sticker, rendered the way Signal/Discord-style clients do: the image
- * alone — no bubble, no card, transparent background — capped at ~160px
+ * alone — no bubble, no card, transparent background — capped at 120px
  * (CSS `max-width`/`max-height`, so it scales correctly on HiDPI displays
  * rather than being pre-downscaled), keeping its own aspect ratio. Animated
  * WebP/APNG animate natively through `<img>`; there's no cheap way to pause
