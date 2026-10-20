@@ -246,13 +246,27 @@ pub fn run() {
             app.manage(Arc::new(std::sync::Mutex::new(tray::init(app.handle()))));
             app.manage(Arc::new(tray::CloseToTray::new()));
             // Everything the vault bridge reaches through `AppHandle` is
-            // managed now. With storage already open (the keyring unlocked it
-            // silently) and an account linked last time, start signal-cli
-            // while the webview is still loading; otherwise the unlock
-            // commands do this once storage opens (`commands::kick_prespawn`).
-            let service_for_prespawn = app.state::<Arc<Service>>().inner().clone();
+            // managed now. Try the same silent keyring unlock the webview's
+            // first `storage_status` would (it only runs that ~2 s later, once
+            // the bundle has booted), then — storage open and an account
+            // linked last time — start signal-cli while the webview is still
+            // loading. A passphrase-only or locked keyring stays locked here;
+            // the unlock commands pre-spawn once it opens
+            // (`commands::kick_prespawn`).
+            let handle_for_prespawn = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                service_for_prespawn.prespawn().await;
+                let handle = handle_for_prespawn.clone();
+                let opened = tauri::async_runtime::spawn_blocking(move || {
+                    let storage = handle.state::<std::sync::Mutex<storage::StorageService>>();
+                    let mut storage = storage.lock().expect("storage lock");
+                    storage.status().state == "unlocked"
+                })
+                .await
+                .unwrap_or(false);
+                if opened {
+                    startup::mark("storage opened by the shell");
+                }
+                handle_for_prespawn.state::<Arc<Service>>().inner().clone().prespawn().await;
             });
             startup::mark("setup complete");
             Ok(())
