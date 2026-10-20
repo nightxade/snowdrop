@@ -57,6 +57,13 @@ const ALLOWED_METHODS: &[&str] = &[
     "sendSyncRequest",
     // Attachments (attachments.ts).
     "getAttachment",
+    // Stickers (attachments.ts: getSticker; SignalCliBackend.ts: a history
+    // sticker's pack is registered locally, never installed or synced).
+    "getSticker",
+    "registerHistoryStickerPack",
+    // Asks the primary device to re-upload an expired history attachment
+    // (SignalCliBackend.ts: requestAttachmentBackfill).
+    "requestAttachmentBackfill",
     "getHistoryDirectory",
     "getHistoryChat",
     "readHistory",
@@ -558,7 +565,7 @@ pub fn is_external_url(url: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_allowed_method, is_external_url, valid_log_scope, ALLOWED_METHODS};
+    use super::{is_allowed_method, is_external_url, valid_log_scope};
 
     #[test]
     fn opens_only_web_and_mail_links() {
@@ -569,10 +576,37 @@ mod tests {
         }
     }
 
+    /// Every `.call('method', …)` in the signal-cli backend's non-test sources
+    /// must be on the allow-list, or that feature fails in the desktop app
+    /// only (the browser mock and the unit tests never go through here).
     #[test]
     fn allows_every_method_the_ui_actually_calls() {
-        for method in ALLOWED_METHODS {
-            assert!(is_allowed_method(method), "{method} should be allowed");
+        fn visit(dir: &std::path::Path, out: &mut Vec<(String, String)>) {
+            for entry in std::fs::read_dir(dir).expect("readable src dir") {
+                let path = entry.expect("dir entry").path();
+                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_owned();
+                if path.is_dir() {
+                    visit(&path, out);
+                } else if name.ends_with(".ts") && !name.contains(".test.") {
+                    let text = std::fs::read_to_string(&path).expect("readable source");
+                    for (i, _) in text.match_indices(".call(") {
+                        let rest = text[i + ".call(".len()..].trim_start();
+                        if let Some(quoted) = rest.strip_prefix('\'') {
+                            let method: String = quoted.chars().take_while(char::is_ascii_alphanumeric).collect();
+                            if !method.is_empty() && quoted[method.len()..].starts_with('\'') {
+                                out.push((method, path.display().to_string()));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/core/backend/signal-cli");
+        let mut calls = Vec::new();
+        visit(&src, &mut calls);
+        assert!(calls.iter().any(|(m, _)| m == "getAttachment"), "the scan found no calls; did the layout change?");
+        for (method, file) in calls {
+            assert!(is_allowed_method(&method), "{file} calls {method}, which ALLOWED_METHODS rejects");
         }
     }
 
