@@ -91,6 +91,31 @@ describe('StickerBubble', () => {
     expect(screen.getByText('🎈')).toBeTruthy();
   });
 
+  it('logs the failing stage and error kind only, never ids or messages', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const backupAttachment: Attachment = {
+      id: 'history:secret-archive:77:sticker:0',
+      contentType: 'image/webp',
+    };
+    const resolveStickerUrl = vi
+      .fn()
+      .mockRejectedValue(Object.assign(new Error('pack deadbeef failed'), { kind: 'timeout' }));
+    const resolveAttachmentUrl = vi
+      .fn()
+      .mockRejectedValue(Object.assign(new Error('secret-archive gone'), { code: -32000 }));
+    renderSticker(
+      { packId: 'deadbeef', stickerId: 1, emoji: '🎈', backupAttachment },
+      { resolveStickerUrl, resolveAttachmentUrl },
+    );
+    expect(await screen.findByText('Sticker')).toBeTruthy();
+    const lines = warn.mock.calls.map((call) => String(call[0]));
+    expect(lines).toEqual([
+      '[ui] sticker download failed {"stage":"getSticker","kind":"timeout"}',
+      '[ui] sticker download failed {"stage":"backup-attachment","kind":"rpc-error:-32000"}',
+    ]);
+    warn.mockRestore();
+  });
+
   it('shows the fallback chip when a "ready" image fails to decode', async () => {
     const resolveStickerUrl = vi.fn().mockResolvedValue('blob:corrupt');
     renderSticker({ packId: 'ab', stickerId: 1 }, { resolveStickerUrl });

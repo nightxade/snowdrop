@@ -18,6 +18,7 @@ import type { Unsubscribe } from '@/core/lib';
 
 export const OPTIONAL_METHODS = [
   'fetchHistory',
+  'remapHistoryMessages',
   'readHistory',
   'getHistoryReadState',
   'adminDelete',
@@ -118,6 +119,11 @@ export function deferredBackend(
     },
   };
 
+  if (caps.has('remapHistoryMessages'))
+    backend.remapHistoryMessages = (m) =>
+      call((b) =>
+        b.remapHistoryMessages ? b.remapHistoryMessages(m) : missing('remapHistoryMessages'),
+      );
   if (caps.has('fetchHistory'))
     backend.fetchHistory = (c, q) =>
       call((b) => (b.fetchHistory ? b.fetchHistory(c, q) : missing('fetchHistory')));

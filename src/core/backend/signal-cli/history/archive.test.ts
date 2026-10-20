@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { JsonRpcClient } from '../rpc';
 import { FakeDaemon } from '../testing';
 import { HistoryArchive } from './archive';
-import { directConversationId, messageId } from '@/core/domain';
+import { directConversationId, messageId, type Message } from '@/core/domain';
 
 const self = '00000000-0000-0000-0000-000000000001';
 const recipient = { cursor: '1', frame: { recipient: { id: '1', self: {} } } };
@@ -19,6 +19,54 @@ function fixture() {
   rpc.account = 'original-account';
   return { daemon, rpc, open: () => HistoryArchive.open(rpc, self) };
 }
+
+describe('phone history archive remap', () => {
+  const stickerItem = (cursor: string) => ({
+    cursor,
+    frame: {
+      chatItem: {
+        chatId: '3',
+        authorId: '1',
+        dateSent: '1000',
+        incoming: { dateReceived: '1000' },
+        stickerMessage: { sticker: { packId: 'AQI=', packKey: 'a2V5', stickerId: 3, emoji: 'x' } },
+      },
+    },
+  });
+
+  it('re-reads exactly the stored row by its cursor, as a sticker', async () => {
+    const { daemon, open } = fixture();
+    const archive = await open();
+    daemon.handle('getHistoryChat', (params) => ({
+      result: page(params.before === '11' ? [stickerItem('10')] : [], '10'),
+    }));
+    const stored = {
+      id: messageId(self, 1000),
+      conversationId: directConversationId(self),
+      historyCursor: 'snapshot:10',
+    } as Message;
+    const out = await archive?.remap([stored], 5000);
+    expect(out?.[0]?.sticker).toMatchObject({ packId: '0102', stickerId: 3 });
+    expect(daemon.callsTo('getHistoryChat')).toMatchObject([{ before: '11', limit: 1 }]);
+  });
+
+  it('skips rows of another archive, rows the archive no longer has, and mismatched ids', async () => {
+    const { daemon, open } = fixture();
+    const archive = await open();
+    daemon.reply('getHistoryChat', page([stickerItem('9')], '9'));
+    const row = (extra: Partial<Message>) =>
+      ({
+        id: messageId(self, 1000),
+        conversationId: directConversationId(self),
+        historyCursor: 'snapshot:10',
+        ...extra,
+      }) as Message;
+    expect(await archive?.remap([row({ historyCursor: 'replacement:10' })], 5000)).toEqual([]);
+    expect(await archive?.remap([row({})], 5000)).toEqual([]); // entry at cursor 10 is absent
+    daemon.reply('getHistoryChat', page([stickerItem('10')], '10'));
+    expect(await archive?.remap([row({ id: messageId(self, 2000) })], 5000)).toEqual([]);
+  });
+});
 
 describe('phone history archive paging', () => {
   it('locates a cached message by identity across pages despite skewed sender clocks', async () => {

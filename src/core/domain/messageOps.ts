@@ -180,3 +180,37 @@ export function summarizeReactions(
   }
   return [...byEmoji.values()];
 }
+
+const OLD_HISTORY_STICKER_ATTACHMENT = /^history:.+:sticker:\d+$/u;
+
+/**
+ * A history message stored before stickers had their own field: its sticker
+ * image is a fake `history:…:sticker:N` attachment and its body just the
+ * emoji. Only archive messages (those with a `historyCursor`) can be fixed.
+ */
+export function hasLegacyHistorySticker(message: Message): boolean {
+  return (
+    message.sticker === undefined &&
+    message.historyCursor !== undefined &&
+    message.attachments.some((a) => OLD_HISTORY_STICKER_ATTACHMENT.test(a.id))
+  );
+}
+
+/**
+ * Merge for upgrading a {@link hasLegacyHistorySticker} row from a fresh
+ * archive mapping of the same message: only the content the old mapper got
+ * wrong (the sticker itself, its body text and the fake image attachment)
+ * comes from `remapped`; everything local — seq, reactions, receipts,
+ * status, read/expiry state, pinning, deletion — stays the stored copy's.
+ * A row that is already upgraded (or isn't a sticker) is returned as is.
+ */
+export function upgradeHistorySticker(existing: Message, remapped: Message): Message {
+  if (!hasLegacyHistorySticker(existing) || remapped.sticker === undefined) return existing;
+  return {
+    ...existing,
+    body: remapped.body,
+    ranges: remapped.ranges,
+    sticker: remapped.sticker,
+    attachments: existing.attachments.filter((a) => !OLD_HISTORY_STICKER_ATTACHMENT.test(a.id)),
+  };
+}

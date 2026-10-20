@@ -681,6 +681,28 @@ Verification: `scripts/build-signal-cli.sh --test` (Java unit test —
 pack id/key round-trip through `stickerPack()`, a non-sticker id and a message with no sticker
 are both refused). Builds as `0.14.8-snowdrop-history.15`.
 
+## 0020: re-read a sticker after downloading its pack
+
+Upstream's `ManagerImpl.retrieveSticker` reads the sticker from the pack store; when that
+returns nothing but the sticker store already knows the pack and its key, it calls
+`retrieveStickerPack` to download the pack — and then throws `FileNotFoundException` anyway,
+because it never re-reads the sticker it just downloaded. Only a _second_ call succeeds. For a
+pack this device learned of but never fetched (a live sticker whose pack job hasn't run, or a
+history sticker just registered by 0019) the first `getSticker` therefore always failed.
+
+0020 re-reads the sticker once after a successful pack download. A failed download still logs
+the same warning and ends in `FileNotFoundException`. No new RPC, no storage change (no
+`DATABASE_VERSION` bump), nothing is added to the phone's sticker list and nothing syncs.
+
+Snowdrop needs no capability gate for it: against `history.15` (no 0020) the first `getSticker`
+after the pack download still fails, so Snowdrop retries `getSticker` once more after
+registration, which is exactly the call that works there (see `resolveStickerUrl`); against
+`history.16` that retry just succeeds one call earlier. Nothing changes for the user's phone.
+
+Verification: `scripts/build-signal-cli.sh --test` (the patch only touches a code path that
+needs a live server, so there is no new Java unit test; the build and existing suite must still
+pass). Builds as `0.14.8-snowdrop-history.16`.
+
 ## User-controlled phone verification
 
 Run this only when ready to add a test device on the phone. It uses a new data

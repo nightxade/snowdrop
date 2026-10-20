@@ -201,6 +201,7 @@ const signalCliBackend: BackendRegistration = {
   },
   capabilities: new Set([
     'fetchHistory',
+    'remapHistoryMessages',
     'readHistory',
     'getHistoryReadState',
     'adminDelete',

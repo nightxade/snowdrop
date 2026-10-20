@@ -16,7 +16,14 @@
  *   aren't loaded yet), so nothing that arrives mid-load is lost.
  */
 import type { ChatBackend } from '@/core/backend';
-import { mergeDuplicate, type ConversationId, type Message, type MessageId } from '@/core/domain';
+import {
+  hasLegacyHistorySticker,
+  mergeDuplicate,
+  upgradeHistorySticker,
+  type ConversationId,
+  type Message,
+  type MessageId,
+} from '@/core/domain';
 import type { MessageRepository } from '@/core/persistence';
 import type { Stores } from '@/core/stores';
 import { consoleReporter, type ErrorReporter } from './types';
@@ -51,6 +58,8 @@ export class HistoryService {
   private readonly paging = new Map<ConversationId, Promise<void>>();
   private readonly jumping = new Map<ConversationId, Promise<void>>();
   private readonly active = new Map<ConversationId, number>();
+  /** Legacy stickers already tried this session, so an unfixable row isn't re-asked on every page. */
+  private readonly upgradeTried = new Set<MessageId>();
   /** Most-recently-opened last; see `touch`. */
   private readonly recentlyOpened: ConversationId[] = [];
 
@@ -130,8 +139,12 @@ export class HistoryService {
     let applied = false;
     await this.jump(conversationId, async (isCurrent) => {
       const [before, after] = await Promise.all([
-        this.deps.repository.page(conversationId, { before: seq, limit: half }),
-        this.deps.repository.page(conversationId, { after: seq, limit: half }),
+        this.deps.repository
+          .page(conversationId, { before: seq, limit: half })
+          .then((page) => this.upgradeLegacyStickers(page)),
+        this.deps.repository
+          .page(conversationId, { after: seq, limit: half })
+          .then((page) => this.upgradeLegacyStickers(page)),
       ]);
       if (!isCurrent()) return;
       const hasMoreAfter = after.length === half;
@@ -187,10 +200,9 @@ export class HistoryService {
     if (newest?.seq === undefined) return this.jumpToPresent(conversationId);
     return this.page(conversationId, async (isCurrent) => {
       const after = this.edge(conversationId, 'newest')?.seq ?? newest.seq ?? 0;
-      const messages = await this.deps.repository.page(conversationId, {
-        after,
-        limit: this.pageSize,
-      });
+      const messages = await this.upgradeLegacyStickers(
+        await this.deps.repository.page(conversationId, { after, limit: this.pageSize }),
+      );
       if (!isCurrent()) return;
       const hasMoreAfter = messages.length === this.pageSize;
       this.deps.stores.messages.getState().appendPage(conversationId, messages, hasMoreAfter);
@@ -289,9 +301,11 @@ export class HistoryService {
   ): Promise<{ messages: Message[]; hasMoreBefore: boolean }> {
     const { repository, backend } = this.deps;
     const limit = this.pageSize;
-    const local = await repository.page(
-      conversationId,
-      oldest?.seq === undefined ? { limit } : { before: oldest.seq, limit },
+    const local = await this.upgradeLegacyStickers(
+      await repository.page(
+        conversationId,
+        oldest?.seq === undefined ? { limit } : { before: oldest.seq, limit },
+      ),
     );
     if (local.length === limit) return { messages: local, hasMoreBefore: true };
     if (!backend.fetchHistory) return { messages: local, hasMoreBefore: false };
@@ -314,5 +328,40 @@ export class HistoryService {
       merge: mergeDuplicate,
     });
     return { messages: [...stored, ...local], hasMoreBefore: remote.hasMoreBefore };
+  }
+
+  /**
+   * Brings history rows stored before stickers had their own field up to
+   * the current shape, as they are read back from the repository (so only
+   * the rows actually being shown are ever looked at: an in-memory check of
+   * the page, no scan). Each candidate is re-mapped from the archive via its
+   * own `historyCursor`, and only the sticker content is swapped in, inside
+   * the repository's own read-modify-write (`upgradeHistorySticker`), so
+   * reactions, receipts, read state and the seq stay exactly as stored. A
+   * row the archive can't supply (gone, expired, another archive) or any
+   * failure leaves the row untouched, and is not retried this session.
+   */
+  private async upgradeLegacyStickers(messages: Message[]): Promise<Message[]> {
+    const { backend, repository } = this.deps;
+    if (!backend.remapHistoryMessages) return messages;
+    const candidates = messages.filter(
+      (m) => hasLegacyHistorySticker(m) && !this.upgradeTried.has(m.id),
+    );
+    if (candidates.length === 0) return messages;
+    for (const m of candidates) this.upgradeTried.add(m.id);
+    try {
+      const upgraded = new Map<MessageId, Message>();
+      for (const remapped of await backend.remapHistoryMessages(candidates)) {
+        if (remapped.sticker === undefined) continue;
+        const stored = await repository.update(remapped.id, (existing) =>
+          upgradeHistorySticker(existing, remapped),
+        );
+        if (stored) upgraded.set(stored.id, stored);
+      }
+      return upgraded.size === 0 ? messages : messages.map((m) => upgraded.get(m.id) ?? m);
+    } catch (error) {
+      this.onError(error, 'upgrading history stickers failed');
+      return messages;
+    }
   }
 }

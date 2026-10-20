@@ -75,11 +75,8 @@ export function useStickerUrl(
   useEffect(() => {
     if (direct !== undefined || (!canResolve && !canResolveBackup)) return;
     let cancelled = false;
-    const resolveBackup = async (fromError: unknown): Promise<void> => {
+    const resolveBackup = async (): Promise<void> => {
       if (!canResolveBackup || !backend.resolveAttachmentUrl) {
-        if (fromError !== undefined) {
-          log.warn('sticker download failed', { kind: classifyAttachmentFailure(fromError) });
-        }
         if (!cancelled) setResult({ key, attempt, state: { status: 'error' } });
         return;
       }
@@ -90,7 +87,8 @@ export function useStickerUrl(
         if (!cancelled) setResult({ key, attempt, state: { status: 'ready', url } });
       } catch (error) {
         if (cancelled) return;
-        log.warn('sticker backup attachment download failed', {
+        log.warn('sticker download failed', {
+          stage: 'backup-attachment',
           kind: classifyAttachmentFailure(error),
         });
         setResult({ key, attempt, state: { status: 'error' } });
@@ -103,10 +101,15 @@ export function useStickerUrl(
           if (!cancelled) setResult({ key, attempt, state: { status: 'ready', url } });
         })
         .catch((error: unknown) => {
-          if (!cancelled) void resolveBackup(error);
+          if (cancelled) return;
+          log.warn('sticker download failed', {
+            stage: 'getSticker',
+            kind: classifyAttachmentFailure(error),
+          });
+          void resolveBackup();
         });
     } else {
-      void resolveBackup(undefined);
+      void resolveBackup();
     }
     return () => {
       cancelled = true;

@@ -1226,6 +1226,97 @@ describe('HistoryService', () => {
     },
   );
 
+  describe('legacy history stickers', () => {
+    const legacy = (id: ConversationId, authorId: string, sentAt: number): Message =>
+      incoming(id, authorId, sentAt, {
+        body: '🌸',
+        historyCursor: 'snapshot:10',
+        attachments: [{ id: 'history:snapshot:10:sticker:0', contentType: 'image/webp' }],
+        reactions: [{ emoji: '👍', authorId: 'someone', at: 5 }],
+        status: 'read',
+      });
+    const remappedOf = (m: Message): Message => ({
+      ...m,
+      body: '',
+      attachments: [],
+      reactions: [],
+      status: 'sent',
+      sticker: {
+        packId: '0102',
+        stickerId: 3,
+        emoji: '🌸',
+        backupAttachment: { id: 'history:snapshot:10:sticker:0', contentType: 'image/webp' },
+      },
+    });
+
+    it('upgrades an old-shape cached sticker on load, keeping every local field', async () => {
+      const { history, backend, repository, conv, memberOf, list } = await setup({
+        noServerHistory: true,
+      });
+      const id = conv('crux');
+      const row = legacy(id, memberOf(id), 1000);
+      await repository.upsertMany([row], { backfill: false, merge: (existing) => existing });
+      const before = await repository.get(row.id);
+      const remapHistoryMessages = vi.fn((m: readonly Message[]) =>
+        Promise.resolve(m.map(remappedOf)),
+      );
+      Object.assign(backend, { remapHistoryMessages });
+      await history.open(id);
+      expect(remapHistoryMessages).toHaveBeenCalledTimes(1);
+      const shown = list(id)[0];
+      expect(shown?.sticker).toMatchObject({ packId: '0102', stickerId: 3 });
+      expect(shown?.attachments).toEqual([]);
+      expect(shown?.body).toBe('');
+      const stored = await repository.get(row.id);
+      expect(stored).toEqual(shown);
+      // Local state and place in the timeline survive the upgrade.
+      expect(stored).toMatchObject({
+        seq: before?.seq,
+        status: 'read',
+        reactions: [{ emoji: '👍', authorId: 'someone', at: 5 }],
+        historyCursor: 'snapshot:10',
+      });
+    });
+
+    it('leaves the row alone when the archive cannot supply it, and does not re-ask', async () => {
+      const { history, backend, repository, conv, memberOf, list } = await setup({
+        noServerHistory: true,
+      });
+      const id = conv('crux');
+      const row = legacy(id, memberOf(id), 1000);
+      await repository.upsertMany([row], { backfill: false, merge: (existing) => existing });
+      const remapHistoryMessages = vi.fn(() => Promise.resolve([]));
+      Object.assign(backend, { remapHistoryMessages });
+      await history.open(id);
+      await history.jumpToPresent(id);
+      expect(list(id)).toHaveLength(1);
+      expect(list(id)[0]).toMatchObject({ body: '🌸', attachments: row.attachments });
+      expect(list(id)[0]).not.toHaveProperty('sticker');
+      expect(remapHistoryMessages).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps the row when the re-map fails, and never asks for rows already upgraded', async () => {
+      const { history, backend, repository, conv, memberOf, list, onError } = await setup({
+        noServerHistory: true,
+      });
+      const id = conv('crux');
+      const plain = incoming(id, memberOf(id), 900);
+      const row = legacy(id, memberOf(id), 1000);
+      await repository.upsertMany([plain, row], {
+        backfill: false,
+        merge: (existing) => existing,
+      });
+      const remapHistoryMessages = vi.fn((m: readonly Message[]) => {
+        expect(m.map((x) => x.id)).toEqual([row.id]); // only the legacy row
+        return Promise.reject(new Error('archive unavailable'));
+      });
+      Object.assign(backend, { remapHistoryMessages });
+      await history.open(id);
+      expect(list(id).map((m) => m.id)).toEqual([plain.id, row.id]);
+      expect(onError).toHaveBeenCalled();
+    });
+  });
+
   it('persists a viewed timer deadline without starting it during loading', async () => {
     const { history, backend, sync, repository, conv, memberOf, list } = await setup({
       noServerHistory: true,

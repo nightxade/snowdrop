@@ -1,0 +1,27 @@
+diff --git a/build.gradle.kts b/build.gradle.kts
+index b0b0f40..a2a1178 100644
+--- a/build.gradle.kts
++++ b/build.gradle.kts
+@@ -10,7 +10,7 @@ plugins {
+ 
+ allprojects {
+     group = "org.asamk"
+-    version = "0.14.8-snowdrop-history.15"
++    version = "0.14.8-snowdrop-history.16"
+ 
+     // Snowdrop: substitute a locally-built, patched signal-service-java
+     // (snowdrop/patches/signal-service-java) for the stock turasa jar, when
+diff --git a/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java b/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
+index d575fd3..bdda22e 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
++++ b/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
+@@ -2061,6 +2061,9 @@ public class ManagerImpl implements Manager {
+             if (pack != null) {
+                 try {
+                     context.getStickerHelper().retrieveStickerPack(stickerPackId, pack.packKey());
++                    // Snowdrop: upstream never re-read after downloading the pack, so the
++                    // first call for a not-yet-downloaded pack failed and only a later one worked.
++                    streamDetails = context.getStickerPackStore().retrieveSticker(stickerPackId, stickerId);
+                 } catch (InvalidMessageException e) {
+                     logger.warn("Failed to download sticker pack");
+                 }

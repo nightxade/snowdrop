@@ -321,6 +321,15 @@ export interface ChatBackend {
    * archive in patched signal-cli). Callers must treat it as optional.
    */
   fetchHistory?(conversationId: ConversationId, query: HistoryQuery): Promise<HistoryPage>;
+  /**
+   * Re-reads already-stored history messages from the archive by their own
+   * `historyCursor` and returns the fresh mapping of each one the archive can
+   * still supply (matching id, same archive), for the caller to merge into
+   * what it has. Rows the archive can't supply — gone, expired, a different
+   * archive — are simply absent from the result; never throws for those.
+   * Used to bring rows stored by an older mapper up to the current shape.
+   */
+  remapHistoryMessages?(messages: readonly Message[]): Promise<Message[]>;
   /** Persist read-time expiration for viewed imported messages; no network receipts. */
   readHistory?(messages: readonly HistoryReadRef[]): Promise<HistoryReadState[]>;
   /** Read-only deadline recovery: must not start timers or mark messages read. */

@@ -1072,6 +1072,75 @@ describe('SignalCliBackend: commands', () => {
   });
 });
 
+describe('SignalCliBackend sticker retry', () => {
+  const sticker = {
+    packId: 'ab12',
+    stickerId: 1,
+    backupAttachment: { id: 'history:snapshot:5:sticker:0', contentType: 'image/webp' },
+  };
+  const fail = () => ({ error: { code: -1, message: 'File not found' } });
+
+  async function stickerBackend(version: string, getSticker: () => RpcReply) {
+    const { daemon } = daemonWithAccount();
+    daemon.reply('version', { version });
+    daemon.handle('getSticker', getSticker);
+    daemon.reply('registerHistoryStickerPack', {});
+    const s = await connected({ daemon });
+    return { ...s, daemon };
+  }
+
+  it('retries once for a live sticker, enough for a daemon that downloads the pack on the first call', async () => {
+    let calls = 0;
+    const { backend, daemon } = await stickerBackend('0.14.8-snowdrop-history.15', () =>
+      ++calls < 2 ? fail() : { result: { data: 'aGVsbG8=' } },
+    );
+    expect(await backend.resolveStickerUrl({ packId: 'ab12', stickerId: 1 })).toMatch(/^blob:/u);
+    expect(daemon.callsTo('getSticker')).toHaveLength(2);
+    expect(daemon.callsTo('registerHistoryStickerPack')).toEqual([]);
+    await backend.disconnect();
+  });
+
+  it('registers a history sticker pack, then gives a pre-0020 daemon its second call', async () => {
+    let calls = 0;
+    // history.15: unknown pack fails, then the pack download call still fails, then it works.
+    const { backend, daemon } = await stickerBackend('0.14.8-snowdrop-history.15', () =>
+      ++calls < 3 ? fail() : { result: { data: 'aGVsbG8=' } },
+    );
+    expect(await backend.resolveStickerUrl(sticker)).toMatch(/^blob:/u);
+    expect(daemon.callsTo('getSticker')).toHaveLength(3);
+    expect(daemon.callsTo('registerHistoryStickerPack')).toEqual([
+      { account: SELF_ACI, id: 'history:snapshot:5:sticker:0' },
+    ]);
+    await backend.disconnect();
+  });
+
+  it('stays bounded and reports the first failure when the sticker never resolves', async () => {
+    const { backend, daemon } = await stickerBackend('0.14.8-snowdrop-history.16', fail);
+    await expect(backend.resolveStickerUrl(sticker)).rejects.toMatchObject({ code: -1 });
+    expect(daemon.callsTo('getSticker')).toHaveLength(3);
+    await backend.disconnect();
+  });
+
+  it('logs only the stage and kind/code when registration fails, never the id', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const { backend, daemon } = await stickerBackend('0.14.8-snowdrop-history.15', fail);
+    daemon.handle('registerHistoryStickerPack', () => ({
+      error: { code: -32000, message: 'history:snapshot:5:sticker:0 has no pack key' },
+    }));
+    await expect(backend.resolveStickerUrl(sticker)).rejects.toBeInstanceOf(SignalCliError);
+    // Registration failed: no pointless retries.
+    expect(daemon.callsTo('getSticker')).toHaveLength(1);
+    const lines = warn.mock.calls.map((c) => String(c[0]));
+    expect(lines.some((l) => l.includes('sticker pack registration failed'))).toBe(true);
+    for (const line of lines) {
+      expect(line).not.toContain('snapshot');
+      expect(line).not.toContain('ab12');
+    }
+    warn.mockRestore();
+    await backend.disconnect();
+  });
+});
+
 describe('SignalCliBackend + SyncService', () => {
   it('delivers streamed envelopes into the stores end to end', async () => {
     const { backend, daemon, scheduler, storage } = setup();

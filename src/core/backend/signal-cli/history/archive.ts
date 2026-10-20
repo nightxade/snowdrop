@@ -208,6 +208,41 @@ export class HistoryArchive {
     }
   }
 
+  /**
+   * Re-maps stored messages straight from the archive, one indexed lookup
+   * per row: the single entry at their own cursor (a page of 1 "before"
+   * cursor+1). Skips rows that carry no cursor of this archive, whose entry
+   * is gone or no longer maps to the same message (expired, unsupported).
+   */
+  async remap(messages: readonly Message[], now: number): Promise<Message[]> {
+    const prefix = `${this.archiveId}:`;
+    const out: Message[] = [];
+    for (const stored of messages) {
+      const raw = stored.historyCursor;
+      if (!raw?.startsWith(prefix)) continue;
+      const chatId = this.directory.chatId(stored.conversationId);
+      if (!chatId) continue;
+      let cursor: string;
+      try {
+        cursor = decimal(raw.slice(prefix.length));
+      } catch {
+        continue;
+      }
+      const page = await this.chatPage(chatId, (BigInt(cursor) + 1n).toString(), 1);
+      const entry = page.entries[0];
+      if (entry?.cursor !== cursor) continue;
+      const message = backupMessage({
+        archiveId: this.archiveId,
+        cursor,
+        item: entry.frame.chatItem as Record<string, unknown>,
+        directory: this.directory,
+        now,
+      });
+      if (message?.id === stored.id) out.push(message);
+    }
+    return out;
+  }
+
   async fetchHistory(
     conversationId: ConversationId,
     query: HistoryQuery,

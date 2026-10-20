@@ -29,6 +29,7 @@ import {
   type Contact,
   type Conversation,
   type ConversationId,
+  type Message,
   type Quote,
   type StickerContent,
 } from '@/core/domain';
@@ -1078,6 +1079,12 @@ export class SignalCliBackend implements ChatBackend {
       : { messages: [], hasMoreBefore: false };
   }
 
+  async remapHistoryMessages(messages: readonly Message[]): Promise<Message[]> {
+    this.assertAccount();
+    const archive = await this.loadHistory();
+    return archive ? archive.remap(messages, this.clock.now()) : [];
+  }
+
   async getHistoryArchiveId(): Promise<string | null> {
     this.assertAccount();
     const archive = await this.loadHistory();
@@ -1141,31 +1148,55 @@ export class SignalCliBackend implements ChatBackend {
    * See `ChatBackend.resolveStickerUrl`. When the pack isn't known locally —
    * typical for a sticker that only ever arrived through an imported
    * history archive — and this build can register one (patches/signal-cli's
-   * "0019"), registers it from the backup's own copy of the key and retries
-   * once. Registration asks signal-cli to resolve `backupAttachment.id`
-   * itself (the same opaque history id `getAttachment` already accepts);
-   * the key never crosses this RPC boundary.
+   * "0019"), registers it from the backup's own copy of the key first.
+   * Registration asks signal-cli to resolve `backupAttachment.id` itself
+   * (the same opaque history id `getAttachment` already accepts); the key
+   * never crosses this RPC boundary.
+   *
+   * Then retries `getSticker`, bounded: a daemon without patch 0020
+   * (< history.16) downloads a not-yet-fetched pack on the first call that
+   * needs it and still fails that call, so one more call (two after a fresh
+   * registration, whose first `getSticker` was the one that failed) is what
+   * actually works there. A current daemon just succeeds on the first retry.
+   * Failures log the stage and error kind/code only.
    */
   async resolveStickerUrl(
     sticker: StickerContent,
     options?: { forceRefresh?: boolean },
   ): Promise<string> {
     this.assertAccount();
+    let first: unknown;
     try {
       return await this.attachments.resolveSticker(sticker, options);
     } catch (error) {
-      if (!this.historyStickerPackSupported || !sticker.backupAttachment) throw error;
+      first = error;
+    }
+    let retries = 1;
+    if (this.historyStickerPackSupported && sticker.backupAttachment) {
       try {
         await this.rpc.call(
           'registerHistoryStickerPack',
           { id: sticker.backupAttachment.id },
           ignoreResult,
         );
-      } catch {
-        throw error; // Registration failed too; the original error names the real cause.
+        retries = 2;
+      } catch (error) {
+        const { kind, code } = error as { kind?: unknown; code?: unknown };
+        log.warn('sticker pack registration failed', {
+          ...(typeof kind === 'string' ? { kind } : {}),
+          ...(typeof code === 'number' ? { code } : {}),
+        });
+        throw first; // The original error names the real cause.
       }
-      return this.attachments.resolveSticker(sticker, options);
     }
+    for (let i = 0; i < retries; i++) {
+      try {
+        return await this.attachments.resolveSticker(sticker, options);
+      } catch {
+        // Keep the first error; it's the one that names the real cause.
+      }
+    }
+    throw first;
   }
 
   retainStickerUrl(sticker: StickerContent): void {
