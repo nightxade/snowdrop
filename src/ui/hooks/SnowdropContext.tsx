@@ -95,10 +95,11 @@ export interface AppServices {
    * The only transport capabilities the UI may touch directly: its kind,
    * lazy attachment URLs (render-only, see ChatBackend.resolveAttachmentUrl,
    * plus the retain/release pair `useAttachmentUrl` uses to keep an
-   * on-screen one from being evicted), and attachment backfill
-   * (`useAttachmentUrl` — the actual outcome still arrives through the sync
-   * engine as a `session.attachmentBackfills` update, not read back from
-   * here). Everything else goes through the services.
+   * on-screen one from being evicted), the same pair for stickers
+   * (`useStickerUrl`), and attachment backfill (`useAttachmentUrl` — the
+   * actual outcome still arrives through the sync engine as a
+   * `session.attachmentBackfills` update, not read back from here).
+   * Everything else goes through the services.
    */
   backend: Pick<
     ChatBackend,
@@ -106,6 +107,9 @@ export interface AppServices {
     | 'resolveAttachmentUrl'
     | 'retainAttachmentUrl'
     | 'releaseAttachmentUrl'
+    | 'resolveStickerUrl'
+    | 'retainStickerUrl'
+    | 'releaseStickerUrl'
     | 'link'
     | 'supportsAttachmentBackfill'
     | 'requestAttachmentBackfill'

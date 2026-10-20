@@ -1,0 +1,232 @@
+diff --git a/build.gradle.kts b/build.gradle.kts
+index c53a45e..b0b0f40 100644
+--- a/build.gradle.kts
++++ b/build.gradle.kts
+@@ -10,7 +10,7 @@ plugins {
+
+ allprojects {
+     group = "org.asamk"
+-    version = "0.14.8-snowdrop-history.14"
++    version = "0.14.8-snowdrop-history.15"
+
+     // Snowdrop: substitute a locally-built, patched signal-service-java
+     // (snowdrop/patches/signal-service-java) for the stock turasa jar, when
+diff --git a/lib/src/main/java/org/asamk/signal/manager/Manager.java b/lib/src/main/java/org/asamk/signal/manager/Manager.java
+index b1fd26a..ed0157c 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/Manager.java
++++ b/lib/src/main/java/org/asamk/signal/manager/Manager.java
+@@ -494,6 +494,19 @@ public interface Manager extends Closeable {
+
+     InputStream retrieveSticker(final StickerPackId stickerPackId, final int stickerId) throws IOException;
+
++    /**
++     * Registers a history sticker's pack (id + decryption key) in the local
++     * sticker store, without installing it or syncing anything to the
++     * primary device — the same no-sync path taken when a *live* sticker is
++     * first received (IncomingMessageHandler). Lets {@link #retrieveSticker}
++     * fetch a sticker that arrived only through an imported phone-history
++     * archive, whose pack this device never received live. {@code id} is
++     * the same opaque history attachment id {@link #retrieveAttachment}
++     * already accepts for that message's own backup copy; the key itself
++     * never crosses out of this call.
++     */
++    void registerHistoryStickerPack(final String id) throws IOException;
++
+     // --- Voice call methods ---
+
+     CallInfo startCall(RecipientIdentifier.Single recipient) throws IOException, UnregisteredRecipientException;
+diff --git a/lib/src/main/java/org/asamk/signal/manager/history/HistoryStore.java b/lib/src/main/java/org/asamk/signal/manager/history/HistoryStore.java
+index aa27721..4131aac 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/history/HistoryStore.java
++++ b/lib/src/main/java/org/asamk/signal/manager/history/HistoryStore.java
+@@ -129,6 +129,50 @@ public final class HistoryStore {
+         } catch (SQLException e) { throw new IOException("Cannot read history attachment", e); }
+     }
+
++    /**
++     * The pack id/key behind a `history:...:sticker:0` id — the same opaque
++     * id `attachment()` above already accepts for that message's backup
++     * copy of the sticker image. Resolved here, server-side, from the same
++     * frame; never returned over JSON-RPC (see Manager.registerHistoryStickerPack,
++     * the only caller), so the pack's decryption key never reaches the
++     * client process at all.
++     */
++    public record StickerPackRef(byte[] packId, byte[] packKey) {}
++
++    public StickerPackRef stickerPack(String id, long now) throws IOException {
++        var parts = id.split(":", -1);
++        if (parts.length != 5 || !parts[0].equals("history") || !parts[3].equals("sticker") || !parts[4].equals("0")) {
++            throw new IOException("Invalid history sticker id");
++        }
++        final long ordinal;
++        try {
++            if (!UUID.fromString(parts[1]).toString().equals(parts[1]) || !parts[2].matches("[1-9][0-9]*")) {
++                throw new IllegalArgumentException();
++            }
++            ordinal = Long.parseLong(parts[2]);
++        } catch (IllegalArgumentException e) { throw new IOException("Invalid history sticker id", e); }
++        try (var connection = connections.open(); var query = connection.prepareStatement("""
++                SELECT f.frame FROM snowdrop_history_frame f JOIN snowdrop_history_meta m ON m.singleton = 1
++                WHERE m.archive_id = ? AND f.ordinal = ? AND (f.expires_at IS NULL OR f.expires_at > ?)
++                """)) {
++            query.setString(1, parts[1]);
++            query.setLong(2, ordinal);
++            query.setLong(3, now);
++            try (var rows = query.executeQuery()) {
++                if (!rows.next()) throw new IOException("History sticker is no longer available");
++                var frame = Backups.Frame.parseFrom(rows.getBytes(1));
++                if (!frame.hasChatItem() || !frame.getChatItem().hasStickerMessage()) {
++                    throw new IOException("This history message has no sticker");
++                }
++                var sticker = frame.getChatItem().getStickerMessage().getSticker();
++                if (sticker.getPackId().isEmpty() || sticker.getPackKey().isEmpty()) {
++                    throw new IOException("This history sticker has no pack key");
++                }
++                return new StickerPackRef(sticker.getPackId().toByteArray(), sticker.getPackKey().toByteArray());
++            }
++        } catch (SQLException e) { throw new IOException("Cannot read history sticker", e); }
++    }
++
+     String replace(Source source, long now) throws IOException {
+         String id = UUID.randomUUID().toString();
+         try (var connection = connections.open()) {
+diff --git a/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java b/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
+index 2f1e768..d575fd3 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
++++ b/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
+@@ -2072,6 +2072,16 @@ public class ManagerImpl implements Manager {
+         return streamDetails.getStream();
+     }
+
++    @Override
++    public void registerHistoryStickerPack(final String id) throws IOException {
++        var ref = getHistoryStore().stickerPack(id, System.currentTimeMillis());
++        var packId = StickerPackId.deserialize(ref.packId());
++        if (account.getStickerStore().getStickerPack(packId) == null) {
++            account.getStickerStore()
++                    .addStickerPack(new org.asamk.signal.manager.storage.stickers.StickerPack(packId, ref.packKey()));
++        }
++    }
++
+     // --- Voice call methods ---
+
+     @Override
+diff --git a/src/main/java/org/asamk/signal/commands/Commands.java b/src/main/java/org/asamk/signal/commands/Commands.java
+index bd6bc40..b171d76 100644
+--- a/src/main/java/org/asamk/signal/commands/Commands.java
++++ b/src/main/java/org/asamk/signal/commands/Commands.java
+@@ -42,6 +42,7 @@ public class Commands {
+         addCommand(new ReceiveCommand());
+         addCommand(new RejectCallCommand());
+         addCommand(new RegisterCommand());
++        addCommand(new RegisterHistoryStickerPackCommand());
+         addCommand(new RemoveContactCommand());
+         addCommand(new RemoveDeviceCommand());
+         addCommand(new RemovePinCommand());
+diff --git a/src/main/java/org/asamk/signal/commands/RegisterHistoryStickerPackCommand.java b/src/main/java/org/asamk/signal/commands/RegisterHistoryStickerPackCommand.java
+new file mode 100644
+index 0000000..dd417fc
+--- /dev/null
++++ b/src/main/java/org/asamk/signal/commands/RegisterHistoryStickerPackCommand.java
+@@ -0,0 +1,60 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.commands;
++
++import net.sourceforge.argparse4j.inf.Namespace;
++import net.sourceforge.argparse4j.inf.Subparser;
++
++import org.asamk.signal.commands.exceptions.CommandException;
++import org.asamk.signal.commands.exceptions.IOErrorException;
++import org.asamk.signal.commands.exceptions.UserErrorException;
++import org.asamk.signal.manager.Manager;
++import org.asamk.signal.output.JsonWriter;
++import org.asamk.signal.output.OutputWriter;
++import org.asamk.signal.output.PlainTextWriter;
++
++import java.io.IOException;
++import java.util.Map;
++
++/**
++ * Registers a history sticker's pack (id + decryption key) in the local
++ * sticker store so {@code getSticker} can retrieve it, without installing
++ * the pack or syncing anything to the primary device — see
++ * {@link Manager#registerHistoryStickerPack}. See patches/signal-cli/
++ * README.md "0019: history sticker pack".
++ */
++public class RegisterHistoryStickerPackCommand implements JsonRpcLocalCommand {
++
++    @Override
++    public String getName() {
++        return "registerHistoryStickerPack";
++    }
++
++    @Override
++    public void attachToSubparser(final Subparser subparser) {
++        subparser.help("Register a history sticker's pack key so getSticker can retrieve it.");
++        subparser.addArgument("--id")
++                .required(true)
++                .help("The opaque history sticker id (a message's own, as getHistory returns it).");
++    }
++
++    @Override
++    public void handleCommand(
++            final Namespace ns,
++            final Manager m,
++            final OutputWriter outputWriter
++    ) throws CommandException {
++        final var id = ns.getString("id");
++        if (id == null) {
++            throw new UserErrorException("Missing id parameter");
++        }
++        try {
++            m.registerHistoryStickerPack(id);
++        } catch (IOException ex) {
++            throw new IOErrorException("Could not register history sticker pack: " + id, ex);
++        }
++        switch (outputWriter) {
++            case PlainTextWriter writer -> writer.println("Registered");
++            case JsonWriter writer -> writer.write(Map.of("registered", true));
++        }
++    }
++}
+diff --git a/src/main/java/org/asamk/signal/dbus/DbusManagerImpl.java b/src/main/java/org/asamk/signal/dbus/DbusManagerImpl.java
+index 28109b6..1b532a7 100644
+--- a/src/main/java/org/asamk/signal/dbus/DbusManagerImpl.java
++++ b/src/main/java/org/asamk/signal/dbus/DbusManagerImpl.java
+@@ -1391,6 +1391,11 @@ public class DbusManagerImpl implements Manager {
+         throw new UnsupportedOperationException();
+     }
+
++    @Override
++    public void registerHistoryStickerPack(final String id) throws IOException {
++        // Not supported over DBus
++    }
++
+     @SuppressWarnings("unchecked")
+     private <T> T getValue(final Map<String, Variant<?>> stringVariantMap, final String field) {
+         return (T) stringVariantMap.get(field).getValue();
+diff --git a/lib/src/test/java/org/asamk/signal/manager/history/HistoryAttachmentTest.java b/lib/src/test/java/org/asamk/signal/manager/history/HistoryAttachmentTest.java
+index 5d9b208..41f4441 100644
+--- a/lib/src/test/java/org/asamk/signal/manager/history/HistoryAttachmentTest.java
++++ b/lib/src/test/java/org/asamk/signal/manager/history/HistoryAttachmentTest.java
+@@ -31,6 +31,20 @@ class HistoryAttachmentTest {
+         assertThrows(IOException.class, () -> store.attachment("history:" + snapshot + ":3:attachment:0", 1000));
+         assertThrows(IOException.class, () -> store.attachment("history:" + snapshot + ":3:sticker:1", 1000));
+     }
++    @Test void resolvesAStickersPackKeyWithoutExposingItThroughTheAttachmentPath() throws Exception {
++        var store = store();
++        var packId = ByteString.copyFrom(new byte[] {1, 2, 3, 4});
++        var packKey = ByteString.copyFrom(new byte[] {5, 6, 7, 8});
++        var snapshot = seed(store, Backups.ChatItem.newBuilder().setStickerMessage(Backups.StickerMessage.newBuilder()
++                .setSticker(Backups.Sticker.newBuilder().setPackId(packId).setPackKey(packKey).setData(pointer()))));
++        var ref = store.stickerPack("history:" + snapshot + ":3:sticker:0", 1000);
++        assertArrayEquals(packId.toByteArray(), ref.packId());
++        assertArrayEquals(packKey.toByteArray(), ref.packKey());
++        // Wrong kind/index, and a message with no sticker at all: both refused.
++        assertThrows(IOException.class, () -> store.stickerPack("history:" + snapshot + ":3:attachment:0", 1000));
++        var noSticker = seed(store, message());
++        assertThrows(IOException.class, () -> store.stickerPack("history:" + noSticker + ":3:sticker:0", 1000));
++    }
+     @Test void decryptsBothIntegrityFormatsAndCleansUpDownloads() throws Exception {
+         var plain = new byte[] {1, 2, 3, 4};
+         var encrypted = new java.io.ByteArrayOutputStream();

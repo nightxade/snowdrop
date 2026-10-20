@@ -1,4 +1,4 @@
-import { Image as ImageIcon } from 'lucide-react';
+import { Image as ImageIcon, Sticker as StickerIcon } from 'lucide-react';
 import type { CSSProperties } from 'react';
 import { useStore } from 'zustand';
 import { bodyToPlainText, type Quote } from '@/core/domain';
@@ -38,7 +38,7 @@ export function QuoteHeader({ quote, nameFor, onJump, compact }: QuoteHeaderProp
           e.stopPropagation();
           onJump();
         }}
-        aria-label={`Reply to ${name}: ${clip(text || 'attachment', 80)} (jump to message)`}
+        aria-label={`Reply to ${name}: ${clip(text || (quote.sticker ? 'sticker' : 'attachment'), 80)} (jump to message)`}
       >
         <Avatar
           size={16}
@@ -59,7 +59,16 @@ export function QuoteHeader({ quote, nameFor, onJump, compact }: QuoteHeaderProp
           <span className={styles.text}>{text}</span>
         ) : (
           <span className={styles.text} data-italic="">
-            {firstAttachment ? (
+            {quote.sticker ? (
+              <>
+                {quote.sticker.emoji ? (
+                  <span aria-hidden>{quote.sticker.emoji}</span>
+                ) : (
+                  <StickerIcon size={14} aria-hidden />
+                )}{' '}
+                Sticker
+              </>
+            ) : firstAttachment ? (
               <>
                 <ImageIcon size={14} aria-hidden /> {describeAttachment(firstAttachment)}
               </>

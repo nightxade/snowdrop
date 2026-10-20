@@ -41,3 +41,20 @@ export function supportsAttachmentBackfill(version: string | undefined): boolean
   if (!match?.[1]) return false;
   return Number(match[1]) >= MIN_ATTACHMENT_BACKFILL_PATCH_LEVEL;
 }
+
+/**
+ * Whether a running signal-cli build implements `registerHistoryStickerPack`
+ * (patches/signal-cli, "0019: history sticker pack"). Without it, a sticker
+ * that only ever arrived through an imported history archive can't be
+ * fetched unless this device also received it live; Snowdrop falls back to
+ * the archive's own backup copy, then the emoji. Same `snowdrop-history.N`
+ * scheme as the other capabilities.
+ */
+export const MIN_HISTORY_STICKER_PACK_PATCH_LEVEL = 15;
+
+export function supportsHistoryStickerPack(version: string | undefined): boolean {
+  if (!version) return false;
+  const match = SNOWDROP_PATCH_LEVEL.exec(version);
+  if (!match?.[1]) return false;
+  return Number(match[1]) >= MIN_HISTORY_STICKER_PACK_PATCH_LEVEL;
+}

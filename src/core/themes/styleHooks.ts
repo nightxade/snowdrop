@@ -40,6 +40,7 @@ export const STYLE_HOOKS = [
   },
   { hook: 'message-content', what: 'The name + body + trailing content of a message row' },
   { hook: 'message-quote', what: 'A message row’s reply-to quote' },
+  { hook: 'sticker', what: 'A sticker message’s image, placeholder or fallback chip' },
   { hook: 'hover-bar', what: 'Message hover actions' },
   { hook: 'message-action-sheet', what: 'Long-press action sheet (touch)' },
   { hook: 'system-message', what: 'Joined / renamed / timer lines' },

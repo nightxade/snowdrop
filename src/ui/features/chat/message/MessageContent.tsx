@@ -15,6 +15,7 @@ import { MessageEditor } from './MessageEditor';
 import { MessageMeta } from './MessageMeta';
 import { MessageNotes } from './MessageNotes';
 import { Reactions } from './Reactions';
+import { StickerBubble } from './StickerBubble';
 import { useCustomEmojiResolver } from './useCustomEmojiResolver';
 import styles from './MessageItem.module.css';
 
@@ -157,6 +158,9 @@ export function MessageContent({
             pending={pending}
             caption={name}
           />
+        )}
+        {!m.deleted && m.sticker && (
+          <StickerBubble conversationId={conversationId} sticker={m.sticker} />
         )}
         {m.reactions.length > 0 && (
           <Reactions

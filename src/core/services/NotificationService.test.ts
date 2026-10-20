@@ -220,4 +220,24 @@ describe('NotificationService', () => {
       ),
     ).toBe('Sent an attachment');
   });
+
+  it('summarises a sticker, with its emoji when known', () => {
+    expect(
+      notificationText(
+        { body: '', ranges: [], attachments: [], sticker: { packId: 'ab', stickerId: 1 } },
+        () => '',
+      ),
+    ).toBe('Sticker');
+    expect(
+      notificationText(
+        {
+          body: '',
+          ranges: [],
+          attachments: [],
+          sticker: { packId: 'ab', stickerId: 1, emoji: '🎉' },
+        },
+        () => '',
+      ),
+    ).toBe('🎉 Sticker');
+  });
 });

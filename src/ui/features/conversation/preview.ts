@@ -20,6 +20,11 @@ function attachmentLabel(message: Message): string | null {
   return first.fileName ?? 'File';
 }
 
+/** "Sticker", with its emoji when the source carries one. */
+function stickerLabel(sticker: NonNullable<Message['sticker']>): string {
+  return sticker.emoji ? `${sticker.emoji} Sticker` : 'Sticker';
+}
+
 /** One-line sidebar preview: "You: sounds good", "Mira: Photo", "Message deleted". */
 export function previewText(message: Message | undefined, ctx: PreviewContext): string {
   if (!message) return '';
@@ -31,7 +36,8 @@ export function previewText(message: Message | undefined, ctx: PreviewContext): 
     const body = bodyToPlainText(message.body, message.ranges, ctx.nameFor)
       .replace(/\s+/gu, ' ')
       .trim();
-    text = body || attachmentLabel(message) || '';
+    text =
+      body || (message.sticker ? stickerLabel(message.sticker) : attachmentLabel(message)) || '';
   }
   if (own) return `You: ${text}`;
   if (ctx.isGroup) return `${firstName(ctx.nameFor(message.authorId))}: ${text}`;

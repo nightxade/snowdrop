@@ -1,0 +1,55 @@
+/*
+ * No bubble, no card: the sticker image sits directly in the message
+ * column, transparent, same as Signal/Discord-style clients. Only the
+ * loading placeholder reserves a box — the real image sizes itself to its
+ * own aspect ratio once known.
+ */
+.image {
+  display: block;
+  max-width: 160px;
+  max-height: 160px;
+  margin-top: var(--snowdrop-space-1);
+}
+
+.placeholder {
+  display: grid;
+  place-items: center;
+  width: 128px;
+  height: 128px;
+  margin-top: var(--snowdrop-space-1);
+  color: var(--snowdrop-text-faint);
+  opacity: 0;
+  animation: fade-in 0s 0.3s forwards;
+}
+
+/* A sticker usually resolves from cache almost instantly; the icon only
+   shows up for a load that's actually taking a moment. */
+@keyframes fade-in {
+  to {
+    opacity: 0.5;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .placeholder {
+    animation: none;
+    opacity: 0.5;
+  }
+}
+
+:root[data-reduced-motion='on'] .placeholder {
+  animation: none;
+  opacity: 0.5;
+}
+
+.fallback {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--snowdrop-space-2);
+  margin-top: var(--snowdrop-space-1);
+  padding: 6px 10px;
+  border-radius: var(--snowdrop-radius-full);
+  background: var(--snowdrop-bg-elevated);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
+}

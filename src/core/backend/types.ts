@@ -17,6 +17,7 @@ import type {
   MessageId,
   Quote,
   Reaction,
+  StickerContent,
 } from '@/core/domain';
 import type { Unsubscribe } from '@/core/lib';
 
@@ -372,6 +373,26 @@ export interface ChatBackend {
 
   /** Releases a previous `retainAttachmentUrl`. */
   releaseAttachmentUrl?(attachment: Attachment): void;
+
+  /**
+   * Turns a sticker into a renderable URL — `resolveAttachmentUrl`'s
+   * counterpart, but keyed by `packId`/`stickerId` and fetched through
+   * `getSticker` rather than `getAttachment` (the mock, whose stickers
+   * always carry their own `url`, omits this). Throws when the sticker's
+   * pack isn't (yet) known to the connected signal-cli — the caller decides
+   * what to try next (a history archive's own backup copy, then the emoji;
+   * see `useStickerUrl`).
+   */
+  resolveStickerUrl?(
+    sticker: StickerContent,
+    options?: { forceRefresh?: boolean },
+  ): Promise<string>;
+
+  /** Marks a sticker's resolved URL as in use by a mounted component; pairs with `releaseStickerUrl`. */
+  retainStickerUrl?(sticker: StickerContent): void;
+
+  /** Releases a previous `retainStickerUrl`. */
+  releaseStickerUrl?(sticker: StickerContent): void;
 
   /**
    * Whether the connected backend can answer `requestAttachmentBackfill` at

@@ -21,6 +21,8 @@ export interface ScriptedMessage {
   text?: string;
   image?: ImageKind | ImageKind[];
   file?: FileSeed;
+  /** A sticker instead of text/image — see images.ts's generateStickerUrl. */
+  sticker?: { emoji: string };
   /** Reply to the scripted message this many entries earlier in the list. */
   replyTo?: number;
   reactions?: [emoji: string, author: string][];
@@ -156,7 +158,7 @@ export const CONVERSATIONS: readonly ConversationSeed[] = [
         text: 'nice catch. Can you add a regression test that reconnects **twice**?',
         replyTo: 1,
       },
-      { daysAgo: 2, hour: 11, minute: 17, author: 'oren', text: 'already on it' },
+      { daysAgo: 2, hour: 11, minute: 17, author: 'oren', sticker: { emoji: '🙌' } },
       {
         daysAgo: 1,
         hour: 15,
@@ -240,7 +242,7 @@ export const CONVERSATIONS: readonly ConversationSeed[] = [
         hour: 14,
         minute: 35,
         author: 'mireille',
-        text: 'agree with Samir. A feels like a spreadsheet 😅',
+        sticker: { emoji: '😅' },
       },
     ],
   },

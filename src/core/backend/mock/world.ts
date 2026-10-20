@@ -32,7 +32,7 @@ import {
   type ScriptedMessage,
 } from './content/conversations';
 import { PEOPLE, SELF, type PersonSeed } from './content/people';
-import { generateImageAttachment } from './images';
+import { generateImageAttachment, generateStickerUrl } from './images';
 import { Random } from './prng';
 
 const MINUTE = 60_000;
@@ -224,6 +224,7 @@ interface Draft {
   system?: string;
   images: ImageKind[];
   file?: FileSeed;
+  sticker?: { emoji: string };
   replyTo?: Draft;
   reactions: Reaction[];
   edited: boolean;
@@ -290,6 +291,7 @@ class ConversationBuilder {
       if (s.text !== undefined) draft.text = s.text;
       if (s.system !== undefined) draft.system = s.system;
       if (s.file) draft.file = s.file;
+      if (s.sticker) draft.sticker = s.sticker;
       if (s.replyTo !== undefined) {
         const target = placed[placed.length - s.replyTo];
         if (target) draft.replyTo = target;
@@ -386,6 +388,14 @@ class ConversationBuilder {
         generateImageAttachment(this.rnd, kind, `${d.sentAt.toString(36)}-${i}`),
       );
       if (d.file) attachments.push(fileAttachment(d.file, `${d.sentAt.toString(36)}-f`));
+      const sticker = d.sticker
+        ? {
+            packId: 'demopack0',
+            stickerId: 0,
+            emoji: d.sticker.emoji,
+            url: generateStickerUrl(d.sticker.emoji),
+          }
+        : undefined;
 
       const isSelf = d.authorId === this.selfId;
       let message: Message = {
@@ -402,12 +412,16 @@ class ConversationBuilder {
         kind: d.system ? 'system' : 'normal',
       };
       if (d.system) message.systemText = d.system;
+      if (sticker) message.sticker = sticker;
       const quoted = d.replyTo ? byDraft.get(d.replyTo) : undefined;
       if (quoted) {
         message.quote = {
           authorId: quoted.authorId,
           sentAt: quoted.sentAt,
           text: bodyToPlainText(quoted.body, quoted.ranges, nameFor),
+          ...(quoted.sticker
+            ? { sticker: { ...(quoted.sticker.emoji ? { emoji: quoted.sticker.emoji } : {}) } }
+            : {}),
         };
       }
       if (d.edited && !d.system) {
@@ -415,7 +429,7 @@ class ConversationBuilder {
         message.editedAt = d.sentAt + this.rnd.int(1, 10) * MINUTE;
       }
       if (d.deleted && !d.system) {
-        const { quote: _q, ...rest } = message;
+        const { quote: _q, sticker: _s, ...rest } = message;
         message = { ...rest, deleted: true, body: '', ranges: [], attachments: [], reactions: [] };
       }
       byDraft.set(d, message);

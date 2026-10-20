@@ -57,6 +57,7 @@ describe('mock world', () => {
       true,
     );
     expect(has((m) => m.attachments.some((a) => !a.contentType.startsWith('image/')))).toBe(true);
+    expect(has((m) => m.sticker !== undefined && m.attachments.length === 0)).toBe(true);
     expect(has((m) => m.kind === 'system')).toBe(true);
     expect(has((m) => m.body.length > 400)).toBe(true);
     const days = new Set(all.map((m) => new Date(m.sentAt).toISOString().slice(0, 10)));

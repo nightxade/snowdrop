@@ -68,6 +68,53 @@ export function safeMediaType(contentType: string): string {
   return SAFE_MEDIA_TYPES.has(type) ? type : 'application/octet-stream';
 }
 
+/** What `AttachmentResolver.resolveSticker` needs to identify and fetch one. */
+export interface StickerRef {
+  packId: string;
+  stickerId: number;
+}
+
+/** Cache/in-flight key for a sticker — its own namespace, never collides with an attachment id. */
+export function stickerCacheId(sticker: StickerRef): string {
+  return `sticker:${sticker.packId}:${sticker.stickerId}`;
+}
+
+/**
+ * Signal stickers are WebP (static or animated) or, for some older/legacy
+ * packs, APNG; `getSticker` hands back raw bytes with no content type of
+ * its own (unlike `getAttachment`, there's no sender-chosen label to
+ * mistrust here — just nothing). Sniffed from the file's own magic bytes
+ * rather than assumed, so a blob never gets labelled as something it isn't;
+ * anything unrecognised falls back to WebP, by far the common case, rather
+ * than the opaque `application/octet-stream` an ordinary attachment would
+ * get (stickers have no filename/download affordance to fall back to).
+ */
+export function sniffStickerMediaType(bytes: Uint8Array): string {
+  if (
+    bytes.length >= 12 &&
+    bytes[0] === 0x52 &&
+    bytes[1] === 0x49 &&
+    bytes[2] === 0x46 &&
+    bytes[3] === 0x46 &&
+    bytes[8] === 0x57 &&
+    bytes[9] === 0x45 &&
+    bytes[10] === 0x42 &&
+    bytes[11] === 0x50
+  ) {
+    return 'image/webp'; // "RIFF"…"WEBP"
+  }
+  if (
+    bytes.length >= 8 &&
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47
+  ) {
+    return 'image/png'; // also covers APNG, a PNG extension
+  }
+  return 'image/webp';
+}
+
 /** Largest file we send or download through the daemon's JSON API. */
 export const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
 /** Longest edge of the preview we keep for our own sent images. */
@@ -270,24 +317,6 @@ export class AttachmentResolver {
     options: { forceRefresh?: boolean } = {},
   ): Promise<string> {
     if (attachment.url) return Promise.resolve(attachment.url);
-    if (!options.forceRefresh) {
-      const cached = this.cache.get(attachment.id);
-      if (cached) {
-        // Refresh LRU position.
-        this.cache.delete(attachment.id);
-        this.cache.set(attachment.id, cached);
-        return Promise.resolve(cached.url);
-      }
-      const pending = this.inFlight.get(attachment.id);
-      if (pending) return pending;
-    } else {
-      const stale = this.cache.get(attachment.id);
-      if (stale) {
-        this.cache.delete(attachment.id);
-        this.cachedBytes -= stale.bytes;
-        this.revokeObjectUrl(stale.url);
-      }
-    }
     if (attachment.size !== undefined && attachment.size > this.maxBytes) {
       return Promise.reject(
         new SignalCliError(
@@ -296,21 +325,74 @@ export class AttachmentResolver {
         ),
       );
     }
+    return this.fetchCached(
+      attachment.id,
+      options.forceRefresh ?? false,
+      () => this.download(attachment, scope),
+      'Disconnected while downloading the attachment',
+    );
+  }
+
+  /**
+   * Same cache (entry/byte budget, retain/release) as `resolve`, keyed by a
+   * synthetic id instead of an attachment id, for stickers (fetched through
+   * `getSticker`, not `getAttachment` — see `stickerCacheId`). A sticker has
+   * no advertised size to pre-check against `maxBytes`: they're small, and
+   * the shared budget still bounds what's kept once downloaded.
+   */
+  resolveSticker(sticker: StickerRef, options: { forceRefresh?: boolean } = {}): Promise<string> {
+    return this.fetchCached(
+      stickerCacheId(sticker),
+      options.forceRefresh ?? false,
+      () => this.downloadSticker(sticker),
+      'Disconnected while downloading the sticker',
+    );
+  }
+
+  /**
+   * Shared plumbing behind `resolve`/`resolveSticker`: cache lookup, in-
+   * flight de-duplication, the download itself, and remembering the result
+   * — everything that doesn't depend on *what* is being fetched.
+   */
+  private fetchCached(
+    id: string,
+    forceRefresh: boolean,
+    download: () => Promise<{ url: string; bytes: number }>,
+    abortedMessage: string,
+  ): Promise<string> {
+    if (!forceRefresh) {
+      const cached = this.cache.get(id);
+      if (cached) {
+        // Refresh LRU position.
+        this.cache.delete(id);
+        this.cache.set(id, cached);
+        return Promise.resolve(cached.url);
+      }
+      const pending = this.inFlight.get(id);
+      if (pending) return pending;
+    } else {
+      const stale = this.cache.get(id);
+      if (stale) {
+        this.cache.delete(id);
+        this.cachedBytes -= stale.bytes;
+        this.revokeObjectUrl(stale.url);
+      }
+    }
     const generation = this.generation;
-    const promise = this.download(attachment, scope)
+    const promise = download()
       .then(({ url, bytes }) => {
         if (generation !== this.generation) {
           this.revokeObjectUrl(url);
-          throw new SignalCliError('aborted', 'Disconnected while downloading the attachment');
+          throw new SignalCliError('aborted', abortedMessage);
         }
-        this.remember(attachment.id, url, bytes);
+        this.remember(id, url, bytes);
         return url;
       })
       .finally(() => {
         // clear() may have let a newer request for the same id start meanwhile.
-        if (this.inFlight.get(attachment.id) === promise) this.inFlight.delete(attachment.id);
+        if (this.inFlight.get(id) === promise) this.inFlight.delete(id);
       });
-    this.inFlight.set(attachment.id, promise);
+    this.inFlight.set(id, promise);
     return promise;
   }
 
@@ -359,6 +441,21 @@ export class AttachmentResolver {
     const bytes = base64ToBytes(data);
     // Never label the bytes with an unvetted, sender-chosen type (XSS).
     const blob = new Blob([bytes], { type: safeMediaType(attachment.contentType) });
+    return { url: this.createObjectUrl(blob), bytes: blob.size };
+  }
+
+  private async downloadSticker(sticker: StickerRef): Promise<{ url: string; bytes: number }> {
+    const { data } = await this.options.rpc.call(
+      'getSticker',
+      { packId: sticker.packId, stickerId: sticker.stickerId },
+      wireAttachmentData,
+      { timeoutMs: 120_000 },
+    );
+    const bytes = base64ToBytes(data);
+    // getSticker's response carries no content type (unlike getAttachment's
+    // sender-chosen one): sniffed from the bytes themselves, which is no
+    // less safe than trusting a label — see `sniffStickerMediaType`.
+    const blob = new Blob([bytes], { type: sniffStickerMediaType(bytes) });
     return { url: this.createObjectUrl(blob), bytes: blob.size };
   }
 

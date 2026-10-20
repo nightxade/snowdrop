@@ -1,14 +1,22 @@
 import { stripBidiControls } from '@/core/lib';
 import { timerSentence } from '../normalise/directory';
 import { isRecord } from '../validate';
-import { record, records, text, timestamp, type BackupRecord } from './wire';
+import { hexBytes, record, records, text, timestamp, uint32, type BackupRecord } from './wire';
+
+interface StickerContent {
+  packId: string;
+  stickerId: number;
+  emoji?: string;
+  /** The backup's own copy of the image (a `FilePointer`), as a fallback. */
+  data?: BackupRecord;
+}
 
 interface Content {
   body: string;
   reactions?: unknown;
   system?: boolean;
   formattedText?: BackupRecord;
-  sticker?: BackupRecord;
+  sticker?: StickerContent;
   longText?: BackupRecord;
 }
 const clean = (value: unknown): string => stripBidiControls(text(value));
@@ -50,11 +58,28 @@ export function additionalContent(item: BackupRecord): Content | null {
   }
   if (isRecord(item.stickerMessage)) {
     const sticker = record(item.stickerMessage.sticker);
-    return {
-      body: clean(sticker.emoji) || 'Sent a sticker.',
-      reactions: item.stickerMessage.reactions,
-      ...(isRecord(sticker.data) ? { sticker: sticker.data } : {}),
-    };
+    const packId = hexBytes(sticker.packId);
+    // Only the pack *id* crosses into Content — never packKey (see
+    // StickerContent's doc comment); registering it for retrieval is a
+    // signal-cli-side concern (patches/signal-cli's "0019"), keyed off this
+    // message's own opaque backup-attachment id instead.
+    const stickerId = uint32(sticker.stickerId, 0);
+    const emoji = clean(sticker.emoji) || undefined;
+    if (packId !== undefined && stickerId !== undefined) {
+      return {
+        body: '',
+        reactions: item.stickerMessage.reactions,
+        sticker: {
+          packId,
+          stickerId,
+          ...(emoji ? { emoji } : {}),
+          ...(isRecord(sticker.data) ? { data: sticker.data } : {}),
+        },
+      };
+    }
+    // No usable pack id/sticker id (a malformed archive): fall back to a
+    // plain note rather than show nothing.
+    return { body: emoji ?? 'Sent a sticker.', reactions: item.stickerMessage.reactions };
   }
   if (isRecord(item.poll)) {
     const poll = item.poll;

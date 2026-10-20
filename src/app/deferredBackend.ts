@@ -13,7 +13,7 @@
  * attached once it arrives; `getStatus()` is "connecting" until then.
  */
 import type { BackendEvents, BackendKind, ChatBackend } from '@/core/backend';
-import type { Attachment } from '@/core/domain';
+import type { Attachment, StickerContent } from '@/core/domain';
 import type { Unsubscribe } from '@/core/lib';
 
 export const OPTIONAL_METHODS = [
@@ -26,6 +26,9 @@ export const OPTIONAL_METHODS = [
   'resolveAttachmentUrl',
   'retainAttachmentUrl',
   'releaseAttachmentUrl',
+  'resolveStickerUrl',
+  'retainStickerUrl',
+  'releaseStickerUrl',
   'acknowledge',
   'link',
   'syncContactsAndGroups',
@@ -61,6 +64,7 @@ export function deferredBackend(
   // order once it does — an id retained then released while still
   // "connecting" must not end up retained forever (or vice versa).
   const attachmentRefs: Array<{ retain: boolean; attachment: Attachment }> = [];
+  const stickerRefs: Array<{ retain: boolean; sticker: StickerContent }> = [];
   // Avoid an unhandled rejection before a call observes it; calls reject with the error.
   ready.then(
     (backend) => {
@@ -76,6 +80,10 @@ export function deferredBackend(
       for (const { retain, attachment } of attachmentRefs.splice(0)) {
         if (retain) backend.retainAttachmentUrl?.(attachment);
         else backend.releaseAttachmentUrl?.(attachment);
+      }
+      for (const { retain, sticker } of stickerRefs.splice(0)) {
+        if (retain) backend.retainStickerUrl?.(sticker);
+        else backend.releaseStickerUrl?.(sticker);
       }
     },
     () => undefined,
@@ -146,6 +154,19 @@ export function deferredBackend(
     backend.releaseAttachmentUrl = (a) => {
       if (real) real.releaseAttachmentUrl?.(a);
       else attachmentRefs.push({ retain: false, attachment: a });
+    };
+  if (caps.has('resolveStickerUrl'))
+    backend.resolveStickerUrl = (s, o) =>
+      call((b) => (b.resolveStickerUrl ? b.resolveStickerUrl(s, o) : missing('resolveStickerUrl')));
+  if (caps.has('retainStickerUrl'))
+    backend.retainStickerUrl = (s) => {
+      if (real) real.retainStickerUrl?.(s);
+      else stickerRefs.push({ retain: true, sticker: s });
+    };
+  if (caps.has('releaseStickerUrl'))
+    backend.releaseStickerUrl = (s) => {
+      if (real) real.releaseStickerUrl?.(s);
+      else stickerRefs.push({ retain: false, sticker: s });
     };
   if (caps.has('acknowledge'))
     backend.acknowledge = (cursor) => {

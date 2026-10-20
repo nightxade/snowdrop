@@ -25,6 +25,31 @@ export function timestamp(value: unknown): number {
   return number;
 }
 
+/** A proto3 `uint32`: absent means the field was omitted at its default (0), not "unknown". */
+export function uint32(value: unknown, fallback?: 0): number | undefined {
+  if (value === undefined) return fallback;
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 0xffffffff
+    ? value
+    : undefined;
+}
+
+/**
+ * A proto3 `bytes` field (base64 on the wire), hex-encoded — what
+ * signal-cli's RPCs expect for sticker pack/attachment ids elsewhere. Only
+ * ever used for plain identifiers here, never key material (see
+ * StickerContent's own doc comment on why a pack's decryption key never
+ * takes this path).
+ */
+export function hexBytes(value: unknown): string | undefined {
+  if (typeof value !== 'string' || value === '') return undefined;
+  try {
+    const bytes = atob(value);
+    return Array.from(bytes, (b) => b.charCodeAt(0).toString(16).padStart(2, '0')).join('');
+  } catch {
+    return undefined;
+  }
+}
+
 const frame: Decoder<BackupRecord> = (value, path) => {
   if (!isRecord(value)) throw new DecodeError(path, 'backup frame');
   return value;

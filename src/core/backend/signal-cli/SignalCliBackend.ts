@@ -30,6 +30,7 @@ import {
   type Conversation,
   type ConversationId,
   type Quote,
+  type StickerContent,
 } from '@/core/domain';
 import {
   createLogger,
@@ -62,11 +63,13 @@ import {
   AttachmentResolver,
   encodeOutgoing,
   encodeOutgoingPreview,
+  stickerCacheId,
   type Thumbnailer,
 } from './attachments';
 import {
   supportsAttachmentBackfill as detectAttachmentBackfillSupport,
   supportsCustomEmojiDelivery as detectCustomEmojiSupport,
+  supportsHistoryStickerPack as detectHistoryStickerPackSupport,
 } from './capabilities';
 import { Directory } from './directory';
 import { describeError, SignalCliError } from './errors';
@@ -219,6 +222,8 @@ export class SignalCliBackend implements ChatBackend {
   private customEmojiSupported = false;
   /** Whether the connected daemon implements attachment backfill (see capabilities.ts). */
   private attachmentBackfillSupported = false;
+  /** Whether the connected daemon can register a history sticker's pack key (see capabilities.ts). */
+  private historyStickerPackSupported = false;
   /** listConversations logs its counts once per backend, not on every refresh. */
   private listingLogged = false;
 
@@ -320,6 +325,7 @@ export class SignalCliBackend implements ChatBackend {
       const version = await this.probeVersion();
       this.customEmojiSupported = detectCustomEmojiSupport(version);
       this.attachmentBackfillSupported = detectAttachmentBackfillSupport(version);
+      this.historyStickerPackSupported = detectHistoryStickerPackSupport(version);
       this.selectAccount(await this.discoverAccount());
       // Stream first: nothing sent to us while we load the directory is missed.
       this.openStream();
@@ -426,6 +432,7 @@ export class SignalCliBackend implements ChatBackend {
     this.groupChanges.clear();
     this.customEmojiSupported = false;
     this.attachmentBackfillSupported = false;
+    this.historyStickerPackSupported = false;
     this.setStatus('offline');
   }
 
@@ -1128,6 +1135,45 @@ export class SignalCliBackend implements ChatBackend {
 
   releaseAttachmentUrl(attachment: Attachment): void {
     this.attachments.release(attachment.id);
+  }
+
+  /**
+   * See `ChatBackend.resolveStickerUrl`. When the pack isn't known locally —
+   * typical for a sticker that only ever arrived through an imported
+   * history archive — and this build can register one (patches/signal-cli's
+   * "0019"), registers it from the backup's own copy of the key and retries
+   * once. Registration asks signal-cli to resolve `backupAttachment.id`
+   * itself (the same opaque history id `getAttachment` already accepts);
+   * the key never crosses this RPC boundary.
+   */
+  async resolveStickerUrl(
+    sticker: StickerContent,
+    options?: { forceRefresh?: boolean },
+  ): Promise<string> {
+    this.assertAccount();
+    try {
+      return await this.attachments.resolveSticker(sticker, options);
+    } catch (error) {
+      if (!this.historyStickerPackSupported || !sticker.backupAttachment) throw error;
+      try {
+        await this.rpc.call(
+          'registerHistoryStickerPack',
+          { id: sticker.backupAttachment.id },
+          ignoreResult,
+        );
+      } catch {
+        throw error; // Registration failed too; the original error names the real cause.
+      }
+      return this.attachments.resolveSticker(sticker, options);
+    }
+  }
+
+  retainStickerUrl(sticker: StickerContent): void {
+    this.attachments.retain(stickerCacheId(sticker));
+  }
+
+  releaseStickerUrl(sticker: StickerContent): void {
+    this.attachments.release(stickerCacheId(sticker));
   }
 
   /**

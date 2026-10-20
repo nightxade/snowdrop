@@ -14,13 +14,7 @@ import {
 import { isRecord } from '../validate';
 import { backupUuid, type BackupDirectory } from './directory';
 import { additionalContent } from './content';
-import { decimal, record, records, text, timestamp, type BackupRecord } from './wire';
-
-function uint32(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 0xffffffff
-    ? value
-    : undefined;
-}
+import { decimal, record, records, text, timestamp, uint32, type BackupRecord } from './wire';
 
 function bodyRanges(value: BackupRecord): BodyRange[] {
   const body = text(value.body);
@@ -170,10 +164,21 @@ export function backupMessage({
     message.body = content.body;
     message.reactions = reactions(content.reactions, directory);
     if (content.formattedText) message.ranges = bodyRanges(content.formattedText);
-    if (content.sticker)
-      message.attachments = [
-        attachment(content.sticker, `history:${archiveId}:${cursor}:sticker:0`),
-      ];
+    if (content.sticker) {
+      message.sticker = {
+        packId: content.sticker.packId,
+        stickerId: content.sticker.stickerId,
+        ...(content.sticker.emoji ? { emoji: content.sticker.emoji } : {}),
+        ...(content.sticker.data
+          ? {
+              backupAttachment: attachment(
+                content.sticker.data,
+                `history:${archiveId}:${cursor}:sticker:0`,
+              ),
+            }
+          : {}),
+      };
+    }
     if (content.longText)
       message.attachments.push(
         attachment(

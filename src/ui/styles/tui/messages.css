@@ -256,6 +256,13 @@
   border-radius: var(--snowdrop-pane-radius);
 }
 
+/* Stickers: no chrome at all, not even the plain border ordinary images get
+   above — same ~160px cap as the standard shell, not the wider 48ch. */
+:root[data-shell='tui'] [data-snowdrop='message-content'] img[data-snowdrop='sticker'] {
+  max-width: 160px;
+  max-height: 160px;
+}
+
 /* ─── System/notice rows: time, dim `--` author, dim text, icon hidden ──── */
 
 :root[data-shell='tui'] [data-snowdrop='system-message'] {

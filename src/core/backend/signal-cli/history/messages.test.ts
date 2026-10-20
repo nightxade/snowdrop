@@ -103,23 +103,37 @@ describe('phone-history messages', () => {
     ).toMatchObject({ body: 'Nice photo', ranges: [{ start: 0, length: 4, style: 'bold' }] });
   });
 
-  it('imports sticker media without its pack encryption key', () => {
+  it('maps sticker media to the domain sticker field, without its pack encryption key', () => {
     const sticker = convert({
       ...base,
       stickerMessage: {
         sticker: {
+          packId: 'AQI=', // base64 of [0x01, 0x02]
+          stickerId: 3,
           emoji: '🌸',
           packKey: 'secret-key',
           data: { contentType: 'image/webp', locatorInfo: { size: 12 } },
         },
       },
     });
-    expect(sticker?.attachments[0]).toMatchObject({
+    expect(sticker?.attachments).toEqual([]);
+    expect(sticker?.body).toBe('');
+    expect(sticker?.sticker).toMatchObject({ packId: '0102', stickerId: 3, emoji: '🌸' });
+    expect(sticker?.sticker?.backupAttachment).toMatchObject({
       id: 'history:snapshot:10:sticker:0',
       contentType: 'image/webp',
       size: 12,
     });
     expect(JSON.stringify(sticker)).not.toContain('secret-key');
+  });
+
+  it('falls back to a plain note when a sticker has no usable pack/sticker id', () => {
+    const sticker = convert({
+      ...base,
+      stickerMessage: { sticker: { emoji: '🌸' } },
+    });
+    expect(sticker?.sticker).toBeUndefined();
+    expect(sticker?.body).toBe('🌸');
   });
 
   it('retains known chat updates as system rows and skips unknown update variants', () => {

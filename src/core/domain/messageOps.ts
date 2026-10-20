@@ -102,7 +102,7 @@ export function applyEdit(
  * content. `deletedBy` is set for admin deletes (someone other than the author).
  */
 export function applyDelete(message: Message, deletedBy?: string): Message {
-  const { quote: _quote, pinned: _pinned, ...rest } = message;
+  const { quote: _quote, pinned: _pinned, sticker: _sticker, ...rest } = message;
   const out: Message = {
     ...rest,
     deleted: true,

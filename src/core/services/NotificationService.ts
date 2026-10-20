@@ -88,7 +88,7 @@ function spaceOf(stores: Stores, id: ConversationId): string | null {
 
 /** Plain-text preview that never reveals spoilers. */
 export function notificationText(
-  message: Pick<Message, 'body' | 'ranges' | 'attachments'>,
+  message: Pick<Message, 'body' | 'ranges' | 'attachments' | 'sticker'>,
   nameFor: (id: string) => string,
 ): string {
   const walk = (segments: readonly Segment[]): string =>
@@ -102,6 +102,8 @@ export function notificationText(
       .join('');
   const text = walk(rangesToSegments(message.body, message.ranges)).replace(/\s+/gu, ' ').trim();
   if (!text) {
+    if (message.sticker)
+      return message.sticker.emoji ? `${message.sticker.emoji} Sticker` : 'Sticker';
     const n = message.attachments.length;
     return n > 0 ? `Sent ${n === 1 ? 'an attachment' : `${n} attachments`}` : 'New message';
   }

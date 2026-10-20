@@ -21,6 +21,14 @@ export function quoteOf(m: Message): Quote {
       contentType: a.contentType,
       ...(a.fileName !== undefined ? { fileName: a.fileName } : {}),
     }));
+  if (m.sticker) {
+    // Our own quote preview (QuoteHeader) renders this directly as
+    // "Sticker"; `attachments` is what carries the reply over the wire, so
+    // other Signal clients still show a sensible (if generic) quote rather
+    // than an empty one.
+    quote.sticker = { ...(m.sticker.emoji ? { emoji: m.sticker.emoji } : {}) };
+    quote.attachments = [{ contentType: 'image/webp' }];
+  }
   return quote;
 }
 

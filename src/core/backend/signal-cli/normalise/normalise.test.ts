@@ -205,11 +205,14 @@ describe('normaliseReceive: messages', () => {
     });
   });
 
-  it('shows unsupported content as an honest italic note', () => {
+  it('maps a sticker to the domain sticker field, not a text note', () => {
     const sticker = only(run(fixtures.sticker).events, 'message').payload;
-    expect(sticker.body).toBe('Sent a sticker.');
-    expect(sticker.ranges).toEqual([{ start: 0, length: 15, style: 'italic' }]);
+    expect(sticker.body).toBe('');
+    expect(sticker.attachments).toEqual([]);
+    expect(sticker.sticker).toEqual({ packId: 'a1b2c3d4', stickerId: 3 });
+  });
 
+  it('shows unsupported content as an honest italic note', () => {
     const viewOnce = only(run(fixtures.viewOnce).events, 'message').payload;
     expect(viewOnce.attachments).toEqual([]);
     expect(viewOnce.body).toContain('View-once');

@@ -1,9 +1,11 @@
 /**
  * Data message → domain `Message` (the visible content of one envelope).
  *
- * Content Snowdrop can't render natively (stickers, view-once media, payments,
- * shared contacts, polls) is shown as an honest italic note rather than
- * dropped silently, so the conversation never has invisible gaps.
+ * Content Snowdrop can't render natively (view-once media, payments, shared
+ * contacts, polls) is shown as an honest italic note rather than dropped
+ * silently, so the conversation never has invisible gaps. A sticker *is*
+ * rendered natively (see StickerContent/StickerBubble), so it's handled on
+ * its own rather than folded into those notes.
  */
 import {
   messageId,
@@ -16,6 +18,7 @@ import {
   type Message,
   type MessageStatus,
   type Quote,
+  type StickerContent,
 } from '@/core/domain';
 import { stripBidiControls } from '@/core/lib';
 import {
@@ -109,6 +112,18 @@ export function toQuote(q: WireQuote, resolveId: (id: string) => string): Quote 
   return quote;
 }
 
+/**
+ * A sticker this data message carries. The live wire never gives a pack
+ * decryption key (`JsonSticker` is just `{packId, stickerId}`) — signal-cli
+ * already stores the pack itself on receipt (see docs/SIGNAL_CLI.md), so
+ * `getSticker` can retrieve it from just these two.
+ */
+function toSticker(data: WireDataMessage): StickerContent | undefined {
+  return data.sticker
+    ? { packId: data.sticker.packId, stickerId: data.sticker.stickerId }
+    : undefined;
+}
+
 function describeContentType(contentType: string): string {
   if (contentType.startsWith('image/')) return 'Photo';
   if (contentType.startsWith('video/')) return 'Video';
@@ -129,7 +144,6 @@ function withNote(body: string, ranges: BodyRange[], note: string): [string, Bod
 function unsupportedNotes(data: WireDataMessage): string[] {
   const notes: string[] = [];
   if (data.viewOnce) notes.push('View-once media — open it on your phone.');
-  if (data.sticker) notes.push('Sent a sticker.');
   if (data.payment !== undefined) notes.push('Sent a payment — view it on your phone.');
   for (const c of data.contacts) {
     const name =
@@ -171,8 +185,9 @@ export function buildMessage(data: WireDataMessage, meta: MessageMeta): Message 
   const previews = data.viewOnce
     ? []
     : toLinkPreviews(data.previews, (i) => `${meta.authorId}:${data.timestamp}:preview:${i}`);
+  const sticker = data.viewOnce ? undefined : toSticker(data);
 
-  if (!body && attachments.length === 0 && !quote) return null;
+  if (!body && attachments.length === 0 && !quote && !sticker) return null;
 
   const message: Message = {
     id: messageId(meta.authorId, data.timestamp),
@@ -190,6 +205,7 @@ export function buildMessage(data: WireDataMessage, meta: MessageMeta): Message 
   if (quote) message.quote = quote;
   if (customEmoji.length > 0) message.customEmoji = customEmoji;
   if (previews.length > 0) message.previews = previews;
+  if (sticker) message.sticker = sticker;
   const expires = data.expiresInSeconds ?? 0;
   // Signal starts the timer when the message is read; starting it when the
   // server received it errs on the side of deleting early, never keeping a

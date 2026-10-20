@@ -162,3 +162,40 @@ export function generateImageAttachment(rnd: Random, kind: ImageKind, id: string
     url: svgDataUrl(svg),
   };
 }
+
+/**
+ * A tiny demo sticker: a colour blob behind the given emoji, white-outlined
+ * the way real sticker packs are, on no background at all — transparent,
+ * same as a real sticker. Returned as an SVG data URL so the demo needs no
+ * bundled asset.
+ *
+ * Deterministic from `emoji` alone (no `Random` draw): the demo world is
+ * built with a single seeded PRNG shared across every scripted message in
+ * script order, and a sticker consuming draws of its own would shift every
+ * *later* conversation's own random content (burst selection, reaction
+ * authors, jitter) out from under its own tests — see world.ts's addScripted.
+ */
+export function generateStickerUrl(emoji: string): string {
+  // A small, fixed hash of the emoji's own code points picks the palette
+  // and wobbles the blob's outline — varied-looking, but never touches the
+  // shared PRNG stream.
+  let hash = 0;
+  for (const cp of emoji) hash = (hash * 31 + (cp.codePointAt(0) ?? 0)) % 997;
+  const [, , blob] = PALETTES[hash % PALETTES.length] as [string, string, string, string];
+  const w = 300;
+  const h = 300;
+  const cx = w / 2;
+  const cy = h / 2;
+  const r = 110;
+  const wobble = Array.from({ length: 10 }, (_, i) => {
+    const angle = (i / 10) * Math.PI * 2;
+    const rr = r + (((hash + i * 37) % 29) - 14);
+    return `${cx + Math.cos(angle) * rr},${cy + Math.sin(angle) * rr}`;
+  }).join(' ');
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}">` +
+    `<polygon points="${wobble}" fill="${blob}" stroke="#ffffff" stroke-width="10" stroke-linejoin="round"/>` +
+    `<text x="${cx}" y="${cy}" font-size="130" text-anchor="middle" dominant-baseline="central">${emoji}</text>` +
+    `</svg>`;
+  return svgDataUrl(svg);
+}

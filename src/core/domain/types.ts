@@ -149,6 +149,34 @@ export interface LinkPreview {
   image?: Attachment;
 }
 
+/**
+ * A Signal sticker (`DataMessage.sticker` live, or the backup's
+ * `StickerMessage`). Its own thing on `Message` — never a fake `Attachment`
+ * and never a text note — so it can render the way Signal/Discord-style
+ * clients do: the image alone, no bubble (see StickerBubble).
+ *
+ * Deliberately has no pack decryption key: that stays entirely inside
+ * signal-cli (see patches/signal-cli's "0019"), never crossing into this
+ * persisted domain model. `packId`/`stickerId` are plain identifiers, not
+ * secrets.
+ */
+export interface StickerContent {
+  /** Sticker pack id, hex. */
+  packId: string;
+  stickerId: number;
+  /** The sender's own label for it, when the source carries one (history only). */
+  emoji?: string;
+  /** Already resolved, directly renderable URL (the mock backend). */
+  url?: string;
+  /**
+   * A history archive's own backup copy of the sticker image (an ordinary
+   * `Attachment`), tried when the pack itself can't be fetched — e.g. an
+   * archive whose pack this device never received live, and whose
+   * transit pointer has since expired too.
+   */
+  backupAttachment?: Attachment;
+}
+
 export interface Quote {
   authorId: string;
   sentAt: number;
@@ -160,6 +188,14 @@ export interface Quote {
    * attachment-only message say what it quotes, natively on every client.
    */
   attachments?: QuotedAttachment[];
+  /**
+   * Set when quoting a sticker message, purely for Snowdrop's own quote
+   * preview (QuoteHeader/ReplyBar) — the wire's quote format has no
+   * equivalent of its own, so this never round-trips through signal-cli.
+   * `attachments` above carries the cross-client fallback (a generic
+   * "Photo"-shaped quote) other clients show instead.
+   */
+  sticker?: { emoji?: string };
 }
 
 export interface QuotedAttachment {
@@ -218,6 +254,8 @@ export interface Message {
   previews?: LinkPreview[];
   /** Custom emoji the sender delivered with this message (received only; see CustomEmojiDelivery). */
   customEmoji?: CustomEmojiDelivery[];
+  /** A sticker, when this message's whole content is one (see StickerContent). */
+  sticker?: StickerContent;
   reactions: Reaction[];
   /** Number of times the message has been edited. */
   edits?: number;

@@ -641,6 +641,46 @@ and whether 120 s is the right trade-off for how the user's own session
 idles — only their own running app, left alone afterward, can confirm the
 committed-heap number this was aimed at actually comes back down.
 
+## 0019: history sticker pack
+
+`getSticker --pack-id --sticker-id` already retrieves a sticker from signal-cli's own
+sticker store, downloading the pack on demand — but only when that store already knows the
+pack's decryption key, which happens today only when this device received the sticker live
+(`IncomingMessageHandler` registers the key and enqueues `RetrieveStickerPackJob` on receipt). A
+sticker that arrived solely through an imported phone-history archive (0004) has no such live
+receipt, so `getSticker` fails for it even though the archive itself carries the pack's key —
+`Backups.Sticker.packKey`, alongside `data`, the backup's own copy of the image 0010 already
+exposes as a `history:…:sticker:0` attachment.
+
+Registering that key the way `addStickerPack` does would also install the pack and sync that
+install to the user's phone — wrong for a key that's only ever needed locally to decode an old
+message. `IncomingMessageHandler`'s own path (`new StickerPack(packId, packKey)` with
+`installed` defaulting to `false`, then `StickerStore.addStickerPack`) doesn't: with no
+`deletedTimestamp` and `installed` false, `addStickerPack` assigns no `storageId`, so the row
+is invisible to `StorageSyncHelper`'s set of synced ids — exactly the "known locally, never
+on the phone" state a history sticker needs.
+
+New RPC `registerHistoryStickerPack { id }` takes the same opaque `history:…:sticker:0` id
+`getAttachment` already accepts for that message's backup image, resolves it server-side
+(`HistoryStore.stickerPack`, a sibling of `attachment()` reading the same backup frame) to the
+sticker's `packId`/`packKey`, and — if the pack isn't already known — registers it via that
+same `IncomingMessageHandler` path. The key itself is never a request parameter and never a
+response field; it only ever moves from the backup frame straight into `StickerStore`, inside
+this one process. Snowdrop's own TS layer only ever handles `packId` (hex) and `stickerId`
+(plain identifiers, not secrets) — see Snowdrop's `StickerContent` domain type, which has no
+key field at all.
+
+Usage: on a `getSticker` failure for a sticker whose domain record carries a history backup
+attachment, call `registerHistoryStickerPack` with that attachment's own id, then retry
+`getSticker` once. If the id doesn't resolve to a sticker message (wrong kind, expired
+snapshot, or the archive never had one), it fails the same way `getAttachment` does for a bad
+history id, and the caller falls back to the backup image, then to showing the sticker's emoji.
+
+Verification: `scripts/build-signal-cli.sh --test` (Java unit test —
+`HistoryAttachmentTest.resolvesAStickersPackKeyWithoutExposingItThroughTheAttachmentPath`: the
+pack id/key round-trip through `stickerPack()`, a non-sticker id and a message with no sticker
+are both refused). Builds as `0.14.8-snowdrop-history.15`.
+
 ## User-controlled phone verification
 
 Run this only when ready to add a test device on the phone. It uses a new data

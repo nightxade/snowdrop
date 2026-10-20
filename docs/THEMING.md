@@ -445,6 +445,7 @@ instead.
 | `message-status`        | Delivery/read mark after an outgoing message's meta (has data-status) |
 | `message-content`       | The name + body + trailing content of a message row                   |
 | `message-quote`         | A message row's reply-to quote                                        |
+| `sticker`               | A sticker message's image, placeholder or fallback chip               |
 | `hover-bar`             | Message hover actions                                                 |
 | `message-action-sheet`  | Long-press action sheet (touch)                                       |
 | `system-message`        | Joined / renamed / timer lines                                        |

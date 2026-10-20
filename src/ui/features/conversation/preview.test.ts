@@ -37,4 +37,19 @@ describe('previewText', () => {
     );
     expect(previewText(undefined, ctx)).toBe('');
   });
+
+  it('describes a sticker, with its emoji when known', () => {
+    const sticker = makeMessage({
+      authorId: 'a',
+      body: '',
+      sticker: { packId: 'ab', stickerId: 1 },
+    });
+    expect(previewText(sticker, ctx)).toBe('Mira: Sticker');
+    const withEmoji = makeMessage({
+      authorId: 'a',
+      body: '',
+      sticker: { packId: 'ab', stickerId: 1, emoji: '🎉' },
+    });
+    expect(previewText(withEmoji, ctx)).toBe('Mira: 🎉 Sticker');
+  });
 });
