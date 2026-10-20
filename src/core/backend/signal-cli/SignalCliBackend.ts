@@ -1172,6 +1172,12 @@ export class SignalCliBackend implements ChatBackend {
       first = error;
     }
     let retries = 1;
+    let registration: 'unsupported' | 'no-backup' | 'ok' | 'failed' = !this
+      .historyStickerPackSupported
+      ? 'unsupported'
+      : sticker.backupAttachment
+        ? 'ok'
+        : 'no-backup';
     if (this.historyStickerPackSupported && sticker.backupAttachment) {
       try {
         await this.rpc.call(
@@ -1186,16 +1192,21 @@ export class SignalCliBackend implements ChatBackend {
           ...(typeof kind === 'string' ? { kind } : {}),
           ...(typeof code === 'number' ? { code } : {}),
         });
+        registration = 'failed';
+        logStickerFailure(registration, first, first);
         throw first; // The original error names the real cause.
       }
     }
+    let last: unknown = first;
     for (let i = 0; i < retries; i++) {
       try {
         return await this.attachments.resolveSticker(sticker, options);
-      } catch {
-        // Keep the first error; it's the one that names the real cause.
+      } catch (error) {
+        // Keep the first error to throw; it's the one that names the real cause.
+        last = error;
       }
     }
+    logStickerFailure(registration, first, last);
     throw first;
   }
 
@@ -1481,4 +1492,27 @@ export class SignalCliBackend implements ChatBackend {
       throw new SignalCliError('no-account', 'Not connected to a signal-cli account');
     }
   }
+}
+
+/**
+ * Why a `getSticker` call failed, from signal-cli's own message prefix —
+ * never the message itself, which names the pack and sticker ids.
+ */
+function stickerFailureReason(error: unknown): string {
+  const message = error instanceof Error ? error.message : '';
+  if (message.startsWith('Could not find sticker')) return 'not-found';
+  if (message.startsWith('An error occurred reading sticker')) return 'read-error';
+  const kind = (error as { kind?: unknown } | null)?.kind;
+  return typeof kind === 'string' ? kind : 'unknown';
+}
+
+/** One diagnostic line per sticker that couldn't be fetched (no ids or keys). */
+function logStickerFailure(registration: string, first: unknown, last: unknown): void {
+  const code = (first as { code?: unknown } | null)?.code;
+  log.warn('sticker fetch failed', {
+    registration,
+    first: stickerFailureReason(first),
+    last: stickerFailureReason(last),
+    ...(typeof code === 'number' ? { code } : {}),
+  });
 }

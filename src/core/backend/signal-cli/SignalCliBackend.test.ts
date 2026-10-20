@@ -1139,6 +1139,21 @@ describe('SignalCliBackend sticker retry', () => {
     warn.mockRestore();
     await backend.disconnect();
   });
+
+  it('logs why the fetch failed and what registration did, never the ids', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const { backend } = await stickerBackend('0.14.8-snowdrop-history.16', () => ({
+      error: { code: -1, message: 'Could not find sticker with ID: 1 in pack ab12' },
+    }));
+    await expect(backend.resolveStickerUrl({ packId: 'ab12', stickerId: 1 })).rejects.toThrow();
+    const lines = warn.mock.calls.map((c) => c.map((part) => JSON.stringify(part)).join(' '));
+    const line = lines.find((l) => l.includes('sticker fetch failed'));
+    expect(line).toContain('no-backup');
+    expect(line).toContain('not-found');
+    for (const l of lines) expect(l).not.toContain('ab12');
+    warn.mockRestore();
+    await backend.disconnect();
+  });
 });
 
 describe('SignalCliBackend + SyncService', () => {
