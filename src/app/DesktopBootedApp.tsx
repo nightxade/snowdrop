@@ -1,7 +1,7 @@
 /**
  * Builds the real Snowdrop instance once encrypted storage is unlocked
  * (`StorageGate`) and renders what `src/main.tsx` renders for the browser
- * build: safe mode (?safe=1 or a held Shift), native dev tools in
+ * build: safe mode (?safe=1), native dev tools in
  * development, and a flush on page hide.
  */
 import { useEffect, useState } from 'react';

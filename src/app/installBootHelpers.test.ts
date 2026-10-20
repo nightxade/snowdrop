@@ -1,6 +1,6 @@
 /**
  * Boot wiring shared by src/main.tsx's `bootBrowser` and `DesktopBootedApp`
- * (task 6b): the safe-mode toast or Shift-to-safe-mode listener, and a
+ * (task 6b): the safe-mode toast and a
  * flush on page hide. Exercised directly against a real (undispatched)
  * `Snowdrop` instance — no React involved, since the helper itself isn't a
  * component.
@@ -21,7 +21,7 @@ afterEach(() => {
 });
 
 describe('installBootHelpers', () => {
-  it('shows the safe-mode toast and skips the Shift listener when already in safe mode', () => {
+  it('shows the safe-mode toast when started in safe mode', () => {
     const snowdrop = makeSnowdrop();
     cleanup = installBootHelpers({ snowdrop, safeMode: true });
 
@@ -30,26 +30,16 @@ describe('installBootHelpers', () => {
     expect(toasts[0]?.message).toBe(
       'Safe mode: imported themes and Custom CSS are off until you reload.',
     );
-
-    // A held Shift does nothing once already in safe mode (no listener attached).
-    const flush = vi.spyOn(snowdrop, 'flush');
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Shift', repeat: true }));
-    expect(flush).not.toHaveBeenCalled();
   });
 
-  it('saves and reloads into ?safe=1 on a held Shift, outside safe mode', () => {
+  it('never reloads into safe mode from the keyboard or pointer', () => {
     const snowdrop = makeSnowdrop();
     cleanup = installBootHelpers({ snowdrop, safeMode: false });
     expect(snowdrop.stores.ui.getState().toasts).toHaveLength(0);
-
     const reload = vi.spyOn(snowdrop.admin, 'reload').mockResolvedValue();
-    // A single keydown (key repeat false) is a normal keystroke, not a held Shift.
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Shift', repeat: false }));
-    expect(reload).not.toHaveBeenCalled();
-
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Shift', repeat: true }));
-    expect(reload).toHaveBeenCalledTimes(1);
-    expect(reload.mock.calls[0]?.[0]).toContain('safe=1');
+    window.dispatchEvent(new MouseEvent('pointermove', { shiftKey: true }));
+    expect(reload).not.toHaveBeenCalled();
   });
 
   it('flushes on pagehide, in both modes', () => {
@@ -68,7 +58,6 @@ describe('installBootHelpers', () => {
     cleanup = null;
 
     const flush = vi.spyOn(snowdrop, 'flush');
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Shift', repeat: true }));
     window.dispatchEvent(new Event('pagehide'));
     expect(flush).not.toHaveBeenCalled();
   });

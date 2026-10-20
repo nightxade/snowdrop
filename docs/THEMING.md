@@ -642,8 +642,7 @@ previews are off.
 ## Safe mode
 
 If a theme or Custom CSS makes Snowdrop unusable, start in **safe mode**: open
-the app with `?safe=1` in the URL, or hold **Shift** while it loads (within
-the first 1.5 s; Snowdrop reloads into `?safe=1`). Imported themes and Custom
+the app with `?safe=1` in the URL. Imported themes and Custom
 CSS are then not applied (a built-in theme is used instead) and a toast says
 so; your settings are untouched, so you can switch theme or fix the CSS in
 Settings, then reload normally.

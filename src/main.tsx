@@ -59,8 +59,7 @@ if (isTauri()) {
  * Themes apply immediately (the welcome screen is themed too); connecting
  * waits until a backend has been chosen, which <App> handles.
  * Safe mode (?safe=1): imported themes and Custom CSS are skipped, so a theme
- * that breaks the UI can always be removed. Holding Shift while Snowdrop loads
- * does the same: we watch for it briefly and reload into ?safe=1.
+ * that breaks the UI can always be removed.
  *
  * Browser/dev/mock mode only: there's no vault, so storage stays exactly as
  * it was before encrypted storage existed (plaintext, via the defaults
