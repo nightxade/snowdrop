@@ -125,7 +125,10 @@ export class BackupDirectory {
     const destination = this.recipients.get(decimal(chat.recipientId));
     if (!destination) return undefined;
     const expireTimerSec = Math.floor(timestamp(chat.expirationTimerMs) / 1000);
-    if (destination.group) return { ...destination.group, expireTimerSec };
+    // The phone's archived flag (Backups.proto Chat.archived) rides along as
+    // a one-time local-state seed hint; see Conversation.historyArchived.
+    const historyArchived = chat.archived === true ? { historyArchived: true as const } : {};
+    if (destination.group) return { ...destination.group, expireTimerSec, ...historyArchived };
     return {
       id: directConversationId(destination.id),
       kind: 'direct',
@@ -135,6 +138,7 @@ export class BackupDirectory {
       adminIds: [],
       expireTimerSec,
       lastActivityAt: 0,
+      ...historyArchived,
     };
   }
 

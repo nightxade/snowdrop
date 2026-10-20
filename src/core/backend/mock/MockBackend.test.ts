@@ -33,7 +33,7 @@ describe('mock world', () => {
   });
 
   it('has the documented shape', () => {
-    expect(world.contacts.size).toBe(26); // 25 people + self
+    expect(world.contacts.size).toBe(27); // 26 people + self
     expect(groups).toHaveLength(12);
     expect(dms).toHaveLength(10);
     expect(world.defaultSpaces.map((s) => s.name)).toEqual(['Work', 'Climbing Club', 'Family']);

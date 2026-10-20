@@ -296,6 +296,7 @@ export class SyncService {
     stores.session.getState().setSelf(self);
     stores.contacts.getState().upsertMany([self, ...contacts]);
     stores.conversations.getState().upsertMany(conversations);
+    this.seedHistoryLocalState(conversations);
 
     await this.recoverHistoryTimers();
     const cursors = await repository.getReadCursors();
@@ -309,6 +310,21 @@ export class SyncService {
     }
     stores.conversations.getState().setReadCursors(Object.fromEntries(cursors));
     await Promise.all(conversations.map((c) => this.recomputeUnread(c.id)));
+  }
+
+  /**
+   * One-time seed only: a conversation's `historyArchived` hint
+   * (`Conversation.historyArchived`, see core/domain/types.ts) sets
+   * localStore's own `archived` flag, but only for a conversation that has
+   * no local state at all yet. A conversation the user has already touched
+   * in Snowdrop — even to explicitly un-archive it — keeps its own state
+   * forever; this never looks at it again past the first time it appears.
+   */
+  private seedHistoryLocalState(conversations: readonly Conversation[]): void {
+    const local = this.deps.stores.local.getState();
+    for (const conv of conversations) {
+      if (conv.historyArchived && !local.conversations[conv.id]) local.setArchived(conv.id, true);
+    }
   }
 
   /** Makes sure a conversation has local history and a read cursor (a seq). */

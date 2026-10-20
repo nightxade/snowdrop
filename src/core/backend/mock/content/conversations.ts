@@ -51,6 +51,13 @@ export interface ConversationSeed {
   pinned?: boolean;
   /** Candidate for the liveliness simulator. */
   lively?: boolean;
+  /**
+   * Demo data for "archived on the phone seeds archived in Snowdrop, once,
+   * only with no local state yet" (SyncService.initialSync): a real signal-cli
+   * adapter reads this from a history chat frame's `archived` (see
+   * history/directory.ts); the mock just sets it directly.
+   */
+  historyArchived?: boolean;
 }
 
 export interface SpaceSeed {
@@ -731,6 +738,7 @@ export const CONVERSATIONS: readonly ConversationSeed[] = [
     members: ['tavi'],
     activity: 0.2,
     lines: ['still up?', 'found a great late-night noodle place', 'sent you that playlist'],
+    historyArchived: true,
   },
 ];
 

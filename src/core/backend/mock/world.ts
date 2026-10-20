@@ -182,6 +182,7 @@ function makeContact(rnd: Random, seed: PersonSeed, index: number, isSelf: boole
   if (seed.profileName) contact.profileName = seed.profileName;
   if (seed.about) contact.about = seed.about;
   if (seed.aboutEmoji) contact.aboutEmoji = seed.aboutEmoji;
+  if (seed.profileSharing) contact.profileSharing = true;
   if (isSelf) contact.isSelf = true;
   return contact;
 }
@@ -512,6 +513,7 @@ export function buildWorld({ seed, now, bulk }: WorldOptions): MockWorld {
       lastActivityAt: messages.at(-1)?.sentAt ?? now - HISTORY_DAYS * DAY,
     };
     if (seedConv.description) conversation.description = seedConv.description;
+    if (seedConv.historyArchived) conversation.historyArchived = true;
 
     conversations.set(id, conversation);
     histories.set(id, history);

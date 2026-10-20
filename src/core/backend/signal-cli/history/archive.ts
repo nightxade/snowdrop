@@ -16,6 +16,9 @@ function invalid(message: string): never {
 
 /** An account-bound snapshot. A partial directory is never exposed to callers. */
 export class HistoryArchive {
+  /** chatHasMessages answers, per chat, for this archive's lifetime. */
+  private readonly hasMessages = new Map<string, Promise<boolean>>();
+
   private constructor(
     private readonly rpc: JsonRpcClient,
     private readonly options: CallOptions,
@@ -100,6 +103,26 @@ export class HistoryArchive {
     if (page.entries.length && page.nextCursor !== page.entries[0]?.cursor)
       invalid('invalid chat continuation cursor');
     return page;
+  }
+
+  /**
+   * Cheap "does this chat have at least one surviving message" check, for
+   * deciding whether a history-only conversation belongs in the list at all
+   * (see SignalCliBackend.listConversations). A single indexed lookup
+   * (patches/signal-cli 0005's chat_id index) for the newest entry, `LIMIT
+   * 1` — never a full page walk, and there's no cheaper per-chat query
+   * (count/last-message) the daemon exposes. Cached: the archive is a
+   * snapshot, so later listings (every refresh) don't repeat the lookups. A
+   * failed lookup isn't cached.
+   */
+  chatHasMessages(chatId: string): Promise<boolean> {
+    let answer = this.hasMessages.get(chatId);
+    if (!answer) {
+      answer = this.chatPage(chatId, undefined, 1).then((page) => page.entries.length > 0);
+      this.hasMessages.set(chatId, answer);
+      answer.catch(() => this.hasMessages.delete(chatId));
+    }
+    return answer;
   }
 
   /** `markRead: false` inspects deadlines without starting timers during recovery. */

@@ -11,6 +11,12 @@ export interface PersonSeed {
   aboutEmoji?: string;
   /** Share their number with us? (Signal lets people hide it.) */
   sharesNumber: boolean;
+  /**
+   * Signal's "you've chatted, or accepted their message request" flag, with
+   * no conversation of their own in CONVERSATIONS below — demo data for the
+   * "profileSharing alone doesn't list a chat" rule (SignalCliBackend.listConversations).
+   */
+  profileSharing?: boolean;
 }
 
 export const SELF: PersonSeed = {
@@ -196,5 +202,13 @@ export const PEOPLE: readonly PersonSeed[] = [
     about: 'Ceramics studio mate',
     aboutEmoji: '🏺',
     sharesNumber: true,
+  },
+  {
+    key: 'perrin',
+    name: 'Perrin Oyelaran',
+    about: 'Friend of a friend',
+    aboutEmoji: '👋',
+    sharesNumber: true,
+    profileSharing: true,
   },
 ];

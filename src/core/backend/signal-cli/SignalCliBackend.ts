@@ -252,7 +252,11 @@ export class SignalCliBackend implements ChatBackend {
       debug: this.debugLog,
       onContactChanged: (contact) => {
         this.emitter.emit('contactUpdated', contact);
-        if (this.peers?.has(contact.id) || this.isDmEligible(contact)) {
+        // Only announce a conversation update for a contact already listed
+        // (recorded local activity); a refreshed profile must not promote a
+        // contact we've never messaged into a conversation on its own (see
+        // listConversations).
+        if (this.peers?.has(contact.id)) {
           this.emitter.emit('conversationUpdated', this.directConversation(contact.id, 0));
         }
       },
@@ -918,33 +922,61 @@ export class SignalCliBackend implements ChatBackend {
     ].filter((contact) => contact.id !== this.selfId);
   }
 
+  /**
+   * Matches the phone: a direct conversation (Note to Self included, no
+   * special-casing) is listed only if it has at least one message —
+   * `this.peers` (durably persisted, see peers.ts) for local/live activity,
+   * or the history archive for an imported one. A group we're a current
+   * member of is always listed (`Directory.loadGroups` already filters to
+   * `isMember`), same as the phone showing a group before anyone writes.
+   *
+   * Signal's profileSharing ("you've chatted, or accepted their message
+   * request") is deliberately *not* used to list an empty DM: it fires for
+   * lots of people with zero shared history (group co-members, contacts
+   * synced from storage service), which is exactly the noise this is
+   * fixing.
+   */
   async listConversations(): Promise<Conversation[]> {
     this.assertAccount();
-    const [groups, contacts] = await Promise.all([
+    const [groups] = await Promise.all([
       this.directory.loadGroups(),
-      this.directory.loadContacts(),
+      this.directory.loadContacts(), // populates the cache directConversation's names read from.
     ]);
-    // Contacts we've "chatted with" (Signal's profileSharing) are listed even
-    // without local activity, so linking a real account doesn't hide people
-    // you've already exchanged message requests with. Keyed by canonical id
-    // (DirectPeers) so a contact can never appear twice under an alias.
     const dms = new Map<string, Conversation>();
-    for (const contact of contacts) {
-      if (!this.isDmEligible(contact)) continue;
-      dms.set(contact.id, this.directConversation(contact.id, 0));
-    }
-    // Recorded activity always wins and promotes a contact above lastActivityAt 0.
     for (const [peer, at] of this.peers?.entries() ?? []) {
       dms.set(peer, this.directConversation(peer, at));
     }
     const history = await this.loadHistory();
-    return [
-      ...new Map(
-        [...(history?.directory.conversations() ?? []), ...groups, ...dms.values()].map(
-          (conversation) => [conversation.id, conversation],
-        ),
-      ).values(),
-    ];
+    const live = new Set([...groups, ...dms.values()].map((conversation) => conversation.id));
+    const merged = new Map<string, Conversation>();
+    if (history) {
+      // A history-only chat (no live membership/activity) is listed only if
+      // the archive actually has a message for it — one cheap indexed
+      // lookup per candidate (see HistoryArchive.chatHasMessages), skipped
+      // entirely for ids a live source already justifies listing.
+      const checked = await Promise.all(
+        history.directory.conversations().map(async (conversation) => {
+          if (live.has(conversation.id)) return conversation;
+          const chatId = history.directory.chatId(conversation.id);
+          const hasMessages = chatId !== undefined && (await history.chatHasMessages(chatId));
+          return hasMessages ? conversation : null;
+        }),
+      );
+      for (const conversation of checked) {
+        if (conversation) merged.set(conversation.id, conversation);
+      }
+    }
+    // Live sources always win on conflict, but keep the archived-on-the-phone
+    // hint the history entry may have carried (see Conversation.historyArchived):
+    // a group/DM can be both currently active and archived on the phone.
+    for (const conversation of [...groups, ...dms.values()]) {
+      const historyArchived = merged.get(conversation.id)?.historyArchived;
+      merged.set(
+        conversation.id,
+        historyArchived ? { ...conversation, historyArchived: true } : conversation,
+      );
+    }
+    return [...merged.values()];
   }
 
   private loadHistory(): Promise<HistoryArchive | null> {
@@ -1017,18 +1049,6 @@ export class SignalCliBackend implements ChatBackend {
         unavailable: state.unavailable,
       };
     });
-  }
-
-  /** Eligible for a DM to be listed without local activity (see listConversations). */
-  private isDmEligible(contact: Contact): boolean {
-    return (
-      !contact.isSelf &&
-      contact.id !== this.selfId &&
-      !contact.blocked &&
-      !contact.hidden &&
-      !contact.unregistered &&
-      contact.profileSharing === true
-    );
   }
 
   async resolveAttachmentUrl(

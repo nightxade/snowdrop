@@ -165,11 +165,31 @@ describe('SyncService: initial sync', () => {
       backendKind: 'mock',
     });
     expect(stores.session.getState().self?.id).toBe(backend.world.self.id);
-    expect(Object.keys(stores.contacts.getState().byId)).toHaveLength(26);
+    expect(Object.keys(stores.contacts.getState().byId)).toHaveLength(27);
     expect(Object.keys(stores.conversations.getState().byId)).toHaveLength(22);
     expect(await repository.count(conv('orchard-eng'))).toBeGreaterThan(0);
     expect(stores.conversations.getState().unread[conv('orchard-eng')]?.count).toBe(4);
     expect(stores.conversations.getState().unread[conv('orchard-design')]?.count ?? 0).toBe(0);
+  });
+
+  it('seeds the phone archived flag for a conversation with no local state yet', async () => {
+    const { stores, conv } = await setup();
+    // dm-tavi is the mock world's one `historyArchived: true` conversation
+    // (content/conversations.ts) — a fresh install has no local state for it.
+    expect(localSelectors.conversation(conv('dm-tavi'))(stores.local.getState())).toMatchObject({
+      archived: true,
+    });
+  });
+
+  it('never overrides local state already set for a conversation archived on the phone', async () => {
+    const stores = createStores();
+    const { backend, sync } = await setup({ stores, start: false });
+    const tavi = backend.world.conversationIds.get('dm-tavi')!;
+    stores.local.getState().setArchived(tavi, false); // the user already un-archived it in Snowdrop
+    await sync.start();
+    expect(localSelectors.conversation(tavi)(stores.local.getState())).toMatchObject({
+      archived: false,
+    });
   });
 
   it('(A) buffers events until the initial sync is done, so offline messages count as unread', async () => {

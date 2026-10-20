@@ -531,7 +531,7 @@ describe('SignalCliBackend: attachment backfill (patches/signal-cli 0016)', () =
 });
 
 describe('SignalCliBackend: directory', () => {
-  it('lists self, contacts, groups and remembered DMs', async () => {
+  it('lists self, contacts and groups, and only shows a DM once it has activity', async () => {
     const { backend } = await connected();
     expect(await backend.getSelf()).toMatchObject({
       id: SELF_ACI,
@@ -542,8 +542,9 @@ describe('SignalCliBackend: directory', () => {
     expect(contacts.map((c) => c.name)).toEqual(['Alice Liddell', 'Bob Ross']);
 
     // Alice and Bob both have profileSharing (Signal's "you've chatted, or
-    // accepted their message request"), so they're listed even though
-    // neither has any recorded local activity yet.
+    // accepted their message request"), but neither has any recorded local
+    // activity yet, so neither DM is listed — only the group (which we're a
+    // current member of, regardless of whether anyone has written in it).
     const before = await backend.listConversations();
     expect(before).toEqual([
       {
@@ -556,20 +557,10 @@ describe('SignalCliBackend: directory', () => {
         expireTimerSec: 0,
         lastActivityAt: 0,
       },
-      expect.objectContaining({
-        id: directConversationId(ALICE),
-        title: 'Alice Liddell',
-        expireTimerSec: 3600,
-        lastActivityAt: 0,
-      }),
-      expect.objectContaining({
-        id: directConversationId(BOB),
-        title: 'Bob Ross',
-        expireTimerSec: 0,
-        lastActivityAt: 0,
-      }),
     ]);
 
+    // A brand-new incoming message from a contact with no prior activity
+    // (Alice) still creates/shows her chat; Bob (still no activity) does not.
     const updates = collect(backend, 'conversationUpdated');
     await backend.ingest(fixtures.dmText);
     expect(updates).toEqual([
@@ -579,14 +570,8 @@ describe('SignalCliBackend: directory', () => {
         expireTimerSec: 3600,
       }),
     ]);
-    // Activity promotes Alice above her lastActivityAt-0 placement; Bob
-    // (no activity) still shows up from profileSharing alone.
     const after = await backend.listConversations();
-    expect(after.map((c) => c.id)).toEqual([
-      GROUP,
-      directConversationId(ALICE),
-      directConversationId(BOB),
-    ]);
+    expect(after.map((c) => c.id)).toEqual([GROUP, directConversationId(ALICE)]);
     expect(after.find((c) => c.id === directConversationId(ALICE))?.lastActivityAt).toBeGreaterThan(
       0,
     );
@@ -736,33 +721,32 @@ describe('SignalCliBackend: directory', () => {
     await backend.disconnect();
   });
 
-  it('lists profileSharing contacts as DMs without activity, excluding self/blocked/hidden/unregistered/un-shared', async () => {
+  it('never lists an empty profileSharing contact as a DM, however it got that flag', async () => {
     const HIDDEN = 'c3333333-3333-4333-8333-333333333333';
     const GONE = 'd4444444-4444-4444-8444-444444444444';
-    const QUIET = 'e5555555-5555-4555-8555-555555555555';
     const daemon = new FakeDaemon()
       .reply('listAccounts', [{ number: SELF_NUMBER, aci: SELF_ACI }])
       .handle('listGroups', () => ({ result: [] }))
       .handle('listContacts', () => ({
         result: [
           contact(SELF_ACI, SELF_NUMBER, 'Me Myself'),
+          // All profileSharing: true (the contact() fixture default) — a
+          // group co-member, an accepted request, a plain synced contact —
+          // none of them has ever exchanged a message with this device.
           contact(ALICE, ALICE_NUMBER, 'Alice Liddell'),
           contact(BOB, BOB_NUMBER, 'Bob Ross', { isBlocked: true }),
           contact(HIDDEN, '+15550003333', 'Hidden Helen', { isHidden: true }),
           contact(GONE, '+15550004444', 'Gone Gary', { unregistered: true }),
-          contact(QUIET, '+15550005555', 'No Sharing Nancy', { profileSharing: false }),
         ],
       }));
     const { backend } = setup({ daemon });
     await backend.connect();
     await flush();
-    expect((await backend.listConversations()).map((c) => c.id)).toEqual([
-      directConversationId(ALICE),
-    ]);
+    expect(await backend.listConversations()).toEqual([]);
     await backend.disconnect();
   });
 
-  it('does not duplicate a profileSharing contact already tracked as an active DM under an alias', async () => {
+  it('lists a contact as soon as it has live activity, deduping an alias already tracked', async () => {
     const s = setup();
     // Alice's recorded activity lives under her number (DirectPeers, see peers.ts).
     s.storage.setItem(
@@ -1366,6 +1350,74 @@ describe('imported phone history', () => {
     expect(
       await backend.readHistory([{ id: messageId(ALICE, 1000), cursor: 'snapshot:4' }]),
     ).toEqual([{ id: messageId(ALICE, 1000), expiresAt: 6000, unavailable: false }]);
+    await backend.disconnect();
+  });
+
+  it('lists a history-only chat only if it has a message, carrying the phone archived hint', async () => {
+    const CAROL = 'c6666666-6666-4666-8666-666666666666';
+    const DINAH = 'd7777777-7777-4777-8777-777777777777';
+    const recipient = (cursor: string, id: string, aci: string, name: string) => ({
+      cursor,
+      frame: {
+        recipient: {
+          id,
+          contact: {
+            aci: Buffer.from(aci.replaceAll('-', ''), 'hex').toString('base64'),
+            profileGivenName: name,
+          },
+        },
+      },
+    });
+    const daemon = new FakeDaemon()
+      .reply('listAccounts', [{ number: SELF_NUMBER, aci: SELF_ACI }])
+      .handle('listGroups', () => ({ result: [] }))
+      .handle('listContacts', () => ({ result: [] }));
+    daemon.reply('getHistoryDirectory', {
+      archiveId: 'snapshot',
+      entries: [
+        { cursor: '1', frame: { recipient: { id: '1', self: {} } } },
+        recipient('2', '2', CAROL, 'Carol'),
+        recipient('3', '3', DINAH, 'Dinah'),
+        // Carol's chat: archived on the phone, and has a message below.
+        { cursor: '4', frame: { chat: { id: '10', recipientId: '2', archived: true } } },
+        // Dinah's chat: present in the archive, but never had a message.
+        { cursor: '5', frame: { chat: { id: '11', recipientId: '3' } } },
+      ],
+      nextCursor: '5',
+      hasMore: false,
+    });
+    daemon.handle('getHistoryChat', (params) => ({
+      result:
+        params.chatId === '10'
+          ? {
+              archiveId: 'snapshot',
+              entries: [
+                {
+                  cursor: '6',
+                  frame: {
+                    chatItem: {
+                      chatId: '10',
+                      authorId: '2',
+                      dateSent: '1000',
+                      incoming: { dateReceived: '1001' },
+                      standardMessage: { text: { body: 'hi' } },
+                    },
+                  },
+                },
+              ],
+              nextCursor: '6',
+              hasMore: false,
+            }
+          : { archiveId: 'snapshot', entries: [], hasMore: false },
+    }));
+    const { backend } = setup({ daemon });
+    await backend.connect();
+    await flush();
+    const conversations = await backend.listConversations();
+    expect(conversations).toEqual([
+      expect.objectContaining({ id: directConversationId(CAROL), historyArchived: true }),
+    ]);
+    expect(conversations.find((c) => c.id === directConversationId(DINAH))).toBeUndefined();
     await backend.disconnect();
   });
 });

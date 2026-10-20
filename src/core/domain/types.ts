@@ -50,6 +50,15 @@ export interface Conversation {
   /** Disappearing-message timer in seconds; 0 = off. */
   expireTimerSec: number;
   lastActivityAt: number;
+  /**
+   * The phone's archived state for this conversation (signal-cli: a history
+   * chat frame's `archived`, see `history/directory.ts`; the mock sets it
+   * directly). A one-time seed hint only, never itself persisted or
+   * compared against: `SyncService.initialSync` uses it to set localStore's
+   * own `archived` flag for a conversation that has no local state of its
+   * own yet, and never touches it again afterwards (see core/stores/local.ts).
+   */
+  historyArchived?: boolean;
 }
 
 /** Device-local per-conversation state (never sent to Signal). */
