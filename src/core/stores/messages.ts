@@ -74,6 +74,16 @@ export interface MessagesState {
   update(conversationId: ConversationId, id: MessageId, fn: (m: Message) => Message): void;
   remove(conversationId: ConversationId, id: MessageId): void;
   /**
+   * Drops a conversation's window entirely (an
+   * LRU over open conversations, owned by HistoryService, calls this on the
+   * least-recently-opened one once too many are held). Safe at any time,
+   * including mid-load: every read site already treats a missing window the
+   * same as a never-opened one (`?? EMPTY_WINDOW`), and HistoryService's own
+   * generation token means a load in flight for this conversation discards
+   * its result instead of resurrecting the window.
+   */
+  closeWindow(conversationId: ConversationId): void;
+  /**
    * Swaps an optimistic message (found by nonce) for the acknowledged one in
    * the same timeline position. If the acknowledged id is already present
    * (a sync echo won the race) the two rows are merged.
@@ -211,6 +221,13 @@ export function createMessagesStore(cap = WINDOW_CAP): MessagesStore {
       },
       remove: (conversationId, id) => {
         put(conversationId, removeFrom(windowOf(conversationId), id));
+      },
+      closeWindow: (conversationId) => {
+        if (!(conversationId in get().windows)) return;
+        set((s) => {
+          const { [conversationId]: _closed, ...windows } = s.windows;
+          return { windows };
+        });
       },
       reconcile: (conversationId, nonce, final) => {
         const w = windowOf(conversationId);

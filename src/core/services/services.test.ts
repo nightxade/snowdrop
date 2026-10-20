@@ -34,6 +34,7 @@ interface SetupOptions {
   repository?: MemoryMessageRepository;
   stores?: Stores;
   noServerHistory?: boolean;
+  maxOpenConversations?: number;
 }
 
 async function setup(options: SetupOptions = {}) {
@@ -66,7 +67,16 @@ async function setup(options: SetupOptions = {}) {
     newNonce: () => `nonce-${++n}`,
     ...(options.pipeline ? { pipeline: options.pipeline } : {}),
   });
-  const history = new HistoryService({ backend, repository, stores, pageSize: 20, onError });
+  const history = new HistoryService({
+    backend,
+    repository,
+    stores,
+    pageSize: 20,
+    onError,
+    ...(options.maxOpenConversations !== undefined
+      ? { maxOpenConversations: options.maxOpenConversations }
+      : {}),
+  });
   const conv = (key: string) => backend.world.conversationIds.get(key)!;
   const selfId = backend.world.self.id;
   const memberOf = (id: ConversationId) =>
@@ -1300,5 +1310,37 @@ describe('HistoryService', () => {
     const spy = vi.spyOn(repository, 'page');
     await Promise.all([history.loadOlder(id), history.loadOlder(id)]);
     expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes the least-recently-opened conversation past the cap', async () => {
+    const { stores, history, conv } = await setup({ maxOpenConversations: 3 });
+    const a = conv('crux');
+    const b = conv('dm-ines');
+    const c = conv('dm-tavi');
+    const d = conv('books');
+    const e = conv('orchard-eng');
+    const loaded = (id: ConversationId) => stores.messages.getState().windows[id]?.loaded;
+
+    await history.open(a);
+    await history.open(b);
+    await history.open(c);
+    expect([loaded(a), loaded(b), loaded(c)]).toEqual([true, true, true]);
+
+    // A 4th conversation past the cap of 3 closes the least-recently-opened one (`a`).
+    await history.open(d);
+    expect(stores.messages.getState().windows[a]).toBeUndefined();
+    expect([loaded(b), loaded(c), loaded(d)]).toEqual([true, true, true]);
+
+    // Reopening `a` works normally, bumps it back to most-recently-opened, and
+    // (now 4 distinct conversations deep again) closes the next-oldest (`b`).
+    await history.open(a);
+    expect(loaded(a)).toBe(true);
+    expect(stores.messages.getState().windows[b]).toBeUndefined();
+
+    // `c` is now the oldest and closes next; `b` stays closed, not resurrected.
+    await history.open(e);
+    expect(stores.messages.getState().windows[c]).toBeUndefined();
+    expect(stores.messages.getState().windows[b]).toBeUndefined();
+    expect([loaded(d), loaded(a), loaded(e)]).toEqual([true, true, true]);
   });
 });

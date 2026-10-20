@@ -1,0 +1,47 @@
+--- a/build.gradle.kts
++++ b/build.gradle.kts
+@@ -52,7 +52,43 @@
+     // log noise, not a correctness issue; JDK 25 still defaults memory-access
+     // Unsafe to allowed, this just opts out of the warning ahead of a future
+     // release where the default flips.
+-    applicationDefaultJvmArgs = listOf("--enable-native-access=ALL-UNNAMED", "--sun-misc-unsafe-memory-access=allow")
++    //
++    // Snowdrop: footprint tuning, measured
++    // against the built dist in jsonRpc mode, cold, throwaway config dir,
++    // median of 5 interleaved runs, idle PSS via smaps_rollup:
++    //   -Xmx1024m: without a cap G1 ergonomically sizes the heap off
++    //     physical RAM (MaxHeapSize = RAM/4); idle PSS tracks live data, not
++    //     the cap, so this doesn't move the idle number — it only bounds
++    //     worst-case growth. 1024m was sized against the one path that
++    //     buffers a whole attachment on-heap (AttachmentHelper.
++    //     retrieveBackfilledHistoryAttachment's ByteArrayOutputStream, used
++    //     only when a history attachment's pointer has expired and needs a
++    //     backfill re-download): a 150 MB attachment (ServiceConfig.
++    //     MAX_ATTACHMENT_SIZE) through a doubling ByteArrayOutputStream plus
++    //     its toByteArray() copy needs >384m and comfortably fits in 512m in
++    //     isolation; 1024m adds headroom on top of that for whatever else is
++    //     live at the time. Ordinary attachment upload/download
++    //     (AttachmentHelper.uploadAttachment/retrieveAttachment) streams to
++    //     files and isn't affected either way.
++    //   -XX:+UseCompactObjectHeaders: ~2-3% lower idle PSS, no measured CPU
++    //     cost (checked against a 150 MB AES-GCM+SHA-256 throughput
++    //     benchmark) — kept.
++    //   Tried and dropped: -XX:+UseSerialGC measured *worse* (idle PSS rose
++    //     from ~137 MB to ~228 MB — G1 reclaims unused regions back down
++    //     more aggressively than Serial's simpler heap at this scale).
++    //     -XX:TieredStopAtLevel=1 shaved ~21% off idle PSS but made the same
++    //     150 MB AES-GCM+SHA-256 benchmark ~9x slower (C2's crypto-loop
++    //     optimizations never kick in) — unacceptable for the attachment
++    //     path, which must stay fast. -Xss512k and -XX:+UseStringDeduplication
++    //     showed no measurable idle-PSS change in this harness (too few
++    //     threads/strings without a real account to show it) — dropped per
++    //     "keep only what pays off" rather than shipped on faith.
++    applicationDefaultJvmArgs = listOf(
++        "--enable-native-access=ALL-UNNAMED",
++        "--sun-misc-unsafe-memory-access=allow",
++        "-Xmx1024m",
++        "-XX:+UseCompactObjectHeaders",
++    )
+ }
+ 
+ graalvmNative {

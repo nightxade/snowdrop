@@ -574,6 +574,36 @@ checking the process still started and exited 0. That path does still log
 an `[error][aot]` line to stderr on every launch, though, so shipping it
 would also need `-Xlog:aot=off` to keep it from spamming the log.
 
+The eighteenth patch (`0018-jvm-footprint.patch`) adds `-Xmx1024m` and
+`-XX:+UseCompactObjectHeaders` to the same `applicationDefaultJvmArgs`.
+Measured against the built dist in `jsonRpc`
+mode (cold, throwaway config dir, no account, median of 5 interleaved runs,
+idle PSS via `/proc/<pid>/smaps_rollup`): idle PSS didn't move measurably
+either way (G1 already shrinks committed regions back down to the live set
+regardless of the cap) — `-Xmx1024m` is a safety bound, not an idle-PSS
+win. It was sized against `AttachmentHelper.
+retrieveBackfilledHistoryAttachment`'s `ByteArrayOutputStream`, the one path
+that buffers a whole attachment on-heap (used only when a history
+attachment's archived pointer has expired and needs a backfill
+re-download): a 150 MB attachment (`ServiceConfig.MAX_ATTACHMENT_SIZE`)
+through that doubling buffer plus its `toByteArray()` copy needs more than
+384m and comfortably fits in 512m on its own; 1024m leaves headroom on top
+of that for whatever else is live. Ordinary attachment upload/download
+streams to files and isn't affected by the cap either way.
+`-XX:+UseCompactObjectHeaders` shaved a noisy ~2-3% off idle PSS with no
+measured CPU cost (checked against a 150 MB AES-GCM+SHA-256 throughput
+benchmark run under the jlinked runtime) — kept regardless, since it's
+free. Tried and dropped: `-XX:+UseSerialGC` measured _worse_ (idle PSS rose
+from ~137 MB to ~228 MB on this box — G1 reclaims unused regions more
+aggressively than Serial's simpler heap at this scale).
+`-XX:TieredStopAtLevel=1` shaved ~21% off idle PSS but made the same 150 MB
+AES-GCM+SHA-256 benchmark ~9x slower (C2's crypto-loop optimizations never
+kick in), which fails the "100 MB+ attachments must still work" bar.
+`-Xss512k` and `-XX:+UseStringDeduplication` showed no measurable change in
+this harness (too few threads/strings without a real account to show it
+either way) and were dropped rather than shipped on faith. No version bump:
+flags only, same jar, same behaviour Snowdrop's capability checks see.
+
 ## User-controlled phone verification
 
 Run this only when ready to add a test device on the phone. It uses a new data

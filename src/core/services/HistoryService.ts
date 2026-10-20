@@ -26,32 +26,77 @@ export interface HistoryServiceDeps {
   repository: MessageRepository;
   stores: Stores;
   pageSize?: number;
+  /** See `MAX_OPEN_CONVERSATIONS`. */
+  maxOpenConversations?: number;
   onError?: ErrorReporter;
 }
 
 type IsCurrent = () => boolean;
 
+/**
+ * Default cap on how many conversations' windows `open()` keeps resident at
+ * once. Each window holds up to `WINDOW_CAP`
+ * (messages.ts) messages, and nothing ever closed one — opening every chat
+ * a long-lived session ever visits kept all of them in memory forever. 8
+ * comfortably covers normal back-and-forth between a handful of recently
+ * active chats without the window being closed and reloaded on every click.
+ */
+export const MAX_OPEN_CONVERSATIONS = 8;
+
 export class HistoryService {
   private readonly pageSize: number;
+  private readonly maxOpenConversations: number;
   private readonly onError: ErrorReporter;
   private readonly generation = new Map<ConversationId, number>();
   private readonly paging = new Map<ConversationId, Promise<void>>();
   private readonly jumping = new Map<ConversationId, Promise<void>>();
   private readonly active = new Map<ConversationId, number>();
+  /** Most-recently-opened last; see `touch`. */
+  private readonly recentlyOpened: ConversationId[] = [];
 
   constructor(private readonly deps: HistoryServiceDeps) {
     this.pageSize = deps.pageSize ?? 50;
+    this.maxOpenConversations = deps.maxOpenConversations ?? MAX_OPEN_CONVERSATIONS;
     this.onError = deps.onError ?? consoleReporter;
   }
 
   /**
    * Opening a conversation: snapshots the read cursor for the "new messages"
-   * divider (so auto-mark-read doesn't move it) and loads the newest page.
+   * divider (so auto-mark-read doesn't move it), loads the newest page, and
+   * marks it most-recently-opened — closing whichever conversation's window
+   * has gone longest unopened, if that pushes the open count past the cap.
    */
   async open(conversationId: ConversationId): Promise<void> {
+    this.touch(conversationId);
     const cursor = this.deps.stores.conversations.getState().readCursors[conversationId];
     this.deps.stores.ui.getState().setUnreadMarker(conversationId, cursor ?? null);
     await this.ensureLoaded(conversationId);
+  }
+
+  /** Bumps `conversationId` to most-recently-opened, evicting past the cap. */
+  private touch(conversationId: ConversationId): void {
+    const at = this.recentlyOpened.indexOf(conversationId);
+    if (at !== -1) this.recentlyOpened.splice(at, 1);
+    this.recentlyOpened.push(conversationId);
+    while (this.recentlyOpened.length > this.maxOpenConversations) {
+      const evicted = this.recentlyOpened.shift();
+      if (evicted !== undefined) this.closeWindow(evicted);
+    }
+  }
+
+  /**
+   * Drops a conversation's window and this service's own bookkeeping for
+   * it. Safe even with a load in flight: `generation`'s absence (read back
+   * as `0`, never a real generation number) makes any in-flight `isCurrent`
+   * check for this conversation false, so a load that resolves after this
+   * discards its result instead of resurrecting the window (see `track`).
+   */
+  private closeWindow(conversationId: ConversationId): void {
+    this.deps.stores.messages.getState().closeWindow(conversationId);
+    this.generation.delete(conversationId);
+    this.paging.delete(conversationId);
+    this.jumping.delete(conversationId);
+    this.active.delete(conversationId);
   }
 
   /** Loads the newest page if the conversation hasn't been loaded (or isn't loading) yet. */
