@@ -537,6 +537,43 @@ over Signal's servers — that's the user's to do.
 
 Builds as `0.14.8-snowdrop-history.14`.
 
+The seventeenth patch (`0017-sun-misc-unsafe-memory-access.patch`) adds
+`--sun-misc-unsafe-memory-access=allow` to `build.gradle.kts`'s
+`applicationDefaultJvmArgs`, alongside the existing
+`--enable-native-access=ALL-UNNAMED`. Without it, every launch logs four
+lines of JEP 498 terminal-deprecation noise once protobuf-java's
+`UnsafeUtil$MemoryAccessor` touches `sun.misc.Unsafe::arrayBaseOffset` (seen
+in Snowdrop's own startup log via `protobuf-java-4.31.1.jar`): "A terminally
+deprecated method in sun.misc.Unsafe has been called" and three follow-up
+lines. JDK 25 still defaults memory-access `Unsafe` to allowed, so this flag
+changes nothing about behaviour — it only opts out of the warning ahead of a
+future release where the default flips to `warn` or `deny`. Purely cosmetic;
+no version bump (nothing Snowdrop's capability checks care about changed).
+
+An AOT cache (JDK 25 `-XX:AOTCache=`, JEP 483/514/515) was investigated for
+faster `jsonRpc` startup but is **not** shipped. Measured against the built
+dist (cold, throwaway config dir, no account, `version` over JSON-RPC,
+interleaved A/B so both arms see the same host noise): a trained cache
+(`-XX:AOTCacheOutput=` against the jlinked runtime, a few typical requests)
+shaved roughly 11–12% off median time-to-first-`version`-reply across two
+10+ run batches — under the ~15% bar worth the trade-off — while adding
+~32 MB (~16%) to the 194 MB dist and a build-time training step to maintain.
+Most of signal-cli's own startup cost sits in BouncyCastle's crypto
+provider, which `-XX:AOTCache=` can't help at all: BC's jar is signed, and
+the JVM silently skips every class from a signed jar when assembling the
+cache (logged as `Skipping ... Signed JAR` during the training run). If a
+future JDK lifts that restriction, or BC startup cost drops for other
+reasons, this is worth re-measuring. For the record, had this shipped, the
+launcher would point `-XX:AOTCache=` at a path computed relative to
+`root_dir` in `bin/signal-cli` (so it keeps working wherever the dist is
+installed) and the JVM's own `-XX:AOTMode=auto` default (implied when only
+`-XX:AOTCache=` is set, no explicit `-XX:AOTMode=`) already warns-and-
+continues rather than failing to start when the cache is missing or
+mismatched — confirmed by pointing `-XX:AOTCache=` at a nonexistent file and
+checking the process still started and exited 0. That path does still log
+an `[error][aot]` line to stderr on every launch, though, so shipping it
+would also need `-Xlog:aot=off` to keep it from spamming the log.
+
 ## User-controlled phone verification
 
 Run this only when ready to add a test device on the phone. It uses a new data

@@ -1,0 +1,17 @@
+--- a/build.gradle.kts
++++ b/build.gradle.kts
+@@ -46,7 +46,13 @@
+
+ application {
+     mainClass.set("org.asamk.signal.Main")
+-    applicationDefaultJvmArgs = listOf("--enable-native-access=ALL-UNNAMED")
++    // Snowdrop: silence the JEP 498 terminal-deprecation warning that
++    // protobuf-java's UnsafeUtil$MemoryAccessor prints on every launch
++    // (sun.misc.Unsafe::arrayBaseOffset/arrayIndexScale) — purely cosmetic
++    // log noise, not a correctness issue; JDK 25 still defaults memory-access
++    // Unsafe to allowed, this just opts out of the warning ahead of a future
++    // release where the default flips.
++    applicationDefaultJvmArgs = listOf("--enable-native-access=ALL-UNNAMED", "--sun-misc-unsafe-memory-access=allow")
+ }
+
+ graalvmNative {
