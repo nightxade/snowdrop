@@ -53,6 +53,8 @@ export const STYLE_HOOKS = [
   { hook: 'reply-bar', what: '“Replying to …” bar' },
   { hook: 'composer-link-preview', what: 'The composer’s own link-preview card' },
   { hook: 'autocomplete', what: '@ / : / slash suggestions' },
+  { hook: 'sticker-picker', what: 'The composer’s sticker picker (grid, header and pack tabs)' },
+  { hook: 'sticker-cell', what: 'One sticker button in the picker’s grid' },
   { hook: 'typing-line', what: '“… is typing” strip' },
   { hook: 'drop-overlay', what: 'Drag-and-drop overlay' },
   { hook: 'search-panel', what: 'In-conversation search results' },

@@ -40,7 +40,10 @@ import type {
   ReactInput,
   SendResult,
   SendInput,
+  StickerPackInfo,
 } from '../types';
+import { MOCK_STICKER_PACKS } from './content/stickers';
+import { generateStickerUrl } from './images';
 import { Liveliness, type LivelinessOptions } from './liveliness';
 import { Random } from './prng';
 import { buildWorld, type MockWorld } from './world';
@@ -242,10 +245,30 @@ export class MockBackend implements ChatBackend {
     };
     if (input.quote) message.quote = input.quote;
     if (preview) message.previews = [preview];
+    if (input.sticker) message.sticker = input.sticker;
     this.append(message);
     this.scheduleReceipts(conv, sentAt);
     if (conv.kind === 'direct') this.liveliness.replyTo(conv.id);
     return { sentAt, attachments, ...(preview ? { preview } : {}) };
+  }
+
+  async listStickerPacks(): Promise<StickerPackInfo[]> {
+    await this.delay();
+    this.assertOnline();
+    return MOCK_STICKER_PACKS.map((pack) => {
+      const stickers = pack.emoji.map((emoji, stickerId) => ({
+        stickerId,
+        emoji,
+        url: generateStickerUrl(emoji),
+      }));
+      return {
+        packId: pack.packId,
+        title: pack.title,
+        author: pack.author,
+        cover: stickers[0] ?? { stickerId: 0, emoji: '' },
+        stickers,
+      };
+    });
   }
 
   async edit(input: EditInput): Promise<{ sentAt: number }> {

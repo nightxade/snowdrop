@@ -311,6 +311,28 @@ export const wireSendResult = object({
 });
 export type WireSendResult = Infer<typeof wireSendResult>;
 
+/**
+ * `listStickerPacks` items (ListStickerPacksCommand.JsonStickerPack). The
+ * pack's `url` is deliberately NOT decoded: it embeds the pack key, which
+ * must never leave this decoder (it would otherwise reach stores, logs or
+ * the UI). A pack whose files haven't been downloaded yet lists with no
+ * title, no cover and no stickers.
+ */
+const wireStickerPackSticker = object({
+  id: num,
+  emoji: withDefault(str, ''),
+});
+export const wireStickerPack = object({
+  packId: str,
+  installed: withDefault(bool, false),
+  title: withDefault(str, ''),
+  author: withDefault(str, ''),
+  cover: maybe(wireStickerPackSticker),
+  stickers: list(wireStickerPackSticker),
+});
+export type WireStickerPack = Infer<typeof wireStickerPack>;
+export const wireStickerPacks = list(wireStickerPack);
+
 export const wireStartLink = object({ deviceLinkUri: str });
 export const wireFinishLink = object({ number: optStr, aci: optStr, historyTransfer: optStr });
 export const wireAttachmentData = object({ data: str });

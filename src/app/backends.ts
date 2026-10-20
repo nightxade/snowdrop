@@ -137,7 +137,13 @@ const mockBackend: BackendRegistration = {
               : {}),
           }),
     ),
-  capabilities: new Set(['fetchHistory', 'adminDelete', 'pinMessage', 'updateConversation']),
+  capabilities: new Set([
+    'fetchHistory',
+    'adminDelete',
+    'pinMessage',
+    'updateConversation',
+    'listStickerPacks',
+  ]),
   // The world is regenerated relative to "now" on each launch; persisting it would mix timelines.
   history: { kind: 'memory' },
   onStarted(backend, { stores }) {
@@ -213,6 +219,7 @@ const signalCliBackend: BackendRegistration = {
     'resolveStickerUrl',
     'retainStickerUrl',
     'releaseStickerUrl',
+    'listStickerPacks',
     'acknowledge',
     'link',
     'syncContactsAndGroups',

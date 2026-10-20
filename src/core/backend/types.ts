@@ -93,6 +93,36 @@ export interface SendInput {
   customEmoji?: OutgoingCustomEmoji[];
   /** At most one, like Signal's own clients; its `url` must appear in `body`. */
   preview?: OutgoingLinkPreview;
+  /**
+   * A sticker send: the message's whole content (empty `body`, no
+   * attachments; a `quote` still applies). Only `packId` and `stickerId` go
+   * over the wire; `emoji` and `url` are render-only (the optimistic message
+   * and, for the demo, the image itself).
+   */
+  sticker?: StickerContent;
+}
+
+/** One sticker of an installed pack, as the picker lists it. */
+export interface StickerPackSticker {
+  stickerId: number;
+  /** The pack author's emoji for it (may be empty). */
+  emoji: string;
+  /** Already resolved, directly renderable image (the demo backend only). */
+  url?: string;
+}
+
+/**
+ * An installed sticker pack, listed for the picker. Deliberately has no pack
+ * key (nor the share URL that embeds it): that never leaves the transport.
+ */
+export interface StickerPackInfo {
+  /** Pack id, hex. */
+  packId: string;
+  title: string;
+  author: string;
+  /** Pack cover (or its first sticker) — the picker's tab icon. */
+  cover: StickerPackSticker;
+  stickers: StickerPackSticker[];
 }
 
 export interface EditInput {
@@ -396,6 +426,16 @@ export interface ChatBackend {
     sticker: StickerContent,
     options?: { forceRefresh?: boolean },
   ): Promise<string>;
+
+  /**
+   * The user's *installed* sticker packs with their stickers, for the sticker
+   * picker; omitted by backends that can't send stickers (the picker button
+   * is hidden then). Read-only: never installs, uninstalls or syncs a pack,
+   * and never exposes a pack key. Packs whose files haven't been fetched yet
+   * are fetched here (that is a local download, not an install). Packs that
+   * can't be read are left out rather than failing the whole list.
+   */
+  listStickerPacks?(): Promise<StickerPackInfo[]>;
 
   /** Marks a sticker's resolved URL as in use by a mounted component; pairs with `releaseStickerUrl`. */
   retainStickerUrl?(sticker: StickerContent): void;

@@ -1,0 +1,200 @@
+.popover.popover {
+  z-index: 55;
+  overflow: hidden;
+}
+
+/* One fixed size for every state and tab, so the popover never jumps. */
+.root {
+  display: flex;
+  flex-direction: column;
+  width: min(336px, calc(100vw - 24px));
+  height: min(392px, 60vh);
+  isolation: isolate;
+}
+
+.header {
+  display: flex;
+  flex: none;
+  align-items: baseline;
+  gap: var(--snowdrop-space-3);
+  min-height: 44px;
+  padding: var(--snowdrop-space-4) var(--snowdrop-space-4) var(--snowdrop-space-2);
+  box-sizing: border-box;
+}
+
+.title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--snowdrop-text-strong);
+  font-size: var(--snowdrop-font-size-ui);
+  font-weight: var(--snowdrop-font-weight-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.author {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--snowdrop-text-faint);
+  font-size: var(--snowdrop-font-size-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The hovered or focused sticker's emoji; reserves its space while empty. */
+.preview {
+  flex: none;
+  margin-left: auto;
+  min-width: 1.5em;
+  font-size: var(--snowdrop-font-size-emoji-sm);
+  line-height: 1;
+  text-align: right;
+}
+
+.viewport,
+.body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  padding: 0 var(--snowdrop-space-3) var(--snowdrop-space-3);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--snowdrop-scrollbar-thumb) transparent;
+  scrollbar-width: thin;
+}
+
+.body {
+  padding-top: var(--snowdrop-space-4);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--snowdrop-space-2);
+  user-select: none;
+}
+
+/* Square, fixed-size cells: the grid is the same before and after the images load. */
+.cell {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  min-width: 0;
+  padding: var(--snowdrop-space-2);
+  border-radius: var(--snowdrop-radius-sm);
+}
+
+.cell:not([data-loading]):hover,
+.cell:not([data-loading]):focus-visible {
+  background: var(--snowdrop-bg-active);
+}
+
+.cell:focus-visible,
+.tab:focus-visible {
+  outline: 2px solid var(--snowdrop-focus-ring);
+  outline-offset: -2px;
+}
+
+.thumb {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.image {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.placeholder {
+  width: 28%;
+  height: 28%;
+  color: var(--snowdrop-text-faint);
+  opacity: 0.5;
+}
+
+.fallback {
+  font-size: var(--snowdrop-font-size-emoji);
+  line-height: 1;
+}
+
+.status {
+  padding: var(--snowdrop-space-6) var(--snowdrop-space-4);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-ui);
+  text-align: center;
+}
+
+.body .status {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  pointer-events: none;
+}
+
+.empty {
+  flex: 1;
+  justify-content: center;
+  margin: 0;
+  max-width: none;
+}
+
+.tabs {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--snowdrop-space-1);
+  padding: var(--snowdrop-space-2) var(--snowdrop-space-3);
+  border-top: 1px solid var(--snowdrop-border);
+  background: var(--snowdrop-bg-elevated);
+  border-radius: 0 0 var(--snowdrop-radius-md) var(--snowdrop-radius-md);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tab {
+  position: relative;
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 5px;
+  border-radius: var(--snowdrop-radius-sm);
+  color: var(--snowdrop-text-muted);
+}
+
+.tab:hover {
+  background: var(--snowdrop-bg-hover);
+}
+
+.tab[aria-selected='true'] {
+  background: var(--snowdrop-bg-active);
+  color: var(--snowdrop-text-strong);
+}
+
+/* The selected tab also carries an underline, so it doesn't rely on the fill alone. */
+.tab[aria-selected='true']::after {
+  content: '';
+  position: absolute;
+  right: 8px;
+  bottom: 0;
+  left: 8px;
+  height: 2px;
+  border-radius: var(--snowdrop-radius-full);
+  background: var(--snowdrop-accent);
+}
+
+.tab > svg {
+  width: 20px;
+  height: 20px;
+}

@@ -59,6 +59,8 @@ import type {
   ReactInput,
   SendInput,
   SendResult,
+  StickerPackInfo,
+  StickerPackSticker,
 } from '../types';
 import {
   AttachmentResolver,
@@ -87,6 +89,7 @@ import {
   messageParams,
   pinDurationParam,
   recipientFailures,
+  stickerParam,
   targetParams,
 } from './params';
 import { DirectPeers } from './peers';
@@ -104,8 +107,10 @@ import {
   wireFinishLink,
   wireSendResult,
   wireStartLink,
+  wireStickerPacks,
   wireVersion,
   type WireAccount,
+  type WireStickerPack,
 } from './wire';
 
 export interface SignalCliBackendOptions {
@@ -225,6 +230,8 @@ export class SignalCliBackend implements ChatBackend {
   private attachmentBackfillSupported = false;
   /** Whether the connected daemon can register a history sticker's pack key (see capabilities.ts). */
   private historyStickerPackSupported = false;
+  /** Installed packs whose download `listStickerPacks` already started this session. */
+  private readonly stickerPacksFetchTried = new Set<string>();
   /** listConversations logs its counts once per backend, not on every refresh. */
   private listingLogged = false;
 
@@ -1210,6 +1217,61 @@ export class SignalCliBackend implements ChatBackend {
     throw first;
   }
 
+  /**
+   * See `ChatBackend.listStickerPacks`. `listStickerPacks` lists every pack
+   * the account knows — including history-registered ones that aren't
+   * installed (patch 0019), which are left out — and an installed pack whose
+   * files were never downloaded (it arrived through storage sync) lists with
+   * no stickers. `getSticker` downloads a whole pack as a side effect (the
+   * same local download `resolveStickerUrl` relies on; no install, no sync
+   * to the phone), so one call per such pack and a second listing fill them
+   * in. The result of that call is ignored: a daemon without patch 0020
+   * downloads the pack and still throws on the first one.
+   */
+  async listStickerPacks(): Promise<StickerPackInfo[]> {
+    this.assertAccount();
+    const list = (): Promise<WireStickerPack[]> =>
+      this.rpc.call('listStickerPacks', {}, wireStickerPacks);
+    let packs = (await list()).filter((p) => p.installed);
+    // Each not-yet-downloaded pack is fetched once per session: one that
+    // can't be (removed from the CDN, offline) mustn't stall every open.
+    const unfetched = packs.filter(
+      (p) => p.stickers.length === 0 && !this.stickerPacksFetchTried.has(p.packId),
+    );
+    if (unfetched.length > 0) {
+      for (const p of unfetched) this.stickerPacksFetchTried.add(p.packId);
+      await Promise.all(
+        unfetched.map((p) =>
+          this.rpc
+            .call('getSticker', { packId: p.packId, stickerId: 0 }, ignoreResult, {
+              timeoutMs: 30_000,
+            })
+            .catch(() => undefined),
+        ),
+      );
+      packs = (await list()).filter((p) => p.installed);
+    }
+    return packs
+      .flatMap((p): StickerPackInfo[] => {
+        if (p.stickers.length === 0 || !/^[\da-f]+$/u.test(p.packId)) return [];
+        const stickers = p.stickers.map((s): StickerPackSticker => ({
+          stickerId: s.id,
+          emoji: s.emoji,
+        }));
+        const cover = p.cover ?? p.stickers[0];
+        return [
+          {
+            packId: p.packId,
+            title: p.title,
+            author: p.author,
+            cover: { stickerId: cover?.id ?? 0, emoji: cover?.emoji ?? '' },
+            stickers,
+          },
+        ];
+      })
+      .sort((a, b) => a.title.localeCompare(b.title));
+  }
+
   retainStickerUrl(sticker: StickerContent): void {
     this.attachments.retain(stickerCacheId(sticker));
   }
@@ -1268,6 +1330,14 @@ export class SignalCliBackend implements ChatBackend {
     this.assertAccount();
     const target = targetParams(input.conversationId, this.identity.aliases);
     const stamp = this.clock.now().toString(36);
+    let sticker: string | undefined;
+    if (input.sticker) {
+      try {
+        sticker = stickerParam(input.sticker.packId, input.sticker.stickerId);
+      } catch {
+        throw new SignalCliError('user', "This sticker can't be sent.");
+      }
+    }
     const encoded = await Promise.all(
       (input.attachments ?? []).map((file, i) =>
         encodeOutgoing(file, `local:${stamp}:${i}`, this.options.thumbnailer),
@@ -1282,6 +1352,7 @@ export class SignalCliBackend implements ChatBackend {
         body: input.body,
         ranges: input.ranges,
         ...(input.quote ? { quote: input.quote } : {}),
+        ...(sticker ? { sticker } : {}),
         attachments: encoded.map((e) => e.param),
         ...(encodedPreview ? { preview: encodedPreview.param } : {}),
         // Defensive: never forward customEmoji to a daemon that hasn't

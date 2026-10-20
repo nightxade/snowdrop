@@ -458,6 +458,8 @@ instead.
 | `reply-bar`             | "Replying to …" bar                                                   |
 | `composer-link-preview` | The composer's own link-preview card                                  |
 | `autocomplete`          | @ / : / slash suggestions                                             |
+| `sticker-picker`        | The composer's sticker picker (grid, header and pack tabs)            |
+| `sticker-cell`          | One sticker button in the picker's grid                               |
 | `typing-line`           | "… is typing" strip                                                   |
 | `drop-overlay`          | Drag-and-drop overlay                                                 |
 | `search-panel`          | In-conversation search results                                        |

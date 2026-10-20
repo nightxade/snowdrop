@@ -164,3 +164,45 @@
   outline: none;
   box-shadow: inset 0 0 0 2px var(--snowdrop-pane-border-focus);
 }
+
+/*
+ * The sticker picker (StickerPicker.module.css; its popover is a bordered
+ * `[role='dialog']` like the emoji picker's): square cells and tabs, a mono
+ * header, and a hovered/selected cell shown by an outline rather than a fill.
+ */
+:root[data-shell='tui'] [data-snowdrop='sticker-picker'] {
+  font-family: var(--snowdrop-font-mono);
+}
+
+:root[data-shell='tui'] [data-snowdrop='sticker-picker'] * {
+  border-radius: 0;
+  box-shadow: none;
+}
+
+:root[data-shell='tui'] [data-snowdrop='sticker-picker'] h2 {
+  font-size: var(--snowdrop-font-size-xs);
+  font-weight: var(--snowdrop-font-weight-regular);
+  color: var(--snowdrop-accent-text);
+}
+
+:root[data-shell='tui'] [data-snowdrop='sticker-picker'] [role='tablist'] {
+  background: none;
+  border-top: 1px solid var(--snowdrop-pane-border);
+}
+
+:root[data-shell='tui'] [data-snowdrop='sticker-picker'] [role='tab'][aria-selected='true'] {
+  background: none;
+  outline: 1px solid var(--snowdrop-accent-text);
+  outline-offset: -1px;
+}
+
+:root[data-shell='tui'] [data-snowdrop='sticker-picker'] [role='tab'][aria-selected='true']::after {
+  display: none;
+}
+
+:root[data-shell='tui'] [data-snowdrop='sticker-cell']:hover,
+:root[data-shell='tui'] [data-snowdrop='sticker-cell']:focus-visible {
+  background: none;
+  outline: 1px solid var(--snowdrop-accent-text);
+  outline-offset: -1px;
+}

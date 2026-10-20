@@ -1,4 +1,4 @@
-import { CirclePlus, Smile } from 'lucide-react';
+import { CirclePlus, Smile, Sticker } from 'lucide-react';
 import { memo, useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import { useStore } from 'zustand';
 import { CoreCommand } from '@/core/commands';
@@ -12,6 +12,7 @@ import { CustomEmojiPanel } from './CustomEmojiPanel';
 import { AttachmentTray } from './AttachmentTray';
 import { ComposerLinkPreview } from './ComposerLinkPreview';
 import { ReplyBar } from './ReplyBar';
+import { StickerPicker } from './StickerPicker';
 import { TypingLine } from './TypingLine';
 import { useAutocompleteField } from './useAutocompleteField';
 import { useAutoGrow } from './useAutoGrow';
@@ -45,6 +46,9 @@ function ComposerInner({ conversation }: { conversation: ConversationView }) {
   const fileInput = useRef<HTMLInputElement>(null);
   const [field, setField] = useState<HTMLDivElement | null>(null);
   const [emojiOpen, setEmojiOpen] = useState(false);
+  const [stickersOpen, setStickersOpen] = useState(false);
+  // Only backends that can list (and so send) sticker packs get the button.
+  const canSendStickers = app.backend.listStickerPacks !== undefined;
   const accessories = useObservableList(app.registries.composerAccessories);
   // An accessory may describe the field's state (Vim's mode) on this id (ComposerSlotProps).
   const descriptionId = useId();
@@ -249,6 +253,24 @@ function ComposerInner({ conversation }: { conversation: ConversationView }) {
               props={{ conversationId, descriptionId }}
               className={styles.accessories}
             />
+            {canSendStickers && (
+              <StickerPicker
+                conversationId={conversationId}
+                open={stickersOpen}
+                onOpenChange={setStickersOpen}
+                onPick={(sticker) => {
+                  void state.sendSticker(sticker);
+                }}
+                onCloseFocus={focus}
+              >
+                <IconButton
+                  label="Stickers"
+                  icon={<Sticker />}
+                  className={styles.button}
+                  active={stickersOpen}
+                />
+              </StickerPicker>
+            )}
             <EmojiPickerPopover
               customContent={
                 <CustomEmojiPanel

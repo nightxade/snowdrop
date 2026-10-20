@@ -30,6 +30,7 @@ export const OPTIONAL_METHODS = [
   'resolveStickerUrl',
   'retainStickerUrl',
   'releaseStickerUrl',
+  'listStickerPacks',
   'acknowledge',
   'link',
   'syncContactsAndGroups',
@@ -174,6 +175,9 @@ export function deferredBackend(
       if (real) real.releaseStickerUrl?.(s);
       else stickerRefs.push({ retain: false, sticker: s });
     };
+  if (caps.has('listStickerPacks'))
+    backend.listStickerPacks = () =>
+      call((b) => (b.listStickerPacks ? b.listStickerPacks() : missing('listStickerPacks')));
   if (caps.has('acknowledge'))
     backend.acknowledge = (cursor) => {
       if (real) real.acknowledge?.(cursor);

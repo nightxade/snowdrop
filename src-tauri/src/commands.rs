@@ -61,6 +61,10 @@ const ALLOWED_METHODS: &[&str] = &[
     // sticker's pack is registered locally, never installed or synced).
     "getSticker",
     "registerHistoryStickerPack",
+    // The sticker picker (SignalCliBackend.ts: listStickerPacks): a read-only
+    // listing of the installed packs. Never addStickerPack/uploadStickerPack
+    // or anything else that installs, uninstalls or syncs a pack.
+    "listStickerPacks",
     // Asks the primary device to re-upload an expired history attachment
     // (SignalCliBackend.ts: requestAttachmentBackfill).
     "requestAttachmentBackfill",
@@ -647,6 +651,17 @@ mod tests {
     #[test]
     fn allows_the_version_capability_probe() {
         assert!(is_allowed_method("version"));
+    }
+
+    /// The sticker picker lists installed packs and sends through `send`; it
+    /// never installs or uploads one (those sync to the phone).
+    #[test]
+    fn allows_listing_sticker_packs_but_not_installing_them() {
+        assert!(is_allowed_method("listStickerPacks"));
+        assert!(is_allowed_method("send"));
+        for method in ["addStickerPack", "uploadStickerPack", "removeStickerPack"] {
+            assert!(!is_allowed_method(method), "{method} should be rejected");
+        }
     }
 
     /// Account-destroying and config methods must never be reachable from the

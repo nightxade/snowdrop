@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { conversationIdFor } from '@/core/domain/testing';
 import { createMemoryStorage, loadVersioned, saveVersioned } from '@/core/persistence';
-import { createLocalStore, localSchema, localSelectors, selectLocalData } from './local';
+import {
+  createLocalStore,
+  localSchema,
+  localSelectors,
+  MAX_RECENT_STICKERS,
+  selectLocalData,
+} from './local';
 
 const a = conversationIdFor('a');
 
@@ -68,6 +74,7 @@ describe('localStore', () => {
       contactNotes: {},
       reactionUsage: {},
       backfillRequested: {},
+      recentStickers: [],
       seeded: false,
     });
   });
@@ -79,5 +86,50 @@ describe('localStore', () => {
     store.getState().noteReactionUsed('🎯');
     store.getState().noteReactionUsed('🎉');
     expect(localSelectors.quickReactions(store.getState())).toEqual(['🎯', '🎉', '👍']);
+  });
+
+  it('keeps the most recent stickers first, once each, capped', () => {
+    const store = createLocalStore();
+    const note = (s: { packId: string; stickerId: number; emoji?: string }) => {
+      store.getState().noteStickerSent(s);
+    };
+    note({ packId: 'aa01', stickerId: 1, emoji: '😀' });
+    note({ packId: 'aa01', stickerId: 2 });
+    note({ packId: 'aa01', stickerId: 1, emoji: '😀' });
+    expect(store.getState().recentStickers).toEqual([
+      { packId: 'aa01', stickerId: 1, emoji: '😀' },
+      { packId: 'aa01', stickerId: 2 },
+    ]);
+    for (let i = 0; i < 40; i++) note({ packId: 'bb02', stickerId: i });
+    expect(store.getState().recentStickers).toHaveLength(MAX_RECENT_STICKERS);
+    expect(store.getState().recentStickers[0]).toEqual({ packId: 'bb02', stickerId: 39 });
+  });
+
+  it('ignores a malformed sticker and strips anything that is not an identifier', () => {
+    const store = createLocalStore();
+    store.getState().noteStickerSent({ packId: 'NOT HEX', stickerId: 1 });
+    store.getState().noteStickerSent({
+      packId: 'aa01',
+      stickerId: 1,
+      url: 'blob:x',
+      key: 'secret',
+    } as never);
+    expect(store.getState().recentStickers).toEqual([{ packId: 'aa01', stickerId: 1 }]);
+  });
+
+  it('persists recent stickers per account data and tolerates data saved before they existed', () => {
+    const storage = createMemoryStorage();
+    const store = createLocalStore();
+    store.getState().noteStickerSent({ packId: 'aa01', stickerId: 7, emoji: '🎉' });
+    saveVersioned(storage, localSchema, selectLocalData(store.getState()));
+    expect(loadVersioned(storage, localSchema).recentStickers).toEqual([
+      { packId: 'aa01', stickerId: 7, emoji: '🎉' },
+    ]);
+    expect(localSchema.parse({ conversations: {} })?.recentStickers).toEqual([]);
+    expect(
+      localSchema.parse({
+        recentStickers: [{ packId: 'zz', stickerId: 1 }, { packId: 'ab', stickerId: 2 }, 5],
+      })?.recentStickers,
+    ).toEqual([{ packId: 'ab', stickerId: 2 }]);
   });
 });

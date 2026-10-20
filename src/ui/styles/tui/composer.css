@@ -53,8 +53,13 @@
   order: 3;
 }
 
-:root[data-shell='tui'] div:has(> [data-snowdrop='composer-input']) [aria-label='Emoji'] {
+/* The sticker button sits just before the emoji one. */
+:root[data-shell='tui'] div:has(> [data-snowdrop='composer-input']) [aria-label='Stickers'] {
   order: 4;
+}
+
+:root[data-shell='tui'] div:has(> [data-snowdrop='composer-input']) [aria-label='Emoji'] {
+  order: 5;
 }
 
 /* The composer's own INSERT/NORMAL chip duplicates the status line's; the

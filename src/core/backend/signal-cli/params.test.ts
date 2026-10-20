@@ -14,6 +14,7 @@ import {
   pinDurationParam,
   quoteAttachmentParams,
   recipientFailures,
+  stickerParam,
   targetParams,
   toDataUri,
 } from './params';
@@ -417,5 +418,27 @@ describe('recipientFailures', () => {
       { recipientId: 'e', reason: 'rate-limited' },
       { recipientId: 'f', reason: 'unknown' },
     ]);
+  });
+});
+
+describe('stickerParam', () => {
+  it('joins a hex pack id and a sticker id the way signal-cli parses them', () => {
+    expect(stickerParam('9acc9e8a', 0)).toBe('9acc9e8a:0');
+    expect(messageParams({ body: '', ranges: [], sticker: '9acc9e8a:4' })).toMatchObject({
+      message: '',
+      sticker: '9acc9e8a:4',
+    });
+  });
+
+  it.each([
+    ['', 1],
+    ['AB12', 1],
+    ['ab12:3', 1],
+    ['ab12 --message x', 1],
+    ['ab12', -1],
+    ['ab12', 1.5],
+    ['ab12', Number.NaN],
+  ])('rejects %j / %j', (packId, stickerId) => {
+    expect(() => stickerParam(packId, stickerId)).toThrow();
   });
 });

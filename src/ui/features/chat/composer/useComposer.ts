@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useStore } from 'zustand';
-import type { Message, Quote } from '@/core/domain';
+import type { Message, Quote, StickerContent } from '@/core/domain';
 import type { ConversationView } from '@/core/domain';
 import { parseSlash } from '@/core/plugins';
 import { contactsSelectors, localSelectors } from '@/core/stores';
@@ -44,6 +44,8 @@ export interface ComposerState {
   setError: (error: string | null) => void;
   linkPreview: LinkPreviewView;
   submit: () => Promise<void>;
+  /** Sends a sticker at once (no draft), as a reply when a reply is active. */
+  sendSticker: (sticker: StickerContent) => Promise<void>;
 }
 
 /**
@@ -228,6 +230,30 @@ export function useComposer(conversation: ConversationView): ComposerState {
     }
   };
 
+  const sendSticker = async (sticker: StickerContent) => {
+    const replyId = stores.ui.getState().replyTo[conversationId];
+    const replyTarget = replyId
+      ? stores.messages.getState().windows[conversationId]?.byId[replyId]
+      : undefined;
+    // The draft (and any attachments) stay as they are; only the reply is spent.
+    if (replyId) stores.ui.getState().setReplyTo(conversationId, null);
+    setError(null);
+    stores.local.getState().noteStickerSent(sticker);
+    // Sent messages only appear in a window anchored to the present.
+    const w = stores.messages.getState().windows[conversationId];
+    if (w && !w.anchoredToPresent) await history.jumpToPresent(conversationId);
+    try {
+      await send.sendSticker({
+        conversationId,
+        sticker,
+        ...(replyTarget ? { quote: quoteOf(replyTarget) } : {}),
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not send the sticker');
+    }
+    void chat.jumpToPresent();
+  };
+
   return {
     text,
     setText,
@@ -242,6 +268,7 @@ export function useComposer(conversation: ConversationView): ComposerState {
     setError,
     linkPreview,
     submit,
+    sendSticker,
   };
 }
 

@@ -1156,6 +1156,144 @@ describe('SignalCliBackend sticker retry', () => {
   });
 });
 
+describe('SignalCliBackend sticker packs', () => {
+  const KEY = 'c0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ff';
+  const SHARE_URL = `https://signal.art/addstickers/#pack_id=ab12&pack_key=${KEY}`;
+  const stickers = [
+    { id: 0, emoji: '😀', contentType: 'image/webp' },
+    { id: 1, emoji: null, contentType: 'image/webp' },
+  ];
+  const fetched = (packId: string, title: string, installed = true) => ({
+    packId,
+    url: SHARE_URL,
+    installed,
+    title,
+    author: 'Someone',
+    cover: stickers[1],
+    stickers,
+  });
+  const bare = (packId: string, installed = true) => ({
+    packId,
+    url: SHARE_URL,
+    installed,
+    title: '',
+    author: '',
+    cover: null,
+    stickers: [],
+  });
+
+  it('lists installed packs, drops the key, and leaves out uninstalled ones', async () => {
+    const { daemon } = daemonWithAccount();
+    daemon.reply('listStickerPacks', [
+      fetched('bb02', 'Zebras'),
+      fetched('aa01', 'Apples'),
+      fetched('cc03', 'History only', false),
+    ]);
+    const { backend } = await connected({ daemon });
+    const packs = await backend.listStickerPacks();
+    expect(packs.map((p) => p.title)).toEqual(['Apples', 'Zebras']);
+    expect(packs[0]).toEqual({
+      packId: 'aa01',
+      title: 'Apples',
+      author: 'Someone',
+      cover: { stickerId: 1, emoji: '' },
+      stickers: [
+        { stickerId: 0, emoji: '😀' },
+        { stickerId: 1, emoji: '' },
+      ],
+    });
+    expect(JSON.stringify(packs)).not.toContain(KEY);
+    expect(JSON.stringify(packs)).not.toContain('signal.art');
+    expect(daemon.callsTo('getSticker')).toEqual([]);
+    await backend.disconnect();
+  });
+
+  it('downloads an installed pack that was never fetched, then lists it again', async () => {
+    const { daemon } = daemonWithAccount();
+    let downloaded = false;
+    daemon.handle('listStickerPacks', () => ({
+      result: downloaded ? [fetched('aa01', 'Apples')] : [bare('aa01')],
+    }));
+    daemon.handle('getSticker', () => {
+      downloaded = true;
+      return { result: { data: 'aGVsbG8=' } };
+    });
+    const { backend } = await connected({ daemon });
+    const packs = await backend.listStickerPacks();
+    expect(packs.map((p) => p.title)).toEqual(['Apples']);
+    expect(daemon.callsTo('getSticker')).toEqual([
+      { account: SELF_ACI, packId: 'aa01', stickerId: 0 },
+    ]);
+    expect(daemon.callsTo('listStickerPacks')).toHaveLength(2);
+    await backend.disconnect();
+  });
+
+  it('still downloads when the daemon throws after storing the pack (pre-0020)', async () => {
+    const { daemon } = daemonWithAccount();
+    let downloaded = false;
+    daemon.handle('listStickerPacks', () => ({
+      result: downloaded ? [fetched('aa01', 'Apples')] : [bare('aa01')],
+    }));
+    daemon.handle('getSticker', () => {
+      downloaded = true;
+      return { error: { code: -1, message: 'File not found' } };
+    });
+    const { backend } = await connected({ daemon });
+    expect((await backend.listStickerPacks()).map((p) => p.title)).toEqual(['Apples']);
+    await backend.disconnect();
+  });
+
+  it('omits a pack it cannot read instead of failing, and never installs anything', async () => {
+    const { daemon } = daemonWithAccount();
+    daemon.reply('listStickerPacks', [bare('aa01'), fetched('bb02', 'Zebras')]);
+    daemon.handle('getSticker', () => ({ error: { code: -1, message: 'nope' } }));
+    const { backend } = await connected({ daemon });
+    expect((await backend.listStickerPacks()).map((p) => p.title)).toEqual(['Zebras']);
+    expect(daemon.callsTo('addStickerPack')).toEqual([]);
+    // A pack that can't be downloaded is tried once per session, not on every open.
+    expect((await backend.listStickerPacks()).map((p) => p.title)).toEqual(['Zebras']);
+    expect(daemon.callsTo('getSticker')).toHaveLength(1);
+    await backend.disconnect();
+  });
+
+  it('sends a sticker as packId:stickerId with no text, honouring a quote', async () => {
+    const { daemon } = daemonWithAccount();
+    const { backend } = await connected({ daemon });
+    await backend.send({
+      conversationId: GROUP,
+      body: '',
+      ranges: [],
+      sticker: { packId: 'aa01', stickerId: 3, emoji: '😀', url: 'data:ignored' },
+      quote: { authorId: ALICE, sentAt: T0, text: 'hi' },
+    });
+    const [call] = daemon.callsTo('send');
+    expect(call).toMatchObject({
+      sticker: 'aa01:3',
+      message: '',
+      quoteTimestamp: T0,
+      quoteAuthor: ALICE,
+    });
+    expect(JSON.stringify(call)).not.toContain('data:ignored');
+    expect(call).not.toHaveProperty('attachment');
+    await backend.disconnect();
+  });
+
+  it('refuses a malformed sticker without calling the daemon', async () => {
+    const { daemon } = daemonWithAccount();
+    const { backend } = await connected({ daemon });
+    await expect(
+      backend.send({
+        conversationId: GROUP,
+        body: '',
+        ranges: [],
+        sticker: { packId: 'not hex; --message x', stickerId: 1 },
+      }),
+    ).rejects.toBeInstanceOf(SignalCliError);
+    expect(daemon.callsTo('send')).toEqual([]);
+    await backend.disconnect();
+  });
+});
+
 describe('SignalCliBackend + SyncService', () => {
   it('delivers streamed envelopes into the stores end to end', async () => {
     const { backend, daemon, scheduler, storage } = setup();

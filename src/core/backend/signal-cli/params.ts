@@ -55,6 +55,8 @@ export interface MessageParamsInput {
   customEmoji?: SendInput['customEmoji'];
   /** The link preview to attach; `image`, if any, is already a data URI. */
   preview?: { url: string; title: string; description?: string; image?: string };
+  /** `packIdHex:stickerId` (see `stickerParam`). */
+  sticker?: string;
 }
 
 export function messageParams(input: MessageParamsInput): RpcParams {
@@ -65,6 +67,7 @@ export function messageParams(input: MessageParamsInput): RpcParams {
   if (mentions.length > 0) params.mention = mentions;
   if (input.attachments && input.attachments.length > 0) params.attachment = input.attachments;
   if (input.editTimestamp !== undefined) params.editTimestamp = input.editTimestamp;
+  if (input.sticker !== undefined) params.sticker = input.sticker;
   if (input.preview) {
     params.previewUrl = input.preview.url;
     // signal-cli's `SendCommand` treats a missing title as "" rather than
@@ -90,6 +93,17 @@ export function messageParams(input: MessageParamsInput): RpcParams {
     if (qAttachments.length > 0) params.quoteAttachment = qAttachments;
   }
   return params;
+}
+
+/**
+ * signal-cli's `--sticker` syntax, `packIdHex:stickerId`. Validated here so a
+ * malformed pair fails as a clean error instead of a daemon parse failure
+ * (which would echo it back).
+ */
+export function stickerParam(packId: string, stickerId: number): string {
+  if (!/^[\da-f]+$/u.test(packId) || !Number.isSafeInteger(stickerId) || stickerId < 0)
+    throw new Error('Invalid sticker');
+  return `${packId}:${stickerId}`;
 }
 
 /**

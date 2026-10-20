@@ -20,7 +20,22 @@ export const DEFAULT_LOCAL_CONVERSATION: LocalConversationState = Object.freeze(
   archived: false,
 });
 
+/**
+ * A sticker the user sent recently, for the picker's Recent tab. Identifiers
+ * only — never a pack key or image; the image is fetched like any other.
+ */
+export interface RecentSticker {
+  /** Pack id, hex. */
+  packId: string;
+  stickerId: number;
+  emoji?: string;
+}
+
+export const MAX_RECENT_STICKERS = 24;
+
 export interface LocalData {
+  /** Stickers sent recently, newest first (the picker's Recent tab). */
+  recentStickers: RecentSticker[];
   /** Personal custom emoji (images or text emoticons), scoped to this backend/account with the rest of local data. */
   customEmoji: CustomEmoji[];
   conversations: Record<ConversationId, LocalConversationState>;
@@ -58,6 +73,8 @@ export interface LocalState extends LocalData {
   /** Empty notes are removed. */
   setNote(contactId: string, note: string): void;
   noteReactionUsed(emoji: string): void;
+  /** Moves (or adds) a sticker to the front of the recents, capped. */
+  noteStickerSent(sticker: RecentSticker): void;
   markBackfillRequested(key: string): void;
   seedDefaults(seed: LocalSeed): void;
 }
@@ -66,6 +83,7 @@ export type LocalStore = StoreApi<LocalState>;
 
 export function defaultLocalData(): LocalData {
   return {
+    recentStickers: [],
     customEmoji: [],
     conversations: {},
     contactNotes: {},
@@ -134,6 +152,18 @@ export function createLocalStore(initial: LocalData = defaultLocalData()): Local
         return { reactionUsage: Object.fromEntries(kept) };
       });
     },
+    noteStickerSent: (sticker) => {
+      const entry = parseRecentSticker(sticker);
+      if (!entry) return;
+      set((s) => ({
+        recentStickers: [
+          entry,
+          ...s.recentStickers.filter(
+            (r) => r.packId !== entry.packId || r.stickerId !== entry.stickerId,
+          ),
+        ].slice(0, MAX_RECENT_STICKERS),
+      }));
+    },
     markBackfillRequested: (key) => {
       set((s) => {
         const next = { ...s.backfillRequested, [key]: Date.now() };
@@ -182,6 +212,7 @@ export const localSelectors = {
 
 export function selectLocalData(s: LocalState): LocalData {
   return {
+    recentStickers: s.recentStickers,
     customEmoji: s.customEmoji,
     conversations: s.conversations,
     contactNotes: s.contactNotes,
@@ -217,13 +248,37 @@ export function mergeLocalData(existing: LocalData, incoming: LocalData): LocalD
       .sort((a, b) => b[1] - a[1])
       .slice(0, MAX_TRACKED_BACKFILL_REQUESTS),
   );
+  const seen = new Set<string>();
+  const recentStickers = [...existing.recentStickers, ...incoming.recentStickers]
+    .filter((r) => {
+      const key = `${r.packId}:${r.stickerId}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, MAX_RECENT_STICKERS);
   return {
+    recentStickers,
     customEmoji: parseCustomEmojiLibrary([...existing.customEmoji, ...incoming.customEmoji]),
     conversations: { ...incoming.conversations, ...existing.conversations },
     contactNotes: { ...incoming.contactNotes, ...existing.contactNotes },
     reactionUsage: trimmed,
     backfillRequested: trimmedBackfillRequested,
     seeded: existing.seeded || incoming.seeded,
+  };
+}
+
+/** A valid recent sticker or null; extra fields are dropped. */
+export function parseRecentSticker(value: unknown): RecentSticker | null {
+  if (!isRecord(value)) return null;
+  const { packId, stickerId, emoji } = value;
+  if (typeof packId !== 'string' || !/^[\da-f]{1,128}$/u.test(packId)) return null;
+  if (typeof stickerId !== 'number' || !Number.isSafeInteger(stickerId) || stickerId < 0)
+    return null;
+  return {
+    packId,
+    stickerId,
+    ...(typeof emoji === 'string' && emoji !== '' && emoji.length <= 32 ? { emoji } : {}),
   };
 }
 
@@ -273,7 +328,15 @@ export const localSchema: VersionedSchema<LocalData> = {
           backfillRequested[key] = requestedAt;
       }
     }
+    const recentStickers: RecentSticker[] = [];
+    if (Array.isArray(data.recentStickers)) {
+      for (const raw of data.recentStickers) {
+        const entry = parseRecentSticker(raw);
+        if (entry && recentStickers.length < MAX_RECENT_STICKERS) recentStickers.push(entry);
+      }
+    }
     return {
+      recentStickers,
       customEmoji: parseCustomEmojiLibrary(data.customEmoji),
       conversations,
       contactNotes,

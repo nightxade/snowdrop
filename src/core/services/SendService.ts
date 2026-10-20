@@ -41,6 +41,8 @@ import {
   type ConversationId,
   type Message,
   type MessageId,
+  type Quote,
+  type StickerContent,
 } from '@/core/domain';
 import { createNonce, type Clock } from '@/core/lib';
 import type { MessageRepository } from '@/core/persistence';
@@ -185,7 +187,7 @@ export class SendService {
     );
     if (body.trim() === '' && transformed.attachments.length === 0) return null;
 
-    const { repository, stores, clock } = this.deps;
+    const { repository, clock } = this.deps;
     const nonce = this.newNonce();
     const now = clock.now();
     const input: SendInput = {
@@ -217,7 +219,68 @@ export class SendService {
     };
     if (input.quote) optimistic.quote = input.quote;
     if (transformed.preview) optimistic.previews = [localPreview(transformed.preview, nonce)];
+    await this.stage(nonce, input, optimistic, now);
+    return nonce;
+  }
 
+  /**
+   * Sends a sticker: the message's whole content, so no text pipeline, no
+   * markdown and no attachments — only an optional quote. Same optimistic
+   * row, outbox entry, status updates and retry as any other send. Resolves
+   * with the nonce; never rejects for network errors.
+   */
+  async sendSticker(request: {
+    conversationId: ConversationId;
+    sticker: StickerContent;
+    quote?: Quote;
+  }): Promise<string> {
+    const selfId = this.selfId();
+    const { repository, clock } = this.deps;
+    const nonce = this.newNonce();
+    const now = clock.now();
+    // Only what the picker knows; never a backup attachment or anything key-shaped.
+    const sticker: StickerContent = {
+      packId: request.sticker.packId,
+      stickerId: request.sticker.stickerId,
+      ...(request.sticker.emoji ? { emoji: request.sticker.emoji } : {}),
+      ...(request.sticker.url ? { url: request.sticker.url } : {}),
+    };
+    const input: SendInput = {
+      conversationId: request.conversationId,
+      body: '',
+      ranges: [],
+      sticker,
+    };
+    if (request.quote) input.quote = request.quote;
+    const optimistic: Message = {
+      id: pendingMessageId(nonce),
+      conversationId: input.conversationId,
+      authorId: selfId,
+      sentAt: now,
+      receivedAt: now,
+      seq: await repository.allocateSeq(),
+      body: '',
+      ranges: [],
+      attachments: [],
+      reactions: [],
+      status: 'pending',
+      kind: 'normal',
+      nonce,
+      sticker,
+    };
+    if (input.quote) optimistic.quote = input.quote;
+    await this.stage(nonce, input, optimistic, now);
+    return nonce;
+  }
+
+  /** Shows the optimistic row, persists it with its outbox entry, and tries the send. */
+  private async stage(
+    nonce: string,
+    input: SendInput,
+    optimistic: Message,
+    now: number,
+  ): Promise<void> {
+    const { repository, stores } = this.deps;
     this.outgoing.set(nonce, {
       conversationId: input.conversationId,
       input,
@@ -231,7 +294,6 @@ export class SendService {
     // Row and outbox entry together, or neither: a crash can't orphan one.
     await repository.stageOutgoing(optimistic, { nonce, input, createdAt: now });
     await this.attempt(nonce);
-    return nonce;
   }
 
   /**
@@ -286,6 +348,7 @@ export class SendService {
         kind: 'normal',
         nonce: entry.nonce,
         ...(entry.input.quote ? { quote: entry.input.quote } : {}),
+        ...(entry.input.sticker ? { sticker: entry.input.sticker } : {}),
         ...(failureReason ? { failureReason } : {}),
       };
       await repository.stageOutgoing(row, entry);
@@ -365,6 +428,7 @@ export class SendService {
       nonce,
       ...(pendingRow?.seq === undefined ? {} : { seq: pendingRow.seq }),
       ...(out.input.quote ? { quote: out.input.quote } : {}),
+      ...(out.input.sticker ? { sticker: out.input.sticker } : {}),
       ...(result.preview
         ? { previews: [finalPreview(result.preview, pendingRow?.previews?.[0]) ?? result.preview] }
         : {}),

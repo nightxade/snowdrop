@@ -292,3 +292,43 @@ describe('MockBackend', () => {
     ]);
   });
 });
+
+describe('mock stickers', () => {
+  it('lists a few installed packs whose stickers render without a transport', async () => {
+    const { backend } = setup();
+    await backend.connect();
+    const packs = await backend.listStickerPacks();
+    expect(packs.length).toBeGreaterThanOrEqual(2);
+    for (const pack of packs) {
+      expect(pack.packId).toMatch(/^[\da-f]+$/u);
+      expect(pack.title).not.toBe('');
+      expect(pack.stickers.length).toBeGreaterThan(0);
+      expect(pack.cover.url).toMatch(/^data:image\/svg\+xml/u);
+      for (const s of pack.stickers) expect(s.url).toMatch(/^data:image\/svg\+xml/u);
+    }
+    expect(new Set(packs.map((p) => p.packId)).size).toBe(packs.length);
+  });
+
+  it('sends a sticker as a normal message with no text or attachments', async () => {
+    const { backend } = setup();
+    await backend.connect();
+    const conv = backend.world.conversationIds.get('dm-lucia')!;
+    const [pack] = await backend.listStickerPacks();
+    const first = pack!.stickers[0]!;
+    const sticker = { packId: pack!.packId, ...first };
+    const events = collect(backend, 'message');
+    const { sentAt } = await backend.send({
+      conversationId: conv,
+      body: '',
+      ranges: [],
+      sticker,
+    });
+    const page = await backend.fetchHistory(conv, { limit: 5 });
+    expect(page.messages.find((m) => m.sentAt === sentAt)).toMatchObject({
+      body: '',
+      attachments: [],
+      sticker,
+    });
+    expect(events).toHaveLength(0); // our own send isn't echoed as incoming
+  });
+});

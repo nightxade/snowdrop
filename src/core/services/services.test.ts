@@ -924,6 +924,93 @@ describe('SendService', () => {
     expect(await repository.listOutbox()).toEqual([]);
   });
 
+  describe('stickers', () => {
+    const sticker = { packId: 'aa01', stickerId: 2, emoji: '🙌', url: 'data:image/svg+xml,x' };
+
+    it('shows the sticker at once as a pending message, then reconciles it as a normal message', async () => {
+      const s = await setup({ latencyMs: 100 });
+      const id = s.conv('orchard-eng');
+      await s.history.open(id);
+      const promise = s.send.sendSticker({ conversationId: id, sticker });
+      await flush();
+      expect(s.stores.messages.getState().findByNonce(id, 'nonce-1')).toMatchObject({
+        id: pendingMessageId('nonce-1'),
+        status: 'pending',
+        body: '',
+        attachments: [],
+        sticker,
+      });
+      s.scheduler.advance(100);
+      await expect(promise).resolves.toBe('nonce-1');
+      expect(s.list(id).at(-1)).toMatchObject({
+        id: messageId(s.selfId, NOW + 100),
+        status: 'sent',
+        nonce: 'nonce-1',
+        body: '',
+        sticker,
+      });
+      expect(await s.repository.listOutbox()).toEqual([]);
+    });
+
+    it('carries the quote of a reply, and nothing else', async () => {
+      const s = await setup();
+      const id = s.conv('orchard-eng');
+      await s.history.open(id);
+      const quote = { authorId: s.memberOf(id), sentAt: NOW - 5, text: 'earlier' };
+      await s.send.sendSticker({ conversationId: id, sticker, quote });
+      const sent = s.list(id).at(-1)!;
+      expect(sent.quote).toEqual(quote);
+      expect(sent.sticker).toEqual(sticker);
+      expect(sent.attachments).toEqual([]);
+    });
+
+    it("sends only the picker's fields, never anything extra", async () => {
+      const s = await setup();
+      const id = s.conv('orchard-eng');
+      await s.history.open(id);
+      const sendSpy = vi.spyOn(s.backend, 'send');
+      await s.send.sendSticker({
+        conversationId: id,
+        sticker: { ...sticker, backupAttachment: { id: 'x', contentType: 'image/webp' } },
+      });
+      expect(sendSpy.mock.calls[0]?.[0].sticker).toEqual(sticker);
+    });
+
+    it('marks a failed sticker send failed, keeps it in the outbox, and retries it', async () => {
+      const s = await setup();
+      const id = s.conv('orchard-eng');
+      await s.history.open(id);
+      s.backend.failNext();
+      await s.send.sendSticker({ conversationId: id, sticker });
+      expect(s.stores.messages.getState().findByNonce(id, 'nonce-1')).toMatchObject({
+        status: 'failed',
+        sticker,
+      });
+      expect(await s.repository.listOutbox()).toMatchObject([
+        { nonce: 'nonce-1', input: { sticker } },
+      ]);
+      await s.send.retry(id, 'nonce-1');
+      expect(s.list(id).at(-1)).toMatchObject({ status: 'sent', sticker });
+    });
+
+    it('restores a sticker from the outbox after a restart as a failed, retryable message', async () => {
+      const repository = new MemoryMessageRepository();
+      const first = await setup({ repository });
+      const id = first.conv('orchard-eng');
+      first.backend.failNext();
+      await first.send.sendSticker({ conversationId: id, sticker });
+      const second = await setup({ repository });
+      await second.send.restoreOutbox();
+      await second.history.open(id);
+      expect(second.stores.messages.getState().findByNonce(id, 'nonce-1')).toMatchObject({
+        status: 'failed',
+        sticker,
+      });
+      await second.send.retry(id, 'nonce-1');
+      expect(second.list(id).at(-1)).toMatchObject({ status: 'sent', sticker });
+    });
+  });
+
   it('(10) restores the outbox after a restart as failed, retryable messages', async () => {
     const repository = new MemoryMessageRepository();
     const first = await setup({ repository });

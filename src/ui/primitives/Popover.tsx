@@ -16,6 +16,10 @@ export interface PopoverProps {
   className?: string | undefined;
   /** Remove the default padding (for popouts with edge-to-edge banners). */
   flush?: boolean;
+  /** Where focus goes on open, instead of the first focusable element. */
+  onOpenAutoFocus?: (event: Event) => void;
+  /** Where focus goes on close, instead of the trigger (call `preventDefault` first). */
+  onCloseAutoFocus?: (event: Event) => void;
 }
 
 export function Popover({
@@ -29,6 +33,8 @@ export function Popover({
   label,
   className,
   flush,
+  onOpenAutoFocus,
+  onCloseAutoFocus,
 }: PopoverProps) {
   const anchor = useRef<HTMLButtonElement | null>(null);
   return (
@@ -49,7 +55,12 @@ export function Popover({
           avoidCollisions
           collisionPadding={12}
           aria-label={label}
+          {...(onOpenAutoFocus ? { onOpenAutoFocus } : {})}
           onCloseAutoFocus={(e) => {
+            if (onCloseAutoFocus) {
+              onCloseAutoFocus(e);
+              return;
+            }
             // Back on the trigger without popping its tooltip.
             e.preventDefault();
             if (anchor.current?.isConnected) focusQuietly(anchor.current);
