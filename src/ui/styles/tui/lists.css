@@ -84,6 +84,15 @@
   border-bottom: 1px solid var(--snowdrop-pane-border);
 }
 
+/* The quick-switcher / space-title button: one row high and square, so it
+   fits inside the header instead of its standard-shell box (30px / 36px)
+   spilling over the pane's top border and the header's divider. */
+:root[data-shell='tui'] [data-snowdrop='sidebar-header'] > button {
+  min-height: 0;
+  height: var(--snowdrop-tui-row);
+  border-radius: 0;
+}
+
 :root[data-shell='tui'] [data-snowdrop='conversation-row'] {
   margin: 0;
 }
