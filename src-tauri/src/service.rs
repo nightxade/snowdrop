@@ -8,7 +8,7 @@ use serde::Serialize;
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -18,6 +18,7 @@ use crate::events::{EventLog, HeldEvent};
 use crate::external::{ExternalDaemon, StreamUpdate, CURSOR_PREFIX};
 use crate::jsonrpc::receive_payload;
 use crate::process::{Backoff, ProcessOptions, ProcessState, RpcProcess};
+use crate::startup::{self, LastConnect, LastConnectFile};
 use crate::vault_bridge::{self, VaultBridge};
 
 /// Where incoming events and stream state go (the webview, or a test).
@@ -104,6 +105,25 @@ pub struct Service {
     /// on-demand media, and the vault half of shutdown. A no-op pass-through
     /// when the vault is disabled ([`VaultBridge::disabled`]).
     vault: Arc<VaultBridge>,
+    /// What the last successful spawn-mode connect left behind, so the next
+    /// launch can start signal-cli ahead of the webview ([`prespawn`](Self::prespawn)).
+    last: LastConnectFile,
+    /// Set by the first pre-spawn attempt that gets as far as trying.
+    prespawn_tried: AtomicBool,
+    /// Set by [`stop_backend`](Self::stop_backend) (erase, sign-out, quit):
+    /// nothing may pre-spawn after that.
+    retired: AtomicBool,
+}
+
+/// What [`Service::prespawn`] did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Prespawn {
+    /// Nothing to do: no linked account on record, storage not open, already
+    /// attempted, or something else is already running.
+    Skipped,
+    Started,
+    /// signal-cli didn't come up; the frontend's own connect reports it.
+    Failed,
 }
 
 #[derive(Debug, Clone)]
@@ -138,6 +158,7 @@ impl Service {
     }
 
     pub fn with_timeouts(paths: Paths, sink: Arc<dyn EventSink>, timeouts: Timeouts, vault: Arc<VaultBridge>) -> Arc<Self> {
+        let paths_app_data_dir = paths.app_data_dir.clone();
         Arc::new_cyclic(|me| Self {
             paths,
             sink,
@@ -147,6 +168,9 @@ impl Service {
             me: me.clone(),
             timeouts,
             vault,
+            last: LastConnectFile::new(&paths_app_data_dir),
+            prespawn_tried: AtomicBool::new(false),
+            retired: AtomicBool::new(false),
         })
     }
 
@@ -197,6 +221,18 @@ impl Service {
     /// into `stop_backend` for `active` — so this lock is only ever briefly
     /// contended, never cyclically.
     pub async fn connect(&self, config: ConnectConfig) -> Result<ConnectInfo, Error> {
+        startup::mark_once("signal-cli connect requested");
+        let result = self.connect_inner(config.clone()).await;
+        if result.is_ok() {
+            self.note_connected(&config);
+            startup::mark_once("signal-cli connect done");
+        }
+        result
+    }
+
+    async fn connect_inner(&self, config: ConnectConfig) -> Result<ConnectInfo, Error> {
+        // Also what a pre-spawn in progress holds: a connect arriving
+        // meanwhile waits here, then reuses its child if the config matches.
         let mut active = self.active.lock().await;
         if let Some(current) = active.as_ref() {
             let reusable = match current {
@@ -230,10 +266,76 @@ impl Service {
         if let Some(old) = active.take() {
             self.stop_active(old).await;
         }
-        let started = self.start(config).await?;
+        let started = self.start(config.clone()).await?;
         let info = self.info(&started);
         *active = Some(started);
+        drop(active);
+        self.note_connected(&config);
         Ok(info)
+    }
+
+    /// Records a successful connect for the next launch's pre-spawn.
+    fn note_connected(&self, config: &ConnectConfig) {
+        match LastConnect::after_connect(self.last.load().as_ref(), config) {
+            Some(record) => self.last.save(&record),
+            None => self.last.clear(),
+        }
+    }
+
+    /// A `listAccounts` reply from the managed child says whether an account
+    /// is linked; only a linked one makes the record worth pre-spawning for.
+    fn note_accounts(&self, config: &ConnectConfig, reply: &Value) {
+        let Some(count) = count_accounts(reply.clone()) else { return };
+        if let Some(mut record) = LastConnect::after_connect(self.last.load().as_ref(), config) {
+            record.linked = count > 0;
+            self.last.save(&record);
+        }
+    }
+
+    /// Forgets the last connection (erase, sign-out): the next launch has
+    /// nothing to pre-spawn for.
+    pub fn forget_last_connect(&self) {
+        self.last.clear();
+    }
+
+    /// Starts signal-cli ahead of the frontend's own `connect`, with the
+    /// config the last successful spawn-mode connect used — the frontend's
+    /// connect then finds it running and reuses it (equal config), which
+    /// takes the JVM start out of the boot's critical path.
+    ///
+    /// Only when an account was linked last time and storage is open (or the
+    /// vault is disabled) — never for an external daemon, onboarding, or a
+    /// locked/unset storage; the unlock commands call this again once storage
+    /// opens. One attempt per process. Single-flight with `connect`/`restart`:
+    /// it holds `active` for the whole start, so a connect arriving
+    /// mid-pre-spawn waits for it, and a different config replaces it as it
+    /// would any child. A failure is logged (kind only) and otherwise silent:
+    /// the frontend's connect starts from scratch and reports errors itself.
+    pub async fn prespawn(&self) -> Prespawn {
+        if self.retired.load(Ordering::SeqCst) {
+            return Prespawn::Skipped;
+        }
+        let Some(config) = self.last.load().and_then(|last| last.prespawn_config()) else {
+            return Prespawn::Skipped;
+        };
+        if !self.vault.ready_to_spawn() || self.prespawn_tried.swap(true, Ordering::SeqCst) {
+            return Prespawn::Skipped;
+        }
+        let mut active = self.active.lock().await;
+        // Erase/sign-out/quit may have stopped the backend while this waited.
+        if self.retired.load(Ordering::SeqCst) || active.is_some() {
+            return Prespawn::Skipped;
+        }
+        match self.start(config).await {
+            Ok(started) => {
+                *active = Some(started);
+                Prespawn::Started
+            }
+            Err(e) => {
+                log::info!(target: "rust:startup", "pre-spawn didn't come up ({:?})", e.kind);
+                Prespawn::Failed
+            }
+        }
     }
 
     fn info(&self, active: &Active) -> ConnectInfo {
@@ -267,6 +369,7 @@ impl Service {
                 // and the vault applies, or `paths.data_dir` unchanged when
                 // it's disabled (docs/ENCRYPTION.md, "signal-cli vault").
                 let config_dir = self.vault.spawn_config_dir(&self.paths.data_dir)?;
+                startup::mark_once("storage restored");
                 std::fs::create_dir_all(&config_dir)
                     .map_err(|e| Error::new(ErrorKind::Internal, format!("Couldn't create {}: {e}", config_dir.display())))?;
                 // Keys and message history live here; no other local account should read them.
@@ -291,9 +394,11 @@ impl Service {
                     }
                 });
                 let process = Arc::new(RpcProcess::start(options, on_notification, on_state));
+                startup::mark_once("signal-cli spawned");
                 process.wait_running(self.timeouts.start).await?;
                 // signal-cli answers once it has loaded its accounts.
                 let reply = process.request("version", None, self.timeouts.first_answer).await?;
+                startup::mark_once("signal-cli answering");
                 let version = reply.pointer("/result/version").and_then(Value::as_str).map(str::to_owned);
                 log::info!("signal-cli {} running from {} ({:?})", version.as_deref().unwrap_or("?"), binary.path.display(), binary.source);
                 Ok(Active::Child { config, process, binary, version })
@@ -327,6 +432,9 @@ impl Service {
     /// never sync as part of an erase). [`shutdown`](Self::shutdown) is this
     /// plus the vault's own stop, in that order.
     pub async fn stop_backend(&self) {
+        // Before taking `active`, so a pre-spawn waiting on it gives up
+        // instead of starting a child right after this stopped the last one.
+        self.retired.store(true, Ordering::SeqCst);
         let active = self.active.lock().await.take();
         if let Some(active) = active {
             self.stop_active(active).await;
@@ -359,10 +467,17 @@ impl Service {
         let active = self.active.lock().await;
         let result = match active.as_ref() {
             None => Err(Error::new(ErrorKind::Unreachable, "signal-cli isn't connected yet.")),
-            Some(Active::Child { process, .. }) => {
+            Some(Active::Child { process, config, .. }) => {
                 let process = process.clone();
+                let config = config.clone();
                 drop(active);
-                process.request(method, params.as_ref(), timeout).await
+                let result = process.request(method, params.as_ref(), timeout).await;
+                if method == "listAccounts" {
+                    if let Ok(reply) = &result {
+                        self.note_accounts(&config, reply);
+                    }
+                }
+                result
             }
             Some(Active::External { daemon, .. }) => {
                 let daemon = daemon.clone();

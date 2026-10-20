@@ -5,3 +5,4 @@ export * from './log';
 export * from './observable';
 export * from './nonce';
 export * from './text';
+export * from './startup';

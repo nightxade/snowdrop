@@ -8,7 +8,8 @@ use snowdrop_lib::config::ConnectConfig;
 use snowdrop_lib::error::ErrorKind;
 use snowdrop_lib::events::HeldEvent;
 use snowdrop_lib::process::{Backoff, ProcessOptions, ProcessState, RpcProcess};
-use snowdrop_lib::service::{EventSink, Paths, Service, StreamState, Timeouts};
+use snowdrop_lib::service::{EventSink, Paths, Prespawn, Service, StreamState, Timeouts};
+use snowdrop_lib::startup::{LastConnect, LastConnectFile};
 use snowdrop_lib::vault_bridge::VaultBridge;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
@@ -567,4 +568,184 @@ async fn connect_and_erase_run_concurrently_without_deadlocking() {
     })
     .await
     .expect("connect and erase must both finish without deadlocking");
+}
+
+// ── Pre-spawn: starting signal-cli ahead of the frontend's own connect ──
+
+fn starts(dir: &Path) -> usize {
+    std::fs::read_to_string(dir.join("fake.starts")).map(|s| s.lines().count()).unwrap_or(0)
+}
+
+fn pid(dir: &Path) -> String {
+    std::fs::read_to_string(dir.join("fake.pid")).unwrap()
+}
+
+fn record(linked: bool) -> LastConnect {
+    LastConnect { binary_path: Some(fake().display().to_string()), linked }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_spawn_connect_is_remembered_and_listing_an_account_marks_it_linked() {
+    require_node!();
+    let dir = temp_dir("prespawn-persist");
+    let svc = service(&dir, Arc::new(Recorder::default()));
+    let file = LastConnectFile::new(&dir);
+    assert_eq!(file.load(), None);
+
+    svc.connect(spawn_config()).await.unwrap();
+    assert_eq!(file.load(), Some(record(false)), "connected, but nothing says an account is linked yet");
+
+    svc.request("listAccounts", None, Duration::from_secs(5)).await.unwrap();
+    assert_eq!(file.load(), Some(record(true)));
+
+    // Naming an account (a phone number) is never written down: the record goes instead.
+    let named = ConnectConfig::Spawn { binary_path: Some(fake().display().to_string()), account: Some("+15550001".into()) };
+    svc.connect(named).await.unwrap();
+    assert_eq!(file.load(), None);
+    svc.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_account_that_disappears_is_no_longer_linked() {
+    require_node!();
+    let dir = temp_dir("prespawn-unlinked");
+    std::fs::write(dir.join("fake.json"), r#"{"accounts":[]}"#).unwrap();
+    let svc = service(&dir, Arc::new(Recorder::default()));
+    LastConnectFile::new(&dir).save(&record(true));
+    svc.connect(spawn_config()).await.unwrap();
+    svc.request("listAccounts", None, Duration::from_secs(5)).await.unwrap();
+    assert_eq!(LastConnectFile::new(&dir).load(), Some(record(false)));
+    svc.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_external_connect_clears_the_record() {
+    require_node!();
+    let dir = temp_dir("prespawn-external");
+    LastConnectFile::new(&dir).save(&record(true));
+    let (url, _seen) = http_daemon();
+    let svc = service(&dir, Arc::new(Recorder::default()));
+    svc.connect(ConnectConfig::External { url }).await.unwrap();
+    assert_eq!(LastConnectFile::new(&dir).load(), None);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn prespawn_only_runs_for_a_linked_account_with_storage_open() {
+    require_node!();
+    // No record at all (onboarding, or a first launch).
+    let dir = temp_dir("prespawn-none");
+    let svc = service(&dir, Arc::new(Recorder::default()));
+    assert_eq!(svc.prespawn().await, Prespawn::Skipped);
+    assert_eq!(starts(&dir), 0);
+
+    // Connected before, but no account was ever linked.
+    LastConnectFile::new(&dir).save(&record(false));
+    assert_eq!(svc.prespawn().await, Prespawn::Skipped);
+    assert_eq!(starts(&dir), 0);
+
+    // Linked, but storage is locked (or needs setup): never spawn.
+    LastConnectFile::new(&dir).save(&record(true));
+    let locked = Service::with_timeouts(
+        Paths { app_data_dir: dir.clone(), data_dir: dir.clone(), bundled: None },
+        Arc::new(Recorder::default()),
+        Timeouts { backoff: fast_backoff(), grace: Duration::from_secs(2), ..Timeouts::default() },
+        VaultBridge::new(false, Box::new(|| false), Box::new(|| None)).0,
+    );
+    assert_eq!(locked.prespawn().await, Prespawn::Skipped);
+    assert_eq!(starts(&dir), 0);
+
+    // Linked and open: starts. (Once the lock is a no-op, same as `service`.)
+    assert_eq!(svc.prespawn().await, Prespawn::Started);
+    assert_eq!(starts(&dir), 1);
+    svc.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failed_prespawn_is_silent_and_the_real_connect_still_reports() {
+    let dir = temp_dir("prespawn-fails");
+    let missing = LastConnect { binary_path: Some(dir.join("no-such-signal-cli").display().to_string()), linked: true };
+    LastConnectFile::new(&dir).save(&missing);
+    let svc = service(&dir, Arc::new(Recorder::default()));
+    assert_eq!(svc.prespawn().await, Prespawn::Failed);
+    // Same error a connect without any pre-spawn gets.
+    let error = svc.connect(missing.prespawn_config().unwrap()).await.unwrap_err();
+    assert_eq!(error.kind, ErrorKind::Config);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn connect_reuses_the_prespawned_child() {
+    require_node!();
+    let dir = temp_dir("prespawn-reuse");
+    LastConnectFile::new(&dir).save(&record(true));
+    let svc = service(&dir, Arc::new(Recorder::default()));
+    assert_eq!(svc.prespawn().await, Prespawn::Started);
+    let pre = pid(&dir);
+    svc.connect(spawn_config()).await.unwrap();
+    assert_eq!(pid(&dir), pre);
+    assert_eq!(starts(&dir), 1);
+    svc.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_different_config_replaces_the_prespawned_child() {
+    require_node!();
+    let dir = temp_dir("prespawn-replace");
+    LastConnectFile::new(&dir).save(&record(true));
+    let svc = service(&dir, Arc::new(Recorder::default()));
+    assert_eq!(svc.prespawn().await, Prespawn::Started);
+    let pre = pid(&dir);
+    let other = ConnectConfig::Spawn { binary_path: Some(fake().display().to_string()), account: Some("+15550001".into()) };
+    svc.connect(other).await.unwrap();
+    assert_ne!(pid(&dir), pre);
+    assert_eq!(starts(&dir), 2);
+    assert!(!PathBuf::from(format!("/proc/{}", pre.trim())).exists(), "the replaced child must have stopped");
+    svc.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_connect_racing_a_prespawn_shares_one_child() {
+    require_node!();
+    for (round, connect_first) in [false, true].into_iter().enumerate() {
+        let dir = temp_dir(&format!("prespawn-race-{round}"));
+        LastConnectFile::new(&dir).save(&record(true));
+        let svc = service(&dir, Arc::new(Recorder::default()));
+        let (a, b) = (svc.clone(), svc.clone());
+        let pre = tokio::spawn(async move { a.prespawn().await });
+        if connect_first {
+            // Let the connect take the lock first.
+            let connect = tokio::spawn(async move { b.connect(spawn_config()).await });
+            tokio::time::sleep(Duration::from_millis(1)).await;
+            connect.await.unwrap().unwrap();
+        } else {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+            b.connect(spawn_config()).await.unwrap();
+        }
+        pre.await.unwrap();
+        assert_eq!(starts(&dir), 1, "one signal-cli, however the two interleaved");
+        let reply = svc.request("version", None, Duration::from_secs(5)).await.unwrap();
+        assert!(reply["result"]["version"].is_string());
+        svc.shutdown().await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn erase_and_sign_out_stop_a_prespawned_child_and_nothing_starts_after() {
+    require_node!();
+    let dir = temp_dir("prespawn-erase");
+    LastConnectFile::new(&dir).save(&record(true));
+    let svc = service(&dir, Arc::new(Recorder::default()));
+    assert_eq!(svc.prespawn().await, Prespawn::Started);
+    let pre = pid(&dir);
+    assert!(PathBuf::from(format!("/proc/{}", pre.trim())).exists());
+
+    // The same two calls `lib.rs`'s erase hook (shared by sign-out) makes.
+    svc.forget_last_connect();
+    svc.stop_backend().await;
+    assert!(!PathBuf::from(format!("/proc/{}", pre.trim())).exists(), "the pre-spawned child must have stopped");
+    assert_eq!(LastConnectFile::new(&dir).load(), None);
+
+    // Even a record written again afterwards can't start one in this process.
+    LastConnectFile::new(&dir).save(&record(true));
+    assert_eq!(svc.prespawn().await, Prespawn::Skipped);
+    assert_eq!(starts(&dir), 1);
 }

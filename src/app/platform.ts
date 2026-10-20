@@ -4,7 +4,7 @@
  * build and the tests never load `@tauri-apps/*`.
  */
 import type { DesktopAdmin, OutgoingLinkPreview, StorageAdmin } from '@/core/backend';
-import { addLogSink, createLogger, type LogAdmin } from '@/core/lib';
+import { addLogSink, createLogger, setStartupSink, type LogAdmin } from '@/core/lib';
 import type { NotificationApi } from '@/core/services';
 import { isTauri } from '@/platform/detect';
 import type { LastIpcCommand } from '@/platform/tauri';
@@ -184,6 +184,16 @@ function installDesktopLogSink(): void {
         })
         .catch(() => {});
     },
+  });
+  // Startup phase timing is always sent (at info, so it only reaches the log
+  // under `SNOWDROP_LOG=info` or verbose logging) — not gated on the
+  // verbose toggle, which the persisted setting only applies much later.
+  setStartupSink((name, elapsedMs) => {
+    void platform()
+      .then((m) => {
+        m.sendFrontendLog('info', 'startup', `${name} at ${elapsedMs} ms`);
+      })
+      .catch(() => {});
   });
 }
 

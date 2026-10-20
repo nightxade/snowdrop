@@ -23,6 +23,7 @@ pub mod redact;
 pub mod secrets;
 pub mod service;
 pub mod signal_cli_install;
+pub mod startup;
 pub mod storage;
 pub mod tray;
 pub mod vault;
@@ -130,6 +131,7 @@ pub fn maybe_run_as_gstreamer_warmup_child() {
 }
 
 pub fn run() {
+    startup::begin();
     #[cfg(target_os = "linux")]
     {
         appimage::fix_gstreamer_scanner();
@@ -196,6 +198,7 @@ pub fn run() {
             let mut storage_service =
                 storage::StorageService::new(storage_paths, secrets::KeyringStore::new(), Box::new(vault::resolve_runtime_dir));
             storage_service.setup()?;
+            startup::mark("storage setup done");
 
             // The signal-cli vault bridge (docs/ENCRYPTION.md, "signal-cli
             // vault"; task 4b): reaches the storage service it's managed
@@ -227,6 +230,7 @@ pub fn run() {
             let service_for_erase = service.clone();
             let vault_for_erase = vault.clone();
             storage_service.add_on_erase(move || {
+                service_for_erase.forget_last_connect();
                 tauri::async_runtime::block_on(service_for_erase.stop_backend());
                 vault_for_erase.discard();
             });
@@ -241,6 +245,16 @@ pub fn run() {
             // borrows a fresh one.)
             app.manage(Arc::new(std::sync::Mutex::new(tray::init(app.handle()))));
             app.manage(Arc::new(tray::CloseToTray::new()));
+            // Everything the vault bridge reaches through `AppHandle` is
+            // managed now. With storage already open (the keyring unlocked it
+            // silently) and an account linked last time, start signal-cli
+            // while the webview is still loading; otherwise the unlock
+            // commands do this once storage opens (`commands::kick_prespawn`).
+            let service_for_prespawn = app.state::<Arc<Service>>().inner().clone();
+            tauri::async_runtime::spawn(async move {
+                service_for_prespawn.prespawn().await;
+            });
+            startup::mark("setup complete");
             Ok(())
         })
         .on_window_event(|window, event| {

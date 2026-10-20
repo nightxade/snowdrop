@@ -1,6 +1,7 @@
 import { Inbox } from 'lucide-react';
-import { Fragment, useId, useState } from 'react';
+import { Fragment, useEffect, useId, useState } from 'react';
 import { useStore } from 'zustand';
+import { markStartup } from '@/core/lib';
 import { HOME, sessionSelectors, type HomeSection } from '@/core/stores';
 import { useInView, useRovingFocus, useStores } from '@/ui/hooks';
 import { EmptyState, Scroller, Skeleton } from '@/ui/primitives';
@@ -31,6 +32,9 @@ export function ConversationList() {
   const baseId = useId();
   const drop = useCategoryDrop(space);
   const viewsById = useStore(stores.conversations, (s) => s.byId);
+  useEffect(() => {
+    if (ready) markStartup('conversation list shown');
+  }, [ready]);
 
   if (!ready) return <ListSkeleton />;
 

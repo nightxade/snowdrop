@@ -302,6 +302,20 @@ fn with_live_vault_disabled(mut status: StorageStatus, service: &Service) -> Sto
     status
 }
 
+/// Storage just became (or is) open: start signal-cli now if it was linked
+/// last time (`Service::prespawn`; a no-op otherwise, and after the first
+/// attempt). Runs on the async runtime so the storage command doesn't wait
+/// for it, and never with storage's lock held.
+fn kick_prespawn(app: &AppHandle, status: &StorageStatus) {
+    if status.state != "unlocked" {
+        return;
+    }
+    let service = app.state::<Arc<Service>>().inner().clone();
+    tauri::async_runtime::spawn(async move {
+        service.prespawn().await;
+    });
+}
+
 /// `storage_status`/`storage_setup`/`storage_unlock`/.../`storage_sign_out`
 /// below all take `app: AppHandle` rather than a `State<Mutex<...>>`
 /// parameter: the actual work (Argon2 hashing, keyring/D-Bus calls, file
@@ -317,7 +331,10 @@ pub async fn storage_status(app: AppHandle) -> StorageStatus {
         let storage = app.state::<Mutex<StorageService>>();
         let service = app.state::<Arc<Service>>();
         let mut storage = storage.lock().expect("storage lock");
-        with_live_vault_disabled(storage.status(), &service)
+        let status = storage.status();
+        drop(storage);
+        kick_prespawn(&app, &status);
+        with_live_vault_disabled(status, &service)
     })
     .await
     .expect("storage_status: blocking task panicked")
@@ -354,6 +371,8 @@ pub async fn storage_unlock(
         let service = app.state::<Arc<Service>>();
         let mut storage = storage.lock().expect("storage lock");
         let status = storage.unlock(method, &secret, remember)?;
+        drop(storage);
+        kick_prespawn(&app, &status);
         Ok(with_live_vault_disabled(status, &service))
     })
     .await

@@ -8,7 +8,7 @@
 import { LoaderCircle } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { StorageAdmin, StorageStatus } from '@/core/backend';
-import { createLogger } from '@/core/lib';
+import { createLogger, markStartup } from '@/core/lib';
 import { fromBase64, webCryptoCipher } from '@/core/persistence';
 
 const log = createLogger('storage');
@@ -86,6 +86,7 @@ export function StorageGate({ admin, document, children }: StorageGateProps) {
       .then((keyBase64) => webCryptoCipher(fromBase64(keyBase64)))
       .then((cipher) => createPersistence({ cipher }))
       .then((persistence) => {
+        markStartup('storage opened');
         setPhase({ kind: 'ready', persistence });
       })
       .catch((error: unknown) => {
@@ -128,6 +129,7 @@ export function StorageGate({ admin, document, children }: StorageGateProps) {
       });
 
   useEffect(() => {
+    markStartup('first render');
     if (document) applyBootAppearance(document);
     void checkStatus();
     // Intentionally runs once: every later transition comes from a screen

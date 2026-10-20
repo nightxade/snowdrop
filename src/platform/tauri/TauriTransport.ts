@@ -17,7 +17,7 @@ import {
   type SignalCliTransport,
   type TransportCallOptions,
 } from '@/core/backend/signal-cli';
-import { createLogger } from '@/core/lib';
+import { createLogger, markStartup } from '@/core/lib';
 import type { DesktopConnection } from '@/core/stores';
 import {
   asCommandError,
@@ -124,8 +124,10 @@ export class TauriTransport implements SignalCliTransport {
   }
 
   async check(_options: TransportCallOptions): Promise<void> {
+    markStartup('signal-cli connect called');
     try {
       await this.ipc.invoke('signal_cli_connect', { config: this.config });
+      markStartup('signal-cli connect returned');
     } catch (error) {
       throw toSignalCliError(error);
     }

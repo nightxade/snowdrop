@@ -149,6 +149,20 @@ impl VaultBridge {
         Ok(dir)
     }
 
+    /// Whether a managed child could be spawned right now without asking the
+    /// user for anything: the vault is disabled, or its session is already
+    /// built, or storage is unlocked. `false` once erased. Used only to decide
+    /// whether to pre-spawn (`Service::prespawn`); it never builds a session.
+    pub fn ready_to_spawn(&self) -> bool {
+        if self.inner.disabled {
+            return true;
+        }
+        if self.inner.erased.load(Ordering::SeqCst) {
+            return false;
+        }
+        self.cached_runtime_dir().is_some() || (self.inner.is_unlocked)()
+    }
+
     fn cached_runtime_dir(&self) -> Option<PathBuf> {
         self.inner.session.lock().expect("vault session lock").as_ref().map(|s| s.runtime_dir().to_path_buf())
     }
