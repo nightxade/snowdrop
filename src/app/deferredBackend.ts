@@ -34,6 +34,7 @@ export const OPTIONAL_METHODS = [
   'listStickerPacks',
   'getStickerPack',
   'installStickerPack',
+  'requestAttachmentBackfill',
   'acknowledge',
   'link',
   'syncContactsAndGroups',
@@ -194,6 +195,16 @@ export function deferredBackend(
       call((b) => (b.installStickerPack ? b.installStickerPack(s) : missing('installStickerPack')));
     // Known only once the adapter has connected and read signal-cli's version.
     backend.supportsStickerPackInstall = () => real?.supportsStickerPackInstall?.() ?? false;
+  }
+  if (caps.has('requestAttachmentBackfill')) {
+    backend.requestAttachmentBackfill = (c, author, sentAt, ids) =>
+      call((b) =>
+        b.requestAttachmentBackfill
+          ? b.requestAttachmentBackfill(c, author, sentAt, ids)
+          : missing('requestAttachmentBackfill'),
+      );
+    // Known only once the adapter has connected and read signal-cli's version.
+    backend.supportsAttachmentBackfill = () => real?.supportsAttachmentBackfill?.() ?? false;
   }
   if (caps.has('acknowledge'))
     backend.acknowledge = (cursor) => {

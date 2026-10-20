@@ -117,4 +117,24 @@ describe('deferredBackend', () => {
     expect(deferred.supportsStickerPackInstall?.()).toBe(true);
     expect(await deferred.getStickerPack!(sticker)).toBe(details);
   });
+
+  it('forwards attachment backfill and reports its support only once the adapter is known', async () => {
+    let resolve!: (b: ChatBackend) => void;
+    const ready = new Promise<ChatBackend>((r) => {
+      resolve = r;
+    });
+    const deferred = deferredBackend('signal-cli', new Set(['requestAttachmentBackfill']), ready);
+    expect(deferred.supportsAttachmentBackfill?.()).toBe(false);
+    const request = vi.fn(() => Promise.resolve());
+    const real = {
+      kind: 'signal-cli',
+      supportsAttachmentBackfill: () => true,
+      requestAttachmentBackfill: request,
+    } as unknown as ChatBackend;
+    const pending = deferred.requestAttachmentBackfill!('conv' as never, 'author', 5, ['a1']);
+    resolve(real);
+    await pending;
+    expect(request).toHaveBeenCalledWith('conv', 'author', 5, ['a1']);
+    expect(deferred.supportsAttachmentBackfill?.()).toBe(true);
+  });
 });

@@ -146,6 +146,7 @@ const mockBackend: BackendRegistration = {
     'listStickerPacks',
     'getStickerPack',
     'installStickerPack',
+    'requestAttachmentBackfill',
   ]),
   // The world is regenerated relative to "now" on each launch; persisting it would mix timelines.
   history: { kind: 'memory' },
@@ -226,6 +227,7 @@ const signalCliBackend: BackendRegistration = {
     'listStickerPacks',
     'getStickerPack',
     'installStickerPack',
+    'requestAttachmentBackfill',
     'acknowledge',
     'link',
     'syncContactsAndGroups',
