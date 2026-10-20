@@ -206,3 +206,31 @@
   outline: 1px solid var(--snowdrop-accent-text);
   outline-offset: -1px;
 }
+
+/*
+ * The sticker pack dialog (StickerPackDialog.module.css; a Radix modal, so
+ * already a bordered `[role='dialog']`) and the custom emoji card (popover or
+ * dialog): square everything, outlined cells instead of filled tiles, and the
+ * Install button in the dialog's footer squared like the rest.
+ */
+:root[data-shell='tui'] [data-snowdrop='sticker-pack'] *,
+:root[data-shell='tui'] [data-snowdrop='custom-emoji-card'] *,
+:root[data-shell='tui'] [role='dialog']:has([data-snowdrop='sticker-pack']) footer * {
+  border-radius: 0;
+  box-shadow: none;
+}
+
+:root[data-shell='tui'] [data-snowdrop='sticker-pack'] li {
+  border: 1px solid var(--snowdrop-pane-border);
+  background: none;
+}
+
+:root[data-shell='tui'] [data-snowdrop='custom-emoji-card'] > div:first-child > span {
+  border: 1px solid var(--snowdrop-pane-border);
+  background: none;
+}
+
+:root[data-shell='tui'] [data-snowdrop='custom-emoji-card'] input:focus-visible {
+  outline: 1px solid var(--snowdrop-accent-text);
+  outline-offset: -1px;
+}

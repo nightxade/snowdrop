@@ -201,6 +201,28 @@ browser checks cover archive paging, media viewing, notification suppression,
 read-time expiration, and continuing after a history-transfer failure. These
 checks do not verify a real phone transfer or real attachment CDN availability.
 
+## Sticker packs: install one from a received sticker
+
+Clicking a received sticker (or its "View sticker pack" menu item) opens a dialog with the
+pack's cover, title, author and every sticker, and an Install button. Installing is the user's own
+explicit action and, like Signal's own "Install", is synced to their phone; nothing is ever
+installed implicitly. The pack key never reaches the TypeScript side: Snowdrop names the pack
+by its hex id (`installKnownStickerPack`, patch 0021) and signal-cli looks the key up in its own
+sticker store, where a live-received sticker or a history sticker (patch 0019, registered first)
+has already put it. On a build without 0021 (`supportsStickerPackInstall` is false, patch level
+below 17) the dialog still shows the pack, with Install disabled and a note. After an install the
+composer's sticker picker lists the pack without a restart.
+
+## Custom emoji from other people
+
+An emoji someone else delivered with a message (see below) can be added to your own collection:
+click it inline in their message (or use the message's "Add :name: to my emoji" menu item). The
+image is read through the same `getAttachment` path (`readAttachmentBlob`: bytes, not a `blob:` URL,
+which the app's CSP can't fetch) and goes through exactly the checks of an image picked in
+Settings → Custom emoji: at most 256 KB, PNG/JPEG/GIF/WebP, at most 1024 × 1024 pixels, a valid name,
+and a free slot. If the name is taken by a _different_ image, the card offers a rename (never an
+overwrite); if the same image is already in the collection, it says so. Nothing is uploaded or sent.
+
 ## Custom emoji: `:name:` text, with Snowdrop-to-Snowdrop delivery on a patched signal-cli
 
 Custom emoji (Settings → Custom emoji, or the composer's "My emoji" tab) are typed or

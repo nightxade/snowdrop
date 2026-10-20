@@ -1294,6 +1294,202 @@ describe('SignalCliBackend sticker packs', () => {
   });
 });
 
+describe('SignalCliBackend installing a sticker pack from a sticker', () => {
+  const KEY = 'c0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ff';
+  const stickers = [
+    { id: 0, emoji: '😀', contentType: 'image/webp' },
+    { id: 1, emoji: null, contentType: 'image/webp' },
+  ];
+  const pack = (packId: string, installed: boolean, withStickers = true) => ({
+    packId,
+    url: `https://signal.art/addstickers/#pack_id=${packId}&pack_key=${KEY}`,
+    installed,
+    title: withStickers ? 'Winter' : '',
+    author: withStickers ? 'Someone' : '',
+    cover: withStickers ? stickers[1] : null,
+    stickers: withStickers ? stickers : [],
+  });
+  const live = { packId: 'ab12', stickerId: 1 };
+  const history = {
+    packId: 'ab12',
+    stickerId: 1,
+    backupAttachment: { id: 'history:snapshot:5:sticker:0', contentType: 'image/webp' },
+  };
+
+  async function backendAt(version: string) {
+    const { daemon } = daemonWithAccount();
+    daemon.reply('version', { version });
+    daemon.reply('getSticker', { data: 'aGVsbG8=' });
+    daemon.reply('registerHistoryStickerPack', {});
+    daemon.reply('installKnownStickerPack', { installed: true });
+    const s = await connected({ daemon });
+    return { ...s, daemon };
+  }
+
+  it('only offers installing on a build with patch 0021', async () => {
+    expect(
+      (await backendAt('0.14.8-snowdrop-history.16')).backend.supportsStickerPackInstall(),
+    ).toBe(false);
+    expect((await backendAt('0.14.8')).backend.supportsStickerPackInstall()).toBe(false);
+    const { backend } = await backendAt('0.14.8-snowdrop-history.17');
+    expect(backend.supportsStickerPackInstall()).toBe(true);
+    await backend.disconnect();
+    expect(backend.supportsStickerPackInstall()).toBe(false);
+  });
+
+  it('shows an uninstalled pack with its stickers and its install state, never the key', async () => {
+    const { backend, daemon } = await backendAt('0.14.8-snowdrop-history.17');
+    daemon.reply('listStickerPacks', [pack('ab12', false), pack('cd34', true)]);
+    const details = await backend.getStickerPack(live);
+    expect(details).toEqual({
+      packId: 'ab12',
+      title: 'Winter',
+      author: 'Someone',
+      installed: false,
+      cover: { stickerId: 1, emoji: '' },
+      stickers: [
+        { stickerId: 0, emoji: '😀' },
+        { stickerId: 1, emoji: '' },
+      ],
+    });
+    expect(JSON.stringify(details)).not.toContain(KEY);
+    expect(JSON.stringify(details)).not.toContain('signal.art');
+    expect(daemon.callsTo('installKnownStickerPack')).toEqual([]);
+    expect(daemon.callsTo('addStickerPack')).toEqual([]);
+    expect((await backend.getStickerPack({ packId: 'cd34', stickerId: 0 })).installed).toBe(true);
+    await backend.disconnect();
+  });
+
+  it('fetches a pack the account knows but has not downloaded, then lists it', async () => {
+    const { backend, daemon } = await backendAt('0.14.8-snowdrop-history.17');
+    let downloaded = false;
+    daemon.handle('getSticker', () => {
+      downloaded = true;
+      return { result: { data: 'aGVsbG8=' } };
+    });
+    daemon.handle('listStickerPacks', () => ({
+      result: [downloaded ? pack('ab12', false) : pack('ab12', false, false)],
+    }));
+    expect((await backend.getStickerPack(live)).title).toBe('Winter');
+    await backend.disconnect();
+  });
+
+  it('registers a history sticker’s pack before showing it', async () => {
+    const { backend, daemon } = await backendAt('0.14.8-snowdrop-history.17');
+    let registered = false;
+    daemon.handle('registerHistoryStickerPack', () => {
+      registered = true;
+      return { result: {} };
+    });
+    daemon.handle('getSticker', () =>
+      registered
+        ? { result: { data: 'aGVsbG8=' } }
+        : { error: { code: -1, message: 'Could not find sticker' } },
+    );
+    daemon.handle('listStickerPacks', () => ({
+      result: registered ? [pack('ab12', false)] : [],
+    }));
+    expect((await backend.getStickerPack(history)).installed).toBe(false);
+    expect(daemon.callsTo('registerHistoryStickerPack')).toEqual([
+      { account: SELF_ACI, id: 'history:snapshot:5:sticker:0' },
+    ]);
+    await backend.disconnect();
+  });
+
+  it('rejects when the pack cannot be found or fetched', async () => {
+    const { backend, daemon } = await backendAt('0.14.8-snowdrop-history.17');
+    daemon.reply('listStickerPacks', []);
+    await expect(backend.getStickerPack(live)).rejects.toBeInstanceOf(SignalCliError);
+    daemon.reply('listStickerPacks', [pack('ab12', false, false)]);
+    daemon.handle('getSticker', () => ({ error: { code: -1, message: 'nope' } }));
+    await expect(backend.getStickerPack(live)).rejects.toBeInstanceOf(SignalCliError);
+    await expect(
+      backend.getStickerPack({ packId: 'not hex; --x', stickerId: 0 }),
+    ).rejects.toBeInstanceOf(SignalCliError);
+    await backend.disconnect();
+  });
+
+  it('installs by pack id alone: the daemon looks the key up itself', async () => {
+    const { backend, daemon } = await backendAt('0.14.8-snowdrop-history.17');
+    await backend.installStickerPack(live);
+    expect(daemon.callsTo('installKnownStickerPack')).toEqual([
+      { account: SELF_ACI, packId: 'ab12' },
+    ]);
+    expect(daemon.callsTo('registerHistoryStickerPack')).toEqual([]);
+    expect(daemon.callsTo('addStickerPack')).toEqual([]);
+    expect(JSON.stringify(daemon.callsTo('installKnownStickerPack'))).not.toContain(KEY);
+    await backend.disconnect();
+  });
+
+  it('registers a history sticker’s pack first, then installs it', async () => {
+    const { backend, daemon } = await backendAt('0.14.8-snowdrop-history.17');
+    const order: string[] = [];
+    daemon.handle('registerHistoryStickerPack', () => {
+      order.push('register');
+      return { result: {} };
+    });
+    daemon.handle('installKnownStickerPack', () => {
+      order.push('install');
+      return { result: { installed: true } };
+    });
+    await backend.installStickerPack(history);
+    expect(order).toEqual(['register', 'install']);
+    await backend.disconnect();
+  });
+
+  it('does not install when the history registration fails', async () => {
+    const { backend, daemon } = await backendAt('0.14.8-snowdrop-history.17');
+    daemon.handle('registerHistoryStickerPack', () => ({ error: { code: -1, message: 'gone' } }));
+    await expect(backend.installStickerPack(history)).rejects.toThrow();
+    expect(daemon.callsTo('installKnownStickerPack')).toEqual([]);
+    await backend.disconnect();
+  });
+
+  it('refuses without calling the daemon on an older build or a malformed id', async () => {
+    const old = await backendAt('0.14.8-snowdrop-history.16');
+    await expect(old.backend.installStickerPack(live)).rejects.toBeInstanceOf(SignalCliError);
+    expect(old.daemon.callsTo('installKnownStickerPack')).toEqual([]);
+    await old.backend.disconnect();
+    const { backend, daemon } = await backendAt('0.14.8-snowdrop-history.17');
+    await expect(
+      backend.installStickerPack({ packId: 'x y', stickerId: 0 }),
+    ).rejects.toBeInstanceOf(SignalCliError);
+    expect(daemon.callsTo('installKnownStickerPack')).toEqual([]);
+    await backend.disconnect();
+  });
+
+  it('surfaces an install failure to the caller', async () => {
+    const { backend, daemon } = await backendAt('0.14.8-snowdrop-history.17');
+    daemon.handle('installKnownStickerPack', () => ({
+      error: { code: -3, message: 'Could not install the sticker pack' },
+    }));
+    await expect(backend.installStickerPack(live)).rejects.toMatchObject({ code: -3 });
+    await backend.disconnect();
+  });
+
+  it('reads an attachment’s bytes without caching a URL, and refuses a too-big one', async () => {
+    const { backend, daemon } = await backendAt('0.14.8-snowdrop-history.17');
+    daemon.reply('getAttachment', { data: 'aGVsbG8=' });
+    const attachment = { id: 'em1.png', contentType: 'image/png', size: 5 };
+    const blob = await backend.readAttachmentBlob(GROUP, attachment, { maxBytes: 100 });
+    expect(blob.size).toBe(5);
+    expect(blob.type).toBe('image/png');
+    await expect(
+      backend.readAttachmentBlob(GROUP, { ...attachment, size: 500 }, { maxBytes: 100 }),
+    ).rejects.toMatchObject({ kind: 'too-large' });
+    // An unadvertised size is checked after the read.
+    await expect(
+      backend.readAttachmentBlob(
+        GROUP,
+        { id: 'em2.png', contentType: 'image/png' },
+        { maxBytes: 2 },
+      ),
+    ).rejects.toMatchObject({ kind: 'too-large' });
+    expect(daemon.callsTo('getAttachment')).toHaveLength(2);
+    await backend.disconnect();
+  });
+});
+
 describe('SignalCliBackend + SyncService', () => {
   it('delivers streamed envelopes into the stores end to end', async () => {
     const { backend, daemon, scheduler, storage } = setup();

@@ -125,6 +125,16 @@ export interface StickerPackInfo {
   stickers: StickerPackSticker[];
 }
 
+/**
+ * A sticker pack with its install state, for the pack dialog opened from a
+ * received sticker: unlike `StickerPackInfo` (installed packs only), this may
+ * be a pack the user has never installed. Still no key and no share URL.
+ */
+export interface StickerPackDetails extends StickerPackInfo {
+  /** Whether the user has installed the pack (it shows in the picker). */
+  installed: boolean;
+}
+
 export interface EditInput {
   conversationId: ConversationId;
   /** sentAt of the *original* message (Signal edits always target the original). */
@@ -414,6 +424,18 @@ export interface ChatBackend {
   releaseAttachmentUrl?(attachment: Attachment): void;
 
   /**
+   * An attachment's bytes (uncached, no URL), for features that must inspect
+   * or re-store the file itself — adding a delivered custom emoji to the
+   * user's collection — and so can't use `resolveAttachmentUrl`'s `blob:` URL
+   * (the app's CSP forbids fetching one). `maxBytes` rejects bigger files.
+   */
+  readAttachmentBlob?(
+    conversationId: ConversationId,
+    attachment: Attachment,
+    options?: { maxBytes?: number },
+  ): Promise<Blob>;
+
+  /**
    * Turns a sticker into a renderable URL — `resolveAttachmentUrl`'s
    * counterpart, but keyed by `packId`/`stickerId` and fetched through
    * `getSticker` rather than `getAttachment` (the mock, whose stickers
@@ -436,6 +458,29 @@ export interface ChatBackend {
    * can't be read are left out rather than failing the whole list.
    */
   listStickerPacks?(): Promise<StickerPackInfo[]>;
+
+  /**
+   * The pack a sticker belongs to, with its stickers and whether it is
+   * installed, for the pack dialog. Makes the pack known and downloaded
+   * locally if it isn't yet (no install, no sync). Rejects when the pack
+   * can't be found or fetched. Never exposes a pack key.
+   */
+  getStickerPack?(sticker: StickerContent): Promise<StickerPackDetails>;
+
+  /**
+   * Whether `installStickerPack` can work against the connected backend
+   * (patches/signal-cli's "0021"); the dialog disables Install otherwise.
+   * Omitted is the same as false.
+   */
+  supportsStickerPackInstall?(): boolean;
+
+  /**
+   * Installs a sticker's pack, the way Signal's own "Install" does — and
+   * like it, the install is synced to the user's phone. Only ever called
+   * for a user's explicit click; never done implicitly. The pack key is
+   * looked up by the transport, not passed in. Rejects on failure.
+   */
+  installStickerPack?(sticker: StickerContent): Promise<void>;
 
   /** Marks a sticker's resolved URL as in use by a mounted component; pairs with `releaseStickerUrl`. */
   retainStickerUrl?(sticker: StickerContent): void;

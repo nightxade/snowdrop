@@ -62,9 +62,13 @@ const ALLOWED_METHODS: &[&str] = &[
     "getSticker",
     "registerHistoryStickerPack",
     // The sticker picker (SignalCliBackend.ts: listStickerPacks): a read-only
-    // listing of the installed packs. Never addStickerPack/uploadStickerPack
-    // or anything else that installs, uninstalls or syncs a pack.
+    // listing of the packs. Never addStickerPack/uploadStickerPack/
+    // removeStickerPack: those take a pack key or uninstall.
     "listStickerPacks",
+    // The pack dialog's explicit, user-clicked "Install" for a pack already
+    // seen in a received sticker (SignalCliBackend.ts: installStickerPack).
+    // Takes only a pack id; signal-cli looks the key up itself.
+    "installKnownStickerPack",
     // Asks the primary device to re-upload an expired history attachment
     // (SignalCliBackend.ts: requestAttachmentBackfill).
     "requestAttachmentBackfill",
@@ -653,11 +657,14 @@ mod tests {
         assert!(is_allowed_method("version"));
     }
 
-    /// The sticker picker lists installed packs and sends through `send`; it
-    /// never installs or uploads one (those sync to the phone).
+    /// The sticker picker lists packs and sends through `send`, and the pack
+    /// dialog installs a pack seen in a received sticker by id alone
+    /// (`installKnownStickerPack`); the key-taking and uninstalling methods
+    /// stay unreachable.
     #[test]
-    fn allows_listing_sticker_packs_but_not_installing_them() {
+    fn allows_listing_and_installing_a_known_pack_but_not_key_taking_methods() {
         assert!(is_allowed_method("listStickerPacks"));
+        assert!(is_allowed_method("installKnownStickerPack"));
         assert!(is_allowed_method("send"));
         for method in ["addStickerPack", "uploadStickerPack", "removeStickerPack"] {
             assert!(!is_allowed_method(method), "{method} should be rejected");

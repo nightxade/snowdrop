@@ -1,0 +1,276 @@
+diff --git a/build.gradle.kts b/build.gradle.kts
+index a2a1178..3c40675 100644
+--- a/build.gradle.kts
++++ b/build.gradle.kts
+@@ -10,7 +10,7 @@ plugins {
+ 
+ allprojects {
+     group = "org.asamk"
+-    version = "0.14.8-snowdrop-history.16"
++    version = "0.14.8-snowdrop-history.17"
+ 
+     // Snowdrop: substitute a locally-built, patched signal-service-java
+     // (snowdrop/patches/signal-service-java) for the stock turasa jar, when
+diff --git a/lib/src/main/java/org/asamk/signal/manager/Manager.java b/lib/src/main/java/org/asamk/signal/manager/Manager.java
+index ed0157c..33ca56b 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/Manager.java
++++ b/lib/src/main/java/org/asamk/signal/manager/Manager.java
+@@ -507,6 +507,16 @@ public interface Manager extends Closeable {
+      */
+     void registerHistoryStickerPack(final String id) throws IOException;
+ 
++    /**
++     * Installs a sticker pack this account already knows (a live-received or
++     * history-registered sticker's pack) without the caller ever holding its
++     * key: looks the pack up in the local sticker store, downloads it, marks it
++     * installed and syncs the install to the primary device, exactly like
++     * {@link #installStickerPack}. Throws {@link IOException} if the pack is
++     * unknown. Does nothing for a pack that is already installed.
++     */
++    void installKnownStickerPack(final StickerPackId stickerPackId) throws IOException;
++
+     // --- Voice call methods ---
+ 
+     CallInfo startCall(RecipientIdentifier.Single recipient) throws IOException, UnregisteredRecipientException;
+diff --git a/lib/src/main/java/org/asamk/signal/manager/helper/StickerHelper.java b/lib/src/main/java/org/asamk/signal/manager/helper/StickerHelper.java
+index 3adf1c9..0deedf0 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/helper/StickerHelper.java
++++ b/lib/src/main/java/org/asamk/signal/manager/helper/StickerHelper.java
+@@ -6,6 +6,7 @@ import org.asamk.signal.manager.internal.SignalDependencies;
+ import org.asamk.signal.manager.storage.SignalAccount;
+ import org.asamk.signal.manager.storage.stickerPacks.JsonStickerPack;
+ import org.asamk.signal.manager.storage.stickers.StickerPack;
++import org.asamk.signal.manager.storage.stickers.StickerStore;
+ import org.asamk.signal.manager.util.IOUtils;
+ import org.signal.core.util.Hex;
+ import org.signal.libsignal.protocol.InvalidMessageException;
+@@ -14,6 +15,7 @@ import org.slf4j.LoggerFactory;
+ 
+ import java.io.IOException;
+ import java.util.HashSet;
++import java.util.List;
+ 
+ public class StickerHelper {
+ 
+@@ -51,6 +53,39 @@ public class StickerHelper {
+         return newSticker;
+     }
+ 
++    /**
++     * Snowdrop: the stored pack for {@code packId}, or an {@link IOException}
++     * when this account has never learned of it. The pack key stays inside
++     * the store; callers only ever name a pack by id.
++     */
++    static StickerPack requireKnownPack(final StickerStore store, final StickerPackId packId) throws IOException {
++        final var pack = store.getStickerPack(packId);
++        if (pack == null) {
++            throw new IOException("Unknown sticker pack");
++        }
++        return pack;
++    }
++
++    /**
++     * Snowdrop: the user-initiated "Install" for a pack the sticker store
++     * already knows (see {@code Manager#installKnownStickerPack}). The same
++     * steps as {@code ManagerImpl#installStickerPack}, with the key taken from
++     * the store instead of a share URL. Already installed: nothing to do.
++     */
++    public void installKnownStickerPack(final StickerPackId packId) throws IOException {
++        final var known = requireKnownPack(account.getStickerStore(), packId);
++        if (known.isInstalled()) {
++            return;
++        }
++        try {
++            retrieveStickerPack(packId, known.packKey());
++        } catch (InvalidMessageException e) {
++            throw new IOException("Could not download the sticker pack", e);
++        }
++        final var sticker = addOrUpdateStickerPack(packId, known.packKey(), true);
++        context.getSyncHelper().sendStickerOperationsMessage(List.of(sticker), List.of());
++    }
++
+     public JsonStickerPack getOrRetrieveStickerPack(
+             StickerPackId packId,
+             byte[] packKey
+diff --git a/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java b/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
+index bdda22e..9cddfe6 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
++++ b/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
+@@ -2085,6 +2085,11 @@ public class ManagerImpl implements Manager {
+         }
+     }
+ 
++    @Override
++    public void installKnownStickerPack(final StickerPackId stickerPackId) throws IOException {
++        context.getStickerHelper().installKnownStickerPack(stickerPackId);
++    }
++
+     // --- Voice call methods ---
+ 
+     @Override
+diff --git a/lib/src/test/java/org/asamk/signal/manager/helper/StickerHelperTest.java b/lib/src/test/java/org/asamk/signal/manager/helper/StickerHelperTest.java
+new file mode 100644
+index 0000000..1f7aeed
+--- /dev/null
++++ b/lib/src/test/java/org/asamk/signal/manager/helper/StickerHelperTest.java
+@@ -0,0 +1,66 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.manager.helper;
++
++import org.asamk.signal.manager.api.StickerPackId;
++import org.asamk.signal.manager.storage.AccountDatabase;
++import org.asamk.signal.manager.storage.stickers.StickerPack;
++import org.asamk.signal.manager.storage.stickers.StickerStore;
++import org.junit.jupiter.api.AfterEach;
++import org.junit.jupiter.api.BeforeEach;
++import org.junit.jupiter.api.Test;
++import org.junit.jupiter.api.io.TempDir;
++
++import java.io.IOException;
++import java.nio.file.Path;
++
++import static org.junit.jupiter.api.Assertions.assertArrayEquals;
++import static org.junit.jupiter.api.Assertions.assertFalse;
++import static org.junit.jupiter.api.Assertions.assertNull;
++import static org.junit.jupiter.api.Assertions.assertThrows;
++import static org.junit.jupiter.api.Assertions.assertTrue;
++
++class StickerHelperTest {
++
++    @TempDir Path directory;
++
++    private AccountDatabase database;
++    private StickerStore store;
++
++    @BeforeEach
++    void setUp() throws Exception {
++        database = AccountDatabase.init(directory.resolve("account.db").toFile());
++        store = new StickerStore(database);
++    }
++
++    @AfterEach
++    void tearDown() {
++        database.close();
++    }
++
++    private static StickerPackId id(final int b) {
++        return StickerPackId.deserialize(new byte[]{(byte) b, 2, 3, 4});
++    }
++
++    @Test
++    void refusesAPackTheAccountNeverLearnedOf() {
++        assertThrows(IOException.class, () -> StickerHelper.requireKnownPack(store, id(1)));
++    }
++
++    @Test
++    void findsAPackRegisteredButNotInstalledAndKeepsItOffThePhoneUntilInstalled() throws Exception {
++        final var key = new byte[]{9, 8, 7, 6};
++        // The state a live-received or history-registered sticker leaves behind.
++        store.addStickerPack(new StickerPack(id(1), key));
++        final var known = StickerHelper.requireKnownPack(store, id(1));
++        assertArrayEquals(key, known.packKey());
++        assertFalse(known.isInstalled());
++        assertNull(known.storageId());
++
++        // What the install path does with it: installed, and now synced (it has a storage id).
++        store.updateStickerPackInstalled(id(1), true);
++        final var installed = StickerHelper.requireKnownPack(store, id(1));
++        assertTrue(installed.isInstalled());
++        assertFalse(installed.storageId() == null);
++        assertArrayEquals(key, installed.packKey());
++    }
++}
+diff --git a/src/main/java/org/asamk/signal/commands/Commands.java b/src/main/java/org/asamk/signal/commands/Commands.java
+index b171d76..20fa54d 100644
+--- a/src/main/java/org/asamk/signal/commands/Commands.java
++++ b/src/main/java/org/asamk/signal/commands/Commands.java
+@@ -22,6 +22,7 @@ public class Commands {
+         addCommand(new GetAvatarCommand());
+         addCommand(new GetStickerCommand());
+         addCommand(new GetUserStatusCommand());
++        addCommand(new InstallKnownStickerPackCommand());
+         addCommand(new AddStickerPackCommand());
+         addCommand(new JoinGroupCommand());
+         addCommand(new ListCallsCommand());
+diff --git a/src/main/java/org/asamk/signal/commands/InstallKnownStickerPackCommand.java b/src/main/java/org/asamk/signal/commands/InstallKnownStickerPackCommand.java
+new file mode 100644
+index 0000000..fc4ffce
+--- /dev/null
++++ b/src/main/java/org/asamk/signal/commands/InstallKnownStickerPackCommand.java
+@@ -0,0 +1,60 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.commands;
++
++import net.sourceforge.argparse4j.inf.Namespace;
++import net.sourceforge.argparse4j.inf.Subparser;
++
++import org.asamk.signal.commands.exceptions.CommandException;
++import org.asamk.signal.commands.exceptions.IOErrorException;
++import org.asamk.signal.commands.exceptions.UserErrorException;
++import org.asamk.signal.manager.Manager;
++import org.asamk.signal.manager.api.StickerPackId;
++import org.asamk.signal.output.JsonWriter;
++import org.asamk.signal.output.OutputWriter;
++import org.asamk.signal.output.PlainTextWriter;
++import org.asamk.signal.util.Hex;
++
++import java.io.IOException;
++import java.util.Map;
++
++/**
++ * Installs a sticker pack this account already knows, by pack id alone — the
++ * key never leaves signal-cli's own sticker store. The install is synced to
++ * the primary device, like {@code addStickerPack}. See
++ * {@link Manager#installKnownStickerPack} and patches/signal-cli/README.md
++ * "0021: install a known sticker pack".
++ */
++public class InstallKnownStickerPackCommand implements JsonRpcLocalCommand {
++
++    @Override
++    public String getName() {
++        return "installKnownStickerPack";
++    }
++
++    @Override
++    public void attachToSubparser(final Subparser subparser) {
++        subparser.help("Install a sticker pack this account already knows, by its pack id.");
++        subparser.addArgument("--pack-id").required(true).help("The ID of the sticker pack.");
++    }
++
++    @Override
++    public void handleCommand(
++            final Namespace ns,
++            final Manager m,
++            final OutputWriter outputWriter
++    ) throws CommandException {
++        final var rawId = ns.getString("pack-id");
++        if (rawId == null || !rawId.matches("[0-9a-fA-F]{2,128}") || rawId.length() % 2 != 0) {
++            throw new UserErrorException("Invalid sticker pack id");
++        }
++        try {
++            m.installKnownStickerPack(StickerPackId.deserialize(Hex.toByteArray(rawId)));
++        } catch (IOException ex) {
++            throw new IOErrorException("Could not install the sticker pack", ex);
++        }
++        switch (outputWriter) {
++            case PlainTextWriter writer -> writer.println("Installed");
++            case JsonWriter writer -> writer.write(Map.of("installed", true));
++        }
++    }
++}
+diff --git a/src/main/java/org/asamk/signal/dbus/DbusManagerImpl.java b/src/main/java/org/asamk/signal/dbus/DbusManagerImpl.java
+index 1b532a7..81b0b49 100644
+--- a/src/main/java/org/asamk/signal/dbus/DbusManagerImpl.java
++++ b/src/main/java/org/asamk/signal/dbus/DbusManagerImpl.java
+@@ -1396,6 +1396,11 @@ public class DbusManagerImpl implements Manager {
+         // Not supported over DBus
+     }
+ 
++    @Override
++    public void installKnownStickerPack(final StickerPackId stickerPackId) throws IOException {
++        throw new UnsupportedOperationException();
++    }
++
+     @SuppressWarnings("unchecked")
+     private <T> T getValue(final Map<String, Variant<?>> stringVariantMap, final String field) {
+         return (T) stringVariantMap.get(field).getValue();

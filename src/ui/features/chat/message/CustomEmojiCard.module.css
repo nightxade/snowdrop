@@ -1,0 +1,113 @@
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--snowdrop-space-4);
+  width: min(264px, calc(100vw - 48px));
+  outline: none;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: var(--snowdrop-space-4);
+}
+
+/* A fixed box: nothing shifts when the image arrives. */
+.preview {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border-radius: var(--snowdrop-radius-sm);
+  background: var(--snowdrop-bg-sidebar);
+}
+
+.preview img {
+  display: block;
+  max-width: 48px;
+  max-height: 48px;
+  object-fit: contain;
+}
+
+.noImage {
+  width: 24px;
+  height: 24px;
+  color: var(--snowdrop-text-faint);
+}
+
+.token {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--snowdrop-text-strong);
+  font-family: var(--snowdrop-font-mono);
+  font-size: var(--snowdrop-font-size-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--snowdrop-space-3);
+}
+
+.note,
+.hint {
+  margin: 0;
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
+  line-height: 1.4;
+}
+
+.done {
+  display: flex;
+  align-items: center;
+  gap: var(--snowdrop-space-3);
+  margin: 0;
+  color: var(--snowdrop-text);
+  font-size: var(--snowdrop-font-size-ui);
+}
+
+.done > svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--snowdrop-accent-text);
+}
+
+.error {
+  margin: 0;
+  color: var(--snowdrop-danger);
+  font-size: var(--snowdrop-font-size-sm);
+  line-height: 1.4;
+}
+
+.label {
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
+  font-weight: var(--snowdrop-font-weight-semibold);
+}
+
+.input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: var(--snowdrop-space-3);
+  border: 1px solid var(--snowdrop-border);
+  border-radius: var(--snowdrop-radius-sm);
+  background: var(--snowdrop-bg-input);
+  color: var(--snowdrop-text);
+  font: inherit;
+  font-family: var(--snowdrop-font-mono);
+}
+
+.input[aria-invalid='true'] {
+  border-color: var(--snowdrop-danger);
+}
+
+.input:focus-visible {
+  outline: 2px solid var(--snowdrop-focus-ring);
+  outline-offset: 1px;
+}

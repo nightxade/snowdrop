@@ -1,4 +1,12 @@
-import { memo, useState, type KeyboardEvent, type ReactElement, type ReactNode } from 'react';
+import {
+  cloneElement,
+  Fragment,
+  memo,
+  useState,
+  type KeyboardEvent,
+  type ReactElement,
+  type ReactNode,
+} from 'react';
 import { MENTION_PLACEHOLDER, rangesToSegments, type BodyRange, type Segment } from '@/core/domain';
 import { CUSTOM_EMOJI_TOKEN } from '@/core/stores/customEmoji';
 import { splitGraphemes } from '@/ui/lib/graphemes';
@@ -32,6 +40,11 @@ export interface MessageBodyProps {
    * `:name:` as plain text.
    */
   resolveCustomEmoji?: (name: string) => string | undefined;
+  /**
+   * Wraps a resolved custom emoji's image — e.g. as the trigger of the
+   * "Add to my emoji" popover for an emoji someone else delivered.
+   */
+  renderCustomEmoji?: (name: string, image: ReactElement) => ReactNode;
 }
 
 /** Exported for LinkPreviewCard: Signal only shows a preview whose url still appears in the text. */
@@ -66,9 +79,11 @@ function Linkified({ text }: { text: string }) {
 function EmojiAndLinks({
   text,
   resolve,
+  wrap,
 }: {
   text: string;
   resolve: (name: string) => string | undefined;
+  wrap?: ((name: string, image: ReactElement) => ReactNode) | undefined;
 }) {
   const parts: ReactNode[] = [];
   let last = 0;
@@ -78,7 +93,14 @@ function EmojiAndLinks({
     if (!dataUrl) continue;
     const at = match.index;
     if (at > last) parts.push(<Linkified key={at} text={text.slice(last, at)} />);
-    parts.push(<img key={`${at}e`} className={styles.customEmoji} src={dataUrl} alt={match[0]} />);
+    const image = <img className={styles.customEmoji} src={dataUrl} alt={match[0]} />;
+    parts.push(
+      wrap && name ? (
+        <Fragment key={`${at}e`}>{wrap(name, image)}</Fragment>
+      ) : (
+        cloneElement(image, { key: `${at}e` })
+      ),
+    );
     last = at + match[0].length;
   }
   if (last === 0) return <Linkified text={text} />;
@@ -139,7 +161,12 @@ function render(segments: readonly Segment[], props: MessageBodyProps, path: str
       const text = s.text.replaceAll(MENTION_PLACEHOLDER, '');
       if (props.preview) return text;
       return props.resolveCustomEmoji ? (
-        <EmojiAndLinks key={key} text={text} resolve={props.resolveCustomEmoji} />
+        <EmojiAndLinks
+          key={key}
+          text={text}
+          resolve={props.resolveCustomEmoji}
+          wrap={props.renderCustomEmoji}
+        />
       ) : (
         <Linkified key={key} text={text} />
       );

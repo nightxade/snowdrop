@@ -25,12 +25,15 @@ export const OPTIONAL_METHODS = [
   'pinMessage',
   'updateConversation',
   'resolveAttachmentUrl',
+  'readAttachmentBlob',
   'retainAttachmentUrl',
   'releaseAttachmentUrl',
   'resolveStickerUrl',
   'retainStickerUrl',
   'releaseStickerUrl',
   'listStickerPacks',
+  'getStickerPack',
+  'installStickerPack',
   'acknowledge',
   'link',
   'syncContactsAndGroups',
@@ -152,6 +155,11 @@ export function deferredBackend(
       call((b) =>
         b.resolveAttachmentUrl ? b.resolveAttachmentUrl(c, a) : missing('resolveAttachmentUrl'),
       );
+  if (caps.has('readAttachmentBlob'))
+    backend.readAttachmentBlob = (c, a, o) =>
+      call((b) =>
+        b.readAttachmentBlob ? b.readAttachmentBlob(c, a, o) : missing('readAttachmentBlob'),
+      );
   if (caps.has('retainAttachmentUrl'))
     backend.retainAttachmentUrl = (a) => {
       if (real) real.retainAttachmentUrl?.(a);
@@ -178,6 +186,15 @@ export function deferredBackend(
   if (caps.has('listStickerPacks'))
     backend.listStickerPacks = () =>
       call((b) => (b.listStickerPacks ? b.listStickerPacks() : missing('listStickerPacks')));
+  if (caps.has('getStickerPack'))
+    backend.getStickerPack = (s) =>
+      call((b) => (b.getStickerPack ? b.getStickerPack(s) : missing('getStickerPack')));
+  if (caps.has('installStickerPack')) {
+    backend.installStickerPack = (s) =>
+      call((b) => (b.installStickerPack ? b.installStickerPack(s) : missing('installStickerPack')));
+    // Known only once the adapter has connected and read signal-cli's version.
+    backend.supportsStickerPackInstall = () => real?.supportsStickerPackInstall?.() ?? false;
+  }
   if (caps.has('acknowledge'))
     backend.acknowledge = (cursor) => {
       if (real) real.acknowledge?.(cursor);

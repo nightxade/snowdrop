@@ -5,6 +5,8 @@
  * `{@}` mentions a random other member, `{@me}` mentions the local user.
  */
 
+import type { MockEmojiKind } from './customEmoji';
+
 export type ImageKind = 'peaks' | 'sunset' | 'bars' | 'palette' | 'garden';
 
 export interface FileSeed {
@@ -23,6 +25,11 @@ export interface ScriptedMessage {
   file?: FileSeed;
   /** A sticker instead of text/image — see images.ts's generateStickerUrl. */
   sticker?: { emoji: string };
+  /**
+   * Custom emoji the sender delivers with this message (received only; the
+   * text carries the matching `:name:`). See customEmoji.ts.
+   */
+  customEmoji?: { name: string; image: MockEmojiKind }[];
   /** Reply to the scripted message this many entries earlier in the list. */
   replyTo?: number;
   reactions?: [emoji: string, author: string][];
@@ -155,7 +162,8 @@ export const CONVERSATIONS: readonly ConversationSeed[] = [
         hour: 11,
         minute: 16,
         author: 'ines',
-        text: 'nice catch. Can you add a regression test that reconnects **twice**?',
+        text: 'nice catch. Can you add a regression test that reconnects **twice**? :partyblob:',
+        customEmoji: [{ name: 'partyblob', image: 'sunny' }],
         replyTo: 1,
       },
       { daysAgo: 2, hour: 11, minute: 17, author: 'oren', sticker: { emoji: '🙌' } },
@@ -233,7 +241,8 @@ export const CONVERSATIONS: readonly ConversationSeed[] = [
         hour: 14,
         minute: 31,
         author: 'samir',
-        text: 'B, but steal the section headers from A',
+        text: 'B, but steal the section headers from A :partyblob:',
+        customEmoji: [{ name: 'partyblob', image: 'sky' }],
         replyTo: 1,
         reactions: [['💯', 'priya']],
       },
@@ -242,7 +251,7 @@ export const CONVERSATIONS: readonly ConversationSeed[] = [
         hour: 14,
         minute: 35,
         author: 'mireille',
-        sticker: { emoji: '😅' },
+        sticker: { emoji: '🧣' },
       },
     ],
   },

@@ -13,7 +13,7 @@ Apply to a clean checkout of the pinned upstream commit:
 
 ```sh
 git apply /path/to/snowdrop/patches/signal-cli/*.patch
-./gradlew test --tests '*HistoryCommandTest' :libsignal-cli:test --tests '*History*Test'
+./gradlew test --tests '*HistoryCommandTest' :libsignal-cli:test --tests '*History*Test' --tests '*StickerHelperTest'
 ./gradlew installDist
 ```
 
@@ -702,6 +702,38 @@ registration, which is exactly the call that works there (see `resolveStickerUrl
 Verification: `scripts/build-signal-cli.sh --test` (the patch only touches a code path that
 needs a live server, so there is no new Java unit test; the build and existing suite must still
 pass). Builds as `0.14.8-snowdrop-history.16`.
+
+## 0021: install a known sticker pack
+
+Snowdrop's sticker pack dialog ("Install" on a sticker someone sent) needs signal-cli's own
+`installStickerPack`, but upstream's `addStickerPack --uri` wants the pack's share URL, which
+embeds the pack **key** — and Snowdrop deliberately never holds keys (`StickerContent` and its
+`listStickerPacks` decoder drop them). The key is already in signal-cli's sticker store for any
+pack this account has learned of: from a live-received sticker (`IncomingMessageHandler`
+registers it) or from a history archive (0019).
+
+New RPC `installKnownStickerPack { packId }` (hex) looks the pack up in that store by id alone,
+fails with an I/O error if the account has never learned of it, returns at once for a pack that
+is already installed, and otherwise does exactly what `ManagerImpl.installStickerPack` does with
+a URL: download the pack (`StickerHelper.retrieveStickerPack`), mark it installed
+(`addOrUpdateStickerPack`, which gives it a storage id), and send the install sync message to
+the primary device (`sendStickerOperationsMessage`). So — unlike 0019/0020, which never touch
+the phone's list — this one **does** sync to the phone, like Signal's own "Install"; it is only
+ever sent for an explicit click in Snowdrop's dialog. The key never leaves the process: it is
+neither a request parameter nor a response field (the reply is `{ "installed": true }`).
+Uninstalling is not covered. A history sticker's pack must be registered first
+(`registerHistoryStickerPack`, 0019); Snowdrop does that before calling this.
+
+No storage change and no `DATABASE_VERSION` bump (the `sticker` table is untouched).
+
+Snowdrop gates the dialog's Install button on `snowdrop-history.N` with N at least 17
+(`supportsStickerPackInstall`, `src/core/backend/signal-cli/capabilities.ts`); on an older
+build the dialog still shows the pack but Install is disabled with an explanation.
+
+Verification: `scripts/build-signal-cli.sh --test` (Java unit test —
+`StickerHelperTest`: an unknown pack is refused, a registered-but-uninstalled pack is found with
+its key and no storage id, and installing it is what gives it one, i.e. what makes it sync).
+Builds as `0.14.8-snowdrop-history.17`.
 
 ## User-controlled phone verification
 

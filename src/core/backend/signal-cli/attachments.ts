@@ -427,10 +427,31 @@ export class AttachmentResolver {
     this.cachedBytes = 0;
   }
 
-  private async download(
+  /**
+   * The attachment's bytes as a `Blob`, uncached and with no object URL —
+   * for the few features that must inspect or re-store the file itself (a
+   * delivered custom emoji being added to a collection), which can't fetch a
+   * `blob:` URL under the app's CSP. `maxBytes` rejects a bigger file before
+   * the RPC when its size is advertised, and after it otherwise.
+   */
+  async readBlob(
     attachment: Attachment,
-    scope: RpcParams,
-  ): Promise<{ url: string; bytes: number }> {
+    scope: RpcParams = {},
+    maxBytes: number = this.maxBytes,
+  ): Promise<Blob> {
+    const limit = Math.min(maxBytes, this.maxBytes);
+    const tooLarge = () =>
+      new SignalCliError(
+        'too-large',
+        'Attachment is too large to open here; open it on your phone.',
+      );
+    if (attachment.size !== undefined && attachment.size > limit) throw tooLarge();
+    const blob = await this.downloadBlob(attachment, scope);
+    if (blob.size > limit) throw tooLarge();
+    return blob;
+  }
+
+  private async downloadBlob(attachment: Attachment, scope: RpcParams): Promise<Blob> {
     const { data } = await this.options.rpc.call(
       'getAttachment',
       { id: attachment.id, ...scope },
@@ -440,7 +461,14 @@ export class AttachmentResolver {
     );
     const bytes = base64ToBytes(data);
     // Never label the bytes with an unvetted, sender-chosen type (XSS).
-    const blob = new Blob([bytes], { type: safeMediaType(attachment.contentType) });
+    return new Blob([bytes], { type: safeMediaType(attachment.contentType) });
+  }
+
+  private async download(
+    attachment: Attachment,
+    scope: RpcParams,
+  ): Promise<{ url: string; bytes: number }> {
+    const blob = await this.downloadBlob(attachment, scope);
     return { url: this.createObjectUrl(blob), bytes: blob.size };
   }
 

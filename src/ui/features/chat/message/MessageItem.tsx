@@ -32,10 +32,12 @@ import {
 } from '../list/rowState';
 import * as act from './actions';
 import { ConfirmDelete } from './ConfirmDelete';
+import { CustomEmojiDialog } from './CustomEmojiPopover';
 import { HoverBar } from './HoverBar';
 import { MessageActionSheet } from './MessageActionSheet';
 import { MessageContent } from './MessageContent';
 import { MessageDetails } from './MessageDetails';
+import { StickerPackDialog } from './StickerPackDialog';
 import { buildMessageMenu, type DeleteKind } from './messageMenu';
 import { QuoteHeader } from './QuoteHeader';
 import { firstControl, useInertUntilEntered, useLongPress, useMessageNames } from './rowHooks';
@@ -94,6 +96,8 @@ export const MessageItem = memo(function MessageItem({
   const [sheetOpen, setSheetOpen] = useState(false);
   const [confirm, setConfirm] = useState<DeleteKind | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [packOpen, setPackOpen] = useState(false);
+  const [emojiDialog, setEmojiDialog] = useState<string | null>(null);
   const longPress = useLongPress(() => {
     setSheetOpen(true);
   });
@@ -212,6 +216,10 @@ export const MessageItem = memo(function MessageItem({
       openDetails: () => {
         setDetailsOpen(true);
       },
+      openStickerPack: () => {
+        setPackOpen(true);
+      },
+      openCustomEmoji: setEmojiDialog,
     });
   const leaveRow = () => {
     rows.enter(null);
@@ -360,6 +368,13 @@ export const MessageItem = memo(function MessageItem({
         menuOpen={contextOpen}
         bodyId={bodyId}
         onEditDone={leaveRow}
+        onOpenStickerPack={
+          app.backend.getStickerPack
+            ? () => {
+                setPackOpen(true);
+              }
+            : undefined
+        }
       />
     </div>
   );
@@ -402,6 +417,30 @@ export const MessageItem = memo(function MessageItem({
         />
       )}
       {detailsOpen && <MessageDetails message={m} onOpenChange={setDetailsOpen} />}
+      {packOpen && m.sticker && (
+        <StickerPackDialog
+          conversationId={conversationId}
+          sticker={m.sticker}
+          onOpenChange={setPackOpen}
+          // The sticker button isn't always focused after a click (WebKit), so name it.
+          returnFocus={() =>
+            row.current?.querySelector<HTMLElement>('[data-open-attachment]') ?? row.current
+          }
+        />
+      )}
+      {emojiDialog !== null &&
+        (() => {
+          const delivery = m.customEmoji?.find((d) => d.name === emojiDialog);
+          return delivery ? (
+            <CustomEmojiDialog
+              conversationId={conversationId}
+              delivery={delivery}
+              onOpenChange={(open) => {
+                if (!open) setEmojiDialog(null);
+              }}
+            />
+          ) : null;
+        })()}
     </>
   );
 });

@@ -19,6 +19,7 @@ import {
   type ConversationId,
   type LinkPreview,
   type Message,
+  type StickerContent,
 } from '@/core/domain';
 import {
   Emitter,
@@ -40,9 +41,10 @@ import type {
   ReactInput,
   SendResult,
   SendInput,
+  StickerPackDetails,
   StickerPackInfo,
 } from '../types';
-import { MOCK_STICKER_PACKS } from './content/stickers';
+import { MOCK_STICKER_PACKS, type MockStickerPack } from './content/stickers';
 import { generateStickerUrl } from './images';
 import { Liveliness, type LivelinessOptions } from './liveliness';
 import { Random } from './prng';
@@ -252,23 +254,73 @@ export class MockBackend implements ChatBackend {
     return { sentAt, attachments, ...(preview ? { preview } : {}) };
   }
 
+  /** The demo's attachments carry their bytes in a `data:` URL; decoded here, like a download. */
+  async readAttachmentBlob(
+    _conversationId: ConversationId,
+    attachment: Attachment,
+    options?: { maxBytes?: number },
+  ): Promise<Blob> {
+    await this.delay();
+    this.assertOnline();
+    this.takeFailure();
+    const match = /^data:([^;,]*);base64,(.*)$/u.exec(attachment.url ?? '');
+    if (!match) throw new MockBackendError('Attachment not available');
+    const bytes = Uint8Array.from(atob(match[2] ?? ''), (c) => c.charCodeAt(0));
+    if (options?.maxBytes !== undefined && bytes.length > options.maxBytes)
+      throw new MockBackendError('Attachment is too large');
+    return new Blob([bytes], { type: match[1] ?? '' });
+  }
+
+  /** The demo packs the user has installed (the rest only show in a pack dialog). */
+  private readonly installedPacks = new Set(
+    MOCK_STICKER_PACKS.filter((p) => p.installed).map((p) => p.packId),
+  );
+
+  private packDetails(pack: MockStickerPack): StickerPackDetails {
+    const stickers = pack.emoji.map((emoji, stickerId) => ({
+      stickerId,
+      emoji,
+      url: generateStickerUrl(emoji),
+    }));
+    return {
+      packId: pack.packId,
+      title: pack.title,
+      author: pack.author,
+      installed: this.installedPacks.has(pack.packId),
+      cover: stickers[0] ?? { stickerId: 0, emoji: '' },
+      stickers,
+    };
+  }
+
   async listStickerPacks(): Promise<StickerPackInfo[]> {
     await this.delay();
     this.assertOnline();
-    return MOCK_STICKER_PACKS.map((pack) => {
-      const stickers = pack.emoji.map((emoji, stickerId) => ({
-        stickerId,
-        emoji,
-        url: generateStickerUrl(emoji),
-      }));
-      return {
-        packId: pack.packId,
-        title: pack.title,
-        author: pack.author,
-        cover: stickers[0] ?? { stickerId: 0, emoji: '' },
-        stickers,
-      };
+    return MOCK_STICKER_PACKS.filter((p) => this.installedPacks.has(p.packId)).map((pack) => {
+      const { installed: _installed, ...info } = this.packDetails(pack);
+      return info;
     });
+  }
+
+  async getStickerPack(sticker: StickerContent): Promise<StickerPackDetails> {
+    await this.delay();
+    this.assertOnline();
+    this.takeFailure();
+    const pack = MOCK_STICKER_PACKS.find((p) => p.packId === sticker.packId);
+    if (!pack) throw new MockBackendError('Sticker pack not found');
+    return this.packDetails(pack);
+  }
+
+  supportsStickerPackInstall(): boolean {
+    return true;
+  }
+
+  async installStickerPack(sticker: StickerContent): Promise<void> {
+    await this.delay();
+    this.assertOnline();
+    this.takeFailure();
+    if (!MOCK_STICKER_PACKS.some((p) => p.packId === sticker.packId))
+      throw new MockBackendError('Sticker pack not found');
+    this.installedPacks.add(sticker.packId);
   }
 
   async edit(input: EditInput): Promise<{ sentAt: number }> {

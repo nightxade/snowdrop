@@ -58,3 +58,20 @@ export function supportsHistoryStickerPack(version: string | undefined): boolean
   if (!match?.[1]) return false;
   return Number(match[1]) >= MIN_HISTORY_STICKER_PACK_PATCH_LEVEL;
 }
+
+/**
+ * Whether a running signal-cli build implements `installKnownStickerPack`
+ * (patches/signal-cli, "0021: install a known sticker pack"): the explicit,
+ * user-asked "Install" for a pack seen in a received sticker, by pack id
+ * alone (the key never leaves signal-cli). Without it the pack dialog can
+ * still show the pack but its Install button stays disabled. Same
+ * `snowdrop-history.N` scheme as the other capabilities.
+ */
+export const MIN_STICKER_PACK_INSTALL_PATCH_LEVEL = 17;
+
+export function supportsStickerPackInstall(version: string | undefined): boolean {
+  if (!version) return false;
+  const match = SNOWDROP_PATCH_LEVEL.exec(version);
+  if (!match?.[1]) return false;
+  return Number(match[1]) >= MIN_STICKER_PACK_INSTALL_PATCH_LEVEL;
+}

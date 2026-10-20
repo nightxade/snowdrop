@@ -16,10 +16,14 @@ function fakeApp(backend: Partial<AppServices['backend']>): AppServices {
   } as unknown as AppServices;
 }
 
-function renderSticker(sticker: StickerContent, backend: Partial<AppServices['backend']>) {
+function renderSticker(
+  sticker: StickerContent,
+  backend: Partial<AppServices['backend']>,
+  onOpen?: () => void,
+) {
   return render(
     <SnowdropContextProvider value={fakeApp(backend)}>
-      <StickerBubble conversationId={conversationId} sticker={sticker} />
+      <StickerBubble conversationId={conversationId} sticker={sticker} onOpen={onOpen} />
     </SnowdropContextProvider>,
   );
 }
@@ -126,5 +130,33 @@ describe('StickerBubble', () => {
     });
     expect(await screen.findByText('Sticker')).toBeTruthy();
     expect(document.querySelector('img')).toBeNull();
+  });
+});
+
+describe('StickerBubble opening its pack', () => {
+  it('is a plain image without an opener', async () => {
+    renderSticker({ packId: 'ab', stickerId: 1, emoji: '🎉', url: 'data:image/svg+xml,x' }, {});
+    expect(await screen.findByRole('img', { name: '🎉 sticker' })).toBeTruthy();
+    expect(screen.queryByRole('button')).toBeNull();
+  });
+
+  it('becomes a labelled button that opens the pack, marked for the Vim "open" action', async () => {
+    const onOpen = vi.fn();
+    renderSticker(
+      { packId: 'ab', stickerId: 1, emoji: '🎉', url: 'data:image/svg+xml,x' },
+      {},
+      onOpen,
+    );
+    const button = await screen.findByRole('button', { name: '🎉 sticker, view sticker pack' });
+    expect(button.hasAttribute('data-open-attachment')).toBe(true);
+    fireEvent.click(button);
+    expect(onOpen).toHaveBeenCalledTimes(1);
+  });
+
+  it('is not a button while loading or when the sticker failed to load', async () => {
+    const resolveStickerUrl = vi.fn().mockRejectedValue(new Error('gone'));
+    renderSticker({ packId: 'ab', stickerId: 1, emoji: '🎈' }, { resolveStickerUrl }, vi.fn());
+    expect(await screen.findByText('Sticker')).toBeTruthy();
+    expect(screen.queryByRole('button')).toBeNull();
   });
 });

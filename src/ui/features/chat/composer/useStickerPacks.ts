@@ -18,6 +18,15 @@ export type StickerPacksState =
 const lastListing = new WeakMap<object, readonly StickerPackInfo[]>();
 
 /**
+ * Forgets the cached listing for `backend`, so the next time the picker opens
+ * it shows its loading state until a fresh listing lands, instead of the
+ * stale one without a pack that was just installed.
+ */
+export function invalidateStickerPacks(backend: object): void {
+  lastListing.delete(backend);
+}
+
+/**
  * The user's installed sticker packs, listed each time the picker opens
  * (`enabled`). A failure only surfaces when there is nothing to show yet.
  */

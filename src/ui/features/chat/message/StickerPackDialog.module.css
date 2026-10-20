@@ -1,0 +1,107 @@
+/* One fixed height for every state, so the dialog never jumps while loading. */
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: var(--snowdrop-space-4);
+  min-height: 300px;
+}
+
+.summary {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--snowdrop-space-4);
+}
+
+.cover {
+  display: grid;
+  flex: none;
+  width: 56px;
+  height: 56px;
+  place-items: center;
+}
+
+.count {
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
+}
+
+.viewport {
+  height: 248px;
+  margin: 0 calc(var(--snowdrop-space-2) * -1);
+  padding: 0 var(--snowdrop-space-2);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--snowdrop-scrollbar-thumb) transparent;
+  scrollbar-width: thin;
+  border-radius: var(--snowdrop-radius-sm);
+}
+
+.viewport:focus-visible {
+  outline: 2px solid var(--snowdrop-focus-ring);
+  outline-offset: 2px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--snowdrop-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Square, fixed-size cells: the grid is the same before and after the images load. */
+.cell {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  min-width: 0;
+  padding: var(--snowdrop-space-2);
+  border-radius: var(--snowdrop-radius-sm);
+  background: var(--snowdrop-bg-sidebar);
+}
+
+.loading {
+  margin-bottom: var(--snowdrop-space-3);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-ui);
+}
+
+.empty {
+  flex: 1;
+  justify-content: center;
+  margin: 0;
+  max-width: none;
+}
+
+.footer {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--snowdrop-space-4);
+  min-width: 0;
+}
+
+.status {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
+  line-height: 1.4;
+}
+
+.status[data-tone='error'] {
+  color: var(--snowdrop-danger);
+}
+
+/* Not `disabled`: the button keeps keyboard focus while it installs and after. */
+.install[aria-disabled='true'] {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.install[aria-disabled='true']:hover {
+  background: var(--snowdrop-accent);
+}

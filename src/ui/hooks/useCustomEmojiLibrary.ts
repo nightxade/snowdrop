@@ -16,6 +16,19 @@ import { useSnowdrop } from './SnowdropContext';
 
 const ACCEPTED_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
 
+/** Why an image can't be an emoji; `message` is the user-facing sentence for a file they picked. */
+export type CustomEmojiImageProblem = 'too-large' | 'type' | 'dimensions' | 'unreadable';
+
+export class CustomEmojiImageError extends Error {
+  override name = 'CustomEmojiImageError';
+  constructor(
+    readonly problem: CustomEmojiImageProblem,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
 export interface CustomEmojiLibrary {
   emojis: readonly CustomEmoji[];
   busy: boolean;
@@ -25,6 +38,21 @@ export interface CustomEmojiLibrary {
    * callers show `error.message` as-is.
    */
   addImage: (name: string, file: File) => Promise<void>;
+  /**
+   * The size, type and dimension checks of `addImage`, on their own: reads
+   * `file` into the `data:` URL it would be stored as. Rejects with a
+   * `CustomEmojiImageError` (whose `message` is worded for a file the user
+   * chose; callers with another source word it themselves from `problem`).
+   */
+  readImage: (file: File) => Promise<string>;
+  /**
+   * What is wrong with `name` as a new emoji name (invalid, or already in the
+   * collection), or `null` if it can be used. Never overwrites: `saveImage`
+   * refuses a taken name with this same sentence.
+   */
+  nameProblem: (name: string) => string | null;
+  /** Stores an already-read image (see `readImage`) under a free `name`. Throws a user-facing `Error`. */
+  saveImage: (name: string, dataUrl: string) => void;
   /**
    * Validates `text` (non-empty once trimmed, no line breaks, at most
    * `CUSTOM_EMOJI_TEXT_MAX_LENGTH` characters) and stores it under `name`.
@@ -40,11 +68,22 @@ export function useCustomEmojiLibrary(): CustomEmojiLibrary {
   const emojis = useStore(stores.local, (s) => s.customEmoji);
   const [busy, setBusy] = useState(false);
 
-  const checkName = (name: string): void => {
+  const nameProblem = (name: string): string | null => {
     if (!CUSTOM_EMOJI_NAME.test(name))
-      throw new Error('Name your emoji using 1–32 lowercase letters, numbers, +, - or _.');
+      return 'Name your emoji using 1–32 lowercase letters, numbers, +, - or _.';
     if (emojis.some((emoji) => emoji.name === name))
-      throw new Error('That name is already in your collection. Choose another.');
+      return 'That name is already in your collection. Choose another.';
+    return null;
+  };
+
+  const checkName = (name: string): void => {
+    const problem = nameProblem(name);
+    if (problem) throw new Error(problem);
+  };
+
+  const saveImage = (name: string, dataUrl: string): void => {
+    checkName(name);
+    stores.local.getState().saveCustomEmoji({ kind: 'image', name, dataUrl });
   };
 
   const addImage = async (name: string, file: File): Promise<void> => {
@@ -52,14 +91,10 @@ export function useCustomEmojiLibrary(): CustomEmojiLibrary {
     const account = stores.session.getState().self?.id;
     try {
       checkName(name);
-      if (file.size > CUSTOM_EMOJI_MAX_BYTES)
-        throw new Error('Choose an image smaller than 256 KB.');
-      if (!ACCEPTED_TYPES.includes(file.type))
-        throw new Error('Choose a PNG, JPEG, GIF or WebP image.');
-      const dataUrl = await readImage(file);
+      const dataUrl = await readCustomEmojiImage(file);
       // A slow read must not land in an account the user has since switched away from.
       if (stores.session.getState().self?.id !== account) return;
-      stores.local.getState().saveCustomEmoji({ kind: 'image', name, dataUrl });
+      saveImage(name, dataUrl);
     } finally {
       setBusy(false);
     }
@@ -77,6 +112,9 @@ export function useCustomEmojiLibrary(): CustomEmojiLibrary {
     emojis,
     busy,
     addImage,
+    readImage: readCustomEmojiImage,
+    nameProblem,
+    saveImage,
     addText,
     remove: (name) => {
       stores.local.getState().removeCustomEmoji(name);
@@ -84,26 +122,43 @@ export function useCustomEmojiLibrary(): CustomEmojiLibrary {
   };
 }
 
-function readImage(file: File): Promise<string> {
+/** Validates `file` as a custom emoji image and reads it as a `data:` URL. */
+export function readCustomEmojiImage(file: File): Promise<string> {
+  if (file.size > CUSTOM_EMOJI_MAX_BYTES)
+    return Promise.reject(
+      new CustomEmojiImageError('too-large', 'Choose an image smaller than 256 KB.'),
+    );
+  if (!ACCEPTED_TYPES.includes(file.type))
+    return Promise.reject(
+      new CustomEmojiImageError('type', 'Choose a PNG, JPEG, GIF or WebP image.'),
+    );
   return new Promise((resolve, reject) => {
+    const unreadable = (message: string) => {
+      reject(new CustomEmojiImageError('unreadable', message));
+    };
     const reader = new FileReader();
     reader.onerror = () => {
-      reject(new Error('Could not read this image.'));
+      unreadable('Could not read this image.');
     };
     reader.onload = () => {
       const url = reader.result;
       if (typeof url !== 'string') {
-        reject(new Error('Could not read this image.'));
+        unreadable('Could not read this image.');
         return;
       }
       const image = new Image();
       image.onload = () => {
         if (image.naturalWidth > 1024 || image.naturalHeight > 1024) {
-          reject(new Error('Choose an image no larger than 1024 × 1024 pixels.'));
+          reject(
+            new CustomEmojiImageError(
+              'dimensions',
+              'Choose an image no larger than 1024 × 1024 pixels.',
+            ),
+          );
         } else resolve(url);
       };
       image.onerror = () => {
-        reject(new Error('This file could not be opened as an image.'));
+        unreadable('This file could not be opened as an image.');
       };
       image.src = url;
     };

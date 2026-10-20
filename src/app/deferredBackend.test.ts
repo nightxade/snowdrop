@@ -82,4 +82,39 @@ describe('deferredBackend', () => {
     await expect(deferred.connect()).rejects.toThrow('chunk failed');
     expect(deferred.link).toBeDefined();
   });
+
+  it('forwards the sticker pack install and reports its support only once the adapter is known', async () => {
+    let resolve!: (b: ChatBackend) => void;
+    const ready = new Promise<ChatBackend>((r) => {
+      resolve = r;
+    });
+    const deferred = deferredBackend(
+      'signal-cli',
+      new Set(['getStickerPack', 'installStickerPack']),
+      ready,
+    );
+    expect(deferred.supportsStickerPackInstall?.()).toBe(false);
+    const sticker = { packId: 'ab12', stickerId: 0 };
+    const install = vi.fn(() => Promise.resolve());
+    const details = {
+      packId: 'ab12',
+      title: 'T',
+      author: 'A',
+      installed: false,
+      cover: { stickerId: 0, emoji: '' },
+      stickers: [],
+    };
+    const real = {
+      kind: 'signal-cli',
+      supportsStickerPackInstall: () => true,
+      installStickerPack: install,
+      getStickerPack: vi.fn(() => Promise.resolve(details)),
+    } as unknown as ChatBackend;
+    const pending = deferred.installStickerPack!(sticker);
+    resolve(real);
+    await pending;
+    expect(install).toHaveBeenCalledWith(sticker);
+    expect(deferred.supportsStickerPackInstall?.()).toBe(true);
+    expect(await deferred.getStickerPack!(sticker)).toBe(details);
+  });
 });

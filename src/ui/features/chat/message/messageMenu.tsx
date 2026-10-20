@@ -7,7 +7,9 @@ import {
   PinOff,
   Reply,
   RotateCw,
+  Smile,
   SmilePlus,
+  Sticker,
   Trash2,
   FileCode,
 } from 'lucide-react';
@@ -26,6 +28,10 @@ export interface MenuCallbacks {
   requestDelete: (kind: DeleteKind) => void;
   /** Opens the "Message details" dialog (own messages only — see MessageDetails). */
   openDetails: () => void;
+  /** Opens the pack dialog for this message's sticker. */
+  openStickerPack: () => void;
+  /** Opens the "add to my emoji" dialog for one emoji this message delivered. */
+  openCustomEmoji: (name: string) => void;
 }
 
 const ICON = 16;
@@ -139,6 +145,47 @@ export function buildMessageMenu(
       label: 'Message details',
       icon: <Info size={ICON} />,
       onSelect: cb.openDetails,
+    });
+  }
+
+  if (m.kind === 'normal' && !m.deleted && m.sticker && app.backend.getStickerPack) {
+    entries.push({
+      kind: 'item',
+      id: 'sticker-pack',
+      label: 'View sticker pack',
+      icon: <Sticker size={ICON} />,
+      onSelect: cb.openStickerPack,
+    });
+  }
+
+  // Emoji someone else delivered with this message (never your own: those
+  // are already in your collection).
+  const delivered = !p.own && m.kind === 'normal' && !m.deleted ? (m.customEmoji ?? []) : [];
+  const first = delivered[0];
+  if (delivered.length === 1 && first) {
+    entries.push({
+      kind: 'item',
+      id: `emoji-${first.name}`,
+      label: `Add :${first.name}: to my emoji`,
+      icon: <Smile size={ICON} />,
+      onSelect: () => {
+        cb.openCustomEmoji(first.name);
+      },
+    });
+  } else if (delivered.length > 1) {
+    entries.push({
+      kind: 'submenu',
+      id: 'emoji',
+      label: 'Add to my emoji',
+      icon: <Smile size={ICON} />,
+      items: delivered.map((d): MenuEntry => ({
+        kind: 'item',
+        id: `emoji-${d.name}`,
+        label: `:${d.name}:`,
+        onSelect: () => {
+          cb.openCustomEmoji(d.name);
+        },
+      })),
     });
   }
 

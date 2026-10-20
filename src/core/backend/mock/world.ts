@@ -32,6 +32,8 @@ import {
   type ScriptedMessage,
 } from './content/conversations';
 import { PEOPLE, SELF, type PersonSeed } from './content/people';
+import { MOCK_EMOJI_PNG, type MockEmojiKind } from './content/customEmoji';
+import { mockStickerFor } from './content/stickers';
 import { generateImageAttachment, generateStickerUrl } from './images';
 import { Random } from './prng';
 
@@ -225,6 +227,7 @@ interface Draft {
   images: ImageKind[];
   file?: FileSeed;
   sticker?: { emoji: string };
+  customEmoji?: { name: string; image: MockEmojiKind }[];
   replyTo?: Draft;
   reactions: Reaction[];
   edited: boolean;
@@ -292,6 +295,7 @@ class ConversationBuilder {
       if (s.system !== undefined) draft.system = s.system;
       if (s.file) draft.file = s.file;
       if (s.sticker) draft.sticker = s.sticker;
+      if (s.customEmoji) draft.customEmoji = s.customEmoji;
       if (s.replyTo !== undefined) {
         const target = placed[placed.length - s.replyTo];
         if (target) draft.replyTo = target;
@@ -390,8 +394,8 @@ class ConversationBuilder {
       if (d.file) attachments.push(fileAttachment(d.file, `${d.sentAt.toString(36)}-f`));
       const sticker = d.sticker
         ? {
-            packId: 'demopack0',
-            stickerId: 0,
+            // A demo pack when one has this emoji (the pack dialog opens on it).
+            ...(mockStickerFor(d.sticker.emoji) ?? { packId: 'demopack0', stickerId: 0 }),
             emoji: d.sticker.emoji,
             url: generateStickerUrl(d.sticker.emoji),
           }
@@ -413,6 +417,19 @@ class ConversationBuilder {
       };
       if (d.system) message.systemText = d.system;
       if (sticker) message.sticker = sticker;
+      if (d.customEmoji)
+        message.customEmoji = d.customEmoji.map(({ name, image }, i) => ({
+          name,
+          attachment: {
+            id: `${d.sentAt.toString(36)}-e${i}`,
+            contentType: 'image/png',
+            fileName: `${name}.png`,
+            size: 300,
+            width: 48,
+            height: 48,
+            url: MOCK_EMOJI_PNG[image],
+          },
+        }));
       const quoted = d.replyTo ? byDraft.get(d.replyTo) : undefined;
       if (quoted) {
         message.quote = {

@@ -55,6 +55,8 @@ export const STYLE_HOOKS = [
   { hook: 'autocomplete', what: '@ / : / slash suggestions' },
   { hook: 'sticker-picker', what: 'The composer’s sticker picker (grid, header and pack tabs)' },
   { hook: 'sticker-cell', what: 'One sticker button in the picker’s grid' },
+  { hook: 'sticker-pack', what: 'The sticker pack dialog opened from a received sticker' },
+  { hook: 'custom-emoji-card', what: 'The “add to my emoji” card for an emoji someone else sent' },
   { hook: 'typing-line', what: '“… is typing” strip' },
   { hook: 'drop-overlay', what: 'Drag-and-drop overlay' },
   { hook: 'search-panel', what: 'In-conversation search results' },

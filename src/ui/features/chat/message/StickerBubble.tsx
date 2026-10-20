@@ -7,6 +7,11 @@ import styles from './StickerBubble.module.css';
 export interface StickerBubbleProps {
   conversationId: ConversationId;
   sticker: StickerContent;
+  /**
+   * Makes the image a button that opens the sticker's pack dialog; omitted
+   * when the backend can't show a pack. Marked for Vim's "open" row action.
+   */
+  onOpen?: (() => void) | undefined;
 }
 
 /**
@@ -23,7 +28,7 @@ export interface StickerBubbleProps {
  * shows the emoji — or "Sticker" — in a small muted chip instead of a
  * broken image.
  */
-export function StickerBubble({ conversationId, sticker }: StickerBubbleProps) {
+export function StickerBubble({ conversationId, sticker, onOpen }: StickerBubbleProps) {
   const state = useStickerUrl(conversationId, sticker);
   const [mediaFailed, setMediaFailed] = useState(false);
   const alt = sticker.emoji ? `${sticker.emoji} sticker` : 'Sticker';
@@ -49,17 +54,29 @@ export function StickerBubble({ conversationId, sticker }: StickerBubbleProps) {
     );
   }
 
-  return (
+  const image = (
     <img
       className={styles.image}
       data-snowdrop="sticker"
       src={state.url}
-      alt={alt}
+      alt={onOpen ? '' : alt}
       draggable={false}
       decoding="async"
       onError={() => {
         setMediaFailed(true);
       }}
     />
+  );
+  if (!onOpen) return image;
+  return (
+    <button
+      type="button"
+      className={styles.open}
+      data-open-attachment=""
+      aria-label={`${alt}, view sticker pack`}
+      onClick={onOpen}
+    >
+      {image}
+    </button>
   );
 }

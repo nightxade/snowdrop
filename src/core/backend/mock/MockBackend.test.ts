@@ -332,3 +332,63 @@ describe('mock stickers', () => {
     expect(events).toHaveLength(0); // our own send isn't echoed as incoming
   });
 });
+
+describe('mock sticker pack install and delivered custom emoji', () => {
+  const sentMessages = (backend: MockBackend) => [...backend.world.histories.values()].flat();
+
+  it('has an uninstalled pack seen in a received sticker, shown by the pack dialog only', async () => {
+    const { backend } = setup();
+    await backend.connect();
+    const sticker = sentMessages(backend).find(
+      (m) => m.sticker && m.sticker.packId === '3c0ffee5ab1e4d2790a8d1f06b7c4e19',
+    )?.sticker;
+    expect(sticker).toBeDefined();
+    const details = await backend.getStickerPack(sticker!);
+    expect(details).toMatchObject({ title: 'Winter Folk', installed: false });
+    expect(details.stickers.length).toBeGreaterThan(1);
+    expect((await backend.listStickerPacks()).map((p) => p.title)).not.toContain('Winter Folk');
+    expect(backend.supportsStickerPackInstall()).toBe(true);
+  });
+
+  it('installs it: the picker lists the pack afterwards and the dialog says installed', async () => {
+    const { backend } = setup();
+    await backend.connect();
+    const sticker = { packId: '3c0ffee5ab1e4d2790a8d1f06b7c4e19', stickerId: 0 };
+    await backend.installStickerPack(sticker);
+    expect((await backend.getStickerPack(sticker)).installed).toBe(true);
+    expect((await backend.listStickerPacks()).map((p) => p.title)).toContain('Winter Folk');
+  });
+
+  it('fails an install on demand and stays uninstalled, and rejects an unknown pack', async () => {
+    const { backend } = setup();
+    await backend.connect();
+    const sticker = { packId: '3c0ffee5ab1e4d2790a8d1f06b7c4e19', stickerId: 0 };
+    backend.failNext();
+    await expect(backend.installStickerPack(sticker)).rejects.toThrow();
+    expect((await backend.getStickerPack(sticker)).installed).toBe(false);
+    await expect(backend.installStickerPack({ packId: 'ff00', stickerId: 0 })).rejects.toThrow();
+    await expect(backend.getStickerPack({ packId: 'ff00', stickerId: 0 })).rejects.toThrow();
+  });
+
+  it('delivers two different emoji under one name, readable as PNG bytes', async () => {
+    const { backend } = setup();
+    await backend.connect();
+    const delivered = sentMessages(backend).flatMap((m) =>
+      (m.customEmoji ?? []).map((d) => ({ conversationId: m.conversationId, d })),
+    );
+    expect(delivered.map((x) => x.d.name)).toEqual(['partyblob', 'partyblob']);
+    const urls = delivered.map((x) => x.d.attachment.url);
+    expect(new Set(urls).size).toBe(2);
+    for (const { conversationId, d } of delivered) {
+      const blob = await backend.readAttachmentBlob(conversationId, d.attachment, {
+        maxBytes: 256 * 1024,
+      });
+      expect(blob.type).toBe('image/png');
+      expect(blob.size).toBeGreaterThan(0);
+    }
+    const [first] = delivered;
+    await expect(
+      backend.readAttachmentBlob(first!.conversationId, first!.d.attachment, { maxBytes: 4 }),
+    ).rejects.toThrow();
+  });
+});

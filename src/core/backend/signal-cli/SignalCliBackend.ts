@@ -59,6 +59,7 @@ import type {
   ReactInput,
   SendInput,
   SendResult,
+  StickerPackDetails,
   StickerPackInfo,
   StickerPackSticker,
 } from '../types';
@@ -73,6 +74,7 @@ import {
   supportsAttachmentBackfill as detectAttachmentBackfillSupport,
   supportsCustomEmojiDelivery as detectCustomEmojiSupport,
   supportsHistoryStickerPack as detectHistoryStickerPackSupport,
+  supportsStickerPackInstall as detectStickerPackInstallSupport,
 } from './capabilities';
 import { Directory } from './directory';
 import { describeError, SignalCliError } from './errors';
@@ -230,6 +232,8 @@ export class SignalCliBackend implements ChatBackend {
   private attachmentBackfillSupported = false;
   /** Whether the connected daemon can register a history sticker's pack key (see capabilities.ts). */
   private historyStickerPackSupported = false;
+  /** Whether the connected daemon can install a known sticker pack by id (see capabilities.ts). */
+  private stickerPackInstallSupported = false;
   /** Installed packs whose download `listStickerPacks` already started this session. */
   private readonly stickerPacksFetchTried = new Set<string>();
   /** listConversations logs its counts once per backend, not on every refresh. */
@@ -334,6 +338,7 @@ export class SignalCliBackend implements ChatBackend {
       this.customEmojiSupported = detectCustomEmojiSupport(version);
       this.attachmentBackfillSupported = detectAttachmentBackfillSupport(version);
       this.historyStickerPackSupported = detectHistoryStickerPackSupport(version);
+      this.stickerPackInstallSupported = detectStickerPackInstallSupport(version);
       this.selectAccount(await this.discoverAccount());
       // Stream first: nothing sent to us while we load the directory is missed.
       this.openStream();
@@ -373,6 +378,11 @@ export class SignalCliBackend implements ChatBackend {
   /** Whether the connected signal-cli build implements attachment backfill (see capabilities.ts). */
   supportsAttachmentBackfill(): boolean {
     return this.attachmentBackfillSupported;
+  }
+
+  /** Whether the connected signal-cli build can install a known sticker pack (see capabilities.ts). */
+  supportsStickerPackInstall(): boolean {
+    return this.stickerPackInstallSupported;
   }
 
   /**
@@ -441,6 +451,7 @@ export class SignalCliBackend implements ChatBackend {
     this.customEmojiSupported = false;
     this.attachmentBackfillSupported = false;
     this.historyStickerPackSupported = false;
+    this.stickerPackInstallSupported = false;
     this.setStatus('offline');
   }
 
@@ -1143,6 +1154,15 @@ export class SignalCliBackend implements ChatBackend {
     return this.attachments.resolve(attachment, {}, options);
   }
 
+  async readAttachmentBlob(
+    _conversationId: ConversationId,
+    attachment: Attachment,
+    options?: { maxBytes?: number },
+  ): Promise<Blob> {
+    this.assertAccount();
+    return this.attachments.readBlob(attachment, {}, options?.maxBytes);
+  }
+
   retainAttachmentUrl(attachment: Attachment): void {
     this.attachments.retain(attachment.id);
   }
@@ -1270,6 +1290,63 @@ export class SignalCliBackend implements ChatBackend {
         ];
       })
       .sort((a, b) => a.title.localeCompare(b.title));
+  }
+
+  /**
+   * See `ChatBackend.getStickerPack`. First makes sure the account knows the
+   * pack and has downloaded it, the same way showing the sticker does
+   * (`resolveStickerUrl`: registers a history sticker's pack via 0019, then
+   * `getSticker` downloads the whole pack as a side effect; no install, no
+   * sync). That call's outcome is ignored here: the listing below is the
+   * judge of whether the pack is usable. Unlike `listStickerPacks`, an
+   * uninstalled pack is returned (with `installed: false`).
+   */
+  async getStickerPack(sticker: StickerContent): Promise<StickerPackDetails> {
+    this.assertAccount();
+    if (!HEX_ID.test(sticker.packId))
+      throw new SignalCliError('user', "This sticker pack can't be shown.");
+    await this.resolveStickerUrl(sticker).catch(() => undefined);
+    const pack = (await this.rpc.call('listStickerPacks', {}, wireStickerPacks)).find(
+      (p) => p.packId === sticker.packId,
+    );
+    if (!pack || pack.stickers.length === 0)
+      throw new SignalCliError('user', 'This sticker pack is not available.');
+    const cover = pack.cover ?? pack.stickers[0];
+    return {
+      packId: pack.packId,
+      title: pack.title,
+      author: pack.author,
+      installed: pack.installed,
+      cover: { stickerId: cover?.id ?? 0, emoji: cover?.emoji ?? '' },
+      stickers: pack.stickers.map((s): StickerPackSticker => ({ stickerId: s.id, emoji: s.emoji })),
+    };
+  }
+
+  /**
+   * See `ChatBackend.installStickerPack`. A history sticker's pack is
+   * registered first (0019, from the backup frame's own key) when this
+   * build can, since `installKnownStickerPack` only knows packs the sticker
+   * store already holds. Only the hex pack id crosses the RPC boundary; the
+   * key is looked up by signal-cli itself.
+   */
+  async installStickerPack(sticker: StickerContent): Promise<void> {
+    this.assertAccount();
+    if (!this.stickerPackInstallSupported)
+      throw new SignalCliError('user', 'Installing sticker packs needs a newer signal-cli.');
+    if (!HEX_ID.test(sticker.packId))
+      throw new SignalCliError('user', "This sticker pack can't be installed.");
+    if (this.historyStickerPackSupported && sticker.backupAttachment) {
+      await this.rpc.call(
+        'registerHistoryStickerPack',
+        { id: sticker.backupAttachment.id },
+        ignoreResult,
+      );
+    }
+    await this.rpc.call('installKnownStickerPack', { packId: sticker.packId }, ignoreResult, {
+      timeoutMs: 60_000,
+    });
+    // The listing the picker reads changes now; the next one re-fetches.
+    this.stickerPacksFetchTried.delete(sticker.packId);
   }
 
   retainStickerUrl(sticker: StickerContent): void {
@@ -1564,6 +1641,9 @@ export class SignalCliBackend implements ChatBackend {
     }
   }
 }
+
+/** A sticker pack id as signal-cli prints it: hex. */
+const HEX_ID = /^[\da-f]+$/u;
 
 /**
  * Why a `getSticker` call failed, from signal-cli's own message prefix —

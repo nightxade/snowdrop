@@ -1,5 +1,5 @@
 import { Clock } from 'lucide-react';
-import type { CSSProperties } from 'react';
+import type { CSSProperties, ReactElement } from 'react';
 import { useStore } from 'zustand';
 import { initialsFor, type ConversationId, type Message } from '@/core/domain';
 import { contactsSelectors } from '@/core/stores';
@@ -15,6 +15,7 @@ import { MessageEditor } from './MessageEditor';
 import { MessageMeta } from './MessageMeta';
 import { MessageNotes } from './MessageNotes';
 import { Reactions } from './Reactions';
+import { CustomEmojiPopover } from './CustomEmojiPopover';
 import { StickerBubble } from './StickerBubble';
 import { useCustomEmojiResolver } from './useCustomEmojiResolver';
 import styles from './MessageItem.module.css';
@@ -34,6 +35,8 @@ export interface MessageContentProps {
   /** Id for the row's aria-describedby. */
   bodyId: string;
   onEditDone: () => void;
+  /** Opens the sticker's pack dialog; omitted when the backend can't show packs. */
+  onOpenStickerPack?: (() => void) | undefined;
 }
 
 /** Gutter (avatar / hover time) and content column of a message row. */
@@ -50,6 +53,7 @@ export function MessageContent({
   menuOpen = false,
   bodyId,
   onEditDone,
+  onOpenStickerPack,
 }: MessageContentProps) {
   const app = useSnowdrop();
   const author = useStore(app.stores.contacts, contactsSelectors.contact(m.authorId));
@@ -60,6 +64,8 @@ export function MessageContent({
   const preview = m.previews?.[0];
   const showHeader = compact || !continuation;
   const { resolveCustomEmoji, emojiSources } = useCustomEmojiResolver(m, selfId, conversationId);
+  // Emoji someone else delivered can be added to your own collection.
+  const delivered = m.authorId === selfId ? undefined : m.customEmoji;
 
   const avatar = (
     <Avatar
@@ -126,6 +132,20 @@ export function MessageContent({
               selfId={selfId}
               nameFor={nameFor}
               {...(resolveCustomEmoji ? { resolveCustomEmoji } : {})}
+              {...(delivered?.length
+                ? {
+                    renderCustomEmoji: (emojiName: string, image: ReactElement) => {
+                      const delivery = delivered.find((d) => d.name === emojiName);
+                      return delivery ? (
+                        <CustomEmojiPopover conversationId={conversationId} delivery={delivery}>
+                          {image}
+                        </CustomEmojiPopover>
+                      ) : (
+                        image
+                      );
+                    },
+                  }
+                : {})}
               trailing={
                 <>
                   {m.editedAt !== undefined && <EditedTag editedAt={m.editedAt} />}
@@ -160,7 +180,11 @@ export function MessageContent({
           />
         )}
         {!m.deleted && m.sticker && (
-          <StickerBubble conversationId={conversationId} sticker={m.sticker} />
+          <StickerBubble
+            conversationId={conversationId}
+            sticker={m.sticker}
+            onOpen={onOpenStickerPack}
+          />
         )}
         {m.reactions.length > 0 && (
           <Reactions

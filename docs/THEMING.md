@@ -460,6 +460,8 @@ instead.
 | `autocomplete`          | @ / : / slash suggestions                                             |
 | `sticker-picker`        | The composer's sticker picker (grid, header and pack tabs)            |
 | `sticker-cell`          | One sticker button in the picker's grid                               |
+| `sticker-pack`          | The sticker pack dialog opened from a received sticker                |
+| `custom-emoji-card`     | The “add to my emoji” card for an emoji someone else sent             |
 | `typing-line`           | "… is typing" strip                                                   |
 | `drop-overlay`          | Drag-and-drop overlay                                                 |
 | `search-panel`          | In-conversation search results                                        |
