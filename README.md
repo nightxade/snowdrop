@@ -222,7 +222,9 @@ docs/                 documentation
   about your use of Snowdrop is sent with it. After that, the app runs
   offline except for your own signal-cli traffic to Signal's servers.
 - **No CDNs.** Fonts (Inter, JetBrains Mono) and emoji data are bundled and
-  served from Snowdrop's own origin. Link previews are off.
+  served from Snowdrop's own origin. Link previews (on by default, as in
+  Signal) fetch the linked page from this device, or through `HTTPS_PROXY`
+  if set — see Settings → Behaviour.
 - **Content-Security-Policy.** Production builds forbid every third-party
   request (`default-src 'self'`, `connect-src 'self'`).
 - **User CSS can't phone home.** Custom CSS and imported themes are stripped

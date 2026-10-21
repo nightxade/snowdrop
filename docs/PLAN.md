@@ -27,9 +27,9 @@ where it is more detailed than §3–§5, §8 is right. Developer-facing guides:
    (e.g. no fake "online" presence, no voice channels). Local-only
    organisation (Spaces, categories) is clearly local.
 3. **Privacy by default.** Everything stays on the machine. No telemetry, no
-   CDN fonts. Link previews are fetched directly by this device, never
-   proxied or hidden — the setting is visible, explained, and one toggle
-   away from off.
+   CDN fonts. Link previews are fetched directly by this device (through
+   `HTTPS_PROXY` if set), as Signal Desktop does — the setting is visible,
+   explained, and one toggle away from off.
 4. **Composable code.** Small modules with explicit contracts; UI never talks
    to the transport directly; features are pluggable through typed extension
    points, not monkey-patching.

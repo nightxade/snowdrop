@@ -1,13 +1,12 @@
 //! Link previews (Settings → Behaviour → "Link previews"): fetches a URL's
 //! Open Graph / Twitter-card / `<title>` metadata, and its image if any,
-//! directly from this device.
-//!
-//! Signal's own apps route this fetch through a private relay
-//! (`contentproxy.signal.org`) that hides the user's IP from the site being
-//! previewed and the URL from Signal itself — infrastructure with no public
-//! protocol or credentials for a third-party client like Snowdrop to use.
-//! This is the honest, achievable alternative: a direct fetch, hardened
-//! against it being pointed somewhere it shouldn't:
+//! directly from this device — the same as Signal Desktop, which also
+//! fetches previews directly (its `contentproxy.signal.org` relay only
+//! tunnels to Giphy). Like Signal Desktop, an `HTTPS_PROXY` / `https_proxy`
+//! environment variable routes every fetch through that proxy instead
+//! (which then resolves the names itself — no local DNS lookup); no other
+//! proxy variable is honoured. Without one, the fetch is direct, hardened
+//! against being pointed somewhere it shouldn't:
 //!
 //! - https only, both for the page and its image.
 //! - Every hostname is resolved to a concrete address *before* connecting,
@@ -96,6 +95,7 @@ enum FetchError {
     Status(u16),
     BadContentType,
     NoTitle,
+    BadProxy,
 }
 
 impl fmt::Display for FetchError {
@@ -103,6 +103,7 @@ impl fmt::Display for FetchError {
         match self {
             FetchError::InvalidUrl => write!(f, "invalid or non-https url"),
             FetchError::DisallowedAddress => write!(f, "resolved to a disallowed address"),
+            FetchError::BadProxy => write!(f, "HTTPS_PROXY isn't a usable proxy URL"),
             FetchError::Dns => write!(f, "dns resolution failed"),
             FetchError::Request => write!(f, "request failed"),
             FetchError::TooManyRedirects => write!(f, "too many redirects"),
@@ -175,7 +176,23 @@ async fn fetch_capped_https(
     accept: impl Fn(&str) -> bool,
     early_stop: Option<&[u8]>,
 ) -> Result<CappedFetch, FetchError> {
-    fetch_capped(start, max_bytes, accept, early_stop, "https", |ip| !is_disallowed_ip(ip)).await
+    let proxy = configured_proxy()?;
+    fetch_capped(start, max_bytes, accept, early_stop, "https", proxy.as_ref(), |ip| !is_disallowed_ip(ip))
+        .await
+}
+
+/// Signal Desktop's rule: `HTTPS_PROXY`, else `https_proxy`, else none. A
+/// value that isn't a usable proxy URL fails the preview rather than
+/// silently going direct.
+fn configured_proxy() -> Result<Option<reqwest::Proxy>, FetchError> {
+    proxy_from(std::env::var("HTTPS_PROXY").ok(), std::env::var("https_proxy").ok())
+}
+
+fn proxy_from(upper: Option<String>, lower: Option<String>) -> Result<Option<reqwest::Proxy>, FetchError> {
+    let Some(raw) = upper.filter(|v| !v.trim().is_empty()).or(lower.filter(|v| !v.trim().is_empty())) else {
+        return Ok(None);
+    };
+    reqwest::Proxy::https(raw.trim()).map(Some).map_err(|_| FetchError::BadProxy)
 }
 
 /// Follows redirects (re-validating scheme and address on every hop),
@@ -192,15 +209,23 @@ async fn fetch_capped(
     accept: impl Fn(&str) -> bool,
     early_stop: Option<&[u8]>,
     required_scheme: &str,
+    proxy: Option<&reqwest::Proxy>,
     ip_allowed: impl Fn(&IpAddr) -> bool,
 ) -> Result<CappedFetch, FetchError> {
     let mut current = start;
     let mut redirects = 0u8;
     loop {
-        let host = current.host_str().ok_or(FetchError::InvalidUrl)?.to_string();
-        let port = current.port_or_known_default().ok_or(FetchError::InvalidUrl)?;
-        let addr = resolve_allowed(&host, port, &ip_allowed).await?;
-        let client = pinned_client(&host, addr)?;
+        let client = match proxy {
+            // The proxy resolves the name; resolving it here too would
+            // leak the lookup outside the proxy.
+            Some(proxy) => proxied_client(proxy.clone())?,
+            None => {
+                let host = current.host_str().ok_or(FetchError::InvalidUrl)?.to_string();
+                let port = current.port_or_known_default().ok_or(FetchError::InvalidUrl)?;
+                let addr = resolve_allowed(&host, port, &ip_allowed).await?;
+                pinned_client(&host, addr)?
+            }
+        };
         let resp = client.get(current.as_str()).send().await.map_err(|_| FetchError::Request)?;
 
         if resp.status().is_redirection() {
@@ -285,7 +310,22 @@ async fn resolve_allowed(
 /// never triggers a second, un-checked DNS lookup of its own.
 fn pinned_client(host: &str, addr: SocketAddr) -> Result<reqwest::Client, FetchError> {
     reqwest::Client::builder()
+        // Direct means direct: no ALL_PROXY/HTTP_PROXY picked up implicitly.
+        .no_proxy()
         .resolve(host, addr)
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(FETCH_TIMEOUT)
+        .connect_timeout(CONNECT_TIMEOUT)
+        .user_agent(USER_AGENT)
+        .build()
+        .map_err(|_| FetchError::Request)
+}
+
+/// A client that sends everything through the user's configured proxy.
+fn proxied_client(proxy: reqwest::Proxy) -> Result<reqwest::Client, FetchError> {
+    reqwest::Client::builder()
+        .no_proxy()
+        .proxy(proxy)
         .redirect(reqwest::redirect::Policy::none())
         .timeout(FETCH_TIMEOUT)
         .connect_timeout(CONNECT_TIMEOUT)
@@ -724,10 +764,47 @@ mod tests {
         accept: impl Fn(&str) -> bool,
         early_stop: Option<&[u8]>,
     ) -> Result<CappedFetch, FetchError> {
-        fetch_capped(server.url(path), max_bytes, accept, early_stop, "http", |_| true).await
+        fetch_capped(server.url(path), max_bytes, accept, early_stop, "http", None, |_| true).await
     }
 
     const ACCEPT_HTML: fn(&str) -> bool = |ct| ct.to_ascii_lowercase().contains("html");
+
+    /// With a proxy configured, the request goes to the proxy (absolute URI)
+    /// and the site's name is never resolved locally: `.invalid` can't
+    /// resolve, and the address filter refuses everything.
+    #[tokio::test]
+    async fn a_configured_proxy_carries_the_request_without_a_local_lookup() {
+        let mut routes = HashMap::new();
+        routes.insert("http://site.invalid/page", html_route("<head><title>Via proxy</title></head>"));
+        let proxy_server = TestServer::start(routes).await;
+        let proxy = reqwest::Proxy::http(format!("http://{}", proxy_server.addr)).unwrap();
+
+        let fetched = fetch_capped(
+            Url::parse("http://site.invalid/page").unwrap(),
+            MAX_HTML_BYTES,
+            ACCEPT_HTML,
+            None,
+            "http",
+            Some(&proxy),
+            |_| false,
+        )
+        .await
+        .unwrap();
+        assert!(String::from_utf8_lossy(&fetched.body).contains("Via proxy"));
+    }
+
+    #[test]
+    fn https_proxy_wins_over_the_lowercase_one_and_blank_means_none() {
+        assert!(proxy_from(None, None).unwrap().is_none());
+        assert!(proxy_from(Some("  ".into()), None).unwrap().is_none());
+        assert!(proxy_from(Some("http://127.0.0.1:8080".into()), Some("not a url".into())).unwrap().is_some());
+        assert!(proxy_from(None, Some("http://127.0.0.1:8080".into())).unwrap().is_some());
+    }
+
+    #[test]
+    fn an_unusable_proxy_value_fails_instead_of_going_direct() {
+        assert!(matches!(proxy_from(Some("::not a proxy::".into()), None), Err(FetchError::BadProxy)));
+    }
 
     #[tokio::test]
     async fn follows_redirects_up_to_the_limit_and_fetches_the_final_page() {
