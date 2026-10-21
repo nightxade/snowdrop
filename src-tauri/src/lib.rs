@@ -335,6 +335,8 @@ pub fn run() {
             commands::storage_sign_out,
             commands::app_restart,
             commands::app_close_ready,
+            commands::app_set_unread,
+            commands::app_set_close_to_tray,
             commands::frontend_log,
             commands::log_set_verbose,
             commands::log_recent,

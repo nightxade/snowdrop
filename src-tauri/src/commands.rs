@@ -682,6 +682,45 @@ mod tests {
         }
     }
 
+    /// Every `invoke('command', …)` in the desktop platform layer must be in
+    /// lib.rs's `generate_handler!`: an unregistered command is rejected at
+    /// runtime, and the fire-and-forget callers (tray badge, close-to-tray)
+    /// swallow that, so the feature silently does nothing.
+    #[test]
+    fn registers_every_command_the_ui_invokes() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let lib = std::fs::read_to_string(root.join("src/lib.rs")).expect("readable lib.rs");
+        let handler = &lib[lib.find("generate_handler![").expect("lib.rs registers commands")..];
+        let handler = &handler[..handler.find(']').expect("generate_handler! is closed")];
+        let registered: Vec<&str> = handler
+            .split(|c: char| c == ',' || c.is_whitespace() || c == '[')
+            .filter_map(|t| t.rsplit("::").next())
+            .filter(|t| !t.is_empty())
+            .collect();
+        let dir = root.join("../src/platform/tauri");
+        let mut seen = 0;
+        for entry in std::fs::read_dir(&dir).expect("readable platform dir") {
+            let path = entry.expect("dir entry").path();
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_owned();
+            if !name.ends_with(".ts") || name.contains(".test.") {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).expect("readable source");
+            for (i, _) in text.match_indices("invoke") {
+                let rest = &text[i + "invoke".len()..];
+                let rest = rest.strip_prefix("<").map_or(rest, |r| &r[r.find('>').map_or(0, |j| j + 1)..]);
+                let Some(quoted) = rest.strip_prefix("('") else { continue };
+                let command: String = quoted.chars().take_while(|c| c.is_ascii_lowercase() || *c == '_').collect();
+                if command.is_empty() || !quoted[command.len()..].starts_with('\'') {
+                    continue;
+                }
+                seen += 1;
+                assert!(registered.contains(&command.as_str()), "{name} invokes {command}, which lib.rs never registers");
+            }
+        }
+        assert!(seen > 20, "the scan found only {seen} invokes; did the layout change?");
+    }
+
     /// Settings → Connection → "Sync contacts and groups" (SignalCliBackend.ts:
     /// syncContactsAndGroups) goes through this exact method.
     #[test]
