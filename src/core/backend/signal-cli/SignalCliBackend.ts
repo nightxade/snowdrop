@@ -55,6 +55,7 @@ import type {
   HistoryReadState,
   LinkFlow,
   MarkReadOptions,
+  ReadSummary,
   MessageRef,
   MessageRequestResponse,
   PhonePrivacyPatch,
@@ -98,6 +99,7 @@ import {
   pinDurationParam,
   recipientFailures,
   stickerParam,
+  summariseReadReplies,
   targetParams,
 } from './params';
 import { DirectPeers } from './peers';
@@ -1619,17 +1621,17 @@ export class SignalCliBackend implements ChatBackend {
     _conversationId: ConversationId,
     messages: MessageRef[],
     options?: MarkReadOptions,
-  ): Promise<void> {
+  ): Promise<ReadSummary> {
     this.assertAccount();
     // An older signal-cli would treat `syncOnly` as a plain receipt: never send it one.
-    if (options?.syncOnly && !this.readSyncSupported) return;
+    if (options?.syncOnly && !this.readSyncSupported) return summariseReadReplies([]);
     // Receipts are addressed to each message's author, not to the conversation.
     const byAuthor = new Map<string, number[]>();
     for (const m of messages) {
       if (this.identity.isSelf(m.authorId) || m.authorId === this.selfId) continue;
       byAuthor.set(m.authorId, [...(byAuthor.get(m.authorId) ?? []), m.sentAt]);
     }
-    await Promise.all(
+    const replies = await Promise.all(
       [...byAuthor].map(([author, timestamps]) =>
         this.rpc.call(
           'sendReceipt',
@@ -1643,6 +1645,7 @@ export class SignalCliBackend implements ChatBackend {
         ),
       ),
     );
+    return summariseReadReplies(replies);
   }
 
   /**

@@ -5,12 +5,12 @@
  * `quoteTimestamp`); multi-value flags accept arrays under the singular name.
  */
 import { parseConversationId, type ConversationId } from '@/core/domain';
-import type { RecipientFailure, RecipientFailureReason, SendInput } from '../types';
+import type { ReadSummary, RecipientFailure, RecipientFailureReason, SendInput } from '../types';
 import { SignalCliError } from './errors';
 import { mentionParams, textStyleParams } from './normalise/ranges';
 import type { RpcParams } from './rpc';
 import { decode, isRecord } from './validate';
-import { addressId, wireSendResult, type WireSendResult } from './wire';
+import { addressId, wireReceiptReply, wireSendResult, type WireSendResult } from './wire';
 
 /** Where a conversation's messages go: `recipient`, `groupId`, or note-to-self. */
 export function targetParams(
@@ -133,6 +133,40 @@ const FAILURE_REASONS: Record<string, RecipientFailureReason> = {
   IDENTITY_FAILURE: 'untrusted-identity',
   RATE_LIMIT_FAILURE: 'rate-limited',
 };
+
+/**
+ * What happened to one receipt: `success`, or the failure's reason (the same names `send` reports
+ * for a recipient). Types only: nothing here identifies a person or a message.
+ */
+export function receiptOutcome(type: string): 'success' | RecipientFailureReason {
+  return type === 'SUCCESS' ? 'success' : (FAILURE_REASONS[type] ?? 'unknown');
+}
+
+/**
+ * The summary of one `markRead` call from its `sendReceipt` replies (one per author; a reply that
+ * can't be read counts as one without results or sync field). `receipt` is `none` when no
+ * receipt went out, `success`, or the first failure; `sync` is `none` when nothing was sent,
+ * `unreported` when signal-cli didn't say (older build), `success`, or the first non-success.
+ */
+export function summariseReadReplies(replies: readonly unknown[]): ReadSummary {
+  const receipts: string[] = [];
+  const syncs: string[] = [];
+  for (const raw of replies) {
+    const decoded = decode(wireReceiptReply, raw);
+    if (!decoded.ok) {
+      syncs.push('unreported');
+      continue;
+    }
+    for (const item of decoded.value.results) receipts.push(receiptOutcome(item.type));
+    syncs.push(decoded.value.sync ?? 'unreported');
+  }
+  const receipt =
+    receipts.find((r) => r !== 'success') ?? (receipts.length > 0 ? 'success' : 'none');
+  const sync =
+    syncs.find((s) => s !== 'success' && s !== 'unreported') ??
+    (syncs.includes('unreported') ? 'unreported' : syncs.length > 0 ? 'success' : 'none');
+  return { receipt, sync };
+}
 
 export function recipientFailures(result: WireSendResult): RecipientFailure[] {
   return result.results.flatMap((r) => {

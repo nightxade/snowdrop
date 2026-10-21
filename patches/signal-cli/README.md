@@ -13,7 +13,7 @@ Apply to a clean checkout of the pinned upstream commit:
 
 ```sh
 git apply /path/to/snowdrop/patches/signal-cli/*.patch
-./gradlew test --tests '*HistoryCommandTest' --tests '*GetConfigurationCommandTest' --tests '*SendReceiptCommandTest' --tests '*ReceiveConfigurationChangedNotificationTest' :libsignal-cli:test --tests '*History*Test' --tests '*StickerHelperTest' --tests '*ConfigurationStoreTest'
+./gradlew test --tests '*HistoryCommandTest' --tests '*GetConfigurationCommandTest' --tests '*SendReceiptCommandTest' --tests '*ReceiveConfigurationChangedNotificationTest' :libsignal-cli:test --tests '*History*Test' --tests '*StickerHelperTest' --tests '*ConfigurationStoreTest' --tests '*ReceiptSyncOutcomeTest'
 ./gradlew installDist
 ```
 
@@ -795,6 +795,31 @@ Verification: `scripts/build-signal-cli.sh --test` (Java test `SendReceiptComman
 syncs and sends no receipt, keeps the viewed type, rejects an unknown type; without it the normal
 receipt is sent). Not verified against a real phone: that the sync marks the messages read there.
 Builds as `0.14.8-snowdrop-history.19`.
+
+## 0024: receipt sync outcome
+
+`sendReceipt` used to ignore how the own-device read sync went: `SyncHelper.sendSyncReceiptMessage`
+returned nothing and `SendHelper.sendSyncMessage` turns a send exception into a result nobody read,
+so a sync that never reached the phone looked exactly like one that did.
+
+- `sendSyncReceiptMessage` returns the `SendMessageResult` (null only for a receipt that is neither
+  read nor viewed). `Manager.sendReadReceipt` / `sendViewedReceipt` return a `ReceiptResults`
+  (the unchanged `SendMessageResults` plus a `ReceiptSyncOutcome`); `syncReceiptToOwnDevices` returns
+  the `ReceiptSyncOutcome` instead of a boolean.
+- The JSON-RPC reply of `sendReceipt` gains `"sync"`: `success`, `network`, `identity`,
+  `unregistered`, `rate-limit`, `proof-required`, `skipped-no-aci`, `skipped-single-device` or
+  `error`. It is present on both the normal path and `syncOnly`; `timestamp` and `results` keep
+  their shape. `skipped-*` means no sync message was attempted (no known ACI for the sender; no
+  linked device). `unregistered` also covers a sender that could not be resolved.
+- Whenever the sync is not a `success`, signal-cli logs one WARN with that type and nothing else
+  (no ids, numbers or timestamps).
+- No storage change and no `DATABASE_VERSION` bump. The method name and params are unchanged, so
+  the native shell's allow-list needs nothing new. An older build simply has no `sync` field.
+
+Verification: `scripts/build-signal-cli.sh --test` (`ReceiptSyncOutcomeTest`: every result type maps
+to its value, only `success` is a success; `SendReceiptCommandTest`: `sync` on the syncOnly and
+normal replies for every outcome, `results` unchanged). Not verified against a real phone.
+Builds as `0.14.8-snowdrop-history.20`.
 
 ## User-controlled phone verification
 

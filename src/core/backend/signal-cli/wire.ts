@@ -312,6 +312,18 @@ export const wireSendResult = object({
 export type WireSendResult = Infer<typeof wireSendResult>;
 
 /**
+ * `sendReceipt` reply. Lenient on purpose (a receipt has always been fire and forget): `results`
+ * may be missing and `sync` is absent on a signal-cli older than patch 0024
+ * (`success | network | identity | unregistered | rate-limit | proof-required |
+ * skipped-no-aci | skipped-single-device | error`; kept as a string so a newer value still reads).
+ */
+export const wireReceiptReply = object({
+  results: withDefault(list(wireSendResultItem), []),
+  sync: optStr,
+});
+export type WireReceiptReply = Infer<typeof wireReceiptReply>;
+
+/**
  * `listStickerPacks` items (ListStickerPacksCommand.JsonStickerPack). The
  * pack's `url` is deliberately NOT decoded: it embeds the pack key, which
  * must never leave this decoder (it would otherwise reach stores, logs or

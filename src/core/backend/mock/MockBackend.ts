@@ -37,6 +37,7 @@ import type {
   HistoryPage,
   HistoryQuery,
   MarkReadOptions,
+  ReadSummary,
   MessageRef,
   MessageRequestResponse,
   PinInput,
@@ -88,6 +89,8 @@ export class MockBackend implements ChatBackend {
   private lastSentAt = 0;
   private failures: Error[] = [];
   readonly typingSent: { conversationId: ConversationId; typing: boolean }[] = [];
+  /** What `markRead` resolves with (tests set it to simulate a failed receipt or sync). */
+  readSummary: ReadSummary | undefined = undefined;
   /** Every `markRead` call, for tests asserting what was (not) sent. */
   readonly readReceiptsSent: {
     conversationId: ConversationId;
@@ -403,9 +406,9 @@ export class MockBackend implements ChatBackend {
     conversationId: ConversationId,
     messages: { authorId: string; sentAt: number }[],
     options?: MarkReadOptions,
-  ): Promise<void> {
+  ): Promise<ReadSummary | undefined> {
     await this.delay();
-    if (options?.syncOnly && !this.readSyncSupported) return;
+    if (options?.syncOnly && !this.readSyncSupported) return undefined;
     this.readReceiptsSent.push({
       conversationId,
       messages: structuredClone(messages),
@@ -416,6 +419,7 @@ export class MockBackend implements ChatBackend {
       this.world.readUpTo.get(conversationId) ?? 0,
     );
     this.world.readUpTo.set(conversationId, latest);
+    return this.readSummary;
   }
 
   /**

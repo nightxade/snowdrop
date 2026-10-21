@@ -1317,6 +1317,37 @@ describe('SignalCliBackend sync-only read receipts', () => {
     expect(backend.supportsReadSync()).toBe(false);
   });
 
+  it('returns the receipt and sync outcome types from the reply', async () => {
+    const { backend, daemon } = await backendAt('0.14.8-snowdrop-history.20');
+    daemon.reply('sendReceipt', {
+      timestamp: 1,
+      results: [{ type: 'SUCCESS', recipientAddress: { uuid: ALICE } }],
+      sync: 'success',
+    });
+    expect(await backend.markRead(GROUP, [{ authorId: ALICE, sentAt: 1 }])).toEqual({
+      receipt: 'success',
+      sync: 'success',
+    });
+    daemon.reply('sendReceipt', { timestamp: 0, results: [], sync: 'network' });
+    expect(
+      await backend.markRead(GROUP, [{ authorId: ALICE, sentAt: 1 }], { syncOnly: true }),
+    ).toEqual({ receipt: 'none', sync: 'network' });
+    await backend.disconnect();
+  });
+
+  it('tolerates a build without the sync field, and sends nothing for own messages', async () => {
+    const { backend } = await backendAt('0.14.8-snowdrop-history.19');
+    expect(await backend.markRead(GROUP, [{ authorId: ALICE, sentAt: 1 }])).toEqual({
+      receipt: 'none',
+      sync: 'unreported',
+    });
+    expect(await backend.markRead(GROUP, [{ authorId: SELF_ACI, sentAt: 1 }])).toEqual({
+      receipt: 'none',
+      sync: 'none',
+    });
+    await backend.disconnect();
+  });
+
   it('never sends a sync-only read to an older build (it would be a real receipt)', async () => {
     const { backend, daemon } = await backendAt('0.14.8-snowdrop-history.18');
     expect(backend.supportsReadSync()).toBe(false);

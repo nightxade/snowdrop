@@ -1,0 +1,552 @@
+diff --git a/build.gradle.kts b/build.gradle.kts
+index 69dd473..9c9bb29 100644
+--- a/build.gradle.kts
++++ b/build.gradle.kts
+@@ -10,7 +10,7 @@ plugins {
+ 
+ allprojects {
+     group = "org.asamk"
+-    version = "0.14.8-snowdrop-history.19"
++    version = "0.14.8-snowdrop-history.20"
+ 
+     // Snowdrop: substitute a locally-built, patched signal-service-java
+     // (snowdrop/patches/signal-service-java) for the stock turasa jar, when
+diff --git a/lib/src/main/java/org/asamk/signal/manager/Manager.java b/lib/src/main/java/org/asamk/signal/manager/Manager.java
+index 132a065..95089a9 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/Manager.java
++++ b/lib/src/main/java/org/asamk/signal/manager/Manager.java
+@@ -36,6 +36,8 @@ import org.asamk.signal.manager.api.PendingAdminApprovalException;
+ import org.asamk.signal.manager.api.PinLockMissingException;
+ import org.asamk.signal.manager.api.PinLockedException;
+ import org.asamk.signal.manager.api.RateLimitException;
++import org.asamk.signal.manager.api.ReceiptResults;
++import org.asamk.signal.manager.api.ReceiptSyncOutcome;
+ import org.asamk.signal.manager.api.ReceiveConfig;
+ import org.asamk.signal.manager.api.Recipient;
+ import org.asamk.signal.manager.api.RecipientIdentifier;
+@@ -230,18 +232,18 @@ public interface Manager extends Closeable {
+             Set<RecipientIdentifier> recipients
+     ) throws IOException, NotAGroupMemberException, GroupNotFoundException, GroupSendingNotAllowedException;
+ 
+-    SendMessageResults sendReadReceipt(RecipientIdentifier.Single sender, List<Long> messageIds);
++    ReceiptResults sendReadReceipt(RecipientIdentifier.Single sender, List<Long> messageIds);
+ 
+-    SendMessageResults sendViewedReceipt(RecipientIdentifier.Single sender, List<Long> messageIds);
++    ReceiptResults sendViewedReceipt(RecipientIdentifier.Single sender, List<Long> messageIds);
+ 
+     /**
+      * Snowdrop: tell only our own other devices that these messages from {@code sender} were
+      * read (or viewed), without sending any receipt to the sender. That is the part of
+      * {@link #sendReadReceipt} which marks the messages read on the phone; the receipt to the
+      * sender is what the read-receipts setting and message requests gate. Returns false when
+-     * there was nothing to sync (sender not registered or without a known ACI).
++     * how the sync went (skipped when there was nothing to sync).
+      */
+-    boolean syncReceiptToOwnDevices(RecipientIdentifier.Single sender, List<Long> messageIds, boolean viewed);
++    ReceiptSyncOutcome syncReceiptToOwnDevices(RecipientIdentifier.Single sender, List<Long> messageIds, boolean viewed);
+ 
+     SendMessageResults sendMessage(
+             Message message,
+diff --git a/lib/src/main/java/org/asamk/signal/manager/api/ReceiptResults.java b/lib/src/main/java/org/asamk/signal/manager/api/ReceiptResults.java
+new file mode 100644
+index 0000000..5cce144
+--- /dev/null
++++ b/lib/src/main/java/org/asamk/signal/manager/api/ReceiptResults.java
+@@ -0,0 +1,8 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.manager.api;
++
++/**
++ * Snowdrop: the outcome of {@code sendReadReceipt} / {@code sendViewedReceipt}: the receipt to
++ * the sender (unchanged) plus the sync message to the account's own other devices.
++ */
++public record ReceiptResults(SendMessageResults results, ReceiptSyncOutcome sync) {}
+diff --git a/lib/src/main/java/org/asamk/signal/manager/api/ReceiptSyncOutcome.java b/lib/src/main/java/org/asamk/signal/manager/api/ReceiptSyncOutcome.java
+new file mode 100644
+index 0000000..ae03780
+--- /dev/null
++++ b/lib/src/main/java/org/asamk/signal/manager/api/ReceiptSyncOutcome.java
+@@ -0,0 +1,61 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.manager.api;
++
++/**
++ * Snowdrop: what became of the read/viewed sync message sent to the account's own other
++ * devices. {@link #json()} is the value of the {@code sync} field in {@code sendReceipt}'s
++ * JSON-RPC response.
++ */
++public enum ReceiptSyncOutcome {
++    SUCCESS("success"),
++    NETWORK("network"),
++    IDENTITY("identity"),
++    UNREGISTERED("unregistered"),
++    RATE_LIMIT("rate-limit"),
++    PROOF_REQUIRED("proof-required"),
++    SKIPPED_NO_ACI("skipped-no-aci"),
++    SKIPPED_SINGLE_DEVICE("skipped-single-device"),
++    ERROR("error");
++
++    private final String json;
++
++    ReceiptSyncOutcome(final String json) {
++        this.json = json;
++    }
++
++    public String json() {
++        return json;
++    }
++
++    public boolean isSuccess() {
++        return this == SUCCESS;
++    }
++
++    /** Classifies the result of sending the sync message. A missing result is an error. */
++    public static ReceiptSyncOutcome from(
++            final org.whispersystems.signalservice.api.messages.SendMessageResult result
++    ) {
++        if (result == null) {
++            return ERROR;
++        }
++        if (result.isSuccess()) {
++            return SUCCESS;
++        }
++        if (result.getProofRequiredFailure() != null) {
++            return PROOF_REQUIRED;
++        }
++        if (result.getRateLimitFailure() != null) {
++            return RATE_LIMIT;
++        }
++        if (result.getIdentityFailure() != null) {
++            return IDENTITY;
++        }
++        if (result.isUnregisteredFailure()) {
++            return UNREGISTERED;
++        }
++        if (result.isNetworkFailure()) {
++            return NETWORK;
++        }
++        return ERROR;
++    }
++}
+diff --git a/lib/src/main/java/org/asamk/signal/manager/helper/SyncHelper.java b/lib/src/main/java/org/asamk/signal/manager/helper/SyncHelper.java
+index 0acb30b..2a042b7 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/helper/SyncHelper.java
++++ b/lib/src/main/java/org/asamk/signal/manager/helper/SyncHelper.java
+@@ -89,20 +89,25 @@ public class SyncHelper {
+                 .sendSyncMessage(SignalServiceSyncMessage.forFetchLatest(SignalServiceSyncMessage.FetchType.STORAGE_MANIFEST));
+     }
+ 
+-    public void sendSyncReceiptMessage(ServiceId.ACI sender, SignalServiceReceiptMessage receiptMessage) {
++    /** Returns the send result, or null for a receipt that is neither read nor viewed. */
++    public org.whispersystems.signalservice.api.messages.SendMessageResult sendSyncReceiptMessage(
++            ServiceId.ACI sender,
++            SignalServiceReceiptMessage receiptMessage
++    ) {
+         if (receiptMessage.isReadReceipt()) {
+             final var readMessages = receiptMessage.getTimestamps()
+                     .stream()
+                     .map(t -> new ReadMessage(sender, t))
+                     .toList();
+-            context.getSendHelper().sendSyncMessage(SignalServiceSyncMessage.forRead(readMessages));
++            return context.getSendHelper().sendSyncMessage(SignalServiceSyncMessage.forRead(readMessages));
+         } else if (receiptMessage.isViewedReceipt()) {
+             final var viewedMessages = receiptMessage.getTimestamps()
+                     .stream()
+                     .map(t -> new ViewedMessage(sender, t))
+                     .toList();
+-            context.getSendHelper().sendSyncMessage(SignalServiceSyncMessage.forViewed(viewedMessages));
++            return context.getSendHelper().sendSyncMessage(SignalServiceSyncMessage.forViewed(viewedMessages));
+         }
++        return null;
+     }
+ 
+     public void sendGroups() throws IOException {
+diff --git a/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java b/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
+index a6f23b7..d469708 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
++++ b/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
+@@ -54,6 +54,8 @@ import org.asamk.signal.manager.api.PinLockMissingException;
+ import org.asamk.signal.manager.api.PinLockedException;
+ import org.asamk.signal.manager.api.Profile;
+ import org.asamk.signal.manager.api.RateLimitException;
++import org.asamk.signal.manager.api.ReceiptResults;
++import org.asamk.signal.manager.api.ReceiptSyncOutcome;
+ import org.asamk.signal.manager.api.ReceiveConfig;
+ import org.asamk.signal.manager.api.Recipient;
+ import org.asamk.signal.manager.api.RecipientIdentifier;
+@@ -870,7 +872,7 @@ public class ManagerImpl implements Manager {
+     }
+ 
+     @Override
+-    public SendMessageResults sendReadReceipt(RecipientIdentifier.Single sender, List<Long> messageIds) {
++    public ReceiptResults sendReadReceipt(RecipientIdentifier.Single sender, List<Long> messageIds) {
+         final var timestamp = getNextMessageTimestamp();
+         var receiptMessage = new SignalServiceReceiptMessage(SignalServiceReceiptMessage.Type.READ,
+                 messageIds,
+@@ -880,7 +882,7 @@ public class ManagerImpl implements Manager {
+     }
+ 
+     @Override
+-    public SendMessageResults sendViewedReceipt(RecipientIdentifier.Single sender, List<Long> messageIds) {
++    public ReceiptResults sendViewedReceipt(RecipientIdentifier.Single sender, List<Long> messageIds) {
+         final var timestamp = getNextMessageTimestamp();
+         var receiptMessage = new SignalServiceReceiptMessage(SignalServiceReceiptMessage.Type.VIEWED,
+                 messageIds,
+@@ -890,7 +892,7 @@ public class ManagerImpl implements Manager {
+     }
+ 
+     @Override
+-    public boolean syncReceiptToOwnDevices(
++    public ReceiptSyncOutcome syncReceiptToOwnDevices(
+             final RecipientIdentifier.Single sender,
+             final List<Long> messageIds,
+             final boolean viewed
+@@ -901,18 +903,42 @@ public class ManagerImpl implements Manager {
+         final var receiptMessage = new SignalServiceReceiptMessage(type, messageIds, getNextMessageTimestamp());
+         try {
+             final var recipientId = context.getRecipientHelper().resolveRecipient(sender);
+-            final var aci = account.getRecipientAddressResolver().resolveRecipientAddress(recipientId).aci();
+-            if (aci.isEmpty()) {
+-                return false;
+-            }
+-            context.getSyncHelper().sendSyncReceiptMessage(aci.get(), receiptMessage);
+-            return true;
++            return syncReceiptToOwnDevices(recipientId, receiptMessage);
+         } catch (UnregisteredRecipientException e) {
+-            return false;
++            return warnIfNotSynced(ReceiptSyncOutcome.UNREGISTERED);
+         }
+     }
+ 
+-    private SendMessageResults sendReceiptMessage(
++    private ReceiptSyncOutcome syncReceiptToOwnDevices(
++            final RecipientId recipientId,
++            final SignalServiceReceiptMessage receiptMessage
++    ) {
++        if (!account.isMultiDevice()) {
++            return warnIfNotSynced(ReceiptSyncOutcome.SKIPPED_SINGLE_DEVICE);
++        }
++        final var aci = account.getRecipientAddressResolver().resolveRecipientAddress(recipientId).aci();
++        if (aci.isEmpty()) {
++            return warnIfNotSynced(ReceiptSyncOutcome.SKIPPED_NO_ACI);
++        }
++        ReceiptSyncOutcome outcome;
++        try {
++            outcome = ReceiptSyncOutcome.from(context.getSyncHelper()
++                    .sendSyncReceiptMessage(aci.get(), receiptMessage));
++        } catch (RuntimeException e) {
++            outcome = ReceiptSyncOutcome.ERROR;
++        }
++        return warnIfNotSynced(outcome);
++    }
++
++    // The type only: no ids, numbers or timestamps.
++    private static ReceiptSyncOutcome warnIfNotSynced(final ReceiptSyncOutcome outcome) {
++        if (!outcome.isSuccess()) {
++            logger.warn("Read sync to own devices was not sent: {}", outcome.json());
++        }
++        return outcome;
++    }
++
++    private ReceiptResults sendReceiptMessage(
+             final RecipientIdentifier.Single sender,
+             final long timestamp,
+             final SignalServiceReceiptMessage receiptMessage
+@@ -928,14 +954,13 @@ public class ManagerImpl implements Manager {
+                 results = List.of();
+             }
+ 
+-            final var aci = account.getRecipientAddressResolver().resolveRecipientAddress(recipientId).aci();
+-            if (aci.isPresent()) {
+-                context.getSyncHelper().sendSyncReceiptMessage(aci.get(), receiptMessage);
+-            }
+-            return new SendMessageResults(timestamp, Map.of(sender, results));
++            final var sync = syncReceiptToOwnDevices(recipientId, receiptMessage);
++            return new ReceiptResults(new SendMessageResults(timestamp, Map.of(sender, results)), sync);
+         } catch (UnregisteredRecipientException e) {
+-            return new SendMessageResults(timestamp,
+-                    Map.of(sender, List.of(SendMessageResult.unregisteredFailure(sender.toPartialRecipientAddress()))));
++            return new ReceiptResults(new SendMessageResults(timestamp,
++                    Map.of(sender,
++                            List.of(SendMessageResult.unregisteredFailure(sender.toPartialRecipientAddress())))),
++                    warnIfNotSynced(ReceiptSyncOutcome.UNREGISTERED));
+         }
+     }
+ 
+diff --git a/lib/src/test/java/org/asamk/signal/manager/api/ReceiptSyncOutcomeTest.java b/lib/src/test/java/org/asamk/signal/manager/api/ReceiptSyncOutcomeTest.java
+new file mode 100644
+index 0000000..7f923df
+--- /dev/null
++++ b/lib/src/test/java/org/asamk/signal/manager/api/ReceiptSyncOutcomeTest.java
+@@ -0,0 +1,75 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.manager.api;
++
++import com.fasterxml.jackson.databind.ObjectMapper;
++
++import org.junit.jupiter.api.Test;
++import org.signal.core.models.ServiceId;
++import org.signal.libsignal.protocol.IdentityKey;
++import org.signal.libsignal.protocol.ecc.ECKeyPair;
++import org.whispersystems.signalservice.api.messages.SendMessageResult;
++import org.whispersystems.signalservice.api.push.SignalServiceAddress;
++import org.whispersystems.signalservice.api.push.exceptions.ProofRequiredException;
++import org.whispersystems.signalservice.api.push.exceptions.RateLimitException;
++import org.whispersystems.signalservice.internal.push.ProofRequiredResponse;
++
++import java.util.List;
++import java.util.Optional;
++import java.util.UUID;
++
++import static org.junit.jupiter.api.Assertions.assertEquals;
++
++class ReceiptSyncOutcomeTest {
++
++    private static final SignalServiceAddress ADDRESS = new SignalServiceAddress(ServiceId.ACI.from(new UUID(1, 2)));
++
++    private static ProofRequiredResponse proofResponse() {
++        try {
++            return new ObjectMapper().readValue("{\"token\":\"t\",\"options\":[\"captcha\"]}",
++                    ProofRequiredResponse.class);
++        } catch (Exception e) {
++            throw new AssertionError(e);
++        }
++    }
++
++    @Test
++    void classifiesEveryResultType() {
++        assertEquals("success",
++                ReceiptSyncOutcome.from(SendMessageResult.success(ADDRESS, List.of(), false, false, 0, Optional.empty()))
++                        .json());
++        assertEquals("network", ReceiptSyncOutcome.from(SendMessageResult.networkFailure(ADDRESS)).json());
++        assertEquals("unregistered", ReceiptSyncOutcome.from(SendMessageResult.unregisteredFailure(ADDRESS)).json());
++        assertEquals("identity",
++                ReceiptSyncOutcome.from(SendMessageResult.identityFailure(ADDRESS,
++                        new IdentityKey(ECKeyPair.generate().getPublicKey()))).json());
++        assertEquals("rate-limit",
++                ReceiptSyncOutcome.from(SendMessageResult.rateLimitFailure(ADDRESS, new RateLimitException(429, "x")))
++                        .json());
++        assertEquals("proof-required",
++                ReceiptSyncOutcome.from(SendMessageResult.proofRequiredFailure(ADDRESS,
++                        new ProofRequiredException(proofResponse(), 1))).json());
++        assertEquals("error", ReceiptSyncOutcome.from(SendMessageResult.invalidPreKeyFailure(ADDRESS)).json());
++        assertEquals("error", ReceiptSyncOutcome.from(null).json());
++    }
++
++    @Test
++    void onlySuccessIsSuccess() {
++        for (final var outcome : ReceiptSyncOutcome.values()) {
++            assertEquals(outcome == ReceiptSyncOutcome.SUCCESS, outcome.isSuccess());
++        }
++    }
++
++    @Test
++    void jsonValuesAreTheDocumentedOnes() {
++        assertEquals(List.of("success",
++                        "network",
++                        "identity",
++                        "unregistered",
++                        "rate-limit",
++                        "proof-required",
++                        "skipped-no-aci",
++                        "skipped-single-device",
++                        "error"),
++                java.util.Arrays.stream(ReceiptSyncOutcome.values()).map(ReceiptSyncOutcome::json).toList());
++    }
++}
+diff --git a/src/main/java/org/asamk/signal/commands/SendReceiptCommand.java b/src/main/java/org/asamk/signal/commands/SendReceiptCommand.java
+index e26b320..f68f498 100644
+--- a/src/main/java/org/asamk/signal/commands/SendReceiptCommand.java
++++ b/src/main/java/org/asamk/signal/commands/SendReceiptCommand.java
+@@ -7,11 +7,12 @@ import net.sourceforge.argparse4j.inf.Subparser;
+ import org.asamk.signal.commands.exceptions.CommandException;
+ import org.asamk.signal.commands.exceptions.UserErrorException;
+ import org.asamk.signal.manager.Manager;
+-import org.asamk.signal.manager.api.SendMessageResults;
++import org.asamk.signal.manager.api.ReceiptResults;
+ import org.asamk.signal.output.JsonWriter;
+ import org.asamk.signal.output.OutputWriter;
+ import org.asamk.signal.util.CommandUtil;
+ 
++import java.util.LinkedHashMap;
+ import java.util.List;
+ import java.util.Map;
+ 
+@@ -59,16 +60,17 @@ public class SendReceiptCommand implements JsonRpcLocalCommand {
+             if (type != null && !"read".equals(type) && !"viewed".equals(type)) {
+                 throw new UserErrorException("Unknown receipt type: " + type);
+             }
+-            m.syncReceiptToOwnDevices(recipient, targetTimestamps, "viewed".equals(type));
++            final var sync = m.syncReceiptToOwnDevices(recipient, targetTimestamps, "viewed".equals(type));
+             // Nothing is sent to the recipient, so there is no per-recipient result and nothing
+-            // that can fail the call the way an unsent receipt would.
++            // that can fail the call the way an unsent receipt would. The sync outcome is reported
++            // in "sync" instead.
+             if (outputWriter instanceof JsonWriter writer) {
+-                writer.write(Map.of("timestamp", 0L, "results", List.of()));
++                writer.write(Map.of("timestamp", 0L, "results", List.of(), "sync", sync.json()));
+             }
+             return;
+         }
+ 
+-        final SendMessageResults results;
++        final ReceiptResults results;
+         if (type == null || "read".equals(type)) {
+             results = m.sendReadReceipt(recipient, targetTimestamps);
+         } else if ("viewed".equals(type)) {
+@@ -76,6 +78,18 @@ public class SendReceiptCommand implements JsonRpcLocalCommand {
+         } else {
+             throw new UserErrorException("Unknown receipt type: " + type);
+         }
+-        outputResult(outputWriter, results);
++        // The normal output, with the own-device sync outcome added to the JSON reply.
++        final OutputWriter writer = outputWriter instanceof JsonWriter json
++                ? (JsonWriter) object -> {
++                    if (object instanceof Map<?, ?> map) {
++                        final var withSync = new LinkedHashMap<Object, Object>(map);
++                        withSync.put("sync", results.sync().json());
++                        json.write(withSync);
++                    } else {
++                        json.write(object);
++                    }
++                }
++                : outputWriter;
++        outputResult(writer, results.results());
+     }
+ }
+diff --git a/src/main/java/org/asamk/signal/dbus/DbusManagerImpl.java b/src/main/java/org/asamk/signal/dbus/DbusManagerImpl.java
+index d45dcac..7487172 100644
+--- a/src/main/java/org/asamk/signal/dbus/DbusManagerImpl.java
++++ b/src/main/java/org/asamk/signal/dbus/DbusManagerImpl.java
+@@ -34,6 +34,8 @@ import org.asamk.signal.manager.api.NotPrimaryDeviceException;
+ import org.asamk.signal.manager.api.Pair;
+ import org.asamk.signal.manager.api.PinLockedException;
+ import org.asamk.signal.manager.api.RateLimitException;
++import org.asamk.signal.manager.api.ReceiptResults;
++import org.asamk.signal.manager.api.ReceiptSyncOutcome;
+ import org.asamk.signal.manager.api.ReceiveConfig;
+ import org.asamk.signal.manager.api.Recipient;
+ import org.asamk.signal.manager.api.RecipientAddress;
+@@ -447,19 +449,19 @@ public class DbusManagerImpl implements Manager {
+     }
+ 
+     @Override
+-    public SendMessageResults sendReadReceipt(final RecipientIdentifier.Single sender, final List<Long> messageIds) {
++    public ReceiptResults sendReadReceipt(final RecipientIdentifier.Single sender, final List<Long> messageIds) {
+         signal.sendReadReceipt(sender.getIdentifier(), messageIds);
+-        return new SendMessageResults(0, Map.of());
++        return new ReceiptResults(new SendMessageResults(0, Map.of()), ReceiptSyncOutcome.ERROR);
+     }
+ 
+     @Override
+-    public SendMessageResults sendViewedReceipt(final RecipientIdentifier.Single sender, final List<Long> messageIds) {
++    public ReceiptResults sendViewedReceipt(final RecipientIdentifier.Single sender, final List<Long> messageIds) {
+         signal.sendViewedReceipt(sender.getIdentifier(), messageIds);
+-        return new SendMessageResults(0, Map.of());
++        return new ReceiptResults(new SendMessageResults(0, Map.of()), ReceiptSyncOutcome.ERROR);
+     }
+ 
+     @Override
+-    public boolean syncReceiptToOwnDevices(
++    public ReceiptSyncOutcome syncReceiptToOwnDevices(
+             final RecipientIdentifier.Single sender,
+             final List<Long> messageIds,
+             final boolean viewed
+diff --git a/src/main/java/org/asamk/signal/dbus/DbusSignalImpl.java b/src/main/java/org/asamk/signal/dbus/DbusSignalImpl.java
+index 6b0f0e4..5b8a6af 100644
+--- a/src/main/java/org/asamk/signal/dbus/DbusSignalImpl.java
++++ b/src/main/java/org/asamk/signal/dbus/DbusSignalImpl.java
+@@ -371,7 +371,8 @@ public class DbusSignalImpl implements Signal, AutoCloseable {
+             final String recipient,
+             final List<Long> messageIds
+     ) throws Error.Failure, Error.UntrustedIdentity {
+-        final var results = m.sendReadReceipt(getSingleRecipientIdentifier(recipient, m.getSelfNumber()), messageIds);
++        final var results = m.sendReadReceipt(getSingleRecipientIdentifier(recipient, m.getSelfNumber()), messageIds)
++                .results();
+         checkSendMessageResults(results);
+     }
+ 
+@@ -380,7 +381,8 @@ public class DbusSignalImpl implements Signal, AutoCloseable {
+             final String recipient,
+             final List<Long> messageIds
+     ) throws Error.Failure, Error.UntrustedIdentity {
+-        final var results = m.sendViewedReceipt(getSingleRecipientIdentifier(recipient, m.getSelfNumber()), messageIds);
++        final var results = m.sendViewedReceipt(getSingleRecipientIdentifier(recipient, m.getSelfNumber()), messageIds)
++                .results();
+         checkSendMessageResults(results);
+     }
+ 
+diff --git a/src/test/java/org/asamk/signal/commands/SendReceiptCommandTest.java b/src/test/java/org/asamk/signal/commands/SendReceiptCommandTest.java
+index 94d4c24..0d0a66c 100644
+--- a/src/test/java/org/asamk/signal/commands/SendReceiptCommandTest.java
++++ b/src/test/java/org/asamk/signal/commands/SendReceiptCommandTest.java
+@@ -3,6 +3,8 @@ package org.asamk.signal.commands;
+ 
+ import org.asamk.signal.commands.exceptions.UserErrorException;
+ import org.asamk.signal.manager.Manager;
++import org.asamk.signal.manager.api.ReceiptResults;
++import org.asamk.signal.manager.api.ReceiptSyncOutcome;
+ import org.asamk.signal.manager.api.SendMessageResults;
+ import org.junit.jupiter.api.Test;
+ 
+@@ -22,6 +24,10 @@ class SendReceiptCommandTest {
+     private static final String SENDER = "11111111-1111-1111-1111-111111111111";
+ 
+     private static Manager recordingManager(final List<String> calls) {
++        return recordingManager(calls, ReceiptSyncOutcome.SUCCESS);
++    }
++
++    private static Manager recordingManager(final List<String> calls, final ReceiptSyncOutcome sync) {
+         return (Manager) Proxy.newProxyInstance(Manager.class.getClassLoader(),
+                 new Class<?>[]{Manager.class},
+                 (proxy, method, args) -> {
+@@ -30,13 +36,13 @@ class SendReceiptCommandTest {
+                             return "+15550000000";
+                         case "syncReceiptToOwnDevices":
+                             calls.add("sync:" + args[1] + ":" + args[2]);
+-                            return true;
++                            return sync;
+                         case "sendReadReceipt":
+                             calls.add("read:" + args[1]);
+-                            return new SendMessageResults(1, Map.of());
++                            return new ReceiptResults(new SendMessageResults(1, Map.of()), sync);
+                         case "sendViewedReceipt":
+                             calls.add("viewed:" + args[1]);
+-                            return new SendMessageResults(1, Map.of());
++                            return new ReceiptResults(new SendMessageResults(1, Map.of()), sync);
+                         default:
+                             throw new AssertionError("unexpected call " + method.getName());
+                     }
+@@ -62,6 +68,32 @@ class SendReceiptCommandTest {
+         assertEquals(List.of("sync:[7, 8]:false"), calls);
+         final var json = (Map<String, Object>) output.get();
+         assertTrue(((List<Object>) json.get("results")).isEmpty());
++        assertEquals("success", json.get("sync"));
++    }
++
++    @Test
++    @SuppressWarnings("unchecked")
++    void syncOnlyReportsEachOutcome() throws Exception {
++        for (final var outcome : ReceiptSyncOutcome.values()) {
++            final var output = new AtomicReference<Object>();
++            new SendReceiptCommand().handleCommand(args(true, "read"),
++                    recordingManager(new ArrayList<>(), outcome),
++                    output::set);
++            assertEquals(outcome.json(), ((Map<String, Object>) output.get()).get("sync"));
++        }
++    }
++
++    @Test
++    @SuppressWarnings("unchecked")
++    void normalReceiptKeepsItsResultsAndAddsTheSyncOutcome() throws Exception {
++        final var output = new AtomicReference<Object>();
++        new SendReceiptCommand().handleCommand(args(false, "read"),
++                recordingManager(new ArrayList<>(), ReceiptSyncOutcome.NETWORK),
++                output::set);
++        final var json = (Map<String, Object>) output.get();
++        assertEquals(1L, json.get("timestamp"));
++        assertTrue(((List<Object>) json.get("results")).isEmpty());
++        assertEquals("network", json.get("sync"));
+     }
+ 
+     @Test

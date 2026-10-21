@@ -349,6 +349,17 @@ export interface MarkReadOptions {
   syncOnly?: boolean;
 }
 
+/**
+ * What one `markRead` call achieved, as types only (never ids, names or timestamps).
+ * `receipt`: `none` (no receipt went out), `success`, or the first failure's reason.
+ * `sync`: how telling the user's own devices went: `none` (nothing was sent), `unreported`
+ * (the backend can't say, e.g. an older signal-cli), `success`, or the backend's failure type.
+ */
+export interface ReadSummary {
+  receipt: string;
+  sync: string;
+}
+
 export interface ChatBackend {
   readonly kind: BackendKind;
 
@@ -373,13 +384,14 @@ export interface ChatBackend {
    * Marks messages read: tells their senders (a read receipt) and the user's
    * other devices. With `syncOnly` only the user's own devices are told and
    * nothing goes to the senders; a backend that can't do that
-   * (`supportsReadSync()` false) does nothing for a `syncOnly` call.
+   * (`supportsReadSync()` false) does nothing for a `syncOnly` call. Resolves
+   * with what happened where the backend can tell.
    */
   markRead(
     conversationId: ConversationId,
     messages: MessageRef[],
     options?: MarkReadOptions,
-  ): Promise<void>;
+  ): Promise<ReadSummary | undefined>;
   /**
    * Whether `markRead` can sync read state to the user's own devices without
    * sending receipts (patches/signal-cli's "0023"). Only meaningful once

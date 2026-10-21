@@ -790,8 +790,22 @@ export class SyncService {
       return;
     }
     try {
-      await backend.markRead(conversationId, messages, receipt ? undefined : { syncOnly: true });
-      log.info('read sync sent', { n: messages.length, mode: receipt ? 'receipt' : 'sync-only' });
+      const summary = await backend.markRead(
+        conversationId,
+        messages,
+        receipt ? undefined : { syncOnly: true },
+      );
+      // Types and counts only. Anything but a success is shown at the default log level: a read
+      // that clears here but stays unread on the phone has to leave a trace.
+      const fields = {
+        n: messages.length,
+        mode: receipt ? 'receipt' : 'sync-only',
+        receipt: summary?.receipt ?? 'unreported',
+        sync: summary?.sync ?? 'unreported',
+      };
+      const ok = (v: string) => v === 'success' || v === 'none' || v === 'unreported';
+      if (ok(fields.receipt) && ok(fields.sync)) log.info('read sync sent', fields);
+      else log.warn('read sync sent', fields);
     } catch (error) {
       this.onError(error, 'read receipt failed');
     }

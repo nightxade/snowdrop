@@ -211,7 +211,7 @@ if [ "$NEED_BUILD" -eq 1 ]; then
   # ── Optional: the README's history test suite, before installDist ─────
   if [ "$DO_TEST" -eq 1 ]; then
     log "Running the history test suite"
-    (cd "$SRC_DIR" && ./gradlew --no-daemon test --tests '*HistoryCommandTest' --tests '*GetConfigurationCommandTest' --tests '*SendReceiptCommandTest' --tests '*ReceiveConfigurationChangedNotificationTest' :libsignal-cli:test --tests '*History*Test' --tests '*StickerHelperTest' --tests '*ConfigurationStoreTest') \
+    (cd "$SRC_DIR" && ./gradlew --no-daemon test --tests '*HistoryCommandTest' --tests '*GetConfigurationCommandTest' --tests '*SendReceiptCommandTest' --tests '*ReceiveConfigurationChangedNotificationTest' :libsignal-cli:test --tests '*History*Test' --tests '*StickerHelperTest' --tests '*ConfigurationStoreTest' --tests '*ReceiptSyncOutcomeTest') \
       || die "history tests failed"
   fi
 

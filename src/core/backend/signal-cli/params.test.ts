@@ -15,6 +15,7 @@ import {
   quoteAttachmentParams,
   recipientFailures,
   stickerParam,
+  summariseReadReplies,
   targetParams,
   toDataUri,
 } from './params';
@@ -440,5 +441,69 @@ describe('stickerParam', () => {
     ['ab12', Number.NaN],
   ])('rejects %j / %j', (packId, stickerId) => {
     expect(() => stickerParam(packId, stickerId)).toThrow();
+  });
+});
+
+describe('summariseReadReplies', () => {
+  const item = (type: string) => ({ type, recipientAddress: { uuid: 'someone' } });
+
+  it('reads the sync field and the receipt outcomes', () => {
+    expect(
+      summariseReadReplies([{ timestamp: 1, results: [item('SUCCESS')], sync: 'success' }]),
+    ).toEqual({ receipt: 'success', sync: 'success' });
+  });
+
+  it('a sync-only reply has no receipt', () => {
+    expect(summariseReadReplies([{ timestamp: 0, results: [], sync: 'network' }])).toEqual({
+      receipt: 'none',
+      sync: 'network',
+    });
+  });
+
+  it('an older build has no sync field: unreported, not a failure', () => {
+    expect(summariseReadReplies([{ timestamp: 1, results: [item('SUCCESS')] }])).toEqual({
+      receipt: 'success',
+      sync: 'unreported',
+    });
+    expect(summariseReadReplies([{ timestamp: 1, results: [], sync: null }]).sync).toBe(
+      'unreported',
+    );
+  });
+
+  it('maps receipt failure types to the reasons send reports', () => {
+    const types = {
+      NETWORK_FAILURE: 'network',
+      UNREGISTERED_FAILURE: 'unregistered',
+      IDENTITY_FAILURE: 'untrusted-identity',
+      RATE_LIMIT_FAILURE: 'rate-limited',
+      INVALID_PRE_KEY_FAILURE: 'unknown',
+    };
+    for (const [type, reason] of Object.entries(types)) {
+      expect(summariseReadReplies([{ results: [item(type)], sync: 'success' }]).receipt).toBe(
+        reason,
+      );
+    }
+  });
+
+  it('several authors: the first failure wins over successes', () => {
+    expect(
+      summariseReadReplies([
+        { results: [item('SUCCESS')], sync: 'success' },
+        { results: [item('NETWORK_FAILURE')], sync: 'rate-limit' },
+        { results: [item('SUCCESS')], sync: 'error' },
+      ]),
+    ).toEqual({ receipt: 'network', sync: 'rate-limit' });
+  });
+
+  it('passes through a sync value it has never seen', () => {
+    expect(summariseReadReplies([{ results: [], sync: 'brand-new' }]).sync).toBe('brand-new');
+  });
+
+  it('nothing sent, or a reply that is not an object', () => {
+    expect(summariseReadReplies([])).toEqual({ receipt: 'none', sync: 'none' });
+    expect(summariseReadReplies(['nonsense', null])).toEqual({
+      receipt: 'none',
+      sync: 'unreported',
+    });
   });
 });

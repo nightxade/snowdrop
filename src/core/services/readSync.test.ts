@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { MockBackend } from '@/core/backend/mock';
+import { addLogSink, type LogLevel } from '@/core/lib/log';
 import { messageId, type ConversationId, type Message } from '@/core/domain';
 import { ManualScheduler } from '@/core/lib';
 import { MemoryMessageRepository } from '@/core/persistence';
@@ -160,5 +161,66 @@ describe('read sync: reading always reaches the user’s own devices', () => {
     await sync.markConversationRead(conv);
     expect(markRead).toHaveBeenCalledTimes(1);
     expect(markRead.mock.calls[0]![2]).toBeUndefined();
+  });
+});
+
+describe('read sync: failures are visible', () => {
+  function captureLog() {
+    const lines: { level: LogLevel; message: string }[] = [];
+    const off = addLogSink({
+      write: (level, scope, message) => {
+        if (scope === 'sync' && message.startsWith('read sync sent'))
+          lines.push({ level, message });
+      },
+    });
+    return { lines, off };
+  }
+  const json = (message: string) => JSON.parse(message.slice('read sync sent '.length)) as unknown;
+
+  it('logs a successful sync at info with counts and types only', async () => {
+    const { backend, sync, conv } = await setup();
+    backend.readSummary = { receipt: 'success', sync: 'success' };
+    const { lines, off } = captureLog();
+    await sync.markConversationRead(conv);
+    off();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.level).toBe('info');
+    const fields = json(lines[0]!.message) as Record<string, unknown>;
+    expect(Object.keys(fields).sort()).toEqual(['mode', 'n', 'receipt', 'sync']);
+    expect(fields).toMatchObject({ mode: 'receipt', receipt: 'success', sync: 'success' });
+    expect(typeof fields.n).toBe('number');
+  });
+
+  it('an older backend that cannot say is still info', async () => {
+    const { sync, conv } = await setup();
+    const { lines, off } = captureLog();
+    await sync.markConversationRead(conv);
+    off();
+    expect(lines[0]!.level).toBe('info');
+    expect(json(lines[0]!.message)).toMatchObject({ receipt: 'unreported', sync: 'unreported' });
+  });
+
+  it('warns when the sync failed', async () => {
+    const { backend, stores, sync, conv } = await setup();
+    stores.settings.getState().update('behaviour', { sendReadReceipts: false });
+    backend.readSummary = { receipt: 'none', sync: 'network' };
+    const { lines, off } = captureLog();
+    await sync.markConversationRead(conv);
+    off();
+    expect(lines[0]!.level).toBe('warn');
+    expect(json(lines[0]!.message)).toMatchObject({ mode: 'sync-only', sync: 'network' });
+  });
+
+  it.each([
+    [{ receipt: 'unregistered', sync: 'success' }],
+    [{ receipt: 'success', sync: 'skipped-no-aci' }],
+  ])('warns for %j', async (summary) => {
+    const { backend, sync, conv } = await setup();
+    backend.readSummary = summary;
+    const { lines, off } = captureLog();
+    await sync.markConversationRead(conv);
+    off();
+    expect(lines[0]!.level).toBe('warn');
+    expect(json(lines[0]!.message)).toMatchObject(summary);
   });
 });
