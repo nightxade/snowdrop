@@ -591,7 +591,7 @@ impl Service {
     /// the account lookup and the held-event log; only the forwarded `kind`
     /// (and therefore the UI's event `type`) differs.
     fn on_notification(&self, method: &str, params: Value) {
-        if !matches!(method, "receive" | "receiveCaughtUp" | "receiveConfigurationChanged") {
+        if !matches!(method, "receive" | "receiveCaughtUp" | "receiveConfigurationChanged" | "attachmentBackfill") {
             log::debug!("ignored signal-cli notification {method}");
             return;
         }
@@ -825,6 +825,24 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].kind, "receiveConfigurationChanged");
         assert_eq!(events[0].account, "+15550001");
+    }
+
+    /// `attachmentBackfill` (patches/signal-cli 0016) — our primary answered a
+    /// `requestAttachmentBackfill` — is forwarded with its result as the data,
+    /// or "get it from your phone" never hears back.
+    #[test]
+    fn attachment_backfill_notification_is_forwarded_with_its_result() {
+        let (svc, sink) = service_with_sink();
+        svc.subs.lock().unwrap().by_id.insert(0, "+15550001".into());
+        let result = json!({"targetAuthor": "a", "targetTimestamp": 5, "status": "ready", "attachmentIds": ["x"]});
+
+        svc.on_notification("attachmentBackfill", json!({"subscription": 0, "result": result.clone()}));
+
+        let events = sink.events.lock().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, "attachmentBackfill");
+        assert_eq!(events[0].account, "+15550001");
+        assert_eq!(events[0].data, result);
     }
 
     /// A notification method Snowdrop doesn't understand is dropped, not forwarded
