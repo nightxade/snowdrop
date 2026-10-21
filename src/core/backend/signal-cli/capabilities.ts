@@ -92,3 +92,20 @@ export function supportsPhonePrivacy(version: string | undefined): boolean {
   if (!match?.[1]) return false;
   return Number(match[1]) >= MIN_PHONE_PRIVACY_PATCH_LEVEL;
 }
+
+/**
+ * Whether a running signal-cli build can send only the own-device read sync
+ * for `sendReceipt` (`syncOnly`; patches/signal-cli, "0023: sync-only read
+ * receipts"), so reading marks messages read on the user's phone even when
+ * no receipt may go to the sender. Without it Snowdrop keeps the older
+ * behaviour: nothing at all is sent when a receipt isn't allowed. Same
+ * `snowdrop-history.N` scheme as the other capabilities.
+ */
+export const MIN_READ_SYNC_PATCH_LEVEL = 19;
+
+export function supportsReadSync(version: string | undefined): boolean {
+  if (!version) return false;
+  const match = SNOWDROP_PATCH_LEVEL.exec(version);
+  if (!match?.[1]) return false;
+  return Number(match[1]) >= MIN_READ_SYNC_PATCH_LEVEL;
+}

@@ -4,11 +4,13 @@ import {
   MIN_CUSTOM_EMOJI_PATCH_LEVEL,
   MIN_HISTORY_STICKER_PACK_PATCH_LEVEL,
   MIN_PHONE_PRIVACY_PATCH_LEVEL,
+  MIN_READ_SYNC_PATCH_LEVEL,
   MIN_STICKER_PACK_INSTALL_PATCH_LEVEL,
   supportsAttachmentBackfill,
   supportsCustomEmojiDelivery,
   supportsHistoryStickerPack,
   supportsPhonePrivacy,
+  supportsReadSync,
   supportsStickerPackInstall,
 } from './capabilities';
 
@@ -125,5 +127,20 @@ describe('supportsPhonePrivacy', () => {
     expect(supportsPhonePrivacy('0.14.8-snowdrop-history.18')).toBe(true);
     expect(supportsPhonePrivacy('0.14.8-snowdrop-history.40')).toBe(true);
     expect(supportsPhonePrivacy('0.14.8-some-other-fork.20')).toBe(false);
+  });
+});
+
+describe('supportsReadSync', () => {
+  it('is false without a version, for upstream, and below patch level 19', () => {
+    expect(supportsReadSync(undefined)).toBe(false);
+    expect(supportsReadSync('0.14.8')).toBe(false);
+    expect(supportsReadSync('0.14.8-snowdrop-history.18')).toBe(false);
+  });
+
+  it('is true from the 0023 patch level on', () => {
+    expect(MIN_READ_SYNC_PATCH_LEVEL).toBe(19);
+    expect(supportsReadSync('0.14.8-snowdrop-history.19')).toBe(true);
+    expect(supportsReadSync('0.14.8-snowdrop-history.40')).toBe(true);
+    expect(supportsReadSync('0.14.8-some-other-fork.20')).toBe(false);
   });
 });

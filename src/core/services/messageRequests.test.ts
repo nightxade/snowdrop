@@ -175,13 +175,16 @@ describe('what a message request withholds', () => {
     const { backend, sync, requests, dm, state } = await setup();
     const markRead = vi.spyOn(backend, 'markRead');
     await sync.markConversationRead(dm);
-    expect(markRead).not.toHaveBeenCalled();
+    // Reading a request still syncs to the user's own devices, but nothing goes to the sender.
+    expect(markRead).toHaveBeenCalledTimes(1);
+    expect(markRead.mock.calls[0]?.[2]).toEqual({ syncOnly: true });
     expect(state(dm)).toBe('request');
     // Desktop's accept sends them for what was read: the same here, once, on accept.
     expect(await requests.accept(dm)).toBe(true);
-    expect(markRead).toHaveBeenCalledTimes(1);
-    expect(markRead.mock.calls[0]?.[0]).toBe(dm);
-    expect(markRead.mock.calls[0]?.[1]).toHaveLength(2);
+    expect(markRead).toHaveBeenCalledTimes(2);
+    expect(markRead.mock.calls[1]?.[0]).toBe(dm);
+    expect(markRead.mock.calls[1]?.[1]).toHaveLength(2);
+    expect(markRead.mock.calls[1]?.[2]).toBeUndefined();
   });
 
   it('sends receipts only for what the user had read, when accepting', async () => {
@@ -193,21 +196,24 @@ describe('what a message request withholds', () => {
     await sync.idle();
     expect(stores.conversations.getState().unread[dm]?.count).toBe(1);
     await requests.accept(dm);
-    expect(markRead.mock.calls[0]?.[1]).toHaveLength(2);
+    expect(markRead.mock.calls[1]?.[1]).toHaveLength(2);
+    expect(markRead.mock.calls[1]?.[2]).toBeUndefined();
     // Reading the rest afterwards is an ordinary read: now it is accepted, so it is sent.
     await sync.markConversationRead(dm);
-    expect(markRead).toHaveBeenCalledTimes(2);
-    expect(markRead.mock.calls[1]?.[1]).toEqual([{ authorId: peerOf(dm), sentAt: NOW + 5 }]);
+    expect(markRead).toHaveBeenCalledTimes(3);
+    expect(markRead.mock.calls[2]?.[1]).toEqual([{ authorId: peerOf(dm), sentAt: NOW + 5 }]);
+    expect(markRead.mock.calls[2]?.[2]).toBeUndefined();
   });
 
-  it('auto-reading a request that is open sends nothing either', async () => {
+  it('auto-reading a request that is open sends no receipt either', async () => {
     const { backend, stores, sync, dm, peerOf } = await setup();
     const markRead = vi.spyOn(backend, 'markRead');
     stores.ui.getState().selectConversation(dm);
     backend.deliver(incoming(dm, peerOf(dm), NOW + 5));
     await sync.idle();
     expect(stores.conversations.getState().unread[dm]?.count).toBe(0);
-    expect(markRead).not.toHaveBeenCalled();
+    expect(markRead).toHaveBeenCalledTimes(1);
+    expect(markRead.mock.calls[0]?.[2]).toEqual({ syncOnly: true });
   });
 
   it('sends no typing indicator to a request, and starts once it is accepted', async () => {

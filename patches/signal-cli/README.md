@@ -13,7 +13,7 @@ Apply to a clean checkout of the pinned upstream commit:
 
 ```sh
 git apply /path/to/snowdrop/patches/signal-cli/*.patch
-./gradlew test --tests '*HistoryCommandTest' --tests '*GetConfigurationCommandTest' --tests '*ReceiveConfigurationChangedNotificationTest' :libsignal-cli:test --tests '*History*Test' --tests '*StickerHelperTest' --tests '*ConfigurationStoreTest'
+./gradlew test --tests '*HistoryCommandTest' --tests '*GetConfigurationCommandTest' --tests '*SendReceiptCommandTest' --tests '*ReceiveConfigurationChangedNotificationTest' :libsignal-cli:test --tests '*History*Test' --tests '*StickerHelperTest' --tests '*ConfigurationStoreTest'
 ./gradlew installDist
 ```
 
@@ -769,6 +769,32 @@ explicit nulls for unknown ones, nothing else exposed; `ReceiveConfigurationChan
 the notification, bare params on the default subscription, listener cleanup). Not verified against a
 real phone: that a change made from this linked device reaches the phone's storage service record.
 Builds as `0.14.8-snowdrop-history.18`.
+
+## 0023: sync-only read receipts
+
+`sendReceipt type=read` does two things: it sends a receipt to the message's sender (skipped when
+the account's read-receipts setting is off) and it always sends a read sync message to the
+account's own other devices, which is what marks the messages read on the phone. Snowdrop only
+called it when the chat was accepted and receipts were allowed, so reading a message request, or
+reading with receipts off, never reached the phone.
+
+- `sendReceipt` takes a new boolean `syncOnly` (`--sync-only` on the command line). With it signal-cli
+  sends only the own-device sync (`Manager.syncReceiptToOwnDevices`, same `SyncHelper` path as
+  before) and no receipt to the sender, whatever the setting. It also takes `type viewed`. The reply
+  is `{"timestamp":0,"results":[]}` and it never fails for want of a result. Without `syncOnly` the
+  command is unchanged. The DBus `Manager` implementation does not support it.
+- No storage change and no `DATABASE_VERSION` bump. The method name is unchanged, so the native
+  shell's allow-list needs nothing new (`syncOnly` is not a file reference, so `rpc_guard.rs` passes it).
+
+Snowdrop gates it on `snowdrop-history.N` with N at least 19 (`supportsReadSync`,
+`src/core/backend/signal-cli/capabilities.ts`). On an older build a read where no receipt is
+allowed sends nothing, as before, and the backend never sends `syncOnly` to it (an old signal-cli
+would take it for a plain receipt).
+
+Verification: `scripts/build-signal-cli.sh --test` (Java test `SendReceiptCommandTest`: `syncOnly`
+syncs and sends no receipt, keeps the viewed type, rejects an unknown type; without it the normal
+receipt is sent). Not verified against a real phone: that the sync marks the messages read there.
+Builds as `0.14.8-snowdrop-history.19`.
 
 ## User-controlled phone verification
 

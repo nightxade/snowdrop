@@ -1,0 +1,240 @@
+diff --git a/build.gradle.kts b/build.gradle.kts
+index 90cb4a7..69dd473 100644
+--- a/build.gradle.kts
++++ b/build.gradle.kts
+@@ -10,7 +10,7 @@ plugins {
+ 
+ allprojects {
+     group = "org.asamk"
+-    version = "0.14.8-snowdrop-history.18"
++    version = "0.14.8-snowdrop-history.19"
+ 
+     // Snowdrop: substitute a locally-built, patched signal-service-java
+     // (snowdrop/patches/signal-service-java) for the stock turasa jar, when
+diff --git a/lib/src/main/java/org/asamk/signal/manager/Manager.java b/lib/src/main/java/org/asamk/signal/manager/Manager.java
+index 6002fba..132a065 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/Manager.java
++++ b/lib/src/main/java/org/asamk/signal/manager/Manager.java
+@@ -234,6 +234,15 @@ public interface Manager extends Closeable {
+ 
+     SendMessageResults sendViewedReceipt(RecipientIdentifier.Single sender, List<Long> messageIds);
+ 
++    /**
++     * Snowdrop: tell only our own other devices that these messages from {@code sender} were
++     * read (or viewed), without sending any receipt to the sender. That is the part of
++     * {@link #sendReadReceipt} which marks the messages read on the phone; the receipt to the
++     * sender is what the read-receipts setting and message requests gate. Returns false when
++     * there was nothing to sync (sender not registered or without a known ACI).
++     */
++    boolean syncReceiptToOwnDevices(RecipientIdentifier.Single sender, List<Long> messageIds, boolean viewed);
++
+     SendMessageResults sendMessage(
+             Message message,
+             Set<RecipientIdentifier> recipients,
+diff --git a/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java b/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
+index 50c5e07..a6f23b7 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
++++ b/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
+@@ -889,6 +889,29 @@ public class ManagerImpl implements Manager {
+         return sendReceiptMessage(sender, timestamp, receiptMessage);
+     }
+ 
++    @Override
++    public boolean syncReceiptToOwnDevices(
++            final RecipientIdentifier.Single sender,
++            final List<Long> messageIds,
++            final boolean viewed
++    ) {
++        final var type = viewed
++                ? SignalServiceReceiptMessage.Type.VIEWED
++                : SignalServiceReceiptMessage.Type.READ;
++        final var receiptMessage = new SignalServiceReceiptMessage(type, messageIds, getNextMessageTimestamp());
++        try {
++            final var recipientId = context.getRecipientHelper().resolveRecipient(sender);
++            final var aci = account.getRecipientAddressResolver().resolveRecipientAddress(recipientId).aci();
++            if (aci.isEmpty()) {
++                return false;
++            }
++            context.getSyncHelper().sendSyncReceiptMessage(aci.get(), receiptMessage);
++            return true;
++        } catch (UnregisteredRecipientException e) {
++            return false;
++        }
++    }
++
+     private SendMessageResults sendReceiptMessage(
+             final RecipientIdentifier.Single sender,
+             final long timestamp,
+diff --git a/src/main/java/org/asamk/signal/commands/SendReceiptCommand.java b/src/main/java/org/asamk/signal/commands/SendReceiptCommand.java
+index 93c8a56..e26b320 100644
+--- a/src/main/java/org/asamk/signal/commands/SendReceiptCommand.java
++++ b/src/main/java/org/asamk/signal/commands/SendReceiptCommand.java
+@@ -1,5 +1,6 @@
+ package org.asamk.signal.commands;
+ 
++import net.sourceforge.argparse4j.impl.Arguments;
+ import net.sourceforge.argparse4j.inf.Namespace;
+ import net.sourceforge.argparse4j.inf.Subparser;
+ 
+@@ -7,9 +8,13 @@ import org.asamk.signal.commands.exceptions.CommandException;
+ import org.asamk.signal.commands.exceptions.UserErrorException;
+ import org.asamk.signal.manager.Manager;
+ import org.asamk.signal.manager.api.SendMessageResults;
++import org.asamk.signal.output.JsonWriter;
+ import org.asamk.signal.output.OutputWriter;
+ import org.asamk.signal.util.CommandUtil;
+ 
++import java.util.List;
++import java.util.Map;
++
+ import static org.asamk.signal.util.SendMessageResultUtils.outputResult;
+ 
+ public class SendReceiptCommand implements JsonRpcLocalCommand {
+@@ -31,6 +36,11 @@ public class SendReceiptCommand implements JsonRpcLocalCommand {
+         subparser.addArgument("--type")
+                 .help("Specify the receipt type (default is read receipt).")
+                 .choices("read", "viewed");
++        // Snowdrop (patches/signal-cli, "0023: sync-only read receipts").
++        subparser.addArgument("--sync-only")
++                .action(Arguments.storeTrue())
++                .help("Only tell the account's other devices the messages were read or viewed; "
++                        + "send no receipt to the sender.");
+     }
+ 
+     @Override
+@@ -45,6 +55,19 @@ public class SendReceiptCommand implements JsonRpcLocalCommand {
+         final var targetTimestamps = ns.<Long>getList("target-timestamp");
+         final var type = ns.getString("type");
+ 
++        if (Boolean.TRUE.equals(ns.getBoolean("sync-only"))) {
++            if (type != null && !"read".equals(type) && !"viewed".equals(type)) {
++                throw new UserErrorException("Unknown receipt type: " + type);
++            }
++            m.syncReceiptToOwnDevices(recipient, targetTimestamps, "viewed".equals(type));
++            // Nothing is sent to the recipient, so there is no per-recipient result and nothing
++            // that can fail the call the way an unsent receipt would.
++            if (outputWriter instanceof JsonWriter writer) {
++                writer.write(Map.of("timestamp", 0L, "results", List.of()));
++            }
++            return;
++        }
++
+         final SendMessageResults results;
+         if (type == null || "read".equals(type)) {
+             results = m.sendReadReceipt(recipient, targetTimestamps);
+diff --git a/src/main/java/org/asamk/signal/dbus/DbusManagerImpl.java b/src/main/java/org/asamk/signal/dbus/DbusManagerImpl.java
+index 04c2d03..d45dcac 100644
+--- a/src/main/java/org/asamk/signal/dbus/DbusManagerImpl.java
++++ b/src/main/java/org/asamk/signal/dbus/DbusManagerImpl.java
+@@ -458,6 +458,15 @@ public class DbusManagerImpl implements Manager {
+         return new SendMessageResults(0, Map.of());
+     }
+ 
++    @Override
++    public boolean syncReceiptToOwnDevices(
++            final RecipientIdentifier.Single sender,
++            final List<Long> messageIds,
++            final boolean viewed
++    ) {
++        throw new UnsupportedOperationException("Not supported over DBus");
++    }
++
+     @Override
+     public SendMessageResults sendMessage(
+             final Message message,
+diff --git a/src/test/java/org/asamk/signal/commands/SendReceiptCommandTest.java b/src/test/java/org/asamk/signal/commands/SendReceiptCommandTest.java
+new file mode 100644
+index 0000000..94d4c24
+--- /dev/null
++++ b/src/test/java/org/asamk/signal/commands/SendReceiptCommandTest.java
+@@ -0,0 +1,90 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.commands;
++
++import org.asamk.signal.commands.exceptions.UserErrorException;
++import org.asamk.signal.manager.Manager;
++import org.asamk.signal.manager.api.SendMessageResults;
++import org.junit.jupiter.api.Test;
++
++import java.lang.reflect.Proxy;
++import java.util.ArrayList;
++import java.util.HashMap;
++import java.util.List;
++import java.util.Map;
++import java.util.concurrent.atomic.AtomicReference;
++
++import static org.junit.jupiter.api.Assertions.assertEquals;
++import static org.junit.jupiter.api.Assertions.assertThrows;
++import static org.junit.jupiter.api.Assertions.assertTrue;
++
++class SendReceiptCommandTest {
++
++    private static final String SENDER = "11111111-1111-1111-1111-111111111111";
++
++    private static Manager recordingManager(final List<String> calls) {
++        return (Manager) Proxy.newProxyInstance(Manager.class.getClassLoader(),
++                new Class<?>[]{Manager.class},
++                (proxy, method, args) -> {
++                    switch (method.getName()) {
++                        case "getSelfNumber":
++                            return "+15550000000";
++                        case "syncReceiptToOwnDevices":
++                            calls.add("sync:" + args[1] + ":" + args[2]);
++                            return true;
++                        case "sendReadReceipt":
++                            calls.add("read:" + args[1]);
++                            return new SendMessageResults(1, Map.of());
++                        case "sendViewedReceipt":
++                            calls.add("viewed:" + args[1]);
++                            return new SendMessageResults(1, Map.of());
++                        default:
++                            throw new AssertionError("unexpected call " + method.getName());
++                    }
++                });
++    }
++
++    private static Map<String, Object> args(final Object syncOnly, final String type) {
++        final var map = new HashMap<String, Object>();
++        map.put("recipient", SENDER);
++        map.put("targetTimestamp", List.of(7L, 8L));
++        map.put("type", type);
++        map.put("syncOnly", syncOnly);
++        return map;
++    }
++
++    @Test
++    @SuppressWarnings("unchecked")
++    void syncOnlySyncsToOwnDevicesAndSendsNoReceipt() throws Exception {
++        final var calls = new ArrayList<String>();
++        final var output = new AtomicReference<Object>();
++        new SendReceiptCommand().handleCommand(args(true, "read"), recordingManager(calls), output::set);
++
++        assertEquals(List.of("sync:[7, 8]:false"), calls);
++        final var json = (Map<String, Object>) output.get();
++        assertTrue(((List<Object>) json.get("results")).isEmpty());
++    }
++
++    @Test
++    void syncOnlyKeepsTheViewedType() throws Exception {
++        final var calls = new ArrayList<String>();
++        new SendReceiptCommand().handleCommand(args(true, "viewed"), recordingManager(calls), o -> {});
++        assertEquals(List.of("sync:[7, 8]:true"), calls);
++    }
++
++    @Test
++    void withoutTheFlagItIsTheNormalReceipt() throws Exception {
++        final var calls = new ArrayList<String>();
++        new SendReceiptCommand().handleCommand(args(null, "read"), recordingManager(calls), o -> {});
++        new SendReceiptCommand().handleCommand(args(false, null), recordingManager(calls), o -> {});
++        assertEquals(List.of("read:[7, 8]", "read:[7, 8]"), calls);
++    }
++
++    @Test
++    void syncOnlyRejectsAnUnknownType() {
++        final var calls = new ArrayList<String>();
++        assertThrows(UserErrorException.class,
++                () -> new SendReceiptCommand().handleCommand(args(true, "bogus"), recordingManager(calls), o -> {}));
++        assertTrue(calls.isEmpty());
++    }
++
++}

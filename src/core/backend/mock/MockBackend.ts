@@ -36,6 +36,7 @@ import type {
   EditInput,
   HistoryPage,
   HistoryQuery,
+  MarkReadOptions,
   MessageRef,
   MessageRequestResponse,
   PinInput,
@@ -88,7 +89,13 @@ export class MockBackend implements ChatBackend {
   private failures: Error[] = [];
   readonly typingSent: { conversationId: ConversationId; typing: boolean }[] = [];
   /** Every `markRead` call, for tests asserting what was (not) sent. */
-  readonly readReceiptsSent: { conversationId: ConversationId; messages: MessageRef[] }[] = [];
+  readonly readReceiptsSent: {
+    conversationId: ConversationId;
+    messages: MessageRef[];
+    syncOnly?: true;
+  }[] = [];
+  /** Whether this mock can sync reads without receipts (a test turns it off to act like an old signal-cli). */
+  readSyncSupported = true;
   /** Every message-request answer, for the same reason. */
   readonly requestResponses: {
     conversationId: ConversationId;
@@ -383,6 +390,10 @@ export class MockBackend implements ChatBackend {
     }));
   }
 
+  supportsReadSync(): boolean {
+    return this.readSyncSupported;
+  }
+
   async setTyping(conversationId: ConversationId, typing: boolean): Promise<void> {
     await this.delay();
     this.typingSent.push({ conversationId, typing });
@@ -391,9 +402,15 @@ export class MockBackend implements ChatBackend {
   async markRead(
     conversationId: ConversationId,
     messages: { authorId: string; sentAt: number }[],
+    options?: MarkReadOptions,
   ): Promise<void> {
     await this.delay();
-    this.readReceiptsSent.push({ conversationId, messages: structuredClone(messages) });
+    if (options?.syncOnly && !this.readSyncSupported) return;
+    this.readReceiptsSent.push({
+      conversationId,
+      messages: structuredClone(messages),
+      ...(options?.syncOnly ? { syncOnly: true as const } : {}),
+    });
     const latest = Math.max(
       ...messages.map((m) => m.sentAt),
       this.world.readUpTo.get(conversationId) ?? 0,

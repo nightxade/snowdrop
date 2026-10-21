@@ -41,6 +41,7 @@ const ALLOWED_METHODS: &[&str] = &[
     // Sending messages and conversation actions (SignalCliBackend.ts).
     "send",
     "sendTyping",
+    // Read receipts; `syncOnly` (patch 0023) is a plain boolean, so it passes rpc_guard.rs as is.
     "sendReceipt",
     "sendReaction",
     "sendAdminDelete",

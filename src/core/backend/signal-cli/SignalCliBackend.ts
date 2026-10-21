@@ -54,6 +54,7 @@ import type {
   HistoryReadRef,
   HistoryReadState,
   LinkFlow,
+  MarkReadOptions,
   MessageRef,
   MessageRequestResponse,
   PhonePrivacyPatch,
@@ -78,6 +79,7 @@ import {
   supportsCustomEmojiDelivery as detectCustomEmojiSupport,
   supportsHistoryStickerPack as detectHistoryStickerPackSupport,
   supportsPhonePrivacy as detectPhonePrivacySupport,
+  supportsReadSync as detectReadSyncSupport,
   supportsStickerPackInstall as detectStickerPackInstallSupport,
 } from './capabilities';
 import { Directory } from './directory';
@@ -242,6 +244,7 @@ export class SignalCliBackend implements ChatBackend {
   private stickerPackInstallSupported = false;
   /** Whether the connected daemon reports the phone's privacy settings (see capabilities.ts). */
   private phonePrivacySupported = false;
+  private readSyncSupported = false;
   /** Installed packs whose download `listStickerPacks` already started this session. */
   private readonly stickerPacksFetchTried = new Set<string>();
   /** listConversations logs its counts once per backend, not on every refresh. */
@@ -348,6 +351,7 @@ export class SignalCliBackend implements ChatBackend {
       this.historyStickerPackSupported = detectHistoryStickerPackSupport(version);
       this.stickerPackInstallSupported = detectStickerPackInstallSupport(version);
       this.phonePrivacySupported = detectPhonePrivacySupport(version);
+      this.readSyncSupported = detectReadSyncSupport(version);
       this.selectAccount(await this.discoverAccount());
       // Stream first: nothing sent to us while we load the directory is missed.
       this.openStream();
@@ -397,6 +401,11 @@ export class SignalCliBackend implements ChatBackend {
   /** Whether the connected signal-cli build reports the phone's privacy settings (see capabilities.ts). */
   supportsPhonePrivacy(): boolean {
     return this.phonePrivacySupported;
+  }
+
+  /** Whether `markRead` can sync-only (see capabilities.ts, `supportsReadSync`). */
+  supportsReadSync(): boolean {
+    return this.readSyncSupported;
   }
 
   /** See `ChatBackend.readPhonePrivacy`: the stored configuration the phone synced to us. */
@@ -500,6 +509,7 @@ export class SignalCliBackend implements ChatBackend {
     this.historyStickerPackSupported = false;
     this.stickerPackInstallSupported = false;
     this.phonePrivacySupported = false;
+    this.readSyncSupported = false;
     this.setStatus('offline');
   }
 
@@ -1605,8 +1615,14 @@ export class SignalCliBackend implements ChatBackend {
     await this.rpc.call('sendTyping', { ...target, stop: !typing }, ignoreResult);
   }
 
-  async markRead(_conversationId: ConversationId, messages: MessageRef[]): Promise<void> {
+  async markRead(
+    _conversationId: ConversationId,
+    messages: MessageRef[],
+    options?: MarkReadOptions,
+  ): Promise<void> {
     this.assertAccount();
+    // An older signal-cli would treat `syncOnly` as a plain receipt: never send it one.
+    if (options?.syncOnly && !this.readSyncSupported) return;
     // Receipts are addressed to each message's author, not to the conversation.
     const byAuthor = new Map<string, number[]>();
     for (const m of messages) {
@@ -1617,7 +1633,12 @@ export class SignalCliBackend implements ChatBackend {
       [...byAuthor].map(([author, timestamps]) =>
         this.rpc.call(
           'sendReceipt',
-          { recipient: author, targetTimestamp: timestamps, type: 'read' },
+          {
+            recipient: author,
+            targetTimestamp: timestamps,
+            type: 'read',
+            ...(options?.syncOnly ? { syncOnly: true } : {}),
+          },
           ignoreResult,
         ),
       ),

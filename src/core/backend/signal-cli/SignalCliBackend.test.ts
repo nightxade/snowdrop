@@ -1298,6 +1298,36 @@ describe('SignalCliBackend sticker packs', () => {
   });
 });
 
+describe('SignalCliBackend sync-only read receipts', () => {
+  async function backendAt(version: string) {
+    const { daemon } = daemonWithAccount();
+    daemon.reply('version', { version });
+    const s = await connected({ daemon });
+    return { ...s, daemon };
+  }
+
+  it('asks signal-cli for syncOnly on a build with patch 0023', async () => {
+    const { backend, daemon } = await backendAt('0.14.8-snowdrop-history.19');
+    expect(backend.supportsReadSync()).toBe(true);
+    await backend.markRead(GROUP, [{ authorId: ALICE, sentAt: 1 }], { syncOnly: true });
+    expect(daemon.callsTo('sendReceipt')).toEqual([
+      { account: SELF_ACI, recipient: ALICE, targetTimestamp: [1], type: 'read', syncOnly: true },
+    ]);
+    await backend.disconnect();
+    expect(backend.supportsReadSync()).toBe(false);
+  });
+
+  it('never sends a sync-only read to an older build (it would be a real receipt)', async () => {
+    const { backend, daemon } = await backendAt('0.14.8-snowdrop-history.18');
+    expect(backend.supportsReadSync()).toBe(false);
+    await backend.markRead(GROUP, [{ authorId: ALICE, sentAt: 1 }], { syncOnly: true });
+    expect(daemon.callsTo('sendReceipt')).toEqual([]);
+    await backend.markRead(GROUP, [{ authorId: ALICE, sentAt: 1 }]);
+    expect(daemon.callsTo('sendReceipt')[0]).not.toHaveProperty('syncOnly');
+    await backend.disconnect();
+  });
+});
+
 describe('SignalCliBackend phone privacy settings', () => {
   async function backendAt(version: string) {
     const { daemon } = daemonWithAccount();

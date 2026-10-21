@@ -344,6 +344,11 @@ export interface LinkFlow {
   finish(uri: string, deviceName: string): Promise<{ accountId: string; historyWarning?: string }>;
 }
 
+export interface MarkReadOptions {
+  /** Tell only the user's own devices; send no receipt to the senders. */
+  syncOnly?: boolean;
+}
+
 export interface ChatBackend {
   readonly kind: BackendKind;
 
@@ -364,7 +369,23 @@ export interface ChatBackend {
   adminDelete?(conversationId: ConversationId, target: MessageRef): Promise<void>;
   pinMessage?(input: PinInput): Promise<void>;
   setTyping(conversationId: ConversationId, typing: boolean): Promise<void>;
-  markRead(conversationId: ConversationId, messages: MessageRef[]): Promise<void>;
+  /**
+   * Marks messages read: tells their senders (a read receipt) and the user's
+   * other devices. With `syncOnly` only the user's own devices are told and
+   * nothing goes to the senders; a backend that can't do that
+   * (`supportsReadSync()` false) does nothing for a `syncOnly` call.
+   */
+  markRead(
+    conversationId: ConversationId,
+    messages: MessageRef[],
+    options?: MarkReadOptions,
+  ): Promise<void>;
+  /**
+   * Whether `markRead` can sync read state to the user's own devices without
+   * sending receipts (patches/signal-cli's "0023"). Only meaningful once
+   * connected. Omitted is the same as false.
+   */
+  supportsReadSync?(): boolean;
   updateConversation?(conversationId: ConversationId, patch: ConversationPatch): Promise<void>;
 
   /**

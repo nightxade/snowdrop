@@ -74,6 +74,8 @@ export interface SendServiceDeps {
   receipts?: ReceiptBuffer;
   /** Shared with SyncService so ops that beat our send's ack aren't lost. */
   pendingOps?: PendingOpsBuffer;
+  /** Marks a conversation read the way reading it does (receipts and read sync included); sending a reply reads what came before it. */
+  readConversation?: (conversationId: ConversationId) => Promise<void>;
   newNonce?: () => string;
   onError?: ErrorReporter;
 }
@@ -476,11 +478,15 @@ export class SendService {
     const shown = out.queue.reduce((m, op) => op.apply(m), stored);
     stores.messages.getState().reconcile(out.conversationId, nonce, shown);
     stores.conversations.getState().noteLatest(shown);
-    if (
+    // Replying means you've seen everything before it. That is a read like
+    // any other, so it goes through the read path (which tells the senders
+    // and the user's other devices) rather than just moving the cursor.
+    if (this.deps.readConversation) {
+      await this.deps.readConversation(out.conversationId);
+    } else if (
       stored.seq !== undefined &&
       stores.conversations.getState().markRead(out.conversationId, stored.seq)
     ) {
-      // Replying means you've seen everything before it.
       await repository.setReadCursor(out.conversationId, stored.seq);
     }
     for (const op of out.queue) await this.commitQueued(out.conversationId, stored, op);

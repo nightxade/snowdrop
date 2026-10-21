@@ -166,7 +166,12 @@ export class SyncService {
   private readonly readingHistory = new Set<MessageId>();
   private readonly catchUpTracker: CatchUpTracker;
   /** Read receipts earned while the phone's settings were still unknown; sent or dropped once they're known. */
-  private heldReceipts: { conversationId: ConversationId; messages: MessageRef[] }[] = [];
+  private heldReceipts: {
+    conversationId: ConversationId;
+    messages: MessageRef[];
+    accepted: boolean;
+    syncWithoutReceipt: boolean;
+  }[] = [];
   /** Latest phone-privacy read wins; an older answer arriving late is ignored. */
   private privacyReadSeq = 0;
   private privacyRetryCancel: Cancel | null = null;
@@ -689,20 +694,29 @@ export class SyncService {
     const unread = await repository.listAfter(conversationId, cursor);
     const latest = unread.at(-1)?.seq;
     if (latest === undefined) {
+      log.info('read sync skipped', { reason: 'no-unread' });
       stores.conversations.getState().setUnread(conversationId, { count: 0, mentions: 0 });
       return;
     }
-    if (!stores.conversations.getState().markRead(conversationId, latest)) return;
+    if (!stores.conversations.getState().markRead(conversationId, latest)) {
+      log.info('read sync skipped', { reason: 'already-read' });
+      return;
+    }
     await repository.setReadCursor(conversationId, latest);
     const toAck = unread.filter((m) => m.authorId !== selfId && m.kind === 'normal');
-    // A message request is read without telling the sender anything; the
-    // receipts go out only if the user accepts (`sendHeldReadReceipts`).
-    if (toAck.length > 0 && selectMessageRequestState(stores, conversationId) === 'accepted') {
-      await this.sendReadReceipts(
-        conversationId,
-        toAck.map((m) => ({ authorId: m.authorId, sentAt: m.sentAt })),
-      );
+    if (toAck.length === 0) {
+      log.info('read sync skipped', { reason: 'nothing-from-others' });
+      return;
     }
+    // Reading is always synced to the user's own devices (that is what marks
+    // it read on their phone). A message request is read without telling the
+    // sender anything: its receipts go out only if the user accepts
+    // (`sendHeldReadReceipts`).
+    await this.sendReadReceipts(
+      conversationId,
+      toAck.map((m) => ({ authorId: m.authorId, sentAt: m.sentAt })),
+      selectMessageRequestState(stores, conversationId) === 'accepted',
+    );
   }
 
   /**
@@ -726,21 +740,36 @@ export class SyncService {
         m.seq <= cursor,
     );
     if (read.length === 0) return;
+    // The reads were already synced to the user's devices when they happened:
+    // only the receipts to the senders are new now. (Where they're not
+    // allowed nothing is sent; where they are, signal-cli sends the receipt
+    // and, harmlessly, repeats the sync.)
     await this.sendReadReceipts(
       conversationId,
       read.map((m) => ({ authorId: m.authorId, sentAt: m.sentAt })),
+      true,
+      false,
     );
   }
 
   /**
-   * Sends read receipts if the effective setting allows it: the phone's when
-   * it has told us, Snowdrop's own otherwise. While the phone's settings are
-   * still being read the receipts wait (`heldReceipts`) instead of going out
-   * on a guess, and are sent or dropped the moment the answer is in.
+   * Tells Signal these messages were read. A receipt to the senders goes out
+   * only when the chat is `accepted` and the effective setting allows it: the
+   * phone's when it has told us, Snowdrop's own otherwise. Otherwise, with a
+   * signal-cli that can (`supportsReadSync`), only the user's own devices are
+   * told (`syncOnly`), so the messages still stop being unread on the phone.
+   * An older signal-cli can't send the sync alone, so there nothing is sent
+   * when a receipt isn't allowed (the behaviour before read sync existed).
+   * While the phone's settings are still being read everything waits
+   * (`heldReceipts`) instead of going out on a guess, and is decided the
+   * moment the answer is in. `syncWithoutReceipt: false` (receipts for reads
+   * already synced) sends nothing when no receipt is allowed.
    */
   private async sendReadReceipts(
     conversationId: ConversationId,
     messages: MessageRef[],
+    accepted: boolean,
+    syncWithoutReceipt = true,
   ): Promise<void> {
     const { backend, stores } = this.deps;
     const privacy = effectivePrivacy(
@@ -748,12 +777,21 @@ export class SyncService {
       stores.session.getState().phonePrivacy,
     );
     if (!privacy.settled) {
-      this.heldReceipts.push({ conversationId, messages });
+      log.info('read sync held', { reason: 'pending', n: messages.length });
+      this.heldReceipts.push({ conversationId, messages, accepted, syncWithoutReceipt });
       return;
     }
-    if (!privacy.sendReadReceipts) return;
+    const receipt = accepted && privacy.sendReadReceipts;
+    if (!receipt && (!syncWithoutReceipt || backend.supportsReadSync?.() !== true)) {
+      log.info('read sync skipped', {
+        reason: !accepted ? 'not-accepted' : 'receipts-off',
+        n: messages.length,
+      });
+      return;
+    }
     try {
-      await backend.markRead(conversationId, messages);
+      await backend.markRead(conversationId, messages, receipt ? undefined : { syncOnly: true });
+      log.info('read sync sent', { n: messages.length, mode: receipt ? 'receipt' : 'sync-only' });
     } catch (error) {
       this.onError(error, 'read receipt failed');
     }
@@ -762,8 +800,8 @@ export class SyncService {
   private flushHeldReceipts(): void {
     const held = this.heldReceipts;
     this.heldReceipts = [];
-    for (const { conversationId, messages } of held) {
-      void this.sendReadReceipts(conversationId, messages);
+    for (const { conversationId, messages, accepted, syncWithoutReceipt } of held) {
+      void this.sendReadReceipts(conversationId, messages, accepted, syncWithoutReceipt);
     }
   }
 

@@ -478,7 +478,9 @@ describe('SyncService: events', () => {
     stores.settings.getState().update('behaviour', { sendReadReceipts: false });
     const markRead = vi.spyOn(backend, 'markRead');
     await sync.markConversationRead(conv('crux'));
-    expect(markRead).not.toHaveBeenCalled();
+    // No receipt to the senders, but the user's other devices still hear about the read.
+    expect(markRead).toHaveBeenCalledTimes(1);
+    expect(markRead.mock.calls[0]?.[2]).toEqual({ syncOnly: true });
     expect(stores.conversations.getState().unread[conv('crux')]?.count).toBe(0);
   });
 

@@ -119,7 +119,9 @@ describe('phone privacy: where the effective settings come from', () => {
       .update('behaviour', { sendReadReceipts: false, sendTypingIndicators: true });
     const markRead = vi.spyOn(backend, 'markRead');
     await sync.markConversationRead(conv('crux'));
-    expect(markRead).not.toHaveBeenCalled();
+    // No receipt, but the read still syncs to the phone.
+    expect(markRead).toHaveBeenCalledTimes(1);
+    expect(markRead.mock.calls[0]?.[2]).toEqual({ syncOnly: true });
     await send.setTyping(conv('dm-ines'), true);
     expect(backend.typingSent).toHaveLength(1);
   });
@@ -135,7 +137,8 @@ describe('phone privacy: where the effective settings come from', () => {
       .update('behaviour', { sendReadReceipts: true, sendTypingIndicators: true });
     const markRead = vi.spyOn(backend, 'markRead');
     await sync.markConversationRead(conv('crux'));
-    expect(markRead).not.toHaveBeenCalled();
+    expect(markRead).toHaveBeenCalledTimes(1);
+    expect(markRead.mock.calls[0]?.[2]).toEqual({ syncOnly: true });
     await send.setTyping(conv('dm-ines'), true);
     expect(backend.typingSent).toHaveLength(0);
 
@@ -149,7 +152,8 @@ describe('phone privacy: where the effective settings come from', () => {
     await send.setTyping(conv('dm-ines'), true);
     expect(backend.typingSent).toHaveLength(1);
     await sync.markConversationRead(conv('books'));
-    expect(markRead).toHaveBeenCalledOnce();
+    expect(markRead).toHaveBeenCalledTimes(2);
+    expect(markRead.mock.calls[1]?.[2]).toBeUndefined();
   });
 
   it('falls back to the local setting for a value the phone has not sent', async () => {
@@ -159,10 +163,12 @@ describe('phone privacy: where the effective settings come from', () => {
     stores.settings.getState().update('behaviour', { sendReadReceipts: false });
     const markRead = vi.spyOn(backend, 'markRead');
     await sync.markConversationRead(conv('crux'));
-    expect(markRead).not.toHaveBeenCalled();
+    expect(markRead).toHaveBeenCalledTimes(1);
+    expect(markRead.mock.calls[0]?.[2]).toEqual({ syncOnly: true });
     stores.settings.getState().update('behaviour', { sendReadReceipts: true });
     await sync.markConversationRead(conv('books'));
-    expect(markRead).toHaveBeenCalledOnce();
+    expect(markRead).toHaveBeenCalledTimes(2);
+    expect(markRead.mock.calls[1]?.[2]).toBeUndefined();
   });
 
   it('applies a change that arrives mid-session', async () => {
@@ -240,7 +246,9 @@ describe('phone privacy: nothing goes out before the first read', () => {
     scheduler.advance(3_000);
     await flush();
     expect(phoneState(stores).status).toBe('ready');
-    expect(markRead).not.toHaveBeenCalled();
+    // Held while unknown; with receipts off the held read becomes a sync-only one.
+    expect(markRead).toHaveBeenCalledTimes(1);
+    expect(markRead.mock.calls[0]?.[2]).toEqual({ syncOnly: true });
   });
 
   it('holds the read receipt of a conversation read while the first read is outstanding', async () => {

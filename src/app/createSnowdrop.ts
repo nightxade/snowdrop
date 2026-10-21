@@ -420,6 +420,7 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     pipeline: registries,
     receipts,
     pendingOps,
+    readConversation: (id) => sync.markConversationRead(id),
     onError: (error, context) => {
       sendLog.error(context, error);
     },

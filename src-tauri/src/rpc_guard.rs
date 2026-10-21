@@ -272,6 +272,19 @@ mod tests {
     }
 
     #[test]
+    fn a_sync_only_read_receipt_is_a_plain_request() {
+        let params = json!({
+            "recipient": "11111111-1111-1111-1111-111111111111",
+            "targetTimestamp": [1, 2],
+            "type": "read",
+            "syncOnly": true,
+        });
+        assert!(check_request("sendReceipt", params).is_ok());
+        // The usual file-reference rules still apply to it.
+        assert!(check_request("sendReceipt", json!({ "syncOnly": true, "attachment": "/etc/passwd" })).is_err());
+    }
+
+    #[test]
     fn error_message_does_not_echo_the_value() {
         let err = check(json!({ "attachment": "/home/secret-user/key" })).unwrap_err();
         assert_eq!(err.kind, ErrorKind::Config);
