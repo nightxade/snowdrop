@@ -124,6 +124,8 @@ pub async fn signal_cli_request(
     let Some(allowed) = allowed_method(&method) else {
         return Err(Error::new(ErrorKind::Config, format!("{method} is not a method Snowdrop's UI may call.")));
     };
+    // signal-cli reads any non-`data:` file reference as a host path: refuse those.
+    crate::rpc_guard::validate_params(params.as_ref())?;
     let _t = CommandTimer::start_with_detail("signal_cli_request", allowed);
     let timeout = Duration::from_millis(timeout_ms.unwrap_or(30_000)).min(MAX_TIMEOUT);
     service.request(&method, params, timeout).await
@@ -834,7 +836,21 @@ pub async fn notification_close(
 
 
 #[tauri::command]
-pub async fn clipboard_read_files(app: tauri::AppHandle) -> Result<Vec<crate::clipboard::ClipboardFile>, String> {
+pub async fn clipboard_read_files(
+    app: tauri::AppHandle,
+    gate: State<'_, Arc<crate::paste_gate::PasteGate>>,
+) -> Result<Vec<crate::clipboard::ClipboardFile>, String> {
+    // Only right after a native paste gesture (Ctrl+V, Shift+Insert, or the
+    // context menu): see paste_gate.rs. Consumed by this read.
+    #[cfg(target_os = "linux")]
+    {
+        if !gate.is_open(std::time::Instant::now()) {
+            return Err("Paste with Ctrl+V in the message box to attach files.".into());
+        }
+        gate.close();
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = &gate;
     crate::clipboard::read(app).await
 }
 

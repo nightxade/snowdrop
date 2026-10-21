@@ -51,6 +51,42 @@ const PASSPHRASE_KDF: (u32, u32, u32) = (65536, 3, 1);
 #[cfg(test)]
 const PASSPHRASE_KDF: (u32, u32, u32) = (8, 1, 1);
 
+/// Shortest passphrase accepted when one is *created* (setup, or setting a
+/// new one): the same 8 the UI enforces (it counts UTF-16 code units, as
+/// `String.length` does). Never applied when unlocking, so a passphrase made
+/// by an older build can always still unlock.
+pub const MIN_PASSPHRASE_LEN: usize = 8;
+
+/// Sane bounds for Argon2id parameters read from `keys.json`. They're
+/// authenticated (so tampering fails to unwrap), but an absurd value would
+/// still be burned before that check fails: `m_kib` is allocated up front.
+/// The ceilings are 8x the real passphrase cost (64 MiB, t=3, p=1).
+const KDF_MAX_M_KIB: u32 = 512 * 1024;
+const KDF_MAX_T: u32 = 10;
+const KDF_MAX_P: u32 = 8;
+
+impl KdfParams {
+    /// Rejects parameters outside the bounds above, as a corrupt file.
+    fn check_bounds(&self) -> Result<(), Error> {
+        let ok = (8..=KDF_MAX_M_KIB).contains(&self.m_kib)
+            && (1..=KDF_MAX_T).contains(&self.t)
+            && (1..=KDF_MAX_P).contains(&self.p)
+            && self.m_kib >= 8 * self.p;
+        if ok {
+            Ok(())
+        } else {
+            Err(Error::new(ErrorKind::KeysFileCorrupt, "keys.json: key-derivation parameters are out of range."))
+        }
+    }
+}
+
+fn check_new_passphrase(passphrase: &str) -> Result<(), Error> {
+    if passphrase.encode_utf16().count() < MIN_PASSPHRASE_LEN {
+        return Err(Error::new(ErrorKind::Config, format!("A passphrase needs at least {MIN_PASSPHRASE_LEN} characters.")));
+    }
+    Ok(())
+}
+
 /// Which of the three slot types a [`Slot`] is, without its contents.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SlotKind {
@@ -216,6 +252,7 @@ fn slot_aad(vault_id: &[u8; VAULT_ID_LEN], slot: &Slot) -> Result<Vec<u8>, Error
 /// Derives a 32-byte KEK from `secret` with the slot's own Argon2id
 /// parameters.
 fn derive_kek(secret: &[u8], kdf: &KdfParams) -> Result<Key32, Error> {
+    kdf.check_bounds()?;
     let salt = b64_decode(&kdf.salt)?;
     let params = Params::new(kdf.m_kib, kdf.t, kdf.p, Some(32))
         .map_err(|e| Error::new(ErrorKind::KeysFileCorrupt, format!("keys.json: bad Argon2 parameters: {e}")))?;
@@ -427,6 +464,7 @@ impl Unlocked {
                 Ok(())
             }
             Some(pass) => {
+                check_new_passphrase(pass)?;
                 let kdf = new_kdf_params(PASSPHRASE_KDF)?;
                 let kek = derive_kek(pass.as_bytes(), &kdf)?;
                 let vault_id = self.file.vault_id_bytes()?;
@@ -509,6 +547,11 @@ pub fn load(path: &Path) -> Result<Option<Locked>, Error> {
     if file.format != FORMAT_VERSION {
         return Err(Error::new(ErrorKind::KeysFileCorrupt, format!("keys.json format {} isn't one this build understands.", file.format)));
     }
+    for slot in &file.slots {
+        if let Some(kdf) = slot.kdf() {
+            kdf.check_bounds()?;
+        }
+    }
     Ok(Some(Locked { path: path.to_path_buf(), file }))
 }
 
@@ -540,6 +583,7 @@ pub fn init_with_keyring<S: SecretStore>(path: &Path, slot: &KeyringSlot<S>) -> 
 /// Creates a brand new `keys.json` with a single passphrase slot. Refuses
 /// if `path` already exists.
 pub fn init_with_passphrase(path: &Path, passphrase: &str) -> Result<Unlocked, Error> {
+    check_new_passphrase(passphrase)?;
     refuse_if_exists(path)?;
     let dek = Key32::random();
     let vault_id = random_vault_id()?;
@@ -771,6 +815,62 @@ mod tests {
     }
 
     #[test]
+    fn rejects_a_short_passphrase_when_creating_or_changing_one() {
+        let dir = temp_dir("short-pass");
+        let path = dir.path().join("keys.json");
+        for short in ["", "1234567", "abc"] {
+            let err = init_with_passphrase(&path, short).err().unwrap();
+            assert_eq!(err.kind, ErrorKind::Config);
+        }
+        assert!(!path.exists());
+        // Exactly 8 UTF-16 units is fine; so is 4 astral characters (8 units, as the UI counts).
+        init_with_passphrase(&path, "12345678").unwrap();
+        let mut unlocked = load(&path).unwrap().unwrap().unlock_passphrase("12345678").unwrap();
+        assert_eq!(unlocked.set_passphrase(Some("short")).unwrap_err().kind, ErrorKind::Config);
+        unlocked.set_passphrase(Some("\u{1F600}\u{1F600}\u{1F600}\u{1F600}")).unwrap();
+        // The old, still-valid passphrase is untouched by the refused change.
+        assert_eq!(unlocked.set_passphrase(Some("")).unwrap_err().kind, ErrorKind::Config);
+    }
+
+    #[test]
+    fn unlocking_never_applies_the_minimum() {
+        // A keys.json made before the minimum existed (a 3-char passphrase)
+        // must still unlock: build one by hand-wrapping with the same KDF.
+        let dir = temp_dir("legacy-short-pass");
+        let path = dir.path().join("keys.json");
+        init_with_passphrase(&path, "12345678").unwrap();
+        let locked = load(&path).unwrap().unwrap();
+        assert!(locked.unlock_passphrase("12345678").is_ok());
+        // A wrong, short secret is an auth failure, not a config error.
+        assert_eq!(locked.unlock_passphrase("abc").unwrap_err().kind, ErrorKind::AuthFailed);
+    }
+
+    #[test]
+    fn rejects_absurd_kdf_params_on_load() {
+        for (m_kib, t, p) in [(u32::MAX, 1, 1), (KDF_MAX_M_KIB + 1, 1, 1), (8, 0, 1), (8, KDF_MAX_T + 1, 1), (8, 1, 0), (8, 1, KDF_MAX_P + 1), (7, 1, 1), (8, 1, 2)] {
+            let dir = temp_dir("kdf-bounds");
+            let path = dir.path().join("keys.json");
+            init_with_passphrase(&path, "a passphrase").unwrap();
+            let mut json: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+            let kdf = &mut json["slots"][0]["kdf"];
+            kdf["m_kib"] = m_kib.into();
+            kdf["t"] = t.into();
+            kdf["p"] = p.into();
+            fs::write(&path, serde_json::to_vec(&json).unwrap()).unwrap();
+            let Err(err) = load(&path) else { panic!("out-of-range params must not load") };
+            assert_eq!(err.kind, ErrorKind::KeysFileCorrupt, "{m_kib}/{t}/{p}");
+        }
+    }
+
+    #[test]
+    fn accepts_the_real_production_kdf_params_on_load() {
+        let kdf = KdfParams { alg: KdfAlg::Argon2id, m_kib: 65536, t: 3, p: 1, salt: String::new() };
+        assert!(kdf.check_bounds().is_ok());
+        let recovery = KdfParams { alg: KdfAlg::Argon2id, m_kib: 19456, t: 2, p: 1, salt: String::new() };
+        assert!(recovery.check_bounds().is_ok());
+    }
+
+    #[test]
     fn tampered_salt_fails() {
         let _dir = temp_dir("tamper-salt");
         let path = _dir.path().join("keys.json");
@@ -915,7 +1015,7 @@ mod tests {
         let path = _dir.path().join("keys.json");
         let slot = keyring_slot();
         let mut unlocked = init_with_keyring(&path, &slot).unwrap();
-        unlocked.set_passphrase(Some("extra")).unwrap();
+        unlocked.set_passphrase(Some("extra-passphrase")).unwrap();
         unlocked.save().unwrap();
 
         assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
@@ -928,7 +1028,7 @@ mod tests {
     fn init_refuses_if_the_file_already_exists() {
         let _dir = temp_dir("refuse-exists");
         let path = _dir.path().join("keys.json");
-        init_with_passphrase(&path, "first").unwrap();
+        init_with_passphrase(&path, "first-passphrase").unwrap();
         let err = init_with_passphrase(&path, "second").unwrap_err();
         assert_eq!(err.kind, ErrorKind::Config);
         let err = init_with_keyring(&path, &keyring_slot()).unwrap_err();
@@ -1073,7 +1173,7 @@ mod tests {
         let slot = keyring_slot();
         let mut unlocked = init_with_keyring(&path, &slot).unwrap();
         unlocked.add_recovery().unwrap();
-        unlocked.set_passphrase(Some("extra")).unwrap();
+        unlocked.set_passphrase(Some("extra-passphrase")).unwrap();
 
         unlocked.remove_recovery().unwrap();
         unlocked.set_passphrase(None).unwrap();

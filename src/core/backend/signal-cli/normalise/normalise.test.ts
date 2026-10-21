@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  MAX_BODY_RANGES,
   directConversationId,
   groupConversationId,
   messageId,
@@ -21,6 +22,7 @@ import {
 import { DirectPeers } from '../peers';
 import { describeGroupChange } from './directory';
 import { normaliseReceive } from './envelope';
+import { toBodyRanges } from './ranges';
 import type { AdapterEvent, NormaliseContext } from './types';
 
 const NOW = T0 + 1_000;
@@ -551,5 +553,19 @@ describe('describeGroupChange', () => {
       'Bob joined the group.',
       `${ALICE} is now an admin.`,
     ]);
+  });
+});
+
+describe('toBodyRanges limits', () => {
+  it('keeps at most MAX_BODY_RANGES, mentions first', () => {
+    const textStyles = Array.from({ length: 20_000 }, (_, i) => ({
+      style: 'BOLD',
+      start: i % 50,
+      length: 1,
+    }));
+    const mentions = [{ uuid: ALICE, number: null, name: null, start: 0, length: 1 }];
+    const ranges = toBodyRanges('x'.repeat(100), textStyles, mentions as never);
+    expect(ranges).toHaveLength(MAX_BODY_RANGES);
+    expect(ranges.filter((r) => r.mentionId !== undefined)).toHaveLength(1);
   });
 });

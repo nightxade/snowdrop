@@ -9,7 +9,7 @@ community chat apps do (a rail of spaces, a channel-style sidebar, the chat,
 a member list), with deep theming, full keyboard control and a typed plugin
 system. It stays honest to Signal: spaces, categories and folders are local
 organisation only, and it never invents what the protocol can't back, such
-as online presence. Everything stays on your machine.
+as online presence. Your organisation, notes and settings stay on your machine.
 
 It is named after the snowdrop, the small white flower that comes up through
 the snow: quiet, fresh and early. The logo is a single nodding snowdrop, and
@@ -196,9 +196,11 @@ docs/                 documentation
 
 ## Privacy & encryption
 
-- **Local only.** Snowdrop has no server of its own and no telemetry. It talks
-  to nothing but your signal-cli daemon, through a same-origin proxy that only
-  answers the app itself on a loopback address.
+- **No server of its own, no telemetry.** Snowdrop talks to your signal-cli
+  (in the desktop app, the one it runs; in browser mode, your daemon through a
+  same-origin proxy that only answers the app itself on a loopback address),
+  and signal-cli talks to Signal. The two exceptions are described below:
+  link previews, and the one-time signal-cli download on desktop.
 - **Desktop app: encrypted at rest.** Your keys, sessions, contacts and
   message history are encrypted on disk, unlocked automatically through your
   OS keyring (KWallet, GNOME Keyring, KeePassXC, macOS Keychain, Windows
@@ -219,19 +221,21 @@ docs/                 documentation
 - **Desktop app:** the first run that needs signal-cli contacts `github.com`
   exactly once, to download the pinned, checksum-verified release — the same
   request your browser would make visiting its release page. Nothing else
-  about your use of Snowdrop is sent with it. After that, the app runs
-  offline except for your own signal-cli traffic to Signal's servers.
+  about your use of Snowdrop is sent with it. After that, the only traffic is
+  signal-cli to Signal's servers, plus link previews if you leave them on.
 - **No CDNs.** Fonts (Inter, JetBrains Mono) and emoji data are bundled and
   served from Snowdrop's own origin. Link previews (on by default, as in
-  Signal) fetch the linked page from this device, or through `HTTPS_PROXY`
-  if set — see Settings → Behaviour.
+  Signal) contact the linked site from this device (revealing your IP address
+  to it), or through `HTTPS_PROXY` if set — you can turn them off in Settings →
+  Behaviour.
 - **Content-Security-Policy.** Production builds forbid every third-party
   request (`default-src 'self'`, `connect-src 'self'`).
 - **User CSS can't phone home.** Custom CSS and imported themes are stripped
   of any remote reference before they apply ([THEMING.md](docs/THEMING.md)).
-- **Your data stays in your browser.** Message history is stored in IndexedDB
-  and settings in local storage for the Snowdrop origin; export or clear them in
-  Settings → Data & storage.
+- **Browser mode keeps data in your browser.** Message history is stored in
+  IndexedDB and settings in local storage for the Snowdrop origin; export or
+  clear them in Settings → Data & storage. (The desktop app keeps them in its
+  encrypted store on this computer instead, as above.)
 
 ## Legal
 

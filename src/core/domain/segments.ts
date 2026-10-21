@@ -6,7 +6,13 @@
  * pairs. We normalise everything into a well-nested tree the renderer can map
  * 1:1 onto elements, choosing the nesting that minimises element count.
  */
-import { MENTION_PLACEHOLDER, TEXT_STYLES, type BodyRange, type TextStyle } from './types';
+import {
+  MAX_BODY_RANGES,
+  MENTION_PLACEHOLDER,
+  TEXT_STYLES,
+  type BodyRange,
+  type TextStyle,
+} from './types';
 
 export type Segment =
   | { type: 'text'; text: string }
@@ -18,7 +24,7 @@ export type Segment =
       text: string;
     };
 
-interface Atom {
+export interface Atom {
   start: number;
   end: number;
   styles: ReadonlySet<TextStyle>;
@@ -41,26 +47,53 @@ function snap(body: string, index: number): number {
   return index;
 }
 
-interface CleanRange {
+export interface CleanRange {
   start: number;
   end: number;
   style?: TextStyle;
   mentionId?: string;
 }
 
-function cleanRanges(body: string, ranges: readonly BodyRange[]): CleanRange[] {
+/** Index of the first element of `items` (sorted by `key`) whose key is >= `value`. */
+function lowerBound<T>(items: readonly T[], value: number, key: (item: T) => number): number {
+  let lo = 0;
+  let hi = items.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (key(items[mid] as T) < value) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+/**
+ * Clamps, snaps and filters `ranges`, keeping at most `limit` of them (the
+ * rest are dropped: a real message has a handful, see MAX_BODY_RANGES).
+ */
+/** @internal exported for tests */
+export function cleanRanges(
+  body: string,
+  ranges: readonly BodyRange[],
+  limit: number,
+): CleanRange[] {
   const out: CleanRange[] = [];
+  // Accepted mentions, kept sorted by start. They never overlap, so a new
+  // one conflicts only with its two neighbours.
   const mentions: CleanRange[] = [];
   for (const r of ranges) {
+    if (out.length >= limit) break;
     if (!Number.isFinite(r.start) || !Number.isFinite(r.length)) continue;
     const start = snap(body, Math.max(0, Math.min(body.length, Math.trunc(r.start))));
     const end = snap(body, Math.max(0, Math.min(body.length, Math.trunc(r.start + r.length))));
     if (end <= start) continue;
     if (r.mentionId !== undefined) {
       // Mentions are atomic and cannot overlap one another: first one wins.
-      if (mentions.some((m) => start < m.end && end > m.start)) continue;
+      const at = lowerBound(mentions, start, (m) => m.start);
+      const before = mentions[at - 1];
+      const after = mentions[at];
+      if ((before && before.end > start) || (after && after.start < end)) continue;
       const m = { start, end, mentionId: r.mentionId };
-      mentions.push(m);
+      mentions.splice(at, 0, m);
       out.push(m);
     } else if (r.style !== undefined && TEXT_STYLES.includes(r.style)) {
       out.push({ start, end, style: r.style });
@@ -69,9 +102,22 @@ function cleanRanges(body: string, ranges: readonly BodyRange[]): CleanRange[] {
   return out;
 }
 
-function toAtoms(body: string, ranges: CleanRange[]): Atom[] {
-  const mentions = ranges.filter((r) => r.mentionId !== undefined);
-  const insideMention = (i: number): boolean => mentions.some((m) => i > m.start && i < m.end);
+/**
+ * Cuts the body at every range boundary (except inside a mention) and works
+ * out which styles/mention cover each piece. O(R log R): sort the cut points,
+ * binary-search each range onto the run of atoms it covers, and sweep
+ * per-style difference arrays.
+ */
+/** @internal exported for tests */
+export function toAtoms(body: string, ranges: CleanRange[]): Atom[] {
+  const mentions = ranges
+    .filter((r) => r.mentionId !== undefined)
+    .sort((a, b) => a.start - b.start);
+  // Mentions are disjoint and sorted: the one containing `i` strictly inside, if any.
+  const insideMention = (i: number): boolean => {
+    const m = mentions[lowerBound(mentions, i, (x) => x.start) - 1];
+    return m !== undefined && i > m.start && i < m.end;
+  };
 
   const cuts = new Set<number>([0, body.length]);
   for (const r of ranges) {
@@ -79,19 +125,42 @@ function toAtoms(body: string, ranges: CleanRange[]): Atom[] {
     if (!insideMention(r.end)) cuts.add(r.end);
   }
   const points = [...cuts].sort((a, b) => a - b);
+  const count = points.length - 1;
 
+  // A range covers atom k iff r.start <= start(k) and r.end >= end(k); the
+  // covered atoms are one contiguous run [lo, hi).
+  const depth = new Map<TextStyle, Int32Array>();
+  const mentionAt = new Map<number, string>();
+  for (const r of ranges) {
+    const lo = lowerBound(points, r.start, (p) => p);
+    // First atom whose end is beyond r.end (atom k ends at points[k + 1]).
+    const hi = Math.min(count, lowerBound(points, r.end + 1, (p) => p) - 1);
+    if (lo >= hi) continue;
+    if (r.style !== undefined) {
+      let diff = depth.get(r.style);
+      if (!diff) {
+        diff = new Int32Array(count + 1);
+        depth.set(r.style, diff);
+      }
+      diff[lo] = (diff[lo] as number) + 1;
+      diff[hi] = (diff[hi] as number) - 1;
+    }
+    // A mention is its own atom: it starts exactly where the range does.
+    if (r.mentionId !== undefined && points[lo] === r.start) mentionAt.set(lo, r.mentionId);
+  }
+
+  const running = new Map<TextStyle, number>();
   const atoms: Atom[] = [];
-  for (let k = 0; k + 1 < points.length; k++) {
+  for (let k = 0; k < count; k++) {
+    const styles = new Set<TextStyle>();
+    for (const [style, diff] of depth) {
+      const now = (running.get(style) ?? 0) + (diff[k] as number);
+      running.set(style, now);
+      if (now > 0) styles.add(style);
+    }
     const start = points[k] as number;
     const end = points[k + 1] as number;
-    const styles = new Set<TextStyle>();
-    let mentionId: string | undefined;
-    for (const r of ranges) {
-      if (r.start <= start && r.end >= end) {
-        if (r.style) styles.add(r.style);
-        if (r.mentionId !== undefined && r.start === start) mentionId = r.mentionId;
-      }
-    }
+    const mentionId = mentionAt.get(k);
     atoms.push(
       mentionId === undefined ? { start, end, styles } : { start, end, styles, mentionId },
     );
@@ -142,9 +211,17 @@ function build(body: string, atoms: readonly Atom[], applied: ReadonlySet<TextSt
   return out;
 }
 
-export function rangesToSegments(body: string, ranges: readonly BodyRange[]): Segment[] {
+/**
+ * `limit` bounds how many ranges are considered (default MAX_BODY_RANGES);
+ * only tests pass anything else.
+ */
+export function rangesToSegments(
+  body: string,
+  ranges: readonly BodyRange[],
+  limit: number = MAX_BODY_RANGES,
+): Segment[] {
   if (body.length === 0) return [];
-  const clean = cleanRanges(body, ranges);
+  const clean = cleanRanges(body, ranges, limit);
   if (clean.length === 0) return [{ type: 'text', text: body }];
   return build(body, toAtoms(body, clean), new Set());
 }

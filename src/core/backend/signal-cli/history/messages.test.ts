@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BackupDirectory } from './directory';
+import { MAX_BODY_RANGES } from '@/core/domain';
 import { backupMessage } from './messages';
 
 const SELF = '00000000-0000-0000-0000-000000000001';
@@ -156,6 +157,21 @@ describe('phone-history messages', () => {
     const pending = convert({ ...base, expiresInMs: '2000', standardMessage: {} });
     expect(pending).toMatchObject({ expiresAfterReadMs: 2000, historyCursor: 'snapshot:10' });
     expect(pending).not.toHaveProperty('expiresAt');
+  });
+
+  it('caps body ranges from a hostile archive, keeping mentions', () => {
+    const bodyRanges: Record<string, unknown>[] = Array.from({ length: 5000 }, (_, i) => ({
+      start: i % 100,
+      length: 1,
+      style: 'BOLD',
+    }));
+    bodyRanges.push({ start: 0, length: 1, mentionAci: 'AAAAAAAAAAAAAAAAAAAAAg==' });
+    const message = convert({
+      ...base,
+      standardMessage: { text: { body: 'x'.repeat(200), bodyRanges } },
+    });
+    expect(message?.ranges).toHaveLength(MAX_BODY_RANGES);
+    expect(message?.ranges.some((r) => r.mentionId !== undefined)).toBe(true);
   });
 
   it('skips missing directional details and ignores invalid formatting spans', () => {

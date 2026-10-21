@@ -28,8 +28,11 @@ produces by default.
 `github.com` exactly once, to download it. Nothing else about your use of
 Snowdrop is sent anywhere by this download (no telemetry, no analytics) —
 it's the same HTTPS GET your browser would make visiting the release page
-yourself. After that first download, Snowdrop runs entirely offline except
-for your own signal-cli traffic to Signal's servers.
+yourself. After that first download, the only network traffic is signal-cli
+talking to Signal's servers, plus link previews: with them on (the default),
+composing a message with a link fetches that page from this device, which
+reveals your IP address to that site (or goes through `HTTPS_PROXY` if set).
+Turn them off in Settings → Behaviour.
 
 ## Dev and build
 

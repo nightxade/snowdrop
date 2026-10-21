@@ -101,6 +101,15 @@ export interface BodyRange {
   mentionId?: string;
 }
 
+/**
+ * Most body ranges (styles + mentions) kept per message; the rest are dropped.
+ * A real message has a handful (Signal's composer yields a few dozen at the
+ * very most, since the body is capped at a few thousand characters), so 500 is
+ * far beyond legitimate use while keeping render and storage cost bounded
+ * against a hostile sender.
+ */
+export const MAX_BODY_RANGES = 500;
+
 /** Signal replaces a mention's text with this placeholder in the body. */
 export const MENTION_PLACEHOLDER = '￼';
 

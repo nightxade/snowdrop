@@ -165,8 +165,14 @@ On a single-account daemon `connection.account` is required (Snowdrop reports
 - Message history lives in your browser's IndexedDB for the Snowdrop origin; clear it from
   Settings → Data & Storage, or by clearing site data.
 - Outgoing attachments are sent to the daemon as `data:` URIs (never as file paths, and
-  never empty — an empty data URI would be read as a path by signal-cli), so the web page
-  can't make the daemon read arbitrary local files.
+  never empty — an empty data URI would be read as a path by signal-cli). The desktop app
+  enforces this in Rust (`src-tauri/src/rpc_guard.rs`): a `signal_cli_request` whose
+  `attachment`, `previewImage`, `avatar` or `customEmoji[].attachment` isn't a `data:` URI,
+  or whose `quoteAttachment` has a third (preview-file) segment, is rejected before it
+  reaches signal-cli, so the page can't make the daemon read a local file. This guard is
+  the only protection: signal-cli itself reads any other string as a path (it only blocks
+  its own data directory). In the browser build (dev proxy to a daemon you run) nothing
+  enforces it, and the page can ask the daemon to read any file the daemon can.
 - Incoming attachments are handed to the page as `blob:` URLs typed with their real media
   type only for common raster image, audio and video types; anything else (HTML, SVG, …)
   is served as opaque bytes so it can never run as a page.

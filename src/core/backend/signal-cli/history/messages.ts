@@ -1,4 +1,5 @@
 import {
+  MAX_BODY_RANGES,
   messageId,
   systemMessageId,
   TEXT_STYLES,
@@ -18,7 +19,7 @@ import { decimal, record, records, text, timestamp, uint32, type BackupRecord } 
 
 function bodyRanges(value: BackupRecord): BodyRange[] {
   const body = text(value.body);
-  return records(value.bodyRanges).flatMap((range): BodyRange[] => {
+  const out = records(value.bodyRanges).flatMap((range): BodyRange[] => {
     const start = uint32(range.start ?? 0);
     const length = uint32(range.length);
     if (start === undefined || !length || start + length > body.length) return [];
@@ -27,6 +28,14 @@ function bodyRanges(value: BackupRecord): BodyRange[] {
     const style = text(range.style).toLowerCase() as TextStyle;
     return TEXT_STYLES.includes(style) ? [{ start, length, style }] : [];
   });
+  // Mentions first, like live messages: a hostile archive can't push them out.
+  const mentions = out.filter((r) => r.mentionId !== undefined);
+  const styles = out.filter((r) => r.mentionId === undefined);
+  return out.length <= MAX_BODY_RANGES
+    ? out
+    : [...mentions, ...styles]
+        .slice(0, MAX_BODY_RANGES)
+        .sort((a, b) => a.start - b.start || b.length - a.length);
 }
 
 function reactions(value: unknown, directory: BackupDirectory): Reaction[] {

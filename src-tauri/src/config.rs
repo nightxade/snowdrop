@@ -119,9 +119,12 @@ pub fn validate_binary_path(raw: &str) -> Result<PathBuf, Error> {
     Ok(path)
 }
 
-/// Finds `signal-cli` on a PATH-style list of directories.
+/// Finds `signal-cli` on a PATH-style list of directories. Empty entries
+/// (which a shell treats as the current directory) and relative ones are
+/// skipped: they'd make the result depend on the working directory, letting
+/// a `./signal-cli` planted there win.
 pub fn find_on_path(path_var: Option<&OsStr>) -> Option<PathBuf> {
-    let dirs = std::env::split_paths(path_var?).collect::<Vec<_>>();
+    let dirs = std::env::split_paths(path_var?).filter(|d| d.is_absolute()).collect::<Vec<_>>();
     for dir in dirs {
         for name in ["signal-cli", "signal-cli.exe", "signal-cli.bat"] {
             let candidate = dir.join(name);
@@ -351,6 +354,27 @@ mod tests {
         let missing = resolve_binary(Some(""), None, None, None, Some(OsStr::new(""))).unwrap_err();
         assert_eq!(missing.kind, ErrorKind::NotInstalled);
         assert!(missing.message.contains("Install signal-cli"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn find_on_path_skips_empty_and_relative_entries() {
+        let dir = temp_dir("path-entries");
+        let abs = dir.path().join("bin");
+        fs::create_dir_all(&abs).unwrap();
+        make_exec(&abs.join("signal-cli"));
+        // The same directory spelled relative to the working directory.
+        let cwd = std::env::current_dir().unwrap();
+        let up = "../".repeat(cwd.ancestors().count() - 1);
+        let relative = PathBuf::from(format!("{up}{}", abs.strip_prefix("/").unwrap().display()));
+        assert!(is_executable(&relative.join("signal-cli")), "test setup: relative path must resolve");
+
+        for bad in [OsStr::new("").to_owned(), relative.clone().into_os_string(), OsStr::new(".").to_owned(), OsStr::new("bin").to_owned()] {
+            assert_eq!(find_on_path(Some(&bad)), None, "{bad:?}");
+        }
+        // Mixed: the unusable entries are skipped, the absolute one still wins.
+        let mixed = std::env::join_paths([PathBuf::new(), relative, abs.clone()]).unwrap();
+        assert_eq!(find_on_path(Some(&mixed)), Some(abs.join("signal-cli")));
     }
 
     #[cfg(unix)]

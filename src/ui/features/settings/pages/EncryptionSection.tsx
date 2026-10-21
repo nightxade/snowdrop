@@ -743,7 +743,7 @@ function DangerZone({ admin }: { admin: StorageAdmin }) {
                 <li>
                   <strong>Deleted:</strong> this computer&rsquo;s encrypted signal-cli vault (keys,
                   sessions, contacts and message history), your recovery key, passphrase and keyring
-                  entry, and Snowdrop&rsquo;s own settings, spaces and drafts in this browser.
+                  entry, and Snowdrop&rsquo;s own settings, spaces and drafts on this computer.
                 </li>
                 <li>
                   <strong>Not deleted:</strong> your Signal account. This computer stays listed as a

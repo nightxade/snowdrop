@@ -17,9 +17,11 @@ pub mod keyslots;
 pub mod link_preview;
 pub mod logfile;
 pub mod notifications;
+pub mod paste_gate;
 pub mod perf;
 pub mod process;
 pub mod redact;
+pub mod rpc_guard;
 pub mod secrets;
 pub mod service;
 pub mod signal_cli_install;
@@ -28,6 +30,7 @@ pub mod storage;
 pub mod tray;
 pub mod vault;
 pub mod vault_bridge;
+pub mod webview_privacy;
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -268,6 +271,9 @@ pub fn run() {
                 }
                 handle_for_prespawn.state::<Arc<Service>>().inner().clone().prespawn().await;
             });
+            let paste_gate = Arc::new(paste_gate::PasteGate::default());
+            app.manage(paste_gate.clone());
+            webview_privacy::configure_main_window(app.handle(), paste_gate);
             startup::mark("setup complete");
             Ok(())
         })

@@ -8,7 +8,7 @@
  * Outbound: ranges become the CLI-style `start:length:X` strings that the
  * `send` method's `textStyle` / `mention` params expect.
  */
-import type { BodyRange, TextStyle } from '@/core/domain';
+import { MAX_BODY_RANGES, type BodyRange, type TextStyle } from '@/core/domain';
 import { addressId, type WireMention, type WireTextStyle } from '../wire';
 
 const FROM_WIRE: Record<string, TextStyle> = {
@@ -43,22 +43,29 @@ export function sortRanges(ranges: BodyRange[]): BodyRange[] {
   return ranges.sort((a, b) => a.start - b.start || b.length - a.length);
 }
 
+/**
+ * At most MAX_BODY_RANGES ranges are kept (a hostile sender can attach
+ * thousands); mentions take priority over styles, since losing one changes
+ * who a message names.
+ */
 export function toBodyRanges(
   body: string,
   textStyles: readonly WireTextStyle[],
   mentions: readonly WireMention[],
 ): BodyRange[] {
   const out: BodyRange[] = [];
+  for (const m of mentions) {
+    if (out.length >= MAX_BODY_RANGES) break;
+    const id = addressId(m.uuid, m.number, m.name);
+    const span = clamp(m.start, m.length, body.length);
+    if (id && span) out.push({ start: span[0], length: span[1], mentionId: id });
+  }
   for (const t of textStyles) {
+    if (out.length >= MAX_BODY_RANGES) break;
     const style = styleFromWire(t.style);
     const span = clamp(t.start, t.length, body.length);
     // Unknown styles (e.g. "NONE" or future ones) are dropped, text stays.
     if (style && span) out.push({ start: span[0], length: span[1], style });
-  }
-  for (const m of mentions) {
-    const id = addressId(m.uuid, m.number, m.name);
-    const span = clamp(m.start, m.length, body.length);
-    if (id && span) out.push({ start: span[0], length: span[1], mentionId: id });
   }
   return sortRanges(out);
 }

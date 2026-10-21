@@ -26,7 +26,7 @@
  * - All indices are UTF-16 code units — Signal's wire unit and JavaScript's
  *   native string index — so no conversion is needed.
  */
-import type { BodyRange, TextStyle } from './types';
+import { MAX_BODY_RANGES, type BodyRange, type TextStyle } from './types';
 
 export interface ParsedMarkdown {
   body: string;
@@ -398,7 +398,8 @@ function normalizeRanges(ranges: readonly BodyRange[]): BodyRange[] {
     }
     if (current) out.push(current);
   }
-  return out.sort((a, b) => a.start - b.start || b.length - a.length);
+  // Bounded like every other source of ranges (see MAX_BODY_RANGES).
+  return out.sort((a, b) => a.start - b.start || b.length - a.length).slice(0, MAX_BODY_RANGES);
 }
 
 /** Escapes text so it round-trips through parseMarkdownToRanges unchanged. */

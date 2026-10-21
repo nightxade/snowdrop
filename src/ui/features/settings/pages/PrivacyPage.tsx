@@ -20,6 +20,7 @@ export function PrivacyPage() {
   const app = useSnowdrop();
   const [behaviour, setBehaviour] = useSettingsSection('behaviour');
   const [clearUrls, setClearUrls] = usePluginEnabled('clear-urls');
+  const where = app.storageAdmin ? 'this computer' : 'this browser';
   return (
     <>
       {app.storageAdmin && <EncryptionSection admin={app.storageAdmin} />}
@@ -27,7 +28,7 @@ export function PrivacyPage() {
         <SettingRow
           id="privacy.receipts"
           label="Send read receipts"
-          description="When on, people see when you’ve read their messages. Turning it off only stops Snowdrop sending them: you still see other people’s receipts here (Signal’s own apps hide both)."
+          description="When on, people see when you’ve read their messages. Turning it off only stops Snowdrop sending them: you still see other people’s receipts here. (Signal’s own apps also stop showing you theirs when it’s off; Snowdrop keeps that separate, below.) This is Snowdrop’s own setting: it doesn’t follow the one on your phone."
           control={(ids) => (
             <Switch
               id={ids.id}
@@ -92,10 +93,12 @@ export function PrivacyPage() {
               Spaces, folders and categories are only on this device. Nobody sees how you organise
               them.
             </li>
-            <li>Private notes about people, pins, mutes and drafts never leave this browser.</li>
+            <li>Private notes about people, pins, mutes and drafts never leave {where}.</li>
             <li>
-              Message history is stored in this browser (signal-cli keeps none). Export or clear it
-              under Data &amp; storage.
+              {app.storageAdmin
+                ? 'Message history is kept encrypted on this computer, and signal-cli’s own data sits in an encrypted vault.'
+                : 'Message history is stored in this browser (signal-cli keeps none).'}{' '}
+              Export or clear it under Data &amp; storage.
             </li>
             <li>
               Snowdrop has no telemetry. Its fonts and code ship with it, and custom themes and
@@ -103,8 +106,10 @@ export function PrivacyPage() {
               installed app blocks third-party requests outright.
             </li>
             <li>
-              Snowdrop talks only to your signal-cli daemon, and that goes through this app’s own
-              address.
+              Snowdrop talks to signal-cli, and signal-cli talks to Signal. Two things reach
+              further: link previews contact the linked site from this device (or your HTTPS_PROXY),
+              which shows it your IP address, and you can turn them off under Behaviour. On desktop,
+              downloading signal-cli the first time contacts github.com once.
             </li>
           </ul>
         </SettingRow>

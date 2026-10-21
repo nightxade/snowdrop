@@ -98,6 +98,9 @@ libc = "0.2"
 zbus = "4"
 # The same GTK version already used by Tauri, for native file/image paste.
 gtk = "0.18"
+# The webview engine Tauri already uses (via wry); only to switch off DNS
+# prefetching (src/webview_privacy.rs).
+webkit2gtk = "2"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["io-util", "macros", "process", "rt-multi-thread", "sync", "time", "test-util"] }

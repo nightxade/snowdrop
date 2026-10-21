@@ -21,6 +21,18 @@ Status: **implemented** (desktop app only). This document is the contract the im
 | A compromised webview calls `storage_erase_all`                    | **Accepted.** It's reachable from the webview (see "UX" §5), but a compromised webview could already read everything decrypted and send it anywhere, so this adds no new exposure. Erasing is also recoverable: re-link and your phone resyncs contacts and groups (see "What a fresh start loses"). |
 | Signal's servers                                                   | Out of scope here. Signal's end-to-end encryption covers this.                                                                                                                                                                                                                                       |
 
+### What a compromised webview can still do
+
+The webview is the one part that handles decrypted content, so Snowdrop treats it as a trust boundary and narrows what it can ask the Rust side for, but can't remove its access to your messages. If page script were compromised (a malicious plugin, a bug in how incoming content is rendered):
+
+- **Read and send anything the app can.** It sees the decrypted cache, and can send messages as you through `signal_cli_request`.
+- **Not make signal-cli read local files.** `signal_cli_request` rejects any `attachment`, `previewImage`, `avatar` or custom-emoji attachment that isn't an inline `data:` URI, and a `quoteAttachment` with a preview-file part. (signal-cli itself would read any other string as a path and only blocks its own data directory, so this check is the protection. See `docs/SIGNAL_CLI.md`.) It can still send files whose bytes it already holds, and it can only call the allow-listed signal-cli methods.
+- **Read a copied file only right after a real paste.** `clipboard_read_files` refuses unless Rust itself saw a paste keystroke (Ctrl+V, Ctrl+Shift+V, Shift+Insert) or the context menu open on the webview, within the last few seconds. Script can't forge those. It can still read the clipboard in that window, after a paste you did make.
+- **Fetch the web cache key** (`storage_webcache_key`). That's by design: the key has to reach the page to decrypt the cache, and the page already holds the decrypted cache.
+- **Erase local data** (`storage_erase_all`). The `"ERASE"` argument guards against accidents, not script. Erasing is recoverable by re-linking (see "What a fresh start loses"), but it does lose Snowdrop's own local data.
+- **Read recent log lines** (`log_recent`). The log is written redacted (phone numbers, ids, keys, your home directory and long base64 are scrubbed), and a call returns a bounded amount. Redaction is pattern-based and a safety net, not a guarantee; call sites aren't supposed to log message content in the first place.
+- **Change the passphrase or recovery code** while unlocked. These need the unlocked session, not your old secret.
+
 If the keys are ever compromised, remove the device in your phone's Signal (Settings → Linked devices). That invalidates the stolen copy.
 
 **Rollback is out of scope.** Someone who can _write_ to your home directory could restore an older `keys.json` or vault generation. That attacker is effectively "malware running as you", and a rollback reveals nothing new:
@@ -65,6 +77,7 @@ You get here by losing the keyring secret with no recovery key and no passphrase
 - **Passphrase slot (optional):**
   - For people who don't want a keyring at all; they're asked at every launch.
   - Uses Argon2id with m = 64 MiB, t = 3, p = 1, stored per slot so it can be tuned.
+  - A new passphrase must be at least 8 characters, checked in Rust as well as in the UI (unlocking never applies the minimum, so nobody is locked out). On load, KDF parameters outside sane bounds (m up to 512 MiB, t up to 10, p up to 8) are rejected as a corrupt `keys.json`, so a tampered file can't make the app allocate gigabytes before the authentication check fails.
 - **Wrapping:** XChaCha20-Poly1305, with 24-byte random nonces.
   - The AAD is the canonical encoding of the slot's _entire_ metadata: type, version, keyring entry id (for the keyring slot) or KDF algorithm/parameters (for recovery/passphrase), and salt.
   - So editing a slot's KDF parameters, repointing a keyring slot at a different account, or swapping slots, fails authentication loudly instead of silently changing behaviour.

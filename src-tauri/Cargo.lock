@@ -3971,6 +3971,7 @@ dependencies = [
  "tokio",
  "ureq",
  "url",
+ "webkit2gtk",
  "zbus 4.4.0",
  "zeroize",
 ]
