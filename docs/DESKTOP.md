@@ -611,6 +611,14 @@ Linux, `Shell_NotifyIcon` on Windows, `NSStatusItem` on macOS.
   settings store is otherwise invisible to Rust) — see the debounced,
   change-only `app_set_unread` wiring in `src/app/unreadSync.ts`/
   `src/app/createSnowdrop.ts` for the matching unread-count path.
+- **Start in the tray** (`--start-in-tray`, Signal Desktop's flag name): the
+  main window is created hidden (`"visible": false` in `tauri.conf.json`)
+  and `setup()` shows it unless the flag is present _and_ a tray exists
+  (`tray::show_at_launch`); with no tray the flag is ignored, with a warning
+  in the log. The app connects and keeps the badge and notifications going
+  while hidden. A relaunch without the flag shows the window
+  (single-instance → `focus_main`); a relaunch _with_ it does nothing, so an
+  autostart entry firing while Snowdrop already runs doesn't pop it up.
 - **Rendering**: the badge is drawn at runtime onto the bundle's own
   128×128 icon (`icons/128x128.png`, supersampled relative to the actual
   tray size so the host's own downscale stays crisp on HiDPI), decoded with the `png` crate (already a transitive dependency

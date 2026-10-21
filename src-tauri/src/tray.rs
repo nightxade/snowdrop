@@ -217,6 +217,22 @@ pub fn close_decision(tray_available: bool, close_to_tray: bool) -> CloseAction 
     if tray_available && close_to_tray { CloseAction::Hide } else { CloseAction::Quit }
 }
 
+/// The command-line flag that starts Snowdrop with its window hidden, running
+/// from the tray (the same name Signal Desktop uses).
+pub const START_IN_TRAY_FLAG: &str = "--start-in-tray";
+
+/// Whether `args` (the process arguments) ask to start in the tray.
+pub fn wants_start_in_tray<S: AsRef<str>>(args: &[S]) -> bool {
+    args.iter().any(|a| a.as_ref() == START_IN_TRAY_FLAG)
+}
+
+/// Whether the main window is shown at launch: always, unless started with
+/// [`START_IN_TRAY_FLAG`] *and* a tray exists to bring it back from — with no
+/// tray the flag is ignored, so Snowdrop never runs with no way to reach it.
+pub fn show_at_launch(start_in_tray: bool, tray_available: bool) -> bool {
+    !(start_in_tray && tray_available)
+}
+
 /// Settings → Behaviour's "Keep running in the tray" (`behaviour.closeToTray`
 /// in src/core/stores/settings.ts), mirrored here by the `app_set_close_to_tray`
 /// command since Rust has no access to the frontend's own settings store.
@@ -573,6 +589,17 @@ mod tests {
         assert_eq!(close_decision(true, false), CloseAction::Quit);
         assert_eq!(close_decision(false, true), CloseAction::Quit);
         assert_eq!(close_decision(false, false), CloseAction::Quit);
+    }
+
+    #[test]
+    fn starts_hidden_only_with_the_flag_and_a_tray() {
+        assert!(wants_start_in_tray(&["snowdrop", "--start-in-tray"]));
+        assert!(!wants_start_in_tray(&["snowdrop"]));
+        assert!(!wants_start_in_tray(&["snowdrop", "--start-in-tray=1", "start-in-tray"]));
+        assert!(!show_at_launch(true, true));
+        assert!(show_at_launch(true, false), "no tray: the flag is ignored");
+        assert!(show_at_launch(false, true));
+        assert!(show_at_launch(false, false));
     }
 
     #[test]

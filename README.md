@@ -64,6 +64,12 @@ download-on-first-run flow, the optional GPL-bundled build, and the security
 model. Today the pinned download is Linux x86_64 only; other platforms need
 signal-cli installed separately (same doc, "Other platforms").
 
+To start the desktop app in the background, run it with `--start-in-tray`
+(for example from your desktop's autostart). The window stays hidden while
+Snowdrop connects and shows unread counts and notifications. Open it from the
+tray icon's menu (**Show Snowdrop**) or by launching Snowdrop again. Without a
+system tray the flag is ignored and the window opens as usual.
+
 **Browser mode.** Runs entirely in a regular browser tab; good for trying
 the demo, developing the UI, or connecting to a signal-cli daemon you manage
 yourself. Requires Node.js 20 or newer:

@@ -143,7 +143,13 @@ pub fn run() {
     }
     let app = tauri::Builder::default()
         // First, so a second launch hands over before anything else starts.
-        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| focus_main(app)))
+        // A relaunch shows the window, unless it too asked to start in the
+        // tray (e.g. an autostart entry firing while Snowdrop already runs).
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            if !tray::wants_start_in_tray(&argv) {
+                focus_main(app);
+            }
+        }))
         .plugin(tauri_plugin_notification::init())
         .manage(Arc::new(notifications::Notifications::default()))
         .plugin(tauri_plugin_opener::init())
@@ -249,6 +255,17 @@ pub fn run() {
             // borrows a fresh one.)
             app.manage(Arc::new(std::sync::Mutex::new(tray::init(app.handle()))));
             app.manage(Arc::new(tray::CloseToTray::new()));
+            // The window is created hidden (tauri.conf.json) and shown here,
+            // unless started with `--start-in-tray` and a tray exists.
+            let start_in_tray = tray::wants_start_in_tray(&std::env::args().collect::<Vec<_>>());
+            if tray::show_at_launch(start_in_tray, tray::available(app.handle())) {
+                if start_in_tray {
+                    log::warn!("snowdrop: --start-in-tray ignored: there is no system tray to start in.");
+                }
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                }
+            }
             // Everything the vault bridge reaches through `AppHandle` is
             // managed now. Try the same silent keyring unlock the webview's
             // first `storage_status` would (it only runs that ~2 s later, once
