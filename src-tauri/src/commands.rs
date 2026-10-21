@@ -494,6 +494,29 @@ pub async fn storage_webcache_key(app: AppHandle) -> Result<WebcacheKeyResult, E
     .expect("storage_webcache_key: blocking task panicked")
 }
 
+/// Encrypts a history export under a passphrase the user typed
+/// (`export_crypto`; docs/ENCRYPTION.md, "Encrypted history export"). The
+/// Argon2id derivation takes a noticeable fraction of a second, so it runs
+/// off the async runtime. Returns the file's bytes as base64.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportEncryptResult {
+    pub file_base64: String,
+}
+
+#[tauri::command]
+pub async fn storage_export_encrypt(passphrase: String, plaintext: String) -> Result<ExportEncryptResult, Error> {
+    let _t = CommandTimer::start("storage_export_encrypt");
+    let passphrase = zeroize::Zeroizing::new(passphrase);
+    let plaintext = zeroize::Zeroizing::new(plaintext);
+    tauri::async_runtime::spawn_blocking(move || {
+        let sealed = crate::export_crypto::seal_export(&passphrase, plaintext.as_bytes())?;
+        Ok(ExportEncryptResult { file_base64: STANDARD.encode(sealed) })
+    })
+    .await
+    .expect("storage_export_encrypt: blocking task panicked")
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EraseResult {

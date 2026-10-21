@@ -11,6 +11,8 @@ import {
   spacesSchema,
 } from '@/core/stores';
 import {
+  accountDataKeys,
+  accountOfScope,
   isPendingScope,
   migrateLegacyScope,
   rebindScopedStore,
@@ -255,4 +257,58 @@ it('keeps personal emoji separate across accounts and demo storage', () => {
     loadVersioned(storage, scopedSchema(localSchema, scopeFor('signal-cli', '+15550000001')))
       .customEmoji,
   ).toHaveLength(1);
+});
+
+describe('accountOfScope / accountDataKeys', () => {
+  it('reads the account out of a scope, and nothing from demo or pending', () => {
+    expect(accountOfScope('signal-cli:+15551234567')).toBe('+15551234567');
+    expect(accountOfScope('signal-cli:pending')).toBeNull();
+    expect(accountOfScope('demo')).toBeNull();
+  });
+
+  const account = '0a1b2c3d-1111-2222-3333-444455556666';
+  const other = '99999999-1111-2222-3333-444455556666';
+  const keys = [
+    // This account's: cleared.
+    `snowdrop.local:signal-cli:${account}`,
+    `snowdrop.local:signal-cli:${account}.backup`,
+    'snowdrop.local:signal-cli:pending',
+    `snowdrop.historyImport:signal-cli:${account}`,
+    `snowdrop.signal-cli.peers.${account}`,
+    `snowdrop.signal-cli.cursor.tauri.${account}`,
+    `snowdrop.signal-cli.cursor.sse.${account}`,
+    // Kept: spaces, settings, other accounts, the demo, unrelated flags.
+    `snowdrop.spaces:signal-cli:${account}`,
+    'snowdrop.spaces:signal-cli:pending',
+    'snowdrop.settings',
+    'snowdrop.local:demo',
+    `snowdrop.local:signal-cli:${other}`,
+    `snowdrop.signal-cli.peers.${other}`,
+    `snowdrop.signal-cli.cursor.tauri.${other}`,
+    'snowdrop.pendingHistoryClear',
+  ];
+
+  it('lists exactly the signed-out account’s scoped local data, never spaces or settings', () => {
+    expect(accountDataKeys(keys, 'signal-cli', account).sort()).toEqual(
+      [
+        `snowdrop.local:signal-cli:${account}`,
+        `snowdrop.local:signal-cli:${account}.backup`,
+        'snowdrop.local:signal-cli:pending',
+        `snowdrop.historyImport:signal-cli:${account}`,
+        `snowdrop.signal-cli.peers.${account}`,
+        `snowdrop.signal-cli.cursor.tauri.${account}`,
+        `snowdrop.signal-cli.cursor.sse.${account}`,
+      ].sort(),
+    );
+  });
+
+  it('with no account known yet, only the pending placeholder’s data', () => {
+    expect(accountDataKeys(keys, 'signal-cli', null)).toEqual([
+      'snowdrop.local:signal-cli:pending',
+    ]);
+  });
+
+  it('never touches anything for the demo', () => {
+    expect(accountDataKeys(keys, 'mock', null)).toEqual([]);
+  });
 });

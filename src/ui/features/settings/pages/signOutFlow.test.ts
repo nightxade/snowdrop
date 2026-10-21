@@ -71,6 +71,10 @@ describe('signOutDesktop', () => {
       order.push('clearHistory');
       return Promise.resolve();
     });
+    const clearAccountData = vi.fn(() => {
+      order.push('clearAccountData');
+      return Promise.resolve();
+    });
     const disconnect = vi.fn(() => {
       order.push('disconnect');
       return Promise.resolve();
@@ -91,7 +95,7 @@ describe('signOutDesktop', () => {
 
     await signOutDesktop({
       stores: { settings: store } as never,
-      admin: { clearHistory, disconnect, persist, setPendingHistoryClear },
+      admin: { clearAccountData, clearHistory, disconnect, persist, setPendingHistoryClear },
       storageAdmin: { signOut, restart } as never,
     });
 
@@ -101,6 +105,7 @@ describe('signOutDesktop', () => {
       'persist',
       'signOut',
       'disconnect',
+      'clearAccountData',
       'clearHistory',
       'restart',
     ]);
@@ -117,6 +122,7 @@ describe('signOutDesktop', () => {
     });
     const persist = vi.fn(() => Promise.resolve());
     const disconnect = vi.fn(() => Promise.resolve());
+    const clearAccountData = vi.fn(() => Promise.resolve());
     const setPendingHistoryClear = vi.fn((pending: boolean) => {
       order.push(`setPendingHistoryClear(${pending})`);
       return Promise.resolve();
@@ -132,7 +138,7 @@ describe('signOutDesktop', () => {
 
     await signOutDesktop({
       stores: { settings: store } as never,
-      admin: { clearHistory, disconnect, persist, setPendingHistoryClear },
+      admin: { clearAccountData, clearHistory, disconnect, persist, setPendingHistoryClear },
       storageAdmin: { signOut, restart } as never,
     });
 
@@ -146,6 +152,7 @@ describe('signOutDesktop', () => {
       signOutDesktop({
         stores: { settings: store } as never,
         admin: {
+          clearAccountData: vi.fn(),
           clearHistory: vi.fn(),
           disconnect: vi.fn(() => Promise.resolve()),
           persist: vi.fn(),
@@ -154,5 +161,29 @@ describe('signOutDesktop', () => {
         storageAdmin: null,
       }),
     ).rejects.toThrow();
+  });
+
+  it('still clears history when clearing the account data fails', async () => {
+    const { store } = fakeSettingsStore();
+    const clearHistory = vi.fn(() => Promise.resolve());
+    const setPendingHistoryClear = vi.fn(() => Promise.resolve());
+    const restart = vi.fn(() => Promise.resolve());
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await signOutDesktop({
+      stores: { settings: store } as never,
+      admin: {
+        clearAccountData: vi.fn(() => Promise.reject(new Error('storage busy'))),
+        clearHistory,
+        disconnect: vi.fn(() => Promise.resolve()),
+        persist: vi.fn(() => Promise.resolve()),
+        setPendingHistoryClear,
+      },
+      storageAdmin: { signOut: vi.fn(() => Promise.resolve()), restart } as never,
+    });
+
+    expect(clearHistory).toHaveBeenCalledTimes(1);
+    expect(setPendingHistoryClear).not.toHaveBeenCalled();
+    expect(restart).toHaveBeenCalledTimes(1);
   });
 });

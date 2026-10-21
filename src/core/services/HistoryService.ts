@@ -25,7 +25,7 @@ import {
   type MessageId,
 } from '@/core/domain';
 import type { MessageRepository } from '@/core/persistence';
-import { acceptForOutgoing, type Stores } from '@/core/stores';
+import { acceptForOutgoing, isDeletedRequest, type Stores } from '@/core/stores';
 import { consoleReporter, type ErrorReporter } from './types';
 
 export interface HistoryServiceDeps {
@@ -309,6 +309,9 @@ export class HistoryService {
     );
     if (local.length === limit) return { messages: local, hasMoreBefore: true };
     if (!backend.fetchHistory) return { messages: local, hasMoreBefore: false };
+    // A deleted request stays deleted: no backfill brings it back.
+    if (isDeletedRequest(this.deps.stores, conversationId))
+      return { messages: local, hasMoreBefore: false };
 
     // Local history ran out: backfill from the backend, older than what we have.
     const boundary = local[0] ?? oldest;
@@ -323,6 +326,9 @@ export class HistoryService {
             limit: limit - local.length,
           },
     );
+    // Checked again after the (slow) fetch: the user may have deleted it meanwhile.
+    if (isDeletedRequest(this.deps.stores, conversationId))
+      return { messages: local, hasMoreBefore: false };
     const stored = await repository.upsertMany(remote.messages, {
       backfill: true,
       merge: mergeDuplicate,

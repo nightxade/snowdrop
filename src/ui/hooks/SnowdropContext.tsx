@@ -45,6 +45,14 @@ export interface AppAdmin {
    */
   disconnect(): Promise<void>;
   /**
+   * Sign-out: deletes the signed-out account's local data (contact notes,
+   * pins, mutes, drafts, message-request decisions, recent stickers, the
+   * peers list and resume cursors). Settings, themes and spaces are kept.
+   * Call after `disconnect()`, then restart: it stops local-state
+   * persistence so nothing is written back.
+   */
+  clearAccountData(): Promise<void>;
+  /**
    * Marks (or clears) a flag the next boot honours by clearing history
    * before starting. Set when `clearHistory()` fails partway through
    * sign-out (the vault is already signed out and the next boot unlocks

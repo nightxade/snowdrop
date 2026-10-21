@@ -64,7 +64,7 @@ import {
   type MessageRepository,
   type VersionedSchema,
 } from '@/core/persistence';
-import type { Stores } from '@/core/stores';
+import { isDeletedRequest, type Stores } from '@/core/stores';
 import { consoleReporter, type ErrorReporter } from './types';
 
 const log = createLogger('history-import');
@@ -147,7 +147,8 @@ export interface HistoryImportServiceDeps {
   log?: Logger;
 }
 
-const KEY_PREFIX = 'snowdrop.historyImport';
+/** The persisted import record is `${HISTORY_IMPORT_KEY_PREFIX}:${scope}` (see `app/dataScope.ts`). */
+export const HISTORY_IMPORT_KEY_PREFIX = 'snowdrop.historyImport';
 
 export class HistoryImportService {
   private readonly pageSize: number;
@@ -204,7 +205,7 @@ export class HistoryImportService {
   }
 
   private key(): string {
-    return `${KEY_PREFIX}:${this.deps.scope()}`;
+    return `${HISTORY_IMPORT_KEY_PREFIX}:${this.deps.scope()}`;
   }
 
   private loadState(): HistoryImportState | null {
@@ -287,6 +288,12 @@ export class HistoryImportService {
         // Re-read conversation ids on every round: a chat that only shows up
         // in the archive (or one that arrives mid-import) still gets walked.
         const ids = Object.keys(this.deps.stores.conversations.getState().byId) as ConversationId[];
+        // Requests the user deleted are out of the list, but a later message
+        // from the sender would list them again: count them as done now, so
+        // that never pulls their old archived history back in.
+        for (const id of Object.keys(this.deps.stores.local.getState().deletedChats)) {
+          if (!state.conversations[id]?.done) state.conversations[id] = { done: true };
+        }
         const next = ids.find((id) => !state.conversations[id]?.done);
         if (next === undefined) break;
         // One conversation fully, to completion, before moving to the next —
@@ -319,11 +326,26 @@ export class HistoryImportService {
     state: HistoryImportState,
     fetchHistory: NonNullable<HistoryImportServiceDeps['backend']['fetchHistory']>,
   ): Promise<void> {
+    // A request deleted since this conversation was picked (or mid-page) must
+    // stay deleted: nothing from the archive goes back into the repository,
+    // and it counts as done so a later message from the sender doesn't make
+    // the import walk its old history back in either.
+    if (isDeletedRequest(this.deps.stores, id)) {
+      state.conversations[id] = { done: true };
+      this.saveState(state);
+      return;
+    }
     const cursor = state.conversations[id]?.cursor;
     const page = await fetchHistory(id, {
       limit: this.pageSize,
       ...(cursor !== undefined ? { beforeCursor: cursor } : {}),
     });
+    // Checked again after the (slow) fetch: the user may have deleted it meanwhile.
+    if (isDeletedRequest(this.deps.stores, id)) {
+      state.conversations[id] = { done: true };
+      this.saveState(state);
+      return;
+    }
     const stored = await this.deps.repository.upsertMany(page.messages, {
       backfill: true,
       merge: mergeDuplicate,

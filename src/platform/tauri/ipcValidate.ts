@@ -177,6 +177,15 @@ export function validateWebcacheKeyResult(command: string, value: unknown): { ke
   return validated(command, webcacheKeyResultShape, value);
 }
 
+const exportEncryptResultShape: Decoder<{ fileBase64: string }> = object({ fileBase64: str });
+
+export function validateExportEncryptResult(
+  command: string,
+  value: unknown,
+): { fileBase64: string } {
+  return validated(command, exportEncryptResultShape, value);
+}
+
 export interface RustInstallProgress {
   received: number;
   total: number | null;

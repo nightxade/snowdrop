@@ -10,6 +10,7 @@ pub mod clipboard;
 pub mod commands;
 pub mod config;
 pub mod error;
+pub mod export_crypto;
 pub mod events;
 pub mod external;
 pub mod jsonrpc;
@@ -329,6 +330,7 @@ pub fn run() {
             commands::storage_set_passphrase,
             commands::storage_enroll_keyring,
             commands::storage_webcache_key,
+            commands::storage_export_encrypt,
             commands::storage_erase_all,
             commands::storage_sign_out,
             commands::app_restart,

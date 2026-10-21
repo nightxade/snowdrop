@@ -66,7 +66,14 @@ import {
   type BackendRegistration,
 } from './backends';
 import { registerCoreCommands } from './coreCommands';
-import { migrateLegacyScope, rebindScopedStore, scopedSchema, scopeFor } from './dataScope';
+import {
+  accountDataKeys,
+  accountOfScope,
+  migrateLegacyScope,
+  rebindScopedStore,
+  scopedSchema,
+  scopeFor,
+} from './dataScope';
 import { installStallDetector } from './perf';
 import { createPluginHost } from './pluginHost';
 import { registerCoreStatusItems } from './statusItems';
@@ -555,6 +562,22 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
       historyImport.reset();
     },
     disconnect: () => sync.stop(),
+    clearAccountData: async () => {
+      // Stops the local-state binding first (flushing what it holds, which
+      // the removal below then deletes) so nothing re-creates it, and keeps
+      // a later account discovery from binding a fresh one. Settings and
+      // spaces keep persisting: signing out keeps them (README).
+      persistenceStopped = true;
+      localBinding.dispose();
+      for (const key of accountDataKeys(
+        storage.keys?.() ?? [],
+        registration.kind,
+        accountOfScope(currentScope),
+      )) {
+        storage.removeItem(key);
+      }
+      if (hasPendingWrites(storage)) await storage.flush();
+    },
     setPendingHistoryClear: async (pending) => {
       if (pending) storage.setItem(PENDING_HISTORY_CLEAR_KEY, '1');
       else storage.removeItem(PENDING_HISTORY_CLEAR_KEY);

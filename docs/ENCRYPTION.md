@@ -181,9 +181,13 @@ The message cache (IndexedDB) and the key-value store (localStorage) are encrypt
 - **Indexed fields:**
   - Conversation ids are replaced by HMAC-SHA256(webcache key, id), so phone numbers and group ids don't leak.
   - Timestamps stay plaintext, because ordering and range queries need them. This leak is accepted and documented: the timing of messages, not their content or who they're with.
+- **Outbox attachments:** an attachment's bytes, and its file name and type, are inside encrypted payloads. The `outboxAttachments` rows hold only an id and ciphertext. (Database version 4 removed the plaintext `fileName`/`contentType` fields earlier versions kept on those rows; the upgrade strips them in place, since the same metadata was already inside the outbox entry's encrypted payload.)
 - **localStorage:**
   - Everything is encrypted except a tiny bootstrap set: theme and density, to avoid a flash of the wrong theme before unlock.
   - The store hydrates into memory after unlock and writes through, encrypted.
+  - **Key names are blinded too.** Several keys are scoped by account (`snowdrop.local:signal-cli:<number or ACI>`, `snowdrop.spaces:…`, the signal-cli peers list and resume cursors), which would put your own phone number or ACI on disk in the clear even though the values are ciphertext. So every stored key name is `sk1.` plus HMAC-SHA256(webcache key, domain-separated key name), and the real name is sealed inside the value (`sd2:`, AES-GCM with the blinded name as AAD). Hydration reads the names back out of the values, so the stores still see their ordinary keys. Only the bootstrap set above keeps readable names. This needs the webcache key, which exists only after unlock, and nothing reads these keys before then.
+  - **Migration:** a value written by an earlier version (plaintext, or `sd1:` under its readable name) is read at the first unlock, written under its blinded name, and only then removed under the old one, so an interruption can't lose it. If both copies exist after an interruption, the blinded one wins. Nothing else changes for the user.
+  - In the browser build there is no vault and no key: values and key names stay as they were, readable, as with the rest of that build's cache.
 
 ## UX
 
@@ -232,21 +236,30 @@ The message cache (IndexedDB) and the key-value store (localStorage) are encrypt
      confirm dialog in the style of Erase's but calmer (no type-to-confirm,
      since nothing needs the extra friction): "Sign out of Signal on this
      computer? This removes this computer's Signal keys, contacts and
-     message history. Your Snowdrop settings, themes and spaces stay,"
-     plus a note that signal-cli can't unlink a device from the server
+     message history, and this account's contact notes, pins and drafts.
+     Your Snowdrop settings, themes and spaces stay," plus a note that signal-cli can't unlink a device from the server
      itself, so the phone side needs doing by hand (Signal → Settings →
      Linked devices). That's also why `unregister` — the one signal-cli
      method that _could_ unlink a device — must stay off
      `commands.rs`'s `ALLOWED_METHODS`: it only stops delivery, so it would
      look like it worked while leaving the device listed on the phone. The
      steps here, strictly ordered:
-     1. clear the local message cache (the repository's `clear()`);
-     2. set `connection.backend` and `connection.account` to `null`;
-     3. flush settings to encrypted storage and await it (`app.admin.persist()` —
+     1. set `connection.backend` and `connection.account` to `null`;
+     2. flush settings to encrypted storage and await it (`app.admin.persist()` —
         the same wait `reload()` does, factored out so this path doesn't also
         reload the page);
-     4. `storage_sign_out` (below);
-     5. restart the app (`app_restart`) — same one-shot-per-process reason as Erase.
+     3. `storage_sign_out` (below);
+     4. stop syncing, then clear the signed-out account's scoped local data
+        (`app.admin.clearAccountData()`, keys listed by `accountDataKeys` in
+        `app/dataScope.ts`): contact notes, pins, mutes, archive flags and
+        drafts, accepted and deleted message requests, recent stickers,
+        reaction usage, custom emoji, backfill markers (all of `snowdrop.local:<scope>`),
+        the imported-history record, the signal-cli peers list and resume cursors,
+        and any `.backup` copies. Settings, themes and spaces are kept, as the
+        confirm text promises; so is any other account's data;
+     5. clear the local message cache (the repository's `clear()`), with a
+        pending-clear flag for the next boot if that fails;
+     6. restart the app (`app_restart`) — same one-shot-per-process reason as Erase.
 
    `storage_sign_out` (`storage.rs`'s `StorageService::sign_out`) reuses
    Erase's own hooks (`add_on_erase`: stop signal-cli, then discard the
@@ -263,6 +276,30 @@ The message cache (IndexedDB) and the key-value store (localStorage) are encrypt
    restart-required state (`storage_status`'s `restartRequired: true`) for
    the same reason: the vault bridge and the single-instance lock are
    one-shot per process.
+
+## Encrypted history export
+
+Settings → Data & storage → Export history writes every stored message to a file, which would otherwise be plain JSON anywhere on disk. The dialog says so first (the file holds the messages as they are, anyone with it can read them, and Snowdrop cannot import it, so it is a copy and not a restore point). On the desktop the default is an **encrypted** export; a plain one stays available behind the same warning. The browser build has no Rust side, so it offers only the plain export.
+
+- **Passphrase:** typed by the user, at least 8 characters (checked in the UI and again in Rust), confirmed. It is sent to the `storage_export_encrypt` command along with the JSON, used once, and never stored.
+- **Crypto:** all in Rust (`export_crypto.rs`), reusing the passphrase keyslot's primitives: Argon2id (m = 64 MiB, t = 3, p = 1, fresh 16-byte salt) derives a 32-byte key, and XChaCha20-Poly1305 (`aead::seal`, fresh 24-byte nonce) seals the data.
+- **File format** (`.snowdrop-export`, version 1):
+
+  | Offset | Size | Field                                                          |
+  | ------ | ---- | -------------------------------------------------------------- |
+  | 0      | 4    | magic `SDEX`                                                   |
+  | 4      | 1    | format version (`1`)                                           |
+  | 5      | 1    | key derivation (`1` = Argon2id)                                |
+  | 6      | 4    | Argon2id memory in KiB, little endian                          |
+  | 10     | 4    | Argon2id passes, little endian                                 |
+  | 14     | 4    | Argon2id lanes, little endian                                  |
+  | 18     | 16   | salt                                                           |
+  | 34     | …    | `aead::seal` output: `[0x01][24-byte nonce][ciphertext + tag]` |
+
+  The 34-byte header is the AEAD's associated data (after the domain string `snowdrop/export/v1`), so lowering the KDF cost or changing any header byte fails authentication. KDF parameters read from a file are bounds-checked like `keys.json`'s. The plaintext is the same `snowdrop-history` JSON the plain export writes.
+
+- **Reading it back:** `export_crypto::open_export` is the inverse, covered by tests (round trip, wrong passphrase, tampered header and body, other files, newer versions). Snowdrop has no import for exports and this does not add one.
+- **Where the file lands:** the webview saves it through a download (`<a download>`), so the destination and the file's permissions are the platform's, not something Snowdrop sets; there is no file-system access from the webview to change that (see `capabilities/main.json`).
 
 ## Implementation plan
 

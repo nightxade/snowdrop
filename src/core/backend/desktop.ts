@@ -192,6 +192,12 @@ export interface StorageAdmin {
   enrollKeyring(): Promise<StorageStatus>;
   /** Base64 of the 32-byte web cache key; only resolves while unlocked. */
   webcacheKey(): Promise<string>;
+  /**
+   * Encrypts a history export under a passphrase the user typed, in Rust
+   * (docs/ENCRYPTION.md, "Encrypted history export"). Resolves with the
+   * file's bytes as base64. Never log either argument.
+   */
+  encryptExport(passphrase: string, plaintext: string): Promise<string>;
   eraseAll(): Promise<EraseResult>;
   /**
    * Signs out of Signal on this computer (docs/ENCRYPTION.md, "Sign out"):

@@ -38,6 +38,7 @@ function fakeStorageAdmin(): StorageAdmin {
     setPassphrase: () => Promise.resolve(status),
     enrollKeyring: () => Promise.resolve(status),
     webcacheKey: () => Promise.resolve('AAAA'),
+    encryptExport: () => Promise.resolve(''),
     eraseAll: () => Promise.resolve({ status, failures: [] }),
     signOut: () => Promise.resolve(status),
     restart: () => Promise.resolve(),

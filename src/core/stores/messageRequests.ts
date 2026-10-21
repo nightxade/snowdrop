@@ -62,3 +62,13 @@ export function acceptForOutgoing(
       local.markAccepted(m.conversationId, at);
   }
 }
+
+/**
+ * Whether the user deleted this message request and the other side hasn't
+ * written since (`localStore.deletedChats`). While it holds, nothing may
+ * write the conversation's messages back into the repository: not a history
+ * page, not the phone's archive import, not a backfill.
+ */
+export function isDeletedRequest(stores: Pick<Stores, 'local'>, id: ConversationId): boolean {
+  return stores.local.getState().deletedChats[id] !== undefined;
+}

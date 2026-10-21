@@ -47,9 +47,9 @@ const RECOVERY_KDF: (u32, u32, u32) = (19456, 2, 1);
 const RECOVERY_KDF: (u32, u32, u32) = (8, 1, 1);
 
 #[cfg(not(test))]
-const PASSPHRASE_KDF: (u32, u32, u32) = (65536, 3, 1);
+pub(crate) const PASSPHRASE_KDF: (u32, u32, u32) = (65536, 3, 1);
 #[cfg(test)]
-const PASSPHRASE_KDF: (u32, u32, u32) = (8, 1, 1);
+pub(crate) const PASSPHRASE_KDF: (u32, u32, u32) = (8, 1, 1);
 
 /// Shortest passphrase accepted when one is *created* (setup, or setting a
 /// new one): the same 8 the UI enforces (it counts UTF-16 code units, as
@@ -80,7 +80,7 @@ impl KdfParams {
     }
 }
 
-fn check_new_passphrase(passphrase: &str) -> Result<(), Error> {
+pub(crate) fn check_new_passphrase(passphrase: &str) -> Result<(), Error> {
     if passphrase.encode_utf16().count() < MIN_PASSPHRASE_LEN {
         return Err(Error::new(ErrorKind::Config, format!("A passphrase needs at least {MIN_PASSPHRASE_LEN} characters.")));
     }
@@ -251,7 +251,7 @@ fn slot_aad(vault_id: &[u8; VAULT_ID_LEN], slot: &Slot) -> Result<Vec<u8>, Error
 
 /// Derives a 32-byte KEK from `secret` with the slot's own Argon2id
 /// parameters.
-fn derive_kek(secret: &[u8], kdf: &KdfParams) -> Result<Key32, Error> {
+pub(crate) fn derive_kek(secret: &[u8], kdf: &KdfParams) -> Result<Key32, Error> {
     kdf.check_bounds()?;
     let salt = b64_decode(&kdf.salt)?;
     let params = Params::new(kdf.m_kib, kdf.t, kdf.p, Some(32))
@@ -266,7 +266,7 @@ fn derive_kek(secret: &[u8], kdf: &KdfParams) -> Result<Key32, Error> {
     result
 }
 
-fn new_kdf_params(params: (u32, u32, u32)) -> Result<KdfParams, Error> {
+pub(crate) fn new_kdf_params(params: (u32, u32, u32)) -> Result<KdfParams, Error> {
     let mut salt = [0u8; SALT_LEN];
     getrandom::getrandom(&mut salt).map_err(|e| Error::new(ErrorKind::Internal, format!("RNG failure: {e}")))?;
     Ok(KdfParams { alg: KdfAlg::Argon2id, m_kib: params.0, t: params.1, p: params.2, salt: b64_encode(&salt) })

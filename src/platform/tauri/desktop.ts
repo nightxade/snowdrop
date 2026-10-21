@@ -30,6 +30,7 @@ import {
   validateCreateRecoveryResult,
   validateDesktopInfo,
   validateEraseResult,
+  validateExportEncryptResult,
   validateInstallStatus,
   validateKeyringStatus,
   validatePinnedRelease,
@@ -118,6 +119,21 @@ export async function storageWebcacheKey(ipc: TauriIpc = tauriIpc): Promise<stri
 }
 
 /**
+ * Encrypts a history export under a passphrase the user typed (Argon2id +
+ * XChaCha20-Poly1305, in Rust: docs/ENCRYPTION.md, "Encrypted history
+ * export"). Resolves with the file's bytes as base64. Never log either
+ * argument.
+ */
+export async function storageExportEncrypt(
+  passphrase: string,
+  plaintext: string,
+  ipc: TauriIpc = tauriIpc,
+): Promise<string> {
+  const raw = await ipc.invoke<unknown>('storage_export_encrypt', { passphrase, plaintext });
+  return validateExportEncryptResult('storage_export_encrypt', raw).fileBase64;
+}
+
+/**
  * Deletes the vault, keys.json, the keyring entry and any legacy plaintext
  * data. Best-effort: `failures` lists anything that couldn't be removed.
  */
@@ -193,6 +209,7 @@ export function createStorageAdmin(ipc: TauriIpc = tauriIpc): StorageAdmin {
     setPassphrase: (passphrase) => storageSetPassphrase(passphrase, ipc),
     enrollKeyring: () => storageEnrollKeyring(ipc),
     webcacheKey: () => storageWebcacheKey(ipc),
+    encryptExport: (passphrase, plaintext) => storageExportEncrypt(passphrase, plaintext, ipc),
     eraseAll: () => storageEraseAll(ipc),
     signOut: () => storageSignOut(ipc),
     restart: () => appRestart(ipc),

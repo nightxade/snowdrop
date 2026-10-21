@@ -334,3 +334,14 @@
   /* A user-authored emoticon; contain any bidi controls. */
   unicode-bidi: isolate;
 }
+
+.warning {
+  margin: 0;
+  padding: var(--snowdrop-space-3) var(--snowdrop-space-4);
+  border-left: 3px solid var(--snowdrop-warning);
+  border-radius: var(--snowdrop-radius-sm);
+  background: var(--snowdrop-bg-sidebar);
+  color: var(--snowdrop-text);
+  font-size: var(--snowdrop-font-size-sm);
+  line-height: 1.5;
+}

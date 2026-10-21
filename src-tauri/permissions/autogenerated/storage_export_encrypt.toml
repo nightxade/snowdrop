@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-storage-export-encrypt"
+description = "Enables the storage_export_encrypt command without any pre-configured scope."
+commands.allow = ["storage_export_encrypt"]
+
+[[permission]]
+identifier = "deny-storage-export-encrypt"
+description = "Denies the storage_export_encrypt command without any pre-configured scope."
+commands.deny = ["storage_export_encrypt"]

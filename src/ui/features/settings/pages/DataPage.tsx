@@ -10,13 +10,15 @@ import {
 import { useEffect, useState } from 'react';
 import { useStore } from 'zustand';
 import { recentLogLines } from '@/core/lib';
+import { fromBase64 } from '@/core/persistence';
 import { sessionSelectors } from '@/core/stores';
 import { useSnowdrop } from '@/ui/hooks';
 import { Button, Modal, Switch } from '@/ui/primitives';
-import { downloadText } from '../download';
+import { downloadBytes, downloadText } from '../download';
 import { SettingRow } from '../rows/SettingRow';
 import { SettingsSection } from '../rows/SettingsSection';
 import { useSettingsSection } from '../useSettingsSection';
+import { ExportHistoryDialog, type ExportChoice } from './ExportHistoryDialog';
 import styles from './pages.module.css';
 
 export function formatBytes(bytes: number): string {
@@ -216,11 +218,12 @@ export function DataPage() {
   const here = app.storageAdmin ? 'on this computer' : 'in this browser';
   const estimate = useStorageEstimate();
   const [exporting, setExporting] = useState<string | null>(null);
+  const [exportOpen, setExportOpen] = useState(false);
   const [danger, setDanger] = useState<Danger>(null);
   const [busy, setBusy] = useState(false);
   const demo = app.backend.kind === 'mock';
 
-  const runExport = async () => {
+  const runExport = async (choice: ExportChoice) => {
     setExporting('Preparing…');
     try {
       const data = await app.admin.exportHistory((done, total) => {
@@ -228,7 +231,14 @@ export function DataPage() {
       });
       const count = data.conversations.reduce((n, c) => n + c.messages.length, 0);
       const date = data.exportedAt.slice(0, 10);
-      downloadText(`snowdrop-history-${date}.json`, JSON.stringify(data, null, 2));
+      const json = JSON.stringify(data, null, 2);
+      if (choice.encrypt && app.storageAdmin) {
+        setExporting('Encrypting…');
+        const fileBase64 = await app.storageAdmin.encryptExport(choice.passphrase, json);
+        downloadBytes(`snowdrop-history-${date}.snowdrop-export`, fromBase64(fileBase64));
+      } else {
+        downloadText(`snowdrop-history-${date}.json`, json);
+      }
       app.stores.ui.getState().pushToast({
         message: `Exported ${count.toLocaleString()} messages`,
         kind: 'success',
@@ -296,8 +306,8 @@ export function DataPage() {
           description={
             exporting ??
             (demo
-              ? 'Downloads the demo’s messages as JSON (the demo regenerates its history each launch). Disappearing messages and attachment files are left out.'
-              : `Downloads the messages stored ${here} as a JSON file; signal-cli keeps no history, so this is your backup. Disappearing messages are left out, and attachments are listed by name and type only.`)
+              ? 'Saves the demo’s messages as plain JSON (the demo regenerates its history each launch). Disappearing messages and attachment files are left out.'
+              : `Saves the messages stored ${here} to a file${app.storageAdmin ? ', encrypted with a passphrase or as plain JSON' : ' as plain JSON'}. It's a copy for your own records: Snowdrop can't import it, and anyone with an unencrypted file can read your messages. Disappearing messages are left out, and attachments are listed by name and type only.`)
           }
           control={
             <Button
@@ -310,15 +320,27 @@ export function DataPage() {
               }
               disabled={exporting !== null}
               onClick={() => {
-                void runExport();
+                setExportOpen(true);
               }}
             >
-              Export
+              Export…
             </Button>
           }
         />
         <HistoryImportRow />
       </SettingsSection>
+      {exportOpen && (
+        <ExportHistoryDialog
+          canEncrypt={app.storageAdmin !== null}
+          onCancel={() => {
+            setExportOpen(false);
+          }}
+          onConfirm={(choice) => {
+            setExportOpen(false);
+            void runExport(choice);
+          }}
+        />
+      )}
       <DiagnosticsSection />
       <SettingsSection title="Danger zone" rowIds={['data.clear', 'data.reset']}>
         <SettingRow

@@ -26,6 +26,7 @@ import {
   DEFAULT_LOCAL_CONVERSATION,
   HOME,
   isMuted,
+  selectMessageRequestState,
   UNKNOWN_CONTACT_NAME,
   type Stores,
 } from '@/core/stores';
@@ -148,9 +149,22 @@ export function decideNotification(
   const nameFor = (cid: string) =>
     contacts[cid]?.name ?? (cid === self?.id ? self.name : UNKNOWN_CONTACT_NAME);
   const author = nameFor(message.authorId);
-  const title = conversation?.kind === 'group' ? conversation.title : author;
-  let body = settings.showPreview ? notificationText(message, nameFor) : 'New message';
-  if (isGroup && settings.showPreview) body = `${author}: ${body}`;
+  // An unaccepted message request, as Signal Desktop shows it: the sender
+  // (and group) in the title, and "Message Request" instead of the text, so
+  // a stranger's words never reach the desktop before the user has decided.
+  const request = selectMessageRequestState(stores, id) !== 'accepted';
+  const title =
+    conversation?.kind === 'group'
+      ? request
+        ? `${author} in ${conversation.title}`
+        : conversation.title
+      : author;
+  let body = settings.showPreview
+    ? request
+      ? 'Message Request'
+      : notificationText(message, nameFor)
+    : 'New message';
+  if (isGroup && settings.showPreview && !request) body = `${author}: ${body}`;
   if (options.boost && !mentioned) body = `${options.boost} · ${body}`;
   return {
     title,

@@ -45,7 +45,7 @@ import {
   type UpsertResult,
 } from './MessageRepository';
 
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 const SEQ_KEY = 'seq';
 const log = createLogger('storage');
 
@@ -97,10 +97,13 @@ interface OutboxRow {
  * same encrypted JSON payload as the rest of the send input.
  */
 interface OutboxAttachmentRow {
-  /** `${nonce}:${index}` — the primary key, and the AAD binding it to that slot. */
+  /**
+   * `${nonce}:${index}` — the primary key, and the AAD binding it to that slot.
+   * The attachment's name and type live in the entry's encrypted payload
+   * (`StoredSendInput`), never on this row: rows written before DB_VERSION 4
+   * carried them as plaintext fields, which the v4 upgrade strips.
+   */
   id: string;
-  fileName: string;
-  contentType: string;
   /** AES-GCM of the raw attachment bytes, AAD = `id`. */
   payload: Uint8Array;
 }
@@ -165,7 +168,7 @@ export class IdbMessageRepository implements MessageRepository {
     cipher: RecordCipher = plaintextCipher(),
   ): Promise<IdbMessageRepository> {
     const db = await openDB<SnowdropDB>(name, DB_VERSION, {
-      upgrade(database, oldVersion) {
+      upgrade(database, oldVersion, _newVersion, transaction) {
         // Versioned, additive migrations: each step upgrades from the previous version.
         if (oldVersion >= 1 && oldVersion < 2) {
           // v1 stored everything in plaintext, indexed by the real
@@ -197,6 +200,26 @@ export class IdbMessageRepository implements MessageRepository {
           // `attachmentCount` and are handled as "attachments lost" on
           // read — see fromOutboxRow); nothing here needs re-encrypting.
           database.createObjectStore('outboxAttachments', { keyPath: 'id' });
+        }
+        if (oldVersion >= 3 && oldVersion < 4) {
+          // Attachment file names and types were stored as plaintext fields
+          // beside the encrypted bytes. The same metadata is already inside
+          // the owning outbox entry's encrypted payload (that's what
+          // `fromOutboxRow` reads), so nothing needs re-encrypting: the
+          // plaintext copies are simply removed, in this same transaction,
+          // with plain IndexedDB requests only (no crypto, no other awaits).
+          void (async () => {
+            let cursor = await transaction.objectStore('outboxAttachments').openCursor();
+            while (cursor) {
+              const { id, payload } = cursor.value;
+              await cursor.update({ id, payload });
+              cursor = await cursor.continue();
+            }
+          })().catch(() => {
+            // A failed rewrite aborts the whole upgrade, leaving the old
+            // (still readable) database in place for the next attempt.
+            transaction.abort();
+          });
         }
       },
     });
@@ -625,7 +648,7 @@ export class IdbMessageRepository implements MessageRepository {
         const id = outboxAttachmentId(entry.nonce, i);
         const bytes = new Uint8Array(await a.data.arrayBuffer());
         const payload = await this.cipher.encrypt(bytes, id);
-        return { id, fileName: a.fileName, contentType: a.contentType, payload };
+        return { id, payload };
       }),
     );
     const stored: StoredSendInput = {

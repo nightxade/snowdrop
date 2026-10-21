@@ -56,6 +56,7 @@ function makeSpies(overrides: Partial<StorageAdmin> = {}) {
     ),
     enrollKeyring: vi.fn(() => Promise.resolve(baseStatus)),
     webcacheKey: vi.fn(() => Promise.resolve('AAAA')),
+    encryptExport: vi.fn(() => Promise.resolve('')),
     eraseAll: vi.fn<() => Promise<EraseResult>>(() =>
       Promise.resolve({ status: { ...baseStatus, state: 'needsSetup' }, failures: [] }),
     ),

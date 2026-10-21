@@ -13,13 +13,16 @@ import {
 const NOW = 1_000_000;
 const group = conversationIdFor('g');
 const dm = directConversationId('ana');
+const requestDm = directConversationId('eve');
+const requestGroup = conversationIdFor('spam-group');
 
 function setup(options: { permission?: NotificationPermissionState; visible?: boolean } = {}) {
   const stores = createStores();
   stores.session.getState().setSelf({ id: 'me', name: 'Me', color: 'x', isSelf: true });
   stores.contacts.getState().upsertMany([
-    { id: 'ana', name: 'Ana Lima', color: 'x' },
-    { id: 'bo', name: 'Bo Chen', color: 'x' },
+    { id: 'ana', name: 'Ana Lima', color: 'x', inContacts: true },
+    { id: 'bo', name: 'Bo Chen', color: 'x', inContacts: true },
+    { id: 'eve', name: 'Eve Stranger', color: 'x' },
   ]);
   stores.conversations.getState().upsertMany([
     makeConversation({
@@ -29,6 +32,13 @@ function setup(options: { permission?: NotificationPermissionState; visible?: bo
       memberIds: ['me', 'ana', 'bo'],
     }),
     makeConversation({ id: dm, kind: 'direct', title: 'Ana Lima', memberIds: ['me', 'ana'] }),
+    makeConversation({ id: requestDm, kind: 'direct', title: 'Eve', memberIds: ['me', 'eve'] }),
+    makeConversation({
+      id: requestGroup,
+      kind: 'group',
+      title: 'Free crypto',
+      memberIds: ['me', 'eve'],
+    }),
   ]);
   const shown: { title: string; body: string; tag: string; click: () => void }[] = [];
   const closed = vi.fn();
@@ -239,5 +249,37 @@ describe('NotificationService', () => {
         () => '',
       ),
     ).toBe('🎉 Sticker');
+  });
+
+  describe('message requests (as Signal Desktop shows them)', () => {
+    it('shows the sender and "Message Request", never the text, for an unaccepted direct chat', () => {
+      const { shown, receive } = setup();
+      receive({ conversationId: requestDm, authorId: 'eve', body: 'send me your seed phrase' });
+      expect(shown).toHaveLength(1);
+      expect(shown[0]).toMatchObject({ title: 'Eve Stranger', body: 'Message Request' });
+    });
+
+    it('names the sender and the group in the title for an unaccepted group', () => {
+      const { shown, receive } = setup();
+      receive({ conversationId: requestGroup, authorId: 'eve', body: 'click this link' });
+      expect(shown[0]).toMatchObject({
+        title: 'Eve Stranger in Free crypto',
+        body: 'Message Request',
+      });
+    });
+
+    it('hides even the sender-independent text when previews are off', () => {
+      const { stores, shown, receive } = setup();
+      stores.settings.getState().update('notifications', { showPreview: false });
+      receive({ conversationId: requestDm, authorId: 'eve', body: 'secret words' });
+      expect(shown[0]?.body).toBe('New message');
+    });
+
+    it('shows the real text once the request is accepted', () => {
+      const { stores, shown, receive } = setup();
+      stores.local.getState().markAccepted(requestDm, NOW);
+      receive({ conversationId: requestDm, authorId: 'eve', body: 'hello again' });
+      expect(shown[0]).toMatchObject({ title: 'Eve Stranger', body: 'hello again' });
+    });
   });
 });

@@ -2,12 +2,18 @@
 import { describe, expect, it, vi } from 'vitest';
 import { SELF_ACI, SELF_NUMBER } from '@/core/backend/signal-cli/fixtures/envelopes';
 import { FakeDaemon, flush } from '@/core/backend/signal-cli/testing';
+import { conversationIdFor } from '@/core/domain/testing';
 import { ManualScheduler } from '@/core/lib';
-import { createMemoryStorage, loadVersioned, MemoryMessageRepository } from '@/core/persistence';
-import { settingsSchema, spacesSchema, spacesSelectors } from '@/core/stores';
+import {
+  createMemoryStorage,
+  loadVersioned,
+  MemoryMessageRepository,
+  saveVersioned,
+} from '@/core/persistence';
+import { localSchema, settingsSchema, spacesSchema, spacesSelectors } from '@/core/stores';
 import { startOnce } from './App';
 import { createSnowdrop } from './createSnowdrop';
-import { scopedSchema } from './dataScope';
+import { scopedKey, scopedSchema } from './dataScope';
 import { deferredRepository } from './deferredRepository';
 
 describe('createSnowdrop with signal-cli', () => {
@@ -210,5 +216,59 @@ describe('deferredRepository', () => {
   it('rejects every call when opening failed', async () => {
     const repo = deferredRepository(Promise.reject(new Error('blocked')));
     await expect(repo.getReadCursors()).rejects.toThrow('blocked');
+  });
+
+  it('sign-out clears the account’s local data and keeps settings, spaces and other accounts', async () => {
+    const other = '99999999-1111-2222-3333-444455556666';
+    const scope = `signal-cli:${SELF_ACI}`;
+    const storage = createMemoryStorage({
+      'snowdrop.settings': JSON.stringify({
+        v: 2,
+        data: {
+          connection: { backend: 'signal-cli', daemonUrl: '/signal-cli', account: SELF_ACI },
+        },
+      }),
+      [`snowdrop.signal-cli.peers.${SELF_ACI}`]: '{"peers":{},"aliases":{}}',
+      [`snowdrop.signal-cli.cursor.tauri.${SELF_ACI}`]: '42',
+      [`snowdrop.signal-cli.peers.${other}`]: '{"peers":{},"aliases":{}}',
+      [scopedKey(localSchema.key, `signal-cli:${other}`)]: 'other account local',
+    });
+    saveVersioned(storage, scopedSchema(spacesSchema, scope), spacesSchema.defaults());
+    const daemon = new FakeDaemon()
+      .reply('listAccounts', [{ number: SELF_NUMBER, aci: SELF_ACI }])
+      .reply('listContacts', [])
+      .reply('listGroups', []);
+    const snowdrop = createSnowdrop({
+      storage,
+      fetch: daemon.fetch,
+      repository: new MemoryMessageRepository(),
+    });
+    await snowdrop.start();
+    await flush();
+    snowdrop.stores.local.getState().setNote('someone', 'a private note');
+    snowdrop.stores.local.getState().setPinned(conversationIdFor('someone'), true);
+    snowdrop.flush();
+    const localKey = scopedSchema(localSchema, scope).key;
+    expect(storage.getItem(localKey)).toContain('a private note');
+    const spacesKey = scopedSchema(spacesSchema, scope).key;
+    expect(storage.getItem(spacesKey)).not.toBeNull();
+
+    await snowdrop.admin.disconnect();
+    await snowdrop.admin.clearAccountData();
+
+    expect(storage.getItem(localKey)).toBeNull();
+    expect(storage.getItem(`snowdrop.signal-cli.peers.${SELF_ACI}`)).toBeNull();
+    expect(storage.getItem(`snowdrop.signal-cli.cursor.tauri.${SELF_ACI}`)).toBeNull();
+    // Kept: settings, spaces, and another account's data.
+    expect(storage.getItem(settingsSchema.key)).not.toBeNull();
+    expect(storage.getItem(spacesKey)).not.toBeNull();
+    expect(storage.getItem(`snowdrop.signal-cli.peers.${other}`)).not.toBeNull();
+    expect(storage.getItem(scopedKey(localSchema.key, `signal-cli:${other}`))).not.toBeNull();
+
+    // Nothing writes the cleared state back (a flush, a late edit, a dispose).
+    snowdrop.stores.local.getState().setNote('someone', 'edited after sign-out');
+    snowdrop.flush();
+    await snowdrop.dispose();
+    expect(storage.getItem(localKey)).toBeNull();
   });
 });

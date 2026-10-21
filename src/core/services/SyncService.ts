@@ -43,6 +43,7 @@ import {
   computeUnread,
   effectivePrivacy,
   acceptForOutgoing,
+  isDeletedRequest,
   selectMessageRequestState,
   UNKNOWN_PHONE_PRIVACY,
   uiSelectors,
@@ -492,12 +493,19 @@ export class SyncService {
   ): Promise<{ cursor: number; hasRealMessage: boolean }> {
     const { backend, repository, stores } = this.deps;
     let cursor = storedCursor;
-    if (backend.fetchHistory && (await repository.count(conv.id)) === 0) {
+    if (
+      backend.fetchHistory &&
+      !isDeletedRequest(stores, conv.id) &&
+      (await repository.count(conv.id)) === 0
+    ) {
       const page = await backend.fetchHistory(conv.id, { limit: this.deps.seedPageSize ?? 50 });
-      const stored = await repository.upsertMany(page.messages, {
-        backfill: false,
-        merge: mergeDuplicate,
-      });
+      // Checked again after the (slow) fetch: the user may have deleted it meanwhile.
+      const stored = isDeletedRequest(stores, conv.id)
+        ? []
+        : await repository.upsertMany(page.messages, {
+            backfill: false,
+            merge: mergeDuplicate,
+          });
       acceptForOutgoing(stores, stored, this.deps.clock.now());
       if (cursor === undefined && page.readUpTo !== undefined) {
         const readUpTo = page.readUpTo;

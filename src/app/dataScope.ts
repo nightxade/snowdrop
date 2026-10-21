@@ -20,7 +20,11 @@
  * was first loaded), moving the pending scope's data to the account's own
  * scope without losing anything written in between.
  */
+import { CURSOR_KEY_PREFIX, peersStorageKey } from '@/core/backend/signal-cli/storageKeys';
+import { HISTORY_IMPORT_KEY_PREFIX } from '@/core/services';
+import { localSchema } from '@/core/stores';
 import {
+  backupKey,
   bindPersistence,
   loadVersioned,
   saveVersioned,
@@ -50,6 +54,53 @@ export function scopeFor(kind: string, accountId: string | null): StorageScope {
 /** True for a placeholder scope awaiting `rebindScopedStore`. */
 export function isPendingScope(scope: StorageScope): boolean {
   return scope.endsWith(PENDING_SUFFIX);
+}
+
+/** The account id a scope was made for; null for the demo and for a pending placeholder. */
+export function accountOfScope(scope: StorageScope): string | null {
+  if (scope === 'demo' || isPendingScope(scope)) return null;
+  const at = scope.indexOf(':');
+  return at < 0 ? null : scope.slice(at + 1);
+}
+
+/**
+ * Every storage key that belongs to one signed-out account (README,
+ * "Signing out"): the account's local state (`snowdrop.local:<scope>`:
+ * contact notes, pins, mutes, drafts, accepted/deleted message requests,
+ * recent stickers, reaction usage, backfill markers), its imported-history
+ * record, the signal-cli adapter's peers list and resume cursors, and the
+ * `.backup` copies the loader parks next to any of them. The `pending`
+ * placeholder scope of the same backend goes too: it only ever holds what was
+ * written before the account was known.
+ *
+ * Deliberately not here: settings and themes (unscoped) and the account's
+ * spaces (`snowdrop.spaces:<scope>`), which sign-out promises to keep.
+ *
+ * `storageKeys` is what the store currently holds; only keys that exist are
+ * returned. The cursor keys end in the account id, so they are found by suffix.
+ */
+export function accountDataKeys(
+  storageKeys: readonly string[],
+  kind: string,
+  accountId: string | null,
+): string[] {
+  if (kind === 'mock') return [];
+  const present = new Set(storageKeys);
+  const wanted = new Set<string>();
+  for (const scope of new Set([scopeFor(kind, accountId), scopeFor(kind, null)])) {
+    for (const base of [localSchema.key, HISTORY_IMPORT_KEY_PREFIX]) {
+      const key = scopedKey(base, scope);
+      wanted.add(key);
+      wanted.add(backupKey(key));
+    }
+  }
+  if (accountId) {
+    wanted.add(peersStorageKey(accountId));
+    for (const key of storageKeys) {
+      if (key.startsWith(CURSOR_KEY_PREFIX) && key.endsWith(`.${accountId}`)) wanted.add(key);
+    }
+  }
+  return [...wanted].filter((key) => present.has(key));
 }
 
 export function scopedKey(baseKey: string, scope: StorageScope): string {

@@ -182,7 +182,7 @@ export function SignOutDialog({ onClose }: SignOutDialogProps) {
         if (!open) close();
       }}
       title="Sign out of Signal on this computer?"
-      description="This removes this computer's Signal keys, contacts and message history. Your Snowdrop settings, themes and spaces stay."
+      description="This removes this computer's Signal keys, contacts and message history, and this account's contact notes, pins and drafts. Your Snowdrop settings, themes and spaces stay."
       footer={
         <>
           <Button variant="ghost" data-autofocus disabled={busy} onClick={close}>

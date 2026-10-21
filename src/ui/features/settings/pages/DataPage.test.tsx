@@ -8,9 +8,13 @@
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Snowdrop } from '@/app/createSnowdrop';
+import type { StorageAdmin } from '@/core/backend';
 import { createLogger, type LogAdmin } from '@/core/lib';
 import { bootSnowdrop, renderWithSnowdrop } from '@/test/renderWithSnowdrop';
+import { downloadBytes, downloadText } from '../download';
 import { DataPage } from './DataPage';
+
+vi.mock('../download', () => ({ downloadBytes: vi.fn(), downloadText: vi.fn() }));
 
 let snowdrop: Snowdrop | null = null;
 afterEach(async () => {
@@ -175,5 +179,147 @@ describe('Settings → Data & storage → Message history import', () => {
     fireEvent.click(button);
 
     expect(retry).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('Settings → Data & storage → Export history', () => {
+  const openDialog = () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Export…' }));
+  };
+  const type = (label: string, value: string) => {
+    fireEvent.change(screen.getByLabelText(label), { target: { value } });
+  };
+  const toasts = () => snowdrop?.stores.ui.getState().toasts.map((t) => t.message) ?? [];
+
+  afterEach(() => {
+    vi.mocked(downloadText).mockClear();
+    vi.mocked(downloadBytes).mockClear();
+  });
+
+  it('warns that the file holds the messages unencrypted before writing anything', async () => {
+    snowdrop = await bootSnowdrop();
+    renderWithSnowdrop(snowdrop, <DataPage />);
+    openDialog();
+
+    expect(screen.getByRole('dialog', { name: 'Export message history' })).toBeTruthy();
+    expect(screen.getByText(/anyone who has it can read them/i)).toBeTruthy();
+    expect(screen.getByRole('note').textContent).toMatch(/not a restore point/i);
+    expect(downloadText).not.toHaveBeenCalled();
+  });
+
+  it('does not call the export a backup', async () => {
+    snowdrop = await bootSnowdrop();
+    renderWithSnowdrop(snowdrop, <DataPage />);
+    expect(document.body.textContent).not.toMatch(/your backup/i);
+  });
+
+  it('offers only a plain export where there is no vault, behind the warning', async () => {
+    snowdrop = await bootSnowdrop();
+    renderWithSnowdrop(snowdrop, <DataPage />);
+    openDialog();
+
+    expect(screen.queryByRole('radio', { name: 'Encrypted' })).toBeNull();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Export unencrypted' }));
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    await waitFor(() => {
+      expect(downloadText).toHaveBeenCalledTimes(1);
+    });
+    expect(vi.mocked(downloadText).mock.calls[0]?.[0]).toMatch(/^snowdrop-history-.*\.json$/);
+    expect(downloadBytes).not.toHaveBeenCalled();
+  });
+
+  describe('on desktop', () => {
+    const fakeStorageAdmin = (encryptExport: StorageAdmin['encryptExport']) =>
+      ({ encryptExport }) as unknown as StorageAdmin;
+
+    it('defaults to an encrypted export and checks the passphrase first', async () => {
+      snowdrop = await bootSnowdrop();
+      const encryptExport = vi.fn(() => Promise.resolve(btoa('ciphertext-bytes')));
+      snowdrop.storageAdmin = fakeStorageAdmin(encryptExport);
+      renderWithSnowdrop(snowdrop, <DataPage />);
+      openDialog();
+
+      expect(screen.getByRole('radio', { name: 'Encrypted' }).getAttribute('aria-checked')).toBe(
+        'true',
+      );
+      const exportButton = screen.getByRole('button', { name: 'Export encrypted' });
+
+      // Too short, then mismatched: nothing is encrypted or written.
+      type('Passphrase', 'short');
+      type('Confirm passphrase', 'short');
+      fireEvent.click(exportButton);
+      expect(screen.getByText('Use at least 8 characters.')).toBeTruthy();
+      type('Passphrase', 'long enough phrase');
+      type('Confirm passphrase', 'a different phrase');
+      fireEvent.click(exportButton);
+      expect(screen.getByText("That doesn't match.")).toBeTruthy();
+      expect(encryptExport).not.toHaveBeenCalled();
+      expect(downloadBytes).not.toHaveBeenCalled();
+      expect(downloadText).not.toHaveBeenCalled();
+
+      type('Confirm passphrase', 'long enough phrase');
+      await act(async () => {
+        fireEvent.click(exportButton);
+        await new Promise((r) => setTimeout(r, 0));
+      });
+      await waitFor(() => {
+        expect(downloadBytes).toHaveBeenCalledTimes(1);
+      });
+      // The Rust command gets the passphrase and the JSON; the file is its output.
+      const [passphrase, json] = encryptExport.mock.calls[0] as unknown as [string, string];
+      expect(passphrase).toBe('long enough phrase');
+      expect((JSON.parse(json) as { format: string }).format).toBe('snowdrop-history');
+      const [fileName, bytes] = vi.mocked(downloadBytes).mock.calls[0] as [string, Uint8Array];
+      expect(fileName).toMatch(/^snowdrop-history-.*\.snowdrop-export$/);
+      expect(new TextDecoder().decode(bytes)).toBe('ciphertext-bytes');
+      expect(downloadText).not.toHaveBeenCalled();
+    });
+
+    it('still allows an unencrypted export, and never calls the encryptor for it', async () => {
+      snowdrop = await bootSnowdrop();
+      const encryptExport = vi.fn(() => Promise.resolve(''));
+      snowdrop.storageAdmin = fakeStorageAdmin(encryptExport);
+      renderWithSnowdrop(snowdrop, <DataPage />);
+      openDialog();
+
+      fireEvent.click(screen.getByRole('radio', { name: 'Unencrypted' }));
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Export unencrypted' }));
+        await new Promise((r) => setTimeout(r, 0));
+      });
+      await waitFor(() => {
+        expect(downloadText).toHaveBeenCalledTimes(1);
+      });
+      expect(encryptExport).not.toHaveBeenCalled();
+    });
+
+    it('writes no file and says so when encryption fails', async () => {
+      snowdrop = await bootSnowdrop();
+      snowdrop.storageAdmin = fakeStorageAdmin(() => Promise.reject(new Error('no crypto')));
+      renderWithSnowdrop(snowdrop, <DataPage />);
+      openDialog();
+      type('Passphrase', 'long enough phrase');
+      type('Confirm passphrase', 'long enough phrase');
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Export encrypted' }));
+        await new Promise((r) => setTimeout(r, 0));
+      });
+      await waitFor(() => {
+        expect(toasts().some((m) => m.startsWith('Export failed'))).toBe(true);
+      });
+      expect(downloadBytes).not.toHaveBeenCalled();
+      expect(downloadText).not.toHaveBeenCalled();
+    });
+  });
+
+  it('cancelling writes nothing', async () => {
+    snowdrop = await bootSnowdrop();
+    renderWithSnowdrop(snowdrop, <DataPage />);
+    openDialog();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog', { name: 'Export message history' })).toBeNull();
+    expect(downloadText).not.toHaveBeenCalled();
   });
 });

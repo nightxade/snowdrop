@@ -99,6 +99,7 @@ import {
   targetParams,
 } from './params';
 import { DirectPeers } from './peers';
+import { cursorStorageKey } from './storageKeys';
 import { HttpTransport } from './httpTransport';
 import { JsonRpcClient, type FetchLike, type RpcParams } from './rpc';
 import type {
@@ -607,7 +608,7 @@ export class SignalCliBackend implements ChatBackend {
 
   /** Resume cursors are per transport kind (an SSE id means nothing to the desktop). */
   private cursorKey(): string {
-    return `snowdrop.signal-cli.cursor.${this.transport.resumeScope}.${this.selfId}`;
+    return cursorStorageKey(this.transport.resumeScope, this.selfId);
   }
 
   private openStream(): void {

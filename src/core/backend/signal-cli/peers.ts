@@ -17,6 +17,7 @@
  * falling back to the ACI.
  */
 import type { KeyValueStorage } from '@/core/persistence';
+import { peersStorageKey } from './storageKeys';
 import { isRecord } from './validate';
 
 interface StoredShape {
@@ -34,7 +35,7 @@ export class DirectPeers {
     private readonly storage: KeyValueStorage | undefined,
     account: string,
   ) {
-    this.key = `snowdrop.signal-cli.peers.${account}`;
+    this.key = peersStorageKey(account);
     this.load();
   }
 

@@ -167,6 +167,19 @@ describe('SyncService: initial sync', () => {
     expect(await repository.get(messages[2]!.id)).not.toHaveProperty('expiresAt');
   });
 
+  it('does not store history seeded for a request deleted while it was being fetched', async () => {
+    const { backend, stores, repository, sync, conv } = await setup({ start: false });
+    const id = conv('crux');
+    const fetchHistory = backend.fetchHistory.bind(backend);
+    vi.spyOn(backend, 'fetchHistory').mockImplementation(async (target, query) => {
+      const page = await fetchHistory(target, query);
+      if (target === id) stores.local.getState().markDeleted(id, NOW);
+      return page;
+    });
+    await sync.start();
+    expect(await repository.count(id)).toBe(0);
+  });
+
   it('fills stores and repository', async () => {
     const { stores, backend, repository, conv } = await setup();
     expect(stores.session.getState()).toMatchObject({
@@ -1442,6 +1455,22 @@ describe('HistoryService', () => {
       hasMoreBefore: false,
       loading: false,
     });
+  });
+
+  it('never backfills a deleted message request back into the repository', async () => {
+    const { stores, history, backend, repository, conv } = await setup();
+    const id = conv('crux');
+    await history.open(id);
+    const before = await repository.count(id);
+    const fetchHistory = vi.spyOn(backend, 'fetchHistory');
+
+    stores.local.getState().markDeleted(id, NOW);
+    await repository.deleteConversation(id);
+    await history.loadOlder(id);
+
+    expect(fetchHistory).not.toHaveBeenCalled();
+    expect(before).toBeGreaterThan(0);
+    expect(await repository.count(id)).toBe(0);
   });
 
   it('jumps to an old message, pages forward, and re-anchors to the present', async () => {

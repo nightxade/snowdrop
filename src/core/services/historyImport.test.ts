@@ -304,4 +304,66 @@ describe('HistoryImportService', () => {
     expect(h.stores.session.getState().historyImport.status).toBe('done');
     expect(await h.repository.count(CONV_A)).toBe(2);
   });
+
+  describe('a message request the user deleted', () => {
+    it('is never imported from the archive, even while still listed', async () => {
+      const chats = new Map([
+        [CONV_A, archive(CONV_A, 'alice', 5)],
+        [CONV_B, archive(CONV_B, 'bob', 3)],
+      ]);
+      const h = harness({ chats });
+      seedConversations(h.stores, [CONV_A, CONV_B]);
+      h.stores.local.getState().markDeleted(CONV_A, NOW);
+
+      await service(h).start();
+
+      expect(await h.repository.count(CONV_A)).toBe(0);
+      expect(await h.repository.count(CONV_B)).toBe(3);
+      expect(h.backend.calls.every((c) => c.conversationId !== CONV_A)).toBe(true);
+      expect(h.stores.session.getState().historyImport.status).toBe('done');
+    });
+
+    it('is not re-added when it is deleted while a page is being fetched', async () => {
+      const chats = new Map([[CONV_A, archive(CONV_A, 'alice', 5)]]);
+      const h = harness({ chats });
+      seedConversations(h.stores, [CONV_A]);
+      const fetch = h.backend.fetchHistory.bind(h.backend);
+      h.backend.fetchHistory = async (id, query) => {
+        const page = await fetch(id, query);
+        h.stores.local.getState().markDeleted(CONV_A, NOW);
+        return page;
+      };
+
+      await service(h).start();
+
+      expect(await h.repository.count(CONV_A)).toBe(0);
+      expect(h.backend.calls).toHaveLength(1);
+      expect(h.stores.session.getState().historyImport.status).toBe('done');
+    });
+
+    it('stays out of a later pass after the sender writes again and it is listed', async () => {
+      const chats = new Map([
+        [CONV_A, archive(CONV_A, 'alice', 5)],
+        [CONV_B, archive(CONV_B, 'bob', 3)],
+      ]);
+      const h = harness({ chats });
+      // A was deleted and is no longer listed; B fails, so the run is resumed.
+      seedConversations(h.stores, [CONV_B]);
+      h.stores.local.getState().markDeleted(CONV_A, NOW);
+      h.backend.failConversation = CONV_B;
+      await service(h).start();
+      expect(h.stores.session.getState().historyImport.status).toBe('failed');
+
+      // The sender writes again: the request is listed once more.
+      h.stores.local.getState().clearDeleted(CONV_A);
+      seedConversations(h.stores, [CONV_A]);
+      h.backend.failConversation = null;
+      h.backend.calls = [];
+      await service(h).start();
+
+      expect(h.backend.calls.every((c) => c.conversationId !== CONV_A)).toBe(true);
+      expect(await h.repository.count(CONV_A)).toBe(0);
+      expect(await h.repository.count(CONV_B)).toBe(3);
+    });
+  });
 });

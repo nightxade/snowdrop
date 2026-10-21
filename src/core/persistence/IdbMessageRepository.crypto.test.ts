@@ -38,7 +38,7 @@ describe('IdbMessageRepository encryption', () => {
     await repo.setReadCursor(conversationId, 1);
 
     // Inspect the raw rows, bypassing the repository entirely.
-    const raw = await openDB(name, 3);
+    const raw = await openDB(name, 4);
     const messageRows = await raw.getAll('messages');
     const cursorRows = await raw.getAll('readCursors');
     raw.close();
@@ -133,7 +133,7 @@ describe('IdbMessageRepository encryption', () => {
     // Tamper with the middle row's ciphertext directly, bypassing the
     // repository — the AEAD tag no longer matches, so decrypting it throws.
     const badKey = await cipher.blindId(bad.id);
-    const raw = await openDB(name, 3);
+    const raw = await openDB(name, 4);
     const row = (await raw.get('messages', badKey)) as Record<string, unknown>;
     expect(row).toBeDefined();
     const payload = new Uint8Array(row.payload as Uint8Array);
@@ -170,7 +170,7 @@ describe('IdbMessageRepository encryption', () => {
       attachments: [{}],
     };
     const payload = await cipher.encrypt(utf8Encode(JSON.stringify({ input: legacyInput })), nonce);
-    const raw = await openDB(name, 3);
+    const raw = await openDB(name, 4);
     await raw.put('outbox', { nonce, createdAt: 1, payload });
     raw.close();
 
@@ -180,5 +180,100 @@ describe('IdbMessageRepository encryption', () => {
       attachmentsLost: true,
       input: { body: 'hi, with a photo', attachments: [] },
     });
+  });
+
+  it('stores no attachment file name or type in plaintext, and still restores them', async () => {
+    const name = nextDbName();
+    const cipher = await webCryptoCipher(randomKey());
+    repo = await IdbMessageRepository.open(name, cipher);
+    await repo.putOutbox({
+      nonce: 'n1',
+      createdAt: 1,
+      input: {
+        conversationId: conversationIdFor('c'),
+        body: 'hi',
+        ranges: [],
+        attachments: [
+          {
+            fileName: 'tax-return-2025.pdf',
+            contentType: 'application/pdf',
+            data: new File([new Uint8Array([1, 2, 3])], 'tax-return-2025.pdf'),
+          },
+        ],
+      },
+    });
+
+    const raw = await openDB(name, 4);
+    const rows = (await raw.getAll('outboxAttachments')) as Record<string, unknown>[];
+    raw.close();
+    expect(rows).toHaveLength(1);
+    expect(Object.keys(rows[0] as object).sort()).toEqual(['id', 'payload']);
+
+    const [entry] = await repo.listOutbox();
+    const [attachment] = entry?.input.attachments ?? [];
+    expect(attachment).toMatchObject({
+      fileName: 'tax-return-2025.pdf',
+      contentType: 'application/pdf',
+    });
+    expect(new Uint8Array(await (attachment?.data.arrayBuffer() ?? new ArrayBuffer(0)))).toEqual(
+      new Uint8Array([1, 2, 3]),
+    );
+  });
+
+  it('upgrades v3 outbox attachment rows by removing the plaintext name and type, keeping the entry', async () => {
+    const name = nextDbName();
+    const cipher = await webCryptoCipher(randomKey());
+
+    // A v3 database as the previous release wrote it.
+    const v3 = await openDB(name, 3, {
+      upgrade(database) {
+        const messages = database.createObjectStore('messages', { keyPath: 'id' });
+        messages.createIndex('byConversationSeq', ['conversationKey', 'seq']);
+        messages.createIndex('byMention', 'mentionIds', { multiEntry: true });
+        messages.createIndex('byExpiresAt', 'expiresAt');
+        database.createObjectStore('readCursors', { keyPath: 'id' });
+        database.createObjectStore('meta', { keyPath: 'key' });
+        database.createObjectStore('outbox', { keyPath: 'nonce' });
+        database.createObjectStore('outboxAttachments', { keyPath: 'id' });
+      },
+    });
+    const nonce = 'old-nonce';
+    const attId = `${nonce}:0`;
+    const input = {
+      conversationId: conversationIdFor('c'),
+      body: 'with a file',
+      ranges: [],
+      attachments: [{ fileName: 'secret-plans.txt', contentType: 'text/plain' }],
+    };
+    await v3.put('outbox', {
+      nonce,
+      createdAt: 5,
+      attachmentCount: 1,
+      payload: await cipher.encrypt(utf8Encode(JSON.stringify({ input })), nonce),
+    });
+    await v3.put('outboxAttachments', {
+      id: attId,
+      fileName: 'secret-plans.txt',
+      contentType: 'text/plain',
+      payload: await cipher.encrypt(new Uint8Array([9, 8, 7]), attId),
+    });
+    v3.close();
+
+    repo = await IdbMessageRepository.open(name, cipher);
+
+    const raw = await openDB(name, 4);
+    const rows = (await raw.getAll('outboxAttachments')) as Record<string, unknown>[];
+    raw.close();
+    expect(rows).toHaveLength(1);
+    expect(JSON.stringify(rows[0])).not.toContain('secret-plans');
+    expect(Object.keys(rows[0] as object).sort()).toEqual(['id', 'payload']);
+
+    const [entry] = await repo.listOutbox();
+    expect(entry?.attachmentsLost).toBeUndefined();
+    const [attachment] = entry?.input.attachments ?? [];
+    expect(attachment).toMatchObject({ fileName: 'secret-plans.txt', contentType: 'text/plain' });
+    expect(new Uint8Array(await (attachment?.data.arrayBuffer() ?? new ArrayBuffer(0)))).toEqual(
+      new Uint8Array([9, 8, 7]),
+    );
   });
 });

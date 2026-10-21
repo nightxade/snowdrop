@@ -213,8 +213,9 @@ docs/                 documentation
   phone's Signal app (Settings → Linked devices). That invalidates the
   stolen copy; it's the same remedy "Erase all local data" reminds you of.
 - **Signing out** (user menu, or Settings → Connection) removes this
-  computer's Signal keys, contacts and message history but keeps your
-  Snowdrop settings, themes and spaces. signal-cli can't unlink a linked
+  computer's Signal keys, contacts and message history, and that account's
+  contact notes, pins, mutes, drafts and message-request decisions, but keeps
+  your Snowdrop settings, themes and spaces. signal-cli can't unlink a linked
   device from Signal's servers, so also remove it on your phone (Signal →
   Settings → Linked devices). "Erase all local data" goes further and
   deletes everything, including the encryption key.

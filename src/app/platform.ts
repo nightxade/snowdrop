@@ -45,6 +45,8 @@ export function desktopStorageAdmin(): StorageAdmin {
     setPassphrase: async (passphrase) => (await admin).setPassphrase(passphrase),
     enrollKeyring: async () => (await admin).enrollKeyring(),
     webcacheKey: async () => (await admin).webcacheKey(),
+    encryptExport: async (passphrase, plaintext) =>
+      (await admin).encryptExport(passphrase, plaintext),
     eraseAll: async () => (await admin).eraseAll(),
     signOut: async () => (await admin).signOut(),
     restart: async () => (await admin).restart(),

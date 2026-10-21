@@ -67,7 +67,10 @@ export class SignOutRestartFailed extends Error {
 }
 
 type DesktopSignOutApp = Pick<AppServices, 'stores' | 'storageAdmin'> & {
-  admin: Pick<AppAdmin, 'clearHistory' | 'disconnect' | 'persist' | 'setPendingHistoryClear'>;
+  admin: Pick<
+    AppAdmin,
+    'clearAccountData' | 'clearHistory' | 'disconnect' | 'persist' | 'setPendingHistoryClear'
+  >;
 };
 
 /**
@@ -82,7 +85,9 @@ type DesktopSignOutApp = Pick<AppServices, 'stores' | 'storageAdmin'> & {
  *    survive the restart `storageAdmin.signOut()` requires;
  * 3. `storageAdmin.signOut()` removes this computer's signal-cli vault,
  *    keeping `keys.json` and the keyring entry so storage stays set up;
- * 4. only now is the message cache cleared — after the steps that can
+ * 4. only now is the signed-out account's local data cleared (contact
+ *    notes, pins, drafts, message-request decisions, peers list, cursors:
+ *    `accountDataKeys`), and then the message cache — after the steps that can
  *    actually fail have succeeded, so a failure here never throws away data
  *    for nothing. If it fails anyway, a flag is persisted instead: the next
  *    boot unlocks with the same key, so the old cache would otherwise still
@@ -101,6 +106,12 @@ export async function signOutDesktop(app: DesktopSignOutApp): Promise<void> {
   try {
     // Stop syncing first so nothing from the old account lands after the clear.
     await app.admin.disconnect();
+    try {
+      await app.admin.clearAccountData();
+    } catch (error) {
+      // Storage-only and not expected to fail; the message cache must go regardless.
+      log.error('clearing the account\u2019s local data failed during sign-out', error);
+    }
     await app.admin.clearHistory();
   } catch (error) {
     log.error('clearHistory failed during sign-out; the next boot will retry', error);

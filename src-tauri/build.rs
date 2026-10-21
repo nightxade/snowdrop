@@ -29,6 +29,7 @@ fn main() {
             "storage_set_passphrase",
             "storage_enroll_keyring",
             "storage_webcache_key",
+            "storage_export_encrypt",
             "storage_erase_all",
             "storage_sign_out",
             "app_restart",
