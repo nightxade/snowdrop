@@ -49,4 +49,10 @@ export type AdapterEvent =
       sentAt: number;
     }
   /** Contacts, groups, or the block list were synced from the primary device: re-list both. */
-  | { kind: 'contactsChanged' };
+  | { kind: 'contactsChanged' }
+  /**
+   * A sync message signal-cli's JSON says nothing about (a message-request
+   * answer given on the phone, a storage update, …). The directory it may
+   * have changed (who is accepted, blocked or hidden) is re-read soon.
+   */
+  | { kind: 'directoryHint' };

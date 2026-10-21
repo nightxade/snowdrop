@@ -55,6 +55,7 @@ import type {
   HistoryReadState,
   LinkFlow,
   MessageRef,
+  MessageRequestResponse,
   PhonePrivacyPatch,
   PhonePrivacySettings,
   PinInput,
@@ -80,7 +81,7 @@ import {
   supportsStickerPackInstall as detectStickerPackInstallSupport,
 } from './capabilities';
 import { Directory } from './directory';
-import { describeError, SignalCliError } from './errors';
+import { describeError, isSignalCliError, SignalCliError } from './errors';
 import { GroupChangeTracker } from './groupChanges';
 import { HistoryArchive } from './history/archive';
 import { timestamp } from './history/wire';
@@ -830,6 +831,9 @@ export class SignalCliBackend implements ChatBackend {
         // refreshes both, bypassing the cache TTL.
         await Promise.all([this.directory.loadContacts(true), this.directory.loadGroups(true)]);
         return;
+      case 'directoryHint':
+        this.directory.scheduleContactsRefresh();
+        return;
       case 'messageEdited':
         this.emitter.emit('messageEdited', event.payload);
         return;
@@ -1077,7 +1081,11 @@ export class SignalCliBackend implements ChatBackend {
             historyOnlyExcluded++;
             return null;
           }
-          return { ...conversation, lastActivityAt: at, historyHasMessages: true };
+          return {
+            ...conversation,
+            lastActivityAt: at,
+            historyHasMessages: true,
+          };
         }),
       );
       for (const conversation of checked) {
@@ -1137,6 +1145,13 @@ export class SignalCliBackend implements ChatBackend {
       if (this.history === pending) this.history = null;
     });
     return pending;
+  }
+
+  async historyHasOutgoing(conversationId: ConversationId): Promise<boolean> {
+    this.assertAccount();
+    const archive = await this.loadHistory();
+    const chatId = archive?.directory.chatId(conversationId);
+    return archive !== null && chatId !== undefined ? archive.chatHasOutgoing(chatId) : false;
   }
 
   async fetchHistory(conversationId: ConversationId, query: HistoryQuery): Promise<HistoryPage> {
@@ -1658,6 +1673,75 @@ export class SignalCliBackend implements ChatBackend {
     if (lines.length > 0) {
       this.emitOwnSystem(conversationId, this.resultTimestamp(result), lines.join(' '), 'group');
     }
+  }
+
+  /**
+   * `sendMessageRequestResponse`: signal-cli shares (accept) or withdraws
+   * (delete) profile sharing with a contact, and tells the user's other
+   * devices. For a group it only sends that sync message, so deleting one
+   * also quits it (`quitGroup`, local copy included) — a failed quit never
+   * blocks the delete: the app hides the chat regardless.
+   */
+  async respondToMessageRequest(
+    conversationId: ConversationId,
+    response: MessageRequestResponse,
+  ): Promise<void> {
+    this.assertAccount();
+    const parsed = parseConversationId(conversationId);
+    if (!parsed) throw new SignalCliError('user', `Not a conversation id: ${conversationId}`);
+    const target = targetParams(conversationId, this.identity.aliases);
+    if ('noteToSelf' in target) return;
+    try {
+      await this.rpc.call(
+        'sendMessageRequestResponse',
+        { ...target, type: response },
+        ignoreResult,
+      );
+    } catch (error) {
+      throw enrichSendError(error);
+    }
+    if (parsed.kind === 'group') {
+      if (response === 'delete') {
+        try {
+          await this.rpc.call('quitGroup', { groupId: parsed.target, delete: true }, ignoreResult);
+        } catch (error) {
+          log.warn('leaving a deleted group request failed', {
+            kind: isSignalCliError(error) ? error.kind : 'unknown',
+          });
+        }
+        this.directory.invalidateGroups();
+      }
+      return;
+    }
+    // The contact's `profileSharing` just changed. Re-read in the background:
+    // listing contacts can take a while, and the answer is already applied here.
+    void this.directory.loadContacts(true);
+  }
+
+  /** `block` / `unblock` (signal-cli syncs both to the phone). */
+  async setBlocked(conversationId: ConversationId, blocked: boolean): Promise<void> {
+    this.assertAccount();
+    const parsed = parseConversationId(conversationId);
+    if (!parsed) throw new SignalCliError('user', `Not a conversation id: ${conversationId}`);
+    if (parsed.kind === 'direct' && this.identity.aliases.has(parsed.target)) return;
+    try {
+      await this.rpc.call(
+        blocked ? 'block' : 'unblock',
+        parsed.kind === 'group' ? { groupId: [parsed.target] } : { recipient: [parsed.target] },
+        ignoreResult,
+      );
+    } catch (error) {
+      throw enrichSendError(error);
+    }
+    // Re-read in the background (see respondToMessageRequest): the caller
+    // already shows the answer.
+    void Promise.all([this.directory.loadContacts(true), this.directory.loadGroups(true)]).catch(
+      (error: unknown) => {
+        log.warn('re-reading the directory after a block failed', {
+          kind: isSignalCliError(error) ? error.kind : 'unknown',
+        });
+      },
+    );
   }
 
   /** The `timestamp` of a send-like result, else now (identity of a local system line). */

@@ -60,23 +60,21 @@ export class BackupDirectory {
         const canonical = this.resolve(address);
         const nickname = record(value.nickname);
         const profileName = name(value.profileGivenName, value.profileFamilyName);
+        const savedName =
+          name(nickname.given, nickname.family) ||
+          name(value.systemNickname) ||
+          name(value.systemGivenName, value.systemFamilyName);
         const contact: Contact = {
           id: canonical,
           color: colorForId(canonical),
-          name:
-            name(nickname.given, nickname.family) ||
-            name(value.systemNickname) ||
-            name(value.systemGivenName, value.systemFamilyName) ||
-            profileName ||
-            number ||
-            text(value.username) ||
-            'Unknown',
+          name: savedName || profileName || number || text(value.username) || 'Unknown',
           ...(number ? { number } : {}),
           ...(profileName ? { profileName } : {}),
           blocked: value.blocked === true,
           hidden: ['HIDDEN', 'HIDDEN_MESSAGE_REQUEST'].includes(text(value.visibility)),
           unregistered: isRecord(value.notRegistered),
           profileSharing: value.profileSharing === true,
+          ...(savedName ? { inContacts: true } : {}),
         };
         this.recipients.set(id, { id: canonical, contact });
       } else if (isRecord(recipient.group)) {
@@ -97,6 +95,7 @@ export class BackupDirectory {
           adminIds: members.filter((member) => member.admin).map((member) => member.id),
           expireTimerSec: 0,
           lastActivityAt: 0,
+          ...(recipient.group.blocked === true ? { blocked: true } : {}),
         };
         this.recipients.set(id, { id: group.id, group });
       }

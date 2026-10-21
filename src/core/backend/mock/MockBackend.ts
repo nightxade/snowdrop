@@ -37,6 +37,7 @@ import type {
   HistoryPage,
   HistoryQuery,
   MessageRef,
+  MessageRequestResponse,
   PinInput,
   ReactInput,
   SendResult,
@@ -86,6 +87,13 @@ export class MockBackend implements ChatBackend {
   private lastSentAt = 0;
   private failures: Error[] = [];
   readonly typingSent: { conversationId: ConversationId; typing: boolean }[] = [];
+  /** Every `markRead` call, for tests asserting what was (not) sent. */
+  readonly readReceiptsSent: { conversationId: ConversationId; messages: MessageRef[] }[] = [];
+  /** Every message-request answer, for the same reason. */
+  readonly requestResponses: {
+    conversationId: ConversationId;
+    response: MessageRequestResponse | 'block' | 'unblock';
+  }[] = [];
 
   constructor(options: MockBackendOptions = {}) {
     const seed = options.seed ?? 42;
@@ -385,11 +393,60 @@ export class MockBackend implements ChatBackend {
     messages: { authorId: string; sentAt: number }[],
   ): Promise<void> {
     await this.delay();
+    this.readReceiptsSent.push({ conversationId, messages: structuredClone(messages) });
     const latest = Math.max(
       ...messages.map((m) => m.sentAt),
       this.world.readUpTo.get(conversationId) ?? 0,
     );
     this.world.readUpTo.set(conversationId, latest);
+  }
+
+  /**
+   * Accepting shares the user's profile (the contact's `profileSharing`, as
+   * signal-cli reports it); deleting drops the conversation, group or not.
+   */
+  async respondToMessageRequest(
+    conversationId: ConversationId,
+    response: MessageRequestResponse,
+  ): Promise<void> {
+    await this.delay();
+    this.assertOnline();
+    const conv = this.requireConversation(conversationId);
+    this.requestResponses.push({ conversationId, response });
+    if (response === 'delete') {
+      this.world.conversations.delete(conversationId);
+      this.world.histories.delete(conversationId);
+      return;
+    }
+    const peer =
+      conv.kind === 'direct' ? conv.memberIds.find((id) => id !== this.world.self.id) : undefined;
+    this.updateContact(peer, { profileSharing: true });
+  }
+
+  async setBlocked(conversationId: ConversationId, blocked: boolean): Promise<void> {
+    await this.delay();
+    this.assertOnline();
+    const conv = this.requireConversation(conversationId);
+    this.requestResponses.push({ conversationId, response: blocked ? 'block' : 'unblock' });
+    if (conv.kind === 'group') {
+      const next: Conversation = { ...conv, blocked };
+      if (!blocked) delete next.blocked;
+      this.world.conversations.set(conversationId, next);
+      this.emitter.emit('conversationUpdated', structuredClone(next));
+      return;
+    }
+    const peer = conv.memberIds.find((id) => id !== this.world.self.id);
+    // Unblocking is also accepting, like Signal's own clients.
+    this.updateContact(peer, { blocked, ...(blocked ? {} : { profileSharing: true }) });
+  }
+
+  private updateContact(id: string | undefined, patch: Partial<Contact>): void {
+    const contact = id === undefined ? undefined : this.world.contacts.get(id);
+    if (!contact) return;
+    const next: Contact = { ...contact, ...patch };
+    if (next.blocked === false) delete next.blocked;
+    this.world.contacts.set(contact.id, next);
+    this.emitter.emit('contactUpdated', structuredClone(next));
   }
 
   supportsAttachmentBackfill(): boolean {

@@ -2,7 +2,7 @@ import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { MessageRef } from '@/core/backend';
 import type { Attachment, ConversationId, LinkPreview } from '@/core/domain';
-import { createLocalStore, createSessionStore } from '@/core/stores';
+import { createStores } from '@/core/stores';
 import { SnowdropContextProvider, type AppServices } from '@/ui/hooks';
 import { LinkPreviewCard } from './LinkPreviewCard';
 
@@ -19,7 +19,7 @@ function fakeApp(
 ): AppServices {
   return {
     backend: { kind: 'signal-cli', resolveAttachmentUrl },
-    stores: { session: createSessionStore(), local: createLocalStore() },
+    stores: createStores(),
   } as unknown as AppServices;
 }
 

@@ -28,6 +28,14 @@ export interface Contact {
    * as a direct conversation (see SignalCliBackend.listConversations).
    */
   profileSharing?: boolean;
+  /**
+   * The contact is saved on the user's phone (it has a name the user, or their
+   * address book, gave it — not just the name the person chose for their own
+   * profile). With `profileSharing`, one of the two ways a first message from
+   * someone counts as coming from a known contact, not a message request (see
+   * core/domain/messageRequests).
+   */
+  inContacts?: boolean;
 }
 
 /** `true` = muted indefinitely; `{ until }` = epoch ms when the mute lapses. */
@@ -65,6 +73,12 @@ export interface Conversation {
    * never drops such a direct conversation as stale (see dropStaleDirects).
    */
   historyHasMessages?: boolean;
+  /**
+   * The user blocked this group (signal-cli: a group's `isBlocked`). A blocked
+   * direct conversation is `Contact.blocked` on its peer instead; both read
+   * through `isConversationBlocked`.
+   */
+  blocked?: boolean;
 }
 
 /** Device-local per-conversation state (never sent to Signal). */

@@ -19,11 +19,14 @@ import type { Unsubscribe } from '@/core/lib';
 export const OPTIONAL_METHODS = [
   'fetchHistory',
   'remapHistoryMessages',
+  'historyHasOutgoing',
   'readHistory',
   'getHistoryReadState',
   'adminDelete',
   'pinMessage',
   'updateConversation',
+  'respondToMessageRequest',
+  'setBlocked',
   'resolveAttachmentUrl',
   'readAttachmentBlob',
   'retainAttachmentUrl',
@@ -131,6 +134,9 @@ export function deferredBackend(
       call((b) =>
         b.remapHistoryMessages ? b.remapHistoryMessages(m) : missing('remapHistoryMessages'),
       );
+  if (caps.has('historyHasOutgoing'))
+    backend.historyHasOutgoing = (c) =>
+      call((b) => (b.historyHasOutgoing ? b.historyHasOutgoing(c) : missing('historyHasOutgoing')));
   if (caps.has('fetchHistory'))
     backend.fetchHistory = (c, q) =>
       call((b) => (b.fetchHistory ? b.fetchHistory(c, q) : missing('fetchHistory')));
@@ -230,6 +236,16 @@ export function deferredBackend(
       finish: (uri, name) =>
         call((b) => (b.link ? b.link.finish(uri, name) : missing('link.finish'))),
     };
+  if (caps.has('respondToMessageRequest'))
+    backend.respondToMessageRequest = (conversationId, response) =>
+      call((b) =>
+        b.respondToMessageRequest
+          ? b.respondToMessageRequest(conversationId, response)
+          : missing('respondToMessageRequest'),
+      );
+  if (caps.has('setBlocked'))
+    backend.setBlocked = (conversationId, blocked) =>
+      call((b) => (b.setBlocked ? b.setBlocked(conversationId, blocked) : missing('setBlocked')));
   if (caps.has('syncContactsAndGroups'))
     backend.syncContactsAndGroups = () =>
       call((b) =>

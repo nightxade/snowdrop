@@ -37,6 +37,7 @@ import {
   NotificationService,
   PendingOpsBuffer,
   ReceiptBuffer,
+  MessageRequestService,
   SendService,
   SyncService,
   type NotificationApi,
@@ -130,6 +131,8 @@ export interface Snowdrop {
   plugins: PluginRuntime;
   sync: SyncService;
   send: SendService;
+  /** Accept, delete, block and unblock a message request. */
+  requests: MessageRequestService;
   history: HistoryService;
   /** The one-time background import of the whole history archive (Settings → Data & storage). */
   historyImport: HistoryImportService;
@@ -426,6 +429,16 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
       syncLog.error(context, error);
     },
   });
+  const requests = new MessageRequestService({
+    backend,
+    repository,
+    stores,
+    sync,
+    clock,
+    onError: (error, context) => {
+      syncLog.error(context, error);
+    },
+  });
   const history = new HistoryService({
     backend,
     repository,
@@ -591,6 +604,7 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     plugins: runtime,
     sync,
     send,
+    requests,
     history,
     historyImport,
     backendReady: ready,

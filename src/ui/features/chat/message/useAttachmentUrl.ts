@@ -6,6 +6,7 @@ import { createLogger } from '@/core/lib';
 import { sessionSelectors } from '@/core/stores';
 import { useSnowdrop } from '@/ui/hooks';
 import { classifyAttachmentFailure, type AttachmentFailureKind } from '../lib/attachments';
+import { useMediaHold } from './useMediaHold';
 
 const log = createLogger('ui');
 
@@ -15,6 +16,12 @@ export const ATTACHMENT_BACKFILL_TIMEOUT_MS = 2 * 60_000;
 export type AttachmentUrlState =
   | { status: 'ready'; url: string }
   | { status: 'loading' }
+  /**
+   * Someone else's media in a message request (or blocked chat): nothing is
+   * fetched or decoded until the user accepts or asks for this one
+   * (`download`). See useMediaHold.
+   */
+  | { status: 'held' }
   /** A backfill request is outstanding (patches/signal-cli, "0016"): "Getting it from your phone…". */
   | { status: 'backfilling' }
   | { status: 'error'; kind: AttachmentFailureKind }
@@ -71,8 +78,9 @@ export function useAttachmentUrl(
    * custom emoji) whose attachment isn't part of a sibling list.
    */
   attachmentIds: readonly string[] = [attachment.id],
-): AttachmentUrlState & { retry: () => void; onMediaError: () => void } {
+): AttachmentUrlState & { retry: () => void; onMediaError: () => void; download: () => void } {
   const { backend, stores } = useSnowdrop();
+  const { held, release: download } = useMediaHold(conversationId, message.authorId, attachment.id);
   const key = `${conversationId}\u0000${attachment.id}`;
   const backfillKey = `${message.authorId}\u0000${message.sentAt}`;
   const [attempt, setAttempt] = useState(0);
@@ -117,17 +125,22 @@ export function useAttachmentUrl(
   // attachments always carry a `url`, so there's nothing to protect) simply
   // skip this.
   useEffect(() => {
-    if (direct !== undefined || !backend.retainAttachmentUrl || !backend.releaseAttachmentUrl)
+    if (
+      held ||
+      direct !== undefined ||
+      !backend.retainAttachmentUrl ||
+      !backend.releaseAttachmentUrl
+    )
       return;
     backend.retainAttachmentUrl(attachment);
     return () => {
       backend.releaseAttachmentUrl?.(attachment);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, direct, backend]);
+  }, [key, direct, backend, held]);
 
   useEffect(() => {
-    if (direct !== undefined || !backend.resolveAttachmentUrl) return;
+    if (held || direct !== undefined || !backend.resolveAttachmentUrl) return;
     let cancelled = false;
     // Every retry (attempt > 0, whether clicked or the one automatic retry
     // after a media error) bypasses the resolver's cache: handing back a URL
@@ -167,7 +180,7 @@ export function useAttachmentUrl(
     };
     // The attachment/message objects may be re-created by unrelated updates; their ids are the identity.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, backfillKey, attempt, direct, backend]);
+  }, [key, backfillKey, attempt, direct, backend, held]);
 
   // The ~2 minute ceiling on an outstanding backfill request: no answer by
   // then reads the same as an explicit `failed` response.
@@ -220,7 +233,8 @@ export function useAttachmentUrl(
   }, [direct, canResolve, autoRetried, key, attempt, retry]);
 
   let state: AttachmentUrlState;
-  if (mediaError?.key === key && mediaError.attempt === attempt) {
+  if (held) state = { status: 'held' };
+  else if (mediaError?.key === key && mediaError.attempt === attempt) {
     state = { status: 'error', kind: 'media-decode' };
   } else if (direct !== undefined) state = { status: 'ready', url: direct };
   else if (!canResolve) state = { status: 'unavailable' };
@@ -233,5 +247,5 @@ export function useAttachmentUrl(
     state = { status: 'error', kind: 'backfill-timeout' };
   } else if (result?.key === key && result.attempt === attempt) state = result.state;
   else state = { status: 'loading' };
-  return { ...state, retry, onMediaError };
+  return { ...state, retry, onMediaError, download };
 }

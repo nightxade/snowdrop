@@ -49,6 +49,10 @@ export const STYLE_HOOKS = [
   { hook: 'jump-to-present', what: 'Jump-to-present pill' },
   { hook: 'composer', what: 'Message composer' },
   { hook: 'composer-input', what: 'The composer’s textarea' },
+  {
+    hook: 'message-request',
+    what: 'The bar that stands in for the composer on a message request or blocked chat',
+  },
   { hook: 'attachment-tray', what: 'Attachments waiting to be sent' },
   { hook: 'reply-bar', what: '“Replying to …” bar' },
   { hook: 'composer-link-preview', what: 'The composer’s own link-preview card' },

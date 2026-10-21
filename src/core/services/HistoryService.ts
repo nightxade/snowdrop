@@ -25,7 +25,7 @@ import {
   type MessageId,
 } from '@/core/domain';
 import type { MessageRepository } from '@/core/persistence';
-import type { Stores } from '@/core/stores';
+import { acceptForOutgoing, type Stores } from '@/core/stores';
 import { consoleReporter, type ErrorReporter } from './types';
 
 export interface HistoryServiceDeps {
@@ -327,6 +327,7 @@ export class HistoryService {
       backfill: true,
       merge: mergeDuplicate,
     });
+    acceptForOutgoing(this.deps.stores, stored, Date.now());
     return { messages: [...stored, ...local], hasMoreBefore: remote.hasMoreBefore };
   }
 

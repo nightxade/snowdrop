@@ -17,6 +17,13 @@
   background: var(--snowdrop-bg-hover);
 }
 
+/* A message request's card: shown, but nothing to follow yet. */
+.card[data-inert],
+.card[data-inert]:hover {
+  background: var(--snowdrop-bg-elevated);
+  cursor: default;
+}
+
 .card[data-layout='wide'] {
   flex-direction: column;
 }

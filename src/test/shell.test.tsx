@@ -348,6 +348,11 @@ describe('conversation navigation keeps focus', () => {
   it('with "Focus the message box…" on, Alt+↓ from the composer lands in the new composer', async () => {
     const snowdrop = await bootDemo();
     snowdrop.stores.settings.getState().update('behaviour', { focusComposerOnOpen: true });
+    // The demo's message requests have no composer to land in; this is about ordinary chats.
+    act(() => {
+      for (const id of Object.keys(snowdrop.stores.conversations.getState().byId))
+        snowdrop.stores.local.getState().markAccepted(id as ConversationId, 0);
+    });
     const first = sidebar().querySelector<HTMLElement>('[data-conversation-id]')!;
     act(() => {
       fireEvent.click(first);

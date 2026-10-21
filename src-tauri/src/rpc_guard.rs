@@ -242,6 +242,27 @@ mod tests {
         }
     }
 
+    /// The message-request calls (accept/delete, block/unblock, quit a group)
+    /// carry only an address or a group id, so they pass untouched; the
+    /// file-reference rules still apply to them like to every method.
+    #[test]
+    fn message_request_calls_pass_the_guard_with_their_real_params() {
+        assert!(check_request(
+            "sendMessageRequestResponse",
+            json!({ "recipient": ["+15550001"], "type": "accept" })
+        )
+        .is_ok());
+        assert!(check_request(
+            "sendMessageRequestResponse",
+            json!({ "groupId": "Zm9v", "type": "delete" })
+        )
+        .is_ok());
+        assert!(check_request("block", json!({ "recipient": ["+15550001"] })).is_ok());
+        assert!(check_request("unblock", json!({ "groupId": ["Zm9v"] })).is_ok());
+        assert!(check_request("quitGroup", json!({ "groupId": "Zm9v", "delete": true })).is_ok());
+        assert!(check_request("block", json!({ "recipient": ["+15550001"], "attachment": "/etc/passwd" })).is_err());
+    }
+
     #[test]
     fn the_configuration_allow_list_applies_to_that_method_only() {
         assert!(check_request("getConfiguration", json!({})).is_ok());

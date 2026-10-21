@@ -3,7 +3,7 @@
  * and keyboard shortcuts, so every entry point behaves the same.
  */
 import { bodyToPlainText, isPendingMessageId, type Message } from '@/core/domain';
-import { UNKNOWN_CONTACT_NAME } from '@/core/stores';
+import { selectMessageRequestState, UNKNOWN_CONTACT_NAME } from '@/core/stores';
 import type { AppServices } from '@/ui/hooks';
 import { copyText } from '@/ui/features/conversation';
 import type { ChatController } from '../ChatController';
@@ -109,13 +109,16 @@ export function permissionsFor(app: AppServices, m: Message): MessagePermissions
   const admin = selfId !== null && (conversation?.adminIds.includes(selfId) ?? false);
   const normal = m.kind === 'normal' && !m.deleted;
   const caps = app.send.capabilities;
+  // Reacting, replying and pinning all send something to the other side: not
+  // before the user has accepted them (a message request is read-only).
+  const accepted = selectMessageRequestState(app.stores, m.conversationId) === 'accepted';
   return {
     own,
     failed,
     pending,
     canEdit: own && normal,
-    canReact: normal && !failed,
+    canReact: normal && !failed && accepted,
     canAdminDelete: normal && !own && admin && conversation?.kind === 'group' && caps.adminDelete,
-    canPin: normal && !failed && caps.pin,
+    canPin: normal && !failed && accepted && caps.pin,
   };
 }

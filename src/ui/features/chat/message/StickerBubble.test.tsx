@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Attachment, ConversationId, StickerContent } from '@/core/domain';
-import { createLocalStore, createSessionStore } from '@/core/stores';
+import { createStores } from '@/core/stores';
 import { SnowdropContextProvider, type AppServices } from '@/ui/hooks';
 import { StickerBubble } from './StickerBubble';
 
@@ -12,7 +12,7 @@ const conversationId = 'conv-1' as ConversationId;
 function fakeApp(backend: Partial<AppServices['backend']>): AppServices {
   return {
     backend: { kind: 'signal-cli', ...backend },
-    stores: { session: createSessionStore(), local: createLocalStore() },
+    stores: createStores(),
   } as unknown as AppServices;
 }
 

@@ -83,7 +83,8 @@
   min-height: 0;
 }
 
-:root[data-shell='tui'] [data-snowdrop='chat'] [data-snowdrop='composer'] {
+:root[data-shell='tui'] [data-snowdrop='chat'] [data-snowdrop='composer'],
+:root[data-shell='tui'] [data-snowdrop='chat'] [data-snowdrop='message-request'] {
   grid-row: 4;
   grid-column: 1;
   margin-top: var(--snowdrop-tui-gap);

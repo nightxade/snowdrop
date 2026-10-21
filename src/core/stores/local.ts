@@ -52,6 +52,21 @@ export interface LocalData {
    * (see `useAttachmentUrl`).
    */
   backfillRequested: Record<string, number>;
+  /**
+   * Conversations accepted on this device, with when: the user pressed
+   * Accept, sent a message in them, or they were already there when message
+   * requests arrived (`grandfather`). Part of "is this a message request?",
+   * see core/domain/messageRequests.
+   */
+  acceptedChats: Record<ConversationId, number>;
+  /**
+   * Message requests the user deleted, with when: kept out of the list (the
+   * phone's history archive and a backend's peer list can still name them)
+   * until the other side writes again.
+   */
+  deletedChats: Record<ConversationId, number>;
+  /** `grandfather` has run: existing chats were accepted once, never again. */
+  requestsSeeded: boolean;
   /** Demo defaults are applied once per install. */
   seeded: boolean;
 }
@@ -76,6 +91,13 @@ export interface LocalState extends LocalData {
   /** Moves (or adds) a sticker to the front of the recents, capped. */
   noteStickerSent(sticker: RecentSticker): void;
   markBackfillRequested(key: string): void;
+  /** Accepts a conversation on this device (idempotent; also lifts a delete). */
+  markAccepted(id: ConversationId, at: number): void;
+  /** Hides a deleted message request until `clearDeleted`. */
+  markDeleted(id: ConversationId, at: number): void;
+  clearDeleted(id: ConversationId): void;
+  /** Accepts `ids` that aren't yet and records that this ran, once. */
+  grandfather(ids: readonly ConversationId[], at: number): void;
   seedDefaults(seed: LocalSeed): void;
 }
 
@@ -89,6 +111,9 @@ export function defaultLocalData(): LocalData {
     contactNotes: {},
     reactionUsage: {},
     backfillRequested: {},
+    acceptedChats: {},
+    deletedChats: {},
+    requestsSeeded: false,
     seeded: false,
   };
 }
@@ -174,6 +199,34 @@ export function createLocalStore(initial: LocalData = defaultLocalData()): Local
         return { backfillRequested: Object.fromEntries(kept) };
       });
     },
+    markAccepted: (id, at) => {
+      const { acceptedChats, deletedChats } = get();
+      if (acceptedChats[id] !== undefined && deletedChats[id] === undefined) return;
+      const { [id]: _lifted, ...stillDeleted } = deletedChats;
+      set({
+        acceptedChats: { ...acceptedChats, [id]: acceptedChats[id] ?? at },
+        deletedChats: stillDeleted,
+      });
+    },
+    markDeleted: (id, at) => {
+      set((s) => {
+        const { [id]: _forgotten, ...acceptedChats } = s.acceptedChats;
+        return { acceptedChats, deletedChats: { ...s.deletedChats, [id]: at } };
+      });
+    },
+    clearDeleted: (id) => {
+      if (get().deletedChats[id] === undefined) return;
+      set((s) => {
+        const { [id]: _lifted, ...deletedChats } = s.deletedChats;
+        return { deletedChats };
+      });
+    },
+    grandfather: (ids, at) => {
+      if (get().requestsSeeded) return;
+      const acceptedChats = { ...get().acceptedChats };
+      for (const id of ids) acceptedChats[id] ??= at;
+      set({ acceptedChats, requestsSeeded: true });
+    },
     seedDefaults: (seed) => {
       if (get().seeded) return;
       for (const id of seed.pinned ?? []) get().setPinned(id, true);
@@ -195,6 +248,7 @@ export const localSelectors = {
   conversation: (id: ConversationId) => (s: LocalState) =>
     s.conversations[id] ?? DEFAULT_LOCAL_CONVERSATION,
   draft: (id: ConversationId) => (s: LocalState) => s.conversations[id]?.draft ?? '',
+  acceptedHere: (id: ConversationId) => (s: LocalState) => s.acceptedChats[id] !== undefined,
   note: (contactId: string) => (s: LocalState) => s.contactNotes[contactId] ?? '',
   /** The three most used reactions, topped up with defaults. Stable per usage map. */
   quickReactions: (s: LocalState): readonly string[] => {
@@ -218,6 +272,9 @@ export function selectLocalData(s: LocalState): LocalData {
     contactNotes: s.contactNotes,
     reactionUsage: s.reactionUsage,
     backfillRequested: s.backfillRequested,
+    acceptedChats: s.acceptedChats,
+    deletedChats: s.deletedChats,
+    requestsSeeded: s.requestsSeeded,
     seeded: s.seeded,
   };
 }
@@ -264,8 +321,28 @@ export function mergeLocalData(existing: LocalData, incoming: LocalData): LocalD
     contactNotes: { ...incoming.contactNotes, ...existing.contactNotes },
     reactionUsage: trimmed,
     backfillRequested: trimmedBackfillRequested,
+    // A chat deleted on one side and accepted on the other keeps the
+    // existing (current) side's verdict, like every other conflict here.
+    acceptedChats: mergeVerdicts(existing, incoming, 'acceptedChats', 'deletedChats'),
+    deletedChats: mergeVerdicts(existing, incoming, 'deletedChats', 'acceptedChats'),
+    requestsSeeded: existing.requestsSeeded || incoming.requestsSeeded,
     seeded: existing.seeded || incoming.seeded,
   };
+}
+
+/** `existing` wins a conflict between the two maps; anything only `incoming` knows is added. */
+function mergeVerdicts(
+  existing: LocalData,
+  incoming: LocalData,
+  own: 'acceptedChats' | 'deletedChats',
+  other: 'acceptedChats' | 'deletedChats',
+): Record<ConversationId, number> {
+  const merged: Record<ConversationId, number> = { ...existing[own] };
+  for (const [key, at] of Object.entries(incoming[own])) {
+    const id = key as ConversationId;
+    if (existing[other][id] === undefined) merged[id] ??= at;
+  }
+  return merged;
 }
 
 /** A valid recent sticker or null; extra fields are dropped. */
@@ -286,6 +363,16 @@ function parseMute(value: unknown): MuteState {
   if (typeof value === 'boolean') return value;
   if (isRecord(value) && typeof value.until === 'number') return { until: value.until };
   return false;
+}
+
+function parseChatTimes(value: unknown): Record<ConversationId, number> {
+  const out: Record<ConversationId, number> = {};
+  if (!isRecord(value)) return out;
+  for (const [key, at] of Object.entries(value)) {
+    const id = asConversationId(key);
+    if (id && typeof at === 'number' && Number.isFinite(at)) out[id] = at;
+  }
+  return out;
 }
 
 export const localSchema: VersionedSchema<LocalData> = {
@@ -342,6 +429,9 @@ export const localSchema: VersionedSchema<LocalData> = {
       contactNotes,
       reactionUsage,
       backfillRequested,
+      acceptedChats: parseChatTimes(data.acceptedChats),
+      deletedChats: parseChatTimes(data.deletedChats),
+      requestsSeeded: data.requestsSeeded === true,
       seeded: data.seeded === true,
     };
   },

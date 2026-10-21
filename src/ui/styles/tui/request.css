@@ -1,0 +1,39 @@
+/*
+ * Message request bar (MessageRequestBar.tsx): stands in the composer's
+ * place for a conversation the user hasn't accepted, so in the TUI shell it
+ * is the same kind of box — titled border, flat, no avatar, a status-style
+ * warning in place of the badge — sitting on the composer's grid row
+ * (layout.css).
+ */
+
+:root[data-shell='tui'] [data-snowdrop='message-request'] {
+  position: relative;
+  box-sizing: border-box;
+  margin: 0;
+  gap: var(--snowdrop-tui-pad-y);
+  padding: var(--snowdrop-tui-pad-y) var(--snowdrop-tui-pad-x);
+  padding-top: calc(var(--snowdrop-tui-pad-y) * 2);
+  border: 1px solid var(--snowdrop-pane-border);
+  border-radius: var(--snowdrop-pane-radius);
+  background: var(--snowdrop-bg-chat);
+  box-shadow: none;
+}
+
+:root[data-shell='tui'] [data-snowdrop='message-request']:focus-within {
+  border-color: var(--snowdrop-pane-border-focus);
+}
+
+/* No avatars in the TUI shell; the name and number say who it is. */
+:root[data-shell='tui'] [data-snowdrop='message-request'] [data-part='avatar'] {
+  display: none;
+}
+
+:root[data-shell='tui'] [data-snowdrop='message-request'] [data-part='who'] {
+  gap: var(--snowdrop-tui-pad-x);
+}
+
+:root[data-shell='tui'] [data-snowdrop='message-request'] [data-part='identity'] {
+  flex-direction: row;
+  align-items: baseline;
+  gap: var(--snowdrop-tui-pad-x);
+}

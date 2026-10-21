@@ -40,6 +40,9 @@ export function toContact(c: WireContact, selfId: string): Contact | null {
   if (c.isHidden) contact.hidden = true;
   if (c.unregistered) contact.unregistered = true;
   if (c.profileSharing) contact.profileSharing = true;
+  // A name from the contact sync is one the user (or their address book) gave
+  // the person; the profile name is the one the person chose for themselves.
+  if (nickname || contactName) contact.inContacts = true;
   if (id === selfId) contact.isSelf = true;
   return contact;
 }
@@ -70,6 +73,7 @@ export function toGroupConversation(
     lastActivityAt,
   };
   if (g.description) conv.description = g.description;
+  if (g.isBlocked) conv.blocked = true;
   return conv;
 }
 

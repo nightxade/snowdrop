@@ -160,6 +160,9 @@ export interface ReactInput {
   remove: boolean;
 }
 
+/** What `respondToMessageRequest` sends. Blocking is `setBlocked`. */
+export type MessageRequestResponse = 'accept' | 'delete';
+
 /** Protocol-level changes only; pin/mute/archive are local (see localStore). */
 export type ConversationPatch = Partial<
   Pick<Conversation, 'expireTimerSec' | 'title' | 'description'>
@@ -365,6 +368,20 @@ export interface ChatBackend {
   updateConversation?(conversationId: ConversationId, patch: ConversationPatch): Promise<void>;
 
   /**
+   * Answers a message request the way Signal's own clients do, and tells the
+   * user's other devices. `accept` shares the user's profile with the
+   * sender (or the group) from then on; `delete` withdraws it, and for a
+   * group also leaves it. Adapters without message requests (the protocol
+   * has none) omit this and the app just records the answer locally.
+   */
+  respondToMessageRequest?(
+    conversationId: ConversationId,
+    response: MessageRequestResponse,
+  ): Promise<void>;
+  /** Blocks or unblocks a contact or group (synced to the phone). Optional like the above. */
+  setBlocked?(conversationId: ConversationId, blocked: boolean): Promise<void>;
+
+  /**
    * Asks the primary device to resend contacts, groups and the block list,
    * when the protocol supports it (signal-cli: `sendSyncRequest`). Settings
    * → Connection's "Sync contacts and groups" is the only caller; adapters
@@ -401,6 +418,13 @@ export interface ChatBackend {
    * archive in patched signal-cli). Callers must treat it as optional.
    */
   fetchHistory?(conversationId: ConversationId, query: HistoryQuery): Promise<HistoryPage>;
+  /**
+   * Whether the history archive holds a real message the user sent in this
+   * conversation (a chat started from their phone). Possibly several heavy
+   * lookups, so callers ask only about the few chats that need it and never
+   * on a startup path; answers are cached by the adapter.
+   */
+  historyHasOutgoing?(conversationId: ConversationId): Promise<boolean>;
   /**
    * Re-reads already-stored history messages from the archive by their own
    * `historyCursor` and returns the fresh mapping of each one the archive can

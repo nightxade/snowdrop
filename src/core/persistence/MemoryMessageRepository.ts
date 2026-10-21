@@ -114,6 +114,13 @@ export class MemoryMessageRepository implements MessageRepository {
     return Promise.resolve();
   }
 
+  deleteConversation(conversationId: ConversationId): Promise<void> {
+    for (const m of this.timelines.get(conversationId) ?? []) this.messages.delete(m.id);
+    this.timelines.delete(conversationId);
+    this.cursors.delete(conversationId);
+    return Promise.resolve();
+  }
+
   allocateSeq(): Promise<number> {
     return Promise.resolve(++this.maxSeq);
   }

@@ -126,6 +126,16 @@ On a single-account daemon `connection.account` is required (Snowdrop reports
   clients keep the original's attachments, but this is unverified with signal-cli.
 - Changing a **1:1 disappearing-message timer** uses `updateContact`, which also un-hides
   the contact if you had hidden it on your phone.
+- **Message requests.** A chat from someone who isn't a saved contact and doesn't share a
+  profile with you (`profileSharing`), or a group with none of your contacts in it, is a
+  message request, as in Signal's own apps: no read receipts or typing indicators go out,
+  and their photos, files, stickers and link-preview images stay hidden until you accept or
+  press Download. Accept, Delete (leaves a group too) and Block use
+  `sendMessageRequestResponse`, `quitGroup`, `block` and `unblock`. signal-cli doesn't report
+  who added you to a group, so "a contact is a member" stands in for it. An answer given on
+  your phone shows up the next time signal-cli's contact list changes (its sync messages for
+  this aren't visible to Snowdrop, so it re-reads contacts shortly after any sync message it
+  can't read). Chats this device already knew when message requests arrived stay accepted.
 - The first connection may take a while on large accounts: listing contacts makes the
   daemon refresh stale profiles from Signal's servers. Snowdrop connects and receives
   messages meanwhile; names fill in when the list arrives.

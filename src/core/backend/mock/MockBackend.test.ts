@@ -33,9 +33,9 @@ describe('mock world', () => {
   });
 
   it('has the documented shape', () => {
-    expect(world.contacts.size).toBe(27); // 26 people + self
-    expect(groups).toHaveLength(12);
-    expect(dms).toHaveLength(10);
+    expect(world.contacts.size).toBe(30); // 26 people + self + 3 strangers behind the message requests
+    expect(groups).toHaveLength(13); // 12 + the group a stranger added the user to
+    expect(dms).toHaveLength(11); // 10 + a stranger's first message
     expect(world.defaultSpaces.map((s) => s.name)).toEqual(['Work', 'Climbing Club', 'Family']);
     for (const c of world.conversations.values()) {
       expect(parseConversationId(c.id)?.kind).toBe(c.kind);
@@ -289,6 +289,77 @@ describe('MockBackend', () => {
         status: 'ready',
         attachmentIds: ['att-1', 'att-2'],
       },
+    ]);
+  });
+});
+
+describe('mock message requests', () => {
+  const make = async () => {
+    const { backend } = setup();
+    await backend.connect();
+    return backend;
+  };
+
+  it('has a stranger’s DM (with a photo) and a stranger-run group, neither saved nor sharing', async () => {
+    const backend = await make();
+    const { world } = backend;
+    const dm = world.conversations.get(world.conversationIds.get('request-dm')!)!;
+    const group = world.conversations.get(world.conversationIds.get('request-group')!)!;
+    const peer = world.contacts.get(dm.memberIds.find((id) => id !== world.self.id)!)!;
+    expect(peer.inContacts).toBeUndefined();
+    expect(peer.profileSharing).toBeUndefined();
+    expect(world.histories.get(dm.id)?.some((m) => m.attachments.length > 0)).toBe(true);
+    expect(
+      group.memberIds
+        .filter((id) => id !== world.self.id)
+        .map((id) => world.contacts.get(id)?.inContacts),
+    ).toEqual([undefined, undefined]);
+    // Everyone else is saved on the demo phone.
+    const known = [...world.contacts.values()].filter(
+      (c) => !c.isSelf && c.id !== peer.id && c.inContacts,
+    );
+    expect(known.length).toBe(26);
+  });
+
+  it('accepting shares a profile with the contact and says so; deleting drops the chat', async () => {
+    const backend = await make();
+    const dm = backend.world.conversationIds.get('request-dm')!;
+    const group = backend.world.conversationIds.get('request-group')!;
+    const updated: unknown[] = [];
+    backend.on('contactUpdated', (c) => updated.push(c));
+    await backend.respondToMessageRequest(dm, 'accept');
+    expect(updated).toEqual([expect.objectContaining({ profileSharing: true })]);
+    expect(
+      (await backend.listContacts()).filter((c) => c.profileSharing && !c.inContacts),
+    ).toHaveLength(1);
+    await backend.respondToMessageRequest(group, 'delete');
+    expect((await backend.listConversations()).map((c) => c.id)).not.toContain(group);
+    expect(backend.requestResponses.map((r) => r.response)).toEqual(['accept', 'delete']);
+    await expect(backend.respondToMessageRequest(group, 'accept')).rejects.toThrow();
+  });
+
+  it('blocks and unblocks a contact and a group', async () => {
+    const backend = await make();
+    const dm = backend.world.conversationIds.get('request-dm')!;
+    const group = backend.world.conversationIds.get('request-group')!;
+    await backend.setBlocked(dm, true);
+    expect((await backend.listContacts()).some((c) => c.blocked)).toBe(true);
+    await backend.setBlocked(dm, false);
+    expect((await backend.listContacts()).some((c) => c.blocked)).toBe(false);
+    await backend.setBlocked(group, true);
+    expect((await backend.listConversations()).find((c) => c.id === group)?.blocked).toBe(true);
+    await backend.setBlocked(group, false);
+    expect(
+      (await backend.listConversations()).find((c) => c.id === group)?.blocked,
+    ).toBeUndefined();
+  });
+
+  it('records read receipts for tests', async () => {
+    const backend = await make();
+    const dm = backend.world.conversationIds.get('request-dm')!;
+    await backend.markRead(dm, [{ authorId: 'a', sentAt: 1 }]);
+    expect(backend.readReceiptsSent).toEqual([
+      { conversationId: dm, messages: [{ authorId: 'a', sentAt: 1 }] },
     ]);
   });
 });

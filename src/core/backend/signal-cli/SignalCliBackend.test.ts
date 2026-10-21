@@ -10,7 +10,7 @@ import {
 import { ManualScheduler } from '@/core/lib';
 import { createMemoryStorage, MemoryMessageRepository } from '@/core/persistence';
 import { SyncService } from '@/core/services';
-import { createStores } from '@/core/stores';
+import { createStores, selectMessageRequestState } from '@/core/stores';
 import type { BackendEvents } from '../types';
 import { SignalCliError } from './errors';
 import {
@@ -120,6 +120,10 @@ function daemonWithAccount() {
     .reply('sendReceipt', { timestamp: 1, results: [] })
     .reply('updateGroup', { timestamp: 1, results: [] })
     .reply('updateContact', {})
+    .reply('sendMessageRequestResponse', { timestamp: 1, results: [] })
+    .reply('block', {})
+    .reply('unblock', {})
+    .reply('quitGroup', { timestamp: 1, results: [] })
     .reply('sendSyncRequest', {})
     .reply('getAttachment', { data: 'aGVsbG8=' })
     .reply('requestAttachmentBackfill', { accepted: true });
@@ -1594,6 +1598,32 @@ describe('SignalCliBackend + SyncService', () => {
     expect(stores.session.getState().status).toBe('offline');
   });
 
+  it('a message the user sent from the phone to a non-contact (sync transcript) accepts that chat', async () => {
+    const { backend, contacts, scheduler } = setup();
+    // Bob is neither saved nor sharing a profile with the user.
+    Object.assign(
+      contacts.find((c) => c.uuid === BOB)!,
+      {
+        name: null,
+        profileSharing: false,
+      },
+    );
+    const stores = createStores();
+    const repository = new MemoryMessageRepository();
+    const sync = new SyncService({ backend, repository, stores, clock: scheduler, scheduler });
+    await sync.start();
+    await flush();
+    const bob = directConversationId(BOB);
+    const request = () => selectMessageRequestState(stores, bob);
+    await backend.ingest(fixtures.syncSentDm);
+    await flush();
+    await sync.idle();
+    expect(stores.conversations.getState().byId[bob]).toBeDefined();
+    expect(request()).toBe('accepted');
+    expect(stores.local.getState().acceptedChats[bob]).toBeDefined();
+    await sync.stop();
+  });
+
   it('drops a persisted stale peer (no real message anywhere), but keeps one once a real message is seeded', async () => {
     const { backend, storage, scheduler } = setup();
     // Bob: a peer entry persisted by the since-fixed bug that let a system
@@ -2001,6 +2031,15 @@ describe('imported phone history', () => {
     ]);
     expect(conversations.find((c) => c.id === directConversationId(DINAH))).toBeUndefined();
     expect(conversations.find((c) => c.id === directConversationId(EVAN))).toBeUndefined();
+    // Listing only does the cheap newest-message lookups, never the outgoing scan.
+    expect(daemon.callsTo('getHistoryChat').every((c) => c.limit === 8)).toBe(true);
+    // That scan is its own call, made on request, and cached.
+    expect(await backend.historyHasOutgoing(directConversationId(CAROL))).toBe(false);
+    expect(daemon.callsTo('getHistoryChat').some((c) => c.limit === 500)).toBe(true);
+    const calls = daemon.callsTo('getHistoryChat').length;
+    await backend.historyHasOutgoing(directConversationId(CAROL));
+    expect(daemon.callsTo('getHistoryChat')).toHaveLength(calls);
+    expect(await backend.historyHasOutgoing(directConversationId('nobody'))).toBe(false);
     await backend.disconnect();
   });
 
@@ -2090,6 +2129,118 @@ describe('imported phone history', () => {
     const conversations = await backend.listConversations();
     expect(conversations.find((c) => c.id === directConversationId(BOB))).toBeUndefined();
     expect(conversations.find((c) => c.id === directConversationId(ALICE))).toBeUndefined();
+    await backend.disconnect();
+  });
+});
+
+describe('SignalCliBackend: message requests', () => {
+  it('accepts a direct request: sendMessageRequestResponse to the recipient, then re-reads contacts', async () => {
+    const { backend, daemon, contacts } = await connected();
+    const updates = collect(backend, 'contactUpdated');
+    const bob = contacts.find((c) => c.uuid === BOB)!;
+    Object.assign(bob, { profileSharing: false });
+    await backend.listContacts();
+    const before = daemon.callsTo('listContacts').length;
+    await backend.respondToMessageRequest(directConversationId(BOB), 'accept');
+    await flush();
+    expect(daemon.callsTo('sendMessageRequestResponse')).toEqual([
+      { account: SELF_ACI, recipient: [BOB], type: 'accept' },
+    ]);
+    expect(daemon.callsTo('listContacts').length).toBeGreaterThan(before);
+    Object.assign(bob, { profileSharing: true });
+    await backend.respondToMessageRequest(directConversationId(BOB), 'accept');
+    await flush();
+    expect(updates.at(-1)).toMatchObject({ id: BOB, profileSharing: true });
+    await backend.disconnect();
+  });
+
+  it('answers a group request with the group id, and leaves the group on delete', async () => {
+    const { backend, daemon } = await connected();
+    await backend.respondToMessageRequest(GROUP, 'accept');
+    expect(daemon.callsTo('sendMessageRequestResponse')).toEqual([
+      { account: SELF_ACI, groupId: GROUP_ID, type: 'accept' },
+    ]);
+    expect(daemon.callsTo('quitGroup')).toEqual([]);
+    await backend.respondToMessageRequest(GROUP, 'delete');
+    expect(daemon.callsTo('sendMessageRequestResponse').at(-1)).toEqual({
+      account: SELF_ACI,
+      groupId: GROUP_ID,
+      type: 'delete',
+    });
+    expect(daemon.callsTo('quitGroup')).toEqual([
+      { account: SELF_ACI, groupId: GROUP_ID, delete: true },
+    ]);
+    await backend.disconnect();
+  });
+
+  it('still deletes a group request when leaving the group fails', async () => {
+    const { backend, daemon } = await connected();
+    daemon.handle('quitGroup', () => ({ error: { code: -32603, message: 'not a member' } }));
+    await expect(backend.respondToMessageRequest(GROUP, 'delete')).resolves.toBeUndefined();
+    await backend.disconnect();
+  });
+
+  it('surfaces a failed answer instead of swallowing it', async () => {
+    const { backend, daemon } = await connected();
+    daemon.handle('sendMessageRequestResponse', () => ({
+      error: { code: -32603, message: 'boom' },
+    }));
+    await expect(
+      backend.respondToMessageRequest(directConversationId(BOB), 'accept'),
+    ).rejects.toThrow();
+    await backend.disconnect();
+  });
+
+  it('never answers a request for the note to self', async () => {
+    const { backend, daemon } = await connected();
+    await backend.respondToMessageRequest(directConversationId(SELF_ACI), 'accept');
+    expect(daemon.callsTo('sendMessageRequestResponse')).toEqual([]);
+    await backend.disconnect();
+  });
+
+  it('blocks and unblocks a contact or a group, then re-reads the directory', async () => {
+    const { backend, daemon } = await connected();
+    const before = daemon.callsTo('listContacts').length;
+    await backend.setBlocked(directConversationId(BOB), true);
+    await backend.setBlocked(directConversationId(BOB), false);
+    await backend.setBlocked(GROUP, true);
+    await backend.setBlocked(GROUP, false);
+    await flush();
+    expect(daemon.callsTo('block')).toEqual([
+      { account: SELF_ACI, recipient: [BOB] },
+      { account: SELF_ACI, groupId: [GROUP_ID] },
+    ]);
+    expect(daemon.callsTo('unblock')).toEqual([
+      { account: SELF_ACI, recipient: [BOB] },
+      { account: SELF_ACI, groupId: [GROUP_ID] },
+    ]);
+    expect(daemon.callsTo('listContacts').length).toBeGreaterThan(before);
+    await backend.disconnect();
+  });
+
+  it('lists a blocked group as blocked, and a blocked contact with the flag', async () => {
+    const { backend, groups, contacts } = await connected();
+    Object.assign(groups[0]!, { isBlocked: true });
+    Object.assign(
+      contacts.find((c) => c.uuid === BOB)!,
+      { isBlocked: true },
+    );
+    await backend.setBlocked(directConversationId(BOB), true);
+    await flush();
+    expect((await backend.listContacts()).find((c) => c.id === BOB)?.blocked).toBe(true);
+    await backend.setBlocked(GROUP, true);
+    await flush();
+    expect((await backend.listConversations()).find((c) => c.id === GROUP)?.blocked).toBe(true);
+    await backend.disconnect();
+  });
+
+  it('re-reads contacts soon after a sync message it cannot read (the phone answered a request)', async () => {
+    const { backend, daemon, scheduler } = await connected();
+    const before = daemon.callsTo('listContacts').length;
+    await backend.ingest(receive('self', { syncMessage: {} }));
+    scheduler.advance(30_000);
+    await flush();
+    expect(daemon.callsTo('listContacts').length).toBeGreaterThan(before);
     await backend.disconnect();
   });
 });

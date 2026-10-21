@@ -46,7 +46,7 @@ import {
 } from '@/core/domain';
 import { createNonce, type Clock } from '@/core/lib';
 import type { MessageRepository } from '@/core/persistence';
-import { effectivePrivacy, type Stores } from '@/core/stores';
+import { effectivePrivacy, selectMessageRequestState, type Stores } from '@/core/stores';
 import { finalPreview, localAttachment, localPreview, withLocalUrls } from './localAttachments';
 import { PendingOpsBuffer } from './PendingOpsBuffer';
 import { ReceiptBuffer } from './ReceiptBuffer';
@@ -291,6 +291,9 @@ export class SendService {
     stores.conversations.getState().bumpActivity(input.conversationId, now);
     stores.conversations.getState().noteLatest(optimistic);
     this.typingSentAt.delete(input.conversationId);
+    // Writing to someone accepts them, like Signal: signal-cli starts sharing
+    // the profile with the first message, so this device must agree.
+    stores.local.getState().markAccepted(input.conversationId, now);
     // Row and outbox entry together, or neither: a crash can't orphan one.
     await repository.stageOutgoing(optimistic, { nonce, input, createdAt: now });
     await this.attempt(nonce);
@@ -725,9 +728,12 @@ export class SendService {
     // The phone's typing-indicator setting wins when known; until the first
     // read from it has finished nothing is sent (see `effectivePrivacy`).
     const { settings, session } = this.deps.stores;
+    // A message request hears nothing from the user until it is accepted.
     const allowed =
       effectivePrivacy(settings.getState().behaviour, session.getState().phonePrivacy)
-        .sendTypingIndicators && this.pipeline.allowsTyping(conversationId);
+        .sendTypingIndicators &&
+      selectMessageRequestState(this.deps.stores, conversationId) === 'accepted' &&
+      this.pipeline.allowsTyping(conversationId);
     const last = this.typingSentAt.get(conversationId);
     const now = this.deps.clock.now();
     if (typing) {

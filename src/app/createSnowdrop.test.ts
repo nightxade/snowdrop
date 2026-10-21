@@ -32,7 +32,7 @@ describe('createSnowdrop', () => {
 
     const { stores } = snowdrop;
     expect(stores.session.getState().ready).toBe(true);
-    expect(Object.keys(stores.conversations.getState().byId)).toHaveLength(22);
+    expect(Object.keys(stores.conversations.getState().byId)).toHaveLength(24);
     // Default spaces were seeded and persisted, under the demo's own scope
     // (src/app/dataScope.ts) — never the bare, unscoped key.
     expect(spacesSelectors.orderedIds(stores.spaces.getState())).toHaveLength(3);

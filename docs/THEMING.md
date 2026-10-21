@@ -454,6 +454,7 @@ instead.
 | `jump-to-present`       | Jump-to-present pill                                                  |
 | `composer`              | Message composer                                                      |
 | `composer-input`        | The composer's textarea                                               |
+| `message-request`       | Stands in for the composer on a message request or blocked chat       |
 | `attachment-tray`       | Attachments waiting to be sent                                        |
 | `reply-bar`             | "Replying to …" bar                                                   |
 | `composer-link-preview` | The composer's own link-preview card                                  |
@@ -497,6 +498,9 @@ instead.
   Its colours are `--snowdrop-vim-caret` (default: the accent) and
   `--snowdrop-vim-caret-text` (default: text-on-accent); set them on `:root`
   in Custom CSS to restyle it.
+- `[data-snowdrop='message-request']` carries `data-state='request' | 'blocked'`;
+  a sidebar row for a message request carries `data-request` (`data-blocked` when
+  blocked).
 - Sidebar rows carry `data-conversation-id`.
 - Icon buttons carry `data-icon-button`.
 - In the TUI shell, a region's titled border reads `content: attr(data-pane-title)`

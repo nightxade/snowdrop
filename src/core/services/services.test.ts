@@ -175,8 +175,8 @@ describe('SyncService: initial sync', () => {
       backendKind: 'mock',
     });
     expect(stores.session.getState().self?.id).toBe(backend.world.self.id);
-    expect(Object.keys(stores.contacts.getState().byId)).toHaveLength(27);
-    expect(Object.keys(stores.conversations.getState().byId)).toHaveLength(22);
+    expect(Object.keys(stores.contacts.getState().byId)).toHaveLength(30);
+    expect(Object.keys(stores.conversations.getState().byId)).toHaveLength(24);
     expect(await repository.count(conv('orchard-eng'))).toBeGreaterThan(0);
     expect(stores.conversations.getState().unread[conv('orchard-eng')]?.count).toBe(4);
     expect(stores.conversations.getState().unread[conv('orchard-design')]?.count ?? 0).toBe(0);

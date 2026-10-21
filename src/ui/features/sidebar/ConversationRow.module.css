@@ -130,6 +130,12 @@
   color: var(--snowdrop-text-muted);
 }
 
+/* "Message request": a label, not message text, so it reads as one. */
+.row[data-request] .preview {
+  color: var(--snowdrop-warning);
+  font-weight: var(--snowdrop-font-weight-medium);
+}
+
 .previewText {
   overflow: hidden;
   text-overflow: ellipsis;

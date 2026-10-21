@@ -11,7 +11,7 @@ import { act, cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { MessageRef } from '@/core/backend';
 import type { Attachment, ConversationId } from '@/core/domain';
-import { createLocalStore, createSessionStore } from '@/core/stores';
+import { createStores } from '@/core/stores';
 import { SnowdropContextProvider, type AppServices } from '@/ui/hooks';
 import { ATTACHMENT_BACKFILL_TIMEOUT_MS, useAttachmentUrl } from './useAttachmentUrl';
 
@@ -37,7 +37,7 @@ interface FakeBackend {
 function fakeApp(backend: FakeBackend): AppServices {
   return {
     backend: { kind: 'signal-cli', ...backend },
-    stores: { session: createSessionStore(), local: createLocalStore() },
+    stores: createStores(),
   } as unknown as AppServices;
 }
 

@@ -20,7 +20,9 @@ import {
   T0,
 } from '../fixtures/envelopes';
 import { DirectPeers } from '../peers';
-import { describeGroupChange } from './directory';
+import { describeGroupChange, toContact, toGroupConversation } from './directory';
+import { wireContact, wireGroup } from '../wire';
+import { decodeOrThrow } from '../validate';
 import { normaliseReceive } from './envelope';
 import { toBodyRanges } from './ranges';
 import type { AdapterEvent, NormaliseContext } from './types';
@@ -358,6 +360,52 @@ describe('normaliseReceive: conversation state', () => {
 
   it('flags contact syncs', () => {
     expect(run(fixtures.contactsSync).events).toEqual([{ kind: 'contactsChanged' }]);
+  });
+
+  it('hints that the directory may have changed on a sync message it cannot read (a message request answered on the phone)', () => {
+    const { events, debug } = run(receive('self', { syncMessage: {} }));
+    expect(events).toEqual([{ kind: 'directoryHint' }]);
+    expect(debug).toContain('unrecognised sync message');
+    // A sync it does understand is not also a hint.
+    expect(run(fixtures.readSync).events.map((e) => e.kind)).toEqual(['readSync']);
+  });
+});
+
+describe('message-request facts from the directory', () => {
+  const wire = (extra: object) =>
+    decodeOrThrow(wireContact, { uuid: ALICE, number: ALICE_NUMBER, ...extra });
+
+  it('marks a contact saved on the phone (a nickname or a contact name), not one with only a profile name', () => {
+    expect(toContact(wire({ name: 'Alice Liddell' }), SELF_ACI)?.inContacts).toBe(true);
+    expect(toContact(wire({ givenName: 'Alice' }), SELF_ACI)?.inContacts).toBe(true);
+    expect(toContact(wire({ nickName: 'Al' }), SELF_ACI)?.inContacts).toBe(true);
+    const stranger = toContact(
+      wire({ profile: { givenName: 'Alice', familyName: null } }),
+      SELF_ACI,
+    );
+    expect(stranger?.name).toBe('Alice');
+    expect(stranger).not.toHaveProperty('inContacts');
+  });
+
+  it('carries profileSharing and blocked through for a contact', () => {
+    const contact = toContact(wire({ name: 'A', profileSharing: true, isBlocked: true }), SELF_ACI);
+    expect(contact).toMatchObject({ profileSharing: true, blocked: true });
+  });
+
+  it('carries a blocked group, and leaves an ordinary one without the flag', () => {
+    const group = (extra: object) =>
+      toGroupConversation(
+        decodeOrThrow(wireGroup, {
+          id: GROUP_ID,
+          name: 'G',
+          members: [{ uuid: ALICE, number: ALICE_NUMBER }],
+          ...extra,
+        }),
+        (id) => id,
+        0,
+      );
+    expect(group({ isBlocked: true }).blocked).toBe(true);
+    expect(group({})).not.toHaveProperty('blocked');
   });
 });
 

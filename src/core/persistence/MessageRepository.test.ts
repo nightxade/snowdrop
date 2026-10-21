@@ -328,6 +328,33 @@ describe.each(implementations)('MessageRepository (%s)', (_name, create) => {
     expect(await repo.allocateSeq()).toBe(1);
   });
 
+  it('deletes one conversation: its messages and read position, nothing of another', async () => {
+    await repo.upsert(
+      incoming({ conversationId: b, authorId: 'z', sentAt: 5, body: 'keep' }),
+      mergeDuplicate,
+    );
+    await repo.setReadCursor(a, 7);
+    await repo.setReadCursor(b, 3);
+    const inB = await repo.count(b);
+    expect(inB).toBeGreaterThan(0);
+    expect(await repo.count(a)).toBe(30);
+    await repo.deleteConversation(a);
+    expect(await repo.count(a)).toBe(0);
+    expect(await repo.page(a, { limit: 50 })).toEqual([]);
+    expect(await repo.latest(a)).toBeUndefined();
+    expect(await repo.get(messageId('x', 1000))).toBeUndefined();
+    expect(await repo.getReadCursors()).toEqual(new Map([[b, 3]]));
+    expect(await repo.count(b)).toBe(inB);
+    // Deleting what is not there is not an error.
+    await repo.deleteConversation(a);
+    // It can be written to again afterwards.
+    await repo.upsert(
+      incoming({ conversationId: a, authorId: 'x', sentAt: 9000, body: 'again' }),
+      mergeDuplicate,
+    );
+    expect(await repo.count(a)).toBe(1);
+  });
+
   it('(regression) round-trips outbox attachment bytes across persistence', async () => {
     const bytes = new Uint8Array([1, 2, 3, 4, 5]);
     const file = new File([bytes], 'photo.png', { type: 'image/png' });

@@ -1,4 +1,4 @@
-import { Download, FileText, ImageOff, Loader2, Play, RotateCw } from 'lucide-react';
+import { Download, FileText, ImageOff, Loader2, Play, RotateCw, Video } from 'lucide-react';
 import { lazy, memo, Suspense, useState, type CSSProperties } from 'react';
 import type { MessageRef } from '@/core/backend';
 import type { Attachment, ConversationId } from '@/core/domain';
@@ -163,7 +163,7 @@ function AttachmentViewer({
       {...props}
       items={items}
       index={index}
-      mediaStatus={state.status}
+      mediaStatus={state.status === 'held' ? 'loading' : state.status}
       errorLabel={failure?.label}
       onMediaError={state.onMediaError}
       onRetry={failure?.retryable ? state.retry : undefined}
@@ -198,6 +198,29 @@ function MediaTile({
   const state = useAttachmentUrl(conversationId, message, attachment, attachmentIds);
   const video = attachmentKind(attachment) === 'video';
   const name = attachment.fileName ?? (video ? 'Video' : 'Image');
+
+  if (state.status === 'held') {
+    const size = formatBytes(attachment.size);
+    return (
+      <div className={styles.tile} data-state="held" aria-label={name}>
+        <span className={styles.tileHeld}>
+          {video ? <Video size={20} aria-hidden /> : <ImageOff size={20} aria-hidden />}
+          <span>
+            {video ? 'Video' : 'Photo'}
+            {size ? ` · ${size}` : ''}
+          </span>
+          <button
+            type="button"
+            className={styles.retry}
+            aria-label={`Download ${name}`}
+            onClick={state.download}
+          >
+            <Download size={12} aria-hidden /> Download
+          </button>
+        </span>
+      </div>
+    );
+  }
 
   if (state.status !== 'ready') {
     const failed = state.status === 'error' || (state.status === 'unavailable' && !pending);
@@ -292,17 +315,21 @@ function FileCard({ conversationId, message, attachmentIds, attachment, pending 
   const size = formatBytes(attachment.size);
   const failure = state.status === 'error' ? attachmentFailureCopy(state.kind) : undefined;
   const meta =
-    state.status === 'loading' || (state.status === 'unavailable' && pending)
-      ? pending
-        ? 'Uploading…'
-        : 'Preparing…'
-      : state.status === 'backfilling'
-        ? 'Getting it from your phone…'
-        : failure
-          ? failure.label
-          : state.status === 'unavailable'
-            ? 'Not available on this device'
-            : size;
+    state.status === 'held'
+      ? size
+        ? `${size} · not downloaded`
+        : 'Not downloaded'
+      : state.status === 'loading' || (state.status === 'unavailable' && pending)
+        ? pending
+          ? 'Uploading…'
+          : 'Preparing…'
+        : state.status === 'backfilling'
+          ? 'Getting it from your phone…'
+          : failure
+            ? failure.label
+            : state.status === 'unavailable'
+              ? 'Not available on this device'
+              : size;
   return (
     <div className={styles.card}>
       <FileText className={styles.cardIcon} size={28} strokeWidth={1.5} aria-hidden />
@@ -316,6 +343,17 @@ function FileCard({ conversationId, message, attachmentIds, attachment, pending 
       </div>
       {state.status === 'ready' && (
         <DownloadButton url={state.url} fileName={attachment.fileName} />
+      )}
+      {state.status === 'held' && (
+        <button
+          type="button"
+          className={styles.download}
+          aria-label={`Download ${name}`}
+          title="Download"
+          onClick={state.download}
+        >
+          <Download size={18} aria-hidden />
+        </button>
       )}
       {failure?.retryable && (
         <button type="button" className={styles.download} aria-label="Retry" onClick={state.retry}>

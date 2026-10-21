@@ -20,6 +20,7 @@ import type {
   HistoryImportService,
   HistoryService,
   NotificationService,
+  MessageRequestService,
   SendService,
   SyncService,
 } from '@/core/services';
@@ -85,6 +86,7 @@ export interface AppServices {
   plugins: PluginRuntime;
   sync: SyncService;
   send: SendService;
+  requests: MessageRequestService;
   history: HistoryService;
   /**
    * Progress lives in `stores.session.getState().historyImport`; this is

@@ -9,6 +9,8 @@ import { decimal, historyPage, historyReadStates, timestamp } from './wire';
 
 type ArchivePage = ReturnType<typeof historyPage>;
 const PAGE_SIZE = 500;
+/** Pages of a chat `chatHasOutgoing` reads at most. */
+const OUTGOING_SCAN_PAGES = 4;
 
 function invalid(message: string): never {
   throw new SignalCliError('invalid-response', `History: ${message}`);
@@ -18,6 +20,8 @@ function invalid(message: string): never {
 export class HistoryArchive {
   /** chatLatestMessageAt answers, per chat, for this archive's lifetime. */
   private readonly latestMessageAt = new Map<string, Promise<number | undefined>>();
+  /** chatHasOutgoing answers, same lifetime. */
+  private readonly hasOutgoing = new Map<string, Promise<boolean>>();
 
   private constructor(
     private readonly rpc: JsonRpcClient,
@@ -135,6 +139,40 @@ export class HistoryArchive {
       answer.catch(() => this.latestMessageAt.delete(chatId));
     }
     return answer;
+  }
+
+  /**
+   * Whether the user sent at least one real message in this chat (a chat they
+   * started from their phone): Desktop counts that as accepting it. Looks
+   * newest-first, one page of PAGE_SIZE at a time, and stops at the first
+   * outgoing message, so for a chat the user has ever answered recently it is
+   * one indexed lookup; a chat they never wrote in is read to its start,
+   * bounded to OUTGOING_SCAN_PAGES pages (the newest 2000 items) — beyond
+   * that it is treated as "no", and the chat is judged by the usual rules.
+   * Cached for the archive's lifetime like `chatLatestMessageAt`.
+   */
+  chatHasOutgoing(chatId: string): Promise<boolean> {
+    let answer = this.hasOutgoing.get(chatId);
+    if (!answer) {
+      answer = this.findOutgoing(chatId);
+      this.hasOutgoing.set(chatId, answer);
+      answer.catch(() => this.hasOutgoing.delete(chatId));
+    }
+    return answer;
+  }
+
+  private async findOutgoing(chatId: string): Promise<boolean> {
+    let before: string | undefined;
+    for (let pages = 0; pages < OUTGOING_SCAN_PAGES; pages++) {
+      const page = await this.chatPage(chatId, before, PAGE_SIZE);
+      for (const entry of page.entries) {
+        const item = entry.frame.chatItem as Record<string, unknown>;
+        if (isRecord(item.outgoing) && !isRecord(item.updateMessage)) return true;
+      }
+      if (!page.hasMore) return false;
+      before = page.nextCursor;
+    }
+    return false;
   }
 
   private async findLatestReal(chatId: string): Promise<number | undefined> {

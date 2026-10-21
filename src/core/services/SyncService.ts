@@ -42,6 +42,8 @@ import { latestRealMessage, type MessageRepository } from '@/core/persistence';
 import {
   computeUnread,
   effectivePrivacy,
+  acceptForOutgoing,
+  selectMessageRequestState,
   UNKNOWN_PHONE_PRIVACY,
   uiSelectors,
   type Stores,
@@ -328,13 +330,15 @@ export class SyncService {
 
   private async initialSync(): Promise<void> {
     const { backend, repository, stores } = this.deps;
-    const [self, contacts, conversations] = await Promise.all([
+    const [self, contacts, listedByBackend] = await Promise.all([
       backend.getSelf(),
       backend.listContacts(),
       backend.listConversations(),
     ]);
+    const conversations = this.admit(listedByBackend);
     stores.session.getState().setSelf(self);
     stores.contacts.getState().upsertMany([self, ...contacts]);
+    this.grandfatherRequests(conversations, await repository.getReadCursors());
     stores.conversations.getState().upsertMany(conversations);
     this.seedHistoryLocalState(conversations);
 
@@ -376,6 +380,89 @@ export class SyncService {
     }
     stores.conversations.getState().setReadCursors(Object.fromEntries(cursors));
     await Promise.all(listed.map((c) => this.recomputeUnread(c.id)));
+    this.checkHistoryOutgoing();
+  }
+
+  /** Conversations whose archive was already asked about the user's own messages (answered, either way). */
+  private readonly outgoingChecked = new Set<ConversationId>();
+  private outgoingChecking = false;
+  private outgoingAgain = false;
+
+  /**
+   * A chat the user started from their phone counts as accepted (Desktop:
+   * any outgoing message), but only the phone's history archive knows that
+   * for a chat with nothing stored here yet. Asking costs real lookups, so
+   * it happens in the background, after listing, one conversation at a time,
+   * and only for chats that are currently message requests and have archived
+   * history (normally a handful). Until it answers the chat reads as a
+   * request; the answer only ever accepts. A failed ask is retried on the
+   * next refresh.
+   */
+  /** A refresh asked while a check ran (a method, so the loop re-reads what the awaits may have changed). */
+  private wantsOutgoingCheckAgain(): boolean {
+    return this.outgoingAgain;
+  }
+
+  private checkHistoryOutgoing(): void {
+    const { backend, stores } = this.deps;
+    const ask = backend.historyHasOutgoing?.bind(backend);
+    if (!ask) return;
+    if (this.outgoingChecking) {
+      this.outgoingAgain = true;
+      return;
+    }
+    this.outgoingChecking = true;
+    const generation = this.generation;
+    void (async () => {
+      try {
+        do {
+          this.outgoingAgain = false;
+          for (const c of Object.values(stores.conversations.getState().byId)) {
+            if (generation !== this.generation) return;
+            if (!c.historyHasMessages || this.outgoingChecked.has(c.id)) continue;
+            if (selectMessageRequestState(stores, c.id) !== 'request') continue;
+            try {
+              const wrote = await ask(c.id);
+              this.outgoingChecked.add(c.id);
+              if (wrote && generation === this.generation)
+                stores.local.getState().markAccepted(c.id, this.deps.clock.now());
+            } catch (error) {
+              this.onError(error, 'history outgoing check failed');
+            }
+          }
+        } while (this.wantsOutgoingCheckAgain() && generation === this.generation);
+      } finally {
+        this.outgoingChecking = false;
+      }
+    })();
+  }
+
+  /**
+   * Drops conversations the user deleted (message requests): the backend can
+   * keep naming them (a peer list, the phone's history archive) long after.
+   * A message from the other side lifts the delete again (`onMessage`).
+   */
+  private admit(conversations: readonly Conversation[]): Conversation[] {
+    const local = this.deps.stores.local.getState();
+    return conversations.filter((c) => local.deletedChats[c.id] === undefined);
+  }
+
+  /**
+   * Message requests arrived with this version: every chat this device
+   * already knew (it has a read position stored) stays accepted, once, so an
+   * upgrade never turns existing conversations into requests. A fresh
+   * install knows none, so everything is judged on its own from then on.
+   */
+  private grandfatherRequests(
+    conversations: readonly Conversation[],
+    known: ReadonlyMap<ConversationId, number>,
+  ): void {
+    const local = this.deps.stores.local.getState();
+    if (local.requestsSeeded) return;
+    local.grandfather(
+      conversations.filter((c) => known.has(c.id)).map((c) => c.id),
+      this.deps.clock.now(),
+    );
   }
 
   /**
@@ -411,6 +498,7 @@ export class SyncService {
         backfill: false,
         merge: mergeDuplicate,
       });
+      acceptForOutgoing(stores, stored, this.deps.clock.now());
       if (cursor === undefined && page.readUpTo !== undefined) {
         const readUpTo = page.readUpTo;
         // Convert the backend's timestamp-based position into our seq space.
@@ -599,12 +687,41 @@ export class SyncService {
     if (!stores.conversations.getState().markRead(conversationId, latest)) return;
     await repository.setReadCursor(conversationId, latest);
     const toAck = unread.filter((m) => m.authorId !== selfId && m.kind === 'normal');
-    if (toAck.length > 0) {
+    // A message request is read without telling the sender anything; the
+    // receipts go out only if the user accepts (`sendHeldReadReceipts`).
+    if (toAck.length > 0 && selectMessageRequestState(stores, conversationId) === 'accepted') {
       await this.sendReadReceipts(
         conversationId,
         toAck.map((m) => ({ authorId: m.authorId, sentAt: m.sentAt })),
       );
     }
+  }
+
+  /**
+   * Read receipts for what the user already read in a conversation they have
+   * just accepted: while it was a message request nothing was sent (like
+   * Signal Desktop, which sends them for the whole conversation on accept).
+   * Only messages the user has actually read; unread ones get theirs when
+   * they are read, as usual.
+   */
+  async sendHeldReadReceipts(conversationId: ConversationId): Promise<void> {
+    const { repository, stores } = this.deps;
+    const selfId = this.selfId();
+    const cursor = stores.conversations.getState().readCursors[conversationId];
+    if (cursor === undefined) return;
+    const read = (await repository.listAfter(conversationId, 0)).filter(
+      (m) =>
+        m.authorId !== selfId &&
+        m.kind === 'normal' &&
+        !m.deleted &&
+        m.seq !== undefined &&
+        m.seq <= cursor,
+    );
+    if (read.length === 0) return;
+    await this.sendReadReceipts(
+      conversationId,
+      read.map((m) => ({ authorId: m.authorId, sentAt: m.sentAt })),
+    );
   }
 
   /**
@@ -884,10 +1001,15 @@ export class SyncService {
     // A delete/reaction/edit/pin that beat this message (out of order, or a
     // race with our own send) is replayed before the message is ever stored
     // or emitted, so it never has a window to show up "undone".
+    // Someone the user deleted wrote again: it is a fresh message request.
+    if (incoming.authorId !== this.selfId())
+      stores.local.getState().clearDeleted(incoming.conversationId);
     const queued = this.pendingOps.take(incoming.id, this.deps.clock.now());
     const toStore = queued.reduce((m, op) => op(m), incoming);
     const { message, created } = await repository.upsert(toStore, mergeDuplicate);
     const id = message.conversationId;
+    // Our own message, including one sent from the phone, accepts the chat.
+    acceptForOutgoing(stores, [message], this.deps.clock.now());
     stores.messages.getState().appendLive(message);
     // System lines (decrypt failures, timer changes) are stored and shown
     // like any other message, but must never move a chat up or (below)
@@ -940,6 +1062,7 @@ export class SyncService {
    */
   private upsertConversation(conv: Conversation): void {
     const { stores } = this.deps;
+    if (stores.local.getState().deletedChats[conv.id] !== undefined) return;
     if (
       parseConversationId(conv.id)?.kind === 'direct' &&
       !stores.conversations.getState().byId[conv.id] &&
@@ -1144,7 +1267,7 @@ export class SyncService {
       this.refreshAgain = false;
       do {
         try {
-          const conversations = await this.deps.backend.listConversations();
+          const conversations = this.admit(await this.deps.backend.listConversations());
           this.deps.stores.conversations.getState().upsertMany(conversations);
           // The backend can't tell a stale persisted peer from a real one
           // (see SignalCliBackend.listConversations's doc); re-apply the
@@ -1152,6 +1275,7 @@ export class SyncService {
           // sync would reappear the moment anything else re-lists.
           const stale = await this.dropStaleDirects(conversations);
           if (stale.length > 0) this.deps.stores.conversations.getState().removeMany(stale);
+          this.checkHistoryOutgoing();
         } catch (error) {
           this.onError(error, 'conversation refresh failed');
         }

@@ -65,9 +65,9 @@
    when focus is inside the header/banner/message list and not in the
    composer or members box next to it (separate elements, separate boxes). */
 :root[data-shell='tui']
-  [data-snowdrop='chat']:focus-within:not(:has([data-snowdrop='composer']:focus-within)):not(
-    :has([data-snowdrop='members']:focus-within)
-  )
+  [data-snowdrop='chat']:focus-within:not(
+    :has(:is([data-snowdrop='composer'], [data-snowdrop='message-request']):focus-within)
+  ):not(:has([data-snowdrop='members']:focus-within))
   :is(
     [data-snowdrop='chat-header'],
     [data-snowdrop='connection-banner'],
@@ -96,9 +96,9 @@
 }
 
 :root[data-shell='tui']
-  [data-snowdrop='chat']:focus-within:not(:has([data-snowdrop='composer']:focus-within)):not(
-    :has([data-snowdrop='members']:focus-within)
-  )
+  [data-snowdrop='chat']:focus-within:not(
+    :has(:is([data-snowdrop='composer'], [data-snowdrop='message-request']):focus-within)
+  ):not(:has([data-snowdrop='members']:focus-within))
   [data-snowdrop='chat-title-tag'] {
   color: var(--snowdrop-pane-border-focus);
 }

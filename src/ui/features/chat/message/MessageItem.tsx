@@ -20,6 +20,7 @@ import {
 import { messagesSelectors, sessionSelectors } from '@/core/stores';
 import { BREAKPOINTS, overlayOwnsKeys, useMediaQuery, useSnowdrop } from '@/ui/hooks';
 import { ContextMenu, Drawer, EmojiPicker, VisuallyHidden } from '@/ui/primitives';
+import { useMessageRequestState } from '@/ui/features/conversation';
 import { useChatController } from '../ChatController';
 import { useHistoryRead } from './useHistoryRead';
 import {
@@ -77,6 +78,8 @@ export const MessageItem = memo(function MessageItem({
   const m = useStore(stores.messages, messagesSelectors.message(conversationId, id));
   const nameFor = useMessageNames(m);
   const selfId = useStore(stores.session, sessionSelectors.selfId);
+  // Re-renders the row when the conversation is accepted, so its actions (permissionsFor) unlock.
+  useMessageRequestState(conversationId);
   const clock24h = useStore(stores.settings, (s) => s.appearance.clock24h);
   const editing = useStore(stores.ui, (s) => s.editing?.messageId === id);
   const replyTarget = useStore(stores.ui, (s) => s.replyTo[conversationId] === id);

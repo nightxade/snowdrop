@@ -728,6 +728,20 @@ export class IdbMessageRepository implements MessageRepository {
     return entries.sort((a, b) => a.createdAt - b.createdAt);
   }
 
+  deleteConversation(conversationId: ConversationId): Promise<void> {
+    return this.mutate(async () => {
+      const key = await this.cipher.blindId(conversationId);
+      const tx = this.db.transaction(['messages', 'readCursors'], 'readwrite');
+      const index = tx.objectStore('messages').index('byConversationSeq');
+      let cursor = await index.openCursor(this.range(key, -Infinity, Infinity, false, false));
+      while (cursor) {
+        await cursor.delete();
+        cursor = await cursor.continue();
+      }
+      await Promise.all([tx.objectStore('readCursors').delete(key), tx.done]);
+    });
+  }
+
   clear(): Promise<void> {
     return this.mutate(async () => {
       const tx = this.db.transaction(

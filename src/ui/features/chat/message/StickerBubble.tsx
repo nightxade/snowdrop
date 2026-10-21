@@ -1,4 +1,4 @@
-import { Sticker as StickerIcon } from 'lucide-react';
+import { Download, Sticker as StickerIcon } from 'lucide-react';
 import { useState } from 'react';
 import type { ConversationId, StickerContent } from '@/core/domain';
 import { useStickerUrl } from './useStickerUrl';
@@ -6,6 +6,8 @@ import styles from './StickerBubble.module.css';
 
 export interface StickerBubbleProps {
   conversationId: ConversationId;
+  /** Who sent it: someone else's sticker in a message request waits for a Download (useMediaHold). */
+  authorId?: string | undefined;
   sticker: StickerContent;
   /**
    * Makes the image a button that opens the sticker's pack dialog; omitted
@@ -28,8 +30,8 @@ export interface StickerBubbleProps {
  * shows the emoji — or "Sticker" — in a small muted chip instead of a
  * broken image.
  */
-export function StickerBubble({ conversationId, sticker, onOpen }: StickerBubbleProps) {
-  const state = useStickerUrl(conversationId, sticker);
+export function StickerBubble({ conversationId, authorId, sticker, onOpen }: StickerBubbleProps) {
+  const state = useStickerUrl(conversationId, sticker, authorId);
   const [mediaFailed, setMediaFailed] = useState(false);
   const alt = sticker.emoji ? `${sticker.emoji} sticker` : 'Sticker';
 
@@ -42,6 +44,23 @@ export function StickerBubble({ conversationId, sticker, onOpen }: StickerBubble
           <StickerIcon size={14} aria-hidden />
         )}
         <span>Sticker</span>
+      </div>
+    );
+  }
+
+  if (state.status === 'held') {
+    return (
+      <div className={styles.fallback} data-snowdrop="sticker" data-state="held">
+        <StickerIcon size={14} aria-hidden />
+        <span>Sticker</span>
+        <button
+          type="button"
+          className={styles.download}
+          aria-label="Download sticker"
+          onClick={state.download}
+        >
+          <Download size={12} aria-hidden /> Download
+        </button>
       </div>
     );
   }

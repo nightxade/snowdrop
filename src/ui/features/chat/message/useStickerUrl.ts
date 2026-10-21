@@ -3,12 +3,15 @@ import type { ConversationId, StickerContent } from '@/core/domain';
 import { createLogger } from '@/core/lib';
 import { useSnowdrop } from '@/ui/hooks';
 import { classifyAttachmentFailure } from '../lib/attachments';
+import { useMediaHold } from './useMediaHold';
 
 const log = createLogger('ui');
 
 export type StickerUrlState =
   | { status: 'ready'; url: string }
   | { status: 'loading' }
+  /** Someone else's sticker in a message request: not fetched until the user asks (useMediaHold). */
+  | { status: 'held' }
   | { status: 'error' }
   /** No URL and the backend can't fetch one (the mock always gives one directly). */
   | { status: 'unavailable' };
@@ -28,9 +31,12 @@ export type StickerUrlState =
 export function useStickerUrl(
   conversationId: ConversationId,
   sticker: StickerContent,
-): StickerUrlState & { retry: () => void } {
+  /** The sender, for the message-request hold; omitted for the user's own picker. */
+  authorId?: string,
+): StickerUrlState & { retry: () => void; download: () => void } {
   const { backend } = useSnowdrop();
   const key = `${sticker.packId}\u0000${sticker.stickerId}`;
+  const { held, release: download } = useMediaHold(conversationId, authorId, key);
   const backupAttachment = sticker.backupAttachment;
   const [attempt, setAttempt] = useState(0);
   const [result, setResult] = useState<{
@@ -50,30 +56,32 @@ export function useStickerUrl(
   // Claims the sticker's own cached URL for as long as this hook stays
   // mounted (see useAttachmentUrl's identical reasoning for attachments).
   useEffect(() => {
-    if (direct !== undefined || !backend.retainStickerUrl || !backend.releaseStickerUrl) return;
+    if (held || direct !== undefined || !backend.retainStickerUrl || !backend.releaseStickerUrl)
+      return;
     backend.retainStickerUrl(sticker);
     return () => {
       backend.releaseStickerUrl?.(sticker);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, direct, backend]);
+  }, [key, direct, backend, held]);
 
   // Same protection for the backup attachment, for whatever stretch it's
   // the one actually shown (the pack fetch failed, or isn't supported).
   useEffect(() => {
-    if (!backupAttachment || !backend.retainAttachmentUrl || !backend.releaseAttachmentUrl) return;
+    if (held || !backupAttachment || !backend.retainAttachmentUrl || !backend.releaseAttachmentUrl)
+      return;
     backend.retainAttachmentUrl(backupAttachment);
     return () => {
       backend.releaseAttachmentUrl?.(backupAttachment);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [backupAttachment?.id, backend]);
+  }, [backupAttachment?.id, backend, held]);
 
   // Nothing to fetch at all (no backend path exists for either the pack or
   // a backup): `unavailable` is derived below, directly from capabilities,
   // with no effect/state round trip needed.
   useEffect(() => {
-    if (direct !== undefined || (!canResolve && !canResolveBackup)) return;
+    if (held || direct !== undefined || (!canResolve && !canResolveBackup)) return;
     let cancelled = false;
     const resolveBackup = async (): Promise<void> => {
       if (!canResolveBackup || !backend.resolveAttachmentUrl) {
@@ -115,12 +123,13 @@ export function useStickerUrl(
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, attempt, direct, canResolve, canResolveBackup, backend, conversationId]);
+  }, [key, attempt, direct, canResolve, canResolveBackup, backend, conversationId, held]);
 
   let state: StickerUrlState;
-  if (direct !== undefined) state = { status: 'ready', url: direct };
+  if (held) state = { status: 'held' };
+  else if (direct !== undefined) state = { status: 'ready', url: direct };
   else if (!canResolve && !canResolveBackup) state = { status: 'unavailable' };
   else if (result?.key === key && result.attempt === attempt) state = result.state;
   else state = { status: 'loading' };
-  return { ...state, retry };
+  return { ...state, retry, download };
 }

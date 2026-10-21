@@ -61,6 +61,8 @@ export function openDirectConversation(app: AppServices, contact: Contact): Conv
       expireTimerSec: 0,
       lastActivityAt: 0,
     });
+    // The user's own move, not someone writing to them: no request to answer.
+    app.stores.local.getState().markAccepted(id, Date.now());
   }
   ui.getState().selectConversation(id, HOME);
   return id;

@@ -45,13 +45,20 @@ export interface MessageBodyProps {
    * "Add to my emoji" popover for an emoji someone else delivered.
    */
   renderCustomEmoji?: (name: string, image: ReactElement) => ReactNode;
+  /**
+   * False leaves web addresses as plain text, not links: someone the user
+   * hasn't accepted yet (a message request) can't be followed with a click
+   * (Signal Desktop does the same). Default true.
+   */
+  linksEnabled?: boolean;
 }
 
 /** Exported for LinkPreviewCard: Signal only shows a preview whose url still appears in the text. */
 export const URL_PATTERN = /\bhttps?:\/\/[^\s<>"']+[^\s<>"'.,;:!?)\]}]/giu;
 
 /** Plain text with http(s) links made clickable (opened in a new tab, no referrer). */
-function Linkified({ text }: { text: string }) {
+function Linkified({ text, enabled = true }: { text: string; enabled?: boolean }) {
+  if (!enabled) return text;
   const parts: ReactNode[] = [];
   let last = 0;
   for (const match of text.matchAll(URL_PATTERN)) {
@@ -80,10 +87,12 @@ function EmojiAndLinks({
   text,
   resolve,
   wrap,
+  links,
 }: {
   text: string;
   resolve: (name: string) => string | undefined;
   wrap?: ((name: string, image: ReactElement) => ReactNode) | undefined;
+  links: boolean;
 }) {
   const parts: ReactNode[] = [];
   let last = 0;
@@ -92,7 +101,7 @@ function EmojiAndLinks({
     const dataUrl = name && resolve(name);
     if (!dataUrl) continue;
     const at = match.index;
-    if (at > last) parts.push(<Linkified key={at} text={text.slice(last, at)} />);
+    if (at > last) parts.push(<Linkified key={at} text={text.slice(last, at)} enabled={links} />);
     const image = <img className={styles.customEmoji} src={dataUrl} alt={match[0]} />;
     parts.push(
       wrap && name ? (
@@ -103,8 +112,9 @@ function EmojiAndLinks({
     );
     last = at + match[0].length;
   }
-  if (last === 0) return <Linkified text={text} />;
-  if (last < text.length) parts.push(<Linkified key={last} text={text.slice(last)} />);
+  if (last === 0) return <Linkified text={text} enabled={links} />;
+  if (last < text.length)
+    parts.push(<Linkified key={last} text={text.slice(last)} enabled={links} />);
   return parts;
 }
 
@@ -166,9 +176,10 @@ function render(segments: readonly Segment[], props: MessageBodyProps, path: str
           text={text}
           resolve={props.resolveCustomEmoji}
           wrap={props.renderCustomEmoji}
+          links={props.linksEnabled !== false}
         />
       ) : (
-        <Linkified key={key} text={text} />
+        <Linkified key={key} text={text} enabled={props.linksEnabled !== false} />
       );
     }
     if (s.type === 'mention') {

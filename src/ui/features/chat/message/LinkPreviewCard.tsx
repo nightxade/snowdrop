@@ -4,6 +4,7 @@ import type { ConversationId, LinkPreview } from '@/core/domain';
 import { fitMedia } from '../lib/attachments';
 import { isWidePreviewImage, previewDomain, previewUrlInText } from '../lib/linkPreviews';
 import { useAttachmentUrl } from './useAttachmentUrl';
+import { useIncomingMediaHeld } from './useMediaHold';
 import styles from './LinkPreviewCard.module.css';
 
 export interface LinkPreviewCardProps {
@@ -25,16 +26,22 @@ const WIDE_BOX = { width: 400, height: 220 };
  * message text does (new tab, no referrer).
  */
 export function LinkPreviewCard({ conversationId, message, preview, body }: LinkPreviewCardProps) {
+  // A message request's card is shown but not clickable, and its image waits
+  // (see useMediaHold): nothing from the sender is followed or fetched
+  // before the user accepts.
+  const held = useIncomingMediaHeld(conversationId, message.authorId);
   if (!previewUrlInText(preview, body)) return null;
   const wide = isWidePreviewImage(preview.image);
   const domain = previewDomain(preview.url);
+  const Wrapper = held ? 'div' : 'a';
   return (
-    <a
+    <Wrapper
       className={styles.card}
       data-layout={wide ? 'wide' : 'thumb'}
-      href={preview.url}
-      target="_blank"
-      rel="noopener noreferrer nofollow"
+      data-inert={held ? '' : undefined}
+      {...(held
+        ? {}
+        : { href: preview.url, target: '_blank', rel: 'noopener noreferrer nofollow' })}
     >
       <span className={styles.accent} aria-hidden />
       <span className={styles.body}>
@@ -53,7 +60,7 @@ export function LinkPreviewCard({ conversationId, message, preview, body }: Link
           wide={wide}
         />
       )}
-    </a>
+    </Wrapper>
   );
 }
 

@@ -84,3 +84,14 @@
   color: var(--snowdrop-text-muted);
   font-size: var(--snowdrop-font-size-sm);
 }
+
+.download {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--snowdrop-space-2);
+  margin-left: var(--snowdrop-space-2);
+  padding: 2px 8px;
+  border-radius: var(--snowdrop-radius-xs);
+  background: var(--snowdrop-bg-active);
+  color: var(--snowdrop-text);
+}

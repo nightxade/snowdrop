@@ -202,7 +202,10 @@ export function normaliseEnvelope(envelope: WireEnvelope, ctx: NormaliseContext)
     ) {
       events.push({ kind: 'contactsChanged' });
     }
-    if (events.length === 0) ctx.debug('ignored sync message', Object.keys(sync));
+    if (events.length === 0) {
+      ctx.debug('unrecognised sync message', Object.keys(sync));
+      events.push({ kind: 'directoryHint' });
+    }
     return events;
   }
 

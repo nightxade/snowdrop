@@ -74,6 +74,9 @@ describe('migrateLegacyScope', () => {
       contactNotes: { alice: 'met at work' },
       reactionUsage: {},
       backfillRequested: {},
+      acceptedChats: {},
+      deletedChats: {},
+      requestsSeeded: false,
       recentStickers: [],
       seeded: false,
     });
@@ -93,6 +96,9 @@ describe('migrateLegacyScope', () => {
       contactNotes: { alice: 'already here' },
       reactionUsage: {},
       backfillRequested: {},
+      acceptedChats: {},
+      deletedChats: {},
+      requestsSeeded: false,
       recentStickers: [],
       seeded: true,
     });
@@ -102,6 +108,9 @@ describe('migrateLegacyScope', () => {
       contactNotes: { alice: 'legacy value', bob: 'legacy only' },
       reactionUsage: {},
       backfillRequested: {},
+      acceptedChats: {},
+      deletedChats: {},
+      requestsSeeded: false,
       recentStickers: [],
       seeded: true,
     });
@@ -180,6 +189,9 @@ describe('rebindScopedStore', () => {
       contactNotes: { alice: 'known already' },
       reactionUsage: {},
       backfillRequested: {},
+      acceptedChats: {},
+      deletedChats: {},
+      requestsSeeded: false,
       recentStickers: [],
       seeded: false,
     });

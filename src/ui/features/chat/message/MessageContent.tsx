@@ -18,6 +18,7 @@ import { Reactions } from './Reactions';
 import { CustomEmojiPopover } from './CustomEmojiPopover';
 import { StickerBubble } from './StickerBubble';
 import { useCustomEmojiResolver } from './useCustomEmojiResolver';
+import { useIncomingMediaHeld } from './useMediaHold';
 import styles from './MessageItem.module.css';
 
 export interface MessageContentProps {
@@ -64,6 +65,8 @@ export function MessageContent({
   const preview = m.previews?.[0];
   const showHeader = compact || !continuation;
   const { resolveCustomEmoji, emojiSources } = useCustomEmojiResolver(m, selfId, conversationId);
+  // A message request's links are text until it is accepted.
+  const linksEnabled = !useIncomingMediaHeld(conversationId, m.authorId);
   // Emoji someone else delivered can be added to your own collection.
   const delivered = m.authorId === selfId ? undefined : m.customEmoji;
 
@@ -131,6 +134,7 @@ export function MessageContent({
               ranges={m.ranges}
               selfId={selfId}
               nameFor={nameFor}
+              linksEnabled={linksEnabled}
               {...(resolveCustomEmoji ? { resolveCustomEmoji } : {})}
               {...(delivered?.length
                 ? {
@@ -182,6 +186,7 @@ export function MessageContent({
         {!m.deleted && m.sticker && (
           <StickerBubble
             conversationId={conversationId}
+            authorId={m.authorId}
             sticker={m.sticker}
             onOpen={onOpenStickerPack}
           />

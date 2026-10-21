@@ -2,9 +2,11 @@ import { useStore } from 'zustand';
 import {
   colorForId,
   initialsFor,
+  messageRequestState,
   type Contact,
   type ConversationId,
   type ConversationView,
+  type MessageRequestState,
 } from '@/core/domain';
 import {
   contactsSelectors,
@@ -23,6 +25,30 @@ export function useConversationView(id: ConversationId | null): ConversationView
   );
   if (!conversation || !local) return undefined;
   return { ...conversation, ...local };
+}
+
+/**
+ * Whether a conversation is a normal chat, a message request or blocked
+ * (core/domain/messageRequests). A conversation the stores don't know is
+ * `accepted`: nothing about it is on screen to hold back. Re-renders only
+ * when the answer changes, not whenever a contact does.
+ */
+export function useMessageRequestState(id: ConversationId | null): MessageRequestState {
+  const stores = useStores();
+  const conversation = useStore(stores.conversations, (s) => (id ? s.byId[id] : undefined));
+  const acceptedHere = useStore(stores.local, (s) =>
+    id ? s.acceptedChats[id] !== undefined : true,
+  );
+  const selfId = useStore(stores.session, sessionSelectors.selfId);
+  return useStore(stores.contacts, (s: ContactsState) =>
+    conversation
+      ? messageRequestState(conversation, {
+          selfId,
+          contact: (contactId) => s.byId[contactId],
+          acceptedHere,
+        })
+      : 'accepted',
+  );
 }
 
 /** The other participant of a direct conversation. */

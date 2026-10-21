@@ -63,6 +63,30 @@ describe('phone-history directory', () => {
     });
   });
 
+  it('reads who is saved, sharing a profile or blocked, and a blocked group, for message requests', () => {
+    const directory = new BackupDirectory(SELF);
+    directory.add({
+      recipient: {
+        id: '4',
+        contact: { aci: ACI, profileGivenName: 'Ada', profileSharing: true, blocked: true },
+      },
+    });
+    expect(directory.contacts()[0]).toMatchObject({ profileSharing: true, blocked: true });
+    expect(directory.contacts()[0]).not.toHaveProperty('inContacts');
+    const saved = new BackupDirectory(SELF);
+    saved.add({
+      recipient: { id: '5', contact: { aci: ACI, systemGivenName: 'Ada', systemFamilyName: 'L' } },
+    });
+    expect(saved.contacts()[0]).toMatchObject({ inContacts: true, name: 'Ada L' });
+    const groups = new BackupDirectory(SELF);
+    groups.add({
+      recipient: { id: '6', group: { blocked: true, snapshot: { title: { title: 'G' } } } },
+      signalGroupId: 'g1',
+    });
+    groups.add({ chat: { id: '7', recipientId: '6' } });
+    expect(groups.conversations()[0]).toMatchObject({ id: 'group:g1', blocked: true });
+  });
+
   it('does not manufacture chat identities for unsupported destinations', () => {
     const directory = new BackupDirectory(SELF);
     directory.add({ recipient: { id: '2', distributionList: {} } });

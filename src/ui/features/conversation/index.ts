@@ -16,6 +16,7 @@ export {
   peerIdOf,
   usePeer,
   useConversationView,
+  useMessageRequestState,
   type AvatarLook,
 } from './useConversation';
 export { useConversationMenu } from './useConversationMenu';

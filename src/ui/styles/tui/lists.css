@@ -133,6 +133,23 @@
   display: none;
 }
 
+/* TUI rows show no preview line, so a message request (or a blocked chat) is
+   marked in the same two-character gutter as the open row's `>`; the open
+   row keeps its `>` and the request bar says the rest. */
+:root[data-shell='tui']
+  [data-snowdrop='conversation-row'][data-request]:not([data-selected])
+  button[data-roving-item]::before {
+  content: '? ';
+  color: var(--snowdrop-warning);
+}
+
+:root[data-shell='tui']
+  [data-snowdrop='conversation-row'][data-blocked]:not([data-selected])
+  button[data-roving-item]::before {
+  content: 'x ';
+  color: var(--snowdrop-text-faint);
+}
+
 /* The left-edge unread pip is hidden in TUI: the bracketed count already says enough. */
 :root[data-shell='tui'] [data-snowdrop='conversation-row'][data-unread]::before {
   display: none;

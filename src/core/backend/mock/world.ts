@@ -185,8 +185,140 @@ function makeContact(rnd: Random, seed: PersonSeed, index: number, isSelf: boole
   if (seed.about) contact.about = seed.about;
   if (seed.aboutEmoji) contact.aboutEmoji = seed.aboutEmoji;
   if (seed.profileSharing) contact.profileSharing = true;
+  // Everyone in PEOPLE is saved on the demo phone; the strangers behind the
+  // demo's message requests (buildRequests) are built separately, unsaved.
+  if (!isSelf) contact.inContacts = true;
   if (isSelf) contact.isSelf = true;
   return contact;
+}
+
+const MESSAGE_REQUESTS = {
+  dm: {
+    name: 'Marlowe Quist',
+    about: 'Pots, plants and the occasional pun',
+    aboutEmoji: '🪴',
+    lines: [
+      'Hi Juniper! I got your number from the pottery studio noticeboard.',
+      'Is there still a spot in the Thursday wheel class? Here is my last attempt at a bowl.',
+    ],
+  },
+  group: {
+    title: 'Thursday Wheel Club',
+    description: 'Open throwing night, kiln share on the first of the month',
+    host: { name: 'Wren Calloway', about: 'Kiln keeper' },
+    member: { name: 'Odile Ferreira' },
+    lines: ['Welcome! We throw on Thursdays at 7, and the kiln share is five a head.'],
+  },
+} as const;
+
+/**
+ * The demo's two message requests: a stranger's first DM (with a photo, so
+ * the held-attachment state has something to show) and a group a stranger
+ * added the user to. Built from their own random stream, after everything
+ * else, so adding them never shifts the ids of the rest of the world (persisted
+ * spaces reference those). None of these people is in the demo "address book"
+ * (`inContacts`) or shares a profile with the user.
+ */
+function buildRequests(world: MockWorld, seed: number, now: number): void {
+  const rnd = new Random(seed ^ 0x2b7e1516);
+  const selfId = world.self.id;
+  const stranger = (
+    name: string,
+    index: number,
+    extra: Pick<Contact, 'about' | 'aboutEmoji'> = {},
+  ): Contact => {
+    const id = rnd.uuid();
+    return {
+      id,
+      name,
+      profileName: name,
+      color: colorForId(id),
+      number: `+1202555${String(300 + index).padStart(4, '0')}`,
+      ...extra,
+    };
+  };
+  const text = (
+    conversationId: ConversationId,
+    authorId: string,
+    sentAt: number,
+    body: string,
+    attachments: Attachment[] = [],
+  ): Message => ({
+    id: messageId(authorId, sentAt),
+    conversationId,
+    authorId,
+    sentAt,
+    receivedAt: sentAt,
+    body,
+    ranges: [],
+    attachments,
+    reactions: [],
+    status: 'read',
+    kind: 'normal',
+  });
+  const MIN = MINUTE;
+
+  const marlowe = stranger(MESSAGE_REQUESTS.dm.name, 0, {
+    about: MESSAGE_REQUESTS.dm.about,
+    aboutEmoji: MESSAGE_REQUESTS.dm.aboutEmoji,
+  });
+  const dmId = directConversationId(marlowe.id);
+  const dmFirst = now - 95 * MIN;
+  const dmMessages = [
+    text(dmId, marlowe.id, dmFirst, MESSAGE_REQUESTS.dm.lines[0]),
+    text(dmId, marlowe.id, dmFirst + 5 * MIN, MESSAGE_REQUESTS.dm.lines[1], [
+      generateImageAttachment(rnd, 'palette', `request-${dmFirst.toString(36)}`),
+    ]),
+  ];
+
+  const wren = stranger(MESSAGE_REQUESTS.group.host.name, 1, {
+    about: MESSAGE_REQUESTS.group.host.about,
+  });
+  const odile = stranger(MESSAGE_REQUESTS.group.member.name, 2);
+  const groupId = groupConversationId(rnd.base64(32));
+  const groupFirst = now - 3 * 60 * MIN;
+  const groupMessages: Message[] = [
+    {
+      ...text(groupId, wren.id, groupFirst, ''),
+      id: messageId(wren.id, groupFirst),
+      kind: 'system',
+      systemText: `${wren.name} added you to the group.`,
+    },
+    text(groupId, wren.id, groupFirst + 2 * MIN, MESSAGE_REQUESTS.group.lines[0]),
+  ];
+
+  for (const contact of [marlowe, wren, odile]) world.contacts.set(contact.id, contact);
+  const direct: Conversation = {
+    id: dmId,
+    kind: 'direct',
+    title: marlowe.name,
+    memberIds: [selfId, marlowe.id],
+    adminIds: [],
+    expireTimerSec: 0,
+    lastActivityAt: dmMessages.at(-1)?.sentAt ?? dmFirst,
+  };
+  const group: Conversation = {
+    id: groupId,
+    kind: 'group',
+    title: MESSAGE_REQUESTS.group.title,
+    description: MESSAGE_REQUESTS.group.description,
+    memberIds: [selfId, wren.id, odile.id],
+    adminIds: [wren.id],
+    expireTimerSec: 0,
+    lastActivityAt: groupMessages.at(-1)?.sentAt ?? groupFirst,
+  };
+  for (const [conversation, messages] of [
+    [direct, dmMessages],
+    [group, groupMessages],
+  ] as const) {
+    world.conversations.set(conversation.id, conversation);
+    world.histories.set(conversation.id, [...messages]);
+    // Everything in a request starts unread.
+    world.readUpTo.set(conversation.id, (messages[0]?.sentAt ?? now) - 1);
+    world.pools.set(conversation.id, CASUAL_LINES);
+  }
+  world.conversationIds.set('request-dm', dmId);
+  world.conversationIds.set('request-group', groupId);
 }
 
 /** Text with `{@}`/`{@me}` tokens → body + ranges. */
@@ -566,7 +698,7 @@ export function buildWorld({ seed, now, bulk }: WorldOptions): MockWorld {
     })),
   }));
 
-  return {
+  const world: MockWorld = {
     self,
     contacts,
     conversations,
@@ -584,6 +716,8 @@ export function buildWorld({ seed, now, bulk }: WorldOptions): MockWorld {
       muted: CONVERSATIONS.filter((c) => c.muted).flatMap((c) => conversationIds.get(c.key) ?? []),
     },
   };
+  buildRequests(world, seed, now);
+  return world;
 }
 
 export { renderText as renderMockText };

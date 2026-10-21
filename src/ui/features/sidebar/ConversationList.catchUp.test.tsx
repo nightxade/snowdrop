@@ -31,6 +31,8 @@ describe('ConversationList: catching up', () => {
     const bo = directConversationId('bo');
     const cass = directConversationId('cass');
     const known = new Set<ConversationId>([ana, bo, cass]);
+    // Ordinary chats: a message request would show "Message request" instead of its preview.
+    for (const id of known) stores.local.getState().markAccepted(id, 0);
 
     act(() => {
       stores.conversations.getState().upsertMany([

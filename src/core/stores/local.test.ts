@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
+import { directConversationId } from '@/core/domain';
 import { conversationIdFor } from '@/core/domain/testing';
 import { createMemoryStorage, loadVersioned, saveVersioned } from '@/core/persistence';
 import {
   createLocalStore,
+  defaultLocalData,
   localSchema,
   localSelectors,
   MAX_RECENT_STICKERS,
+  mergeLocalData,
   selectLocalData,
 } from './local';
 
@@ -74,9 +77,50 @@ describe('localStore', () => {
       contactNotes: {},
       reactionUsage: {},
       backfillRequested: {},
+      acceptedChats: {},
+      deletedChats: {},
+      requestsSeeded: false,
       recentStickers: [],
       seeded: false,
     });
+  });
+
+  it('round-trips accepted and deleted chats and drops malformed entries', () => {
+    const store = createLocalStore();
+    store.getState().markAccepted(a, 5);
+    store.getState().markDeleted(directConversationId('gone'), 6);
+    store.getState().grandfather([], 7);
+    const storage = createMemoryStorage();
+    saveVersioned(storage, localSchema, selectLocalData(store.getState()));
+    const loaded = loadVersioned(storage, localSchema);
+    expect(loaded.acceptedChats).toEqual({ [a]: 5 });
+    expect(loaded.deletedChats).toEqual({ [directConversationId('gone')]: 6 });
+    expect(loaded.requestsSeeded).toBe(true);
+    const broken = createMemoryStorage({
+      [localSchema.key]: JSON.stringify({
+        v: 1,
+        data: { acceptedChats: { 'not-an-id': 1, [a]: 'soon', 'group:x': 2 }, deletedChats: 4 },
+      }),
+    });
+    const repaired = loadVersioned(broken, localSchema);
+    expect(repaired.acceptedChats).toEqual({ 'group:x': 2 });
+    expect(repaired.deletedChats).toEqual({});
+    expect(repaired.requestsSeeded).toBe(false);
+  });
+
+  it('merges verdicts without letting a deleted chat come back accepted', () => {
+    const x = directConversationId('x');
+    const y = directConversationId('y');
+    const existing = { ...defaultLocalData(), acceptedChats: { [x]: 1 }, requestsSeeded: true };
+    const incoming = {
+      ...defaultLocalData(),
+      acceptedChats: { [y]: 2 },
+      deletedChats: { [x]: 3, [a]: 4 },
+    };
+    const merged = mergeLocalData(existing, incoming);
+    expect(merged.acceptedChats).toEqual({ [x]: 1, [y]: 2 });
+    expect(merged.deletedChats).toEqual({ [a]: 4 });
+    expect(merged.requestsSeeded).toBe(true);
   });
 
   it('tracks reaction usage and offers the three most used', () => {

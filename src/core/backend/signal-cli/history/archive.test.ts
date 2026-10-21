@@ -337,6 +337,55 @@ describe('phone history archive paging', () => {
     await expect(archive?.chatLatestMessageAt('3')).resolves.toBeUndefined();
   });
 
+  const item = (cursor: string, extra: object) => ({
+    cursor,
+    frame: { chatItem: { chatId: '3', dateSent: cursor, ...extra } },
+  });
+
+  it('chatHasOutgoing is true when the user sent a real message, and cached', async () => {
+    const { daemon, open } = fixture();
+    const archive = await open();
+    daemon.reply(
+      'getHistoryChat',
+      page(
+        [
+          item('3', { incoming: {}, standardMessage: {} }),
+          item('4', { outgoing: {}, standardMessage: {} }),
+        ],
+        '3',
+      ),
+    );
+    await expect(archive?.chatHasOutgoing('3')).resolves.toBe(true);
+    const before = daemon.callsTo('getHistoryChat').length;
+    await archive?.chatHasOutgoing('3');
+    expect(daemon.callsTo('getHistoryChat')).toHaveLength(before);
+  });
+
+  it('chatHasOutgoing is false for incoming-only or system-only chats, reading across pages', async () => {
+    const { daemon, open } = fixture();
+    const archive = await open();
+    daemon.handle('getHistoryChat', (params) => ({
+      result:
+        params.before === '5'
+          ? page([item('3', { incoming: {} }), item('4', { outgoing: {}, updateMessage: {} })], '3')
+          : page([item('5', { incoming: {} }), item('6', { incoming: {} })], '5', true),
+    }));
+    await expect(archive?.chatHasOutgoing('3')).resolves.toBe(false);
+    expect(daemon.callsTo('getHistoryChat')).toHaveLength(2);
+  });
+
+  it('chatHasOutgoing stops looking after a bounded number of pages', async () => {
+    const { daemon, open } = fixture();
+    const archive = await open();
+    let next = 10_000;
+    daemon.handle('getHistoryChat', () => {
+      const cursor = String(next--);
+      return { result: page([item(cursor, { incoming: {} })], cursor, true) };
+    });
+    await expect(archive?.chatHasOutgoing('3')).resolves.toBe(false);
+    expect(daemon.callsTo('getHistoryChat')).toHaveLength(4);
+  });
+
   it('rejects chat pages from a different chat, snapshot, or cursor range', async () => {
     const { daemon, open } = fixture();
     const archive = await open();

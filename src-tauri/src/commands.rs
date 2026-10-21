@@ -49,6 +49,14 @@ const ALLOWED_METHODS: &[&str] = &[
     "remoteDelete",
     "updateContact",
     "updateGroup",
+    // Message requests (SignalCliBackend.ts: respondToMessageRequest,
+    // setBlocked): accept or delete a request, block/unblock a contact or
+    // group, and leave a group whose request was deleted. All take only a
+    // recipient or group id (no files), so they pass rpc_guard.rs as is.
+    "sendMessageRequestResponse",
+    "block",
+    "unblock",
+    "quitGroup",
     // Directory (directory.ts).
     "listContacts",
     "listGroups",
@@ -662,6 +670,17 @@ mod tests {
     #[test]
     fn allows_the_version_capability_probe() {
         assert!(is_allowed_method("version"));
+    }
+
+    /// Message requests (SignalCliBackend.ts: respondToMessageRequest and
+    /// setBlocked): answering one, blocking and leaving a group are reachable;
+    /// the account-level `updateProfile` stays out.
+    #[test]
+    fn allows_answering_and_blocking_message_requests() {
+        for method in ["sendMessageRequestResponse", "block", "unblock", "quitGroup"] {
+            assert!(is_allowed_method(method), "{method} should be allowed");
+        }
+        assert!(!is_allowed_method("updateProfile"));
     }
 
     /// The sticker picker lists packs and sends through `send`, and the pack

@@ -12,7 +12,7 @@ import { act, cleanup, fireEvent, render, screen, within } from '@testing-librar
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { MessageRef } from '@/core/backend';
 import type { Attachment, ConversationId } from '@/core/domain';
-import { createLocalStore, createSessionStore } from '@/core/stores';
+import { createStores } from '@/core/stores';
 import { SnowdropContextProvider, type AppServices } from '@/ui/hooks';
 import { TooltipProvider } from '@/ui/primitives';
 import { Attachments } from './Attachments';
@@ -27,7 +27,7 @@ function fakeApp(
 ): AppServices {
   return {
     backend: { kind: 'signal-cli', resolveAttachmentUrl },
-    stores: { session: createSessionStore(), local: createLocalStore() },
+    stores: createStores(),
   } as unknown as AppServices;
 }
 

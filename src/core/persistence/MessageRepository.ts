@@ -118,6 +118,12 @@ export interface MessageRepository {
   deleteOutbox(nonce: string): Promise<void>;
   listOutbox(): Promise<OutboxEntry[]>;
 
+  /**
+   * Removes a conversation's stored messages and its read position (deleting
+   * a message request). Pending outgoing messages are left to the outbox.
+   */
+  deleteConversation(conversationId: ConversationId): Promise<void>;
+
   /** Wipes all local history ("Data & Storage → clear"). */
   clear(): Promise<void>;
 }

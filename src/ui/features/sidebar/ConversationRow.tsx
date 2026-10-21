@@ -7,6 +7,7 @@ import {
   ConversationAvatar,
   openConversation,
   useConversationMenu,
+  useMessageRequestState,
 } from '@/ui/features/conversation';
 import { Badge, ContextMenu, DropdownMenu, IconButton, TypingDots } from '@/ui/primitives';
 import { useRowState } from './useRowState';
@@ -34,14 +35,23 @@ export const ConversationRow = memo(function ConversationRow({
   const [dragging, setDragging] = useState(false);
   const { view, unread, muted, typing, preview } = useRowState(id, variant === 'home');
   const menu = useConversationMenu(id);
+  const requestState = useMessageRequestState(id);
   if (!view) return null;
 
   const hasUnread = unread.count > 0 && !muted;
   const mentions = unread.mentions;
   const Glyph = view.kind === 'group' ? Hash : AtSign;
-  const secondary = typing ?? preview;
+  // A message request says so instead of showing what the stranger wrote.
+  const secondary =
+    typing ??
+    (requestState === 'request'
+      ? 'Message request'
+      : requestState === 'blocked'
+        ? 'Blocked'
+        : preview);
   const label = [
     view.title,
+    requestState === 'request' ? 'message request' : requestState === 'blocked' ? 'blocked' : '',
     mentions > 0 ? `${mentions} mention${mentions === 1 ? '' : 's'}` : hasUnread ? 'unread' : '',
     muted ? 'muted' : '',
     view.pinned ? 'pinned' : '',
@@ -57,6 +67,8 @@ export const ConversationRow = memo(function ConversationRow({
       data-unread={hasUnread ? '' : undefined}
       data-muted={muted ? '' : undefined}
       data-pinned={view.pinned ? '' : undefined}
+      data-request={requestState === 'request' ? '' : undefined}
+      data-blocked={requestState === 'blocked' ? '' : undefined}
       data-snowdrop="conversation-row"
       data-row-id={id}
       data-dragging={dragging ? '' : undefined}
