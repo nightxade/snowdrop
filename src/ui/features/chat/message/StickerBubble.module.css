@@ -16,30 +16,15 @@
   margin-top: var(--snowdrop-space-1);
   border-radius: var(--snowdrop-radius-sm);
   cursor: pointer;
-  transition: transform var(--snowdrop-duration-fast) var(--snowdrop-ease);
 }
 
 .open > .image {
   margin-top: 0;
 }
 
-.open:hover {
-  transform: scale(1.03);
-}
-
 .open:focus-visible {
   outline: 2px solid var(--snowdrop-focus-ring);
   outline-offset: 2px;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .open:hover {
-    transform: none;
-  }
-}
-
-:root[data-reduced-motion='on'] .open:hover {
-  transform: none;
 }
 
 .placeholder {
