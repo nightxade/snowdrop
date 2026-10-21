@@ -1,9 +1,12 @@
 import { useSyncExternalStore } from 'react';
-import { useSnowdrop } from '@/ui/hooks';
+import { useStore } from 'zustand';
+import { sessionSelectors } from '@/core/stores';
+import { useEffectivePrivacy, useSnowdrop } from '@/ui/hooks';
 import { Switch } from '@/ui/primitives';
 import { SettingRow } from '../rows/SettingRow';
 import { SettingsSection } from '../rows/SettingsSection';
 import { useSettingsSection } from '../useSettingsSection';
+import { phoneSettingNote } from '../phoneSettingNote';
 import { EncryptionSection } from './EncryptionSection';
 import styles from './pages.module.css';
 
@@ -16,11 +19,31 @@ function usePluginEnabled(id: string): [boolean, (on: boolean) => void] {
   return [enabled, (on) => void plugins.setEnabled(id, on)];
 }
 
+type PhoneSetting = 'readReceipts' | 'typingIndicators' | 'linkPreviews';
+
 export function PrivacyPage() {
   const app = useSnowdrop();
-  const [behaviour, setBehaviour] = useSettingsSection('behaviour');
+  const [, setBehaviour] = useSettingsSection('behaviour');
   const [clearUrls, setClearUrls] = usePluginEnabled('clear-urls');
+  const privacy = useEffectivePrivacy();
+  const phone = useStore(app.stores.session, sessionSelectors.phonePrivacy);
   const where = app.storageAdmin ? 'this computer' : 'this browser';
+  const signalCli = app.backend.kind === 'signal-cli';
+  const pending = phone.status === 'pending';
+  const noteFor = (key: PhoneSetting) =>
+    phoneSettingNote(phone.status, privacy.fromPhone[key], signalCli);
+  /** Follows the phone when it has told us, and then writes back to it. */
+  const change = (
+    key: PhoneSetting,
+    local: 'sendReadReceipts' | 'sendTypingIndicators',
+    value: boolean,
+  ) => {
+    if (privacy.fromPhone[key]) void app.sync.updatePhonePrivacy({ [key]: value });
+    else setBehaviour({ [local]: value });
+  };
+  const receiptsHiddenByPhone = privacy.fromPhone.readReceipts && !privacy.sendReadReceipts;
+  const receiptsNote = noteFor('readReceipts');
+  const typingNote = noteFor('typingIndicators');
   return (
     <>
       {app.storageAdmin && <EncryptionSection admin={app.storageAdmin} />}
@@ -28,14 +51,16 @@ export function PrivacyPage() {
         <SettingRow
           id="privacy.receipts"
           label="Send read receipts"
-          description="When on, people see when you’ve read their messages. Turning it off only stops Snowdrop sending them: you still see other people’s receipts here. (Signal’s own apps also stop showing you theirs when it’s off; Snowdrop keeps that separate, below.) This is Snowdrop’s own setting: it doesn’t follow the one on your phone."
+          description="When on, people see when you’ve read their messages. Like Signal’s own apps, turning it off also hides other people’s read marks on your messages."
+          {...(receiptsNote ? { note: receiptsNote } : {})}
           control={(ids) => (
             <Switch
               id={ids.id}
               aria-describedby={ids.descriptionId}
-              checked={behaviour.sendReadReceipts}
+              checked={privacy.sendReadReceipts}
+              disabled={pending}
               onCheckedChange={(v) => {
-                setBehaviour({ sendReadReceipts: v });
+                change('readReceipts', 'sendReadReceipts', v);
               }}
             />
           )}
@@ -43,12 +68,16 @@ export function PrivacyPage() {
         <SettingRow
           id="privacy.showReceipts"
           label="Show read receipts on your messages"
-          description="Shows the small delivered/read mark after your own messages, and who’s read a group message in its Message details. Off hides the mark (a failed send still shows); this is purely a display choice and doesn’t change what you send or receive above."
+          description="Shows the small delivered/read mark after your own messages, and who’s read a group message in its Message details. Off hides the mark (a failed send still shows); this is purely a display choice and doesn’t change what you send or receive."
+          {...(receiptsHiddenByPhone
+            ? { note: 'Hidden while read receipts are off, as in Signal’s own apps.' }
+            : {})}
           control={(ids) => (
             <Switch
               id={ids.id}
               aria-describedby={ids.descriptionId}
-              checked={behaviour.showReadReceipts}
+              checked={privacy.showReadReceipts}
+              disabled={receiptsHiddenByPhone}
               onCheckedChange={(v) => {
                 setBehaviour({ showReadReceipts: v });
               }}
@@ -59,13 +88,15 @@ export function PrivacyPage() {
           id="privacy.typing"
           label="Send typing indicators"
           description="When on, people see “typing…” while you write to them. Off applies to every conversation."
+          {...(typingNote ? { note: typingNote } : {})}
           control={(ids) => (
             <Switch
               id={ids.id}
               aria-describedby={ids.descriptionId}
-              checked={behaviour.sendTypingIndicators}
+              checked={privacy.sendTypingIndicators}
+              disabled={pending}
               onCheckedChange={(v) => {
-                setBehaviour({ sendTypingIndicators: v });
+                change('typingIndicators', 'sendTypingIndicators', v);
               }}
             />
           )}

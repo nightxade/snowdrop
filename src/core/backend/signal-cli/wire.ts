@@ -337,6 +337,13 @@ export const wireStartLink = object({ deviceLinkUri: str });
 export const wireFinishLink = object({ number: optStr, aci: optStr, historyTransfer: optStr });
 export const wireAttachmentData = object({ data: str });
 export const wireVersion = object({ version: optStr });
+/** `getConfiguration`: each value is a boolean, or null/absent while the phone hasn't said. */
+export const wirePhonePrivacy = object({
+  readReceipts: optBool,
+  typingIndicators: optBool,
+  linkPreviews: optBool,
+  unidentifiedDeliveryIndicators: optBool,
+});
 
 /** Our identity for an address: ACI when known (stable), else the number. */
 export function addressId(

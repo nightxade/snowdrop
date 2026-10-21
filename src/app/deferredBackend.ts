@@ -35,6 +35,8 @@ export const OPTIONAL_METHODS = [
   'getStickerPack',
   'installStickerPack',
   'requestAttachmentBackfill',
+  'readPhonePrivacy',
+  'updatePhonePrivacy',
   'acknowledge',
   'link',
   'syncContactsAndGroups',
@@ -206,6 +208,17 @@ export function deferredBackend(
     // Known only once the adapter has connected and read signal-cli's version.
     backend.supportsAttachmentBackfill = () => real?.supportsAttachmentBackfill?.() ?? false;
   }
+  if (caps.has('readPhonePrivacy')) {
+    backend.readPhonePrivacy = () =>
+      call((b) => (b.readPhonePrivacy ? b.readPhonePrivacy() : missing('readPhonePrivacy')));
+    // Known only once the adapter has connected and read signal-cli's version.
+    backend.supportsPhonePrivacy = () => real?.supportsPhonePrivacy?.() ?? false;
+  }
+  if (caps.has('updatePhonePrivacy'))
+    backend.updatePhonePrivacy = (patch) =>
+      call((b) =>
+        b.updatePhonePrivacy ? b.updatePhonePrivacy(patch) : missing('updatePhonePrivacy'),
+      );
   if (caps.has('acknowledge'))
     backend.acknowledge = (cursor) => {
       if (real) real.acknowledge?.(cursor);

@@ -78,6 +78,51 @@ describe('Composer: link preview', () => {
     expect(input.value).toContain('https://example.com/a');
   }, 10_000);
 
+  it('fetches nothing when the phone has link previews off, even though the local setting is on', async () => {
+    const fetchPreview = vi
+      .fn()
+      .mockResolvedValue({ url: 'https://example.com/a', title: 'Example' });
+    const { snowdrop, typeText } = await setup(fetchPreview);
+    act(() => {
+      snowdrop.stores.session.getState().setPhonePrivacy({
+        status: 'ready',
+        values: {
+          readReceipts: null,
+          typingIndicators: null,
+          linkPreviews: false,
+          unidentifiedDeliveryIndicators: null,
+        },
+      });
+    });
+
+    typeText('https://example.com/a');
+    await wait(DEBOUNCE_MS + 300);
+    expect(fetchPreview).not.toHaveBeenCalled();
+    expect(screen.queryByText('Example')).toBeNull();
+  }, 10_000);
+
+  it('fetches nothing while the phone’s setting is still being read', async () => {
+    const fetchPreview = vi
+      .fn()
+      .mockResolvedValue({ url: 'https://example.com/a', title: 'Example' });
+    const { snowdrop, typeText } = await setup(fetchPreview);
+    act(() => {
+      snowdrop.stores.session.getState().setPhonePrivacy({
+        status: 'pending',
+        values: {
+          readReceipts: null,
+          typingIndicators: null,
+          linkPreviews: null,
+          unidentifiedDeliveryIndicators: null,
+        },
+      });
+    });
+
+    typeText('https://example.com/a');
+    await wait(DEBOUNCE_MS + 300);
+    expect(fetchPreview).not.toHaveBeenCalled();
+  }, 10_000);
+
   it('dismisses the card, which stays hidden for that url while composing', async () => {
     const fetchPreview = vi
       .fn()

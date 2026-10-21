@@ -1,6 +1,7 @@
 import { createStore, type StoreApi } from 'zustand/vanilla';
 import type { BackendKind } from '@/core/backend';
 import type { ConnectionStatus, Contact } from '@/core/domain';
+import { initialPhonePrivacy, type PhonePrivacyState } from './privacy';
 
 export type HistoryImportStatus = 'idle' | 'importing' | 'done' | 'failed';
 
@@ -56,6 +57,12 @@ export interface SessionState {
    * attachment's plain failure state instead, with a manual retry.
    */
   attachmentBackfills: Record<string, AttachmentBackfillStatus>;
+  /**
+   * The privacy settings the user's phone syncs to this device and whether
+   * they're known yet (see `effectivePrivacy`). Session-only: re-read on
+   * every connect, never persisted.
+   */
+  phonePrivacy: PhonePrivacyState;
 
   setBackendKind(kind: BackendKind | null): void;
   setStatus(status: ConnectionStatus): void;
@@ -65,6 +72,7 @@ export interface SessionState {
   setCatchingUp(catchingUp: boolean): void;
   setHistoryImport(patch: Partial<HistoryImportProgress>): void;
   setAttachmentBackfill(key: string, status: AttachmentBackfillStatus): void;
+  setPhonePrivacy(phonePrivacy: PhonePrivacyState): void;
   /** Call right before sending a new request for `key`, so a stale answer from an earlier one can't leak into it. */
   clearAttachmentBackfill(key: string): void;
 }
@@ -87,6 +95,7 @@ export function createSessionStore(): SessionStore {
     catchingUp: false,
     historyImport: IDLE_HISTORY_IMPORT,
     attachmentBackfills: {},
+    phonePrivacy: initialPhonePrivacy(),
     setBackendKind: (backendKind) => {
       set({ backendKind });
     },
@@ -111,6 +120,9 @@ export function createSessionStore(): SessionStore {
     setAttachmentBackfill: (key, status) => {
       set((s) => ({ attachmentBackfills: { ...s.attachmentBackfills, [key]: status } }));
     },
+    setPhonePrivacy: (phonePrivacy) => {
+      set({ phonePrivacy });
+    },
     clearAttachmentBackfill: (key) => {
       set((s) => {
         const { [key]: _removed, ...rest } = s.attachmentBackfills;
@@ -130,6 +142,7 @@ export const sessionSelectors = {
   errorKind: (s: SessionState) => s.errorKind,
   catchingUp: (s: SessionState) => s.catchingUp,
   historyImport: (s: SessionState) => s.historyImport,
+  phonePrivacy: (s: SessionState) => s.phonePrivacy,
   attachmentBackfill: (authorId: string, sentAt: number) => (s: SessionState) =>
     s.attachmentBackfills[`${authorId}\u0000${sentAt}`],
 };

@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react';
-import { useSnowdrop } from '@/ui/hooks';
+import { useStore } from 'zustand';
+import { sessionSelectors } from '@/core/stores';
+import { useEffectivePrivacy, useSnowdrop } from '@/ui/hooks';
 import { Segmented, Switch } from '@/ui/primitives';
 import { SettingRow } from '../rows/SettingRow';
+import { phoneSettingNote } from '../phoneSettingNote';
 import { SettingsSection } from '../rows/SettingsSection';
 import { useSettingsSection } from '../useSettingsSection';
 
@@ -27,6 +30,13 @@ export function BehaviourPage() {
   const app = useSnowdrop();
   const [b, set] = useSettingsSection('behaviour');
   const trayAvailable = useTrayAvailable();
+  const privacy = useEffectivePrivacy();
+  const phone = useStore(app.stores.session, sessionSelectors.phonePrivacy);
+  const linkPreviewsNote = phoneSettingNote(
+    phone.status,
+    privacy.fromPhone.linkPreviews,
+    app.backend.kind === 'signal-cli',
+  );
   return (
     <SettingsSection>
       <SettingRow
@@ -86,14 +96,18 @@ export function BehaviourPage() {
         <SettingRow
           id="behaviour.linkPreviews"
           label="Link previews"
+          {...(linkPreviewsNote ? { note: linkPreviewsNote } : {})}
           description="When a message you're writing has a link, Snowdrop fetches that page's title, description and image directly from this device and attaches them, the same way Signal Desktop does — so the site sees this device's IP address, as it would if you opened the link. If the HTTPS_PROXY environment variable is set, the fetch goes through that proxy instead. You'll see what was found before it sends, and can remove it. Off, nothing is ever fetched — you can still see previews other people send you, since those never involve your device contacting anything."
           control={(ids) => (
             <Switch
               id={ids.id}
               aria-describedby={ids.descriptionId}
-              checked={b.linkPreviews}
+              checked={privacy.linkPreviews}
+              disabled={phone.status === 'pending'}
               onCheckedChange={(v) => {
-                set({ linkPreviews: v });
+                if (privacy.fromPhone.linkPreviews)
+                  void app.sync.updatePhonePrivacy({ linkPreviews: v });
+                else set({ linkPreviews: v });
               }}
             />
           )}

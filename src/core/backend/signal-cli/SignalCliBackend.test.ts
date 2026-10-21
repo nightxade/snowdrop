@@ -1294,6 +1294,77 @@ describe('SignalCliBackend sticker packs', () => {
   });
 });
 
+describe('SignalCliBackend phone privacy settings', () => {
+  async function backendAt(version: string) {
+    const { daemon } = daemonWithAccount();
+    daemon.reply('version', { version });
+    daemon.reply('getConfiguration', {
+      readReceipts: false,
+      typingIndicators: null,
+      linkPreviews: true,
+    });
+    daemon.reply('updateConfiguration', {});
+    const s = await connected({ daemon });
+    return { ...s, daemon };
+  }
+
+  it('is only offered on a build with patch 0022, and never after disconnecting', async () => {
+    expect((await backendAt('0.14.8-snowdrop-history.17')).backend.supportsPhonePrivacy()).toBe(
+      false,
+    );
+    expect((await backendAt('0.14.8')).backend.supportsPhonePrivacy()).toBe(false);
+    const { backend } = await backendAt('0.14.8-snowdrop-history.18');
+    expect(backend.supportsPhonePrivacy()).toBe(true);
+    await backend.disconnect();
+    expect(backend.supportsPhonePrivacy()).toBe(false);
+  });
+
+  it('reads the stored values, keeping unknown ones as null', async () => {
+    const { backend, daemon } = await backendAt('0.14.8-snowdrop-history.18');
+    await expect(backend.readPhonePrivacy()).resolves.toEqual({
+      readReceipts: false,
+      typingIndicators: null,
+      linkPreviews: true,
+      unidentifiedDeliveryIndicators: null,
+    });
+    expect(daemon.callsTo('getConfiguration')).toEqual([{ account: SELF_ACI }]);
+    await backend.disconnect();
+  });
+
+  it('refuses to read or write on a build without the patch, without calling the daemon', async () => {
+    const { backend, daemon } = await backendAt('0.14.8-snowdrop-history.17');
+    await expect(backend.readPhonePrivacy()).rejects.toBeInstanceOf(SignalCliError);
+    await expect(backend.updatePhonePrivacy({ readReceipts: true })).rejects.toBeInstanceOf(
+      SignalCliError,
+    );
+    expect(daemon.callsTo('getConfiguration')).toEqual([]);
+    expect(daemon.callsTo('updateConfiguration')).toEqual([]);
+    await backend.disconnect();
+  });
+
+  it('sends only the keys that changed', async () => {
+    const { backend, daemon } = await backendAt('0.14.8-snowdrop-history.18');
+    await backend.updatePhonePrivacy({ typingIndicators: false });
+    await backend.updatePhonePrivacy({});
+    expect(daemon.callsTo('updateConfiguration')).toEqual([
+      { account: SELF_ACI, typingIndicators: false },
+    ]);
+    await backend.disconnect();
+  });
+
+  it('maps a receiveConfigurationChanged SSE event to phonePrivacyChanged', async () => {
+    const { backend, daemon } = await backendAt('0.14.8-snowdrop-history.18');
+    const changed = collect(backend, 'phonePrivacyChanged');
+    daemon.lastStream!.push(
+      `id:run-3\nevent:receiveConfigurationChanged\ndata:${JSON.stringify({ account: SELF_ACI })}\n\n`,
+    );
+    await flush();
+    await backend.idle();
+    expect(changed).toEqual([undefined]);
+    await backend.disconnect();
+  });
+});
+
 describe('SignalCliBackend installing a sticker pack from a sticker', () => {
   const KEY = 'c0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ff';
   const stickers = [

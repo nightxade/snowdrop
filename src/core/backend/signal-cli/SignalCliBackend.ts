@@ -55,6 +55,8 @@ import type {
   HistoryReadState,
   LinkFlow,
   MessageRef,
+  PhonePrivacyPatch,
+  PhonePrivacySettings,
   PinInput,
   ReactInput,
   SendInput,
@@ -74,6 +76,7 @@ import {
   supportsAttachmentBackfill as detectAttachmentBackfillSupport,
   supportsCustomEmojiDelivery as detectCustomEmojiSupport,
   supportsHistoryStickerPack as detectHistoryStickerPackSupport,
+  supportsPhonePrivacy as detectPhonePrivacySupport,
   supportsStickerPackInstall as detectStickerPackInstallSupport,
 } from './capabilities';
 import { Directory } from './directory';
@@ -108,6 +111,7 @@ import {
   wireAccounts,
   wireFinishLink,
   wireSendResult,
+  wirePhonePrivacy,
   wireStartLink,
   wireStickerPacks,
   wireVersion,
@@ -234,6 +238,8 @@ export class SignalCliBackend implements ChatBackend {
   private historyStickerPackSupported = false;
   /** Whether the connected daemon can install a known sticker pack by id (see capabilities.ts). */
   private stickerPackInstallSupported = false;
+  /** Whether the connected daemon reports the phone's privacy settings (see capabilities.ts). */
+  private phonePrivacySupported = false;
   /** Installed packs whose download `listStickerPacks` already started this session. */
   private readonly stickerPacksFetchTried = new Set<string>();
   /** listConversations logs its counts once per backend, not on every refresh. */
@@ -339,6 +345,7 @@ export class SignalCliBackend implements ChatBackend {
       this.attachmentBackfillSupported = detectAttachmentBackfillSupport(version);
       this.historyStickerPackSupported = detectHistoryStickerPackSupport(version);
       this.stickerPackInstallSupported = detectStickerPackInstallSupport(version);
+      this.phonePrivacySupported = detectPhonePrivacySupport(version);
       this.selectAccount(await this.discoverAccount());
       // Stream first: nothing sent to us while we load the directory is missed.
       this.openStream();
@@ -383,6 +390,44 @@ export class SignalCliBackend implements ChatBackend {
   /** Whether the connected signal-cli build can install a known sticker pack (see capabilities.ts). */
   supportsStickerPackInstall(): boolean {
     return this.stickerPackInstallSupported;
+  }
+
+  /** Whether the connected signal-cli build reports the phone's privacy settings (see capabilities.ts). */
+  supportsPhonePrivacy(): boolean {
+    return this.phonePrivacySupported;
+  }
+
+  /** See `ChatBackend.readPhonePrivacy`: the stored configuration the phone synced to us. */
+  async readPhonePrivacy(): Promise<PhonePrivacySettings> {
+    this.assertAccount();
+    if (!this.phonePrivacySupported)
+      throw new SignalCliError(
+        'user',
+        "This signal-cli can't report your phone's privacy settings.",
+      );
+    const wire = await this.rpc.call('getConfiguration', undefined, wirePhonePrivacy);
+    return {
+      readReceipts: wire.readReceipts ?? null,
+      typingIndicators: wire.typingIndicators ?? null,
+      linkPreviews: wire.linkPreviews ?? null,
+      unidentifiedDeliveryIndicators: wire.unidentifiedDeliveryIndicators ?? null,
+    };
+  }
+
+  /** See `ChatBackend.updatePhonePrivacy`: signal-cli stores it and syncs it to the phone. */
+  async updatePhonePrivacy(patch: PhonePrivacyPatch): Promise<void> {
+    this.assertAccount();
+    if (!this.phonePrivacySupported)
+      throw new SignalCliError(
+        'user',
+        "This signal-cli can't change your phone's privacy settings.",
+      );
+    const params: RpcParams = {};
+    if (patch.readReceipts !== undefined) params.readReceipts = patch.readReceipts;
+    if (patch.typingIndicators !== undefined) params.typingIndicators = patch.typingIndicators;
+    if (patch.linkPreviews !== undefined) params.linkPreviews = patch.linkPreviews;
+    if (Object.keys(params).length === 0) return;
+    await this.rpc.call('updateConfiguration', params, ignoreResult);
   }
 
   /**
@@ -452,6 +497,7 @@ export class SignalCliBackend implements ChatBackend {
     this.attachmentBackfillSupported = false;
     this.historyStickerPackSupported = false;
     this.stickerPackInstallSupported = false;
+    this.phonePrivacySupported = false;
     this.setStatus('offline');
   }
 
@@ -623,6 +669,10 @@ export class SignalCliBackend implements ChatBackend {
       // Patched signal-cli only (patches/signal-cli/0012): the receive loop
       // drained the server's queue. No envelope; nothing to normalise.
       this.emitter.emit('caughtUp', undefined);
+    } else if (event.type === 'receiveConfigurationChanged') {
+      // Patched signal-cli only (patches/signal-cli/0022): the privacy settings
+      // changed; no values travel with it, the service re-reads them.
+      this.emitter.emit('phonePrivacyChanged', undefined);
     } else if (event.type === 'attachmentBackfill') {
       // Patched signal-cli only (patches/signal-cli/0016): our primary
       // answered a requestAttachmentBackfill call.

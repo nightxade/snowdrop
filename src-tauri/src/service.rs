@@ -591,7 +591,7 @@ impl Service {
     /// the account lookup and the held-event log; only the forwarded `kind`
     /// (and therefore the UI's event `type`) differs.
     fn on_notification(&self, method: &str, params: Value) {
-        if method != "receive" && method != "receiveCaughtUp" {
+        if !matches!(method, "receive" | "receiveCaughtUp" | "receiveConfigurationChanged") {
             log::debug!("ignored signal-cli notification {method}");
             return;
         }
@@ -810,6 +810,21 @@ mod tests {
         assert_eq!(events[0].kind, "receiveCaughtUp");
         assert_eq!(events[0].account, "+15550001");
         assert_eq!(events[0].data, json!({"account": "+15550001"}));
+    }
+
+    /// `receiveConfigurationChanged` (patches/signal-cli 0022) is forwarded the
+    /// same way: no values, the UI re-reads `getConfiguration`.
+    #[test]
+    fn configuration_changed_notification_is_forwarded_with_its_own_kind() {
+        let (svc, sink) = service_with_sink();
+        svc.subs.lock().unwrap().by_id.insert(0, "+15550001".into());
+
+        svc.on_notification("receiveConfigurationChanged", json!({"subscription": 0, "result": {"account": "+15550001"}}));
+
+        let events = sink.events.lock().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, "receiveConfigurationChanged");
+        assert_eq!(events[0].account, "+15550001");
     }
 
     /// A notification method Snowdrop doesn't understand is dropped, not forwarded

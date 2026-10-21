@@ -219,6 +219,24 @@ has already put it. On a build without 0021 (`supportsStickerPackInstall` is fal
 below 17) the dialog still shows the pack, with Install disabled and a note. After an install the
 composer's sticker picker lists the pack without a restart.
 
+## Read receipts, typing indicators and link previews follow your phone
+
+Signal keeps these three as account settings that the phone owns and linked devices follow. Signal
+Desktop reads them from the phone's configuration sync and storage-service account record, and a
+change made on Desktop is written back through the storage service (`ts/services/storageRecordOps`,
+`ts/state/smart/Preferences`). Snowdrop does the same through patch 0022 (`getConfiguration`,
+`receiveConfigurationChanged`): the phone's values decide whether Snowdrop sends read receipts and
+typing indicators and whether it fetches link previews, Settings → Privacy and Behaviour show them
+and say they're synced, and changing one there is written to signal-cli (`updateConfiguration`) and
+on to the phone. With read receipts off, Snowdrop also hides other people's read marks, as Signal
+does.
+
+Until the first read after connecting has finished, none of the three is acted on: no receipt or
+typing indicator is sent and no link is fetched (receipts earned in that moment are held, then sent
+or dropped once the answer is in). A value the phone hasn't sent yet falls back to Snowdrop's own
+setting for that one value. A signal-cli without patch 0022 (patch level below 18) can't be asked, so
+Snowdrop's own settings apply and the Privacy page says so.
+
 ## Custom emoji from other people
 
 An emoji someone else delivered with a message (see below) can be added to your own collection:

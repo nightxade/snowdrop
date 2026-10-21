@@ -35,7 +35,7 @@ function revokePreview(preview: OutgoingLinkPreview | undefined): void {
 }
 
 /**
- * `enabled` is `behaviour.linkPreviews && app.linkPreviewFetch !== null` —
+ * `enabled` is the effective link-preview setting and `app.linkPreviewFetch !== null` —
  * passed in rather than read here so this hook has no opinion on where
  * that setting lives, and tests can drive it directly.
  */

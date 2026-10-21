@@ -6,10 +6,10 @@
  * injected the way the real app does it — isTauri() true, @/platform/tauri
  * mocked — in the style of ConnectionPage.test.tsx.
  */
-import { act, cleanup, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createSnowdrop, type Snowdrop } from '@/app/createSnowdrop';
-import type { StorageAdmin, StorageStatus } from '@/core/backend';
+import type { PhonePrivacySettings, StorageAdmin, StorageStatus } from '@/core/backend';
 import { createMemoryStorage } from '@/core/persistence';
 import { bootSnowdrop, renderWithSnowdrop } from '@/test/renderWithSnowdrop';
 import { PrivacyPage } from './PrivacyPage';
@@ -92,5 +92,104 @@ describe('Settings → Privacy & security', () => {
     expect(screen.queryByRole('heading', { name: 'Encryption' })).toBeNull();
     expect(screen.queryByRole('heading', { name: 'Danger zone' })).toBeNull();
     expect(screen.getByText('Send read receipts')).toBeTruthy();
+  });
+});
+
+describe('Settings → Privacy: following the phone', () => {
+  const unknown: PhonePrivacySettings = {
+    readReceipts: null,
+    typingIndicators: null,
+    linkPreviews: null,
+    unidentifiedDeliveryIndicators: null,
+  };
+  const row = (id: string) => document.querySelector(`[data-setting="${id}"]`)!;
+  const toggle = (id: string) => row(id).querySelector('button[role="switch"]')!;
+
+  function showWith(state: {
+    status: 'unsupported' | 'pending' | 'ready';
+    values?: Partial<typeof unknown>;
+  }) {
+    act(() => {
+      snowdrop!.stores.session
+        .getState()
+        .setPhonePrivacy({ status: state.status, values: { ...unknown, ...state.values } });
+    });
+  }
+
+  it('shows the phone’s values, says they are synced, and writes changes back to the phone', async () => {
+    snowdrop = await bootSnowdrop();
+    const update = vi.spyOn(snowdrop.sync, 'updatePhonePrivacy').mockResolvedValue(true);
+    renderWithSnowdrop(snowdrop, <PrivacyPage />);
+    showWith({ status: 'ready', values: { readReceipts: false, typingIndicators: true } });
+
+    expect(toggle('privacy.receipts').getAttribute('aria-checked')).toBe('false');
+    expect(toggle('privacy.typing').getAttribute('aria-checked')).toBe('true');
+    expect(row('privacy.receipts').textContent).toContain('Synced with your phone');
+
+    // The local setting says "on"; the toggle follows the phone, and a click goes to the phone.
+    expect(snowdrop.stores.settings.getState().behaviour.sendReadReceipts).toBe(true);
+    await act(async () => {
+      fireEvent.click(toggle('privacy.receipts'));
+      await Promise.resolve();
+    });
+    expect(update).toHaveBeenCalledWith({ readReceipts: true });
+    expect(snowdrop.stores.settings.getState().behaviour.sendReadReceipts).toBe(true);
+  });
+
+  it('keeps editing the local setting for a value the phone has not shared yet', async () => {
+    snowdrop = await bootSnowdrop();
+    const update = vi.spyOn(snowdrop.sync, 'updatePhonePrivacy');
+    renderWithSnowdrop(snowdrop, <PrivacyPage />);
+    showWith({ status: 'ready', values: { typingIndicators: true } });
+
+    expect(row('privacy.receipts').textContent).toContain('hasn’t shared this setting yet');
+    await act(async () => {
+      fireEvent.click(toggle('privacy.receipts'));
+      await Promise.resolve();
+    });
+    expect(update).not.toHaveBeenCalled();
+    expect(snowdrop.stores.settings.getState().behaviour.sendReadReceipts).toBe(false);
+  });
+
+  it('disables the switches while the phone is being asked', async () => {
+    snowdrop = await bootSnowdrop();
+    renderWithSnowdrop(snowdrop, <PrivacyPage />);
+    showWith({ status: 'pending' });
+
+    expect(toggle('privacy.receipts').hasAttribute('disabled')).toBe(true);
+    expect(toggle('privacy.typing').hasAttribute('disabled')).toBe(true);
+    expect(row('privacy.receipts').textContent).toContain('Checking the setting on your phone');
+  });
+
+  it('uses Snowdrop’s own setting, with no sync note, where nothing can read the phone (the demo)', async () => {
+    snowdrop = await bootSnowdrop();
+    renderWithSnowdrop(snowdrop, <PrivacyPage />);
+    showWith({ status: 'unsupported' });
+
+    expect(toggle('privacy.receipts').hasAttribute('disabled')).toBe(false);
+    expect(row('privacy.receipts').textContent).not.toContain('phone');
+    await act(async () => {
+      fireEvent.click(toggle('privacy.receipts'));
+      await Promise.resolve();
+    });
+    expect(snowdrop.stores.settings.getState().behaviour.sendReadReceipts).toBe(false);
+  });
+
+  it('hides the display switch while the phone has read receipts off', async () => {
+    snowdrop = await bootSnowdrop();
+    renderWithSnowdrop(snowdrop, <PrivacyPage />);
+    showWith({ status: 'ready', values: { readReceipts: false } });
+
+    expect(toggle('privacy.showReceipts').hasAttribute('disabled')).toBe(true);
+    expect(toggle('privacy.showReceipts').getAttribute('aria-checked')).toBe('false');
+    showWith({ status: 'ready', values: { readReceipts: true } });
+    expect(toggle('privacy.showReceipts').hasAttribute('disabled')).toBe(false);
+    expect(toggle('privacy.showReceipts').getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('no longer says the setting ignores the phone', async () => {
+    snowdrop = await bootSnowdrop();
+    renderWithSnowdrop(snowdrop, <PrivacyPage />);
+    expect(document.body.textContent).not.toContain('doesn’t follow the one on your phone');
   });
 });

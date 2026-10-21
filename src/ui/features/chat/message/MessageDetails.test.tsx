@@ -68,6 +68,31 @@ describe('<MessageDetails />', () => {
     expect(within(dialog).getByText(carolName)).toBeTruthy();
   });
 
+  it('shows read receipts as delivered while the phone has read receipts off', async () => {
+    const { snowdrop, conv, selfId, alice } = await setup();
+    snowdrop.stores.session.getState().setPhonePrivacy({
+      status: 'ready',
+      values: {
+        readReceipts: false,
+        typingIndicators: null,
+        linkPreviews: null,
+        unidentifiedDeliveryIndicators: null,
+      },
+    });
+    const sentAt = Date.now();
+    const message: Message = {
+      ...outgoingMessage(conv.id, selfId, sentAt),
+      receipts: { [alice]: { status: 'read', at: sentAt + 1_000 } },
+    };
+    renderWithSnowdrop(
+      snowdrop,
+      <MessageDetails message={message} onOpenChange={() => undefined} />,
+    );
+    const dialog = screen.getByRole('dialog', { name: 'Message details' });
+    expect(within(dialog).queryByText('Read by')).toBeNull();
+    expect(within(dialog).getByText('Delivered to')).toBeTruthy();
+  });
+
   it('shows the one recipient for a DM, under "Sent to" when no receipt has arrived yet', async () => {
     const snowdrop = await bootSnowdrop();
     snowdrops.push(snowdrop);

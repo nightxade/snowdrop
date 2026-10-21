@@ -11,7 +11,7 @@ import {
   type MessageStatus,
 } from '@/core/domain';
 import { sessionSelectors } from '@/core/stores';
-import { useSnowdrop } from '@/ui/hooks';
+import { useEffectivePrivacy, useSnowdrop } from '@/ui/hooks';
 import { Tooltip } from '@/ui/primitives';
 import { useMinuteClock } from '../lib/useMinuteClock';
 import styles from './MessageMeta.module.css';
@@ -78,7 +78,7 @@ export function MessageMeta({
 }) {
   const { stores } = useSnowdrop();
   const clock24h = useStore(stores.settings, (s) => s.appearance.clock24h);
-  const showStatus = useStore(stores.settings, (s) => s.behaviour.showReadReceipts);
+  const showStatus = useEffectivePrivacy().showReadReceipts;
   const selfId = useStore(stores.session, sessionSelectors.selfId);
   const now = useMinuteClock();
   const opts = { clock24h };

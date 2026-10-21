@@ -46,7 +46,7 @@ import {
 } from '@/core/domain';
 import { createNonce, type Clock } from '@/core/lib';
 import type { MessageRepository } from '@/core/persistence';
-import type { Stores } from '@/core/stores';
+import { effectivePrivacy, type Stores } from '@/core/stores';
 import { finalPreview, localAttachment, localPreview, withLocalUrls } from './localAttachments';
 import { PendingOpsBuffer } from './PendingOpsBuffer';
 import { ReceiptBuffer } from './ReceiptBuffer';
@@ -722,9 +722,12 @@ export class SendService {
    * Suppressed by the user setting or any plugin typing guard.
    */
   async setTyping(conversationId: ConversationId, typing: boolean): Promise<void> {
+    // The phone's typing-indicator setting wins when known; until the first
+    // read from it has finished nothing is sent (see `effectivePrivacy`).
+    const { settings, session } = this.deps.stores;
     const allowed =
-      this.deps.stores.settings.getState().behaviour.sendTypingIndicators &&
-      this.pipeline.allowsTyping(conversationId);
+      effectivePrivacy(settings.getState().behaviour, session.getState().phonePrivacy)
+        .sendTypingIndicators && this.pipeline.allowsTyping(conversationId);
     const last = this.typingSentAt.get(conversationId);
     const now = this.deps.clock.now();
     if (typing) {

@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { useStore } from 'zustand';
 import { formatMessageTimestamp, initialsFor, type Message } from '@/core/domain';
 import { conversationsSelectors, contactsSelectors, UNKNOWN_CONTACT_NAME } from '@/core/stores';
-import { useSnowdrop } from '@/ui/hooks';
+import { useEffectivePrivacy, useSnowdrop } from '@/ui/hooks';
 import { Avatar, Modal } from '@/ui/primitives';
 import { useMinuteClock } from '../lib/useMinuteClock';
 import styles from './MessageDetails.module.css';
@@ -43,6 +43,8 @@ export function MessageDetails({
   );
   const clock24h = useStore(stores.settings, (s) => s.appearance.clock24h);
   const now = useMinuteClock();
+  // With read receipts off Signal shows no one's read marks: they count as delivered.
+  const showRead = useEffectivePrivacy().showReadReceipts;
 
   const groups = useMemo((): DetailGroup[] => {
     const when = (at: number) => formatMessageTimestamp(at, now, { clock24h });
@@ -68,9 +70,9 @@ export function MessageDetails({
         continue;
       }
       const receipt = m.receipts?.[id];
-      if (receipt?.status === 'read') {
+      if (receipt?.status === 'read' && showRead) {
         buckets.read.push({ ...row, when: when(receipt.at) });
-      } else if (receipt?.status === 'delivered') {
+      } else if (receipt?.status === 'delivered' || receipt?.status === 'read') {
         buckets.delivered.push({ ...row, when: when(receipt.at) });
       } else {
         buckets.sent.push({ ...row, when: when(m.sentAt) });
@@ -82,7 +84,17 @@ export function MessageDetails({
       { title: 'Sent to', rows: buckets.sent },
       { title: 'Not delivered', rows: buckets.notDelivered },
     ].filter((g) => g.rows.length > 0);
-  }, [conversation, byId, m.authorId, m.failedRecipients, m.receipts, m.sentAt, clock24h, now]);
+  }, [
+    conversation,
+    byId,
+    m.authorId,
+    m.failedRecipients,
+    m.receipts,
+    m.sentAt,
+    clock24h,
+    now,
+    showRead,
+  ]);
 
   return (
     <Modal open onOpenChange={onOpenChange} title="Message details" size="sm">

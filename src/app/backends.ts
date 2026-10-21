@@ -228,6 +228,8 @@ const signalCliBackend: BackendRegistration = {
     'getStickerPack',
     'installStickerPack',
     'requestAttachmentBackfill',
+    'readPhonePrivacy',
+    'updatePhonePrivacy',
     'acknowledge',
     'link',
     'syncContactsAndGroups',

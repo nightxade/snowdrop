@@ -67,6 +67,45 @@ fn is_quote_attachment(s: &str) -> bool {
     s.matches(':').count() < 2
 }
 
+/// The only keys `updateConfiguration` may carry from the UI: the four privacy
+/// settings the phone syncs (canonical form), plus the multi-account selector.
+const CONFIGURATION_KEYS: &[&str] =
+    &["readreceipts", "typingindicators", "linkpreviews", "unidentifieddeliveryindicators"];
+
+/// `updateConfiguration` also covers things the UI never touches (number
+/// visibility, discoverability): only the privacy booleans get through, each a
+/// real JSON boolean, and `account` is the one other key allowed.
+fn validate_configuration_params(params: Option<&Map<String, Value>>) -> Result<(), Error> {
+    let reject = || {
+        Error::new(
+            ErrorKind::Config,
+            "Snowdrop may only change read receipts, typing indicators and link previews through updateConfiguration.",
+        )
+    };
+    let Some(params) = params else { return Ok(()) };
+    for (key, value) in params {
+        let key = canonical(key);
+        if key == "account" {
+            if !matches!(value, Value::String(_) | Value::Null) {
+                return Err(reject());
+            }
+        } else if !CONFIGURATION_KEYS.contains(&key.as_str()) || !value.is_boolean() {
+            return Err(reject());
+        }
+    }
+    Ok(())
+}
+
+/// Every request's parameter check: the file-reference rules for all methods,
+/// plus the strict key allow-list for `updateConfiguration`.
+pub fn validate_request(method: &str, params: Option<&Map<String, Value>>) -> Result<(), Error> {
+    validate_params(params)?;
+    if method == "updateConfiguration" {
+        validate_configuration_params(params)?;
+    }
+    Ok(())
+}
+
 /// Rejects any request whose file-reference parameters aren't inline data.
 pub fn validate_params(params: Option<&Map<String, Value>>) -> Result<(), Error> {
     let Some(params) = params else { return Ok(()) };
@@ -168,6 +207,47 @@ mod tests {
             };
             assert!(check(json!({ key: value })).is_err(), "{key}");
         }
+    }
+
+    fn check_request(method: &str, v: Value) -> Result<(), Error> {
+        validate_request(method, v.as_object())
+    }
+
+    #[test]
+    fn update_configuration_accepts_only_the_privacy_booleans() {
+        assert!(check_request("updateConfiguration", json!({})).is_ok());
+        assert!(check_request("updateConfiguration", json!({ "account": "+15550001" })).is_ok());
+        assert!(check_request(
+            "updateConfiguration",
+            json!({ "readReceipts": false, "typingIndicators": true, "linkPreviews": false, "unidentifiedDeliveryIndicators": true }),
+        )
+        .is_ok());
+        // signal-cli accepts the flag spelling too.
+        assert!(check_request("updateConfiguration", json!({ "read-receipts": true })).is_ok());
+    }
+
+    #[test]
+    fn update_configuration_rejects_everything_else() {
+        for bad in [
+            json!({ "phoneNumberSharingMode": "nobody" }),
+            json!({ "phone-number-unlisted": true }),
+            json!({ "username": "x" }),
+            json!({ "readReceipts": "false" }),
+            json!({ "readReceipts": null }),
+            json!({ "readReceipts": 0 }),
+            json!({ "readReceipts": true, "somethingElse": true }),
+            json!({ "account": 5 }),
+        ] {
+            assert!(check_request("updateConfiguration", bad.clone()).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn the_configuration_allow_list_applies_to_that_method_only() {
+        assert!(check_request("getConfiguration", json!({})).is_ok());
+        assert!(check_request("send", json!({ "message": "hi", "unrelated": 1 })).is_ok());
+        // File-reference rules still run for it too.
+        assert!(check_request("updateConfiguration", json!({ "attachment": "/etc/passwd" })).is_err());
     }
 
     #[test]

@@ -1,0 +1,655 @@
+diff --git a/build.gradle.kts b/build.gradle.kts
+index 3c40675..90cb4a7 100644
+--- a/build.gradle.kts
++++ b/build.gradle.kts
+@@ -10,7 +10,7 @@ plugins {
+ 
+ allprojects {
+     group = "org.asamk"
+-    version = "0.14.8-snowdrop-history.17"
++    version = "0.14.8-snowdrop-history.18"
+ 
+     // Snowdrop: substitute a locally-built, patched signal-service-java
+     // (snowdrop/patches/signal-service-java) for the stock turasa jar, when
+diff --git a/lib/src/main/java/org/asamk/signal/manager/Manager.java b/lib/src/main/java/org/asamk/signal/manager/Manager.java
+index 33ca56b..6002fba 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/Manager.java
++++ b/lib/src/main/java/org/asamk/signal/manager/Manager.java
+@@ -407,6 +407,15 @@ public interface Manager extends Closeable {
+ 
+     void removeCaughtUpWithOldMessagesListener(Runnable listener);
+ 
++    /**
++     * Snowdrop: add a listener that's notified after any of the privacy settings in
++     * {@link #getConfiguration()} changed, whether from a sync from the phone or a local
++     * {@link #updateConfiguration}. It carries no payload; callers re-read.
++     */
++    void addConfigurationChangedListener(Runnable listener);
++
++    void removeConfigurationChangedListener(Runnable listener);
++
+     /**
+      * Asks our own primary device to re-upload a message's attachments, for when the file
+      * behind an id is gone or its CDN copy has expired and nothing local is left to retry from
+diff --git a/lib/src/main/java/org/asamk/signal/manager/helper/IncomingMessageHandler.java b/lib/src/main/java/org/asamk/signal/manager/helper/IncomingMessageHandler.java
+index e4953bd..cdd2283 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/helper/IncomingMessageHandler.java
++++ b/lib/src/main/java/org/asamk/signal/manager/helper/IncomingMessageHandler.java
+@@ -733,6 +733,7 @@ public final class IncomingMessageHandler {
+         if (syncMessage.getConfiguration().isPresent()) {
+             final var configurationMessage = syncMessage.getConfiguration().get();
+             final var configurationStore = account.getConfigurationStore();
++            final var configurationBefore = configurationStore.snapshot();
+             if (configurationMessage.getReadReceipts().isPresent()) {
+                 configurationStore.setReadReceipts(configurationMessage.getReadReceipts().get());
+             }
+@@ -746,6 +747,7 @@ public final class IncomingMessageHandler {
+                 configurationStore.setUnidentifiedDeliveryIndicators(configurationMessage.getUnidentifiedDeliveryIndicators()
+                         .get());
+             }
++            configurationStore.notifyIfChanged(configurationBefore);
+         }
+         if (syncMessage.getPniChangeNumber().isPresent()) {
+             final var pniChangeNumber = syncMessage.getPniChangeNumber().get();
+diff --git a/lib/src/main/java/org/asamk/signal/manager/helper/StorageHelper.java b/lib/src/main/java/org/asamk/signal/manager/helper/StorageHelper.java
+index 168f71f..5b883ab 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/helper/StorageHelper.java
++++ b/lib/src/main/java/org/asamk/signal/manager/helper/StorageHelper.java
+@@ -73,6 +73,18 @@ public class StorageHelper {
+     }
+ 
+     public void syncDataWithStorage() throws IOException {
++        // Snowdrop: the account record may rewrite the privacy settings; tell
++        // listeners once the whole sync has committed.
++        final var configurationStore = account.getConfigurationStore();
++        final var configurationBefore = configurationStore.snapshot();
++        try {
++            syncDataWithStorageInternal();
++        } finally {
++            configurationStore.notifyIfChanged(configurationBefore);
++        }
++    }
++
++    private void syncDataWithStorageInternal() throws IOException {
+         var storageKey = account.getOrCreateStorageKey();
+         if (storageKey == null) {
+             if (!account.isPrimaryDevice()) {
+diff --git a/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java b/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
+index 9cddfe6..50c5e07 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
++++ b/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
+@@ -259,6 +259,7 @@ public class ManagerImpl implements Manager {
+     private final List<Runnable> closedListeners = new ArrayList<>();
+     private final List<Runnable> addressChangedListeners = new ArrayList<>();
+     private final Set<Runnable> caughtUpWithOldMessagesListeners = new HashSet<>();
++    private final Set<Runnable> configurationChangedListeners = new HashSet<>();
+     private final CompositeDisposable disposable = new CompositeDisposable();
+     private final AtomicLong lastMessageTimestamp = new AtomicLong();
+ 
+@@ -297,6 +298,13 @@ public class ManagerImpl implements Manager {
+                 accountFileUpdater.removeAccount();
+             }
+         }, dependencies, avatarStore, attachmentStore, stickerPackStore);
++        account.getConfigurationStore().setChangeListener(() -> {
++            final List<Runnable> listeners;
++            synchronized (configurationChangedListeners) {
++                listeners = List.copyOf(configurationChangedListeners);
++            }
++            listeners.forEach(Runnable::run);
++        });
+         this.context.getAccountHelper().setUnregisteredListener(this::close);
+         this.context.getReceiveHelper().setAuthenticationFailureListener(this::close);
+         this.context.getReceiveHelper().setCaughtUpWithOldMessagesListener(() -> {
+@@ -453,6 +461,7 @@ public class ManagerImpl implements Manager {
+     @Override
+     public void updateConfiguration(Configuration configuration) {
+         final var configurationStore = account.getConfigurationStore();
++        final var before = configurationStore.snapshot();
+         if (configuration.readReceipts().isPresent()) {
+             configurationStore.setReadReceipts(configuration.readReceipts().get());
+         }
+@@ -465,6 +474,7 @@ public class ManagerImpl implements Manager {
+         if (configuration.linkPreviews().isPresent()) {
+             configurationStore.setLinkPreviews(configuration.linkPreviews().get());
+         }
++        configurationStore.notifyIfChanged(before);
+         context.getSyncHelper().sendConfigurationMessage();
+         syncRemoteStorage();
+     }
+@@ -1963,6 +1973,20 @@ public class ManagerImpl implements Manager {
+         }
+     }
+ 
++    @Override
++    public void addConfigurationChangedListener(final Runnable listener) {
++        synchronized (configurationChangedListeners) {
++            configurationChangedListeners.add(listener);
++        }
++    }
++
++    @Override
++    public void removeConfigurationChangedListener(final Runnable listener) {
++        synchronized (configurationChangedListeners) {
++            configurationChangedListeners.remove(listener);
++        }
++    }
++
+     @Override
+     public boolean requestAttachmentBackfill(
+             final RecipientIdentifier targetConversation,
+diff --git a/lib/src/main/java/org/asamk/signal/manager/storage/configuration/ConfigurationStore.java b/lib/src/main/java/org/asamk/signal/manager/storage/configuration/ConfigurationStore.java
+index 88f0572..c3b0c63 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/storage/configuration/ConfigurationStore.java
++++ b/lib/src/main/java/org/asamk/signal/manager/storage/configuration/ConfigurationStore.java
+@@ -1,5 +1,6 @@
+ package org.asamk.signal.manager.storage.configuration;
+ 
++import org.asamk.signal.manager.api.Configuration;
+ import org.asamk.signal.manager.api.PhoneNumberSharingMode;
+ import org.asamk.signal.manager.storage.keyValue.KeyValueEntry;
+ import org.asamk.signal.manager.storage.keyValue.KeyValueStore;
+@@ -27,11 +28,36 @@ public class ConfigurationStore {
+             PhoneNumberSharingMode.class);
+     private final KeyValueEntry<String> usernameLinkColor = new KeyValueEntry<>("username-link-color", String.class);
+ 
++    private volatile Runnable changeListener;
++
+     public ConfigurationStore(final KeyValueStore keyValueStore, RecipientStore recipientStore) {
+         this.keyValueStore = keyValueStore;
+         this.recipientStore = recipientStore;
+     }
+ 
++    /**
++     * Snowdrop: the one callback told when the four user-facing privacy settings
++     * (read receipts, typing indicators, link previews, unidentified-delivery
++     * indicators) may have changed. Callers that write them (a configuration sync
++     * message, a storage-service sync, {@code updateConfiguration}) snapshot
++     * {@link #snapshot()} first and call {@link #notifyIfChanged} once their write
++     * is committed, so a listener that re-reads never sees a half-applied state.
++     */
++    public void setChangeListener(final Runnable listener) {
++        this.changeListener = listener;
++    }
++
++    public Configuration snapshot() {
++        return Configuration.from(this);
++    }
++
++    public void notifyIfChanged(final Configuration before) {
++        final var listener = changeListener;
++        if (listener != null && !snapshot().equals(before)) {
++            listener.run();
++        }
++    }
++
+     public Boolean getReadReceipts() {
+         return keyValueStore.getEntry(readReceipts);
+     }
+diff --git a/lib/src/test/java/org/asamk/signal/manager/storage/configuration/ConfigurationStoreTest.java b/lib/src/test/java/org/asamk/signal/manager/storage/configuration/ConfigurationStoreTest.java
+new file mode 100644
+index 0000000..23019ad
+--- /dev/null
++++ b/lib/src/test/java/org/asamk/signal/manager/storage/configuration/ConfigurationStoreTest.java
+@@ -0,0 +1,90 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.manager.storage.configuration;
++
++import org.asamk.signal.manager.storage.AccountDatabase;
++import org.asamk.signal.manager.storage.keyValue.KeyValueStore;
++import org.asamk.signal.manager.storage.recipients.RecipientAddress;
++import org.asamk.signal.manager.storage.recipients.RecipientStore;
++import org.junit.jupiter.api.AfterEach;
++import org.junit.jupiter.api.BeforeEach;
++import org.junit.jupiter.api.Test;
++import org.junit.jupiter.api.io.TempDir;
++
++import java.nio.file.Path;
++import java.util.Optional;
++import java.util.concurrent.atomic.AtomicInteger;
++
++import static org.junit.jupiter.api.Assertions.assertEquals;
++import static org.junit.jupiter.api.Assertions.assertTrue;
++
++class ConfigurationStoreTest {
++
++    @TempDir Path directory;
++
++    private AccountDatabase database;
++    private ConfigurationStore store;
++    private final AtomicInteger notifications = new AtomicInteger();
++
++    @BeforeEach
++    void setUp() throws Exception {
++        database = AccountDatabase.init(directory.resolve("account.db").toFile());
++        final var self = new RecipientAddress(Optional.empty(), Optional.of("+15550000001"));
++        final var recipients = new RecipientStore((c, a, b) -> {
++        }, () -> self, () -> null, database);
++        store = new ConfigurationStore(new KeyValueStore(database), recipients);
++        store.setChangeListener(notifications::incrementAndGet);
++    }
++
++    @AfterEach
++    void tearDown() {
++        database.close();
++    }
++
++    @Test
++    void valuesStartUnknownAndRoundTrip() {
++        final var unknown = store.snapshot();
++        assertTrue(unknown.readReceipts().isEmpty());
++        assertTrue(unknown.typingIndicators().isEmpty());
++        assertTrue(unknown.linkPreviews().isEmpty());
++        assertTrue(unknown.unidentifiedDeliveryIndicators().isEmpty());
++
++        store.setReadReceipts(false);
++        store.setTypingIndicators(true);
++        store.setLinkPreviews(false);
++        store.setUnidentifiedDeliveryIndicators(true);
++        final var known = store.snapshot();
++        assertEquals(Optional.of(false), known.readReceipts());
++        assertEquals(Optional.of(true), known.typingIndicators());
++        assertEquals(Optional.of(false), known.linkPreviews());
++        assertEquals(Optional.of(true), known.unidentifiedDeliveryIndicators());
++    }
++
++    @Test
++    void notifiesOnceWhenAWriteChangedSomethingAndNotWhenItDidNot() {
++        final var before = store.snapshot();
++        store.setReadReceipts(false);
++        store.setTypingIndicators(false);
++        store.notifyIfChanged(before);
++        assertEquals(1, notifications.get());
++
++        final var same = store.snapshot();
++        store.setReadReceipts(false);
++        store.setTypingIndicators(false);
++        store.notifyIfChanged(same);
++        assertEquals(1, notifications.get(), "re-writing identical values is not a change");
++
++        final var flipped = store.snapshot();
++        store.setReadReceipts(true);
++        store.notifyIfChanged(flipped);
++        assertEquals(2, notifications.get());
++    }
++
++    @Test
++    void aWriteWithoutAListenerIsHarmless() {
++        store.setChangeListener(null);
++        final var before = store.snapshot();
++        store.setLinkPreviews(true);
++        store.notifyIfChanged(before);
++        assertEquals(0, notifications.get());
++    }
++}
+diff --git a/src/main/java/org/asamk/signal/commands/Commands.java b/src/main/java/org/asamk/signal/commands/Commands.java
+index 20fa54d..959fd78 100644
+--- a/src/main/java/org/asamk/signal/commands/Commands.java
++++ b/src/main/java/org/asamk/signal/commands/Commands.java
+@@ -21,6 +21,7 @@ public class Commands {
+         addCommand(new GetAttachmentCommand());
+         addCommand(new GetAvatarCommand());
+         addCommand(new GetStickerCommand());
++        addCommand(new GetConfigurationCommand());
+         addCommand(new GetUserStatusCommand());
+         addCommand(new InstallKnownStickerPackCommand());
+         addCommand(new AddStickerPackCommand());
+diff --git a/src/main/java/org/asamk/signal/commands/GetConfigurationCommand.java b/src/main/java/org/asamk/signal/commands/GetConfigurationCommand.java
+new file mode 100644
+index 0000000..0be5649
+--- /dev/null
++++ b/src/main/java/org/asamk/signal/commands/GetConfigurationCommand.java
+@@ -0,0 +1,65 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.commands;
++
++import net.sourceforge.argparse4j.inf.Namespace;
++import net.sourceforge.argparse4j.inf.Subparser;
++
++import org.asamk.signal.commands.exceptions.CommandException;
++import org.asamk.signal.manager.Manager;
++import org.asamk.signal.manager.api.Configuration;
++import org.asamk.signal.output.JsonWriter;
++import org.asamk.signal.output.OutputWriter;
++import org.asamk.signal.output.PlainTextWriter;
++
++import java.util.LinkedHashMap;
++import java.util.Map;
++import java.util.Optional;
++
++/**
++ * Returns the stored privacy configuration: the settings the phone syncs to this
++ * linked device (configuration sync message and storage-service account record).
++ * Each value is {@code true}, {@code false}, or {@code null} when the phone has
++ * not told this device yet. See patches/signal-cli/README.md
++ * "0022: privacy configuration".
++ */
++public class GetConfigurationCommand implements JsonRpcLocalCommand {
++
++    @Override
++    public String getName() {
++        return "getConfiguration";
++    }
++
++    @Override
++    public void attachToSubparser(final Subparser subparser) {
++        subparser.help("Show the privacy settings synced with the phone (read receipts, typing indicators, "
++                + "link previews, unidentified delivery indicators).");
++    }
++
++    static Map<String, Object> toJson(final Configuration configuration) {
++        final var json = new LinkedHashMap<String, Object>();
++        json.put("readReceipts", orNull(configuration.readReceipts()));
++        json.put("typingIndicators", orNull(configuration.typingIndicators()));
++        json.put("linkPreviews", orNull(configuration.linkPreviews()));
++        json.put("unidentifiedDeliveryIndicators", orNull(configuration.unidentifiedDeliveryIndicators()));
++        return json;
++    }
++
++    private static Boolean orNull(final Optional<Boolean> value) {
++        return value.orElse(null);
++    }
++
++    @Override
++    public void handleCommand(
++            final Namespace ns,
++            final Manager m,
++            final OutputWriter outputWriter
++    ) throws CommandException {
++        final var json = toJson(m.getConfiguration());
++        switch (outputWriter) {
++            case JsonWriter writer -> writer.write(json);
++            case PlainTextWriter writer -> json.forEach((key, value) -> writer.println("{}: {}",
++                    key,
++                    value == null ? "unknown" : value));
++        }
++    }
++}
+diff --git a/src/main/java/org/asamk/signal/dbus/DbusManagerImpl.java b/src/main/java/org/asamk/signal/dbus/DbusManagerImpl.java
+index 81b0b49..04c2d03 100644
+--- a/src/main/java/org/asamk/signal/dbus/DbusManagerImpl.java
++++ b/src/main/java/org/asamk/signal/dbus/DbusManagerImpl.java
+@@ -730,6 +730,16 @@ public class DbusManagerImpl implements Manager {
+         // Not supported over DBus
+     }
+ 
++    @Override
++    public void addConfigurationChangedListener(final Runnable listener) {
++        // Not supported over DBus
++    }
++
++    @Override
++    public void removeConfigurationChangedListener(final Runnable listener) {
++        // Not supported over DBus
++    }
++
+     @Override
+     public boolean requestAttachmentBackfill(
+             final RecipientIdentifier targetConversation,
+diff --git a/src/main/java/org/asamk/signal/jsonrpc/SignalJsonRpcDispatcherHandler.java b/src/main/java/org/asamk/signal/jsonrpc/SignalJsonRpcDispatcherHandler.java
+index e88b923..2e6fcbc 100644
+--- a/src/main/java/org/asamk/signal/jsonrpc/SignalJsonRpcDispatcherHandler.java
++++ b/src/main/java/org/asamk/signal/jsonrpc/SignalJsonRpcDispatcherHandler.java
+@@ -45,6 +45,7 @@ public class SignalJsonRpcDispatcherHandler {
+ 
+     private final Map<Integer, ArrayList<Pair<Manager, Manager.ReceiveMessageHandler>>> receiveHandlers = new HashMap<>();
+     private final Map<Integer, ArrayList<Pair<Manager, Runnable>>> caughtUpHandlers = new HashMap<>();
++    private final Map<Integer, ArrayList<Pair<Manager, Runnable>>> configurationHandlers = new HashMap<>();
+     private final Map<Integer, ArrayList<Pair<Manager, Manager.AttachmentBackfillListener>>> attachmentBackfillHandlers = new HashMap<>();
+     private final Map<Integer, ArrayList<Pair<Manager, Manager.CallEventListener>>> callEventHandlers = new HashMap<>();
+     private SignalJsonRpcCommandHandler commandHandler;
+@@ -72,6 +73,8 @@ public class SignalJsonRpcDispatcherHandler {
+                 createReceiveHandler(m, subscriptionId, false))));
+         c.addOnManagerAddedHandler(m -> caughtUpHandlers.forEach((subscriptionId, handlers) -> handlers.add(
+                 createCaughtUpHandler(m, subscriptionId, false))));
++        c.addOnManagerAddedHandler(m -> configurationHandlers.forEach((subscriptionId, handlers) -> handlers.add(
++                createConfigurationHandler(m, subscriptionId, false))));
+         c.addOnManagerAddedHandler(m -> attachmentBackfillHandlers.forEach((subscriptionId, handlers) -> handlers.add(
+                 createAttachmentBackfillHandler(m, subscriptionId, false))));
+         c.addOnManagerAddedHandler(m -> callEventHandlers.forEach((subscriptionId, handlers) -> handlers.add(
+@@ -162,6 +165,10 @@ public class SignalJsonRpcDispatcherHandler {
+                 .map(m -> createCaughtUpHandler(m, subscriptionId, internalSubscription))
+                 .collect(Collectors.toCollection(ArrayList::new));
+         caughtUpHandlers.put(subscriptionId, caughtUp);
++        final var configuration = managers.stream()
++                .map(m -> createConfigurationHandler(m, subscriptionId, internalSubscription))
++                .collect(Collectors.toCollection(ArrayList::new));
++        configurationHandlers.put(subscriptionId, configuration);
+         final var attachmentBackfill = managers.stream()
+                 .map(m -> createAttachmentBackfillHandler(m, subscriptionId, internalSubscription))
+                 .collect(Collectors.toCollection(ArrayList::new));
+@@ -233,6 +240,42 @@ public class SignalJsonRpcDispatcherHandler {
+         return new Pair<>(m, listener);
+     }
+ 
++    /**
++     * Notifies subscribers after the privacy settings returned by {@code getConfiguration}
++     * changed (a sync from the phone, or a local {@code updateConfiguration}), mirroring
++     * {@link #createCaughtUpHandler}: no values, the client re-reads. See
++     * patches/signal-cli/README.md "0022: privacy configuration".
++     */
++    private Pair<Manager, Runnable> createConfigurationHandler(
++            final Manager m,
++            final int subscriptionId,
++            final boolean internalSubscription
++    ) {
++        final Runnable listener = () -> {
++            final var result = new HashMap<String, Object>();
++            result.put("account", m.getSelfNumber());
++            ContainerNode<?> params;
++            if (internalSubscription) {
++                params = objectMapper.valueToTree(result);
++            } else {
++                final var paramsNode = new ObjectNode(objectMapper.getNodeFactory());
++                paramsNode.set("subscription", IntNode.valueOf(subscriptionId));
++                paramsNode.set("result", objectMapper.valueToTree(result));
++                params = paramsNode;
++            }
++            final var jsonRpcRequest = JsonRpcRequest.forNotification("receiveConfigurationChanged", params, null);
++            try {
++                jsonRpcSender.sendRequest(jsonRpcRequest);
++            } catch (AssertionError e) {
++                if (e.getCause() instanceof ClosedChannelException) {
++                    unsubscribeReceive(subscriptionId);
++                }
++            }
++        };
++        m.addConfigurationChangedListener(listener);
++        return new Pair<>(m, listener);
++    }
++
+     /**
+      * Notifies subscribers each time our primary answers a {@code requestAttachmentBackfill}
+      * call, mirroring {@link #createCaughtUpHandler} but with the result as its payload. See
+@@ -274,6 +317,7 @@ public class SignalJsonRpcDispatcherHandler {
+     private boolean unsubscribeReceive(final int subscriptionId) {
+         final var handlers = receiveHandlers.remove(subscriptionId);
+         final var caughtUp = caughtUpHandlers.remove(subscriptionId);
++        final var configuration = configurationHandlers.remove(subscriptionId);
+         final var attachmentBackfill = attachmentBackfillHandlers.remove(subscriptionId);
+         if (handlers == null) {
+             return false;
+@@ -286,6 +330,11 @@ public class SignalJsonRpcDispatcherHandler {
+                 unsubscribeCaughtUpHandler(pair);
+             }
+         }
++        if (configuration != null) {
++            for (final var pair : configuration) {
++                pair.first().removeConfigurationChangedListener(pair.second());
++            }
++        }
+         if (attachmentBackfill != null) {
+             for (final var pair : attachmentBackfill) {
+                 unsubscribeAttachmentBackfillHandler(pair);
+@@ -312,6 +361,9 @@ public class SignalJsonRpcDispatcherHandler {
+             receiveHandlers.clear();
+             caughtUpHandlers.forEach((_subscriptionId, handlers) -> handlers.forEach(this::unsubscribeCaughtUpHandler));
+             caughtUpHandlers.clear();
++            configurationHandlers.forEach((_subscriptionId, handlers) -> handlers.forEach(
++                    pair -> pair.first().removeConfigurationChangedListener(pair.second())));
++            configurationHandlers.clear();
+             attachmentBackfillHandlers.forEach((_subscriptionId, handlers) -> handlers.forEach(
+                     this::unsubscribeAttachmentBackfillHandler));
+             attachmentBackfillHandlers.clear();
+diff --git a/src/test/java/org/asamk/signal/commands/GetConfigurationCommandTest.java b/src/test/java/org/asamk/signal/commands/GetConfigurationCommandTest.java
+new file mode 100644
+index 0000000..0c1fd92
+--- /dev/null
++++ b/src/test/java/org/asamk/signal/commands/GetConfigurationCommandTest.java
+@@ -0,0 +1,47 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.commands;
++
++import org.asamk.signal.manager.Manager;
++import org.asamk.signal.manager.api.Configuration;
++import org.junit.jupiter.api.Test;
++
++import java.lang.reflect.Proxy;
++import java.util.Map;
++import java.util.Optional;
++import java.util.concurrent.atomic.AtomicReference;
++
++import static org.junit.jupiter.api.Assertions.assertEquals;
++import static org.junit.jupiter.api.Assertions.assertNull;
++import static org.junit.jupiter.api.Assertions.assertTrue;
++
++class GetConfigurationCommandTest {
++
++    private static Manager managerReturning(final Configuration configuration) {
++        return (Manager) Proxy.newProxyInstance(Manager.class.getClassLoader(),
++                new Class<?>[]{Manager.class},
++                (proxy, method, args) -> {
++                    assertEquals("getConfiguration", method.getName());
++                    return configuration;
++                });
++    }
++
++    @Test
++    @SuppressWarnings("unchecked")
++    void reportsKnownValuesAndKeepsUnknownOnesAsExplicitNulls() throws Exception {
++        final var manager = managerReturning(new Configuration(Optional.of(false),
++                Optional.empty(),
++                Optional.of(true),
++                Optional.empty()));
++        final var output = new AtomicReference<Object>();
++        new GetConfigurationCommand().handleCommand(Map.of(), manager, output::set);
++
++        final var json = (Map<String, Object>) output.get();
++        assertEquals(false, json.get("readReceipts"));
++        assertEquals(true, json.get("typingIndicators"));
++        assertTrue(json.containsKey("linkPreviews"));
++        assertNull(json.get("linkPreviews"));
++        assertTrue(json.containsKey("unidentifiedDeliveryIndicators"));
++        assertNull(json.get("unidentifiedDeliveryIndicators"));
++        assertEquals(4, json.size(), "nothing but the four privacy settings is exposed");
++    }
++}
+diff --git a/src/test/java/org/asamk/signal/jsonrpc/ReceiveConfigurationChangedNotificationTest.java b/src/test/java/org/asamk/signal/jsonrpc/ReceiveConfigurationChangedNotificationTest.java
+new file mode 100644
+index 0000000..2361b18
+--- /dev/null
++++ b/src/test/java/org/asamk/signal/jsonrpc/ReceiveConfigurationChangedNotificationTest.java
+@@ -0,0 +1,69 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.jsonrpc;
++
++import org.asamk.signal.output.JsonWriter;
++import org.asamk.signal.testutil.ManagerMock;
++import org.junit.jupiter.api.Test;
++
++import java.util.ArrayList;
++import java.util.Collections;
++import java.util.List;
++import java.util.function.Supplier;
++
++import static org.junit.jupiter.api.Assertions.assertEquals;
++import static org.junit.jupiter.api.Assertions.assertNull;
++
++/**
++ * The {@code receiveConfigurationChanged} JSON-RPC notification: sent when the privacy settings
++ * returned by {@code getConfiguration} changed (snowdrop-history patch 0022).
++ */
++class ReceiveConfigurationChangedNotificationTest {
++
++    private static class CapturingJsonWriter implements JsonWriter {
++
++        final List<Object> written = Collections.synchronizedList(new ArrayList<>());
++
++        @Override
++        public void write(final Object object) {
++            written.add(object);
++        }
++    }
++
++    private static List<JsonRpcRequest> notifications(final CapturingJsonWriter writer) {
++        return writer.written.stream()
++                .filter(JsonRpcRequest.class::isInstance)
++                .map(JsonRpcRequest.class::cast)
++                .filter(r -> "receiveConfigurationChanged".equals(r.getMethod()))
++                .toList();
++    }
++
++    @Test
++    void defaultSubscriptionSendsBareAccountParamsAndCleansUp() {
++        final var state = new ManagerMock.State();
++        final var manager = ManagerMock.create("+15551234567", state);
++        final var writer = new CapturingJsonWriter();
++
++        Supplier<String> feeder = () -> {
++            state.fireConfigurationChanged();
++            return null;
++        };
++        new SignalJsonRpcDispatcherHandler(writer, feeder, false).handleConnection(manager);
++
++        assertEquals(1, state.addConfigurationListenerCount.get());
++        assertEquals(1, state.removeConfigurationListenerCount.get());
++        final var sent = notifications(writer);
++        assertEquals(1, sent.size());
++        assertEquals("+15551234567", sent.get(0).getParams().get("account").asText());
++        assertNull(sent.get(0).getParams().get("subscription"));
++        // No setting values travel on the notification: the client re-reads.
++        assertEquals(1, sent.get(0).getParams().size());
++    }
++
++    @Test
++    void notSubscribedWhenReceiveIsNotSubscribed() {
++        final var state = new ManagerMock.State();
++        final var manager = ManagerMock.create("+15551234567", state);
++        new SignalJsonRpcDispatcherHandler(new CapturingJsonWriter(), () -> null, true).handleConnection(manager);
++        assertEquals(0, state.addConfigurationListenerCount.get());
++    }
++}
+diff --git a/src/test/java/org/asamk/signal/testutil/ManagerMock.java b/src/test/java/org/asamk/signal/testutil/ManagerMock.java
+index 70b8528..ec9a767 100644
+--- a/src/test/java/org/asamk/signal/testutil/ManagerMock.java
++++ b/src/test/java/org/asamk/signal/testutil/ManagerMock.java
+@@ -32,6 +32,15 @@ public final class ManagerMock {
+         public final AtomicInteger addCaughtUpListenerCount = new AtomicInteger(0);
+         public final AtomicInteger removeCaughtUpListenerCount = new AtomicInteger(0);
+ 
++        public final List<Runnable> configurationListeners = new ArrayList<>();
++        public final AtomicInteger addConfigurationListenerCount = new AtomicInteger(0);
++        public final AtomicInteger removeConfigurationListenerCount = new AtomicInteger(0);
++
++        /** Simulates the privacy settings changing (a sync from the phone). */
++        public void fireConfigurationChanged() {
++            new ArrayList<>(configurationListeners).forEach(Runnable::run);
++        }
++
+         /** Simulates the receive loop catching up with the server's queue. */
+         public void fireCaughtUp() {
+             new ArrayList<>(caughtUpListeners).forEach(Runnable::run);
+@@ -76,6 +85,14 @@ public final class ManagerMock {
+                             state.removeCaughtUpListenerCount.incrementAndGet();
+                             state.caughtUpListeners.remove((Runnable) args[0]);
+                             return null;
++                        case "addConfigurationChangedListener":
++                            state.addConfigurationListenerCount.incrementAndGet();
++                            state.configurationListeners.add((Runnable) args[0]);
++                            return null;
++                        case "removeConfigurationChangedListener":
++                            state.removeConfigurationListenerCount.incrementAndGet();
++                            state.configurationListeners.remove((Runnable) args[0]);
++                            return null;
+                         case "equals":
+                             return proxy == args[0];
+                         case "hashCode":

@@ -233,6 +233,25 @@ export interface HistoryReadState {
 
 export type ReceiptType = 'delivered' | 'read' | 'viewed';
 
+/**
+ * The privacy settings the user's phone syncs to a linked device. `null` is
+ * "the phone hasn't told this device" (not the same as off).
+ */
+export interface PhonePrivacySettings {
+  readReceipts: boolean | null;
+  typingIndicators: boolean | null;
+  linkPreviews: boolean | null;
+  unidentifiedDeliveryIndicators: boolean | null;
+}
+
+/** The settings Snowdrop lets the user change, which are then synced to the phone. */
+export type PhonePrivacyPatch = Partial<
+  Pick<
+    { [K in keyof PhonePrivacySettings]: boolean },
+    'readReceipts' | 'typingIndicators' | 'linkPreviews'
+  >
+>;
+
 export interface BackendEvents {
   status: ConnectionStatus;
   /** Incoming message, or one we sent from another linked device (sync). */
@@ -286,6 +305,12 @@ export interface BackendEvents {
    * to a quiet period instead.
    */
   caughtUp: undefined;
+  /**
+   * The phone's privacy settings may have changed (a sync from the phone, or
+   * our own `updatePhonePrivacy`); the payload is empty, callers re-read with
+   * `readPhonePrivacy`. Only emitted where `supportsPhonePrivacy()` is true.
+   */
+  phonePrivacyChanged: undefined;
   /**
    * Every event emitted before this one is complete for transport position
    * `cursor`. The sync engine processes it in queue order — i.e. after the
@@ -355,6 +380,21 @@ export interface ChatBackend {
    * is the same as always returning false.
    */
   supportsCustomEmojiDelivery?(): boolean;
+
+  /**
+   * Whether the connected backend can report the phone's synced privacy
+   * settings (patches/signal-cli's "0022"). Only meaningful once connected.
+   * Omitted is the same as false: Snowdrop then uses its own local settings.
+   */
+  supportsPhonePrivacy?(): boolean;
+  /** The phone's synced privacy settings; rejects if the backend can't tell. */
+  readPhonePrivacy?(): Promise<PhonePrivacySettings>;
+  /**
+   * Changes read receipts / typing indicators / link previews the way
+   * Signal Desktop does: stored here and synced to the phone. Only the keys
+   * in `patch` change.
+   */
+  updatePhonePrivacy?(patch: PhonePrivacyPatch): Promise<void>;
 
   /**
    * Backend history, when available (mock seed data or an imported phone

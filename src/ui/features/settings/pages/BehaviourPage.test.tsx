@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { DesktopInfo } from '@/core/backend';
 import type { Snowdrop } from '@/app/createSnowdrop';
 import { bootSnowdrop, renderWithSnowdrop } from '@/test/renderWithSnowdrop';
@@ -71,6 +71,53 @@ describe('Settings → Behaviour: link previews', () => {
     });
 
     expect(snowdrop.stores.settings.getState().behaviour.linkPreviews).toBe(false);
+    expect(toggle.getAttribute('aria-checked')).toBe('false');
+  });
+});
+
+describe('Settings → Behaviour: link previews follow the phone', () => {
+  const phone = (linkPreviews: boolean | null) => ({
+    readReceipts: null,
+    typingIndicators: null,
+    linkPreviews,
+    unidentifiedDeliveryIndicators: null,
+  });
+
+  it('shows the phone’s value and writes a change back to it, not to the local setting', async () => {
+    snowdrop = await bootSnowdrop();
+    (snowdrop as { linkPreviewFetch: unknown }).linkPreviewFetch = () => Promise.resolve(undefined);
+    const update = vi.spyOn(snowdrop.sync, 'updatePhonePrivacy').mockResolvedValue(true);
+    renderWithSnowdrop(snowdrop, <BehaviourPage />);
+    act(() => {
+      snowdrop!.stores.session
+        .getState()
+        .setPhonePrivacy({ status: 'ready', values: phone(false) });
+    });
+
+    // The local setting is on; the phone's is off, and that is what shows.
+    expect(snowdrop.stores.settings.getState().behaviour.linkPreviews).toBe(true);
+    const toggle = screen.getByRole('switch', { name: 'Link previews' });
+    expect(toggle.getAttribute('aria-checked')).toBe('false');
+    expect(document.body.textContent).toContain('Synced with your phone');
+    await act(async () => {
+      fireEvent.click(toggle);
+      await Promise.resolve();
+    });
+    expect(update).toHaveBeenCalledWith({ linkPreviews: true });
+    expect(snowdrop.stores.settings.getState().behaviour.linkPreviews).toBe(true);
+  });
+
+  it('is disabled until the phone has been asked', async () => {
+    snowdrop = await bootSnowdrop();
+    (snowdrop as { linkPreviewFetch: unknown }).linkPreviewFetch = () => Promise.resolve(undefined);
+    renderWithSnowdrop(snowdrop, <BehaviourPage />);
+    act(() => {
+      snowdrop!.stores.session
+        .getState()
+        .setPhonePrivacy({ status: 'pending', values: phone(null) });
+    });
+    const toggle = screen.getByRole('switch', { name: 'Link previews' });
+    expect(toggle.hasAttribute('disabled')).toBe(true);
     expect(toggle.getAttribute('aria-checked')).toBe('false');
   });
 });

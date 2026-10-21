@@ -82,6 +82,11 @@ const ALLOWED_METHODS: &[&str] = &[
     "startLink",
     "finishLink",
     "listAccounts",
+    // The privacy settings the phone syncs (SignalCliBackend.ts: readPhonePrivacy /
+    // updatePhonePrivacy). `getConfiguration` is a read; `updateConfiguration`
+    // is restricted by rpc_guard.rs to the privacy booleans and nothing else.
+    "getConfiguration",
+    "updateConfiguration",
     // Capability detection (SignalCliBackend.ts: supportsCustomEmojiDelivery)
     // — reads back the running signal-cli's own version string so the UI can
     // tell whether it's a patched build that can deliver custom emoji images.
@@ -125,7 +130,7 @@ pub async fn signal_cli_request(
         return Err(Error::new(ErrorKind::Config, format!("{method} is not a method Snowdrop's UI may call.")));
     };
     // signal-cli reads any non-`data:` file reference as a host path: refuse those.
-    crate::rpc_guard::validate_params(params.as_ref())?;
+    crate::rpc_guard::validate_request(&method, params.as_ref())?;
     let _t = CommandTimer::start_with_detail("signal_cli_request", allowed);
     let timeout = Duration::from_millis(timeout_ms.unwrap_or(30_000)).min(MAX_TIMEOUT);
     service.request(&method, params, timeout).await
@@ -673,6 +678,14 @@ mod tests {
         }
     }
 
+    /// `updateConfiguration` is reachable, but only under rpc_guard's strict
+    /// key allow-list (see `rpc_guard::validate_request`).
+    #[test]
+    fn allows_reading_and_updating_the_privacy_configuration() {
+        assert!(is_allowed_method("getConfiguration"));
+        assert!(is_allowed_method("updateConfiguration"));
+    }
+
     /// Account-destroying and config methods must never be reachable from the
     /// webview, even though signal-cli itself implements them.
     #[test]
@@ -680,7 +693,6 @@ mod tests {
         for method in [
             "unregister",
             "deleteLocalAccountData",
-            "updateConfiguration",
             "removePin",
             "setPin",
             "register",

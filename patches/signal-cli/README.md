@@ -13,7 +13,7 @@ Apply to a clean checkout of the pinned upstream commit:
 
 ```sh
 git apply /path/to/snowdrop/patches/signal-cli/*.patch
-./gradlew test --tests '*HistoryCommandTest' :libsignal-cli:test --tests '*History*Test' --tests '*StickerHelperTest'
+./gradlew test --tests '*HistoryCommandTest' --tests '*GetConfigurationCommandTest' --tests '*ReceiveConfigurationChangedNotificationTest' :libsignal-cli:test --tests '*History*Test' --tests '*StickerHelperTest' --tests '*ConfigurationStoreTest'
 ./gradlew installDist
 ```
 
@@ -734,6 +734,41 @@ Verification: `scripts/build-signal-cli.sh --test` (Java unit test —
 `StickerHelperTest`: an unknown pack is refused, a registered-but-uninstalled pack is found with
 its key and no storage id, and installing it is what gives it one, i.e. what makes it sync).
 Builds as `0.14.8-snowdrop-history.17`.
+
+## 0022: privacy configuration
+
+Signal's read receipts, typing indicators, link previews and unidentified-delivery indicators are
+account settings the phone owns. signal-cli already stores them as a linked device: a configuration
+sync message (`IncomingMessageHandler`) and the storage-service account record
+(`AccountRecordProcessor.updateLocal`) both write `ConfigurationStore`. Nothing read them back over
+JSON-RPC (upstream has `updateConfiguration` but no getter), so Snowdrop kept using its own settings
+and sent receipts the user had turned off on the phone.
+
+- `getConfiguration` returns `{ readReceipts, typingIndicators, linkPreviews,
+unidentifiedDeliveryIndicators }`, each `true`, `false` or `null` while the phone hasn't said.
+  Nothing else in the configuration (number sharing, username link colour, ...) is returned.
+- `receiveConfigurationChanged` is a notification with the same shape and subscription handling as
+  `receiveCaughtUp` (`{"account":"…"}`, no values). It is sent when one of the four values actually
+  changed: after a configuration sync message, after a storage-service sync, and after a local
+  `updateConfiguration`. Callers re-read with `getConfiguration`. `ConfigurationStore` takes a
+  snapshot before a write and notifies after it is committed (`notifyIfChanged`), so a re-read never
+  sees a half-applied storage sync; re-writing the same values notifies nobody.
+- `updateConfiguration` is upstream's command, unchanged: it stores the values, sends a
+  configuration sync message and pushes the account record through the storage service, which is
+  how Signal Desktop propagates its own changes. Snowdrop's native shell allow-lists the method with
+  only the four boolean keys (`src-tauri/src/rpc_guard.rs`).
+
+No storage change and no `DATABASE_VERSION` bump. Snowdrop gates all of it on `snowdrop-history.N`
+with N at least 18 (`supportsPhonePrivacy`, `src/core/backend/signal-cli/capabilities.ts`); an
+older build leaves Snowdrop on its own local settings.
+
+Verification: `scripts/build-signal-cli.sh --test` (Java tests —
+`ConfigurationStoreTest`: values start unknown and round-trip, a write that changed something
+notifies once, an identical write notifies nobody; `GetConfigurationCommandTest`: known values,
+explicit nulls for unknown ones, nothing else exposed; `ReceiveConfigurationChangedNotificationTest`:
+the notification, bare params on the default subscription, listener cleanup). Not verified against a
+real phone: that a change made from this linked device reaches the phone's storage service record.
+Builds as `0.14.8-snowdrop-history.18`.
 
 ## User-controlled phone verification
 

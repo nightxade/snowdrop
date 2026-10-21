@@ -4,7 +4,7 @@ import type { Message, Quote, StickerContent } from '@/core/domain';
 import type { ConversationView } from '@/core/domain';
 import { parseSlash } from '@/core/plugins';
 import { contactsSelectors, localSelectors } from '@/core/stores';
-import { useSnowdrop } from '@/ui/hooks';
+import { useEffectivePrivacy, useSnowdrop } from '@/ui/hooks';
 import { useChatController } from '../ChatController';
 import type { PendingAttachment } from './AttachmentTray';
 import { addToken, encodeMentions, tokensInText, type MentionToken } from './mentionTokens';
@@ -72,8 +72,9 @@ export function useComposer(conversation: ConversationView): ComposerState {
   );
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const linkPreviewsEnabled =
-    useStore(stores.settings, (s) => s.behaviour.linkPreviews) && app.linkPreviewFetch !== null;
+  // The phone's link-preview setting wins when known (and nothing is fetched
+  // until it has been read).
+  const linkPreviewsEnabled = useEffectivePrivacy().linkPreviews && app.linkPreviewFetch !== null;
   const linkPreview = useLinkPreview(text, linkPreviewsEnabled);
   const latest = useRef(attachments);
   useEffect(() => {

@@ -75,3 +75,20 @@ export function supportsStickerPackInstall(version: string | undefined): boolean
   if (!match?.[1]) return false;
   return Number(match[1]) >= MIN_STICKER_PACK_INSTALL_PATCH_LEVEL;
 }
+
+/**
+ * Whether a running signal-cli build implements `getConfiguration` and the
+ * `receiveConfigurationChanged` notification (patches/signal-cli, "0022:
+ * privacy configuration"): the read receipts / typing indicators / link
+ * previews the user's phone syncs to this device. Without it Snowdrop can't
+ * follow the phone and keeps using its own local settings. Same
+ * `snowdrop-history.N` scheme as the other capabilities.
+ */
+export const MIN_PHONE_PRIVACY_PATCH_LEVEL = 18;
+
+export function supportsPhonePrivacy(version: string | undefined): boolean {
+  if (!version) return false;
+  const match = SNOWDROP_PATCH_LEVEL.exec(version);
+  if (!match?.[1]) return false;
+  return Number(match[1]) >= MIN_PHONE_PRIVACY_PATCH_LEVEL;
+}

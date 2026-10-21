@@ -12,7 +12,7 @@
  *   subscriptions behind.
  * The UI only ever reads stores; it never subscribes to the backend.
  */
-import type { BackendEvents, ChatBackend } from '@/core/backend';
+import type { BackendEvents, ChatBackend, MessageRef, PhonePrivacyPatch } from '@/core/backend';
 import {
   advanceStatus,
   applyDelete,
@@ -39,7 +39,13 @@ import {
   type Unsubscribe,
 } from '@/core/lib';
 import { latestRealMessage, type MessageRepository } from '@/core/persistence';
-import { computeUnread, uiSelectors, type Stores } from '@/core/stores';
+import {
+  computeUnread,
+  effectivePrivacy,
+  UNKNOWN_PHONE_PRIVACY,
+  uiSelectors,
+  type Stores,
+} from '@/core/stores';
 import { CatchUpTracker } from './CatchUpTracker';
 import { PendingOpsBuffer } from './PendingOpsBuffer';
 import { ReceiptBuffer } from './ReceiptBuffer';
@@ -108,6 +114,14 @@ const SETUP_STATE_MESSAGES: Record<string, string> = {
 const ACCOUNT_UNAVAILABLE_RETRY_MS = 60_000;
 
 /**
+ * Retry cadence for a failed read of the phone's privacy settings. Until one
+ * succeeds nothing that depends on them is sent (see `effectivePrivacy`), so
+ * a few quick tries cover a daemon that is still starting up.
+ */
+const PHONE_PRIVACY_RETRY_MS = 3_000;
+const PHONE_PRIVACY_MAX_RETRIES = 8;
+
+/**
  * Tags a connect/initial-sync failure once `doStart` has logged and stored
  * it, so other places that see the very same rejection bubble through
  * (e.g. `createSnowdrop`'s `start()`, re-thrown up to callers in
@@ -148,6 +162,12 @@ export class SyncService {
   private refreshAgain = false;
   private readonly readingHistory = new Set<MessageId>();
   private readonly catchUpTracker: CatchUpTracker;
+  /** Read receipts earned while the phone's settings were still unknown; sent or dropped once they're known. */
+  private heldReceipts: { conversationId: ConversationId; messages: MessageRef[] }[] = [];
+  /** Latest phone-privacy read wins; an older answer arriving late is ignored. */
+  private privacyReadSeq = 0;
+  private privacyRetryCancel: Cancel | null = null;
+  private privacyRetries = 0;
   /** A pending steady-state retry after `account-unavailable` (see `doStart`'s catch). */
   private accountRetryCancel: Cancel | null = null;
   /**
@@ -193,8 +213,13 @@ export class SyncService {
     this.subscribe();
     // "Catching up" from here; `subscribe()` wired the events that end it.
     this.catchUpTracker.start();
+    // Until the connected daemon has been asked, nothing that depends on the
+    // phone's privacy settings (read receipts, typing, link previews) may go
+    // out. `refreshPhonePrivacy` settles this right after `connect()`.
+    stores.session.getState().setPhonePrivacy({ status: 'pending', values: UNKNOWN_PHONE_PRIVACY });
     try {
       await backend.connect();
+      await this.refreshPhonePrivacy();
       await this.initialSync();
     } catch (error) {
       // Drop the subscriptions so a retry doesn't double-subscribe, but keep the
@@ -258,6 +283,8 @@ export class SyncService {
     if (this.startPromise) await this.startPromise.catch(() => undefined);
     this.accountRetryCancel?.();
     this.accountRetryCancel = null;
+    this.privacyRetryCancel?.();
+    this.privacyRetryCancel = null;
     this.pruneTimer?.();
     this.purgeTimer?.();
     this.pruneTimer = null;
@@ -277,6 +304,10 @@ export class SyncService {
     this.queue = Promise.resolve();
     this.backlog = [];
     this.gated = true;
+    this.heldReceipts = [];
+    this.privacyReadSeq++;
+    this.privacyRetryCancel?.();
+    this.privacyRetryCancel = null;
   }
 
   /** Post-processing hooks (plugins, notifications) that should see stored state. */
@@ -556,7 +587,7 @@ export class SyncService {
    * badges and (if enabled) sends read receipts for the newly read messages.
    */
   async markConversationRead(conversationId: ConversationId): Promise<void> {
-    const { repository, stores, backend } = this.deps;
+    const { repository, stores } = this.deps;
     const selfId = this.selfId();
     const cursor = stores.conversations.getState().readCursors[conversationId] ?? 0;
     const unread = await repository.listAfter(conversationId, cursor);
@@ -568,15 +599,117 @@ export class SyncService {
     if (!stores.conversations.getState().markRead(conversationId, latest)) return;
     await repository.setReadCursor(conversationId, latest);
     const toAck = unread.filter((m) => m.authorId !== selfId && m.kind === 'normal');
-    if (toAck.length > 0 && stores.settings.getState().behaviour.sendReadReceipts) {
-      try {
-        await backend.markRead(
-          conversationId,
-          toAck.map((m) => ({ authorId: m.authorId, sentAt: m.sentAt })),
-        );
-      } catch (error) {
-        this.onError(error, 'read receipt failed');
+    if (toAck.length > 0) {
+      await this.sendReadReceipts(
+        conversationId,
+        toAck.map((m) => ({ authorId: m.authorId, sentAt: m.sentAt })),
+      );
+    }
+  }
+
+  /**
+   * Sends read receipts if the effective setting allows it: the phone's when
+   * it has told us, Snowdrop's own otherwise. While the phone's settings are
+   * still being read the receipts wait (`heldReceipts`) instead of going out
+   * on a guess, and are sent or dropped the moment the answer is in.
+   */
+  private async sendReadReceipts(
+    conversationId: ConversationId,
+    messages: MessageRef[],
+  ): Promise<void> {
+    const { backend, stores } = this.deps;
+    const privacy = effectivePrivacy(
+      stores.settings.getState().behaviour,
+      stores.session.getState().phonePrivacy,
+    );
+    if (!privacy.settled) {
+      this.heldReceipts.push({ conversationId, messages });
+      return;
+    }
+    if (!privacy.sendReadReceipts) return;
+    try {
+      await backend.markRead(conversationId, messages);
+    } catch (error) {
+      this.onError(error, 'read receipt failed');
+    }
+  }
+
+  private flushHeldReceipts(): void {
+    const held = this.heldReceipts;
+    this.heldReceipts = [];
+    for (const { conversationId, messages } of held) {
+      void this.sendReadReceipts(conversationId, messages);
+    }
+  }
+
+  // ─── Phone privacy settings ───────────────────────────────────────────
+
+  /**
+   * Reads the privacy settings the user's phone syncs to this device (only
+   * where the backend can), or marks them unsupported. Never throws: a failed
+   * read leaves them pending (nothing depending on them is sent) and retries.
+   */
+  private async refreshPhonePrivacy(): Promise<void> {
+    const { backend, stores } = this.deps;
+    const session = stores.session.getState();
+    if (backend.supportsPhonePrivacy?.() !== true || !backend.readPhonePrivacy) {
+      session.setPhonePrivacy({ status: 'unsupported', values: UNKNOWN_PHONE_PRIVACY });
+      return;
+    }
+    // A daemon that newly reports support starts from "unknown", not local settings.
+    if (session.phonePrivacy.status === 'unsupported') {
+      session.setPhonePrivacy({ status: 'pending', values: UNKNOWN_PHONE_PRIVACY });
+    }
+    const seq = ++this.privacyReadSeq;
+    try {
+      const values = await backend.readPhonePrivacy();
+      if (seq !== this.privacyReadSeq) return;
+      this.privacyRetries = 0;
+      stores.session.getState().setPhonePrivacy({ status: 'ready', values });
+    } catch (error) {
+      if (seq !== this.privacyReadSeq) return;
+      this.onError(error, 'reading the phone privacy settings failed');
+      this.privacyRetryCancel?.();
+      if (this.privacyRetries >= PHONE_PRIVACY_MAX_RETRIES) return;
+      this.privacyRetries++;
+      this.privacyRetryCancel = this.deps.scheduler.setTimeout(() => {
+        this.privacyRetryCancel = null;
+        void this.refreshPhonePrivacy();
+      }, PHONE_PRIVACY_RETRY_MS);
+    }
+  }
+
+  /**
+   * Settings → Privacy: changes read receipts / typing indicators / link
+   * previews on the phone's account (stored by signal-cli and synced to the
+   * phone, as Signal Desktop does). Applies at once and reverts on failure.
+   * Returns false when the phone's settings aren't known (the caller then
+   * edits the local setting) or the change failed.
+   */
+  async updatePhonePrivacy(patch: PhonePrivacyPatch): Promise<boolean> {
+    const { backend, stores } = this.deps;
+    const current = stores.session.getState().phonePrivacy;
+    if (current.status !== 'ready' || !backend.updatePhonePrivacy) return false;
+    const previous = current.values;
+    stores.session.getState().setPhonePrivacy({
+      status: 'ready',
+      values: { ...previous, ...patch },
+    });
+    try {
+      await backend.updatePhonePrivacy(patch);
+      return true;
+    } catch (error) {
+      this.onError(error, 'privacy setting update failed');
+      // Put back only what this change touched, unless a newer read replaced it.
+      const now = stores.session.getState().phonePrivacy;
+      if (now.status === 'ready') {
+        const reverted = { ...now.values };
+        for (const key of Object.keys(patch) as (keyof PhonePrivacyPatch)[]) {
+          if (reverted[key] === patch[key]) reverted[key] = previous[key];
+        }
+        stores.session.getState().setPhonePrivacy({ status: 'ready', values: reverted });
       }
+      return false;
     }
   }
 
@@ -623,6 +756,8 @@ export class SyncService {
         if (status === 'online' && this.deps.stores.session.getState().status === 'offline') {
           this.catchUpTracker.start();
           this.catchUpTracker.armQuiet();
+          // The daemon may have restarted: read the phone's settings again.
+          void this.refreshPhonePrivacy();
         }
         this.deps.stores.session.getState().setStatus(status);
       },
@@ -632,6 +767,23 @@ export class SyncService {
     this.unsubscribers.push(
       backend.on('message', () => {
         this.catchUpTracker.onMessage();
+      }),
+    );
+    // The phone's privacy settings changed (patches/signal-cli 0022). Ephemeral:
+    // applied at once, never parked behind the initial sync.
+    on(
+      'phonePrivacyChanged',
+      () => {
+        void this.refreshPhonePrivacy();
+      },
+      true,
+    );
+    // Held read receipts leave (or are dropped) the moment the settings are known.
+    this.unsubscribers.push(
+      this.deps.stores.session.subscribe((state, prev) => {
+        if (state.phonePrivacy !== prev.phonePrivacy && state.phonePrivacy.status !== 'pending') {
+          this.flushHeldReceipts();
+        }
       }),
     );
     // Queued (and parked behind the initial sync) like messages, so catch-up

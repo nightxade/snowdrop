@@ -10,6 +10,7 @@ import { createUiStore, type UiStore } from './ui';
 
 export * from './contacts';
 export * from './local';
+export * from './privacy';
 export * from './views';
 export * from './conversations';
 export * from './messages';
