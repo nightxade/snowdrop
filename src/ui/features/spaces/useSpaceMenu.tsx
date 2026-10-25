@@ -24,8 +24,10 @@ export function spaceConversationIds(app: AppServices, spaceId: SpaceId) {
 
 export function markSpaceRead(app: AppServices, spaceId: SpaceId): void {
   const unread = app.stores.conversations.getState().unread;
+  const local = app.stores.local.getState().conversations;
   for (const id of spaceConversationIds(app, spaceId)) {
-    if ((unread[id]?.count ?? 0) > 0) void app.sync.markConversationRead(id);
+    if ((unread[id]?.count ?? 0) > 0 || local[id]?.markedUnread === true)
+      void app.sync.markConversationRead(id);
   }
 }
 
@@ -37,8 +39,11 @@ export function useSpaceMenu(spaceId: SpaceId): () => MenuEntry[] {
     const space = stores.spaces.getState().spaces[spaceId];
     if (!space) return [];
     const unread = stores.conversations.getState().unread;
+    const local = stores.local.getState().conversations;
     const hasUnread = space.categories.some((c) =>
-      c.conversationIds.some((id) => (unread[id]?.count ?? 0) > 0),
+      c.conversationIds.some(
+        (id) => (unread[id]?.count ?? 0) > 0 || local[id]?.markedUnread === true,
+      ),
     );
     const plugin = pluginMenuEntries(registries.menus.space.list(), { spaceId }, registries);
     // Keyboard-accessible reordering (drag & drop is pointer-only).

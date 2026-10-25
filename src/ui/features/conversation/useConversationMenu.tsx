@@ -6,6 +6,7 @@ import {
   Check,
   Copy,
   FolderInput,
+  MessageSquareDot,
   Pin,
   PinOff,
   Rows3,
@@ -21,6 +22,7 @@ import {
   archive,
   copyText,
   markRead,
+  markUnread,
   MUTE_OPTIONS,
   muteState,
   TIMER_OPTIONS,
@@ -47,6 +49,9 @@ export function useConversationMenu(id: ConversationId): () => MenuEntry[] {
       archived: false,
     };
     const unread = stores.conversations.getState().unread[id];
+    // Like Signal Desktop: one item, whichever applies.
+    const isUnread =
+      (unread?.count ?? 0) > 0 || (unread?.mentions ?? 0) > 0 || !!local.markedUnread;
     const now = Date.now();
     const muted = isMuted(local.muted, now);
     const spaces = stores.spaces.getState();
@@ -106,16 +111,25 @@ export function useConversationMenu(id: ConversationId): () => MenuEntry[] {
       : [];
 
     return [
-      {
-        kind: 'item',
-        id: 'read',
-        label: 'Mark as read',
-        disabled: !unread || unread.count === 0,
-        icon: <Check size={ICON} />,
-        onSelect: () => {
-          markRead(app, id);
-        },
-      },
+      isUnread
+        ? {
+            kind: 'item',
+            id: 'read',
+            label: 'Mark as read',
+            icon: <Check size={ICON} />,
+            onSelect: () => {
+              markRead(app, id);
+            },
+          }
+        : {
+            kind: 'item',
+            id: 'unread',
+            label: 'Mark as unread',
+            icon: <MessageSquareDot size={ICON} />,
+            onSelect: () => {
+              markUnread(app, id);
+            },
+          },
       { kind: 'separator', id: 's1' },
       muted
         ? {

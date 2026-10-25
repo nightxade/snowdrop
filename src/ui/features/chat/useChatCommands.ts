@@ -8,6 +8,7 @@ import {
 } from '@/core/commands';
 import { uiSelectors } from '@/core/stores';
 import { useSnowdrop } from '@/ui/hooks';
+import { markUnread } from '@/ui/features/conversation';
 import { useChatController } from './ChatController';
 import type { MessageAction } from './list/rowState';
 
@@ -28,7 +29,8 @@ const MESSAGE_ACTIONS: readonly [id: string, title: string, action: MessageActio
  * (Vim mode) drive through the registry.
  */
 export function useChatCommands(): void {
-  const { commands, stores } = useSnowdrop();
+  const app = useSnowdrop();
+  const { commands, stores } = app;
   const chat = useChatController();
   useEffect(() => {
     const hasConversation = () => uiSelectors.selectedConversation(stores.ui.getState()) !== null;
@@ -52,6 +54,22 @@ export function useChatCommands(): void {
         allowInInputs: true,
         enabled: hasConversation,
         run: () => chat.jumpToPresent(),
+      }),
+      commands.register({
+        id: NavCommand.MarkUnread,
+        title: 'Mark conversation as unread',
+        category: 'Conversation',
+        enabled: () => {
+          const id = uiSelectors.selectedConversation(stores.ui.getState());
+          if (!id) return false;
+          const unread = stores.conversations.getState().unread[id];
+          const marked = stores.local.getState().conversations[id]?.markedUnread === true;
+          return !marked && (unread?.count ?? 0) === 0 && (unread?.mentions ?? 0) === 0;
+        },
+        run: () => {
+          const id = uiSelectors.selectedConversation(stores.ui.getState());
+          if (id) markUnread(app, id);
+        },
       }),
       commands.register({
         id: CoreCommand.SearchConversation,
@@ -158,5 +176,5 @@ export function useChatCommands(): void {
     return () => {
       for (const dispose of disposers) dispose();
     };
-  }, [commands, stores, chat]);
+  }, [app, commands, stores, chat]);
 }

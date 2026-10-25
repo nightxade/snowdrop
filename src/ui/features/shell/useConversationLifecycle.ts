@@ -6,7 +6,7 @@ import { useSnowdrop } from '@/ui/hooks';
 /**
  * Side effects of navigation, in one place so every path (click, keyboard,
  * switcher, plugin) behaves the same:
- * - opening a conversation loads its history (HistoryService.open snapshots
+ * - opening a conversation clears its "marked unread" flag and loads its history (HistoryService.open snapshots
  *   the unread marker first). Marking read is the message list's job: only
  *   when its newest message is on screen and the window has focus;
  * - window focus is mirrored into the ui store (SyncService only auto-reads
@@ -21,8 +21,11 @@ export function useConversationLifecycle(): void {
   const spaceExists = useStore(stores.spaces, (s) => space === HOME || space in s.spaces);
 
   useEffect(() => {
-    if (selected && ready) void history.open(selected);
-  }, [selected, ready, history]);
+    if (!selected || !ready) return;
+    // Opening a conversation clears a hand-set "unread" flag (local only).
+    stores.local.getState().setMarkedUnread(selected, false);
+    void history.open(selected);
+  }, [selected, ready, history, stores]);
 
   useEffect(() => {
     const update = () => {

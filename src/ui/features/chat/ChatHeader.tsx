@@ -135,14 +135,23 @@ export const ChatHeader = memo(function ChatHeader({
  */
 function NavButton({ current, onOpen }: { current: ConversationId | null; onOpen: () => void }) {
   const { stores } = useSnowdrop();
+  const local = useStore(stores.local, (s) => s.conversations);
   const waiting = useStore(stores.conversations, (s) => {
-    const local = stores.local.getState().conversations;
     const now = Date.now();
-    return Object.entries(s.unread).some(
-      ([id, u]) =>
-        id !== current &&
-        (u.mentions > 0 ||
-          (u.count > 0 && !isMuted(local[id as ConversationId]?.muted ?? false, now))),
+    const quiet = (id: string) => isMuted(local[id as ConversationId]?.muted ?? false, now);
+    const unread = Object.entries(s.unread).some(
+      ([id, u]) => id !== current && (u.mentions > 0 || (u.count > 0 && !quiet(id))),
+    );
+    // Flagged by hand, not by messages: only a conversation that still exists counts.
+    return (
+      unread ||
+      Object.entries(local).some(
+        ([id, state]) =>
+          id !== current &&
+          state.markedUnread === true &&
+          !quiet(id) &&
+          s.byId[id as ConversationId] !== undefined,
+      )
     );
   });
   return (

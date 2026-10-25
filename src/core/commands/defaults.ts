@@ -44,6 +44,8 @@ export const NavCommand = {
   NextSpace: 'core.nextSpace',
   PrevSpace: 'core.prevSpace',
   CommandPalette: 'core.commandPalette',
+  /** Flags the open conversation unread (local only); the palette shows it when it applies. */
+  MarkUnread: 'core.markConversationUnread',
   /** Opens (never closes) the in-conversation search panel; hidden. */
   OpenSearch: 'core.openSearch',
   /**

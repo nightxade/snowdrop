@@ -167,8 +167,13 @@ export function globalOrder(
   return out;
 }
 
-/** Whether a conversation deserves a "next unread" stop: unread and not muted, or mentioned. */
-export function wantsAttention(unread: UnreadState | undefined, muted: boolean): boolean {
+/** Whether a conversation deserves a "next unread" stop: unread (or marked unread) and not muted, or mentioned. */
+export function wantsAttention(
+  unread: UnreadState | undefined,
+  muted: boolean,
+  markedUnread = false,
+): boolean {
+  if (markedUnread && !muted) return true;
   if (!unread) return false;
   return unread.mentions > 0 || (unread.count > 0 && !muted);
 }

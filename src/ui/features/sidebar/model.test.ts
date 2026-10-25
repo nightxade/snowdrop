@@ -177,5 +177,7 @@ describe('next/previous unread', () => {
     expect(wantsAttention({ count: 3, mentions: 1 }, true)).toBe(true);
     expect(wantsAttention({ count: 1, mentions: 0 }, false)).toBe(true);
     expect(wantsAttention(undefined, false)).toBe(false);
+    expect(wantsAttention(undefined, false, true)).toBe(true);
+    expect(wantsAttention(undefined, true, true)).toBe(false);
   });
 });

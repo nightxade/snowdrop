@@ -731,6 +731,8 @@ export class SyncService {
    */
   async markConversationRead(conversationId: ConversationId): Promise<void> {
     const { repository, stores } = this.deps;
+    // A hand-set "unread" flag is local only and always ends here.
+    stores.local.getState().setMarkedUnread(conversationId, false);
     const selfId = this.selfId();
     const cursor = stores.conversations.getState().readCursors[conversationId] ?? 0;
     const unread = await repository.listAfter(conversationId, cursor);

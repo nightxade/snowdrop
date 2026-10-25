@@ -3,6 +3,7 @@ export {
   archive,
   copyText,
   markRead,
+  markUnread,
   MUTE_OPTIONS,
   muteState,
   openConversation,

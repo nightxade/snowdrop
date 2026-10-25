@@ -117,6 +117,25 @@ describe('protocol vs local state', () => {
     // After the mute lapses, its count is included.
     expect(totalUnread(unread, local.getState().conversations, [conv, muted], 3000).count).toBe(7);
   });
+
+  it('counts a chat marked unread as one only when nothing in it is unread', () => {
+    const other = conversationIdFor('o');
+    const local = createLocalStore();
+    local.getState().setMarkedUnread(conv, true);
+    local.getState().setMarkedUnread(other, true);
+    const total = (unread: Parameters<typeof totalUnread>[0]) =>
+      totalUnread(unread, local.getState().conversations, [conv, other], 1000);
+    // No unread entry at all, or a zero one: one each.
+    expect(total({})).toEqual({ count: 2, mentions: 0, hasUnread: true });
+    expect(total({ [conv]: { count: 0, mentions: 0 } }).count).toBe(2);
+    // Real unread messages are counted as they are, not on top of the flag.
+    expect(total({ [conv]: { count: 3, mentions: 0 } }).count).toBe(4);
+    expect(total({ [conv]: { count: 0, mentions: 1 } })).toEqual({
+      count: 1,
+      mentions: 1,
+      hasUnread: true,
+    });
+  });
 });
 
 describe('lastMessage previews', () => {

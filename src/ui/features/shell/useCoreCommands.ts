@@ -32,7 +32,7 @@ export function jumpToUnread(stores: Stores, delta: 1 | -1): boolean {
       const spaceId = spaceOf.get(id);
       const spaceMuted = spaceId ? (spaces[spaceId]?.muted ?? false) : false;
       const muted = spaceMuted || isMuted(local[id]?.muted ?? false, now);
-      return wantsAttention(unread[id], muted);
+      return wantsAttention(unread[id], muted, local[id]?.markedUnread === true);
     },
   );
   if (!target) return false;

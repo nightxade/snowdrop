@@ -86,6 +86,11 @@ export interface LocalConversationState {
   pinned: boolean;
   muted: MuteState;
   archived: boolean;
+  /**
+   * Flagged unread by the user, whatever the real unread count (Signal's "mark
+   * as unread"). Absent means not marked. Device-local: nothing is sent.
+   */
+  markedUnread?: boolean;
   draft?: string;
 }
 

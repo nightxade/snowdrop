@@ -107,6 +107,16 @@ describe('read sync: reading always reaches the user’s own devices', () => {
     expect(markRead.mock.calls[0]![2]).toBeUndefined();
   });
 
+  it('reading clears a hand-set unread flag, with nothing sent when nothing was unread', async () => {
+    const { stores, sync, conv, markRead } = await setup();
+    await sync.markConversationRead(conv);
+    markRead.mockClear();
+    stores.local.getState().setMarkedUnread(conv, true);
+    await sync.markConversationRead(conv);
+    expect(stores.local.getState().conversations[conv]?.markedUnread).toBeUndefined();
+    expect(markRead).not.toHaveBeenCalled();
+  });
+
   it('a message read on arrival while viewing is acked', async () => {
     const { backend, stores, sync, conv, peerOf, markRead } = await setup();
     await sync.markConversationRead(conv);

@@ -72,6 +72,18 @@ export function markRead(app: AppServices, id: ConversationId): void {
   void app.sync.markConversationRead(id);
 }
 
+/**
+ * Flags a conversation unread by hand. Device-local, so nothing is sent: no
+ * receipt, no sync. It stays marked, even while open, until the conversation
+ * is next opened or marked read.
+ */
+export function markUnread(app: AppServices, id: ConversationId): void {
+  app.stores.local.getState().setMarkedUnread(id, true);
+  app.stores.ui
+    .getState()
+    .pushToast({ message: 'Conversation marked as unread', kind: 'info', source: 'core' });
+}
+
 export function archive(app: AppServices, id: ConversationId, archived: boolean): void {
   app.stores.local.getState().setArchived(id, archived);
   if (archived) {

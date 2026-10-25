@@ -42,6 +42,54 @@ describe('localStore', () => {
     expect(store.getState().contactNotes).toEqual({});
   });
 
+  it('marks a conversation unread, locally, and clears it without leaving a trace', () => {
+    const store = createLocalStore();
+    store.getState().setMarkedUnread(a, false);
+    expect(store.getState().conversations[a]).toBeUndefined();
+    store.getState().setMarkedUnread(a, true);
+    expect(store.getState().conversations[a]?.markedUnread).toBe(true);
+    const before = store.getState().conversations;
+    store.getState().setMarkedUnread(a, true);
+    expect(store.getState().conversations).toBe(before);
+    store.getState().setMarkedUnread(a, false);
+    expect(localSelectors.conversation(a)(store.getState())).toEqual({
+      pinned: false,
+      muted: false,
+      archived: false,
+    });
+  });
+
+  it('persists the flag and still loads data saved before it existed', () => {
+    const store = createLocalStore();
+    store.getState().setMarkedUnread(a, true);
+    const storage = createMemoryStorage();
+    saveVersioned(storage, localSchema, selectLocalData(store.getState()));
+    expect(loadVersioned(storage, localSchema).conversations[a]).toEqual({
+      pinned: false,
+      muted: false,
+      archived: false,
+      markedUnread: true,
+    });
+    const legacy = createMemoryStorage({
+      [localSchema.key]: JSON.stringify({
+        v: 1,
+        data: { conversations: { [a]: { pinned: true, muted: false, archived: false } } },
+      }),
+    });
+    expect(loadVersioned(legacy, localSchema).conversations[a]).toEqual({
+      pinned: true,
+      muted: false,
+      archived: false,
+    });
+    const odd = createMemoryStorage({
+      [localSchema.key]: JSON.stringify({
+        v: 1,
+        data: { conversations: { [a]: { markedUnread: 'yes' } } },
+      }),
+    });
+    expect(loadVersioned(odd, localSchema).conversations[a]?.markedUnread).toBeUndefined();
+  });
+
   it('seeds demo defaults once', () => {
     const store = createLocalStore();
     store.getState().seedDefaults({ pinned: [a] });

@@ -16,10 +16,13 @@ export function useFolderMenu(folderId: string): () => MenuEntry[] {
       .rail.find((e) => e.type === 'folder' && e.id === folderId);
     if (folder?.type !== 'folder') return [];
     const unread = stores.conversations.getState().unread;
+    const local = stores.local.getState().conversations;
     const spaces = stores.spaces.getState().spaces;
     const hasUnread = folder.spaceIds.some((sid) =>
       spaces[sid]?.categories.some((c) =>
-        c.conversationIds.some((id) => (unread[id]?.count ?? 0) > 0),
+        c.conversationIds.some(
+          (id) => (unread[id]?.count ?? 0) > 0 || local[id]?.markedUnread === true,
+        ),
       ),
     );
     return [

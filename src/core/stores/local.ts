@@ -83,6 +83,8 @@ export interface LocalState extends LocalData {
   setPinned(id: ConversationId, pinned: boolean): void;
   setMuted(id: ConversationId, muted: MuteState): void;
   setArchived(id: ConversationId, archived: boolean): void;
+  /** Local only. Clearing a conversation that isn't marked changes nothing. */
+  setMarkedUnread(id: ConversationId, markedUnread: boolean): void;
   /** Empty/whitespace-only drafts are removed. */
   setDraft(id: ConversationId, draft: string): void;
   /** Empty notes are removed. */
@@ -144,6 +146,7 @@ export function createLocalStore(initial: LocalData = defaultLocalData()): Local
         const current = s.conversations[id] ?? DEFAULT_LOCAL_CONVERSATION;
         const next: LocalConversationState = { ...current, ...patch };
         if (patch.draft !== undefined && patch.draft.trim() === '') delete next.draft;
+        if (patch.markedUnread === false) delete next.markedUnread;
         return { conversations: { ...s.conversations, [id]: next } };
       });
     },
@@ -155,6 +158,10 @@ export function createLocalStore(initial: LocalData = defaultLocalData()): Local
     },
     setArchived: (id, archived) => {
       get().patchConversation(id, { archived });
+    },
+    setMarkedUnread: (id, markedUnread) => {
+      if ((get().conversations[id]?.markedUnread === true) === markedUnread) return;
+      get().patchConversation(id, { markedUnread });
     },
     setDraft: (id, draft) => {
       const current = get().conversations[id]?.draft ?? '';
@@ -377,6 +384,8 @@ function parseChatTimes(value: unknown): Record<ConversationId, number> {
 
 export const localSchema: VersionedSchema<LocalData> = {
   key: 'snowdrop.local',
+  // `markedUnread` is optional and simply absent in older data, so it needs
+  // no migration; a build without it ignores the field on load.
   version: 1,
   defaults: defaultLocalData,
   parse: (data) => {
@@ -391,6 +400,7 @@ export const localSchema: VersionedSchema<LocalData> = {
           muted: parseMute(raw.muted),
           archived: raw.archived === true,
         };
+        if (raw.markedUnread === true) entry.markedUnread = true;
         if (typeof raw.draft === 'string' && raw.draft.trim() !== '') entry.draft = raw.draft;
         conversations[id] = entry;
       }

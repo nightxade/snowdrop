@@ -38,7 +38,7 @@ export const ConversationRow = memo(function ConversationRow({
   const requestState = useMessageRequestState(id);
   if (!view) return null;
 
-  const hasUnread = unread.count > 0 && !muted;
+  const hasUnread = (unread.count > 0 || view.markedUnread === true) && !muted;
   const mentions = unread.mentions;
   const Glyph = view.kind === 'group' ? Hash : AtSign;
   // A message request says so instead of showing what the stranger wrote.
