@@ -211,20 +211,25 @@ and calls services (or runs commands).
 Adapters translate protocol quirks into the domain-level `BackendEvents`
 (`message`, `messageEdited`, `messageDeleted`, `messagePinned`, `reaction`,
 `receipt`, `typing`, `readSync`, `conversationUpdated`, `contactUpdated`,
-`status`, `checkpoint`, `caughtUp`). `SyncService` subscribes once:
+`status`, `checkpoint`, `caughtUp`, `catchingUp`). `SyncService` subscribes once:
 
 - **Ephemeral events apply immediately:** `status`, `typing` and
   `contactUpdated` go straight to their stores.
-- **`caughtUp`** (and every `message`, observed directly) drives a
-  `CatchUpTracker`, exposed as `stores.session.catchingUp`: true from
-  `start()` (and again after a reconnect that followed being offline) until
-  the backend reports it caught up with the server's queue, a quiet period
-  with no messages, or a ~20s ceiling, whichever comes first. The sidebar
-  freezes order/badges and shows "Loading…" previews while it's true
-  (`useSidebarModel`, `useRowState`); `NotificationService` suppresses
-  messages processed during it. signal-cli only sends `caughtUp` with the
-  `receiveCaughtUp` patch (`patches/signal-cli/README.md`); other backends
-  rely on the quiet-period/ceiling fallback.
+- **`caughtUp`**, **`catchingUp`** (and every `message`, observed directly)
+  drive a `CatchUpTracker`, exposed as `stores.session.catchingUp`: true from
+  `start()` (and again after a reconnect that followed being offline, or when
+  signal-cli reports it reconnected to the server by itself) until the backend
+  reports it caught up with the server's queue, a quiet period with no
+  messages, or a ~20s ceiling, whichever comes first. The sidebar freezes
+  order/badges and shows "Loading…" previews while it's true
+  (`useSidebarModel`, `useRowState`). A second tracker in lockstep drives
+  `stores.session.notificationsHeld`, which `NotificationService` checks: the
+  same, except that with a backend that sends `catchingUp` (so `caughtUp` is
+  reliable) its ceiling is 2 minutes, so a long backlog after waking from sleep
+  never notifies. signal-cli only sends `caughtUp` and `catchingUp` with the
+  `receiveCaughtUp` and `receiveCatchingUp` patches
+  (`patches/signal-cli/README.md`); other backends rely on the
+  quiet-period/ceiling fallback.
 - **Everything else goes through one ordered queue,** so an edit can never
   overtake the message it edits and a group refresh can't be overtaken by the
   next message. A handler that throws is reported and skipped; it never stalls

@@ -13,7 +13,7 @@ Apply to a clean checkout of the pinned upstream commit:
 
 ```sh
 git apply /path/to/snowdrop/patches/signal-cli/*.patch
-./gradlew test --tests '*HistoryCommandTest' --tests '*GetConfigurationCommandTest' --tests '*SendReceiptCommandTest' --tests '*ReceiveConfigurationChangedNotificationTest' :libsignal-cli:test --tests '*History*Test' --tests '*StickerHelperTest' --tests '*ConfigurationStoreTest' --tests '*ReceiptSyncOutcomeTest'
+./gradlew test --tests '*HistoryCommandTest' --tests '*GetConfigurationCommandTest' --tests '*SendReceiptCommandTest' --tests '*ReceiveConfigurationChangedNotificationTest' --tests '*ReceiveCatchingUpNotificationTest' :libsignal-cli:test --tests '*History*Test' --tests '*StickerHelperTest' --tests '*ConfigurationStoreTest' --tests '*ReceiptSyncOutcomeTest' --tests '*ReceiveHelperCatchingUpTest'
 ./gradlew installDist
 ```
 
@@ -820,6 +820,34 @@ Verification: `scripts/build-signal-cli.sh --test` (`ReceiptSyncOutcomeTest`: ev
 to its value, only `success` is a success; `SendReceiptCommandTest`: `sync` on the syncOnly and
 normal replies for every outcome, `results` unchanged). Not verified against a real phone.
 Builds as `0.14.8-snowdrop-history.20`.
+
+## 0025: receive catching up notification
+
+`receiveCaughtUp` (0012) says the server's queue is empty, but nothing said it had started to fill.
+signal-cli reconnects to Signal's server by itself (after a sleep, a network change), and
+everything queued meanwhile then arrives as ordinary `receive` notifications. A client that only
+treats its own start as a catch-up cannot tell those from new messages.
+
+- New JSON-RPC notification `receiveCatchingUp`, same shape and subscription handling as
+  `receiveCaughtUp` (`{"account": ...}` on the default subscription, wrapped with `subscription` /
+  `result` on an explicit `subscribeReceive`). No other fields.
+- It fires from `ReceiveHelper.onWebSocketStateChange` when the authenticated websocket reaches
+  `CONNECTED`, so reconnects made inside the websocket layer count as well as the receive loop's
+  own retry. The state stream is de-duplicated before it gets there, so it fires once per
+  connection. The `receiveCaughtUp` that follows ends it. On a short or empty queue that one can
+  arrive first, so a client must not rely on the order.
+- `Manager` gains `addCatchingUpWithOldMessagesListener` / `remove...`; DBus does not support it.
+- No storage change and no `DATABASE_VERSION` bump. A notification needs no new method, so the
+  native shell's allow-list (`rpc_guard.rs`) is unchanged; its notification forwarding gains the
+  new name.
+
+Snowdrop gates it on `snowdrop-history.N` with N at least 21 (`supportsCatchingUpSignal`,
+`src/core/backend/signal-cli/capabilities.ts`). Older builds behave as before.
+
+Verification: `scripts/build-signal-cli.sh --test` (`ReceiveCatchingUpNotificationTest`: shape on
+both subscription kinds, once per connect, cleanup, not subscribed without `subscribeReceive`;
+`ReceiveHelperCatchingUpTest`: fires on `CONNECTED` only, again on reconnect, harmless with no
+listener). Not verified against a real wake from sleep. Builds as `0.14.8-snowdrop-history.21`.
 
 ## User-controlled phone verification
 

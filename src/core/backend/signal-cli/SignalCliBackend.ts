@@ -81,6 +81,7 @@ import {
   supportsHistoryStickerPack as detectHistoryStickerPackSupport,
   supportsPhonePrivacy as detectPhonePrivacySupport,
   supportsReadSync as detectReadSyncSupport,
+  supportsCatchingUpSignal as detectCatchingUpSignalSupport,
   supportsStickerPackInstall as detectStickerPackInstallSupport,
 } from './capabilities';
 import { Directory } from './directory';
@@ -247,6 +248,7 @@ export class SignalCliBackend implements ChatBackend {
   /** Whether the connected daemon reports the phone's privacy settings (see capabilities.ts). */
   private phonePrivacySupported = false;
   private readSyncSupported = false;
+  private catchingUpSignalSupported = false;
   /** Installed packs whose download `listStickerPacks` already started this session. */
   private readonly stickerPacksFetchTried = new Set<string>();
   /** listConversations logs its counts once per backend, not on every refresh. */
@@ -354,6 +356,7 @@ export class SignalCliBackend implements ChatBackend {
       this.stickerPackInstallSupported = detectStickerPackInstallSupport(version);
       this.phonePrivacySupported = detectPhonePrivacySupport(version);
       this.readSyncSupported = detectReadSyncSupport(version);
+      this.catchingUpSignalSupported = detectCatchingUpSignalSupport(version);
       this.selectAccount(await this.discoverAccount());
       // Stream first: nothing sent to us while we load the directory is missed.
       this.openStream();
@@ -408,6 +411,11 @@ export class SignalCliBackend implements ChatBackend {
   /** Whether `markRead` can sync-only (see capabilities.ts, `supportsReadSync`). */
   supportsReadSync(): boolean {
     return this.readSyncSupported;
+  }
+
+  /** Whether the build tells us when a drain starts (see capabilities.ts, `supportsCatchingUpSignal`). */
+  supportsCatchingUpSignal(): boolean {
+    return this.catchingUpSignalSupported;
   }
 
   /** See `ChatBackend.readPhonePrivacy`: the stored configuration the phone synced to us. */
@@ -512,6 +520,7 @@ export class SignalCliBackend implements ChatBackend {
     this.stickerPackInstallSupported = false;
     this.phonePrivacySupported = false;
     this.readSyncSupported = false;
+    this.catchingUpSignalSupported = false;
     this.setStatus('offline');
   }
 
@@ -679,7 +688,12 @@ export class SignalCliBackend implements ChatBackend {
 
   private onTransportEvent(event: TransportEvent): void {
     let events: AdapterEvent[] = [];
-    if (event.type === 'receiveCaughtUp') {
+    if (event.type === 'receiveCatchingUp') {
+      // Patched signal-cli only (patches/signal-cli/0025): the receive
+      // websocket (re)connected and the server is delivering what queued up.
+      // No envelope; the receiveCaughtUp that follows ends it.
+      this.emitter.emit('catchingUp', undefined);
+    } else if (event.type === 'receiveCaughtUp') {
       // Patched signal-cli only (patches/signal-cli/0012): the receive loop
       // drained the server's queue. No envelope; nothing to normalise.
       this.emitter.emit('caughtUp', undefined);

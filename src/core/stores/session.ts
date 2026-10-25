@@ -42,11 +42,16 @@ export interface SessionState {
   /**
    * True while the backend is draining messages queued on the server before
    * this connection (SyncService's CatchUpTracker). The sidebar freezes
-   * order/badges and shows "Loading…" previews while this is true, and
-   * NotificationService suppresses notifications for messages processed
-   * during it.
+   * order/badges and shows "Loading…" previews while this is true.
    */
   catchingUp: boolean;
+  /**
+   * True while messages processed now are old ones being replayed, so
+   * NotificationService must not announce them. It starts and ends with
+   * `catchingUp`, except that with a backend that reliably sends `caughtUp`
+   * it outlasts `catchingUp`'s short ceiling (see `NOTIFICATION_HOLD_CEILING_MS`).
+   */
+  notificationsHeld: boolean;
   /** See `HistoryImportProgress`. */
   historyImport: HistoryImportProgress;
   /**
@@ -70,6 +75,7 @@ export interface SessionState {
   setError(error: string | null, kind?: string | null): void;
   setReady(ready: boolean): void;
   setCatchingUp(catchingUp: boolean): void;
+  setNotificationsHeld(held: boolean): void;
   setHistoryImport(patch: Partial<HistoryImportProgress>): void;
   setAttachmentBackfill(key: string, status: AttachmentBackfillStatus): void;
   setPhonePrivacy(phonePrivacy: PhonePrivacyState): void;
@@ -93,6 +99,7 @@ export function createSessionStore(): SessionStore {
     errorKind: null,
     ready: false,
     catchingUp: false,
+    notificationsHeld: false,
     historyImport: IDLE_HISTORY_IMPORT,
     attachmentBackfills: {},
     phonePrivacy: initialPhonePrivacy(),
@@ -113,6 +120,9 @@ export function createSessionStore(): SessionStore {
     },
     setCatchingUp: (catchingUp) => {
       set({ catchingUp });
+    },
+    setNotificationsHeld: (notificationsHeld) => {
+      set({ notificationsHeld });
     },
     setHistoryImport: (patch) => {
       set((s) => ({ historyImport: { ...s.historyImport, ...patch } }));
@@ -141,6 +151,7 @@ export const sessionSelectors = {
   error: (s: SessionState) => s.error,
   errorKind: (s: SessionState) => s.errorKind,
   catchingUp: (s: SessionState) => s.catchingUp,
+  notificationsHeld: (s: SessionState) => s.notificationsHeld,
   historyImport: (s: SessionState) => s.historyImport,
   phonePrivacy: (s: SessionState) => s.phonePrivacy,
   attachmentBackfill: (authorId: string, sentAt: number) => (s: SessionState) =>

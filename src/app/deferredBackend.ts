@@ -120,6 +120,7 @@ export function deferredBackend(
       call((b) => b.markRead(conversationId, messages, options)),
     // Known only once the adapter has connected and read signal-cli's version.
     supportsReadSync: () => real?.supportsReadSync?.() ?? false,
+    supportsCatchingUpSignal: () => real?.supportsCatchingUpSignal?.() ?? false,
     on(event, fn) {
       const sub: Subscription = { event, fn, off: null, active: true };
       subscriptions.add(sub);

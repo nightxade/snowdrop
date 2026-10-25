@@ -1,0 +1,476 @@
+diff --git a/build.gradle.kts b/build.gradle.kts
+index 9c9bb29..1eed7f8 100644
+--- a/build.gradle.kts
++++ b/build.gradle.kts
+@@ -10,7 +10,7 @@ plugins {
+ 
+ allprojects {
+     group = "org.asamk"
+-    version = "0.14.8-snowdrop-history.20"
++    version = "0.14.8-snowdrop-history.21"
+ 
+     // Snowdrop: substitute a locally-built, patched signal-service-java
+     // (snowdrop/patches/signal-service-java) for the stock turasa jar, when
+diff --git a/lib/src/main/java/org/asamk/signal/manager/Manager.java b/lib/src/main/java/org/asamk/signal/manager/Manager.java
+index 95089a9..afa3b6f 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/Manager.java
++++ b/lib/src/main/java/org/asamk/signal/manager/Manager.java
+@@ -418,6 +418,15 @@ public interface Manager extends Closeable {
+ 
+     void removeCaughtUpWithOldMessagesListener(Runnable listener);
+ 
++    /**
++     * Add a listener that's notified each time the receive loop's websocket connects and the
++     * server starts delivering messages queued while it was disconnected. The matching
++     * caught-up listener fires when that queue is empty.
++     */
++    void addCatchingUpWithOldMessagesListener(Runnable listener);
++
++    void removeCatchingUpWithOldMessagesListener(Runnable listener);
++
+     /**
+      * Snowdrop: add a listener that's notified after any of the privacy settings in
+      * {@link #getConfiguration()} changed, whether from a sync from the phone or a local
+diff --git a/lib/src/main/java/org/asamk/signal/manager/helper/ReceiveHelper.java b/lib/src/main/java/org/asamk/signal/manager/helper/ReceiveHelper.java
+index 8d44f4f..489afc4 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/helper/ReceiveHelper.java
++++ b/lib/src/main/java/org/asamk/signal/manager/helper/ReceiveHelper.java
+@@ -46,6 +46,7 @@ public class ReceiveHelper {
+     private boolean shouldStop = false;
+     private Callable authenticationFailureListener;
+     private Callable caughtUpWithOldMessagesListener;
++    private Callable catchingUpWithOldMessagesListener;
+ 
+     public ReceiveHelper(final Context context) {
+         this.account = context.getAccount();
+@@ -66,6 +67,15 @@ public class ReceiveHelper {
+         this.caughtUpWithOldMessagesListener = caughtUpWithOldMessagesListener;
+     }
+ 
++    /**
++     * Called once each time the authenticated websocket becomes connected, which is when the
++     * server starts delivering whatever queued up while it was not. Reconnects made inside the
++     * websocket layer count too.
++     */
++    public void setCatchingUpWithOldMessagesListener(final Callable catchingUpWithOldMessagesListener) {
++        this.catchingUpWithOldMessagesListener = catchingUpWithOldMessagesListener;
++    }
++
+     public boolean requestStopReceiveMessages() {
+         this.shouldStop = true;
+         return isWaitingForMessage;
+@@ -331,10 +341,12 @@ public class ReceiveHelper {
+         }
+     }
+ 
+-    private void onWebSocketStateChange(final WebSocketConnectionState s) {
++    void onWebSocketStateChange(final WebSocketConnectionState s) {
+         if (s.equals(WebSocketConnectionState.AUTHENTICATION_FAILED)) {
+             account.setRegistered(false);
+             authenticationFailureListener.call();
++        } else if (s.equals(WebSocketConnectionState.CONNECTED) && catchingUpWithOldMessagesListener != null) {
++            catchingUpWithOldMessagesListener.call();
+         }
+     }
+ 
+diff --git a/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java b/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
+index d469708..105d683 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
++++ b/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
+@@ -261,6 +261,7 @@ public class ManagerImpl implements Manager {
+     private final List<Runnable> closedListeners = new ArrayList<>();
+     private final List<Runnable> addressChangedListeners = new ArrayList<>();
+     private final Set<Runnable> caughtUpWithOldMessagesListeners = new HashSet<>();
++    private final Set<Runnable> catchingUpWithOldMessagesListeners = new HashSet<>();
+     private final Set<Runnable> configurationChangedListeners = new HashSet<>();
+     private final CompositeDisposable disposable = new CompositeDisposable();
+     private final AtomicLong lastMessageTimestamp = new AtomicLong();
+@@ -317,6 +318,13 @@ public class ManagerImpl implements Manager {
+                 caughtUpWithOldMessagesListeners.forEach(Runnable::run);
+             }
+         });
++        this.context.getReceiveHelper().setCatchingUpWithOldMessagesListener(() -> {
++            final List<Runnable> listeners;
++            synchronized (catchingUpWithOldMessagesListeners) {
++                listeners = List.copyOf(catchingUpWithOldMessagesListeners);
++            }
++            listeners.forEach(Runnable::run);
++        });
+         disposable.add(account.getIdentityKeyStore()
+                 .getIdentityChanges()
+                 .observeOn(Schedulers.from(executor))
+@@ -2021,6 +2029,20 @@ public class ManagerImpl implements Manager {
+         }
+     }
+ 
++    @Override
++    public void addCatchingUpWithOldMessagesListener(final Runnable listener) {
++        synchronized (catchingUpWithOldMessagesListeners) {
++            catchingUpWithOldMessagesListeners.add(listener);
++        }
++    }
++
++    @Override
++    public void removeCatchingUpWithOldMessagesListener(final Runnable listener) {
++        synchronized (catchingUpWithOldMessagesListeners) {
++            catchingUpWithOldMessagesListeners.remove(listener);
++        }
++    }
++
+     @Override
+     public void addConfigurationChangedListener(final Runnable listener) {
+         synchronized (configurationChangedListeners) {
+diff --git a/lib/src/test/java/org/asamk/signal/manager/helper/ReceiveHelperCatchingUpTest.java b/lib/src/test/java/org/asamk/signal/manager/helper/ReceiveHelperCatchingUpTest.java
+new file mode 100644
+index 0000000..c5a518d
+--- /dev/null
++++ b/lib/src/test/java/org/asamk/signal/manager/helper/ReceiveHelperCatchingUpTest.java
+@@ -0,0 +1,56 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.manager.helper;
++
++import org.junit.jupiter.api.Test;
++import org.whispersystems.signalservice.api.websocket.WebSocketConnectionState;
++
++import java.util.concurrent.atomic.AtomicInteger;
++
++import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
++import static org.junit.jupiter.api.Assertions.assertEquals;
++
++/**
++ * The catching-up listener fires when the receive websocket reaches CONNECTED, and for no other
++ * state. The state stream is already de-duplicated (distinctUntilChanged) before it reaches
++ * the helper, so each connection fires it once.
++ */
++class ReceiveHelperCatchingUpTest {
++
++    private static ReceiveHelper helper() {
++        return new ReceiveHelper(new Context(null, null, null, null, null, null));
++    }
++
++    @Test
++    void firesOnConnectedOnly() {
++        final var helper = helper();
++        final var calls = new AtomicInteger();
++        helper.setCatchingUpWithOldMessagesListener(calls::incrementAndGet);
++
++        helper.onWebSocketStateChange(WebSocketConnectionState.CONNECTING);
++        helper.onWebSocketStateChange(WebSocketConnectionState.DISCONNECTING);
++        helper.onWebSocketStateChange(WebSocketConnectionState.DISCONNECTED);
++        helper.onWebSocketStateChange(WebSocketConnectionState.FAILED);
++        assertEquals(0, calls.get());
++
++        helper.onWebSocketStateChange(WebSocketConnectionState.CONNECTED);
++        assertEquals(1, calls.get());
++    }
++
++    @Test
++    void firesAgainOnReconnect() {
++        final var helper = helper();
++        final var calls = new AtomicInteger();
++        helper.setCatchingUpWithOldMessagesListener(calls::incrementAndGet);
++
++        helper.onWebSocketStateChange(WebSocketConnectionState.CONNECTED);
++        helper.onWebSocketStateChange(WebSocketConnectionState.DISCONNECTED);
++        helper.onWebSocketStateChange(WebSocketConnectionState.CONNECTED);
++        assertEquals(2, calls.get());
++    }
++
++    @Test
++    void noListenerIsHarmless() {
++        final var helper = helper();
++        assertDoesNotThrow(() -> helper.onWebSocketStateChange(WebSocketConnectionState.CONNECTED));
++    }
++}
+diff --git a/src/main/java/org/asamk/signal/dbus/DbusManagerImpl.java b/src/main/java/org/asamk/signal/dbus/DbusManagerImpl.java
+index 7487172..802605d 100644
+--- a/src/main/java/org/asamk/signal/dbus/DbusManagerImpl.java
++++ b/src/main/java/org/asamk/signal/dbus/DbusManagerImpl.java
+@@ -741,6 +741,16 @@ public class DbusManagerImpl implements Manager {
+         // Not supported over DBus
+     }
+ 
++    @Override
++    public void addCatchingUpWithOldMessagesListener(final Runnable listener) {
++        // Not supported over DBus
++    }
++
++    @Override
++    public void removeCatchingUpWithOldMessagesListener(final Runnable listener) {
++        // Not supported over DBus
++    }
++
+     @Override
+     public void addConfigurationChangedListener(final Runnable listener) {
+         // Not supported over DBus
+diff --git a/src/main/java/org/asamk/signal/jsonrpc/SignalJsonRpcDispatcherHandler.java b/src/main/java/org/asamk/signal/jsonrpc/SignalJsonRpcDispatcherHandler.java
+index 2e6fcbc..6049b15 100644
+--- a/src/main/java/org/asamk/signal/jsonrpc/SignalJsonRpcDispatcherHandler.java
++++ b/src/main/java/org/asamk/signal/jsonrpc/SignalJsonRpcDispatcherHandler.java
+@@ -45,6 +45,7 @@ public class SignalJsonRpcDispatcherHandler {
+ 
+     private final Map<Integer, ArrayList<Pair<Manager, Manager.ReceiveMessageHandler>>> receiveHandlers = new HashMap<>();
+     private final Map<Integer, ArrayList<Pair<Manager, Runnable>>> caughtUpHandlers = new HashMap<>();
++    private final Map<Integer, ArrayList<Pair<Manager, Runnable>>> catchingUpHandlers = new HashMap<>();
+     private final Map<Integer, ArrayList<Pair<Manager, Runnable>>> configurationHandlers = new HashMap<>();
+     private final Map<Integer, ArrayList<Pair<Manager, Manager.AttachmentBackfillListener>>> attachmentBackfillHandlers = new HashMap<>();
+     private final Map<Integer, ArrayList<Pair<Manager, Manager.CallEventListener>>> callEventHandlers = new HashMap<>();
+@@ -73,6 +74,8 @@ public class SignalJsonRpcDispatcherHandler {
+                 createReceiveHandler(m, subscriptionId, false))));
+         c.addOnManagerAddedHandler(m -> caughtUpHandlers.forEach((subscriptionId, handlers) -> handlers.add(
+                 createCaughtUpHandler(m, subscriptionId, false))));
++        c.addOnManagerAddedHandler(m -> catchingUpHandlers.forEach((subscriptionId, handlers) -> handlers.add(
++                createCatchingUpHandler(m, subscriptionId, false))));
+         c.addOnManagerAddedHandler(m -> configurationHandlers.forEach((subscriptionId, handlers) -> handlers.add(
+                 createConfigurationHandler(m, subscriptionId, false))));
+         c.addOnManagerAddedHandler(m -> attachmentBackfillHandlers.forEach((subscriptionId, handlers) -> handlers.add(
+@@ -165,6 +168,10 @@ public class SignalJsonRpcDispatcherHandler {
+                 .map(m -> createCaughtUpHandler(m, subscriptionId, internalSubscription))
+                 .collect(Collectors.toCollection(ArrayList::new));
+         caughtUpHandlers.put(subscriptionId, caughtUp);
++        final var catchingUp = managers.stream()
++                .map(m -> createCatchingUpHandler(m, subscriptionId, internalSubscription))
++                .collect(Collectors.toCollection(ArrayList::new));
++        catchingUpHandlers.put(subscriptionId, catchingUp);
+         final var configuration = managers.stream()
+                 .map(m -> createConfigurationHandler(m, subscriptionId, internalSubscription))
+                 .collect(Collectors.toCollection(ArrayList::new));
+@@ -240,6 +247,41 @@ public class SignalJsonRpcDispatcherHandler {
+         return new Pair<>(m, listener);
+     }
+ 
++    /**
++     * Notifies subscribers each time the manager's receive websocket connects and the server
++     * starts delivering the messages queued while it was disconnected, mirroring
++     * {@link #createCaughtUpHandler}. The {@code receiveCaughtUp} that follows ends it.
++     */
++    private Pair<Manager, Runnable> createCatchingUpHandler(
++            final Manager m,
++            final int subscriptionId,
++            final boolean internalSubscription
++    ) {
++        final Runnable listener = () -> {
++            final var result = new HashMap<String, Object>();
++            result.put("account", m.getSelfNumber());
++            ContainerNode<?> params;
++            if (internalSubscription) {
++                params = objectMapper.valueToTree(result);
++            } else {
++                final var paramsNode = new ObjectNode(objectMapper.getNodeFactory());
++                paramsNode.set("subscription", IntNode.valueOf(subscriptionId));
++                paramsNode.set("result", objectMapper.valueToTree(result));
++                params = paramsNode;
++            }
++            final var jsonRpcRequest = JsonRpcRequest.forNotification("receiveCatchingUp", params, null);
++            try {
++                jsonRpcSender.sendRequest(jsonRpcRequest);
++            } catch (AssertionError e) {
++                if (e.getCause() instanceof ClosedChannelException) {
++                    unsubscribeReceive(subscriptionId);
++                }
++            }
++        };
++        m.addCatchingUpWithOldMessagesListener(listener);
++        return new Pair<>(m, listener);
++    }
++
+     /**
+      * Notifies subscribers after the privacy settings returned by {@code getConfiguration}
+      * changed (a sync from the phone, or a local {@code updateConfiguration}), mirroring
+@@ -317,6 +359,7 @@ public class SignalJsonRpcDispatcherHandler {
+     private boolean unsubscribeReceive(final int subscriptionId) {
+         final var handlers = receiveHandlers.remove(subscriptionId);
+         final var caughtUp = caughtUpHandlers.remove(subscriptionId);
++        final var catchingUp = catchingUpHandlers.remove(subscriptionId);
+         final var configuration = configurationHandlers.remove(subscriptionId);
+         final var attachmentBackfill = attachmentBackfillHandlers.remove(subscriptionId);
+         if (handlers == null) {
+@@ -330,6 +373,11 @@ public class SignalJsonRpcDispatcherHandler {
+                 unsubscribeCaughtUpHandler(pair);
+             }
+         }
++        if (catchingUp != null) {
++            for (final var pair : catchingUp) {
++                pair.first().removeCatchingUpWithOldMessagesListener(pair.second());
++            }
++        }
+         if (configuration != null) {
+             for (final var pair : configuration) {
+                 pair.first().removeConfigurationChangedListener(pair.second());
+@@ -361,6 +409,9 @@ public class SignalJsonRpcDispatcherHandler {
+             receiveHandlers.clear();
+             caughtUpHandlers.forEach((_subscriptionId, handlers) -> handlers.forEach(this::unsubscribeCaughtUpHandler));
+             caughtUpHandlers.clear();
++            catchingUpHandlers.forEach((_subscriptionId, handlers) -> handlers.forEach(
++                    pair -> pair.first().removeCatchingUpWithOldMessagesListener(pair.second())));
++            catchingUpHandlers.clear();
+             configurationHandlers.forEach((_subscriptionId, handlers) -> handlers.forEach(
+                     pair -> pair.first().removeConfigurationChangedListener(pair.second())));
+             configurationHandlers.clear();
+diff --git a/src/test/java/org/asamk/signal/jsonrpc/ReceiveCatchingUpNotificationTest.java b/src/test/java/org/asamk/signal/jsonrpc/ReceiveCatchingUpNotificationTest.java
+new file mode 100644
+index 0000000..b4bf85a
+--- /dev/null
++++ b/src/test/java/org/asamk/signal/jsonrpc/ReceiveCatchingUpNotificationTest.java
+@@ -0,0 +1,119 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.jsonrpc;
++
++import org.asamk.signal.output.JsonWriter;
++import org.asamk.signal.testutil.ManagerMock;
++import org.junit.jupiter.api.Test;
++
++import java.util.ArrayList;
++import java.util.Collections;
++import java.util.List;
++import java.util.function.Supplier;
++
++import static org.junit.jupiter.api.Assertions.assertEquals;
++import static org.junit.jupiter.api.Assertions.assertNull;
++import static org.junit.jupiter.api.Assertions.assertTrue;
++
++/**
++ * The {@code receiveCatchingUp} JSON-RPC notification: sent each time the receive websocket
++ * connects and the server starts delivering what queued up meanwhile (snowdrop-history patch
++ * 0025). It has the same shape and subscription handling as {@code receiveCaughtUp}.
++ */
++class ReceiveCatchingUpNotificationTest {
++
++    private static class CapturingJsonWriter implements JsonWriter {
++
++        final List<Object> written = Collections.synchronizedList(new ArrayList<>());
++
++        @Override
++        public void write(final Object object) {
++            written.add(object);
++        }
++    }
++
++    private static List<JsonRpcRequest> notificationsNamed(final CapturingJsonWriter writer, final String method) {
++        return writer.written.stream()
++                .filter(JsonRpcRequest.class::isInstance)
++                .map(JsonRpcRequest.class::cast)
++                .filter(r -> method.equals(r.getMethod()))
++                .toList();
++    }
++
++    @Test
++    void defaultSubscriptionSendsBareAccountParamsAndCleansUp() {
++        final var state = new ManagerMock.State();
++        final var manager = ManagerMock.create("+15551234567", state);
++        final var writer = new CapturingJsonWriter();
++
++        Supplier<String> feeder = () -> {
++            state.fireCatchingUp();
++            return null;
++        };
++        new SignalJsonRpcDispatcherHandler(writer, feeder, false).handleConnection(manager);
++
++        assertEquals(1, state.addCatchingUpListenerCount.get());
++        assertEquals(1, state.removeCatchingUpListenerCount.get());
++        final var sent = notificationsNamed(writer, "receiveCatchingUp");
++        assertEquals(1, sent.size());
++        assertEquals("+15551234567", sent.get(0).getParams().get("account").asText());
++        assertNull(sent.get(0).getParams().get("subscription"));
++        assertEquals(1, sent.get(0).getParams().size());
++        assertEquals(0, notificationsNamed(writer, "receiveCaughtUp").size(), "a different notification");
++    }
++
++    @Test
++    void firesOnEveryConnect() {
++        final var state = new ManagerMock.State();
++        final var manager = ManagerMock.create("+15551234567", state);
++        final var writer = new CapturingJsonWriter();
++
++        Supplier<String> feeder = () -> {
++            state.fireCatchingUp();
++            state.fireCatchingUp();
++            return null;
++        };
++        new SignalJsonRpcDispatcherHandler(writer, feeder, false).handleConnection(manager);
++
++        assertEquals(2, notificationsNamed(writer, "receiveCatchingUp").size());
++    }
++
++    @Test
++    void explicitSubscriptionWrapsResultWithSubscriptionId() {
++        final var state = new ManagerMock.State();
++        final var manager = ManagerMock.create("+15551234567", state);
++        final var writer = new CapturingJsonWriter();
++        final var lines = new ArrayList<String>();
++        lines.add("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"subscribeReceive\"}");
++
++        Supplier<String> feeder = () -> {
++            if (!lines.isEmpty()) {
++                return lines.remove(0);
++            }
++            // subscribeReceive is handled on another thread; wait (bounded) for it to register.
++            for (var i = 0; i < 1000 && state.addCatchingUpListenerCount.get() == 0; i++) {
++                try {
++                    Thread.sleep(1);
++                } catch (InterruptedException e) {
++                    Thread.currentThread().interrupt();
++                    break;
++                }
++            }
++            state.fireCatchingUp();
++            return null;
++        };
++        new SignalJsonRpcDispatcherHandler(writer, feeder, true).handleConnection(manager);
++
++        final var sent = notificationsNamed(writer, "receiveCatchingUp");
++        assertEquals(1, sent.size());
++        assertTrue(sent.get(0).getParams().get("subscription").isInt());
++        assertEquals("+15551234567", sent.get(0).getParams().get("result").get("account").asText());
++    }
++
++    @Test
++    void notSubscribedWhenReceiveIsNotSubscribed() {
++        final var state = new ManagerMock.State();
++        final var manager = ManagerMock.create("+15551234567", state);
++        new SignalJsonRpcDispatcherHandler(new CapturingJsonWriter(), () -> null, true).handleConnection(manager);
++        assertEquals(0, state.addCatchingUpListenerCount.get());
++    }
++}
+diff --git a/src/test/java/org/asamk/signal/testutil/ManagerMock.java b/src/test/java/org/asamk/signal/testutil/ManagerMock.java
+index ec9a767..48dd5b7 100644
+--- a/src/test/java/org/asamk/signal/testutil/ManagerMock.java
++++ b/src/test/java/org/asamk/signal/testutil/ManagerMock.java
+@@ -32,6 +32,10 @@ public final class ManagerMock {
+         public final AtomicInteger addCaughtUpListenerCount = new AtomicInteger(0);
+         public final AtomicInteger removeCaughtUpListenerCount = new AtomicInteger(0);
+ 
++        public final List<Runnable> catchingUpListeners = new ArrayList<>();
++        public final AtomicInteger addCatchingUpListenerCount = new AtomicInteger(0);
++        public final AtomicInteger removeCatchingUpListenerCount = new AtomicInteger(0);
++
+         public final List<Runnable> configurationListeners = new ArrayList<>();
+         public final AtomicInteger addConfigurationListenerCount = new AtomicInteger(0);
+         public final AtomicInteger removeConfigurationListenerCount = new AtomicInteger(0);
+@@ -41,6 +45,11 @@ public final class ManagerMock {
+             new ArrayList<>(configurationListeners).forEach(Runnable::run);
+         }
+ 
++        /** Simulates the receive websocket connecting and the server starting to deliver its queue. */
++        public void fireCatchingUp() {
++            new ArrayList<>(catchingUpListeners).forEach(Runnable::run);
++        }
++
+         /** Simulates the receive loop catching up with the server's queue. */
+         public void fireCaughtUp() {
+             new ArrayList<>(caughtUpListeners).forEach(Runnable::run);
+@@ -85,6 +94,14 @@ public final class ManagerMock {
+                             state.removeCaughtUpListenerCount.incrementAndGet();
+                             state.caughtUpListeners.remove((Runnable) args[0]);
+                             return null;
++                        case "addCatchingUpWithOldMessagesListener":
++                            state.addCatchingUpListenerCount.incrementAndGet();
++                            state.catchingUpListeners.add((Runnable) args[0]);
++                            return null;
++                        case "removeCatchingUpWithOldMessagesListener":
++                            state.removeCatchingUpListenerCount.incrementAndGet();
++                            state.catchingUpListeners.remove((Runnable) args[0]);
++                            return null;
+                         case "addConfigurationChangedListener":
+                             state.addConfigurationListenerCount.incrementAndGet();
+                             state.configurationListeners.add((Runnable) args[0]);

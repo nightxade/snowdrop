@@ -123,4 +123,16 @@ describe('CatchUpTracker', () => {
     scheduler.advance(30_000);
     expect(changes).toEqual([true]);
   });
+
+  it('start() can override the ceiling for one run only', () => {
+    const { tracker, scheduler } = setup({ ceilingMs: 20_000 });
+    tracker.start(120_000);
+    scheduler.advance(119_999);
+    expect(tracker.isCatchingUp).toBe(true);
+    scheduler.advance(1);
+    expect(tracker.isCatchingUp).toBe(false);
+    tracker.start();
+    scheduler.advance(20_000);
+    expect(tracker.isCatchingUp).toBe(false);
+  });
 });

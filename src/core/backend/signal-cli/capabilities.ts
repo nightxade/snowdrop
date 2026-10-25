@@ -109,3 +109,20 @@ export function supportsReadSync(version: string | undefined): boolean {
   if (!match?.[1]) return false;
   return Number(match[1]) >= MIN_READ_SYNC_PATCH_LEVEL;
 }
+
+/**
+ * Whether a running signal-cli build sends `receiveCatchingUp` each time its
+ * receive websocket (re)connects (patches/signal-cli, "0025: receive catching
+ * up notification"), so the `receiveCaughtUp` that follows is a reliable end
+ * of a drain and not just a hint. Without it Snowdrop can only guess, from a
+ * quiet period, that a reconnect is over. Same `snowdrop-history.N` scheme as
+ * the other capabilities.
+ */
+export const MIN_CATCHING_UP_SIGNAL_PATCH_LEVEL = 21;
+
+export function supportsCatchingUpSignal(version: string | undefined): boolean {
+  if (!version) return false;
+  const match = SNOWDROP_PATCH_LEVEL.exec(version);
+  if (!match?.[1]) return false;
+  return Number(match[1]) >= MIN_CATCHING_UP_SIGNAL_PATCH_LEVEL;
+}

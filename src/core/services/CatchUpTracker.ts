@@ -21,6 +21,13 @@ import type { Cancel, Clock, Scheduler } from '@/core/lib';
 export const CATCH_UP_QUIET_MS = 1_500;
 /** Catching up never lasts longer than this, no matter what. */
 export const CATCH_UP_CEILING_MS = 20_000;
+/**
+ * The ceiling for holding back notifications while a backend that reliably
+ * sends `caughtUp` drains (see `start`). Much longer than the sidebar's: a
+ * queue built up over a long sleep can take minutes, and what is left when the
+ * short ceiling ends would otherwise all notify.
+ */
+export const NOTIFICATION_HOLD_CEILING_MS = 120_000;
 
 export interface CatchUpTrackerDeps {
   clock: Clock;
@@ -43,13 +50,19 @@ export class CatchUpTracker {
     return this.catchingUp;
   }
 
-  /** Call on initial connect, and again after a reconnect following an offline period. */
-  start(): void {
+  /**
+   * Call on initial connect, and again after a reconnect following an offline
+   * period. `ceilingMs` overrides this tracker's ceiling for this run only.
+   */
+  start(ceilingMs?: number): void {
     this.clearTimers();
-    this.ceilingTimer = this.deps.scheduler.setTimeout(() => {
-      this.ceilingTimer = null;
-      this.finish();
-    }, this.deps.ceilingMs ?? CATCH_UP_CEILING_MS);
+    this.ceilingTimer = this.deps.scheduler.setTimeout(
+      () => {
+        this.ceilingTimer = null;
+        this.finish();
+      },
+      ceilingMs ?? this.deps.ceilingMs ?? CATCH_UP_CEILING_MS,
+    );
     this.setCatchingUp(true);
   }
 

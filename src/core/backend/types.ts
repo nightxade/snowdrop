@@ -309,6 +309,14 @@ export interface BackendEvents {
    */
   caughtUp: undefined;
   /**
+   * The backend's connection to the server just (re)started delivering a
+   * queue that built up while it was away (signal-cli's own reconnect after
+   * a sleep or network change, which Snowdrop's local stream never sees).
+   * SyncService starts "catching up" again; the next `caughtUp` ends it.
+   * Only emitted where `supportsCatchingUpSignal()` is true.
+   */
+  catchingUp: undefined;
+  /**
    * The phone's privacy settings may have changed (a sync from the phone, or
    * our own `updatePhonePrivacy`); the payload is empty, callers re-read with
    * `readPhonePrivacy`. Only emitted where `supportsPhonePrivacy()` is true.
@@ -437,6 +445,13 @@ export interface ChatBackend {
    * Omitted is the same as false: Snowdrop then uses its own local settings.
    */
   supportsPhonePrivacy?(): boolean;
+  /**
+   * Whether the connected backend emits `catchingUp` (patches/signal-cli's
+   * "0025") and so reliably sends `caughtUp` after every drain. Only
+   * meaningful once connected. Omitted is the same as false: a drain is then
+   * ended by a quiet period or the ceiling, as before.
+   */
+  supportsCatchingUpSignal?(): boolean;
   /** The phone's synced privacy settings; rejects if the backend can't tell. */
   readPhonePrivacy?(): Promise<PhonePrivacySettings>;
   /**

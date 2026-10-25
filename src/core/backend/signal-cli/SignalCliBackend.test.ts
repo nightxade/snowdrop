@@ -392,6 +392,39 @@ describe('SignalCliBackend: connection', () => {
     await backend.disconnect();
   });
 
+  it('maps a receiveCatchingUp SSE event to the catchingUp backend event, in order', async () => {
+    const { backend, daemon } = await connected();
+    const order: string[] = [];
+    backend.on('catchingUp', () => order.push('catchingUp'));
+    backend.on('caughtUp', () => order.push('caughtUp'));
+    backend.on('checkpoint', (c) => order.push(`checkpoint:${c.cursor}`));
+    daemon.lastStream!.push(
+      `id:run-8\nevent:receiveCatchingUp\ndata:${JSON.stringify({ account: SELF_ACI })}\n\n`,
+    );
+    daemon.lastStream!.push(
+      `id:run-9\nevent:receiveCaughtUp\ndata:${JSON.stringify({ account: SELF_ACI })}\n\n`,
+    );
+    await flush();
+    await backend.idle();
+    expect(order).toEqual(['catchingUp', 'checkpoint:run-8', 'caughtUp', 'checkpoint:run-9']);
+    await backend.disconnect();
+  });
+
+  it('reports the catching-up signal only on a build with patch 0025', async () => {
+    for (const [version, expected] of [
+      ['0.14.8-snowdrop-history.20', false],
+      ['0.14.8-snowdrop-history.21', true],
+      ['0.14.8', false],
+    ] as const) {
+      const { daemon } = daemonWithAccount();
+      daemon.reply('version', { version });
+      const { backend } = await connected({ daemon });
+      expect(backend.supportsCatchingUpSignal()).toBe(expected);
+      await backend.disconnect();
+      expect(backend.supportsCatchingUpSignal()).toBe(false);
+    }
+  });
+
   it('can connect again after the stream failed fatally', async () => {
     const { daemon } = daemonWithAccount();
     daemon.eventStatuses = [400];

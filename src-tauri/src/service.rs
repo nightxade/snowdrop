@@ -585,13 +585,14 @@ impl Service {
     }
 
     /// `receive` carries the envelope; `receiveCaughtUp` (patches/signal-cli
-    /// 0012) tells the UI the receive loop drained the server's queue, with
-    /// no envelope. Both wrap their payload in `{ subscription, result }` the
+    /// 0012) tells the UI the receive loop drained the server's queue, and
+    /// `receiveCatchingUp` (0025) that it started to fill, both with no
+    /// envelope. They all wrap their payload in `{ subscription, result }` the
     /// same way (`subscribe_child` subscribes to both at once), so they share
     /// the account lookup and the held-event log; only the forwarded `kind`
     /// (and therefore the UI's event `type`) differs.
     fn on_notification(&self, method: &str, params: Value) {
-        if !matches!(method, "receive" | "receiveCaughtUp" | "receiveConfigurationChanged" | "attachmentBackfill") {
+        if !matches!(method, "receive" | "receiveCaughtUp" | "receiveCatchingUp" | "receiveConfigurationChanged" | "attachmentBackfill") {
             log::debug!("ignored signal-cli notification {method}");
             return;
         }
@@ -808,6 +809,22 @@ mod tests {
         let events = sink.events.lock().unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].kind, "receiveCaughtUp");
+        assert_eq!(events[0].account, "+15550001");
+        assert_eq!(events[0].data, json!({"account": "+15550001"}));
+    }
+
+    /// `receiveCatchingUp` (patches/signal-cli 0025) is forwarded the same way:
+    /// without it in the allow-list the UI would never hear a drain started.
+    #[test]
+    fn catching_up_notification_is_forwarded_with_its_own_kind() {
+        let (svc, sink) = service_with_sink();
+        svc.subs.lock().unwrap().by_id.insert(0, "+15550001".into());
+
+        svc.on_notification("receiveCatchingUp", json!({"subscription": 0, "result": {"account": "+15550001"}}));
+
+        let events = sink.events.lock().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, "receiveCatchingUp");
         assert_eq!(events[0].account, "+15550001");
         assert_eq!(events[0].data, json!({"account": "+15550001"}));
     }

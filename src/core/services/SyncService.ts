@@ -49,7 +49,7 @@ import {
   uiSelectors,
   type Stores,
 } from '@/core/stores';
-import { CatchUpTracker } from './CatchUpTracker';
+import { CatchUpTracker, NOTIFICATION_HOLD_CEILING_MS } from './CatchUpTracker';
 import { PendingOpsBuffer } from './PendingOpsBuffer';
 import { ReceiptBuffer } from './ReceiptBuffer';
 import { consoleReporter, type ErrorReporter } from './types';
@@ -165,6 +165,13 @@ export class SyncService {
   private refreshAgain = false;
   private readonly readingHistory = new Set<MessageId>();
   private readonly catchUpTracker: CatchUpTracker;
+  /**
+   * A second tracker driven in lockstep with `catchUpTracker`, with the same
+   * start, quiet period and `caughtUp`, that only differs in its ceiling: it
+   * drives `session.notificationsHeld`, which can outlast the sidebar's
+   * `catchingUp` (see `startCatchUp`).
+   */
+  private readonly notificationHold: CatchUpTracker;
   /** Read receipts earned while the phone's settings were still unknown; sent or dropped once they're known. */
   private heldReceipts: {
     conversationId: ConversationId;
@@ -199,6 +206,13 @@ export class SyncService {
         this.deps.stores.session.getState().setCatchingUp(catchingUp);
       },
     });
+    this.notificationHold = new CatchUpTracker({
+      clock: deps.clock,
+      scheduler: deps.scheduler,
+      onChange: (held) => {
+        this.deps.stores.session.getState().setNotificationsHeld(held);
+      },
+    });
   }
 
   /** Subscribes, connects and performs the initial sync. Safe to call repeatedly. */
@@ -220,7 +234,7 @@ export class SyncService {
     this.gated = true;
     this.subscribe();
     // "Catching up" from here; `subscribe()` wired the events that end it.
-    this.catchUpTracker.start();
+    this.startCatchUp();
     // Until the connected daemon has been asked, nothing that depends on the
     // phone's privacy settings (read receipts, typing, link previews) may go
     // out. `refreshPhonePrivacy` settles this right after `connect()`.
@@ -233,7 +247,7 @@ export class SyncService {
       // Drop the subscriptions so a retry doesn't double-subscribe, but keep the
       // backlog: those envelopes are gone from the daemon once delivered.
       this.unsubscribeAll();
-      this.catchUpTracker.dispose();
+      this.disposeCatchUp();
       const kind = errorKindOf(error);
       stores.session
         .getState()
@@ -263,8 +277,36 @@ export class SyncService {
     }
     stores.session.getState().setReady(true);
     this.openGate();
-    this.catchUpTracker.armQuiet();
+    this.armCatchUpQuiet();
     this.schedulePurge(0);
+  }
+
+  /**
+   * Begins "catching up": the sidebar freeze, and the hold on notifications.
+   * Both end together on `caughtUp` or the quiet period; they differ only in
+   * the ceiling. The sidebar's stays short so the UI never looks stuck. The
+   * hold's is much longer when the backend is known to send `caughtUp`
+   * (`supportsCatchingUpSignal`), because then the ceiling is only a safety
+   * net and a backlog still draining when it fires would all notify; without
+   * that signal it is the same short one, so older builds behave as before.
+   */
+  private startCatchUp(): void {
+    this.catchUpTracker.start();
+    this.notificationHold.start(
+      this.deps.backend.supportsCatchingUpSignal?.() === true
+        ? NOTIFICATION_HOLD_CEILING_MS
+        : undefined,
+    );
+  }
+
+  private armCatchUpQuiet(): void {
+    this.catchUpTracker.armQuiet();
+    this.notificationHold.armQuiet();
+  }
+
+  private disposeCatchUp(): void {
+    this.catchUpTracker.dispose();
+    this.notificationHold.dispose();
   }
 
   /** Releases events parked during initial sync, in arrival order. */
@@ -297,7 +339,7 @@ export class SyncService {
     this.purgeTimer?.();
     this.pruneTimer = null;
     this.purgeTimer = null;
-    this.catchUpTracker.dispose();
+    this.disposeCatchUp();
     await this.idle();
     // Disconnect while still subscribed so the final "offline" status reaches the store.
     await this.deps.backend.disconnect();
@@ -931,8 +973,8 @@ export class SyncService {
         // the very first connect (its status goes 'connecting' → 'online',
         // never through 'offline').
         if (status === 'online' && this.deps.stores.session.getState().status === 'offline') {
-          this.catchUpTracker.start();
-          this.catchUpTracker.armQuiet();
+          this.startCatchUp();
+          this.armCatchUpQuiet();
           // The daemon may have restarted: read the phone's settings again.
           void this.refreshPhonePrivacy();
         }
@@ -944,6 +986,7 @@ export class SyncService {
     this.unsubscribers.push(
       backend.on('message', () => {
         this.catchUpTracker.onMessage();
+        this.notificationHold.onMessage();
       }),
     );
     // The phone's privacy settings changed (patches/signal-cli 0022). Ephemeral:
@@ -963,10 +1006,27 @@ export class SyncService {
         }
       }),
     );
+    // signal-cli reconnected to the server by itself (after a sleep or a network
+    // change; our own stream never dropped) and is draining what queued up
+    // (patches/signal-cli 0025): catch up again, like after an offline period.
+    // Applied at once, not queued: behind a message backlog it would come too
+    // late to cover those messages. During the initial sync the trackers are
+    // already catching up and the quiet period must not start yet, so it is
+    // ignored there.
+    on(
+      'catchingUp',
+      () => {
+        if (this.gated) return;
+        this.startCatchUp();
+        this.armCatchUpQuiet();
+      },
+      true,
+    );
     // Queued (and parked behind the initial sync) like messages, so catch-up
     // ends only once every message before it has reached the stores.
     on('caughtUp', () => {
       this.catchUpTracker.finish();
+      this.notificationHold.finish();
     });
     on(
       'typing',

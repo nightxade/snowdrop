@@ -99,6 +99,8 @@ export class MockBackend implements ChatBackend {
   }[] = [];
   /** Whether this mock can sync reads without receipts (a test turns it off to act like an old signal-cli). */
   readSyncSupported = true;
+  /** Whether this mock claims to send `catchingUp` (a test turns it on to act like a patched signal-cli). */
+  catchingUpSignalSupported = false;
   /** Every message-request answer, for the same reason. */
   readonly requestResponses: {
     conversationId: ConversationId;
@@ -395,6 +397,10 @@ export class MockBackend implements ChatBackend {
 
   supportsReadSync(): boolean {
     return this.readSyncSupported;
+  }
+
+  supportsCatchingUpSignal(): boolean {
+    return this.catchingUpSignalSupported;
   }
 
   async setTyping(conversationId: ConversationId, typing: boolean): Promise<void> {

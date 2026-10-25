@@ -187,10 +187,12 @@ export class NotificationService {
     this.unsub = this.deps.source.on('messageArrived', ({ message, live }) => {
       // The daemon can finish draining old envelopes after initial sync ends,
       // and signal-cli's catch-up drain (SyncService's CatchUpTracker; see
-      // stores.session.catchingUp) can still be running after that: both
-      // cases are old messages replayed on launch, not new ones to announce.
-      const catchingUp = this.deps.stores.session.getState().catchingUp;
-      if (live && message.sentAt >= this.startedAt && !catchingUp) this.handle(message);
+      // stores.session.notificationsHeld) can still be running after that, and
+      // starts again on every reconnect while Snowdrop keeps running (after a
+      // sleep, `startedAt` is hours old): all of these are old messages
+      // replayed, not new ones to announce.
+      const held = this.deps.stores.session.getState().notificationsHeld;
+      if (live && message.sentAt >= this.startedAt && !held) this.handle(message);
     });
   }
 

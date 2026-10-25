@@ -108,13 +108,25 @@ describe('NotificationService', () => {
     expect(shown).toHaveLength(1);
   });
 
-  it('silences messages processed while the backend is still catching up', () => {
+  it('silences messages processed while notifications are held for a catch-up', () => {
     const { stores, shown, receive } = setup();
-    stores.session.getState().setCatchingUp(true);
+    stores.session.getState().setNotificationsHeld(true);
     // Live (not parked by SyncService's own gate) and new enough to otherwise notify.
     receive({ sentAt: NOW + 1 });
     expect(shown).toHaveLength(0);
+    stores.session.getState().setNotificationsHeld(false);
+    receive({ sentAt: NOW + 2 });
+    expect(shown).toHaveLength(1);
+  });
+
+  it('the sidebar catch-up flag alone does not hold notifications (its ceiling is shorter)', () => {
+    const { stores, shown, receive } = setup();
+    stores.session.getState().setNotificationsHeld(true);
     stores.session.getState().setCatchingUp(false);
+    receive({ sentAt: NOW + 1 });
+    expect(shown).toHaveLength(0);
+    stores.session.getState().setNotificationsHeld(false);
+    stores.session.getState().setCatchingUp(true);
     receive({ sentAt: NOW + 2 });
     expect(shown).toHaveLength(1);
   });
