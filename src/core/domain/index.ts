@@ -10,3 +10,4 @@ export * from './mentions';
 export * from './messageOps';
 export * from './messageRequests';
 export * from './recipient';
+export * from './profile';

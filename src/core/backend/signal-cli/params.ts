@@ -4,8 +4,15 @@
  * Param names are the CLI flags in camelCase (`--quote-timestamp` →
  * `quoteTimestamp`); multi-value flags accept arrays under the singular name.
  */
-import { parseConversationId, type ConversationId } from '@/core/domain';
-import type { ReadSummary, RecipientFailure, RecipientFailureReason, SendInput } from '../types';
+import { PROFILE_LIMITS, parseConversationId, type ConversationId } from '@/core/domain';
+import { graphemes, utf8Length } from '@/core/lib';
+import type {
+  ProfileUpdate,
+  ReadSummary,
+  RecipientFailure,
+  RecipientFailureReason,
+  SendInput,
+} from '../types';
 import { SignalCliError } from './errors';
 import { mentionParams, textStyleParams } from './normalise/ranges';
 import type { RpcParams } from './rpc';
@@ -41,6 +48,39 @@ export function toDataUri(contentType: string, fileName: string, base64: string)
   // The media type must look like type/subtype and contain no parameters.
   const type = /^[\w.+-]+\/[\w.+-]+$/u.test(contentType) ? contentType : 'application/octet-stream';
   return `data:${type};filename=${encodeURIComponent(fileName || 'file')};base64,${base64}`;
+}
+
+function checkProfileField(text: string, limit: { graphemes: number; bytes: number }): void {
+  if (graphemes(text).length > limit.graphemes || utf8Length(text) > limit.bytes) {
+    throw new SignalCliError('user', 'That profile text is too long.');
+  }
+}
+
+/**
+ * `updateProfile` params. Every text field is always sent, so clearing one
+ * works; the photo is sent only when it changes. Limits are Signal Desktop's,
+ * checked here as well so nothing over them reaches the server.
+ */
+export function profileParams(update: ProfileUpdate): RpcParams {
+  const givenName = update.givenName.trim();
+  if (!givenName) throw new SignalCliError('user', 'A first name is required.');
+  const familyName = update.familyName.trim();
+  checkProfileField(givenName, PROFILE_LIMITS.name);
+  checkProfileField(familyName, PROFILE_LIMITS.name);
+  checkProfileField(update.about, PROFILE_LIMITS.about);
+  // The emoji is one character; the same cap keeps a pasted string out.
+  checkProfileField(update.aboutEmoji, { graphemes: 1, bytes: 32 });
+  const params: RpcParams = {
+    givenName,
+    familyName,
+    about: update.about,
+    aboutEmoji: update.aboutEmoji,
+  };
+  if (update.avatar === null) params.removeAvatar = true;
+  else if (update.avatar) {
+    params.avatar = toDataUri(update.avatar.contentType, 'avatar', update.avatar.base64);
+  }
+  return params;
 }
 
 export interface MessageParamsInput {

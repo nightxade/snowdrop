@@ -1463,6 +1463,93 @@ describe('SignalCliBackend phone privacy settings', () => {
   });
 });
 
+describe('SignalCliBackend updateProfile', () => {
+  const profileOf = (givenName: string, familyName: string | null) => ({
+    lastUpdateTimestamp: T0,
+    givenName,
+    familyName,
+    about: 'Hello',
+    aboutEmoji: '🙂',
+    hasAvatar: false,
+    mobileCoinAddress: null,
+  });
+
+  async function connectedWithProfile() {
+    const { daemon, contacts } = daemonWithAccount();
+    daemon.reply('updateProfile', {});
+    const s = await connected({ daemon });
+    // What signal-cli lists once the update has landed.
+    contacts[0] = contact(SELF_ACI, SELF_NUMBER, 'Ada Lovelace', {
+      name: null,
+      profile: profileOf('Ada', 'Lovelace'),
+    });
+    return { ...s, daemon };
+  }
+
+  it('sends every text field and re-lists contacts so self shows the saved profile', async () => {
+    const { backend, daemon } = await connectedWithProfile();
+    const lists = daemon.callsTo('listContacts').length;
+    const self = await backend.updateProfile({
+      givenName: ' Ada ',
+      familyName: 'Lovelace',
+      about: 'Hello',
+      aboutEmoji: '🙂',
+    });
+    expect(daemon.callsTo('updateProfile')).toEqual([
+      {
+        account: SELF_ACI,
+        givenName: 'Ada',
+        familyName: 'Lovelace',
+        about: 'Hello',
+        aboutEmoji: '🙂',
+      },
+    ]);
+    expect(daemon.callsTo('listContacts').length).toBe(lists + 1);
+    expect(self).toMatchObject({
+      isSelf: true,
+      profileGivenName: 'Ada',
+      profileFamilyName: 'Lovelace',
+      profileName: 'Ada Lovelace',
+      about: 'Hello',
+      aboutEmoji: '🙂',
+    });
+    await backend.disconnect();
+  });
+
+  it('sends a new photo as an inline data URI, and removeAvatar to remove it', async () => {
+    const { backend, daemon } = await connectedWithProfile();
+    const text = { givenName: 'Ada', familyName: '', about: '', aboutEmoji: '' };
+    await backend.updateProfile({ ...text, avatar: { contentType: 'image/jpeg', base64: 'AAAA' } });
+    await backend.updateProfile({ ...text, avatar: null });
+    await backend.updateProfile(text);
+    const [add, remove, keep] = daemon.callsTo('updateProfile');
+    expect(add).toMatchObject({ avatar: 'data:image/jpeg;filename=avatar;base64,AAAA' });
+    expect(add).not.toHaveProperty('removeAvatar');
+    expect(remove).toMatchObject({ removeAvatar: true });
+    expect(remove).not.toHaveProperty('avatar');
+    expect(keep).not.toHaveProperty('avatar');
+    expect(keep).not.toHaveProperty('removeAvatar');
+    await backend.disconnect();
+  });
+
+  it('refuses an empty first name or over-long text without calling the daemon', async () => {
+    const { backend, daemon } = await connectedWithProfile();
+    const ok = { givenName: 'Ada', familyName: '', about: '', aboutEmoji: '' };
+    for (const bad of [
+      { ...ok, givenName: '   ' },
+      { ...ok, givenName: 'x'.repeat(27) },
+      { ...ok, familyName: 'é'.repeat(65) },
+      { ...ok, about: 'x'.repeat(141) },
+      { ...ok, about: '🙂'.repeat(129) },
+      { ...ok, aboutEmoji: '🙂🙂' },
+    ]) {
+      await expect(backend.updateProfile(bad)).rejects.toBeInstanceOf(SignalCliError);
+    }
+    expect(daemon.callsTo('updateProfile')).toEqual([]);
+    await backend.disconnect();
+  });
+});
+
 describe('SignalCliBackend installing a sticker pack from a sticker', () => {
   const KEY = 'c0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ff';
   const stickers = [

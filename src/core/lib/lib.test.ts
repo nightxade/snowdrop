@@ -3,7 +3,7 @@ import { ManualScheduler } from './clock';
 import { DisposableStore } from './disposables';
 import { Emitter } from './emitter';
 import { ObservableList } from './observable';
-import { stripBidiControls } from './text';
+import { graphemes, stripBidiControls, truncateToLimits, utf8Length } from './text';
 
 describe('Emitter', () => {
   it('delivers typed events and unsubscribes', () => {
@@ -130,5 +130,26 @@ describe('stripBidiControls', () => {
     // "exe.gpj" with an RLO before it displays as "jpg.exe" reversed.
     const spoofed = `invoice‮exe.gpj`;
     expect(stripBidiControls(spoofed)).toBe('invoiceexe.gpj');
+  });
+});
+
+describe('graphemes, utf8Length and truncateToLimits', () => {
+  it('counts what a person sees as one character as one', () => {
+    expect(graphemes('a👍🏽e\u0301')).toHaveLength(3);
+    expect(graphemes('')).toEqual([]);
+  });
+
+  it('counts UTF-8 bytes', () => {
+    expect(utf8Length('abc')).toBe(3);
+    expect(utf8Length('é')).toBe(2);
+    expect(utf8Length('🙂')).toBe(4);
+  });
+
+  it('cuts to the tighter of the two limits, on a whole character', () => {
+    expect(truncateToLimits('abcdef', 100, 3)).toBe('abc');
+    expect(truncateToLimits('ééééé', 7, 100)).toBe('ééé');
+    expect(truncateToLimits('a🙂🙂', 4, 100)).toBe('a');
+    expect(truncateToLimits('👍🏽👍🏽', 100, 1)).toBe('👍🏽');
+    expect(truncateToLimits('short', 100, 100)).toBe('short');
   });
 });

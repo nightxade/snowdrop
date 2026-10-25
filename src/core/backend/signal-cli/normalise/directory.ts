@@ -34,6 +34,8 @@ export function toContact(c: WireContact, selfId: string): Contact | null {
   const contact: Contact = { id, name, color: colorForId(id) };
   if (c.number) contact.number = c.number;
   if (profileName) contact.profileName = profileName;
+  if (c.profile?.givenName) contact.profileGivenName = c.profile.givenName;
+  if (c.profile?.familyName) contact.profileFamilyName = c.profile.familyName;
   if (c.profile?.about) contact.about = c.profile.about;
   if (c.profile?.aboutEmoji) contact.aboutEmoji = c.profile.aboutEmoji;
   if (c.isBlocked) contact.blocked = true;

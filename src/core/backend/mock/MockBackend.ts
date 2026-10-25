@@ -45,6 +45,7 @@ import type {
   MessageRef,
   MessageRequestResponse,
   PinInput,
+  ProfileUpdate,
   ReactInput,
   RecipientLookup,
   SendResult,
@@ -565,6 +566,31 @@ export class MockBackend implements ChatBackend {
         attachmentIds,
       });
     }, 1_500);
+  }
+
+  async updateProfile(update: ProfileUpdate): Promise<Contact> {
+    await this.delay();
+    this.assertOnline();
+    const profileName = [update.givenName, update.familyName].filter(Boolean).join(' ');
+    const next: Contact = {
+      ...this.world.self,
+      name: profileName,
+      profileName,
+      profileGivenName: update.givenName,
+      isSelf: true,
+    };
+    if (update.familyName) next.profileFamilyName = update.familyName;
+    else delete next.profileFamilyName;
+    if (update.about) next.about = update.about;
+    else delete next.about;
+    if (update.aboutEmoji) next.aboutEmoji = update.aboutEmoji;
+    else delete next.aboutEmoji;
+    if (update.avatar) {
+      next.avatarUrl = `data:${update.avatar.contentType};base64,${update.avatar.base64}`;
+    } else if (update.avatar === null) delete next.avatarUrl;
+    this.world.self = next;
+    this.world.contacts.set(next.id, structuredClone(next));
+    return structuredClone(next);
   }
 
   async updateConversation(

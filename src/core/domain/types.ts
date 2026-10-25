@@ -11,6 +11,9 @@ export interface Contact {
   /** Best display name: nickname/contact name, else profile name, else number. */
   name: string;
   profileName?: string;
+  /** The two halves of the profile name, as the person set them (the editor needs them apart). */
+  profileGivenName?: string;
+  profileFamilyName?: string;
   about?: string;
   aboutEmoji?: string;
   /** Stable CSS colour value derived from the id (see colorForId). */

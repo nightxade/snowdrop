@@ -40,6 +40,7 @@ export const OPTIONAL_METHODS = [
   'requestAttachmentBackfill',
   'readPhonePrivacy',
   'updatePhonePrivacy',
+  'updateProfile',
   'acknowledge',
   'link',
   'syncContactsAndGroups',
@@ -230,6 +231,9 @@ export function deferredBackend(
       call((b) =>
         b.updatePhonePrivacy ? b.updatePhonePrivacy(patch) : missing('updatePhonePrivacy'),
       );
+  if (caps.has('updateProfile'))
+    backend.updateProfile = (update) =>
+      call((b) => (b.updateProfile ? b.updateProfile(update) : missing('updateProfile')));
   if (caps.has('acknowledge'))
     backend.acknowledge = (cursor) => {
       if (real) real.acknowledge?.(cursor);

@@ -62,6 +62,7 @@ import type {
   PhonePrivacyPatch,
   PhonePrivacySettings,
   PinInput,
+  ProfileUpdate,
   ReactInput,
   RecipientLookup,
   SendInput,
@@ -100,6 +101,7 @@ import {
   enrichSendError,
   messageParams,
   pinDurationParam,
+  profileParams,
   recipientFailures,
   stickerParam,
   summariseReadReplies,
@@ -452,6 +454,18 @@ export class SignalCliBackend implements ChatBackend {
     if (patch.linkPreviews !== undefined) params.linkPreviews = patch.linkPreviews;
     if (Object.keys(params).length === 0) return;
     await this.rpc.call('updateConfiguration', params, ignoreResult);
+  }
+
+  /**
+   * See `ChatBackend.updateProfile`: signal-cli uploads the profile and tells
+   * the phone to refetch it. Contacts are re-listed at once so `self` reflects
+   * what signal-cli now stores.
+   */
+  async updateProfile(update: ProfileUpdate): Promise<Contact> {
+    this.assertAccount();
+    await this.rpc.call('updateProfile', profileParams(update), ignoreResult);
+    await this.directory.loadContacts(true);
+    return this.getSelf();
   }
 
   /**

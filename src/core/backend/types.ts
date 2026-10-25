@@ -257,6 +257,19 @@ export type PhonePrivacyPatch = Partial<
 >;
 
 /**
+ * Your own profile as the editor saves it. Every text field is sent as given
+ * (an empty string clears it). `avatar` is a new photo (already cropped and
+ * shrunk), `null` removes the photo, and leaving it out keeps the current one.
+ */
+export interface ProfileUpdate {
+  givenName: string;
+  familyName: string;
+  about: string;
+  aboutEmoji: string;
+  avatar?: { contentType: string; base64: string } | null;
+}
+
+/**
  * The answer to `lookupRecipient`. `found.id` is the peer id the DM will have
  * once messages flow (the same canonical form incoming messages resolve to),
  * so a conversation opened under it never forks from the real one.
@@ -480,6 +493,12 @@ export interface ChatBackend {
    * in `patch` change.
    */
   updatePhonePrivacy?(patch: PhonePrivacyPatch): Promise<void>;
+  /**
+   * Saves the user's own profile (name, about, photo) the way Signal Desktop
+   * does: uploaded to Signal and announced to the linked phone. Resolves to the
+   * profile as the backend now holds it; rejects, changing nothing, on failure.
+   */
+  updateProfile?(update: ProfileUpdate): Promise<Contact>;
 
   /**
    * Backend history, when available (mock seed data or an imported phone

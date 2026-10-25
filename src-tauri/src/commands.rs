@@ -106,6 +106,11 @@ const ALLOWED_METHODS: &[&str] = &[
     // tell whether it's a patched build that can deliver custom emoji images.
     // Takes no account and changes nothing.
     "version",
+    // Settings → Profile (SignalCliBackend.ts: updateProfile): the user's own
+    // name, about text and photo. rpc_guard.rs lets through only those
+    // fields (never `mobileCoinAddress`) and requires the photo to be a data:
+    // URI. It uploads the profile and tells the phone to refetch it.
+    "updateProfile",
 ];
 
 #[cfg(test)]
@@ -753,14 +758,12 @@ mod tests {
     }
 
     /// Message requests (SignalCliBackend.ts: respondToMessageRequest and
-    /// setBlocked): answering one, blocking and leaving a group are reachable;
-    /// the account-level `updateProfile` stays out.
+    /// setBlocked): answering one, blocking and leaving a group are reachable.
     #[test]
     fn allows_answering_and_blocking_message_requests() {
         for method in ["sendMessageRequestResponse", "block", "unblock", "quitGroup"] {
             assert!(is_allowed_method(method), "{method} should be allowed");
         }
-        assert!(!is_allowed_method("updateProfile"));
     }
 
     /// The sticker picker lists packs and sends through `send`, and the pack
@@ -783,6 +786,14 @@ mod tests {
     fn allows_reading_and_updating_the_privacy_configuration() {
         assert!(is_allowed_method("getConfiguration"));
         assert!(is_allowed_method("updateConfiguration"));
+    }
+
+    /// `updateProfile` is reachable for the profile editor, but only under
+    /// rpc_guard's strict key allow-list (see `rpc_guard::validate_request`).
+    #[test]
+    fn allows_updating_the_own_profile() {
+        assert!(is_allowed_method("updateProfile"));
+        assert!(!is_allowed_method("updateprofile"));
     }
 
     /// Account-destroying and config methods must never be reachable from the
@@ -813,7 +824,7 @@ mod tests {
             "sendMessage",
             "subscribeReceive",
             "unsubscribeReceive",
-            "updateProfile",
+            "updateprofile",
             "eval(1)",
         ] {
             assert!(!is_allowed_method(method), "{method} should be rejected");

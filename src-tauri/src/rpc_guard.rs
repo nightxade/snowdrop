@@ -96,12 +96,46 @@ fn validate_configuration_params(params: Option<&Map<String, Value>>) -> Result<
     Ok(())
 }
 
+/// The only keys `updateProfile` may carry from the UI (canonical form): the
+/// profile text, the photo, and the multi-account selector.
+const PROFILE_TEXT_KEYS: &[&str] = &["givenname", "familyname", "about", "aboutemoji"];
+
+/// `updateProfile` also takes a MobileCoin address and signal-cli answers to
+/// `name` for the given name: the UI uses neither, so only the profile text
+/// (strings), `avatar` (a string, which the file-reference rules then require
+/// to be a data: URI), `removeAvatar` (a real boolean) and `account` get through.
+fn validate_profile_params(params: Option<&Map<String, Value>>) -> Result<(), Error> {
+    let reject = || {
+        Error::new(
+            ErrorKind::Config,
+            "Snowdrop may only change a profile's name, about text and photo through updateProfile.",
+        )
+    };
+    let Some(params) = params else { return Ok(()) };
+    for (key, value) in params {
+        let key = canonical(key);
+        let ok = match key.as_str() {
+            "account" => matches!(value, Value::String(_) | Value::Null),
+            "avatar" => value.is_string(),
+            "removeavatar" => value.is_boolean(),
+            k if PROFILE_TEXT_KEYS.contains(&k) => value.is_string(),
+            _ => false,
+        };
+        if !ok {
+            return Err(reject());
+        }
+    }
+    Ok(())
+}
+
 /// Every request's parameter check: the file-reference rules for all methods,
-/// plus the strict key allow-list for `updateConfiguration`.
+/// plus the strict key allow-lists for `updateConfiguration` and `updateProfile`.
 pub fn validate_request(method: &str, params: Option<&Map<String, Value>>) -> Result<(), Error> {
     validate_params(params)?;
-    if method == "updateConfiguration" {
-        validate_configuration_params(params)?;
+    match method {
+        "updateConfiguration" => validate_configuration_params(params)?,
+        "updateProfile" => validate_profile_params(params)?,
+        _ => {}
     }
     Ok(())
 }
@@ -261,6 +295,44 @@ mod tests {
         assert!(check_request("unblock", json!({ "groupId": ["Zm9v"] })).is_ok());
         assert!(check_request("quitGroup", json!({ "groupId": "Zm9v", "delete": true })).is_ok());
         assert!(check_request("block", json!({ "recipient": ["+15550001"], "attachment": "/etc/passwd" })).is_err());
+    }
+
+    #[test]
+    fn update_profile_accepts_only_the_profile_fields() {
+        assert!(check_request("updateProfile", json!({})).is_ok());
+        assert!(check_request(
+            "updateProfile",
+            json!({ "givenName": "A", "familyName": "", "about": "hi", "aboutEmoji": "x", "account": "+15550001" }),
+        )
+        .is_ok());
+        assert!(check_request("updateProfile", json!({ "avatar": URI })).is_ok());
+        assert!(check_request("updateProfile", json!({ "removeAvatar": true })).is_ok());
+        // signal-cli accepts the flag spelling too.
+        assert!(check_request("updateProfile", json!({ "given-name": "A", "remove-avatar": false })).is_ok());
+    }
+
+    #[test]
+    fn update_profile_rejects_everything_else() {
+        for bad in [
+            json!({ "mobileCoinAddress": "AAAA" }),
+            json!({ "mobile-coin-address": "AAAA" }),
+            json!({ "mobilecoinAddress": "AAAA" }),
+            json!({ "name": "A" }),
+            json!({ "givenName": 5 }),
+            json!({ "givenName": null }),
+            json!({ "about": ["x"] }),
+            json!({ "removeAvatar": "true" }),
+            json!({ "removeAvatar": null }),
+            json!({ "avatar": null }),
+            json!({ "avatar": 5 }),
+            json!({ "avatar": "/home/u/.ssh/id_rsa" }),
+            json!({ "avatar": ["/x"] }),
+            json!({ "avatar": [URI] }),
+            json!({ "givenName": "A", "somethingElse": true }),
+            json!({ "account": 5 }),
+        ] {
+            assert!(check_request("updateProfile", bad.clone()).is_err(), "{bad}");
+        }
     }
 
     #[test]
