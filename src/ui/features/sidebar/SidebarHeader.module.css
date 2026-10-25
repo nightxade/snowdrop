@@ -7,6 +7,11 @@
   border-bottom: 1px solid var(--snowdrop-border);
 }
 
+.newMessage {
+  flex: none;
+  margin-left: var(--snowdrop-space-2);
+}
+
 .find {
   display: flex;
   align-items: center;

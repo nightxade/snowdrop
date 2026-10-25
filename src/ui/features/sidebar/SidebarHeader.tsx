@@ -1,10 +1,10 @@
-import { ChevronDown, Search } from 'lucide-react';
+import { ChevronDown, Search, SquarePen } from 'lucide-react';
 import { useStore } from 'zustand';
 import { CoreCommand } from '@/core/commands';
 import { HOME, uiSelectors } from '@/core/stores';
 import { useSnowdrop, useKeybindLabel } from '@/ui/hooks';
 import { useSpaceMenu } from '@/ui/features/spaces';
-import { DropdownMenu, Tooltip } from '@/ui/primitives';
+import { DropdownMenu, IconButton, Tooltip } from '@/ui/primitives';
 import styles from './SidebarHeader.module.css';
 
 export function SidebarHeader() {
@@ -12,7 +12,14 @@ export function SidebarHeader() {
   const space = useStore(stores.ui, uiSelectors.selectedSpace);
   return (
     <header className={styles.header} data-snowdrop="sidebar-header">
-      {space === HOME ? <FindButton /> : <SpaceTitle spaceId={space} />}
+      {space === HOME ? (
+        <>
+          <FindButton />
+          <NewMessageButton />
+        </>
+      ) : (
+        <SpaceTitle spaceId={space} />
+      )}
     </header>
   );
 }
@@ -34,6 +41,23 @@ function FindButton() {
         <span className={styles.findText}>Find or start a conversation</span>
       </button>
     </Tooltip>
+  );
+}
+
+function NewMessageButton() {
+  const { commands } = useSnowdrop();
+  const shortcut = useKeybindLabel(CoreCommand.NewMessage);
+  return (
+    <IconButton
+      className={styles.newMessage}
+      label="New message"
+      icon={<SquarePen />}
+      tooltipSide="bottom"
+      {...(shortcut ? { shortcut } : {})}
+      onClick={() => {
+        void commands.execute(CoreCommand.NewMessage);
+      }}
+    />
   );
 }
 

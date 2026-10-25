@@ -149,6 +149,7 @@ const mockBackend: BackendRegistration = {
     'getStickerPack',
     'installStickerPack',
     'requestAttachmentBackfill',
+    'lookupRecipient',
   ]),
   // The world is regenerated relative to "now" on each launch; persisting it would mix timelines.
   history: { kind: 'memory' },
@@ -238,6 +239,7 @@ const signalCliBackend: BackendRegistration = {
     'acknowledge',
     'link',
     'syncContactsAndGroups',
+    'lookupRecipient',
   ]),
   // The daemon keeps no history.
   history: { kind: 'indexeddb', name: 'snowdrop-signal-cli' },

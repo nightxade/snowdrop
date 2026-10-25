@@ -2338,3 +2338,210 @@ describe('SignalCliBackend: message requests', () => {
     await backend.disconnect();
   });
 });
+
+describe('SignalCliBackend: lookupRecipient', () => {
+  const CAROL = 'c3333333-3333-4333-8333-333333333333';
+  const CAROL_NUMBER = '+15550003333';
+
+  /** getUserStatus answers for one stranger, by number or by username. */
+  function withCarol(daemon: FakeDaemon, extra: Partial<{ number: string | null }> = {}) {
+    daemon.handle('getUserStatus', (params) => {
+      const numbers = (params.recipient as string[] | undefined) ?? [];
+      const names = (params.username as string[] | undefined) ?? [];
+      return {
+        result: [
+          ...numbers.map((recipient) => ({
+            recipient,
+            number: recipient === CAROL_NUMBER ? CAROL_NUMBER : null,
+            uuid: recipient === CAROL_NUMBER ? CAROL : null,
+            isRegistered: recipient === CAROL_NUMBER,
+          })),
+          ...names.map((recipient) => ({
+            recipient,
+            username: recipient === 'carol.42' ? 'carol.42' : null,
+            number: extra.number ?? null,
+            uuid: recipient === 'carol.42' ? CAROL : null,
+            isRegistered: recipient === 'carol.42',
+          })),
+        ],
+      };
+    });
+  }
+
+  const fromCarol = (numberToo: boolean) => ({
+    account: SELF_NUMBER,
+    envelope: {
+      source: CAROL_NUMBER,
+      sourceNumber: numberToo ? CAROL_NUMBER : null,
+      sourceUuid: CAROL,
+      sourceName: 'Carol',
+      sourceDevice: 1,
+      timestamp: T0 + 10,
+      serverReceivedTimestamp: T0 + 20,
+      serverDeliveredTimestamp: T0 + 30,
+      dataMessage: dataMessage({ timestamp: T0 + 10, message: 'hello from carol' }),
+    },
+  });
+
+  it('asks getUserStatus for a number, and for a username, and returns who was found', async () => {
+    const { backend, daemon } = await connected();
+    withCarol(daemon);
+    expect(await backend.lookupRecipient({ kind: 'phone', e164: CAROL_NUMBER })).toEqual({
+      status: 'found',
+      id: CAROL,
+      number: CAROL_NUMBER,
+    });
+    expect(await backend.lookupRecipient({ kind: 'username', username: 'carol.42' })).toEqual({
+      status: 'found',
+      id: CAROL,
+      username: 'carol.42',
+    });
+    expect(daemon.callsTo('getUserStatus')).toEqual([
+      { recipient: [CAROL_NUMBER], account: SELF_ACI },
+      { username: ['carol.42'], account: SELF_ACI },
+    ]);
+    await backend.disconnect();
+  });
+
+  it('answers not-registered for someone who is not on Signal', async () => {
+    const { backend, daemon } = await connected();
+    withCarol(daemon);
+    expect(await backend.lookupRecipient({ kind: 'phone', e164: '+15550009999' })).toEqual({
+      status: 'not-registered',
+    });
+    expect(await backend.lookupRecipient({ kind: 'username', username: 'nobody.99' })).toEqual({
+      status: 'not-registered',
+    });
+    // An empty answer is the same.
+    daemon.reply('getUserStatus', []);
+    expect(await backend.lookupRecipient({ kind: 'phone', e164: CAROL_NUMBER })).toEqual({
+      status: 'not-registered',
+    });
+    await backend.disconnect();
+  });
+
+  it('answers rate-limited when contact discovery is rate limited, and rejects other failures', async () => {
+    const { backend, daemon } = await connected();
+    daemon.handle('getUserStatus', () => ({
+      error: { code: -5, message: 'Rate limit reached: try again later' },
+    }));
+    expect(await backend.lookupRecipient({ kind: 'phone', e164: CAROL_NUMBER })).toEqual({
+      status: 'rate-limited',
+    });
+    daemon.handle('getUserStatus', () => ({ error: { code: -3, message: 'Unable to check' } }));
+    await expect(
+      backend.lookupRecipient({ kind: 'phone', e164: CAROL_NUMBER }),
+    ).rejects.toMatchObject({ kind: 'io' });
+    await backend.disconnect();
+  });
+
+  it('sends nothing to the person and shares no profile: only getUserStatus is called', async () => {
+    const { backend, daemon } = await connected();
+    withCarol(daemon);
+    const before = daemon.calls.length;
+    await backend.lookupRecipient({ kind: 'phone', e164: CAROL_NUMBER });
+    const methods = daemon.calls.slice(before).map((c) => c.method);
+    expect(methods).toEqual(['getUserStatus']);
+    for (const method of [
+      'send',
+      'sendReceipt',
+      'sendTyping',
+      'updateContact',
+      'sendMessageRequestResponse',
+    ]) {
+      expect(daemon.callsTo(method)).toEqual([]);
+    }
+    // Looking someone up does not list a conversation with them.
+    expect((await backend.listConversations()).map((c) => c.id)).not.toContain(
+      directConversationId(CAROL),
+    );
+    await backend.disconnect();
+  });
+
+  it('never forks: the first message from the person lands in the conversation the lookup named', async () => {
+    for (const lookup of [
+      { kind: 'phone', e164: CAROL_NUMBER },
+      { kind: 'username', username: 'carol.42' },
+    ] as const) {
+      for (const numberToo of [true, false]) {
+        const { backend, daemon } = await connected();
+        withCarol(daemon);
+        const found = await backend.lookupRecipient(lookup);
+        expect(found.status).toBe('found');
+        const opened = found.status === 'found' ? directConversationId(found.id) : null;
+        const messages = collect(backend, 'message');
+        const updates = collect(backend, 'conversationUpdated');
+        await backend.ingest(fromCarol(numberToo));
+        expect(messages.map((m) => m.conversationId)).toEqual([opened]);
+        expect(updates.map((c) => c.id)).toEqual([opened]);
+        expect(
+          (await backend.listConversations())
+            .map((c) => c.id)
+            .filter((id) => id.includes('c3333333') || id.includes(CAROL_NUMBER)),
+        ).toEqual([opened]);
+        // Our own first message, sent into the opened conversation, is the same thread.
+        await backend.send({ conversationId: opened!, body: 'hi', ranges: [] });
+        expect(daemon.callsTo('send').at(-1)).toMatchObject({ recipient: [CAROL] });
+        await backend.disconnect();
+      }
+    }
+  });
+
+  it('never forks when the first message is ours: a reply from the person lands in the same thread', async () => {
+    const { backend, daemon } = await connected();
+    withCarol(daemon);
+    const found = await backend.lookupRecipient({ kind: 'phone', e164: CAROL_NUMBER });
+    const opened = directConversationId(found.status === 'found' ? found.id : '');
+    await backend.send({ conversationId: opened, body: 'hi', ranges: [] });
+    const messages = collect(backend, 'message');
+    await backend.ingest(fromCarol(true));
+    expect(messages.map((m) => m.conversationId)).toEqual([opened]);
+    expect(
+      (await backend.listConversations()).filter((c) => c.kind === 'direct').map((c) => c.id),
+    ).toEqual([opened]);
+    await backend.disconnect();
+  });
+
+  it('names an existing conversation by the form that already has its history', async () => {
+    const s = setup();
+    s.storage.setItem(
+      `snowdrop.signal-cli.peers.${SELF_ACI}`,
+      JSON.stringify({ peers: { [ALICE_NUMBER]: T0 }, aliases: {} }),
+    );
+    s.daemon.handle('getUserStatus', () => ({
+      result: [{ recipient: ALICE_NUMBER, number: ALICE_NUMBER, uuid: ALICE, isRegistered: true }],
+    }));
+    await s.backend.connect();
+    await flush();
+    const found = await s.backend.lookupRecipient({ kind: 'phone', e164: ALICE_NUMBER });
+    expect(found).toMatchObject({ status: 'found', id: ALICE_NUMBER, name: 'Alice Liddell' });
+    await s.backend.disconnect();
+  });
+
+  it('resolves our own number to us', async () => {
+    const { backend, daemon } = await connected();
+    daemon.handle('getUserStatus', () => ({
+      result: [{ recipient: SELF_NUMBER, number: SELF_NUMBER, uuid: SELF_ACI, isRegistered: true }],
+    }));
+    expect(await backend.lookupRecipient({ kind: 'phone', e164: SELF_NUMBER })).toMatchObject({
+      status: 'found',
+      id: SELF_ACI,
+    });
+    await backend.disconnect();
+  });
+
+  it('logs nothing about who was looked up', async () => {
+    const { backend, daemon, debug } = await connected();
+    withCarol(daemon);
+    debug.mockClear();
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    await backend.lookupRecipient({ kind: 'phone', e164: CAROL_NUMBER });
+    await backend.lookupRecipient({ kind: 'username', username: 'carol.42' });
+    expect(debug).not.toHaveBeenCalled();
+    for (const spy of [info, warn, log]) expect(spy).not.toHaveBeenCalled();
+    vi.restoreAllMocks();
+    await backend.disconnect();
+  });
+});

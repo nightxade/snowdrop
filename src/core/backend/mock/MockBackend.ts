@@ -10,8 +10,11 @@ import {
   applyDelete,
   applyEdit,
   applyReaction,
+  colorForId,
+  directConversationId,
   formatDuration,
   messageId,
+  parseConversationId,
   type Attachment,
   type ConnectionStatus,
   type Contact,
@@ -19,6 +22,7 @@ import {
   type ConversationId,
   type LinkPreview,
   type Message,
+  type RecipientQuery,
   type StickerContent,
 } from '@/core/domain';
 import {
@@ -42,6 +46,7 @@ import type {
   MessageRequestResponse,
   PinInput,
   ReactInput,
+  RecipientLookup,
   SendResult,
   SendInput,
   StickerPackDetails,
@@ -201,13 +206,64 @@ export class MockBackend implements ChatBackend {
     return page;
   }
 
+  /** Makes `lookupRecipient` answer `rate-limited` (the server's contact-discovery limit). */
+  lookupRateLimited = false;
+
+  /**
+   * The demo's directory: the people in it (by number), the fictional
+   * 202-555-0190…0199 numbers and any `demo.NN` username are on Signal;
+   * everyone else isn't. A found stranger becomes a contact, so a first
+   * message can reach them.
+   */
+  async lookupRecipient(query: RecipientQuery): Promise<RecipientLookup> {
+    await this.delay();
+    this.assertOnline();
+    this.takeFailure();
+    if (this.lookupRateLimited) return { status: 'rate-limited' };
+    const known = [...this.world.contacts.values()].find(
+      (c) => !c.isSelf && query.kind === 'phone' && c.number === query.e164,
+    );
+    if (known) {
+      return {
+        status: 'found',
+        id: known.id,
+        name: known.name,
+        ...(known.number ? { number: known.number } : {}),
+      };
+    }
+    const registered =
+      query.kind === 'phone'
+        ? /^\+1202555019\d$/u.test(query.e164)
+        : /^demo\.\d{2,}$/u.test(query.username);
+    if (!registered) return { status: 'not-registered' };
+    const label = query.kind === 'phone' ? query.e164 : query.username;
+    const existing = [...this.world.contacts.values()].find((c) => c.name === label);
+    const stranger = existing ?? {
+      id: this.rnd.uuid(),
+      name: label,
+      color: '',
+      ...(query.kind === 'phone' ? { number: query.e164 } : {}),
+    };
+    if (!existing) {
+      stranger.color = colorForId(stranger.id);
+      this.world.contacts.set(stranger.id, stranger);
+    }
+    return {
+      status: 'found',
+      id: stranger.id,
+      name: stranger.name,
+      ...(stranger.number ? { number: stranger.number } : {}),
+      ...(query.kind === 'username' ? { username: query.username } : {}),
+    };
+  }
+
   // ─── Commands ──────────────────────────────────────────────────────────
 
   async send(input: SendInput): Promise<SendResult> {
     await this.delay();
     this.assertOnline();
     this.takeFailure();
-    const conv = this.requireConversation(input.conversationId);
+    const conv = this.requireConversation(input.conversationId, true);
 
     const sentAt = Math.max(this.clock.now(), this.lastSentAt + 1);
     this.lastSentAt = sentAt;
@@ -594,10 +650,31 @@ export class MockBackend implements ChatBackend {
     if (failure) throw failure;
   }
 
-  private requireConversation(id: ConversationId): Conversation {
-    const conv = this.world.conversations.get(id);
-    if (!conv) throw new MockBackendError(`Unknown conversation ${id}`);
-    return conv;
+  /**
+   * `openDirect`: a send to a person the user has no DM with yet (one found
+   * through `lookupRecipient`, or a contact never written to) starts it, as
+   * Signal does: the conversation exists once a message does.
+   */
+  private requireConversation(id: ConversationId, openDirect = false): Conversation {
+    const existing = this.world.conversations.get(id);
+    if (existing) return existing;
+    const peer = openDirect ? parseConversationId(id) : null;
+    if (peer?.kind === 'direct' && this.world.contacts.has(peer.target)) {
+      const conv: Conversation = {
+        id: directConversationId(peer.target),
+        kind: 'direct',
+        title: this.world.contacts.get(peer.target)?.name ?? peer.target,
+        memberIds: [this.world.self.id, peer.target],
+        adminIds: [],
+        expireTimerSec: 0,
+        lastActivityAt: this.clock.now(),
+      };
+      this.world.conversations.set(conv.id, conv);
+      this.world.histories.set(conv.id, []);
+      this.emitter.emit('conversationUpdated', structuredClone(conv));
+      return conv;
+    }
+    throw new MockBackendError(`Unknown conversation ${id}`);
   }
 
   private append(message: Message): void {

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { messageId, parseConversationId, type Message } from '@/core/domain';
+import { directConversationId, messageId, parseConversationId, type Message } from '@/core/domain';
 import { ManualScheduler } from '@/core/lib';
 import type { BackendEvents } from '../types';
 import { MockBackend } from './MockBackend';
@@ -460,6 +460,51 @@ describe('mock sticker pack install and delivered custom emoji', () => {
     const [first] = delivered;
     await expect(
       backend.readAttachmentBlob(first!.conversationId, first!.d.attachment, { maxBytes: 4 }),
+    ).rejects.toThrow();
+  });
+});
+
+describe('mock recipient lookup', () => {
+  it('finds a person by number, a stranger in the demo directory, and not anyone else', async () => {
+    const { backend } = setup();
+    await backend.connect();
+    const person = [...backend.world.contacts.values()].find((c) => c.number && !c.isSelf)!;
+    expect(await backend.lookupRecipient({ kind: 'phone', e164: person.number! })).toMatchObject({
+      status: 'found',
+      id: person.id,
+    });
+    const stranger = await backend.lookupRecipient({ kind: 'phone', e164: '+12025550190' });
+    const named = await backend.lookupRecipient({ kind: 'username', username: 'demo.42' });
+    expect(stranger.status).toBe('found');
+    expect(named.status).toBe('found');
+    expect(await backend.lookupRecipient({ kind: 'phone', e164: '+12025550190' })).toEqual(
+      stranger,
+    );
+    expect(await backend.lookupRecipient({ kind: 'phone', e164: '+442071234567' })).toEqual({
+      status: 'not-registered',
+    });
+    expect(await backend.lookupRecipient({ kind: 'username', username: 'nobody.42' })).toEqual({
+      status: 'not-registered',
+    });
+    backend.lookupRateLimited = true;
+    expect(await backend.lookupRecipient({ kind: 'phone', e164: '+12025550190' })).toEqual({
+      status: 'rate-limited',
+    });
+  });
+
+  it('starts a DM with a found stranger on the first send, and only then', async () => {
+    const { backend } = setup();
+    await backend.connect();
+    const found = await backend.lookupRecipient({ kind: 'phone', e164: '+12025550190' });
+    if (found.status !== 'found') throw new Error('expected a match');
+    const id = directConversationId(found.id);
+    expect((await backend.listConversations()).map((c) => c.id)).not.toContain(id);
+    const updates = collect(backend, 'conversationUpdated');
+    await backend.send({ conversationId: id, body: 'hello', ranges: [] });
+    expect((await backend.listConversations()).map((c) => c.id)).toContain(id);
+    expect(updates.map((c) => c.id)).toEqual([id]);
+    await expect(
+      backend.send({ conversationId: directConversationId('nobody'), body: 'x', ranges: [] }),
     ).rejects.toThrow();
   });
 });

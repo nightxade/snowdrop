@@ -17,6 +17,7 @@ import type {
   MessageId,
   Quote,
   Reaction,
+  RecipientQuery,
   StickerContent,
 } from '@/core/domain';
 import type { Unsubscribe } from '@/core/lib';
@@ -255,6 +256,16 @@ export type PhonePrivacyPatch = Partial<
   >
 >;
 
+/**
+ * The answer to `lookupRecipient`. `found.id` is the peer id the DM will have
+ * once messages flow (the same canonical form incoming messages resolve to),
+ * so a conversation opened under it never forks from the real one.
+ */
+export type RecipientLookup =
+  | { status: 'found'; id: string; number?: string; username?: string; name?: string }
+  | { status: 'not-registered' }
+  | { status: 'rate-limited' };
+
 export interface BackendEvents {
   status: ConnectionStatus;
   /** Incoming message, or one we sent from another linked device (sync). */
@@ -407,6 +418,15 @@ export interface ChatBackend {
    */
   supportsReadSync?(): boolean;
   updateConversation?(conversationId: ConversationId, patch: ConversationPatch): Promise<void>;
+
+  /**
+   * Asks the server whether a phone number or username belongs to a Signal
+   * user, for starting a chat with someone who isn't a conversation yet.
+   * Read-only: nothing is sent to the person, so no profile key is shared
+   * until the user's first message. A transport failure rejects; a server
+   * rate limit resolves as `rate-limited`.
+   */
+  lookupRecipient?(query: RecipientQuery): Promise<RecipientLookup>;
 
   /**
    * Answers a message request the way Signal's own clients do, and tells the

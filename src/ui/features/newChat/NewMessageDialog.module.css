@@ -1,0 +1,48 @@
+.modal {
+  overflow: hidden;
+}
+
+.hints {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--snowdrop-space-3) var(--snowdrop-space-5);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
+}
+
+.hints > span {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--snowdrop-space-2);
+}
+
+/* Inline lookup progress and errors, between the field and the list. */
+.notice {
+  display: flex;
+  align-items: center;
+  gap: var(--snowdrop-space-3);
+  padding: var(--snowdrop-space-4) var(--snowdrop-space-5) 0;
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
+}
+
+.notice:empty {
+  display: none;
+}
+
+.notice[data-error] {
+  color: var(--snowdrop-danger);
+}
+
+.spin {
+  flex: none;
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

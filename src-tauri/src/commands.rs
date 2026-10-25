@@ -61,6 +61,11 @@ const ALLOWED_METHODS: &[&str] = &[
     // Directory (directory.ts).
     "listContacts",
     "listGroups",
+    // The new-message dialog's "Find by phone number" / "Find by username"
+    // (SignalCliBackend.ts: lookupRecipient): asks the server whether a number
+    // or username belongs to a Signal user. Read-only, sends nothing to them,
+    // and takes only strings, so it passes rpc_guard.rs as is.
+    "getUserStatus",
     // Asks the primary device to resend contacts/groups/the block list
     // (SignalCliBackend.ts: syncContactsAndGroups, Settings → Connection).
     "sendSyncRequest",
@@ -726,6 +731,18 @@ mod tests {
     #[test]
     fn allows_the_contacts_and_groups_sync_request() {
         assert!(is_allowed_method("sendSyncRequest"));
+    }
+
+    /// The new-message dialog's recipient lookup (SignalCliBackend.ts:
+    /// lookupRecipient) goes through this exact method; it passes the guard
+    /// with plain string lists, and a file path smuggled into it still fails.
+    #[test]
+    fn allows_the_recipient_lookup() {
+        assert!(is_allowed_method("getUserStatus"));
+        let ok = serde_json::json!({ "recipient": ["+15550001111"], "username": ["alice.42"] });
+        assert!(crate::rpc_guard::validate_request("getUserStatus", ok.as_object()).is_ok());
+        let bad = serde_json::json!({ "recipient": ["+15550001111"], "attachment": "/etc/passwd" });
+        assert!(crate::rpc_guard::validate_request("getUserStatus", bad.as_object()).is_err());
     }
 
     /// Custom-emoji capability detection (SignalCliBackend.ts:

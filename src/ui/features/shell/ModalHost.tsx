@@ -15,6 +15,10 @@ const SettingsOverlay = lazy(() =>
   import('@/ui/features/settings').then((m) => ({ default: m.SettingsOverlay })),
 );
 
+// New message: opened from the Home sidebar and the palette; prefetched with the switcher.
+const loadNewChat = () => import('@/ui/features/newChat');
+const NewMessageDialog = lazy(() => loadNewChat().then((m) => ({ default: m.NewMessageDialog })));
+
 // Space/folder/category dialogs and the shortcut sheet: small, but opened rarely.
 // Prefetched with the switcher so opening one doesn't wait on the network.
 const loadSpaces = () => import('@/ui/features/spaces');
@@ -51,6 +55,7 @@ export function ModalHost() {
   useEffect(() => {
     const prefetch = () => {
       void loadSwitcher();
+      void loadNewChat();
       void loadSpaces();
       void loadShortcuts();
     };
@@ -76,6 +81,8 @@ function modalElement(modal: Modal, close: () => void) {
   switch (modal.type) {
     case 'switcher':
       return <QuickSwitcher onClose={close} initialQuery={stringProp(modal.props, 'query')} />;
+    case 'newMessage':
+      return <NewMessageDialog onClose={close} />;
     case 'settings':
       return <SettingsOverlay onClose={close} {...pageProp(modal.props)} />;
     case 'shortcuts':

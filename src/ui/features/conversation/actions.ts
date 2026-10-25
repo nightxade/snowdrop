@@ -52,11 +52,12 @@ export function openDirectConversation(app: AppServices, contact: Contact): Conv
   const { conversations, session, ui } = app.stores;
   if (!conversations.getState().byId[id]) {
     const selfId = session.getState().self?.id;
+    const isSelf = contact.isSelf === true || contact.id === selfId;
     conversations.getState().upsert({
       id,
       kind: 'direct',
-      title: contact.name,
-      memberIds: selfId ? [selfId, contact.id] : [contact.id],
+      title: isSelf ? 'Note to Self' : contact.name,
+      memberIds: selfId && !isSelf ? [selfId, contact.id] : [contact.id],
       adminIds: [],
       expireTimerSec: 0,
       lastActivityAt: 0,

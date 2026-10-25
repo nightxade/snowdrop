@@ -43,6 +43,7 @@ export const OPTIONAL_METHODS = [
   'acknowledge',
   'link',
   'syncContactsAndGroups',
+  'lookupRecipient',
 ] as const;
 
 export type OptionalMethod = (typeof OPTIONAL_METHODS)[number];
@@ -250,6 +251,9 @@ export function deferredBackend(
   if (caps.has('setBlocked'))
     backend.setBlocked = (conversationId, blocked) =>
       call((b) => (b.setBlocked ? b.setBlocked(conversationId, blocked) : missing('setBlocked')));
+  if (caps.has('lookupRecipient'))
+    backend.lookupRecipient = (query) =>
+      call((b) => (b.lookupRecipient ? b.lookupRecipient(query) : missing('lookupRecipient')));
   if (caps.has('syncContactsAndGroups'))
     backend.syncContactsAndGroups = () =>
       call((b) =>

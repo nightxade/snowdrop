@@ -31,6 +31,7 @@ import {
   type ConversationId,
   type Message,
   type Quote,
+  type RecipientQuery,
   type StickerContent,
 } from '@/core/domain';
 import {
@@ -62,6 +63,7 @@ import type {
   PhonePrivacySettings,
   PinInput,
   ReactInput,
+  RecipientLookup,
   SendInput,
   SendResult,
   StickerPackDetails,
@@ -121,6 +123,7 @@ import {
   wirePhonePrivacy,
   wireStartLink,
   wireStickerPacks,
+  wireUserStatuses,
   wireVersion,
   type WireAccount,
   type WireStickerPack,
@@ -1491,6 +1494,47 @@ export class SignalCliBackend implements ChatBackend {
     this.assertAccount();
     await this.rpc.call('sendSyncRequest', undefined, ignoreResult);
     await Promise.all([this.directory.loadContacts(true), this.directory.loadGroups(true)]);
+  }
+
+  /**
+   * `getUserStatus`: asks the server (contact discovery for a number, the
+   * username directory for a username) whether the person is on Signal. It
+   * sends nothing to them. A found person's number and ACI are recorded as
+   * aliases (`DirectPeers.learnPair`) before the id is returned, so the id is
+   * the canonical one every later envelope from them resolves to: a DM opened
+   * under it can never fork from the one their first message lands in.
+   * Nothing here is logged: numbers, usernames and ids stay out of the logs.
+   */
+  async lookupRecipient(query: RecipientQuery): Promise<RecipientLookup> {
+    this.assertAccount();
+    const params: RpcParams =
+      query.kind === 'phone' ? { recipient: [query.e164] } : { username: [query.username] };
+    let rows;
+    try {
+      rows = await this.rpc.call('getUserStatus', params, wireUserStatuses);
+    } catch (error) {
+      if (isSignalCliError(error) && error.kind === 'rate-limited') {
+        return { status: 'rate-limited' };
+      }
+      throw error;
+    }
+    const row = rows[0];
+    if (!row?.isRegistered || !row.uuid) return { status: 'not-registered' };
+    const number = row.number ?? (query.kind === 'phone' ? query.e164 : undefined);
+    const username = row.username ?? (query.kind === 'username' ? query.username : undefined);
+    this.identity.learnPair(row.uuid, number);
+    this.peers?.learnPair(row.uuid, number);
+    const selfResolved = this.identity.resolve(row.uuid);
+    const id =
+      selfResolved === row.uuid ? (this.peers?.resolve(row.uuid) ?? row.uuid) : selfResolved;
+    const name = this.directory.contact(id)?.name;
+    return {
+      status: 'found',
+      id,
+      ...(number ? { number } : {}),
+      ...(username ? { username } : {}),
+      ...(name ? { name } : {}),
+    };
   }
 
   // ─── Commands ──────────────────────────────────────────────────────────

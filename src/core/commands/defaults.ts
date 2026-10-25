@@ -5,6 +5,7 @@
  */
 export const CoreCommand = {
   QuickSwitcher: 'core.quickSwitcher',
+  NewMessage: 'core.newMessage',
   PrevConversation: 'core.prevConversation',
   NextConversation: 'core.nextConversation',
   PrevUnread: 'core.prevUnread',
@@ -21,6 +22,8 @@ export type CoreCommandId = (typeof CoreCommand)[keyof typeof CoreCommand];
 
 export const DEFAULT_KEYBINDS: Readonly<Record<CoreCommandId, string>> = {
   [CoreCommand.QuickSwitcher]: 'Mod+K',
+  // The same shortcut Signal Desktop uses for a new chat.
+  [CoreCommand.NewMessage]: 'Mod+N',
   [CoreCommand.PrevConversation]: 'Alt+Up',
   [CoreCommand.NextConversation]: 'Alt+Down',
   [CoreCommand.PrevUnread]: 'Alt+Shift+Up',

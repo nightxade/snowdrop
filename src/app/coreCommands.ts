@@ -30,6 +30,16 @@ export function registerCoreCommands(
     },
   });
   commands.register({
+    id: CoreCommand.NewMessage,
+    title: 'New message',
+    category: 'Navigation',
+    keybind: DEFAULT_KEYBINDS[CoreCommand.NewMessage],
+    allowInInputs: true,
+    run: () => {
+      ui().openModal({ type: 'newMessage' });
+    },
+  });
+  commands.register({
     id: CoreCommand.ToggleMemberList,
     title: 'Toggle member list',
     category: 'View',

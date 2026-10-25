@@ -345,6 +345,17 @@ export const wireStickerPack = object({
 export type WireStickerPack = Infer<typeof wireStickerPack>;
 export const wireStickerPacks = list(wireStickerPack);
 
+/** `getUserStatus`: one row per number or username asked about (`uuid` is null when unregistered). */
+export const wireUserStatuses = list(
+  object({
+    recipient: optStr,
+    number: optStr,
+    username: optStr,
+    uuid: optStr,
+    isRegistered: withDefault(bool, false),
+  }),
+);
+
 export const wireStartLink = object({ deviceLinkUri: str });
 export const wireFinishLink = object({ number: optStr, aci: optStr, historyTransfer: optStr });
 export const wireAttachmentData = object({ data: str });

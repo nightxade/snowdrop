@@ -16,6 +16,7 @@ press the new keys; Esc or Tab cancels, Backspace or Delete removes it).
 | Action                              | Keys                             |
 | ----------------------------------- | -------------------------------- |
 | Quick switcher                      | Mod+K                            |
+| New message                         | Mod+N (as in Signal Desktop)     |
 | Previous / next conversation        | Alt+↑ / Alt+↓                    |
 | Previous / next unread conversation | Alt+Shift+↑ / Alt+Shift+↓        |
 | Mark conversation read              | Esc (when the composer is empty) |

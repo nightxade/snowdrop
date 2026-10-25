@@ -132,3 +132,27 @@ export function CommandPaletteItem({
     </Command.Item>
   );
 }
+
+/** Wraps matched characters in <mark> for the result list. */
+export function highlight(text: string, indices: readonly number[]): ReactNode[] {
+  if (indices.length === 0) return [text];
+  const hit = new Set(indices);
+  const out: ReactNode[] = [];
+  let run = '';
+  let runHit = false;
+  const flush = (key: number) => {
+    if (!run) return;
+    out.push(runHit ? <mark key={key}>{run}</mark> : run);
+    run = '';
+  };
+  for (let i = 0; i < text.length; i++) {
+    const isHit = hit.has(i);
+    if (isHit !== runHit) {
+      flush(i);
+      runHit = isHit;
+    }
+    run += text.charAt(i);
+  }
+  flush(text.length);
+  return out;
+}
