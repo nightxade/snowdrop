@@ -112,8 +112,9 @@ On a single-account daemon `connection.account` is required (Snowdrop reports
   had _stored_ (the position is saved only after the message is written locally, so a
   reload can re-deliver, never skip).
 - **Direct conversations** appear once a message is exchanged; groups appear immediately.
-- Stickers, view-once media, payments, polls and shared contacts are shown as a short note
-  ("open it on your phone"); calls and stories are ignored. Messages the daemon couldn't
+- View-once media, payments and shared contacts are shown as a short note ("open it on your
+  phone"); calls and stories are ignored. Stickers and polls are shown as themselves (see
+  [Polls](#polls)). Messages the daemon couldn't
   decrypt (e.g. a changed safety number) appear as a system line asking you to check the
   safety number on your phone.
 - Group updates are shown as a system line computed by comparing the group before and
@@ -216,6 +217,21 @@ tests use isolated sessions). The patched CLI passes 44 history tests. Synthetic
 browser checks cover archive paging, media viewing, notification suppression,
 read-time expiration, and continuing after a history-transfer failure. These
 checks do not verify a real phone transfer or real attachment CDN availability.
+
+## Polls
+
+Polls are created, answered and ended from Snowdrop, in groups only (as in Signal Desktop, where
+a one-to-one poll is behind a flag). Creating one is the composer's `+` menu → Poll; it sends
+`sendPollCreate` (question, 2–10 options of at most 100 UTF-16 units, `noMulti` for single
+choice) and the returned timestamp is the poll's id. Answering sends `sendPollVote` with the
+poll's author and timestamp, every option now chosen (an empty list retracts) and `voteCount`,
+which goes up by one with each change; receivers keep the vote with the highest count. Ending
+a poll you wrote sends `sendPollTerminate`. A vote or an end that arrives before its poll is held
+like a reaction or an edit (`PendingOpsBuffer`). Votes arrive as `dataMessage.pollVote` (our own
+from other devices through sync transcripts), ends as `pollTerminate`, and a history archive's
+`Poll` carries each option's voters and whether it ended. A poll Signal would refuse (no
+question, fewer than two or more than ten options) is shown as a note, not a poll. These three
+methods come with stock signal-cli (0.14.8 has them), not with a Snowdrop patch.
 
 ## Sticker packs: install one from a received sticker
 

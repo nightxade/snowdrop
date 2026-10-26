@@ -856,9 +856,10 @@ us. Outgoing params pass ids through (signal-cli accepts ACIs everywhere).
 **Normalisation decisions.** Incoming → `status: 'read'`, sync transcripts →
 our own `'sent'` messages. Edits → `messageEdited` (`editedAt` = the edit's
 timestamp). Admin delete → `messageDeleted { authorId: target, deletedBy }`.
-Unsupported content (sticker, view-once, payment, shared contact, poll) becomes
-an italic note in the body; poll votes, calls and stories are ignored with a
-debug log. Disappearing timer: `expiresAt = receivedAt + timer` (Signal starts
+Unsupported content (view-once, payment, shared contact) becomes an italic note
+in the body; stickers and polls are their own message content (a poll's votes and
+end change that message in place); calls and stories are ignored with a debug
+log. Disappearing timer: `expiresAt = receivedAt + timer` (Signal starts
 it on read, so we err on deleting early). Timer updates → system line +
 conversation patch. Group updates (`groupInfo.type = UPDATE`) → the backend
 re-lists the group, diffs (name, description, timer, joined/left, new

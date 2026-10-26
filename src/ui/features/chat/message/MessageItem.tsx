@@ -33,11 +33,13 @@ import {
 } from '../list/rowState';
 import * as act from './actions';
 import { ConfirmDelete } from './ConfirmDelete';
+import { ConfirmEndPoll } from './ConfirmEndPoll';
 import { CustomEmojiDialog } from './CustomEmojiPopover';
 import { HoverBar } from './HoverBar';
 import { MessageActionSheet } from './MessageActionSheet';
 import { MessageContent } from './MessageContent';
 import { MessageDetails } from './MessageDetails';
+import { PollVotesDialog } from './PollCard';
 import { StickerPackDialog } from './StickerPackDialog';
 import { buildMessageMenu, type DeleteKind } from './messageMenu';
 import { QuoteHeader } from './QuoteHeader';
@@ -100,6 +102,8 @@ export const MessageItem = memo(function MessageItem({
   const [confirm, setConfirm] = useState<DeleteKind | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [packOpen, setPackOpen] = useState(false);
+  const [votesOpen, setVotesOpen] = useState(false);
+  const [endOpen, setEndOpen] = useState(false);
   const [emojiDialog, setEmojiDialog] = useState<string | null>(null);
   const longPress = useLongPress(() => {
     setSheetOpen(true);
@@ -218,6 +222,9 @@ export const MessageItem = memo(function MessageItem({
       requestDelete,
       openDetails: () => {
         setDetailsOpen(true);
+      },
+      requestEndPoll: () => {
+        setEndOpen(true);
       },
       openStickerPack: () => {
         setPackOpen(true);
@@ -371,6 +378,9 @@ export const MessageItem = memo(function MessageItem({
         menuOpen={contextOpen}
         bodyId={bodyId}
         onEditDone={leaveRow}
+        onViewPollVotes={() => {
+          setVotesOpen(true);
+        }}
         onOpenStickerPack={
           app.backend.getStickerPack
             ? () => {
@@ -420,6 +430,32 @@ export const MessageItem = memo(function MessageItem({
         />
       )}
       {detailsOpen && <MessageDetails message={m} onOpenChange={setDetailsOpen} />}
+      {votesOpen && m.poll && (
+        <PollVotesDialog
+          poll={m.poll}
+          onEnd={
+            perms.canEndPoll
+              ? () => {
+                  setVotesOpen(false);
+                  setEndOpen(true);
+                }
+              : undefined
+          }
+          onOpenChange={setVotesOpen}
+        />
+      )}
+      {endOpen && m.poll && (
+        <ConfirmEndPoll
+          question={m.poll.question}
+          onConfirm={() => {
+            setEndOpen(false);
+            void act.endPoll(app, m);
+          }}
+          onCancel={() => {
+            setEndOpen(false);
+          }}
+        />
+      )}
       {packOpen && m.sticker && (
         <StickerPackDialog
           conversationId={conversationId}

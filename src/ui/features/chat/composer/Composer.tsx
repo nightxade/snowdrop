@@ -1,4 +1,4 @@
-import { CirclePlus, Smile, Sticker } from 'lucide-react';
+import { ChartBar, CirclePlus, FileUp, Smile, Sticker } from 'lucide-react';
 import { memo, useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import { useStore } from 'zustand';
 import { CoreCommand } from '@/core/commands';
@@ -6,11 +6,19 @@ import type { ConversationId, ConversationView } from '@/core/domain';
 import { messagesSelectors, sessionSelectors, uiSelectors } from '@/core/stores';
 import { setConversationFocusResolver, useObservableList, useSnowdrop } from '@/ui/hooks';
 import { useConversationView } from '@/ui/features/conversation';
-import { EmojiPickerPopover, IconButton, Slot } from '@/ui/primitives';
+import {
+  DropdownMenu,
+  EmojiPickerPopover,
+  IconButton,
+  Slot,
+  type MenuEntry,
+} from '@/ui/primitives';
 import { useChatController } from '../ChatController';
 import { CustomEmojiPanel } from './CustomEmojiPanel';
 import { AttachmentTray } from './AttachmentTray';
 import { ComposerLinkPreview } from './ComposerLinkPreview';
+import { PollCreateDialog } from './PollCreateDialog';
+import { emptyPollDraft, type PollDraft } from './pollDraft';
 import { ReplyBar } from './ReplyBar';
 import { StickerPicker } from './StickerPicker';
 import { TypingLine } from './TypingLine';
@@ -47,6 +55,11 @@ function ComposerInner({ conversation }: { conversation: ConversationView }) {
   const [field, setField] = useState<HTMLDivElement | null>(null);
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [stickersOpen, setStickersOpen] = useState(false);
+  const [pollOpen, setPollOpen] = useState(false);
+  // Kept while the composer lives (closing the dialog doesn't lose a poll half typed).
+  const [pollDraft, setPollDraft] = useState<PollDraft>(emptyPollDraft);
+  // Polls are offered in groups only, as Signal Desktop does (a one-to-one poll is behind a flag there).
+  const canPoll = conversation.kind === 'group' && app.send.capabilities.polls;
   // Only backends that can list (and so send) sticker packs get the button.
   const canSendStickers = app.backend.listStickerPacks !== undefined;
   const accessories = useObservableList(app.registries.composerAccessories);
@@ -140,6 +153,25 @@ function ComposerInner({ conversation }: { conversation: ConversationView }) {
     if (e.key === 'Escape' && escape() !== 'none') e.preventDefault();
   };
 
+  const attachEntries = (): MenuEntry[] => [
+    {
+      kind: 'item',
+      id: 'upload',
+      label: 'Upload a file',
+      icon: <FileUp size={16} />,
+      onSelect: () => fileInput.current?.click(),
+    },
+    {
+      kind: 'item',
+      id: 'poll',
+      label: 'Poll',
+      icon: <ChartBar size={16} />,
+      onSelect: () => {
+        setPollOpen(true);
+      },
+    },
+  ];
+
   const placeholder =
     conversation.kind === 'group'
       ? `Message #${conversation.title}`
@@ -172,12 +204,22 @@ function ComposerInner({ conversation }: { conversation: ConversationView }) {
         <div className={styles.box} data-tui-bare ref={setField}>
           <AttachmentTray attachments={state.attachments} onRemove={state.removeAttachment} />
           <div className={styles.field}>
-            <IconButton
-              label="Upload a file"
-              icon={<CirclePlus />}
-              className={styles.button}
-              onClick={() => fileInput.current?.click()}
-            />
+            {canPoll ? (
+              <DropdownMenu entries={attachEntries} side="top" align="start" label="Add to message">
+                <IconButton
+                  label="Add attachment or poll"
+                  icon={<CirclePlus />}
+                  className={styles.button}
+                />
+              </DropdownMenu>
+            ) : (
+              <IconButton
+                label="Upload a file"
+                icon={<CirclePlus />}
+                className={styles.button}
+                onClick={() => fileInput.current?.click()}
+              />
+            )}
             <input
               ref={fileInput}
               type="file"
@@ -308,6 +350,22 @@ function ComposerInner({ conversation }: { conversation: ConversationView }) {
           </div>
         </div>
       </div>
+      {pollOpen && (
+        <PollCreateDialog
+          draft={pollDraft}
+          onDraftChange={setPollDraft}
+          onSend={(poll) => {
+            setPollOpen(false);
+            setPollDraft(emptyPollDraft());
+            requestAnimationFrame(focus);
+            void state.sendPoll(poll);
+          }}
+          onClose={() => {
+            setPollOpen(false);
+            requestAnimationFrame(focus);
+          }}
+        />
+      )}
       {field_.popover}
       <TypingLine conversationId={conversationId} />
     </div>

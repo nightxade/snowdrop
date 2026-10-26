@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { bodyToPlainText, type ConversationId, type Message } from '@/core/domain';
+import { bodyToPlainText, pollPreviewText, type ConversationId, type Message } from '@/core/domain';
 import { UNKNOWN_CONTACT_NAME } from '@/core/stores';
 import { useSnowdrop } from '@/ui/hooks';
 import styles from './LiveAnnouncer.module.css';
@@ -39,9 +39,11 @@ export function LiveAnnouncer({ conversationId }: { conversationId: Conversation
           .map((m) => {
             const body = bodyToPlainText(m.body, m.ranges, nameFor).trim();
             const said =
-              body === ''
-                ? `sent ${m.attachments.length > 0 ? 'an attachment' : 'a message'}`
-                : body;
+              body !== ''
+                ? body
+                : m.poll
+                  ? pollPreviewText(m.poll)
+                  : `sent ${m.attachments.length > 0 ? 'an attachment' : 'a message'}`;
             return `${nameFor(m.authorId)}: ${said.length > MAX_TEXT ? `${said.slice(0, MAX_TEXT)}…` : said}`;
           })
           .join('. '),

@@ -6,3 +6,4 @@ export * from './observable';
 export * from './nonce';
 export * from './text';
 export * from './startup';
+export * from './poll';

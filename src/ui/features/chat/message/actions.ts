@@ -82,6 +82,21 @@ export function adminDelete(app: AppServices, m: Message): void {
   });
 }
 
+/** Sets our whole answer on a poll; a vote that couldn't go out is rolled back and says so. */
+export async function votePoll(
+  app: AppServices,
+  m: Message,
+  optionIndexes: readonly number[],
+): Promise<void> {
+  const result = await app.send.votePoll(m.conversationId, m, optionIndexes);
+  if (result === 'failed') report(app, "Couldn't send your vote");
+}
+
+export async function endPoll(app: AppServices, m: Message): Promise<void> {
+  const result = await app.send.endPoll(m.conversationId, m);
+  if (result === 'failed') report(app, "Couldn't end the poll");
+}
+
 export function retry(app: AppServices, m: Message): void {
   if (m.nonce) void app.send.retry(m.conversationId, m.nonce);
 }
@@ -98,6 +113,10 @@ export interface MessagePermissions {
   canReact: boolean;
   canAdminDelete: boolean;
   canPin: boolean;
+  /** A poll that is open, sent, and one the user may answer. */
+  canVotePoll: boolean;
+  /** One of the user's own polls that is open and sent. */
+  canEndPoll: boolean;
 }
 
 export function permissionsFor(app: AppServices, m: Message): MessagePermissions {
@@ -112,13 +131,17 @@ export function permissionsFor(app: AppServices, m: Message): MessagePermissions
   // Reacting, replying and pinning all send something to the other side: not
   // before the user has accepted them (a message request is read-only).
   const accepted = selectMessageRequestState(app.stores, m.conversationId) === 'accepted';
+  // Answering or ending a poll needs it to exist for everyone already: unsent and failed ones can't be.
+  const openPoll = normal && m.poll !== undefined && m.poll.ended !== true && !pending && !failed;
   return {
     own,
     failed,
     pending,
-    canEdit: own && normal,
+    canEdit: own && normal && m.poll === undefined,
     canReact: normal && !failed && accepted,
     canAdminDelete: normal && !own && admin && conversation?.kind === 'group' && caps.adminDelete,
     canPin: normal && !failed && accepted && caps.pin,
+    canVotePoll: openPoll && accepted && caps.polls,
+    canEndPoll: openPoll && own && caps.polls,
   };
 }

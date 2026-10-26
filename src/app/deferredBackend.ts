@@ -24,6 +24,8 @@ export const OPTIONAL_METHODS = [
   'getHistoryReadState',
   'adminDelete',
   'pinMessage',
+  'votePoll',
+  'terminatePoll',
   'updateConversation',
   'respondToMessageRequest',
   'setBlocked',
@@ -160,6 +162,12 @@ export function deferredBackend(
   if (caps.has('pinMessage'))
     backend.pinMessage = (input) =>
       call((b) => (b.pinMessage ? b.pinMessage(input) : missing('pinMessage')));
+  if (caps.has('votePoll'))
+    backend.votePoll = (input) =>
+      call((b) => (b.votePoll ? b.votePoll(input) : missing('votePoll')));
+  if (caps.has('terminatePoll'))
+    backend.terminatePoll = (c, sentAt) =>
+      call((b) => (b.terminatePoll ? b.terminatePoll(c, sentAt) : missing('terminatePoll')));
   if (caps.has('updateConversation'))
     backend.updateConversation = (c, patch) =>
       call((b) =>

@@ -4,7 +4,7 @@
  * One envelope carries at most one "thing" (a data message, an edit, a sync
  * transcript, a receipt, a typing indicator…), and a data message is either
  * an action on another message (reaction, delete, pin) or visible content.
- * Anything unknown or unsupported (calls, stories, poll votes) is skipped
+ * Anything unknown or unsupported (calls, stories) is skipped
  * with a debug log — never an exception.
  */
 import {
@@ -337,9 +337,43 @@ function fromData(
     ];
   }
 
-  if (data.pollVote !== undefined || data.pollTerminate !== undefined) {
-    ctx.debug('ignored poll vote/terminate', data.timestamp);
-    return [];
+  if (data.pollVote) {
+    const v = data.pollVote;
+    const targetAuthorId = target({
+      targetAuthor: v.author,
+      targetAuthorNumber: v.authorNumber,
+      targetAuthorUuid: v.authorUuid,
+    });
+    if (!targetAuthorId) return [];
+    return [
+      {
+        kind: 'pollVote',
+        payload: {
+          conversationId,
+          targetAuthorId,
+          targetSentAt: v.targetSentTimestamp,
+          voterId: authorId,
+          // A repeated index would count one choice twice.
+          optionIndexes: [...new Set(v.optionIndexes)],
+          voteCount: v.voteCount,
+          at: data.timestamp,
+        },
+      },
+    ];
+  }
+
+  if (data.pollTerminate) {
+    return [
+      {
+        kind: 'pollTerminate',
+        payload: {
+          conversationId,
+          authorId,
+          targetSentAt: data.pollTerminate.targetSentTimestamp,
+          at: data.timestamp,
+        },
+      },
+    ];
   }
 
   const events: AdapterEvent[] = [];

@@ -16,6 +16,7 @@ import type {
   ChatBackend,
   ConversationPatch,
   OutgoingCustomEmoji,
+  OutgoingPoll,
   SendInput,
 } from '@/core/backend';
 import {
@@ -28,23 +29,33 @@ import {
   advanceStatus,
   applyDelete,
   applyEdit,
+  applyPollTerminate,
+  applyPollVote,
   applyReaction,
   attachMentions,
   escapeMarkdown,
   isPendingMessageId,
+  mergeDuplicate,
   mergeOutgoingCommit,
   mergeReceipts,
   messageId,
+  nextPollVoteCount,
   parseMarkdownToRanges,
   pendingMessageId,
+  pollEndedText,
+  pollVoteOf,
+  reopenPoll,
+  restorePollVote,
+  systemMessageId,
   type BodyRange,
   type ConversationId,
   type Message,
   type MessageId,
+  type PollVote,
   type Quote,
   type StickerContent,
 } from '@/core/domain';
-import { createNonce, type Clock } from '@/core/lib';
+import { createNonce, pollDraftProblem, tidyPollDraft, type Clock } from '@/core/lib';
 import type { MessageRepository } from '@/core/persistence';
 import { effectivePrivacy, selectMessageRequestState, type Stores } from '@/core/stores';
 import { finalPreview, localAttachment, localPreview, withLocalUrls } from './localAttachments';
@@ -57,6 +68,14 @@ import {
   type ErrorReporter,
   type OutgoingDraft,
 } from './types';
+
+/**
+ * How a poll vote or end went: `ignored` when there was nothing to do (the
+ * poll is unsent, ended, deleted or unknown, the choice isn't one it accepts,
+ * or a vote of ours on it is still on its way), `failed` when it was shown
+ * and then rolled back because it couldn't be sent.
+ */
+export type PollActionResult = 'done' | 'ignored' | 'failed';
 
 /** Signal clients resend "typing" about every 10 s; more often is noise. */
 export const TYPING_REFRESH_MS = 10_000;
@@ -275,6 +294,54 @@ export class SendService {
     return nonce;
   }
 
+  /**
+   * Sends a poll: the message's whole content, so no text pipeline and no
+   * attachments or quote. Same optimistic row, outbox entry, status updates
+   * and retry as any other send. Resolves with the nonce, or null when the
+   * backend can't take part in polls; throws for a poll that isn't valid
+   * (the create dialog never offers one) and never rejects for network errors.
+   */
+  async sendPoll(request: {
+    conversationId: ConversationId;
+    poll: OutgoingPoll;
+  }): Promise<string | null> {
+    if (this.deps.backend.votePoll === undefined) return null;
+    const selfId = this.selfId();
+    const poll = tidyPollDraft(request.poll);
+    if (pollDraftProblem(poll) !== null) throw new Error("This poll can't be sent.");
+    const { repository, clock } = this.deps;
+    const nonce = this.newNonce();
+    const now = clock.now();
+    const input: SendInput = {
+      conversationId: request.conversationId,
+      body: '',
+      ranges: [],
+      poll: {
+        question: poll.question,
+        options: poll.options,
+        allowMultiple: request.poll.allowMultiple,
+      },
+    };
+    const optimistic: Message = {
+      id: pendingMessageId(nonce),
+      conversationId: input.conversationId,
+      authorId: selfId,
+      sentAt: now,
+      receivedAt: now,
+      seq: await repository.allocateSeq(),
+      body: '',
+      ranges: [],
+      attachments: [],
+      reactions: [],
+      status: 'pending',
+      kind: 'normal',
+      nonce,
+      poll: pollOf(input),
+    };
+    await this.stage(nonce, input, optimistic, now);
+    return nonce;
+  }
+
   /** Shows the optimistic row, persists it with its outbox entry, and tries the send. */
   private async stage(
     nonce: string,
@@ -354,6 +421,7 @@ export class SendService {
         nonce: entry.nonce,
         ...(entry.input.quote ? { quote: entry.input.quote } : {}),
         ...(entry.input.sticker ? { sticker: entry.input.sticker } : {}),
+        ...(entry.input.poll ? { poll: pollOf(entry.input) } : {}),
         ...(failureReason ? { failureReason } : {}),
       };
       await repository.stageOutgoing(row, entry);
@@ -434,6 +502,7 @@ export class SendService {
       ...(pendingRow?.seq === undefined ? {} : { seq: pendingRow.seq }),
       ...(out.input.quote ? { quote: out.input.quote } : {}),
       ...(out.input.sticker ? { sticker: out.input.sticker } : {}),
+      ...(out.input.poll ? { poll: pollOf(out.input) } : {}),
       ...(result.preview
         ? { previews: [finalPreview(result.preview, pendingRow?.previews?.[0]) ?? result.preview] }
         : {}),
@@ -640,12 +709,130 @@ export class SendService {
   }
 
   /** What the transport supports beyond the required contract (menus hide the rest). */
-  get capabilities(): { pin: boolean; adminDelete: boolean; updateConversation: boolean } {
+  get capabilities(): {
+    pin: boolean;
+    adminDelete: boolean;
+    updateConversation: boolean;
+    polls: boolean;
+  } {
     return {
       pin: this.deps.backend.pinMessage !== undefined,
       adminDelete: this.deps.backend.adminDelete !== undefined,
       updateConversation: this.deps.backend.updateConversation !== undefined,
+      polls: this.deps.backend.votePoll !== undefined,
     };
+  }
+
+  // ─── Polls ─────────────────────────────────────────────────────────────
+
+  /** Polls with a vote on its way: a second change waits for the first (see `votePoll`). */
+  private readonly votingOn = new Set<MessageId>();
+
+  /**
+   * Sets our whole answer on a poll (`optionIndexes` is every option we now
+   * choose; empty retracts). Shown at once and rolled back, with the error
+   * reported in the log, if it can't be sent.
+   */
+  async votePoll(
+    conversationId: ConversationId,
+    target: Message,
+    optionIndexes: readonly number[],
+  ): Promise<PollActionResult> {
+    const votePoll = this.deps.backend.votePoll?.bind(this.deps.backend);
+    if (!votePoll || isPendingMessageId(target.id) || this.votingOn.has(target.id))
+      return 'ignored';
+    const selfId = this.selfId();
+    // The newest copy: a vote or the end may have landed since `target` was read.
+    const latest = this.findLoaded(conversationId, target.id) ?? target;
+    const poll = latest.poll;
+    if (!poll || latest.deleted || poll.ended === true) return 'ignored';
+    const vote: PollVote = {
+      voterId: selfId,
+      optionIndexes: [...optionIndexes],
+      voteCount: nextPollVoteCount(poll, selfId),
+      at: this.deps.clock.now(),
+    };
+    const previous = pollVoteOf(poll, selfId);
+    // Nothing to say when it is the answer already given (or no answer, again).
+    const chosen = [...vote.optionIndexes].sort((a, b) => a - b);
+    const current = [...(previous?.optionIndexes ?? [])].sort((a, b) => a - b);
+    if (chosen.length === current.length && chosen.every((index, i) => index === current[i]))
+      return 'ignored';
+    // The same rules that apply a vote decide whether this one is acceptable.
+    if (applyPollVote(latest, vote) === latest) return 'ignored';
+    this.votingOn.add(target.id);
+    try {
+      const sent = await this.optimistic(conversationId, target.id, {
+        context: 'vote failed',
+        apply: (m) => applyPollVote(m, vote),
+        revert: (m) => restorePollVote(m, selfId, previous, vote),
+        commit: (real) =>
+          votePoll({
+            conversationId,
+            pollAuthorId: real.authorId,
+            pollSentAt: real.sentAt,
+            optionIndexes: vote.optionIndexes,
+            voteCount: vote.voteCount,
+          }),
+      });
+      return sent ? 'done' : 'failed';
+    } finally {
+      this.votingOn.delete(target.id);
+    }
+  }
+
+  /**
+   * Ends a poll we created: its card turns into final results at once (and
+   * back, with the error reported, if the end can't be sent), and the
+   * conversation gets Signal's "You ended the poll" line. Only the author can
+   * end a poll.
+   */
+  async endPoll(conversationId: ConversationId, target: Message): Promise<PollActionResult> {
+    const terminatePoll = this.deps.backend.terminatePoll?.bind(this.deps.backend);
+    if (!terminatePoll || isPendingMessageId(target.id)) return 'ignored';
+    const selfId = this.selfId();
+    const latest = this.findLoaded(conversationId, target.id) ?? target;
+    const poll = latest.poll;
+    if (!poll || poll.ended === true || latest.deleted || latest.authorId !== selfId)
+      return 'ignored';
+    const ended = await this.optimistic(conversationId, target.id, {
+      context: 'ending the poll failed',
+      apply: applyPollTerminate,
+      revert: reopenPoll,
+      commit: (real) => terminatePoll(conversationId, real.sentAt),
+    });
+    if (!ended) return 'failed';
+    await this.noteEnded(latest, poll.question, selfId);
+    return 'done';
+  }
+
+  /** The "You ended the poll" line, after the end went out. */
+  private async noteEnded(poll: Message, question: string, selfId: string): Promise<void> {
+    const { repository, stores, clock } = this.deps;
+    const now = clock.now();
+    const line: Message = {
+      id: systemMessageId(selfId, now, 'poll-end'),
+      conversationId: poll.conversationId,
+      authorId: selfId,
+      sentAt: now,
+      receivedAt: now,
+      body: '',
+      ranges: [],
+      attachments: [],
+      reactions: [],
+      status: 'sent',
+      kind: 'system',
+      systemText: pollEndedText('You', question),
+    };
+    const { message } = await repository.upsert(line, mergeDuplicate);
+    stores.messages.getState().appendLive(message);
+    stores.conversations.getState().noteLatest(message);
+    // Our own action: the chat is read up to it, like a message we send.
+    if (
+      message.seq !== undefined &&
+      stores.conversations.getState().markRead(poll.conversationId, message.seq)
+    )
+      await repository.setReadCursor(poll.conversationId, message.seq);
   }
 
   /** Pins or unpins a message for everyone, when the transport supports pins. */
@@ -780,6 +967,18 @@ export class SendService {
     await this.deps.repository.update(id, op.apply);
     return true;
   }
+}
+
+/** The poll a send of `input.poll` shows before anyone has voted. */
+function pollOf(input: SendInput): NonNullable<Message['poll']> {
+  const poll = input.poll;
+  if (!poll) throw new Error('Not a poll send');
+  return {
+    question: poll.question,
+    options: [...poll.options],
+    allowMultiple: poll.allowMultiple,
+    votes: [],
+  };
 }
 
 /** Puts an original message's content fields back, including absent optionals. */

@@ -85,15 +85,13 @@ describe('phone-history messages', () => {
         },
       })?.body,
     ).toBe('Shared a contact: Ada Lovelace\n+1234\nada@example.test');
-    const poll = convert({
+    // A poll Signal wouldn't show (one option) stays an honest note.
+    const bad = convert({
       ...base,
-      poll: {
-        question: 'When?',
-        options: [{ option: 'Today' }, { option: 'Tomorrow' }],
-        hasEnded: true,
-      },
+      poll: { question: 'When?', options: [{ option: 'Today' }], hasEnded: true },
     });
-    expect(poll?.body).toContain('Poll: When?\n• Today\n• Tomorrow\nPoll closed.');
+    expect(bad?.poll).toBeUndefined();
+    expect(bad?.body).toContain('Poll: When?\n• Today\nPoll closed.');
     expect(
       convert({
         ...base,
@@ -286,5 +284,73 @@ describe('phone-history messages', () => {
     expect(
       convert({ ...base, authorId: '999', standardMessage: { text: { body: 'unknown' } } }),
     ).toBeNull();
+  });
+
+  describe('polls', () => {
+    const poll = {
+      question: 'When?',
+      allowMultiple: true,
+      options: [
+        {
+          option: 'Today',
+          votes: [
+            { voterId: '2', voteCount: 2 },
+            { voterId: '1', voteCount: 1 },
+          ],
+        },
+        { option: 'Tomorrow', votes: [{ voterId: '2', voteCount: 2 }] },
+        { option: 'Never' },
+      ],
+    };
+
+    it("maps a poll with each voter's whole answer, in the domain poll field", () => {
+      const message = convert({ ...base, poll });
+      expect(message?.body).toBe('');
+      expect(message?.poll).toEqual({
+        question: 'When?',
+        options: ['Today', 'Tomorrow', 'Never'],
+        allowMultiple: true,
+        votes: [
+          { voterId: PEER, optionIndexes: [0, 1], voteCount: 2, at: 0 },
+          { voterId: SELF, optionIndexes: [0], voteCount: 1, at: 0 },
+        ],
+      });
+    });
+
+    it('carries an ended poll, and keeps reactions on it', () => {
+      const message = convert({
+        ...base,
+        poll: {
+          ...poll,
+          hasEnded: true,
+          reactions: [{ authorId: '2', emoji: '👍', sentTimestamp: '1300' }],
+        },
+      });
+      expect(message?.poll?.ended).toBe(true);
+      expect(message?.reactions).toEqual([{ authorId: PEER, emoji: '👍', at: 1300 }]);
+    });
+
+    it('drops votes from people the archive cannot name, and several choices on a single-choice poll', () => {
+      const message = convert({
+        ...base,
+        poll: {
+          ...poll,
+          allowMultiple: false,
+          options: [
+            { option: 'Today', votes: [{ voterId: '2', voteCount: 1 }, { voterId: '9' }] },
+            { option: 'Tomorrow', votes: [{ voterId: '2', voteCount: 1 }] },
+          ],
+        },
+      });
+      expect(message?.poll?.votes).toEqual([]);
+    });
+
+    it("keeps the archive's poll-ended line as a system note", () => {
+      const message = convert({
+        ...base,
+        updateMessage: { pollTerminate: { targetSentTimestamp: '1000', question: 'When?' } },
+      });
+      expect(message).toMatchObject({ kind: 'system', systemText: 'Poll closed.' });
+    });
   });
 });

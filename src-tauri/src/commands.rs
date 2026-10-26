@@ -47,6 +47,13 @@ const ALLOWED_METHODS: &[&str] = &[
     "sendAdminDelete",
     "sendPinMessage",
     "sendUnpinMessage",
+    // Polls (SignalCliBackend.ts: send with a poll, votePoll, terminatePoll):
+    // create one in a conversation, change our answer on one, end one of ours.
+    // Plain strings, numbers and booleans only (a question, its options, option
+    // indexes, a poll's timestamp), so they pass rpc_guard.rs as is.
+    "sendPollCreate",
+    "sendPollVote",
+    "sendPollTerminate",
     "remoteDelete",
     "updateContact",
     "updateGroup",
@@ -671,12 +678,15 @@ mod tests {
                     visit(&path, out);
                 } else if name.ends_with(".ts") && !name.contains(".test.") {
                     let text = std::fs::read_to_string(&path).expect("readable source");
-                    for (i, _) in text.match_indices(".call(") {
-                        let rest = text[i + ".call(".len()..].trim_start();
-                        if let Some(quoted) = rest.strip_prefix('\'') {
-                            let method: String = quoted.chars().take_while(char::is_ascii_alphanumeric).collect();
-                            if !method.is_empty() && quoted[method.len()..].starts_with('\'') {
-                                out.push((method, path.display().to_string()));
+                    // `rpc.call('method', …)` and the backend's own `command('method', …)` helper.
+                    for opener in [".call(", ".command("] {
+                        for (i, _) in text.match_indices(opener) {
+                            let rest = text[i + opener.len()..].trim_start();
+                            if let Some(quoted) = rest.strip_prefix('\'') {
+                                let method: String = quoted.chars().take_while(char::is_ascii_alphanumeric).collect();
+                                if !method.is_empty() && quoted[method.len()..].starts_with('\'') {
+                                    out.push((method, path.display().to_string()));
+                                }
                             }
                         }
                     }
@@ -689,6 +699,18 @@ mod tests {
         assert!(calls.iter().any(|(m, _)| m == "getAttachment"), "the scan found no calls; did the layout change?");
         for (method, file) in calls {
             assert!(is_allowed_method(&method), "{file} calls {method}, which ALLOWED_METHODS rejects");
+        }
+    }
+
+    /// The three poll methods are allowed, exactly: near-misses and the other
+    /// poll-adjacent names signal-cli doesn't offer to the UI stay rejected.
+    #[test]
+    fn allows_exactly_the_poll_methods() {
+        for method in ["sendPollCreate", "sendPollVote", "sendPollTerminate"] {
+            assert!(is_allowed_method(method), "{method}");
+        }
+        for method in ["sendPoll", "sendPollCreate ", "sendpollvote", "SendPollTerminate", "pollVote", "sendPollVotes", ""] {
+            assert!(!is_allowed_method(method), "{method:?}");
         }
     }
 

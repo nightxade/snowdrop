@@ -14,6 +14,7 @@ import {
   dataMessage,
   fixtures,
   GROUP_ID,
+  groupInfo,
   receive,
   SELF_ACI,
   SELF_NUMBER,
@@ -220,10 +221,102 @@ describe('normaliseReceive: messages', () => {
     const viewOnce = only(run(fixtures.viewOnce).events, 'message').payload;
     expect(viewOnce.attachments).toEqual([]);
     expect(viewOnce.body).toContain('View-once');
+  });
+});
 
-    const poll = only(run(fixtures.poll).events, 'message').payload;
-    expect(poll.body).toBe('Poll: Where to?\n• Crag\n• Gym\nVote on your phone.');
-    expect(poll.ranges).toContainEqual({ start: 0, length: 15, style: 'bold' });
+describe('normaliseReceive: polls', () => {
+  const poll = (pollCreate: Record<string, unknown>) =>
+    receive('alice', {
+      dataMessage: dataMessage({ pollCreate, groupInfo: groupInfo() }),
+    });
+  const options = (n: number) => Array.from({ length: n }, (_, i) => `Option ${i}`);
+
+  it('maps a poll to the domain poll field, not text', () => {
+    const message = only(run(fixtures.poll).events, 'message').payload;
+    expect(message.conversationId).toBe(GROUP);
+    expect(message.body).toBe('');
+    expect(message.poll).toEqual({
+      question: 'Where to?',
+      options: ['Crag', 'Gym'],
+      allowMultiple: false,
+      votes: [],
+    });
+  });
+
+  it('treats a missing allowMultiple as single choice, like Signal Desktop', () => {
+    const message = only(
+      run(poll({ question: 'Q?', options: ['a', 'b'] })).events,
+      'message',
+    ).payload;
+    expect(message.poll?.allowMultiple).toBe(false);
+    const multi = only(
+      run(poll({ question: 'Q?', options: ['a', 'b'], allowMultiple: true })).events,
+      'message',
+    ).payload;
+    expect(multi.poll?.allowMultiple).toBe(true);
+  });
+
+  it('shows a poll Signal would refuse as an honest note, never as a poll', () => {
+    for (const bad of [
+      { question: '', options: ['a', 'b'] },
+      { question: 'Q?', options: ['a'] },
+      { question: 'Q?', options: options(11) },
+      { question: 'Q?', options: ['a', ''] },
+      { question: 'Q?', options: ['a', 'b'.repeat(101)] },
+      { question: 'q'.repeat(201), options: ['a', 'b'] },
+    ]) {
+      const message = only(run(poll(bad)).events, 'message').payload;
+      expect(message.poll).toBeUndefined();
+      expect(message.body).toBe("This poll can't be shown.");
+    }
+    // At the limits it is still a poll.
+    const edge = only(
+      run(poll({ question: 'q'.repeat(200), options: [...options(9), 'b'.repeat(100)] })).events,
+      'message',
+    ).payload;
+    expect(edge.poll?.options).toHaveLength(10);
+  });
+
+  it('maps a vote, naming the poll by its author and timestamp', () => {
+    expect(only(run(fixtures.pollVote).events, 'pollVote').payload).toEqual({
+      conversationId: GROUP,
+      targetAuthorId: ALICE,
+      targetSentAt: T0,
+      voterId: BOB,
+      optionIndexes: [1],
+      voteCount: 1,
+      at: T0,
+    });
+  });
+
+  it('maps our own vote from another device to us, with each option once', () => {
+    const { payload } = only(run(fixtures.syncPollVote).events, 'pollVote');
+    expect(payload).toMatchObject({
+      conversationId: GROUP,
+      targetAuthorId: ALICE,
+      voterId: SELF_ACI,
+      optionIndexes: [0, 1],
+      voteCount: 2,
+    });
+  });
+
+  it('maps an end to the poll written by whoever sent it', () => {
+    expect(only(run(fixtures.pollTerminate).events, 'pollTerminate').payload).toEqual({
+      conversationId: GROUP,
+      authorId: ALICE,
+      targetSentAt: T0,
+      at: T0 + 60,
+    });
+  });
+
+  it('ignores a vote that names no poll author', () => {
+    const payload = receive('bob', {
+      dataMessage: dataMessage({
+        pollVote: { targetSentTimestamp: T0, optionIndexes: [0], voteCount: 1 },
+        groupInfo: groupInfo(),
+      }),
+    });
+    expect(run(payload).events).toEqual([]);
   });
 });
 
@@ -451,7 +544,6 @@ describe('normaliseReceive: robustness', () => {
   it.each([
     ['call', fixtures.call],
     ['story', fixtures.story],
-    ['poll vote', fixtures.pollVote],
     ['profile key update', fixtures.profileKeyUpdate],
     ['exception without envelope', fixtures.exceptionOnly],
     ['malformed data message', fixtures.malformedData],

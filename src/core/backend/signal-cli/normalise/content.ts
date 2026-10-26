@@ -2,10 +2,11 @@
  * Data message → domain `Message` (the visible content of one envelope).
  *
  * Content Snowdrop can't render natively (view-once media, payments, shared
- * contacts, polls) is shown as an honest italic note rather than dropped
- * silently, so the conversation never has invisible gaps. A sticker *is*
- * rendered natively (see StickerContent/StickerBubble), so it's handled on
- * its own rather than folded into those notes.
+ * contacts) is shown as an honest italic note rather than dropped
+ * silently, so the conversation never has invisible gaps. A sticker and a
+ * poll *are* rendered natively (see StickerContent/StickerBubble and
+ * PollContent/PollCard), so they're handled on their own rather than folded
+ * into those notes.
  */
 import {
   messageId,
@@ -17,10 +18,11 @@ import {
   type LinkPreview,
   type Message,
   type MessageStatus,
+  type PollContent,
   type Quote,
   type StickerContent,
 } from '@/core/domain';
-import { stripBidiControls } from '@/core/lib';
+import { graphemes, POLL_LIMITS, stripBidiControls } from '@/core/lib';
 import {
   addressId,
   type WireAttachment,
@@ -131,6 +133,31 @@ function describeContentType(contentType: string): string {
   return 'Attachment';
 }
 
+/** Questions up to this long are accepted from others (Signal Desktop's own receive limit, above what it sends). */
+const POLL_QUESTION_RECEIVE_GRAPHEMES = 200;
+
+/**
+ * A poll this data message creates, or undefined when it is malformed (no
+ * question, fewer than two or more than ten options, an empty or over-long
+ * one). Signal Desktop refuses such a poll outright rather than render part
+ * of it, so it is never shown as a poll here either.
+ */
+function toPoll(data: WireDataMessage): PollContent | undefined {
+  const create = data.pollCreate;
+  if (!create) return undefined;
+  const question = stripBidiControls(create.question);
+  const options = create.options.map(stripBidiControls);
+  if (
+    question === '' ||
+    graphemes(question).length > POLL_QUESTION_RECEIVE_GRAPHEMES ||
+    options.length < POLL_LIMITS.minOptions ||
+    options.length > POLL_LIMITS.maxOptions ||
+    options.some((o) => o === '' || graphemes(o).length > POLL_LIMITS.optionGraphemes)
+  )
+    return undefined;
+  return { question, options, allowMultiple: create.allowMultiple === true, votes: [] };
+}
+
 /** Appends an italic note (for unsupported content) to a body. */
 function withNote(body: string, ranges: BodyRange[], note: string): [string, BodyRange[]] {
   const prefix = body ? `${body}\n` : '';
@@ -164,14 +191,9 @@ export function buildMessage(data: WireDataMessage, meta: MessageMeta): Message 
     r.mentionId === undefined ? r : { ...r, mentionId: meta.resolveId(r.mentionId) },
   );
 
-  if (data.pollCreate) {
-    const { question, options } = data.pollCreate;
-    const prefix = body ? `${body}\n` : '';
-    const title = `Poll: ${question}`;
-    body = `${prefix}${title}${options.map((o) => `\n• ${o}`).join('')}`;
-    ranges = sortRanges([...ranges, { start: prefix.length, length: title.length, style: 'bold' }]);
-    [body, ranges] = withNote(body, ranges, 'Vote on your phone.');
-  }
+  const poll = data.pollCreate ? toPoll(data) : undefined;
+  if (data.pollCreate && !poll)
+    [body, ranges] = withNote(body, ranges, "This poll can't be shown.");
   for (const note of unsupportedNotes(data)) [body, ranges] = withNote(body, ranges, note);
 
   // View-once media must not be kept around or shown here.
@@ -187,7 +209,7 @@ export function buildMessage(data: WireDataMessage, meta: MessageMeta): Message 
     : toLinkPreviews(data.previews, (i) => `${meta.authorId}:${data.timestamp}:preview:${i}`);
   const sticker = data.viewOnce ? undefined : toSticker(data);
 
-  if (!body && attachments.length === 0 && !quote && !sticker) return null;
+  if (!body && attachments.length === 0 && !quote && !sticker && !poll) return null;
 
   const message: Message = {
     id: messageId(meta.authorId, data.timestamp),
@@ -206,6 +228,7 @@ export function buildMessage(data: WireDataMessage, meta: MessageMeta): Message 
   if (customEmoji.length > 0) message.customEmoji = customEmoji;
   if (previews.length > 0) message.previews = previews;
   if (sticker) message.sticker = sticker;
+  if (poll) message.poll = poll;
   const expires = data.expiresInSeconds ?? 0;
   // Signal starts the timer when the message is read; starting it when the
   // server received it errs on the side of deleting early, never keeping a

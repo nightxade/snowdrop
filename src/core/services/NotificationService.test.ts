@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { directConversationId, MENTION_PLACEHOLDER, type Message } from '@/core/domain';
+import {
+  directConversationId,
+  MENTION_PLACEHOLDER,
+  type Message,
+  type PollContent,
+} from '@/core/domain';
 import { conversationIdFor, makeConversation, makeMessage } from '@/core/domain/testing';
 import { Emitter } from '@/core/lib';
 import { createStores, HOME } from '@/core/stores';
@@ -8,6 +13,7 @@ import {
   notificationText,
   type NotificationApi,
   type NotificationPermissionState,
+  type PollActivityEvent,
 } from './NotificationService';
 
 const NOW = 1_000_000;
@@ -54,7 +60,10 @@ function setup(options: { permission?: NotificationPermissionState; visible?: bo
       return { close: closed };
     },
   };
-  const source = new Emitter<{ messageArrived: { message: Message; live: boolean } }>();
+  const source = new Emitter<{
+    messageArrived: { message: Message; live: boolean };
+    pollActivity: PollActivityEvent;
+  }>();
   const focusWindow = vi.fn();
   const boost = vi.fn<(m: Message) => string | null>(() => null);
   const service = new NotificationService({
@@ -79,7 +88,31 @@ function setup(options: { permission?: NotificationPermissionState; visible?: bo
       }),
     });
   };
-  return { stores, service, shown, closed, receive, focusWindow, boost };
+  const pollActivity = (
+    kind: PollActivityEvent['kind'],
+    actorId: string,
+    partial: Partial<Message> = {},
+    live = true,
+  ) => {
+    source.emit('pollActivity', {
+      kind,
+      actorId,
+      live,
+      message: makeMessage({
+        conversationId: group,
+        authorId: 'me',
+        sentAt: NOW,
+        poll: {
+          question: 'Where to eat?',
+          options: ['Pizza', 'Ramen'],
+          allowMultiple: true,
+          votes: [],
+        } satisfies PollContent,
+        ...partial,
+      }),
+    });
+  };
+  return { stores, service, shown, closed, receive, pollActivity, focusWindow, boost };
 }
 
 const mention = (id: string) => ({
@@ -292,6 +325,103 @@ describe('NotificationService', () => {
       stores.local.getState().markAccepted(requestDm, NOW);
       receive({ conversationId: requestDm, authorId: 'eve', body: 'hello again' });
       expect(shown[0]).toMatchObject({ title: 'Eve Stranger', body: 'hello again' });
+    });
+  });
+
+  describe('polls (as Signal Desktop words them)', () => {
+    it('names the voter and the question when someone votes on a poll of yours', () => {
+      const { shown, pollActivity } = setup();
+      pollActivity('vote', 'ana');
+      expect(shown).toHaveLength(1);
+      expect(shown[0]).toMatchObject({
+        title: 'Climbing',
+        body: 'Ana Lima voted in the poll "Where to eat?"',
+        tag: `snowdrop:${group}`,
+      });
+    });
+
+    it('says who ended a poll, with the poll marker', () => {
+      const { shown, pollActivity } = setup();
+      pollActivity('end', 'bo', { authorId: 'bo' });
+      expect(shown[0]?.body).toBe('📊 Bo Chen ended the poll: Where to eat?');
+    });
+
+    it('titles a direct chat with the person', () => {
+      const { shown, pollActivity } = setup();
+      pollActivity('vote', 'ana', { conversationId: dm });
+      expect(shown[0]?.title).toBe('Ana Lima');
+    });
+
+    it('follows the same rules as a message: viewing, mute, mentions-only, switches', () => {
+      const { stores, shown, pollActivity } = setup();
+      stores.ui.getState().selectConversation(group, HOME);
+      pollActivity('vote', 'ana');
+      expect(shown).toHaveLength(0);
+      stores.ui.getState().setWindowFocused(false);
+      stores.local.getState().setMuted(group, true);
+      pollActivity('vote', 'ana');
+      expect(shown).toHaveLength(0);
+      stores.local.getState().setMuted(group, false);
+      stores.settings.getState().update('notifications', { mode: 'mentions' });
+      pollActivity('vote', 'ana');
+      expect(shown).toHaveLength(0);
+      stores.settings.getState().update('notifications', { mode: 'all', enabled: false });
+      pollActivity('vote', 'ana');
+      expect(shown).toHaveLength(0);
+      stores.settings.getState().update('notifications', { enabled: true });
+      pollActivity('vote', 'ana');
+      expect(shown).toHaveLength(1);
+    });
+
+    it('never reveals the question when previews are off, nor to an unaccepted request', () => {
+      const { stores, shown, pollActivity } = setup();
+      stores.settings.getState().update('notifications', { showPreview: false });
+      pollActivity('vote', 'ana');
+      expect(shown[0]?.body).toBe('New message');
+      stores.settings.getState().update('notifications', { showPreview: true });
+      pollActivity('vote', 'eve', { conversationId: requestDm });
+      expect(shown[1]).toMatchObject({ title: 'Eve Stranger', body: 'Message Request' });
+    });
+
+    it('stays silent for old news, our own actions, deleted polls and missing permission', () => {
+      const { stores, shown, pollActivity } = setup();
+      pollActivity('vote', 'ana', {}, false);
+      pollActivity('vote', 'me');
+      pollActivity('vote', 'ana', { deleted: true });
+      stores.session.getState().setNotificationsHeld(true);
+      pollActivity('vote', 'ana');
+      expect(shown).toHaveLength(0);
+      const denied = setup({ permission: 'default' });
+      denied.pollActivity('vote', 'ana');
+      expect(denied.shown).toHaveLength(0);
+    });
+
+    it('summarises a poll message by its question', () => {
+      expect(
+        notificationText(
+          {
+            body: '',
+            ranges: [],
+            attachments: [],
+            poll: {
+              question: 'Where to eat?',
+              options: ['a', 'b'],
+              allowMultiple: false,
+              votes: [],
+            },
+          },
+          () => '',
+        ),
+      ).toBe('📊 Poll: Where to eat?');
+    });
+
+    it('notifies for a new poll like any message, with the question', () => {
+      const { shown, receive } = setup();
+      receive({
+        body: '',
+        poll: { question: 'Where to eat?', options: ['a', 'b'], allowMultiple: true, votes: [] },
+      });
+      expect(shown[0]?.body).toBe('Ana Lima: 📊 Poll: Where to eat?');
     });
   });
 });

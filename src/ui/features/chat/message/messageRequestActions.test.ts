@@ -22,7 +22,7 @@ function setup() {
   });
   const app = {
     stores,
-    send: { capabilities: { adminDelete: false, pin: true } },
+    send: { capabilities: { adminDelete: false, pin: true, polls: true } },
   } as unknown as AppServices;
   const message: Message = {
     id: messageId(STRANGER, 1),
@@ -55,5 +55,40 @@ describe('message actions in a message request', () => {
       .getState()
       .upsert({ id: STRANGER, name: 'Marlowe', color: '#111', blocked: true });
     expect(permissionsFor(app, message).canReact).toBe(false);
+  });
+
+  it('cannot vote in a poll until the conversation is accepted, and never ends one that is not its own', () => {
+    const { app, stores, message } = setup();
+    const poll: Message = {
+      ...message,
+      poll: { question: 'Q?', options: ['a', 'b'], allowMultiple: false, votes: [] },
+    };
+    expect(permissionsFor(app, poll)).toMatchObject({ canVotePoll: false, canEndPoll: false });
+    stores.local.getState().markAccepted(id, 1);
+    expect(permissionsFor(app, poll)).toMatchObject({ canVotePoll: true, canEndPoll: false });
+    // Not once it has ended, nor before it is sent.
+    const ended = { ...poll, poll: { ...poll.poll!, ended: true } };
+    expect(permissionsFor(app, ended).canVotePoll).toBe(false);
+    expect(permissionsFor(app, { ...poll, id: 'pending:x' as Message['id'] }).canVotePoll).toBe(
+      false,
+    );
+  });
+
+  it('lets the author end an open, sent poll, even before the chat is accepted', () => {
+    const { app, message } = setup();
+    const mine: Message = {
+      ...message,
+      authorId: 'me',
+      id: messageId('me', 2),
+      poll: { question: 'Q?', options: ['a', 'b'], allowMultiple: false, votes: [] },
+    };
+    expect(permissionsFor(app, mine)).toMatchObject({ canEndPoll: true });
+    expect(permissionsFor(app, { ...mine, status: 'failed' }).canEndPoll).toBe(false);
+    expect(
+      permissionsFor(
+        { ...app, send: { capabilities: { polls: false } } } as unknown as AppServices,
+        mine,
+      ),
+    ).toMatchObject({ canEndPoll: false, canVotePoll: false });
   });
 });

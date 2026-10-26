@@ -14,6 +14,7 @@ import { MessageBody } from './MessageBody';
 import { MessageEditor } from './MessageEditor';
 import { MessageMeta } from './MessageMeta';
 import { MessageNotes } from './MessageNotes';
+import { PollCard, type PollCardMode } from './PollCard';
 import { Reactions } from './Reactions';
 import { CustomEmojiPopover } from './CustomEmojiPopover';
 import { StickerBubble } from './StickerBubble';
@@ -38,6 +39,8 @@ export interface MessageContentProps {
   onEditDone: () => void;
   /** Opens the sticker's pack dialog; omitted when the backend can't show packs. */
   onOpenStickerPack?: (() => void) | undefined;
+  /** Opens the poll's "Poll details" dialog, which the row renders outside itself. */
+  onViewPollVotes?: (() => void) | undefined;
 }
 
 /** Gutter (avatar / hover time) and content column of a message row. */
@@ -55,6 +58,7 @@ export function MessageContent({
   bodyId,
   onEditDone,
   onOpenStickerPack,
+  onViewPollVotes,
 }: MessageContentProps) {
   const app = useSnowdrop();
   const author = useStore(app.stores.contacts, contactsSelectors.contact(m.authorId));
@@ -191,6 +195,18 @@ export function MessageContent({
             onOpen={onOpenStickerPack}
           />
         )}
+        {!m.deleted && m.poll && (
+          <PollCard
+            id={bodyId}
+            poll={m.poll}
+            mode={pollMode(act.permissionsFor(app, m))}
+            selfId={selfId}
+            onVote={(optionIndexes) => act.votePoll(app, m, optionIndexes)}
+            onViewVotes={() => {
+              onViewPollVotes?.();
+            }}
+          />
+        )}
         {m.reactions.length > 0 && (
           <Reactions
             reactions={m.reactions}
@@ -210,6 +226,12 @@ export function MessageContent({
       </div>
     </>
   );
+}
+
+/** Whether the card lets the user answer, shows an unsent poll's options, or only shows the poll. */
+function pollMode(p: act.MessagePermissions): PollCardMode {
+  if (p.canVotePoll) return 'vote';
+  return p.pending || p.failed ? 'pending' : 'view';
 }
 
 /** Small clock after a message that hasn't left yet; screen readers hear "Sending". */

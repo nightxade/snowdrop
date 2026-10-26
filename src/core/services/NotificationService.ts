@@ -16,6 +16,9 @@
 import {
   mentionsContact,
   MENTION_PLACEHOLDER,
+  POLL_EMOJI,
+  pollEndedText,
+  pollPreviewText,
   rangesToSegments,
   type ConversationId,
   type Message,
@@ -55,16 +58,25 @@ export interface NotificationDecision {
   reason: 'mention' | 'boost' | 'normal';
 }
 
+/** Someone else's vote on a poll of ours, or the end of someone's poll (see SyncEvents.pollActivity). */
+export interface PollActivityEvent {
+  kind: 'vote' | 'end';
+  message: Message;
+  actorId: string;
+  live: boolean;
+}
+
 export interface NotificationServiceDeps {
   stores: Stores;
   api: NotificationApi;
   clock: Clock;
-  /** New stored messages with initial-sync provenance (SyncService). */
+  /** New stored messages, and news about polls, with initial-sync provenance (SyncService). */
   source: {
     on(
       event: 'messageArrived',
       fn: (event: { message: Message; live: boolean }) => void,
     ): Unsubscribe;
+    on(event: 'pollActivity', fn: (event: PollActivityEvent) => void): Unsubscribe;
   };
   /** Plugin boosters (Registries.boostReason). */
   boost?: (message: Message) => string | null;
@@ -89,7 +101,7 @@ function spaceOf(stores: Stores, id: ConversationId): string | null {
 
 /** Plain-text preview that never reveals spoilers. */
 export function notificationText(
-  message: Pick<Message, 'body' | 'ranges' | 'attachments' | 'sticker'>,
+  message: Pick<Message, 'body' | 'ranges' | 'attachments' | 'sticker' | 'poll'>,
   nameFor: (id: string) => string,
 ): string {
   const walk = (segments: readonly Segment[]): string =>
@@ -103,12 +115,67 @@ export function notificationText(
       .join('');
   const text = walk(rangesToSegments(message.body, message.ranges)).replace(/\s+/gu, ' ').trim();
   if (!text) {
+    if (message.poll) return `${POLL_EMOJI} ${pollPreviewText(message.poll)}`;
     if (message.sticker)
       return message.sticker.emoji ? `${message.sticker.emoji} Sticker` : 'Sticker';
     const n = message.attachments.length;
     return n > 0 ? `Sent ${n === 1 ? 'an attachment' : `${n} attachments`}` : 'New message';
   }
   return text.length > MAX_BODY ? `${text.slice(0, MAX_BODY - 1)}…` : text;
+}
+
+/** What a notification may be judged on, besides the text: who, where and how important. */
+interface Gate {
+  conversationId: ConversationId;
+  important: boolean;
+}
+
+/**
+ * The rules that don't depend on what is being announced: the settings, not
+ * announcing what the user is looking at, mute, and "mentions only".
+ */
+function passesGate(
+  stores: Stores,
+  gate: Gate,
+  options: { now: number; visible: boolean },
+): boolean {
+  const settings = stores.settings.getState().notifications;
+  if (!settings.enabled || settings.mode === 'none') return false;
+  const id = gate.conversationId;
+  const ui = stores.ui.getState();
+  const viewing =
+    ui.windowFocused &&
+    options.visible &&
+    ui.selectedConversationBySpace[ui.selectedSpace] === id &&
+    ui.scrolledUp[id] !== true;
+  if (viewing) return false;
+
+  const conversation = stores.conversations.getState().byId[id];
+  const local = stores.local.getState().conversations[id] ?? DEFAULT_LOCAL_CONVERSATION;
+  const spaceId = spaceOf(stores, id);
+  const spaceMuted = spaceId ? (stores.spaces.getState().spaces[spaceId]?.muted ?? false) : false;
+  const muted = spaceMuted || isMuted(local.muted, options.now);
+  if (muted && !gate.important) return false;
+  if (settings.mode === 'mentions' && conversation?.kind === 'group' && !gate.important)
+    return false;
+  return true;
+}
+
+function nameResolver(stores: Stores): (id: string) => string {
+  const contacts = stores.contacts.getState().byId;
+  const self = stores.session.getState().self;
+  return (cid) => contacts[cid]?.name ?? (cid === self?.id ? self.name : UNKNOWN_CONTACT_NAME);
+}
+
+/** The title a notification carries: the group, or the person in a direct chat. */
+function notificationTitle(stores: Stores, id: ConversationId, author: string): string {
+  const conversation = stores.conversations.getState().byId[id];
+  const request = selectMessageRequestState(stores, id) !== 'accepted';
+  return conversation?.kind === 'group'
+    ? request
+      ? `${author} in ${conversation.title}`
+      : conversation.title
+    : author;
 }
 
 /** Pure decision for one message given the current state (exported for tests). */
@@ -118,47 +185,23 @@ export function decideNotification(
   options: { now: number; visible: boolean; boost?: string | null },
 ): NotificationDecision | null {
   const settings = stores.settings.getState().notifications;
-  if (!settings.enabled || settings.mode === 'none') return null;
   const selfId = stores.session.getState().self?.id ?? null;
   if (message.kind !== 'normal' || message.deleted || message.authorId === selfId) return null;
 
   const id = message.conversationId;
-  const ui = stores.ui.getState();
-  const viewing =
-    ui.windowFocused &&
-    options.visible &&
-    ui.selectedConversationBySpace[ui.selectedSpace] === id &&
-    ui.scrolledUp[id] !== true;
-  if (viewing) return null;
-
-  const conversation = stores.conversations.getState().byId[id];
-  const local = stores.local.getState().conversations[id] ?? DEFAULT_LOCAL_CONVERSATION;
-  const spaceId = spaceOf(stores, id);
-  const spaceMuted = spaceId ? (stores.spaces.getState().spaces[spaceId]?.muted ?? false) : false;
-  const muted = spaceMuted || isMuted(local.muted, options.now);
   const mentioned = selfId !== null && mentionsContact(message, selfId);
   const boosted = Boolean(options.boost);
-  const important = mentioned || boosted;
-  const isGroup = conversation?.kind === 'group';
+  if (!passesGate(stores, { conversationId: id, important: mentioned || boosted }, options))
+    return null;
 
-  if (muted && !important) return null;
-  if (settings.mode === 'mentions' && isGroup && !important) return null;
-
-  const contacts = stores.contacts.getState().byId;
-  const self = stores.session.getState().self;
-  const nameFor = (cid: string) =>
-    contacts[cid]?.name ?? (cid === self?.id ? self.name : UNKNOWN_CONTACT_NAME);
+  const isGroup = stores.conversations.getState().byId[id]?.kind === 'group';
+  const nameFor = nameResolver(stores);
   const author = nameFor(message.authorId);
   // An unaccepted message request, as Signal Desktop shows it: the sender
   // (and group) in the title, and "Message Request" instead of the text, so
   // a stranger's words never reach the desktop before the user has decided.
   const request = selectMessageRequestState(stores, id) !== 'accepted';
-  const title =
-    conversation?.kind === 'group'
-      ? request
-        ? `${author} in ${conversation.title}`
-        : conversation.title
-      : author;
+  const title = notificationTitle(stores, id, author);
   let body = settings.showPreview
     ? request
       ? 'Message Request'
@@ -174,8 +217,42 @@ export function decideNotification(
   };
 }
 
+/**
+ * Signal Desktop's notifications for polls: someone else's vote on a poll the
+ * user created (`Mira voted in the poll "Where to eat?"`), and someone ending
+ * their poll (`Mira ended the poll: Where to eat?`). The same rules as a
+ * message apply, minus mentions and boosts; with previews off it is only
+ * "New message", never the question.
+ */
+export function decidePollNotification(
+  stores: Stores,
+  event: PollActivityEvent,
+  options: { now: number; visible: boolean },
+): NotificationDecision | null {
+  const settings = stores.settings.getState().notifications;
+  const selfId = stores.session.getState().self?.id ?? null;
+  const { message } = event;
+  if (!message.poll || message.deleted || event.actorId === selfId) return null;
+  const id = message.conversationId;
+  if (!passesGate(stores, { conversationId: id, important: false }, options)) return null;
+  const actor = nameResolver(stores)(event.actorId);
+  const request = selectMessageRequestState(stores, id) !== 'accepted';
+  const question = message.poll.question;
+  const text =
+    event.kind === 'vote'
+      ? `${actor} voted in the poll "${question}"`
+      : `${POLL_EMOJI} ${pollEndedText(actor, question)}`;
+  return {
+    title: notificationTitle(stores, id, actor),
+    body: settings.showPreview ? (request ? 'Message Request' : text) : 'New message',
+    conversationId: id,
+    reason: 'normal',
+  };
+}
+
 export class NotificationService {
   private unsub: Unsubscribe | null = null;
+  private unsubPolls: Unsubscribe | null = null;
   private startedAt = Infinity;
   private readonly shown = new Map<ConversationId, ShownNotification>();
 
@@ -194,11 +271,18 @@ export class NotificationService {
       const held = this.deps.stores.session.getState().notificationsHeld;
       if (live && message.sentAt >= this.startedAt && !held) this.handle(message);
     });
+    this.unsubPolls = this.deps.source.on('pollActivity', (event) => {
+      // Replayed (parked, or drained after a reconnect) news is old news, as for messages.
+      const held = this.deps.stores.session.getState().notificationsHeld;
+      if (event.live && !held) this.handlePoll(event);
+    });
   }
 
   stop(): void {
     this.unsub?.();
     this.unsub = null;
+    this.unsubPolls?.();
+    this.unsubPolls = null;
     for (const n of this.shown.values()) n.close();
     this.shown.clear();
   }
@@ -234,7 +318,10 @@ export class NotificationService {
       visible: this.deps.isVisible?.() ?? true,
       boost: this.deps.boost?.(message) ?? null,
     });
-    if (!decision) return null;
+    return decision ? this.show(decision) : null;
+  }
+
+  private show(decision: NotificationDecision): NotificationDecision {
     const id = decision.conversationId;
     // One notification per conversation: a newer message replaces the older one.
     this.shown.get(id)?.close();
@@ -247,6 +334,16 @@ export class NotificationService {
     if (shown) this.shown.set(id, shown);
     else this.shown.delete(id);
     return decision;
+  }
+
+  /** Returns the decision taken, like `handle`. */
+  handlePoll(event: PollActivityEvent): NotificationDecision | null {
+    if (this.deps.api.permission() !== 'granted') return null;
+    const decision = decidePollNotification(this.deps.stores, event, {
+      now: this.deps.clock.now(),
+      visible: this.deps.isVisible?.() ?? true,
+    });
+    return decision ? this.show(decision) : null;
   }
 
   /** Click → focus the window and open the conversation where it lives. */

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useStore } from 'zustand';
-import type { Message, Quote, StickerContent } from '@/core/domain';
+import { pollPreviewText, type Message, type Quote, type StickerContent } from '@/core/domain';
 import type { ConversationView } from '@/core/domain';
+import type { OutgoingPoll } from '@/core/backend';
 import { parseSlash } from '@/core/plugins';
 import { contactsSelectors, localSelectors } from '@/core/stores';
 import { useEffectivePrivacy, useSnowdrop } from '@/ui/hooks';
@@ -14,7 +15,9 @@ let attachmentSeq = 0;
 
 /** The quote Signal clients show above a reply, attachment types included. */
 export function quoteOf(m: Message): Quote {
-  const quote: Quote = { authorId: m.authorId, sentAt: m.sentAt, text: m.body };
+  // A poll has no body; it quotes as its question, like Signal Desktop's own quote of one.
+  const text = m.body === '' && m.poll ? pollPreviewText(m.poll) : m.body;
+  const quote: Quote = { authorId: m.authorId, sentAt: m.sentAt, text };
   if (m.ranges.length > 0) quote.ranges = m.ranges;
   if (m.attachments.length > 0)
     quote.attachments = m.attachments.map((a) => ({
@@ -46,6 +49,8 @@ export interface ComposerState {
   submit: () => Promise<void>;
   /** Sends a sticker at once (no draft), as a reply when a reply is active. */
   sendSticker: (sticker: StickerContent) => Promise<void>;
+  /** Sends a poll at once (the draft text and any reply are left as they are). */
+  sendPoll: (poll: OutgoingPoll) => Promise<void>;
 }
 
 /**
@@ -255,6 +260,20 @@ export function useComposer(conversation: ConversationView): ComposerState {
     void chat.jumpToPresent();
   };
 
+  const sendPoll = async (poll: OutgoingPoll) => {
+    setError(null);
+    // Sent messages only appear in a window anchored to the present.
+    const w = stores.messages.getState().windows[conversationId];
+    if (w && !w.anchoredToPresent) await history.jumpToPresent(conversationId);
+    try {
+      const nonce = await send.sendPoll({ conversationId, poll });
+      if (nonce === null) setError("This connection can't send polls.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not send the poll');
+    }
+    void chat.jumpToPresent();
+  };
+
   return {
     text,
     setText,
@@ -270,6 +289,7 @@ export function useComposer(conversation: ConversationView): ComposerState {
     linkPreview,
     submit,
     sendSticker,
+    sendPoll,
   };
 }
 

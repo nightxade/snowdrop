@@ -1,0 +1,262 @@
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--snowdrop-space-3);
+  width: min(360px, 100%);
+  margin-top: var(--snowdrop-space-2);
+  padding: var(--snowdrop-space-4);
+  border: 1px solid var(--snowdrop-border);
+  border-radius: var(--snowdrop-radius-sm);
+  background: var(--snowdrop-bg-elevated);
+}
+
+.question {
+  margin: 0;
+  color: var(--snowdrop-text-strong);
+  font-size: var(--snowdrop-font-size-message);
+  font-weight: var(--snowdrop-font-weight-semibold);
+  line-height: var(--snowdrop-line-height-message);
+  /* Both come from the sender: keep their bidi controls to themselves and long words from overflowing. */
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  unicode-bidi: isolate;
+}
+
+.status {
+  margin: calc(var(--snowdrop-space-2) * -1) 0 var(--snowdrop-space-2);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
+  font-weight: var(--snowdrop-font-weight-medium);
+}
+
+.options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--snowdrop-space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.choice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--snowdrop-space-4);
+  min-width: 0;
+}
+
+label.choice {
+  cursor: pointer;
+}
+
+.box {
+  position: relative;
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+}
+
+.input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  border: 2px solid var(--snowdrop-text-faint);
+  border-radius: var(--snowdrop-radius-full);
+  background: transparent;
+  appearance: none;
+  cursor: pointer;
+  transition:
+    background-color var(--snowdrop-duration-fast) var(--snowdrop-ease),
+    border-color var(--snowdrop-duration-fast) var(--snowdrop-ease);
+}
+
+.input:hover {
+  border-color: var(--snowdrop-text-muted);
+}
+
+.input:checked {
+  border-color: var(--snowdrop-accent);
+  background: var(--snowdrop-accent);
+}
+
+.input:focus-visible {
+  outline: 2px solid var(--snowdrop-focus-ring);
+  outline-offset: 2px;
+}
+
+.input[aria-disabled='true'] {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.mark {
+  position: relative;
+  color: var(--snowdrop-text-on-accent);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.input:checked + .mark {
+  opacity: 1;
+}
+
+.body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--snowdrop-space-2);
+  min-width: 0;
+}
+
+.line {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--snowdrop-space-4);
+}
+
+.text {
+  min-width: 0;
+  color: var(--snowdrop-text);
+  font-size: var(--snowdrop-font-size-ui);
+  line-height: var(--snowdrop-line-height-ui);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  unicode-bidi: isolate;
+}
+
+.count {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--snowdrop-space-2);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-ui);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--snowdrop-line-height-ui);
+}
+
+/* Your own choice on a poll you can no longer change. */
+.voted {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--snowdrop-radius-full);
+  background: var(--snowdrop-accent);
+  color: var(--snowdrop-text-on-accent);
+}
+
+.track {
+  display: block;
+  height: 6px;
+  overflow: hidden;
+  border-radius: var(--snowdrop-radius-full);
+  background: var(--snowdrop-bg-active);
+}
+
+.fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--snowdrop-radius-full);
+  background: var(--snowdrop-accent);
+  transition: width var(--snowdrop-duration-slow) var(--snowdrop-ease);
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+}
+
+.none {
+  margin: 0;
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
+}
+
+/* ─── Poll details dialog ───────────────────────────────────────────────── */
+
+.detailsQuestion {
+  margin: 0 0 var(--snowdrop-space-5);
+  padding: var(--snowdrop-space-3) var(--snowdrop-space-4);
+  border-radius: var(--snowdrop-radius-sm);
+  background: var(--snowdrop-bg-hover);
+  color: var(--snowdrop-text-strong);
+  font-size: var(--snowdrop-font-size-ui);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  unicode-bidi: isolate;
+}
+
+.detailsOption + .detailsOption {
+  margin-top: var(--snowdrop-space-5);
+  padding-top: var(--snowdrop-space-5);
+  border-top: 1px solid var(--snowdrop-border);
+}
+
+.detailsHeading {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--snowdrop-space-3);
+  margin: 0 0 var(--snowdrop-space-3);
+  font-size: var(--snowdrop-font-size-ui);
+  font-weight: var(--snowdrop-font-weight-semibold);
+}
+
+.detailsText {
+  flex: 1;
+  min-width: 0;
+  color: var(--snowdrop-text-strong);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  unicode-bidi: isolate;
+}
+
+/* The vote count, with the star of the leading option(s) before it, kept to the first line of a wrapped option. */
+.detailsMeta {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--snowdrop-space-2);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
+  font-weight: var(--snowdrop-font-weight-regular);
+  line-height: var(--snowdrop-line-height-ui);
+}
+
+.top {
+  display: inline-flex;
+  color: var(--snowdrop-warning);
+}
+
+.voters {
+  display: flex;
+  flex-direction: column;
+  gap: var(--snowdrop-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.voter {
+  display: flex;
+  align-items: center;
+  gap: var(--snowdrop-space-3);
+}
+
+.voterName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--snowdrop-font-size-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* A contact name is attacker-controlled (profile data); contain any bidi controls. */
+  unicode-bidi: isolate;
+}

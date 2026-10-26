@@ -69,6 +69,51 @@ describe.each(implementations)('MessageRepository (%s)', (_name, create) => {
     repo.close?.();
   });
 
+  it('stores a poll with its votes, and an unsent poll in the outbox, through a reload of the row', async () => {
+    const poll = {
+      question: 'Where to eat?',
+      options: ['Pizza', 'Ramen'],
+      allowMultiple: true,
+      ended: true,
+      votes: [{ voterId: 'x', optionIndexes: [0, 1], voteCount: 2, at: 5 }],
+    };
+    await repo.upsert(
+      incoming({ conversationId: a, authorId: 'p', sentAt: 99, poll }),
+      mergeDuplicate,
+    );
+    expect((await repo.get(messageId('p', 99)))?.poll).toEqual(poll);
+    // A vote applied later is kept when the same poll is delivered again.
+    await repo.update(messageId('p', 99), (m) => ({
+      ...m,
+      poll: {
+        ...poll,
+        votes: [...poll.votes, { voterId: 'y', optionIndexes: [1], voteCount: 1, at: 6 }],
+      },
+    }));
+    const { message } = await repo.upsert(
+      incoming({
+        conversationId: a,
+        authorId: 'p',
+        sentAt: 99,
+        poll: { ...poll, ended: false, votes: [] },
+      }),
+      mergeDuplicate,
+    );
+    expect(message.poll?.votes.map((v) => v.voterId)).toEqual(['x', 'y']);
+    expect(message.poll?.ended).toBe(true);
+
+    const input = {
+      conversationId: a,
+      body: '',
+      ranges: [],
+      poll: { question: 'Q?', options: ['a', 'b'], allowMultiple: false },
+    };
+    await repo.putOutbox({ nonce: 'poll-nonce', input, createdAt: 7 });
+    expect((await repo.listOutbox()).find((e) => e.nonce === 'poll-nonce')?.input.poll).toEqual(
+      input.poll,
+    );
+  });
+
   it('assigns increasing seqs in arrival order', async () => {
     const page = await repo.page(a, { limit: 30 });
     expect(page.map((m) => m.seq)).toEqual(Array.from({ length: 30 }, (_, i) => i + 1));

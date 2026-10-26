@@ -23,6 +23,8 @@ import {
   advanceStatus,
   applyDelete,
   applyEdit,
+  applyPollTerminate,
+  applyPollVote,
   applyReaction,
   applyRecipientReceipt,
   colorForId,
@@ -30,6 +32,8 @@ import {
   mergeDuplicate,
   messageId,
   parseConversationId,
+  pollEndedText,
+  systemMessageId,
   type Contact,
   type Conversation,
   type ConversationId,
@@ -54,6 +58,7 @@ import {
   selectMessageRequestState,
   UNKNOWN_PHONE_PRIVACY,
   uiSelectors,
+  UNKNOWN_CONTACT_NAME,
   type Stores,
 } from '@/core/stores';
 import { CatchUpTracker, NOTIFICATION_HOLD_CEILING_MS } from './CatchUpTracker';
@@ -87,6 +92,13 @@ export interface SyncEvents {
    * closed) and replayed once it completed. Plugins' `onMessage` uses it.
    */
   messageArrived: { message: Message; live: boolean };
+  /**
+   * News about a poll, once it has been applied: `vote` is someone else's
+   * new answer (with at least one choice) on a poll the user created; `end`
+   * is someone else ending their poll. `message` is the poll as it now
+   * stands. `live` is false when it was parked behind the initial sync.
+   */
+  pollActivity: { kind: 'vote' | 'end'; message: Message; actorId: string; live: boolean };
 }
 
 const RECEIPT_STATUS: Record<BackendEvents['receipt']['type'], MessageStatus> = {
@@ -1127,6 +1139,8 @@ export class SyncService {
         reactions: applyReaction(m.reactions, e.reaction, e.remove),
       })),
     );
+    on('pollVote', (e, live) => this.onPollVote(e, live));
+    on('pollTerminate', (e, live) => this.onPollTerminate(e, live));
     on('receipt', (e) => this.onReceipt(e));
     on('readSync', (e) => this.onReadSync(e));
     // Queued like everything else (and parked behind the initial-sync gate),
@@ -1281,6 +1295,77 @@ export class SyncService {
     const conversations = this.deps.stores.conversations.getState();
     const latest = conversations.lastMessage[conversationId];
     if (latest?.id === id) conversations.noteLatest(fn(latest));
+  }
+
+  /**
+   * A vote on a poll. Like the other message operations it is parked when
+   * the poll isn't stored yet. It only ever applies to a poll in the
+   * conversation it was sent to, so a vote can't reach into another chat.
+   */
+  private async onPollVote(e: BackendEvents['pollVote'], live: boolean): Promise<void> {
+    const id = messageId(e.targetAuthorId, e.targetSentAt);
+    const vote = {
+      voterId: e.voterId,
+      optionIndexes: e.optionIndexes,
+      voteCount: e.voteCount,
+      at: e.at,
+    };
+    const apply = (m: Message): Message =>
+      m.conversationId === e.conversationId ? applyPollVote(m, vote) : m;
+    const before = await this.deps.repository.get(id);
+    // Nothing would change (a stale, invalid or too-late vote): nothing to store or announce.
+    if (before && apply(before) === before) return;
+    await this.updateMessage(e.conversationId, id, apply);
+    const selfId = this.selfId();
+    if (!before || selfId === undefined) return;
+    // Only someone else voting on a poll of ours is news, and only a vote that chooses something.
+    if (before.authorId === selfId && e.voterId !== selfId && e.optionIndexes.length > 0) {
+      const message = await this.deps.repository.get(id);
+      if (message)
+        this.events.emit('pollActivity', { kind: 'vote', message, actorId: e.voterId, live });
+    }
+  }
+
+  /**
+   * A poll being ended. Only its author can end it, so the poll is the one
+   * written by whoever sent this. The conversation gets Signal's "X ended
+   * the poll" line, once, when the end is first applied.
+   */
+  private async onPollTerminate(e: BackendEvents['pollTerminate'], live: boolean): Promise<void> {
+    const id = messageId(e.authorId, e.targetSentAt);
+    const apply = (m: Message): Message =>
+      m.conversationId === e.conversationId ? applyPollTerminate(m) : m;
+    const before = await this.deps.repository.get(id);
+    if (before && apply(before) === before) return;
+    await this.updateMessage(e.conversationId, id, apply);
+    const question = before?.poll?.question;
+    if (before?.conversationId !== e.conversationId || question === undefined) return;
+    const { stores, clock } = this.deps;
+    const selfId = this.selfId();
+    const name =
+      e.authorId === selfId
+        ? 'You'
+        : (stores.contacts.getState().byId[e.authorId]?.name ?? UNKNOWN_CONTACT_NAME);
+    await this.onMessage(
+      {
+        id: systemMessageId(e.authorId, e.at, 'poll-end'),
+        conversationId: e.conversationId,
+        authorId: e.authorId,
+        sentAt: e.at,
+        receivedAt: clock.now(),
+        body: '',
+        ranges: [],
+        attachments: [],
+        reactions: [],
+        status: 'sent',
+        kind: 'system',
+        systemText: pollEndedText(name, question),
+      },
+      live,
+    );
+    const message = await this.deps.repository.get(id);
+    if (message && e.authorId !== selfId)
+      this.events.emit('pollActivity', { kind: 'end', message, actorId: e.authorId, live });
   }
 
   private async removeContent(

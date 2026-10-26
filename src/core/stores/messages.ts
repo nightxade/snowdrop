@@ -278,7 +278,8 @@ export const messagesSelectors = {
   message: (conversationId: ConversationId, id: MessageId) => (s: MessagesState) =>
     s.windows[conversationId]?.byId[id],
   /**
-   * Newest own, acknowledged, non-deleted message — the target of "↑ to edit".
+   * Newest own, acknowledged, non-deleted message that can be edited (not a poll) — the target of
+   * "↑ to edit".
    * Pending/failed messages are excluded: they have no server identity yet.
    */
   lastOwn: (conversationId: ConversationId, selfId: string) => (s: MessagesState) => {
@@ -292,6 +293,7 @@ export const messagesSelectors = {
         m.authorId === selfId &&
         m.kind === 'normal' &&
         !m.deleted &&
+        m.poll === undefined &&
         !isPendingMessageId(m.id) &&
         m.status !== 'failed'
       ) {

@@ -1,0 +1,48 @@
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--snowdrop-space-6);
+}
+
+.options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--snowdrop-space-3);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.legend {
+  margin-bottom: var(--snowdrop-space-3);
+  padding: 0;
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
+  font-weight: var(--snowdrop-font-weight-semibold);
+}
+
+.row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--snowdrop-space-2);
+}
+
+.option {
+  flex: 1;
+}
+
+/* Centred on the 40px input beside it, whatever hint sits under that; an empty one keeps the rows the same width. */
+.remove {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  margin-top: var(--snowdrop-space-2);
+}
+
+.error {
+  margin: 0;
+  color: var(--snowdrop-danger);
+  font-size: var(--snowdrop-font-size-sm);
+  font-weight: var(--snowdrop-font-weight-medium);
+}

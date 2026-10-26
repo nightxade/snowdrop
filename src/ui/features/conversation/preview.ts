@@ -1,4 +1,4 @@
-import { bodyToPlainText, type Message } from '@/core/domain';
+import { bodyToPlainText, POLL_EMOJI, pollPreviewText, type Message } from '@/core/domain';
 
 export interface PreviewContext {
   selfId: string | null;
@@ -25,6 +25,11 @@ function stickerLabel(sticker: NonNullable<Message['sticker']>): string {
   return sticker.emoji ? `${sticker.emoji} Sticker` : 'Sticker';
 }
 
+/** "📊 Poll: Where to eat?", as Signal Desktop words it. */
+function pollLabel(poll: NonNullable<Message['poll']>): string {
+  return `${POLL_EMOJI} ${pollPreviewText(poll)}`;
+}
+
 /** One-line sidebar preview: "You: sounds good", "Mira: Photo", "Message deleted". */
 export function previewText(message: Message | undefined, ctx: PreviewContext): string {
   if (!message) return '';
@@ -37,7 +42,13 @@ export function previewText(message: Message | undefined, ctx: PreviewContext): 
       .replace(/\s+/gu, ' ')
       .trim();
     text =
-      body || (message.sticker ? stickerLabel(message.sticker) : attachmentLabel(message)) || '';
+      body ||
+      (message.poll
+        ? pollLabel(message.poll)
+        : message.sticker
+          ? stickerLabel(message.sticker)
+          : attachmentLabel(message)) ||
+      '';
   }
   if (own) return `You: ${text}`;
   if (ctx.isGroup) return `${firstName(ctx.nameFor(message.authorId))}: ${text}`;

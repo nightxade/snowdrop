@@ -9,5 +9,6 @@ export * from './groupMessages';
 export * from './mentions';
 export * from './messageOps';
 export * from './messageRequests';
+export * from './poll';
 export * from './recipient';
 export * from './profile';

@@ -62,6 +62,7 @@ import type {
   PhonePrivacyPatch,
   PhonePrivacySettings,
   PinInput,
+  PollVoteInput,
   ProfileUpdate,
   ReactInput,
   RecipientLookup,
@@ -101,6 +102,8 @@ import {
   enrichSendError,
   messageParams,
   pinDurationParam,
+  pollCreateParams,
+  pollVoteParams,
   profileParams,
   recipientFailures,
   stickerParam,
@@ -890,6 +893,12 @@ export class SignalCliBackend implements ChatBackend {
       case 'reaction':
         this.emitter.emit('reaction', event.payload);
         return;
+      case 'pollVote':
+        this.emitter.emit('pollVote', event.payload);
+        return;
+      case 'pollTerminate':
+        this.emitter.emit('pollTerminate', event.payload);
+        return;
       case 'receipt':
         this.emitter.emit('receipt', event.payload);
         return;
@@ -1556,6 +1565,7 @@ export class SignalCliBackend implements ChatBackend {
   async send(input: SendInput): Promise<SendResult> {
     this.assertAccount();
     const target = targetParams(input.conversationId, this.identity.aliases);
+    if (input.poll) return this.sendPoll(input.conversationId, input.poll, target);
     const stamp = this.clock.now().toString(36);
     let sticker: string | undefined;
     if (input.sticker) {
@@ -1606,6 +1616,31 @@ export class SignalCliBackend implements ChatBackend {
     if (encodedPreview) out.preview = encodedPreview.preview;
     if (failures.length > 0) out.recipientFailures = failures;
     return out;
+  }
+
+  /** A poll is its own RPC (`sendPollCreate`) with its own params; the reply is a send result like any other. */
+  private async sendPoll(
+    conversationId: ConversationId,
+    poll: NonNullable<SendInput['poll']>,
+    target: RpcParams,
+  ): Promise<SendResult> {
+    let result;
+    try {
+      result = await this.rpc.call(
+        'sendPollCreate',
+        { ...target, ...pollCreateParams(poll) },
+        wireSendResult,
+        { timeoutMs: 60_000 },
+      );
+    } catch (error) {
+      throw enrichSendError(error);
+    }
+    const failures = recipientFailures(result);
+    this.notePeer(conversationId, result.timestamp);
+    return {
+      sentAt: result.timestamp,
+      ...(failures.length > 0 ? { recipientFailures: failures } : {}),
+    };
   }
 
   private rememberQuote(conversationId: ConversationId, sentAt: number, quote: Quote): void {
@@ -1680,6 +1715,14 @@ export class SignalCliBackend implements ChatBackend {
     } else {
       await this.command('sendUnpinMessage', input.conversationId, params);
     }
+  }
+
+  async votePoll(input: PollVoteInput): Promise<void> {
+    await this.command('sendPollVote', input.conversationId, pollVoteParams(input));
+  }
+
+  async terminatePoll(conversationId: ConversationId, pollSentAt: number): Promise<void> {
+    await this.command('sendPollTerminate', conversationId, { pollTimestamp: pollSentAt });
   }
 
   async setTyping(conversationId: ConversationId, typing: boolean): Promise<void> {

@@ -9,6 +9,8 @@
 import {
   applyDelete,
   applyEdit,
+  applyPollTerminate,
+  applyPollVote,
   applyReaction,
   colorForId,
   directConversationId,
@@ -45,6 +47,7 @@ import type {
   MessageRef,
   MessageRequestResponse,
   PinInput,
+  PollVoteInput,
   ProfileUpdate,
   ReactInput,
   RecipientLookup,
@@ -325,6 +328,7 @@ export class MockBackend implements ChatBackend {
     if (input.quote) message.quote = input.quote;
     if (preview) message.previews = [preview];
     if (input.sticker) message.sticker = input.sticker;
+    if (input.poll) message.poll = { ...input.poll, options: [...input.poll.options], votes: [] };
     this.append(message);
     this.scheduleReceipts(conv, sentAt);
     if (conv.kind === 'direct') this.liveliness.replyTo(conv.id);
@@ -450,6 +454,28 @@ export class MockBackend implements ChatBackend {
       ...m,
       pinned: input.pin,
     }));
+  }
+
+  async votePoll(input: PollVoteInput): Promise<void> {
+    await this.delay();
+    this.assertOnline();
+    this.takeFailure();
+    const vote = {
+      voterId: this.world.self.id,
+      optionIndexes: input.optionIndexes,
+      voteCount: input.voteCount,
+      at: this.clock.now(),
+    };
+    this.updateMessage(input.conversationId, input.pollAuthorId, input.pollSentAt, (m) =>
+      applyPollVote(m, vote),
+    );
+  }
+
+  async terminatePoll(conversationId: ConversationId, pollSentAt: number): Promise<void> {
+    await this.delay();
+    this.assertOnline();
+    this.takeFailure();
+    this.updateMessage(conversationId, this.world.self.id, pollSentAt, applyPollTerminate);
   }
 
   supportsReadSync(): boolean {

@@ -83,6 +83,32 @@ describe('deferredBackend', () => {
     expect(deferred.link).toBeDefined();
   });
 
+  it('exposes polls before the adapter loads and forwards votes and ends after', async () => {
+    let resolve!: (b: ChatBackend) => void;
+    const ready = new Promise<ChatBackend>((r) => {
+      resolve = r;
+    });
+    const deferred = deferredBackend('signal-cli', new Set(['votePoll', 'terminatePoll']), ready);
+    expect('votePoll' in deferred).toBe(true);
+    expect('terminatePoll' in deferred).toBe(true);
+    const votePoll = vi.fn(() => Promise.resolve());
+    const terminatePoll = vi.fn(() => Promise.resolve());
+    resolve({ kind: 'signal-cli', votePoll, terminatePoll } as unknown as ChatBackend);
+    const vote = {
+      conversationId: 'group:g' as never,
+      pollAuthorId: 'ana',
+      pollSentAt: 5,
+      optionIndexes: [1],
+      voteCount: 1,
+    };
+    await deferred.votePoll?.(vote);
+    await deferred.terminatePoll?.('group:g' as never, 5);
+    expect(votePoll).toHaveBeenCalledWith(vote);
+    expect(terminatePoll).toHaveBeenCalledWith('group:g', 5);
+    // An adapter without them offers no polls at all.
+    expect('votePoll' in deferredBackend('mock', new Set(), ready)).toBe(false);
+  });
+
   it('forwards the sticker pack install and reports its support only once the adapter is known', async () => {
     let resolve!: (b: ChatBackend) => void;
     const ready = new Promise<ChatBackend>((r) => {

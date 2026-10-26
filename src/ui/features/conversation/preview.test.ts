@@ -52,4 +52,14 @@ describe('previewText', () => {
     });
     expect(previewText(withEmoji, ctx)).toBe('Mira: 🎉 Sticker');
   });
+
+  it('describes a poll as Signal Desktop does: its question, with the chart marker', () => {
+    const poll = makeMessage({
+      authorId: 'a',
+      body: '',
+      poll: { question: 'Where to eat?', options: ['a', 'b'], allowMultiple: true, votes: [] },
+    });
+    expect(previewText(poll, ctx)).toBe('Mira: 📊 Poll: Where to eat?');
+    expect(previewText({ ...poll, authorId: 'me' }, ctx)).toBe('You: 📊 Poll: Where to eat?');
+  });
 });

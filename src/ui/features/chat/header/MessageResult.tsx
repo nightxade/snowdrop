@@ -1,6 +1,12 @@
 import type { CSSProperties } from 'react';
 import { useStore } from 'zustand';
-import { formatMessageTimestamp, initialsFor, type Message } from '@/core/domain';
+import {
+  formatMessageTimestamp,
+  initialsFor,
+  POLL_EMOJI,
+  pollPreviewText,
+  type Message,
+} from '@/core/domain';
 import { contactsSelectors, sessionSelectors, UNKNOWN_CONTACT_NAME } from '@/core/stores';
 import { useStores } from '@/ui/hooks';
 import { Avatar } from '@/ui/primitives';
@@ -26,6 +32,8 @@ export function MessageResult({
   const clock24h = useStore(stores.settings, (s) => s.appearance.clock24h);
   const now = useMinuteClock();
   const name = author?.name ?? UNKNOWN_CONTACT_NAME;
+  // A poll has no body text: it reads as its question, as in the chat list.
+  const asPoll = m.body === '' && m.poll !== undefined;
   return (
     <button type="button" className={styles.result} onClick={onOpen} data-search-result>
       {context && <span className={styles.context}>{context}</span>}
@@ -53,8 +61,8 @@ export function MessageResult({
           <MessageBody
             className={styles.body}
             preview
-            body={m.body}
-            ranges={m.ranges}
+            body={asPoll && m.poll ? `${POLL_EMOJI} ${pollPreviewText(m.poll)}` : m.body}
+            ranges={asPoll ? [] : m.ranges}
             selfId={selfId}
             nameFor={(id) => contacts[id]?.name ?? UNKNOWN_CONTACT_NAME}
           />

@@ -43,7 +43,10 @@
 
 /* Attach and emoji icons move to the right of the input (the `>` prompt and
    the field already read left to right; only the icons need reordering). */
-:root[data-shell='tui'] div:has(> [data-snowdrop='composer-input']) [aria-label='Upload a file'] {
+:root[data-shell='tui'] div:has(> [data-snowdrop='composer-input']) [aria-label='Upload a file'],
+:root[data-shell='tui']
+  div:has(> [data-snowdrop='composer-input'])
+  [aria-label='Add attachment or poll'] {
   order: 2;
 }
 

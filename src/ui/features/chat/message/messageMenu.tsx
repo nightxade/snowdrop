@@ -1,5 +1,6 @@
 import {
   Copy,
+  CircleStop,
   Hash,
   Info,
   Pencil,
@@ -28,6 +29,8 @@ export interface MenuCallbacks {
   requestDelete: (kind: DeleteKind) => void;
   /** Opens the "Message details" dialog (own messages only — see MessageDetails). */
   openDetails: () => void;
+  /** Asks to end this poll (confirmed first; only offered on the user's own open polls). */
+  requestEndPoll: () => void;
   /** Opens the pack dialog for this message's sticker. */
   openStickerPack: () => void;
   /** Opens the "add to my emoji" dialog for one emoji this message delivered. */
@@ -136,6 +139,16 @@ export function buildMessageMenu(
             },
           },
     );
+  }
+
+  if (p.canEndPoll) {
+    entries.push({
+      kind: 'item',
+      id: 'end-poll',
+      label: 'End poll',
+      icon: <CircleStop size={ICON} />,
+      onSelect: cb.requestEndPoll,
+    });
   }
 
   if (p.own && !p.failed && m.kind === 'normal' && !m.deleted) {

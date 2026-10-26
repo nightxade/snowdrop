@@ -518,6 +518,38 @@ export const fixtures = {
     }),
   }),
 
+  pollTerminate: receive('alice', {
+    dataMessage: dataMessage({
+      timestamp: T0 + 60,
+      pollTerminate: { targetSentTimestamp: T0 },
+      groupInfo: groupInfo(),
+    }),
+  }),
+
+  /** Our own vote, made on another linked device (a sync transcript). */
+  syncPollVote: receive('self', {
+    sourceDevice: 2,
+    syncMessage: {
+      sentMessage: {
+        destination: null,
+        destinationNumber: null,
+        destinationUuid: null,
+        ...dataMessage({
+          timestamp: T0 + 70,
+          pollVote: {
+            author: ALICE_NUMBER,
+            authorNumber: ALICE_NUMBER,
+            authorUuid: ALICE,
+            targetSentTimestamp: T0,
+            optionIndexes: [0, 0, 1],
+            voteCount: 2,
+          },
+          groupInfo: groupInfo(),
+        }),
+      },
+    },
+  }),
+
   profileKeyUpdate: receive('alice', {
     dataMessage: dataMessage({ isProfileKeyUpdate: true, hasProfileKey: true }),
   }),

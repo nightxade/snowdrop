@@ -263,6 +263,31 @@
   max-height: 120px;
 }
 
+/* ─── Polls: a bordered square card, flat mono bars, square checkboxes ──── */
+
+:root[data-shell='tui'] [data-snowdrop='poll'] {
+  width: min(100%, 48ch);
+  margin-block: calc(var(--snowdrop-tui-row) / 4);
+  padding: var(--snowdrop-tui-pad-y) var(--snowdrop-tui-pad-x);
+  gap: var(--snowdrop-tui-pad-y);
+  border-color: var(--snowdrop-pane-border);
+  border-radius: var(--snowdrop-pane-radius);
+  background: none;
+}
+
+:root[data-shell='tui'] [data-snowdrop='poll'] * {
+  border-radius: 0;
+}
+
+:root[data-shell='tui'] [data-snowdrop='poll'] input[type='checkbox'] {
+  border-radius: 0;
+}
+
+:root[data-shell='tui'] [data-snowdrop='poll'] input[type='checkbox']:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--snowdrop-pane-border-focus);
+}
+
 /* ─── System/notice rows: time, dim `--` author, dim text, icon hidden ──── */
 
 :root[data-shell='tui'] [data-snowdrop='system-message'] {

@@ -1,4 +1,4 @@
-import { stripBidiControls } from '@/core/lib';
+import { graphemes, POLL_LIMITS, stripBidiControls } from '@/core/lib';
 import { timerSentence } from '../normalise/directory';
 import { isRecord } from '../validate';
 import { hexBytes, record, records, text, timestamp, uint32, type BackupRecord } from './wire';
@@ -18,8 +18,10 @@ interface Content {
   formattedText?: BackupRecord;
   sticker?: StickerContent;
   longText?: BackupRecord;
+  /** A well-formed `Poll`; its votes still name archive recipients (see `backupMessage`). */
+  poll?: BackupRecord;
 }
-const clean = (value: unknown): string => stripBidiControls(text(value));
+export const clean = (value: unknown): string => stripBidiControls(text(value));
 
 /** Known non-text kinds remain visible even when their phone-only actions are unavailable. */
 export function additionalContent(item: BackupRecord): Content | null {
@@ -83,6 +85,15 @@ export function additionalContent(item: BackupRecord): Content | null {
   }
   if (isRecord(item.poll)) {
     const poll = item.poll;
+    const options = records(poll.options).map((option) => clean(option.option));
+    if (
+      clean(poll.question) !== '' &&
+      options.length >= POLL_LIMITS.minOptions &&
+      options.length <= POLL_LIMITS.maxOptions &&
+      options.every((o) => o !== '' && graphemes(o).length <= POLL_LIMITS.optionGraphemes)
+    )
+      return { body: '', reactions: poll.reactions, poll };
+    // Not a poll Signal would show: keep the honest note rather than nothing.
     return {
       body: [
         `Poll: ${text(poll.question)}`,

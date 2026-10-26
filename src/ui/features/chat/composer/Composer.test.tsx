@@ -13,11 +13,11 @@ afterEach(async () => {
   for (const h of snowdrops.splice(0)) await h.dispose();
 });
 
-async function setup() {
+async function setup(title = 'Orchard · Engineering') {
   const snowdrop = await bootSnowdrop();
   snowdrops.push(snowdrop);
   const conv = Object.values(snowdrop.stores.conversations.getState().byId).find(
-    (c) => c.title === 'Orchard · Engineering',
+    (c) => c.title === title,
   )!;
   await act(async () => {
     snowdrop.stores.ui.getState().selectConversation(conv.id);
@@ -291,5 +291,78 @@ describe('<Composer />', () => {
     expect(snowdrop.stores.local.getState().conversations[conv.id]?.draft).toBe(
       'unfinished thought',
     );
+  });
+
+  describe('polls', () => {
+    const openPollDialog = async () => {
+      fireEvent.pointerDown(screen.getByRole('button', { name: 'Add attachment or poll' }), {
+        button: 0,
+        ctrlKey: false,
+      });
+      fireEvent.click(await screen.findByRole('menuitem', { name: 'Poll' }));
+      return screen.findByRole('dialog', { name: 'New poll' });
+    };
+
+    it('offers a poll next to uploading a file in a group', async () => {
+      await setup();
+      expect(screen.queryByRole('button', { name: 'Upload a file' })).toBeNull();
+      fireEvent.pointerDown(screen.getByRole('button', { name: 'Add attachment or poll' }), {
+        button: 0,
+        ctrlKey: false,
+      });
+      const items = await screen.findAllByRole('menuitem');
+      expect(items.map((i) => i.textContent)).toEqual(['Upload a file', 'Poll']);
+    });
+
+    it('keeps the plain upload button in a one-to-one chat, where Signal Desktop offers no poll', async () => {
+      await setup('Tavi Nakamura');
+      expect(screen.getByRole('button', { name: 'Upload a file' })).toBeTruthy();
+      expect(screen.queryByRole('button', { name: 'Add attachment or poll' })).toBeNull();
+    });
+
+    it('creates a poll from the dialog: it appears in the chat and focus returns to the composer', async () => {
+      const { snowdrop, conv, input } = await setup();
+      const dialog = await openPollDialog();
+      fireEvent.change(within(dialog).getByRole('textbox', { name: 'Question' }), {
+        target: { value: 'Where to eat?' },
+      });
+      fireEvent.change(within(dialog).getByRole('textbox', { name: 'Option 1' }), {
+        target: { value: 'Pizza' },
+      });
+      fireEvent.change(within(dialog).getByRole('textbox', { name: 'Option 2' }), {
+        target: { value: 'Ramen' },
+      });
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Send' }));
+      await settle(snowdrop);
+      await act(async () => {
+        await new Promise((r) => requestAnimationFrame(r));
+      });
+      expect(screen.queryByRole('dialog')).toBeNull();
+      const sent = lastOwn(snowdrop, conv.id)!;
+      expect(sent.poll).toEqual({
+        question: 'Where to eat?',
+        options: ['Pizza', 'Ramen'],
+        allowMultiple: true,
+        votes: [],
+      });
+      expect(sent.status).toBe('sent');
+      expect(document.activeElement).toBe(input);
+    });
+
+    it('keeps a poll half written when the dialog is closed, and forgets it once sent', async () => {
+      await setup();
+      let dialog = await openPollDialog();
+      fireEvent.change(within(dialog).getByRole('textbox', { name: 'Question' }), {
+        target: { value: 'Unfinished?' },
+      });
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+      await act(async () => {
+        await new Promise((r) => requestAnimationFrame(r));
+      });
+      dialog = await openPollDialog();
+      expect(
+        within(dialog).getByRole<HTMLInputElement>('textbox', { name: 'Question' }).value,
+      ).toBe('Unfinished?');
+    });
   });
 });

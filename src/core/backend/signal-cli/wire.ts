@@ -130,6 +130,16 @@ const wireSharedContact = object({
   organization: optStr,
 });
 
+/** JsonPollVote: who wrote the poll, its timestamp and the option indexes now chosen. */
+const wirePollVote = object({
+  author: optStr,
+  authorNumber: optStr,
+  authorUuid: optStr,
+  targetSentTimestamp: num,
+  optionIndexes: list(num),
+  voteCount: withDefault(num, 0),
+});
+
 export const wireDataMessage = object({
   timestamp: num,
   message: optStr,
@@ -149,8 +159,8 @@ export const wireDataMessage = object({
   remoteDelete: maybe(object({ timestamp: num })),
   contacts: list(wireSharedContact),
   pollCreate: maybe(object({ question: str, allowMultiple: optBool, options: list(str) })),
-  pollVote: opt(unknownValue),
-  pollTerminate: opt(unknownValue),
+  pollVote: maybe(wirePollVote),
+  pollTerminate: maybe(object({ targetSentTimestamp: num })),
   textStyles: list(wireTextStyle),
   groupInfo: maybe(wireGroupInfo),
   storyContext: opt(unknownValue),

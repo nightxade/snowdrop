@@ -82,6 +82,13 @@ export interface OutgoingLinkPreview {
   };
 }
 
+/** A poll to create: its question and 2 to 10 options, already tidied (see `pollDraftProblem`). */
+export interface OutgoingPoll {
+  question: string;
+  options: string[];
+  allowMultiple: boolean;
+}
+
 export interface SendInput {
   conversationId: ConversationId;
   /** Body with mention placeholders (U+FFFC) already in place. */
@@ -101,6 +108,12 @@ export interface SendInput {
    * and, for the demo, the image itself).
    */
   sticker?: StickerContent;
+  /**
+   * A poll send: the message's whole content (empty `body`, no attachments,
+   * no quote). Only sent in a conversation whose backend can vote
+   * (`ChatBackend.votePoll`).
+   */
+  poll?: OutgoingPoll;
 }
 
 /** One sticker of an installed pack, as the picker lists it. */
@@ -159,6 +172,18 @@ export interface ReactInput {
   targetSentAt: number;
   emoji: string;
   remove: boolean;
+}
+
+/** One change of our own answer on a poll (`ChatBackend.votePoll`). */
+export interface PollVoteInput {
+  conversationId: ConversationId;
+  pollAuthorId: string;
+  /** The poll message's `sentAt`: Signal's id for the poll. */
+  pollSentAt: number;
+  /** Every option we now choose (empty retracts the vote). */
+  optionIndexes: number[];
+  /** Signal's per-voter counter: one more than our previous vote's, so receivers keep only the newest. */
+  voteCount: number;
 }
 
 /** What `respondToMessageRequest` sends. Blocking is `setBlocked`. */
@@ -314,6 +339,28 @@ export interface BackendEvents {
     reaction: Reaction;
     remove: boolean;
   };
+  /**
+   * Someone (or we, from another linked device) changed their answer on a
+   * poll. Identified, like every message operation, by the poll's
+   * (author, sentAt).
+   */
+  pollVote: {
+    conversationId: ConversationId;
+    targetAuthorId: string;
+    targetSentAt: number;
+    voterId: string;
+    optionIndexes: number[];
+    voteCount: number;
+    /** Sender timestamp of the vote. */
+    at: number;
+  };
+  /** The author ended a poll; `authorId` is who sent it (only the poll's author may end it). */
+  pollTerminate: {
+    conversationId: ConversationId;
+    authorId: string;
+    targetSentAt: number;
+    at: number;
+  };
   /** Receipts for messages *we* sent; `authorId` is the recipient who sent the receipt. */
   receipt: { authorId: string; sentAts: number[]; type: ReceiptType };
   typing: { conversationId: ConversationId; authorId: string; typing: boolean };
@@ -411,6 +458,14 @@ export interface ChatBackend {
   /** Group admins deleting someone else's message, when the protocol supports it. */
   adminDelete?(conversationId: ConversationId, target: MessageRef): Promise<void>;
   pinMessage?(input: PinInput): Promise<void>;
+  /**
+   * Changes our answer on a poll (and tells the other members). Present
+   * only on backends that can take part in polls; creating one is `send`
+   * with `SendInput.poll`, so this is also what says polls are available.
+   */
+  votePoll?(input: PollVoteInput): Promise<void>;
+  /** Ends a poll we created (the poll's `sentAt` identifies it). Same availability as `votePoll`. */
+  terminatePoll?(conversationId: ConversationId, pollSentAt: number): Promise<void>;
   setTyping(conversationId: ConversationId, typing: boolean): Promise<void>;
   /**
    * Marks messages read: tells their senders (a read receipt) and the user's

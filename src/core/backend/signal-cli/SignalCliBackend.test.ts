@@ -116,6 +116,9 @@ function daemonWithAccount() {
     .reply('sendAdminDelete', { timestamp: 1, results: [] })
     .reply('sendPinMessage', { timestamp: 1, results: [] })
     .reply('sendUnpinMessage', { timestamp: 1, results: [] })
+    .reply('sendPollCreate', { timestamp: T0 + 2000, results: [] })
+    .reply('sendPollVote', { timestamp: 1, results: [] })
+    .reply('sendPollTerminate', { timestamp: 1, results: [] })
     .reply('sendTyping', {})
     .reply('sendReceipt', { timestamp: 1, results: [] })
     .reply('updateGroup', { timestamp: 1, results: [] })
@@ -2629,6 +2632,150 @@ describe('SignalCliBackend: lookupRecipient', () => {
     expect(debug).not.toHaveBeenCalled();
     for (const spy of [info, warn, log]) expect(spy).not.toHaveBeenCalled();
     vi.restoreAllMocks();
+    await backend.disconnect();
+  });
+});
+
+describe('SignalCliBackend: polls', () => {
+  const poll = { question: 'Where to?', options: ['Crag', 'Gym'], allowMultiple: true };
+
+  it('creates a poll with sendPollCreate: question, options, and noMulti only for single choice', async () => {
+    const { daemon } = daemonWithAccount();
+    const { backend } = await connected({ daemon });
+    const result = await backend.send({ conversationId: GROUP, body: '', ranges: [], poll });
+    expect(result.sentAt).toBe(T0 + 2000);
+    await backend.send({
+      conversationId: GROUP,
+      body: '',
+      ranges: [],
+      poll: { ...poll, allowMultiple: false },
+    });
+    const [multi, single] = daemon.callsTo('sendPollCreate');
+    expect(multi).toEqual({
+      account: SELF_ACI,
+      groupId: GROUP_ID,
+      question: 'Where to?',
+      option: ['Crag', 'Gym'],
+    });
+    expect(single).toMatchObject({ noMulti: true });
+    expect(daemon.callsTo('send')).toEqual([]);
+    await backend.disconnect();
+  });
+
+  it('refuses a poll signal-cli would refuse without calling the daemon', async () => {
+    const { daemon } = daemonWithAccount();
+    const { backend } = await connected({ daemon });
+    for (const bad of [
+      { ...poll, question: '  ' },
+      { ...poll, options: ['only one'] },
+      { ...poll, options: ['a', 'b'.repeat(101)] },
+      { ...poll, options: Array.from({ length: 11 }, (_, i) => `o${i}`) },
+    ]) {
+      await expect(
+        backend.send({ conversationId: GROUP, body: '', ranges: [], poll: bad }),
+      ).rejects.toBeInstanceOf(SignalCliError);
+    }
+    expect(daemon.callsTo('sendPollCreate')).toEqual([]);
+    await backend.disconnect();
+  });
+
+  it('reports who a poll could not be delivered to, like any send', async () => {
+    const { daemon } = daemonWithAccount();
+    daemon.reply('sendPollCreate', {
+      timestamp: T0 + 2000,
+      results: [{ type: 'NETWORK_FAILURE', recipientAddress: { uuid: ALICE } }],
+    });
+    const { backend } = await connected({ daemon });
+    const result = await backend.send({ conversationId: GROUP, body: '', ranges: [], poll });
+    expect(result.recipientFailures).toEqual([{ recipientId: ALICE, reason: 'network' }]);
+    await backend.disconnect();
+  });
+
+  it('votes with the poll author, timestamp, option indexes and voteCount', async () => {
+    const { daemon } = daemonWithAccount();
+    const { backend } = await connected({ daemon });
+    await backend.votePoll({
+      conversationId: GROUP,
+      pollAuthorId: ALICE,
+      pollSentAt: T0,
+      optionIndexes: [1, 0],
+      voteCount: 3,
+    });
+    // A retracted vote still sends its (empty) option list.
+    await backend.votePoll({
+      conversationId: directConversationId(ALICE),
+      pollAuthorId: ALICE,
+      pollSentAt: T0,
+      optionIndexes: [],
+      voteCount: 4,
+    });
+    expect(daemon.callsTo('sendPollVote')).toEqual([
+      {
+        account: SELF_ACI,
+        groupId: GROUP_ID,
+        pollAuthor: ALICE,
+        pollTimestamp: T0,
+        option: [1, 0],
+        voteCount: 3,
+      },
+      {
+        account: SELF_ACI,
+        recipient: [ALICE],
+        pollAuthor: ALICE,
+        pollTimestamp: T0,
+        option: [],
+        voteCount: 4,
+      },
+    ]);
+    await backend.disconnect();
+  });
+
+  it('refuses a vote signal-cli could not take', async () => {
+    const { daemon } = daemonWithAccount();
+    const { backend } = await connected({ daemon });
+    const vote = {
+      conversationId: GROUP,
+      pollAuthorId: ALICE,
+      pollSentAt: T0,
+      optionIndexes: [0],
+      voteCount: 1,
+    };
+    for (const bad of [
+      { ...vote, optionIndexes: [10] },
+      { ...vote, optionIndexes: [0, 0] },
+      { ...vote, optionIndexes: [-1] },
+      { ...vote, voteCount: 0 },
+      { ...vote, pollSentAt: 0 },
+    ])
+      await expect(backend.votePoll(bad)).rejects.toBeInstanceOf(SignalCliError);
+    expect(daemon.callsTo('sendPollVote')).toEqual([]);
+    await backend.disconnect();
+  });
+
+  it('ends a poll by its timestamp', async () => {
+    const { daemon } = daemonWithAccount();
+    const { backend } = await connected({ daemon });
+    await backend.terminatePoll(GROUP, T0);
+    expect(daemon.callsTo('sendPollTerminate')).toEqual([
+      { account: SELF_ACI, groupId: GROUP_ID, pollTimestamp: T0 },
+    ]);
+    await backend.disconnect();
+  });
+
+  it('emits received votes and ends, including our own from another device', async () => {
+    const { backend } = await connected();
+    const votes = collect(backend, 'pollVote');
+    const ends = collect(backend, 'pollTerminate');
+    await backend.ingest(fixtures.pollVote);
+    await backend.ingest(fixtures.syncPollVote);
+    await backend.ingest(fixtures.pollTerminate);
+    expect(votes.map((v) => [v.voterId, v.optionIndexes])).toEqual([
+      [BOB, [1]],
+      [SELF_ACI, [0, 1]],
+    ]);
+    expect(ends).toEqual([
+      { conversationId: GROUP, authorId: ALICE, targetSentAt: T0, at: T0 + 60 },
+    ]);
     await backend.disconnect();
   });
 });

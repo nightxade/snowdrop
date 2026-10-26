@@ -5,8 +5,10 @@
  * `quoteTimestamp`); multi-value flags accept arrays under the singular name.
  */
 import { PROFILE_LIMITS, parseConversationId, type ConversationId } from '@/core/domain';
-import { graphemes, utf8Length } from '@/core/lib';
+import { graphemes, pollDraftProblem, tidyPollDraft, utf8Length } from '@/core/lib';
 import type {
+  OutgoingPoll,
+  PollVoteInput,
   ProfileUpdate,
   ReadSummary,
   RecipientFailure,
@@ -133,6 +135,41 @@ export function messageParams(input: MessageParamsInput): RpcParams {
     if (qAttachments.length > 0) params.quoteAttachment = qAttachments;
   }
   return params;
+}
+
+/**
+ * `sendPollCreate` params: the question and options (re-checked here, so
+ * nothing signal-cli would refuse reaches it), and `noMulti` for a
+ * single-choice poll.
+ */
+export function pollCreateParams(poll: OutgoingPoll): RpcParams {
+  const tidy = tidyPollDraft(poll);
+  if (pollDraftProblem(tidy) !== null) throw new SignalCliError('user', "This poll can't be sent.");
+  const params: RpcParams = { question: tidy.question, option: tidy.options };
+  if (!poll.allowMultiple) params.noMulti = true;
+  return params;
+}
+
+/**
+ * `sendPollVote` params. The option list is always sent, even when empty
+ * (a retracted vote). Signal numbers options 0 to 9 and counts votes from 1.
+ */
+export function pollVoteParams(input: PollVoteInput): RpcParams {
+  const valid =
+    input.optionIndexes.every((i) => Number.isInteger(i) && i >= 0 && i <= 9) &&
+    new Set(input.optionIndexes).size === input.optionIndexes.length &&
+    Number.isSafeInteger(input.pollSentAt) &&
+    input.pollSentAt > 0 &&
+    Number.isInteger(input.voteCount) &&
+    input.voteCount >= 1 &&
+    input.voteCount <= 2_147_483_647;
+  if (!valid) throw new SignalCliError('user', "This vote can't be sent.");
+  return {
+    pollAuthor: input.pollAuthorId,
+    pollTimestamp: input.pollSentAt,
+    option: input.optionIndexes,
+    voteCount: input.voteCount,
+  };
 }
 
 /**

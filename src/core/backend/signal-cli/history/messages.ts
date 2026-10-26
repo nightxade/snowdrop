@@ -8,13 +8,15 @@ import {
   type LinkPreview,
   type Message,
   type MessageStatus,
+  type PollContent,
+  type PollVote,
   type Quote,
   type Reaction,
   type TextStyle,
 } from '@/core/domain';
 import { isRecord } from '../validate';
 import { backupUuid, type BackupDirectory } from './directory';
-import { additionalContent } from './content';
+import { additionalContent, clean } from './content';
 import { decimal, record, records, text, timestamp, uint32, type BackupRecord } from './wire';
 
 function bodyRanges(value: BackupRecord): BodyRange[] {
@@ -97,6 +99,36 @@ function linkPreviews(value: unknown, archiveId: string, cursor: string): LinkPr
     }
     return [preview];
   });
+}
+
+/**
+ * A `Poll` with its votes. The archive lists each option's voters; a voter's
+ * answer is every option they appear under, and `voteCount` (the same on all
+ * of their entries) orders it against votes that arrive live afterwards.
+ */
+function backupPoll(poll: BackupRecord, directory: BackupDirectory): PollContent {
+  const options = records(poll.options);
+  const byVoter = new Map<string, PollVote>();
+  options.forEach((option, index) => {
+    for (const vote of records(option.votes)) {
+      const voterId = directory.author(decimal(vote.voterId));
+      if (!voterId) continue;
+      const entry = byVoter.get(voterId) ?? { voterId, optionIndexes: [], voteCount: 0, at: 0 };
+      entry.optionIndexes.push(index);
+      entry.voteCount = Math.max(entry.voteCount, uint32(vote.voteCount, 0) ?? 0);
+      byVoter.set(voterId, entry);
+    }
+  });
+  return {
+    question: clean(poll.question),
+    options: options.map((option) => clean(option.option)),
+    allowMultiple: poll.allowMultiple === true,
+    ...(poll.hasEnded === true ? { ended: true } : {}),
+    // A single-choice poll with several entries for one voter is not a vote Signal would accept.
+    votes: [...byVoter.values()].filter(
+      (v) => poll.allowMultiple === true || v.optionIndexes.length <= 1,
+    ),
+  };
 }
 
 function status(item: BackupRecord): MessageStatus {
@@ -188,6 +220,7 @@ export function backupMessage({
           : {}),
       };
     }
+    if (content.poll) message.poll = backupPoll(content.poll, directory);
     if (content.longText)
       message.attachments.push(
         attachment(

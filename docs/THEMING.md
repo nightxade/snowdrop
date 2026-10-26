@@ -446,6 +446,7 @@ instead.
 | `message-content`       | The name + body + trailing content of a message row                   |
 | `message-quote`         | A message row's reply-to quote                                        |
 | `sticker`               | A sticker message's image, placeholder or fallback chip               |
+| `poll`                  | A poll message's card: question, options and votes (has data-ended)   |
 | `hover-bar`             | Message hover actions                                                 |
 | `message-action-sheet`  | Long-press action sheet (touch)                                       |
 | `system-message`        | Joined / renamed / timer lines                                        |
@@ -462,6 +463,7 @@ instead.
 | `sticker-picker`        | The composer's sticker picker (grid, header and pack tabs)            |
 | `sticker-cell`          | One sticker button in the picker's grid                               |
 | `sticker-pack`          | The sticker pack dialog opened from a received sticker                |
+| `poll-create`           | The form in the New poll dialog                                       |
 | `custom-emoji-card`     | The “add to my emoji” card for an emoji someone else sent             |
 | `typing-line`           | "… is typing" strip                                                   |
 | `drop-overlay`          | Drag-and-drop overlay                                                 |
@@ -487,6 +489,7 @@ instead.
 
 - `[data-snowdrop='message']` carries `data-compact`, `data-continuation` (a
   grouped follow-up row) and `data-mention` (mentions you).
+- `[data-snowdrop='poll']` carries `data-ended` once the poll has ended (final results).
 - Message times are `<time data-variant='header' | 'gutter' | 'compact'>`.
 - `[data-snowdrop='message-status']` (outgoing messages only) carries
   `data-status='pending' | 'sent' | 'delivered' | 'read'`. Hidden under the

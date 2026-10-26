@@ -11,6 +11,7 @@ import type {
   Reaction,
   RecipientReceipt,
 } from './types';
+import { mergePolls } from './poll';
 
 /** Signal allows one reaction per author per message; a new one replaces the old. */
 export function applyReaction(
@@ -102,7 +103,7 @@ export function applyEdit(
  * content. `deletedBy` is set for admin deletes (someone other than the author).
  */
 export function applyDelete(message: Message, deletedBy?: string): Message {
-  const { quote: _quote, pinned: _pinned, sticker: _sticker, ...rest } = message;
+  const { quote: _quote, pinned: _pinned, sticker: _sticker, poll: _poll, ...rest } = message;
   const out: Message = {
     ...rest,
     deleted: true,
@@ -129,6 +130,9 @@ export function mergeDuplicate(existing: Message, incoming: Message): Message {
     status: advanceStatus(existing.status, incoming.status),
     ...(receipts ? { receipts } : {}),
   };
+  // Votes and the end of a poll accumulate from every copy, wherever they came from.
+  if (existing.deleted) delete merged.poll;
+  else if (existing.poll && incoming.poll) merged.poll = mergePolls(existing.poll, incoming.poll);
   // A newer edit carried by the incoming copy still applies.
   if (
     incoming.editedAt !== undefined &&

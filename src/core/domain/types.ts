@@ -208,6 +208,37 @@ export interface StickerContent {
   backupAttachment?: Attachment;
 }
 
+/**
+ * One voter's current answer on a poll. Signal numbers a voter's votes
+ * (`voteCount`, +1 each time they change their answer) so that late or
+ * reordered deliveries can't resurrect an older answer: the highest count
+ * wins. An empty `optionIndexes` is a retracted vote.
+ */
+export interface PollVote {
+  voterId: string;
+  /** Indexes into `PollContent.options`: unique, in range; at most one for a single-choice poll. */
+  optionIndexes: number[];
+  voteCount: number;
+  /** Sender timestamp of the vote; only the tie-break between equal counts. */
+  at: number;
+}
+
+/**
+ * A Signal poll (`DataMessage.pollCreate`, or the backup's `Poll`). Its own
+ * thing on `Message`, like a sticker: the question and options are not
+ * `body` text, and the votes arrive as separate envelopes that change this
+ * message in place (see `applyPollVote`).
+ */
+export interface PollContent {
+  question: string;
+  options: string[];
+  allowMultiple: boolean;
+  /** The author ended it: no more votes, final results. */
+  ended?: boolean;
+  /** One entry per voter (the latest wins), in the order first seen. */
+  votes: PollVote[];
+}
+
 export interface Quote {
   authorId: string;
   sentAt: number;
@@ -287,6 +318,8 @@ export interface Message {
   customEmoji?: CustomEmojiDelivery[];
   /** A sticker, when this message's whole content is one (see StickerContent). */
   sticker?: StickerContent;
+  /** A poll, when this message is one (see PollContent). */
+  poll?: PollContent;
   reactions: Reaction[];
   /** Number of times the message has been edited. */
   edits?: number;
