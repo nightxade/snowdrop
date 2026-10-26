@@ -59,6 +59,8 @@ export const NavCommand = {
   MarkUnread: 'core.markConversationUnread',
   /** Opens (never closes) the in-conversation search panel; hidden. */
   OpenSearch: 'core.openSearch',
+  /** Shows or hides the conversation's "Media, files & links" panel. */
+  ToggleGallery: 'core.toggleGallery',
   /**
    * Leaves an empty composer for the newest message, scrolled into view —
    * always the newest, never the previous tab stop (unlike FocusMessages).

@@ -154,8 +154,8 @@ export interface AppServices {
   logs: LogAdmin | null;
   /** Started in safe mode: imported themes and Custom CSS are not applied. */
   readonly safeMode: boolean;
-  /** Read-only history queries (search, mentions inbox, pins). */
-  repository: Pick<MessageRepository, 'search' | 'mentions' | 'pinned'>;
+  /** Read-only history queries (search, media gallery, mentions inbox, pins). */
+  repository: Pick<MessageRepository, 'search' | 'media' | 'mentions' | 'pinned'>;
   /** Connects and syncs; the app calls it once a backend has been chosen. */
   start(): Promise<void>;
 }

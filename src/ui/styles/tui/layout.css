@@ -63,7 +63,11 @@
 
 /* Members (wide) or the in-conversation search panel open a second column. */
 :root[data-shell='tui']
-  [data-snowdrop='chat']:has([data-snowdrop='members'], [data-snowdrop='search-panel']) {
+  [data-snowdrop='chat']:has(
+    [data-snowdrop='members'],
+    [data-snowdrop='search-panel'],
+    [data-snowdrop='gallery-panel']
+  ) {
   grid-template-columns: minmax(0, 1fr) auto;
 }
 
@@ -91,7 +95,8 @@
 }
 
 :root[data-shell='tui'] [data-snowdrop='chat'] [data-snowdrop='members'],
-:root[data-shell='tui'] [data-snowdrop='chat'] [data-snowdrop='search-panel'] {
+:root[data-shell='tui'] [data-snowdrop='chat'] [data-snowdrop='search-panel'],
+:root[data-shell='tui'] [data-snowdrop='chat'] [data-snowdrop='gallery-panel'] {
   grid-row: 1 / -1;
   grid-column: 2;
   align-self: stretch;
@@ -107,7 +112,8 @@
 /* ─── Responsive ───────────────────────────────────────────────────────── */
 
 @media (max-width: 1099.98px) {
-  :root[data-shell='tui'] [data-snowdrop='chat']:has([data-snowdrop='search-panel']) {
+  :root[data-shell='tui']
+    [data-snowdrop='chat']:has([data-snowdrop='search-panel'], [data-snowdrop='gallery-panel']) {
     grid-template-columns: minmax(0, 1fr);
   }
 }

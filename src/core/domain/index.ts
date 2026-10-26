@@ -15,3 +15,5 @@ export * from './recipient';
 export * from './profile';
 export * from './groups';
 export * from './contacts';
+export * from './attachmentKind';
+export * from './gallery';

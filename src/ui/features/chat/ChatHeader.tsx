@@ -1,13 +1,13 @@
-import { Hash, Menu, Search, Timer, Users } from 'lucide-react';
+import { Hash, Images, Menu, Search, Timer, Users } from 'lucide-react';
 import { memo, useState } from 'react';
 import { useStore } from 'zustand';
-import { CoreCommand } from '@/core/commands';
+import { CoreCommand, NavCommand } from '@/core/commands';
 import { formatDuration, type ConversationId } from '@/core/domain';
 import { isMuted, uiSelectors } from '@/core/stores';
 import { useSnowdrop, useKeybindLabel, useShellLayout } from '@/ui/hooks';
 import { ConversationAvatar, useConversationView } from '@/ui/features/conversation';
 import { Divider, IconButton, Popover, Tooltip } from '@/ui/primitives';
-import { useSearchOpen } from './ChatController';
+import { useGalleryOpen, useSearchOpen } from './ChatController';
 import { ConversationDetails } from './ConversationDetails';
 import { MentionsInbox } from './header/MentionsInbox';
 import { PinnedPopover } from './header/PinnedPopover';
@@ -23,6 +23,7 @@ export const ChatHeader = memo(function ChatHeader({
   const { stores, commands, send } = useSnowdrop();
   const layout = useShellLayout();
   const searchOpen = useSearchOpen();
+  const galleryOpen = useGalleryOpen();
   const searchKey = useKeybindLabel(CoreCommand.SearchConversation);
   const conversation = useConversationView(conversationId);
   const membersOpen = useStore(stores.ui, uiSelectors.memberListOpen);
@@ -108,6 +109,18 @@ export const ChatHeader = memo(function ChatHeader({
             {...(membersKey ? { shortcut: membersKey } : {})}
             onClick={() => {
               void commands.execute(CoreCommand.ToggleMemberList);
+            }}
+          />
+        )}
+        {conversation && (
+          <IconButton
+            label={galleryOpen ? 'Hide media, files & links' : 'Media, files & links'}
+            icon={<Images />}
+            active={galleryOpen}
+            tooltipSide="bottom"
+            data-snowdrop="gallery-toggle"
+            onClick={() => {
+              void commands.execute(NavCommand.ToggleGallery);
             }}
           />
         )}

@@ -4,43 +4,9 @@
  * <img>/<video>/<audio> or a download link — never by navigating to or
  * framing the URL (see ChatBackend.resolveAttachmentUrl).
  */
-import type { Attachment } from '@/core/domain';
+import { attachmentKind, type Attachment, type AttachmentKind } from '@/core/domain';
 
-export type AttachmentKind = 'image' | 'video' | 'audio' | 'file';
-
-const IMAGE = new Set([
-  'image/png',
-  'image/jpeg',
-  'image/jpg',
-  'image/gif',
-  'image/webp',
-  'image/avif',
-  'image/bmp',
-]);
-const VIDEO = new Set(['video/mp4', 'video/webm', 'video/quicktime']);
-const AUDIO = new Set([
-  'audio/mpeg',
-  'audio/mp4',
-  'audio/aac',
-  'audio/ogg',
-  'audio/webm',
-  'audio/wav',
-  'audio/x-wav',
-  'audio/flac',
-]);
-
-export function attachmentKind(
-  attachment: Pick<Attachment, 'contentType' | 'url'>,
-): AttachmentKind {
-  const type = attachment.contentType.toLowerCase().split(';')[0]?.trim() ?? '';
-  if (IMAGE.has(type)) return 'image';
-  // SVG is only shown when it's an inline data: URL (the demo's generated
-  // images). Even then it's an <img>, where SVG can't run script.
-  if (type === 'image/svg+xml' && attachment.url?.startsWith('data:image/svg+xml')) return 'image';
-  if (VIDEO.has(type)) return 'video';
-  if (AUDIO.has(type)) return 'audio';
-  return 'file';
-}
+export { attachmentKind, type AttachmentKind };
 
 /** Media go in the grid; audio and everything else become cards. */
 export function isGridMedia(attachment: Pick<Attachment, 'contentType' | 'url'>): boolean {

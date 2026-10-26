@@ -468,6 +468,8 @@ instead.
 | `typing-line`           | "… is typing" strip                                                                                         |
 | `drop-overlay`          | Drag-and-drop overlay                                                                                       |
 | `search-panel`          | In-conversation search results                                                                              |
+| `gallery-panel`         | The "Media, files & links" panel beside the conversation                                                    |
+| `gallery-toggle`        | Media, files & links button in the chat header                                                              |
 | `members`               | Member list                                                                                                 |
 | `member-row`            | One member                                                                                                  |
 | `pending-row`           | One person invited to, or asking to join, the group                                                         |

@@ -26,9 +26,11 @@
 import { openDB, type DBSchema, type IDBPDatabase, type IDBPTransaction } from 'idb';
 import type { OutgoingAttachment, SendInput } from '@/core/backend';
 import {
+  hasGalleryItems,
   mentionsOf,
   pendingMessageId,
   type ConversationId,
+  type GalleryKind,
   type Message,
   type MessageId,
 } from '@/core/domain';
@@ -38,6 +40,7 @@ import {
   matchesSearch,
   searchTerms,
   type MergeFn,
+  type MediaQuery,
   type MessageRepository,
   type OutboxEntry,
   type PageQuery,
@@ -512,6 +515,46 @@ export class IdbMessageRepository implements MessageRepository {
       }
       if (found.length >= limit || slice.length < SEARCH_SLICE) break;
       if (found.length > before) onPartial?.([...found]);
+      await yieldToEventLoop();
+      signal?.throwIfAborted();
+    }
+    return found;
+  }
+
+  async media(
+    conversationId: ConversationId,
+    kind: GalleryKind,
+    { before, limit, signal }: MediaQuery,
+  ): Promise<Message[]> {
+    if (limit <= 0) return [];
+    signal?.throwIfAborted();
+    const key = await this.cipher.blindId(conversationId);
+    const found: Message[] = [];
+    // The same sliced newest-first walk as `search`, since what an attachment
+    // is only shows once its row is decrypted. `before` is exclusive; the
+    // slice reader's bound is inclusive, so the row at `before` itself is
+    // skipped by id when it comes back.
+    let upper = before ?? Infinity;
+    let tail = new Set<string>();
+    for (;;) {
+      const slice = await this.readSearchSlice(key, upper, tail);
+      if (slice.length === 0) break;
+      const last = slice[slice.length - 1] as MessageRow;
+      tail = new Set([
+        ...(last.seq === upper ? tail : []),
+        ...slice.filter((row) => row.seq === last.seq).map((row) => row.id),
+      ]);
+      upper = last.seq;
+      signal?.throwIfAborted();
+      for (const message of await this.fromRows(slice)) {
+        if (
+          found.length < limit &&
+          (before === undefined || (message.seq ?? 0) < before) &&
+          hasGalleryItems(message, kind)
+        )
+          found.push(message);
+      }
+      if (found.length >= limit || slice.length < SEARCH_SLICE) break;
       await yieldToEventLoop();
       signal?.throwIfAborted();
     }

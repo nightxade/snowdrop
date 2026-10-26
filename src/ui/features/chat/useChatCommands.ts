@@ -104,6 +104,15 @@ export function useChatCommands(): void {
         },
       }),
       commands.register({
+        id: NavCommand.ToggleGallery,
+        title: 'Media, files & links',
+        category: 'Conversation',
+        enabled: hasConversation,
+        run: () => {
+          chat.setGalleryOpen(!chat.isGalleryOpen());
+        },
+      }),
+      commands.register({
         id: NavCommand.FocusComposer,
         title: 'Focus the message composer',
         category: 'Navigation',

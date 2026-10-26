@@ -10,9 +10,11 @@ import {
   ChatController,
   ChatControllerProvider,
   useChatController,
+  useGalleryOpen,
   useSearchOpen,
 } from './ChatController';
 import { ConversationArea } from './ConversationArea';
+import { GallerySlot } from './GallerySlot';
 import { SearchSlot } from './SearchSlot';
 import { ConnectionBanner } from './ConnectionBanner';
 import { useChatCommands } from './useChatCommands';
@@ -38,6 +40,7 @@ function ChatColumnInner() {
   const stores = useStores();
   useChatCommands();
   const searchOpen = useSearchOpen();
+  const galleryOpen = useGalleryOpen();
   const chat = useChatController();
   // A jump asked for from outside the column (global search): the open
   // conversation's list reveals it, or, once its list mounts, the new one's.
@@ -59,7 +62,9 @@ function ChatColumnInner() {
   );
   const membersOpen = useStore(stores.ui, uiSelectors.memberListOpen);
   const showSearch = searchOpen && kind !== undefined && selected !== null;
-  const showMembers = !showSearch && kind === 'group' && membersOpen && selected !== null;
+  const showGallery = galleryOpen && !showSearch && kind !== undefined && selected !== null;
+  const showMembers =
+    !showSearch && !showGallery && kind === 'group' && membersOpen && selected !== null;
   const closeMembers = () => {
     stores.ui.getState().toggleMemberList(false);
   };
@@ -89,6 +94,7 @@ function ChatColumnInner() {
           )}
         </div>
         {showSearch && <SearchSlot conversationId={selected} narrow={narrow} />}
+        {showGallery && <GallerySlot conversationId={selected} narrow={narrow} />}
         {showMembers &&
           (narrow ? (
             <Drawer

@@ -1,0 +1,104 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  width: 360px;
+  max-width: 100%;
+  height: 100%;
+  border-left: 1px solid var(--snowdrop-border);
+  background: var(--snowdrop-bg-sidebar);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--snowdrop-space-2);
+  padding: var(--snowdrop-space-4) var(--snowdrop-space-3) var(--snowdrop-space-3)
+    var(--snowdrop-space-4);
+}
+
+.title {
+  margin: 0;
+  overflow: hidden;
+  color: var(--snowdrop-text-strong);
+  font-size: var(--snowdrop-font-size-header);
+  font-weight: var(--snowdrop-font-weight-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tabs {
+  display: flex;
+  gap: var(--snowdrop-space-1);
+  padding: 0 var(--snowdrop-space-3) var(--snowdrop-space-3);
+  border-bottom: 1px solid var(--snowdrop-border);
+}
+
+.tab {
+  flex: 1;
+  padding: var(--snowdrop-space-2) var(--snowdrop-space-2);
+  border-radius: var(--snowdrop-radius-sm);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
+  font-weight: var(--snowdrop-font-weight-medium);
+  transition:
+    background-color var(--snowdrop-duration-fast) var(--snowdrop-ease),
+    color var(--snowdrop-duration-fast) var(--snowdrop-ease);
+}
+
+.tab:hover {
+  background: var(--snowdrop-bg-hover);
+  color: var(--snowdrop-text);
+}
+
+.tab[aria-selected='true'] {
+  background: var(--snowdrop-bg-active);
+  color: var(--snowdrop-text-strong);
+}
+
+.importHint {
+  margin: 0;
+  padding: var(--snowdrop-space-2) var(--snowdrop-space-4);
+  color: var(--snowdrop-warning);
+  font-size: var(--snowdrop-font-size-xs);
+  background: color-mix(in srgb, var(--snowdrop-warning) 12%, transparent);
+  border-bottom: 1px solid var(--snowdrop-border);
+}
+
+.body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  padding: var(--snowdrop-space-4);
+  overflow-y: auto;
+  scrollbar-color: var(--snowdrop-scrollbar-thumb) transparent;
+  scrollbar-width: thin;
+}
+
+.loadingGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: var(--snowdrop-space-1);
+}
+
+.square {
+  aspect-ratio: 1;
+}
+
+.loadingRows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--snowdrop-space-3);
+}
+
+.more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--snowdrop-space-3);
+  min-height: 48px;
+  margin-top: var(--snowdrop-space-3);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
+}

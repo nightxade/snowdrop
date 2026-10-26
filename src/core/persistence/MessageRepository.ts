@@ -12,7 +12,7 @@
  * everything already stored so it lands before it.
  */
 import type { SendInput } from '@/core/backend';
-import type { ConversationId, Message, MessageId } from '@/core/domain';
+import type { ConversationId, GalleryKind, Message, MessageId } from '@/core/domain';
 
 /** Seq bounds are exclusive. With neither bound, returns the newest page. */
 export interface PageQuery {
@@ -43,6 +43,15 @@ export interface SearchQuery {
    * scan can show results before it finishes.
    */
   onPartial?: (matches: readonly Message[]) => void;
+}
+
+export interface MediaQuery {
+  /** Only messages with seq < before (the last one of the previous page). */
+  before?: number;
+  /** Most messages to return. */
+  limit: number;
+  /** Abandons the scan; the promise then rejects with the signal's reason. */
+  signal?: AbortSignal;
 }
 
 /** An outgoing message the backend hasn't acknowledged yet; survives reloads. */
@@ -99,6 +108,15 @@ export interface MessageRepository {
    * SearchQuery).
    */
   search(text: string, query: SearchQuery): Promise<Message[]>;
+  /**
+   * A conversation's gallery tab (see `GalleryKind`): the messages that have
+   * something for it, newest first, one page at a time. Page on by passing
+   * the last message's `seq` as `before`; fewer than `limit` back means the
+   * history is exhausted. Attachment kinds are only readable once decrypted,
+   * so implementations that decrypt rows scan in slices, yield between
+   * them and honour `signal`, as `search` does.
+   */
+  media(conversationId: ConversationId, kind: GalleryKind, query: MediaQuery): Promise<Message[]>;
   /** Messages mentioning a contact, newest first (the mentions inbox). */
   mentions(contactId: string, query: { before?: number; limit: number }): Promise<Message[]>;
   /** Pinned messages of a conversation, newest first (the header's pins popover). */

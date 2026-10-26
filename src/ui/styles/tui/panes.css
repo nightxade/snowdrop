@@ -20,7 +20,8 @@
 :root[data-shell='tui'] [data-snowdrop='user-panel'],
 :root[data-shell='tui'] [data-snowdrop='composer'],
 :root[data-shell='tui'] [data-snowdrop='members'],
-:root[data-shell='tui'] [data-snowdrop='search-panel'] {
+:root[data-shell='tui'] [data-snowdrop='search-panel'],
+:root[data-shell='tui'] [data-snowdrop='gallery-panel'] {
   position: relative;
   box-sizing: border-box;
   /* Keeps the first row clear of the top border — composer.css sets its own
@@ -36,7 +37,8 @@
 :root[data-shell='tui'] [data-snowdrop='user-panel']:focus-within,
 :root[data-shell='tui'] [data-snowdrop='composer']:focus-within,
 :root[data-shell='tui'] [data-snowdrop='members']:focus-within,
-:root[data-shell='tui'] [data-snowdrop='search-panel']:focus-within {
+:root[data-shell='tui'] [data-snowdrop='search-panel']:focus-within,
+:root[data-shell='tui'] [data-snowdrop='gallery-panel']:focus-within {
   border-color: var(--snowdrop-pane-border-focus);
 }
 

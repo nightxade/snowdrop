@@ -66,6 +66,8 @@ export const STYLE_HOOKS = [
   { hook: 'typing-line', what: '“… is typing” strip' },
   { hook: 'drop-overlay', what: 'Drag-and-drop overlay' },
   { hook: 'search-panel', what: 'In-conversation search results' },
+  { hook: 'gallery-panel', what: 'The “Media, files & links” panel beside the conversation' },
+  { hook: 'gallery-toggle', what: 'Media, files & links button in the chat header' },
   { hook: 'members', what: 'Member list' },
   { hook: 'member-row', what: 'One member' },
   { hook: 'pending-row', what: 'One person invited to, or asking to join, the group' },

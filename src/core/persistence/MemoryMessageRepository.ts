@@ -2,11 +2,19 @@
  * In-memory MessageRepository: used by tests, by the demo (whose world is
  * regenerated every launch), and as a fallback when IndexedDB is unavailable.
  */
-import { pendingMessageId, type ConversationId, type Message, type MessageId } from '@/core/domain';
+import {
+  hasGalleryItems,
+  pendingMessageId,
+  type ConversationId,
+  type GalleryKind,
+  type Message,
+  type MessageId,
+} from '@/core/domain';
 import {
   matchesSearch,
   searchTerms,
   type MergeFn,
+  type MediaQuery,
   type MessageRepository,
   type OutboxEntry,
   type PageQuery,
@@ -165,6 +173,21 @@ export class MemoryMessageRepository implements MessageRepository {
         .filter((m) => matchesSearch(m, terms))
         .sort((a, b) => bySeq(b, a))
         .slice(0, limit)
+        .map(clone),
+    );
+  }
+
+  media(
+    conversationId: ConversationId,
+    kind: GalleryKind,
+    { before, limit, signal }: MediaQuery,
+  ): Promise<Message[]> {
+    if (signal?.aborted) return Promise.reject(new DOMException('Media aborted', 'AbortError'));
+    return Promise.resolve(
+      [...(this.timelines.get(conversationId) ?? [])]
+        .filter((m) => (before === undefined || (m.seq ?? 0) < before) && hasGalleryItems(m, kind))
+        .sort((a, b) => bySeq(b, a))
+        .slice(0, Math.max(0, limit))
         .map(clone),
     );
   }

@@ -57,14 +57,27 @@ export class ChatController {
     options?: RevealOptions;
   } | null = null;
   private searchOpen = false;
+  private galleryOpen = false;
   private readonly listeners = new Set<() => void>();
 
   /** The in-conversation search panel (Ctrl+F), shared by the header button and the column. */
   isSearchOpen = (): boolean => this.searchOpen;
 
+  /** Opening search closes the gallery: both live in the one side slot. */
   setSearchOpen(open: boolean): void {
     if (this.searchOpen === open) return;
     this.searchOpen = open;
+    if (open) this.galleryOpen = false;
+    for (const fn of this.listeners) fn();
+  }
+
+  /** The "Media, files & links" panel, shown in the same side slot as search. */
+  isGalleryOpen = (): boolean => this.galleryOpen;
+
+  setGalleryOpen(open: boolean): void {
+    if (this.galleryOpen === open) return;
+    this.galleryOpen = open;
+    if (open) this.searchOpen = false;
     for (const fn of this.listeners) fn();
   }
 
@@ -143,5 +156,14 @@ export function useSearchOpen(): boolean {
     controller.subscribe,
     controller.isSearchOpen,
     controller.isSearchOpen,
+  );
+}
+
+export function useGalleryOpen(): boolean {
+  const controller = useChatController();
+  return useSyncExternalStore(
+    controller.subscribe,
+    controller.isGalleryOpen,
+    controller.isGalleryOpen,
   );
 }

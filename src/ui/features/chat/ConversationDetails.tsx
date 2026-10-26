@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Copy, KeyRound, Link2, LogOut, Pencil, Timer, UserPlus } from 'lucide-react';
+import { Copy, Images, KeyRound, Link2, LogOut, Pencil, Timer, UserPlus } from 'lucide-react';
 import { useStore } from 'zustand';
 import {
   canAddMembers,
@@ -19,6 +19,7 @@ import {
   type GroupModalType,
 } from '@/ui/features/conversation';
 import { Button, PopoverClose } from '@/ui/primitives';
+import { useChatController } from './ChatController';
 import styles from './ConversationDetails.module.css';
 
 /**
@@ -29,6 +30,7 @@ import styles from './ConversationDetails.module.css';
  */
 export function ConversationDetails({ conversation }: { conversation: ConversationView }) {
   const app = useSnowdrop();
+  const chat = useChatController();
   const peer = usePeer(conversation);
   const selfId = useStore(app.stores.session, sessionSelectors.selfId);
   const isGroup = conversation.kind === 'group';
@@ -104,6 +106,24 @@ export function ConversationDetails({ conversation }: { conversation: Conversati
           </div>
         )}
       </dl>
+      <ul className={styles.actionList} aria-label="Shared in this conversation">
+        <li>
+          <PopoverClose asChild>
+            <Button
+              size="sm"
+              variant="ghost"
+              fullWidth
+              className={styles.action}
+              icon={<Images size={14} />}
+              onClick={() => {
+                chat.setGalleryOpen(true);
+              }}
+            >
+              <span className={styles.actionLabel}>Media, files &amp; links</span>
+            </Button>
+          </PopoverClose>
+        </li>
+      </ul>
       {(canEdit || canAdd || showLink || canManage) && (
         <ul className={styles.actionList} aria-label="Group settings">
           {canEdit && action('editGroup', 'Edit group', <Pencil size={14} />)}
