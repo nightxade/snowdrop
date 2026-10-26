@@ -291,7 +291,7 @@ function ProfileEditor({ self, demo }: { self: Contact; demo: boolean }) {
         <Info size={14} aria-hidden />
         {demo
           ? 'This is the demo profile. Changes stay in this demo.'
-          : 'Saved to your Signal profile, and your phone is told to pick it up. Until it does, a sync can briefly show the old name or photo here.'}
+          : 'Saved to your Signal profile, and your phone is told to pick it up.'}
       </p>
     </form>
   );

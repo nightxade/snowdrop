@@ -13,7 +13,7 @@ Apply to a clean checkout of the pinned upstream commit:
 
 ```sh
 git apply /path/to/snowdrop/patches/signal-cli/*.patch
-./gradlew test --tests '*HistoryCommandTest' --tests '*GetConfigurationCommandTest' --tests '*SendReceiptCommandTest' --tests '*ReceiveConfigurationChangedNotificationTest' --tests '*ReceiveCatchingUpNotificationTest' :libsignal-cli:test --tests '*History*Test' --tests '*StickerHelperTest' --tests '*ConfigurationStoreTest' --tests '*ReceiptSyncOutcomeTest' --tests '*ReceiveHelperCatchingUpTest'
+./gradlew test --tests '*HistoryCommandTest' --tests '*GetConfigurationCommandTest' --tests '*SendReceiptCommandTest' --tests '*ReceiveConfigurationChangedNotificationTest' --tests '*ReceiveCatchingUpNotificationTest' :libsignal-cli:test --tests '*History*Test' --tests '*StickerHelperTest' --tests '*ConfigurationStoreTest' --tests '*ReceiptSyncOutcomeTest' --tests '*ReceiveHelperCatchingUpTest' --tests '*AccountRecordProfileWinsTest' --tests '*ProfileStorageUploadTest' --tests '*ProfileStoragePendingTest'
 ./gradlew installDist
 ```
 
@@ -848,6 +848,45 @@ Verification: `scripts/build-signal-cli.sh --test` (`ReceiveCatchingUpNotificati
 both subscription kinds, once per connect, cleanup, not subscribed without `subscribeReceive`;
 `ReceiveHelperCatchingUpTest`: fires on `CONNECTED` only, again on reconnect, harmless with no
 listener). Not verified against a real wake from sleep. Builds as `0.14.8-snowdrop-history.21`.
+
+## 0026: a profile edit also updates the storage-service account record
+
+`updateProfile` stored the new values and uploaded the profile, but never touched the storage-service
+account record, which also holds the given name, family name and avatar path. Signal Desktop
+marks that record changed on a profile edit (`captureChange('writeProfile')`), so it is uploaded with
+the new values. signal-cli did not, and the next storage merge
+(`AccountRecordProcessor.buildMergedRecord` prefers a non-empty remote name; `avatarUrlPath` the same)
+wrote the old name or photo back over the edit.
+
+- `ProfileHelper.setProfile` (the `updateProfile` path) compares the stored self profile before and
+  after. If the given name, family name or avatar path changed, it sets a persisted flag
+  (`snowdrop-profile-storage-pending`, in the existing `key_value` table), rotates the self storage
+  id (as `rotateProfileKey` does) and enqueues a `SyncStorageJob`. An about-only change, or saving
+  identical values, does none of it (the about text is not in the account record).
+- While the flag is set, `AccountRecordProcessor` takes those three fields from local, even when
+  empty (a removed avatar or family name stays removed). Every other field is merged exactly as
+  before, so a newer phone change to settings, pins, the expire timer, usernames and the rest still
+  applies and is carried into the record that gets uploaded.
+- `StorageHelper` clears the flag once a successful write, an empty write, or a force push leaves the
+  current self account id in the manifest on the service. A newer edit rotates that id, so its flag
+  survives an older push. After that the ordinary rule applies again and a later phone edit wins.
+- The record that is uploaded is built the same way as for any account-record push
+  (`StorageSyncModels.localToRemoteRecord`): the last stored record, plus the privacy settings from
+  the configuration store, plus the profile key, name and avatar. A linked device keeps the stored
+  username and link.
+- No storage change and no `DATABASE_VERSION` bump (the flag is a `key_value` row). The method name
+  and params are unchanged, so Snowdrop needs no capability gate and the native shell's allow-list is
+  unchanged. An older build keeps the old behaviour.
+
+Verification: `scripts/build-signal-cli.sh --test` (`AccountRecordProfileWinsTest`: a stale remote
+name or avatar does not revert a pending edit, the result is the remote record with exactly those
+three fields replaced, newer remote changes to other fields still apply, a later phone edit wins
+once the flag is cleared, a removed avatar or family name stays removed, the merged record or id
+that gets uploaded; `ProfileStorageUploadTest`, against the real recipient store: the uploaded record
+carries the new name and avatar and every other field as stored, an avatar removal uploads an empty
+path, an about-only change leaves the record unchanged, the rotated id makes the sync see a local-only
+record; `ProfileStoragePendingTest`: which edits count, when the flag clears). Not verified against a
+real phone. Builds as `0.14.8-snowdrop-history.22`.
 
 ## User-controlled phone verification
 

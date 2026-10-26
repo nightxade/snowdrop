@@ -1,0 +1,628 @@
+diff --git a/build.gradle.kts b/build.gradle.kts
+index 1eed7f8..2c74fa9 100644
+--- a/build.gradle.kts
++++ b/build.gradle.kts
+@@ -10,7 +10,7 @@ plugins {
+ 
+ allprojects {
+     group = "org.asamk"
+-    version = "0.14.8-snowdrop-history.21"
++    version = "0.14.8-snowdrop-history.22"
+ 
+     // Snowdrop: substitute a locally-built, patched signal-service-java
+     // (snowdrop/patches/signal-service-java) for the stock turasa jar, when
+diff --git a/lib/src/main/java/org/asamk/signal/manager/helper/ProfileHelper.java b/lib/src/main/java/org/asamk/signal/manager/helper/ProfileHelper.java
+index 6abe667..5396cc4 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/helper/ProfileHelper.java
++++ b/lib/src/main/java/org/asamk/signal/manager/helper/ProfileHelper.java
+@@ -166,7 +166,35 @@ public final class ProfileHelper {
+             Optional<String> avatar,
+             byte[] mobileCoinAddress
+     ) throws IOException {
++        final var selfRecipientId = account.getSelfRecipientId();
++        final var before = account.getProfileStore().getProfile(selfRecipientId);
+         setProfile(true, false, givenName, familyName, about, aboutEmoji, avatar, mobileCoinAddress);
++        final var after = account.getProfileStore().getProfile(selfRecipientId);
++        if (accountRecordFieldsChanged(before, after)) {
++            // Snowdrop: the storage-service account record carries the name and avatar too. Without
++            // this it keeps the old ones, and a later storage merge would write them back over
++            // this edit. Flag it first so that merge treats the local values as authoritative.
++            account.setProfileStoragePending(true);
++            account.getRecipientStore().rotateSelfStorageId();
++            context.getJobExecutor().enqueueJob(new SyncStorageJob());
++        }
++    }
++
++    /**
++     * Whether a profile edit touched anything the storage-service account record holds (given
++     * name, family name, avatar path). The about text and emoji are not in it.
++     */
++    static boolean accountRecordFieldsChanged(final Profile before, final Profile after) {
++        return !Objects.equals(emptyIfNull(before == null ? null : before.getGivenName()),
++                emptyIfNull(after == null ? null : after.getGivenName()))
++                || !Objects.equals(emptyIfNull(before == null ? null : before.getFamilyName()),
++                emptyIfNull(after == null ? null : after.getFamilyName()))
++                || !Objects.equals(emptyIfNull(before == null ? null : before.getAvatarUrlPath()),
++                emptyIfNull(after == null ? null : after.getAvatarUrlPath()));
++    }
++
++    private static String emptyIfNull(final String value) {
++        return value == null ? "" : value;
+     }
+ 
+     public void setProfile(
+diff --git a/lib/src/main/java/org/asamk/signal/manager/helper/StorageHelper.java b/lib/src/main/java/org/asamk/signal/manager/helper/StorageHelper.java
+index 5b883ab..08d282f 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/helper/StorageHelper.java
++++ b/lib/src/main/java/org/asamk/signal/manager/helper/StorageHelper.java
+@@ -354,6 +354,7 @@ public class StorageHelper {
+ 
+         if (remoteWriteOperation.isEmpty()) {
+             logger.debug("No remote writes needed. Still at version: {}", remoteManifest.version);
++            clearProfileStoragePendingIfPushed(remoteWriteOperation.manifest().storageIds);
+             storageSyncLoopDetector.onConverged();
+             return false;
+         }
+@@ -409,6 +410,7 @@ public class StorageHelper {
+             case WriteStorageRecordsResult.Success ignored -> {
+                 logger.debug("Saved new manifest. Now at version: {}", remoteWriteOperation.manifest().version);
+                 storeManifestLocally(remoteWriteOperation.manifest());
++                clearProfileStoragePendingIfPushed(remoteWriteOperation.manifest().storageIds);
+                 return true;
+             }
+             default -> throw new IllegalStateException("Unexpected value: " + result);
+@@ -566,6 +568,30 @@ public class StorageHelper {
+         } catch (SQLException e) {
+             throw new RuntimeException("Failed to sync remote storage", e);
+         }
++
++        clearProfileStoragePendingIfPushed(newStorageIds);
++    }
++
++    /**
++     * Snowdrop: the local profile edit counts as uploaded once the manifest that reached the
++     * storage service holds the current self account record (a newer edit rotates that id, so
++     * its flag stays).
++     */
++    private void clearProfileStoragePendingIfPushed(final List<StorageId> pushedStorageIds) {
++        if (!account.isProfileStoragePending()) {
++            return;
++        }
++        try (final var connection = account.getAccountDatabase().getConnection()) {
++            if (isSelfRecordPushed(account.getRecipientStore().getSelfStorageId(connection), pushedStorageIds)) {
++                account.setProfileStoragePending(false);
++            }
++        } catch (SQLException e) {
++            logger.warn("Failed to clear the pending profile storage flag", e);
++        }
++    }
++
++    static boolean isSelfRecordPushed(final StorageId selfStorageId, final List<StorageId> pushedStorageIds) {
++        return pushedStorageIds.contains(selfStorageId);
+     }
+ 
+     private Map<RecipientId, StorageId> generateContactStorageIds(List<RecipientId> recipientIds) {
+diff --git a/lib/src/main/java/org/asamk/signal/manager/storage/SignalAccount.java b/lib/src/main/java/org/asamk/signal/manager/storage/SignalAccount.java
+index 77511d6..86b07e3 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/storage/SignalAccount.java
++++ b/lib/src/main/java/org/asamk/signal/manager/storage/SignalAccount.java
+@@ -167,6 +167,11 @@ public class SignalAccount implements Closeable {
+     private final KeyValueEntry<Long> storageManifestVersion = new KeyValueEntry<>("storage-manifest-version",
+             long.class,
+             -1L);
++    // Snowdrop: set when a local profile edit changed a field the storage-service account record
++    // carries (name, avatar) and that record has not reached the service yet.
++    private final KeyValueEntry<Boolean> profileStoragePending = new KeyValueEntry<>("snowdrop-profile-storage-pending",
++            Boolean.class,
++            false);
+     private final KeyValueEntry<Boolean> unrestrictedUnidentifiedAccess = new KeyValueEntry<>(
+             "unrestricted-unidentified-access",
+             Boolean.class,
+@@ -1793,6 +1798,14 @@ public class SignalAccount implements Closeable {
+         return getKeyValueStore().getEntry(needsToRetryFailedMessages);
+     }
+ 
++    public boolean isProfileStoragePending() {
++        return Boolean.TRUE.equals(getKeyValueStore().getEntry(profileStoragePending));
++    }
++
++    public void setProfileStoragePending(final boolean value) {
++        getKeyValueStore().storeEntry(profileStoragePending, value);
++    }
++
+     public boolean isUnrestrictedUnidentifiedAccess() {
+         return Boolean.TRUE.equals(getKeyValueStore().getEntry(unrestrictedUnidentifiedAccess));
+     }
+diff --git a/lib/src/main/java/org/asamk/signal/manager/syncStorage/AccountRecordProcessor.java b/lib/src/main/java/org/asamk/signal/manager/syncStorage/AccountRecordProcessor.java
+index 3a36ffd..21e9ebb 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/syncStorage/AccountRecordProcessor.java
++++ b/lib/src/main/java/org/asamk/signal/manager/syncStorage/AccountRecordProcessor.java
+@@ -39,6 +39,7 @@ public class AccountRecordProcessor extends DefaultStorageRecordProcessor<Signal
+     private final SignalAccount account;
+     private final Connection connection;
+     private final JobExecutor jobExecutor;
++    private final boolean localProfileWins;
+ 
+     public AccountRecordProcessor(
+             SignalAccount account,
+@@ -48,6 +49,8 @@ public class AccountRecordProcessor extends DefaultStorageRecordProcessor<Signal
+         this.account = account;
+         this.connection = connection;
+         this.jobExecutor = jobExecutor;
++        // Snowdrop: a local profile edit that has not reached the storage service yet.
++        this.localProfileWins = account.isProfileStoragePending();
+         final var selfRecipientId = account.getSelfRecipientId();
+         final var recipient = account.getRecipientStore().getRecipient(connection, selfRecipientId);
+         final var storageId = account.getRecipientStore().getSelfStorageId(connection);
+@@ -59,6 +62,15 @@ public class AccountRecordProcessor extends DefaultStorageRecordProcessor<Signal
+                         account.isPrimaryDevice()));
+     }
+ 
++    /** For tests: only {@link #merge} and {@link #getMatching} work on an instance built this way. */
++    AccountRecordProcessor(final SignalAccountRecord localAccountRecord, final boolean localProfileWins) {
++        this.account = null;
++        this.connection = null;
++        this.jobExecutor = null;
++        this.localProfileWins = localProfileWins;
++        this.localAccountRecord = localAccountRecord;
++    }
++
+     @Override
+     protected boolean isInvalid(SignalAccountRecord remote) {
+         return false;
+@@ -73,7 +85,7 @@ public class AccountRecordProcessor extends DefaultStorageRecordProcessor<Signal
+     protected SignalAccountRecord merge(SignalAccountRecord remoteRecord, SignalAccountRecord localRecord) {
+         final var remote = remoteRecord.getProto();
+         final var local = localRecord.getProto();
+-        final var merged = buildMergedRecord(remote, local);
++        final var merged = buildMergedRecord(remote, local, localProfileWins);
+ 
+         final var matchesRemote = doProtosMatch(merged, remote);
+         if (matchesRemote) {
+@@ -98,15 +110,31 @@ public class AccountRecordProcessor extends DefaultStorageRecordProcessor<Signal
+      * own (possibly stale or empty) state.
+      */
+     static AccountRecord buildMergedRecord(AccountRecord remote, AccountRecord local) {
++        return buildMergedRecord(remote, local, false);
++    }
++
++    /**
++     * Snowdrop: with {@code localProfileWins} (a local profile edit that has not been uploaded
++     * yet) the given name, family name and avatar path come from local, even when empty, instead
++     * of the usual "a non-empty remote value wins". Nothing else changes: every other field is
++     * merged exactly as before.
++     */
++    static AccountRecord buildMergedRecord(AccountRecord remote, AccountRecord local, boolean localProfileWins) {
+         String givenName;
+         String familyName;
+-        if (!remote.givenName.isEmpty() || !remote.familyName.isEmpty()) {
++        if (localProfileWins) {
++            givenName = local.givenName;
++            familyName = local.familyName;
++        } else if (!remote.givenName.isEmpty() || !remote.familyName.isEmpty()) {
+             givenName = remote.givenName;
+             familyName = remote.familyName;
+         } else {
+             givenName = local.givenName;
+             familyName = local.familyName;
+         }
++        final var avatarUrlPath = localProfileWins
++                ? local.avatarUrlPath
++                : firstNonEmpty(remote.avatarUrlPath, local.avatarUrlPath);
+ 
+         final var payments = remote.payments != null && remote.payments.entropy.size() > 0
+                 ? remote.payments
+@@ -140,7 +168,7 @@ public class AccountRecordProcessor extends DefaultStorageRecordProcessor<Signal
+         final var mergedBuilder = remote.newBuilder()
+                 .givenName(givenName)
+                 .familyName(familyName)
+-                .avatarUrlPath(firstNonEmpty(remote.avatarUrlPath, local.avatarUrlPath))
++                .avatarUrlPath(avatarUrlPath)
+                 .profileKey(firstNonEmpty(remote.profileKey, local.profileKey))
+                 .noteToSelfArchived(remote.noteToSelfArchived)
+                 .noteToSelfMarkedUnread(remote.noteToSelfMarkedUnread)
+diff --git a/lib/src/test/java/org/asamk/signal/manager/helper/ProfileStoragePendingTest.java b/lib/src/test/java/org/asamk/signal/manager/helper/ProfileStoragePendingTest.java
+new file mode 100644
+index 0000000..3d60695
+--- /dev/null
++++ b/lib/src/test/java/org/asamk/signal/manager/helper/ProfileStoragePendingTest.java
+@@ -0,0 +1,50 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.manager.helper;
++
++import org.asamk.signal.manager.api.Profile;
++import org.junit.jupiter.api.Test;
++import org.whispersystems.signalservice.api.storage.StorageId;
++
++import java.util.List;
++
++import static org.junit.jupiter.api.Assertions.assertFalse;
++import static org.junit.jupiter.api.Assertions.assertTrue;
++
++class ProfileStoragePendingTest {
++
++    private static Profile.Builder profile() {
++        return Profile.newBuilder().withGivenName("A").withFamilyName("B").withAbout("x").withAvatarUrlPath("p/1");
++    }
++
++    @Test
++    void nameAndAvatarEditsTouchTheAccountRecord() {
++        final var before = profile().build();
++        assertTrue(ProfileHelper.accountRecordFieldsChanged(before, Profile.newBuilder(before).withGivenName("C").build()));
++        assertTrue(ProfileHelper.accountRecordFieldsChanged(before, Profile.newBuilder(before).withFamilyName("").build()));
++        assertTrue(ProfileHelper.accountRecordFieldsChanged(before,
++                Profile.newBuilder(before).withAvatarUrlPath("p/2").build()));
++        assertTrue(ProfileHelper.accountRecordFieldsChanged(before,
++                Profile.newBuilder(before).withAvatarUrlPath(null).build()));
++        assertTrue(ProfileHelper.accountRecordFieldsChanged(null, before));
++    }
++
++    @Test
++    void anAboutOnlyOrNoOpEditPushesNothing() {
++        final var before = profile().build();
++        assertFalse(ProfileHelper.accountRecordFieldsChanged(before,
++                Profile.newBuilder(before).withAbout("new about").withAboutEmoji("x").build()));
++        assertFalse(ProfileHelper.accountRecordFieldsChanged(before, Profile.newBuilder(before).build()));
++        assertFalse(ProfileHelper.accountRecordFieldsChanged(null, null));
++        assertFalse(ProfileHelper.accountRecordFieldsChanged(null, Profile.newBuilder().withAbout("x").build()));
++    }
++
++    @Test
++    void theFlagClearsOnlyOnceTheCurrentSelfRecordIsInThePushedManifest() {
++        final var current = StorageId.forAccount(new byte[]{2});
++        final var older = StorageId.forAccount(new byte[]{1});
++        final var contact = StorageId.forContact(new byte[]{3});
++        assertTrue(StorageHelper.isSelfRecordPushed(current, List.of(contact, current)));
++        // a newer edit rotated the id after the manifest was built
++        assertFalse(StorageHelper.isSelfRecordPushed(current, List.of(contact, older)));
++    }
++}
+diff --git a/lib/src/test/java/org/asamk/signal/manager/syncStorage/AccountRecordProfileWinsTest.java b/lib/src/test/java/org/asamk/signal/manager/syncStorage/AccountRecordProfileWinsTest.java
+new file mode 100644
+index 0000000..e895320
+--- /dev/null
++++ b/lib/src/test/java/org/asamk/signal/manager/syncStorage/AccountRecordProfileWinsTest.java
+@@ -0,0 +1,158 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.manager.syncStorage;
++
++import org.junit.jupiter.api.Test;
++import org.whispersystems.signalservice.api.storage.SignalAccountRecord;
++import org.whispersystems.signalservice.api.storage.StorageId;
++import org.whispersystems.signalservice.internal.storage.protos.AccountRecord;
++
++import java.util.List;
++
++import okio.ByteString;
++
++import static org.junit.jupiter.api.Assertions.assertArrayEquals;
++import static org.junit.jupiter.api.Assertions.assertEquals;
++import static org.junit.jupiter.api.Assertions.assertNotEquals;
++import static org.junit.jupiter.api.Assertions.assertSame;
++
++/**
++ * A profile edit that has not reached the storage service yet must survive the merge with the
++ * (stale) remote account record, and only for the name and avatar fields.
++ */
++class AccountRecordProfileWinsTest {
++
++    private static AccountRecord.Builder phoneRecord() {
++        return new AccountRecord.Builder().givenName("Old")
++                .familyName("Name")
++                .avatarUrlPath("avatars/old")
++                .profileKey(ByteString.of(new byte[32]))
++                .readReceipts(false)
++                .typingIndicators(true)
++                .universalExpireTimer(3600)
++                .noteToSelfArchived(true)
++                .username("someone.01")
++                .preferredReactionEmoji(List.of("a", "b"))
++                .pinnedConversations(List.of(new AccountRecord.PinnedConversation.Builder().contact(new AccountRecord.PinnedConversation.Contact.Builder()
++                        .serviceId("00000000-0000-4000-8000-000000000001")
++                        .build()).build()));
++    }
++
++    private static AccountRecord edited(final AccountRecord base) {
++        return base.newBuilder().givenName("New").familyName("Person").avatarUrlPath("avatars/new").build();
++    }
++
++    @Test
++    void staleRemoteNameDoesNotRevertAPendingEditAndNothingElseMoves() {
++        final var remote = phoneRecord().build();
++        final var local = edited(remote);
++
++        final var merged = AccountRecordProcessor.buildMergedRecord(remote, local, true);
++
++        assertEquals("New", merged.givenName);
++        assertEquals("Person", merged.familyName);
++        assertEquals("avatars/new", merged.avatarUrlPath);
++        // Exactly the remote record with those three fields replaced: settings, pins, expire
++        // timer, username and everything else are byte-identical to remote.
++        assertArrayEquals(local.encode(), merged.encode());
++        assertArrayEquals(remote.newBuilder()
++                .givenName("New")
++                .familyName("Person")
++                .avatarUrlPath("avatars/new")
++                .build()
++                .encode(), merged.encode());
++    }
++
++    @Test
++    void withoutAPendingEditTheRemoteNameStillWins() {
++        final var remote = phoneRecord().build();
++        final var local = edited(remote);
++
++        final var merged = AccountRecordProcessor.buildMergedRecord(remote, local, false);
++
++        assertEquals("Old", merged.givenName);
++        assertEquals("Name", merged.familyName);
++        assertEquals("avatars/old", merged.avatarUrlPath);
++        assertArrayEquals(remote.encode(), merged.encode());
++        assertArrayEquals(AccountRecordProcessor.buildMergedRecord(remote, local).encode(), merged.encode());
++    }
++
++    @Test
++    void aNewerRemoteChangeToAnyOtherFieldStillApplies() {
++        final var base = phoneRecord().build();
++        final var local = edited(base);
++        final var remote = base.newBuilder()
++                .readReceipts(true)
++                .universalExpireTimer(86400)
++                .noteToSelfArchived(false)
++                .username("renamed.02")
++                .pinnedConversations(List.of())
++                .build();
++
++        final var merged = AccountRecordProcessor.buildMergedRecord(remote, local, true);
++
++        assertEquals(true, merged.readReceipts);
++        assertEquals(86400, merged.universalExpireTimer);
++        assertEquals(false, merged.noteToSelfArchived);
++        assertEquals("renamed.02", merged.username);
++        assertEquals(0, merged.pinnedConversations.size());
++        assertEquals("New", merged.givenName);
++        assertEquals("avatars/new", merged.avatarUrlPath);
++    }
++
++    @Test
++    void aLaterPhoneNameEditWinsOnceOurEditWasUploaded() {
++        // The flag is cleared after the upload; then the ordinary rule applies again.
++        final var uploaded = edited(phoneRecord().build());
++        final var remote = uploaded.newBuilder().givenName("Phone").familyName("Edit").avatarUrlPath("avatars/p").build();
++
++        final var merged = AccountRecordProcessor.buildMergedRecord(remote, uploaded, false);
++
++        assertEquals("Phone", merged.givenName);
++        assertEquals("Edit", merged.familyName);
++        assertEquals("avatars/p", merged.avatarUrlPath);
++    }
++
++    @Test
++    void removingTheAvatarClearsItEvenThoughRemoteStillHasOne() {
++        final var remote = phoneRecord().build();
++        final var local = remote.newBuilder().avatarUrlPath("").build();
++
++        assertEquals("", AccountRecordProcessor.buildMergedRecord(remote, local, true).avatarUrlPath);
++        assertEquals("avatars/old", AccountRecordProcessor.buildMergedRecord(remote, local, false).avatarUrlPath);
++    }
++
++    @Test
++    void clearingTheFamilyNameIsAnEditToo() {
++        final var remote = phoneRecord().build();
++        final var local = remote.newBuilder().familyName("").build();
++
++        final var merged = AccountRecordProcessor.buildMergedRecord(remote, local, true);
++
++        assertEquals("Old", merged.givenName);
++        assertEquals("", merged.familyName);
++    }
++
++    @Test
++    void mergeKeepsOurRecordWhenItAlreadyMatchesAndOtherwiseMintsANewId() {
++        final var remote = new SignalAccountRecord(StorageId.forAccount(new byte[]{1}), phoneRecord().build());
++        final var localProto = edited(remote.getProto());
++        final var local = new SignalAccountRecord(StorageId.forAccount(new byte[]{2}), localProto);
++        final var processor = new AccountRecordProcessor(local, true);
++
++        // Remote only differs in the profile fields: the merged record is exactly ours.
++        assertSame(local, processor.merge(remote, local));
++
++        // Remote also changed something else: a new record, so the merge gets uploaded.
++        final var remoteWithOtherChange = new SignalAccountRecord(StorageId.forAccount(new byte[]{3}),
++                remote.getProto().newBuilder().universalExpireTimer(60).build());
++        final var merged = processor.merge(remoteWithOtherChange, local);
++        assertNotEquals(remoteWithOtherChange.getId(), merged.getId());
++        assertNotEquals(local.getId(), merged.getId());
++        assertEquals("New", merged.getProto().givenName);
++        assertEquals(60, merged.getProto().universalExpireTimer);
++
++        // And when the remote already holds our values the remote record is kept as is.
++        final var remoteWithOurs = new SignalAccountRecord(StorageId.forAccount(new byte[]{4}), localProto);
++        assertSame(remoteWithOurs, processor.merge(remoteWithOurs, local));
++    }
++}
+diff --git a/lib/src/test/java/org/asamk/signal/manager/syncStorage/ProfileStorageUploadTest.java b/lib/src/test/java/org/asamk/signal/manager/syncStorage/ProfileStorageUploadTest.java
+new file mode 100644
+index 0000000..05a4cba
+--- /dev/null
++++ b/lib/src/test/java/org/asamk/signal/manager/syncStorage/ProfileStorageUploadTest.java
+@@ -0,0 +1,179 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.manager.syncStorage;
++
++import org.asamk.signal.manager.api.PhoneNumberSharingMode;
++import org.asamk.signal.manager.api.Profile;
++import org.asamk.signal.manager.storage.AccountDatabase;
++import org.asamk.signal.manager.storage.configuration.ConfigurationStore;
++import org.asamk.signal.manager.storage.keyValue.KeyValueStore;
++import org.asamk.signal.manager.storage.recipients.RecipientAddress;
++import org.asamk.signal.manager.storage.recipients.RecipientId;
++import org.asamk.signal.manager.storage.recipients.RecipientStore;
++import org.junit.jupiter.api.AfterEach;
++import org.junit.jupiter.api.BeforeEach;
++import org.junit.jupiter.api.Test;
++import org.junit.jupiter.api.io.TempDir;
++import org.signal.core.models.ServiceId.ACI;
++import org.whispersystems.signalservice.api.storage.SignalAccountRecord;
++import org.whispersystems.signalservice.api.storage.StorageId;
++import org.whispersystems.signalservice.internal.storage.protos.AccountRecord;
++
++import java.nio.file.Path;
++import java.util.UUID;
++
++import okio.ByteString;
++
++import static org.junit.jupiter.api.Assertions.assertArrayEquals;
++import static org.junit.jupiter.api.Assertions.assertEquals;
++import static org.junit.jupiter.api.Assertions.assertNotEquals;
++
++/**
++ * What the storage sync uploads for the self account record after a profile edit, against the
++ * real recipient store: the new name and avatar, every other field as it was stored.
++ */
++class ProfileStorageUploadTest {
++
++    @TempDir Path directory;
++
++    private AccountDatabase database;
++    private RecipientStore recipients;
++    private ConfigurationStore config;
++    private AccountRecord stored;
++    private RecipientId selfId;
++
++    @BeforeEach
++    void setUp() throws Exception {
++        database = AccountDatabase.init(directory.resolve("account.db").toFile());
++        final var self = new RecipientAddress(ACI.from(UUID.randomUUID()), "+15550000001");
++        recipients = new RecipientStore((c, a, b) -> {
++        }, () -> self, () -> null, database);
++        config = new ConfigurationStore(new KeyValueStore(database), recipients);
++        // Settings the account record also carries, as the last merge left them.
++        config.setReadReceipts(false);
++        config.setTypingIndicators(true);
++        config.setLinkPreviews(false);
++        config.setUnidentifiedDeliveryIndicators(true);
++        config.setPhoneNumberSharingMode(PhoneNumberSharingMode.NOBODY);
++        config.setPhoneNumberUnlisted(false);
++
++        stored = new AccountRecord.Builder().givenName("Old")
++                .familyName("Name")
++                .avatarUrlPath("avatars/old")
++                .readReceipts(false)
++                .typingIndicators(true)
++                .linkPreviews(false)
++                .sealedSenderIndicators(true)
++                .unlistedPhoneNumber(false)
++                .phoneNumberSharingMode(AccountRecord.PhoneNumberSharingMode.NOBODY)
++                .universalExpireTimer(3600)
++                .noteToSelfMarkedUnread(true)
++                .username("someone.01")
++                .usernameLink(new AccountRecord.UsernameLink.Builder().entropy(ByteString.of(new byte[32]))
++                        .serverId(ByteString.of(new byte[16]))
++                        .color(AccountRecord.UsernameLink.Color.BLUE)
++                        .build())
++                .build();
++        try (final var connection = database.getConnection()) {
++            selfId = recipients.resolveRecipient(connection, self);
++            recipients.storeProfile(selfId,
++                    Profile.newBuilder()
++                            .withGivenName("Old")
++                            .withFamilyName("Name")
++                            .withAvatarUrlPath("avatars/old")
++                            .withAbout("hi")
++                            .build());
++            recipients.storeStorageRecord(connection, selfId, StorageId.forAccount(new byte[]{9, 9}), stored.encode());
++        }
++    }
++
++    @AfterEach
++    void tearDown() {
++        database.close();
++    }
++
++    private AccountRecord upload() throws Exception {
++        try (final var connection = database.getConnection()) {
++            final var self = recipients.getRecipient(connection, selfId);
++            // Linked device: usernames come from the stored record, not from local state.
++            return StorageSyncModels.localToRemoteRecord(connection, config, self, null, false);
++        }
++    }
++
++    private void editProfile(final String given, final String family, final String avatar, final String about) {
++        recipients.storeProfile(selfId,
++                Profile.newBuilder(recipients.getProfile(selfId))
++                        .withGivenName(given)
++                        .withFamilyName(family)
++                        .withAvatarUrlPath(avatar)
++                        .withAbout(about)
++                        .build());
++    }
++
++    @Test
++    void theUploadedRecordCarriesTheNewNameAndAvatarAndEverythingElseAsStored() throws Exception {
++        assertArrayEquals(stored.encode(), upload().encode());
++
++        editProfile("New", "Person", "avatars/new", "changed about");
++        recipients.rotateSelfStorageId();
++
++        final var uploaded = upload();
++        assertEquals("New", uploaded.givenName);
++        assertEquals("Person", uploaded.familyName);
++        assertEquals("avatars/new", uploaded.avatarUrlPath);
++        assertArrayEquals(stored.newBuilder()
++                .givenName("New")
++                .familyName("Person")
++                .avatarUrlPath("avatars/new")
++                .build()
++                .encode(), uploaded.encode());
++    }
++
++    @Test
++    void removingTheAvatarUploadsAnEmptyAvatarPath() throws Exception {
++        editProfile("Old", "Name", null, "hi");
++        assertEquals("", upload().avatarUrlPath);
++        assertArrayEquals(stored.newBuilder().avatarUrlPath("").build().encode(), upload().encode());
++    }
++
++    @Test
++    void anAboutOnlyChangeLeavesTheAccountRecordUntouched() throws Exception {
++        editProfile("Old", "Name", "avatars/old", "a different about");
++        assertArrayEquals(stored.encode(), upload().encode());
++    }
++
++    @Test
++    void rotatingTheSelfStorageIdMakesTheSyncSeeALocalOnlyAccountRecord() throws Exception {
++        final StorageId before;
++        try (final var connection = database.getConnection()) {
++            before = recipients.getSelfStorageId(connection);
++        }
++        recipients.rotateSelfStorageId();
++        try (final var connection = database.getConnection()) {
++            final var after = recipients.getSelfStorageId(connection);
++            assertNotEquals(before, after);
++            assertEquals(after, recipients.getSelfStorageId(connection));
++        }
++    }
++
++    @Test
++    void aLaterMergeWithTheStaleRemoteRecordDoesNotRevertTheEdit() throws Exception {
++        editProfile("New", "Person", "avatars/new", "hi");
++        recipients.rotateSelfStorageId();
++        final var localRecord = upload();
++        final StorageId localId;
++        try (final var connection = database.getConnection()) {
++            localId = recipients.getSelfStorageId(connection);
++        }
++        final var local = new SignalAccountRecord(localId, localRecord);
++        final var staleRemote = new SignalAccountRecord(StorageId.forAccount(new byte[]{9, 9}), stored);
++        final var phoneChangedASetting = new SignalAccountRecord(StorageId.forAccount(new byte[]{7}),
++                stored.newBuilder().universalExpireTimer(60).build());
++
++        final var processor = new AccountRecordProcessor(local, true);
++        assertEquals("New", processor.merge(staleRemote, local).getProto().givenName);
++        final var merged = processor.merge(phoneChangedASetting, local).getProto();
++        assertEquals("New", merged.givenName);
++        assertEquals("avatars/new", merged.avatarUrlPath);
++        assertEquals(60, merged.universalExpireTimer);
++    }
++}
