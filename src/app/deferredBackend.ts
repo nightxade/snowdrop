@@ -27,6 +27,9 @@ export const OPTIONAL_METHODS = [
   'votePoll',
   'terminatePoll',
   'updateConversation',
+  'updateGroup',
+  'createGroup',
+  'leaveGroup',
   'respondToMessageRequest',
   'setBlocked',
   'resolveAttachmentUrl',
@@ -173,6 +176,15 @@ export function deferredBackend(
       call((b) =>
         b.updateConversation ? b.updateConversation(c, patch) : missing('updateConversation'),
       );
+  if (caps.has('updateGroup'))
+    backend.updateGroup = (c, change) =>
+      call((b) => (b.updateGroup ? b.updateGroup(c, change) : missing('updateGroup')));
+  if (caps.has('createGroup'))
+    backend.createGroup = (input) =>
+      call((b) => (b.createGroup ? b.createGroup(input) : missing('createGroup')));
+  if (caps.has('leaveGroup'))
+    backend.leaveGroup = (c, admins) =>
+      call((b) => (b.leaveGroup ? b.leaveGroup(c, admins) : missing('leaveGroup')));
   if (caps.has('resolveAttachmentUrl'))
     backend.resolveAttachmentUrl = (c, a) =>
       call((b) =>

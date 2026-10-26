@@ -151,3 +151,31 @@ export async function updateConversation(
     });
   return ok;
 }
+
+/** The group dialogs `ModalHost` knows (they live in the groups feature, loaded when first opened). */
+export type GroupModalType =
+  | 'newGroup'
+  | 'editGroup'
+  | 'addMembers'
+  | 'groupLink'
+  | 'groupPermissions'
+  | 'leaveGroup'
+  | 'groupMemberAction';
+
+/** What a member-action dialog asks the user to confirm. */
+export type GroupMemberAction =
+  'remove' | 'make-admin' | 'remove-admin' | 'approve' | 'deny' | 'revoke';
+
+/**
+ * Opens a group dialog. Waits a frame so the menu or popover that asked has
+ * closed and handed focus back first, and the dialog returns focus there.
+ */
+export function openGroupModal(
+  app: AppServices,
+  type: GroupModalType,
+  props?: Record<string, unknown>,
+): void {
+  requestAnimationFrame(() => {
+    app.stores.ui.getState().openModal({ type, ...(props ? { props } : {}) });
+  });
+}

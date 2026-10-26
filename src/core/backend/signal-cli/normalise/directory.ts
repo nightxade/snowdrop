@@ -9,12 +9,12 @@
 import {
   colorForId,
   directConversationId,
-  formatDuration,
   groupConversationId,
   type Contact,
   type Conversation,
+  type GroupMemberLabel,
+  type GroupPermission,
 } from '@/core/domain';
-import { stripBidiControls } from '@/core/lib';
 import { addressId, type WireContact, type WireGroup } from '../wire';
 
 const joinName = (...parts: (string | undefined)[]): string =>
@@ -49,6 +49,21 @@ export function toContact(c: WireContact, selfId: string): Contact | null {
   return contact;
 }
 
+const permissionOf = (name: string | undefined): GroupPermission =>
+  name === 'ONLY_ADMINS' ? 'only-admins' : 'every-member';
+
+/** Sorted and de-duplicated: signal-cli lists these from a set, in no stable order. */
+function addressIds(
+  addresses: readonly { uuid?: string | undefined; number?: string | undefined }[],
+  resolve: (id: string) => string,
+): string[] {
+  const ids = addresses.flatMap((a) => {
+    const id = addressId(a.uuid, a.number);
+    return id ? [resolve(id)] : [];
+  });
+  return [...new Set(ids)].sort();
+}
+
 export function toGroupConversation(
   g: WireGroup,
   resolve: (id: string) => string,
@@ -76,6 +91,29 @@ export function toGroupConversation(
   };
   if (g.description) conv.description = g.description;
   if (g.isBlocked) conv.blocked = true;
+  // Each of these is only set when the daemon reported it, so an older
+  // signal-cli reads as "unknown" rather than as "no pending invites".
+  if (g.pendingMembers) conv.pendingMemberIds = addressIds(g.pendingMembers, resolve);
+  if (g.requestingMembers) conv.requestingMemberIds = addressIds(g.requestingMembers, resolve);
+  if (g.banned) conv.bannedIds = addressIds(g.banned, resolve);
+  if (g.permissionAddMember || g.permissionEditDetails || g.permissionSendMessage) {
+    conv.permissions = {
+      addMember: permissionOf(g.permissionAddMember),
+      editDetails: permissionOf(g.permissionEditDetails),
+      sendMessages: permissionOf(g.permissionSendMessage),
+    };
+  }
+  if (g.groupInviteLink) conv.inviteLink = g.groupInviteLink;
+  const labels: Record<string, GroupMemberLabel> = {};
+  for (const m of g.members) {
+    const id = addressId(m.uuid, m.number);
+    if (!id || (!m.label && !m.labelEmoji)) continue;
+    labels[resolve(id)] = {
+      ...(m.labelEmoji ? { emoji: m.labelEmoji } : {}),
+      ...(m.label ? { label: m.label } : {}),
+    };
+  }
+  if (Object.keys(labels).length > 0) conv.memberLabels = labels;
   return conv;
 }
 
@@ -97,62 +135,4 @@ export function toDirectConversation(
   };
 }
 
-/** "Disappearing messages" sentence for a timer value, with or without an actor. */
-export function timerSentence(actorName: string | null, seconds: number): string {
-  if (actorName === null) {
-    return seconds > 0
-      ? `Disappearing messages were set to ${formatDuration(seconds)}.`
-      : 'Disappearing messages were turned off.';
-  }
-  return seconds > 0
-    ? `${actorName} set disappearing messages to ${formatDuration(seconds)}.`
-    : `${actorName} turned off disappearing messages.`;
-}
-
-/**
- * Human-readable lines describing how a group changed. `actorName` null
- * phrases changes passively (several people changed things in one batch).
- */
-export function describeGroupChange(
-  before: Conversation | undefined,
-  after: Conversation,
-  actorName: string | null,
-  nameOf: (id: string) => string,
-): string[] {
-  if (!before) return [actorName ? `${actorName} updated the group.` : 'The group was updated.'];
-  const lines: string[] = [];
-  if (before.title !== after.title) {
-    const title = stripBidiControls(after.title);
-    lines.push(
-      actorName
-        ? `${actorName} changed the group name to "${title}".`
-        : `The group name was changed to "${title}".`,
-    );
-  }
-  if ((before.description ?? '') !== (after.description ?? '')) {
-    const verb = after.description ? 'changed' : 'removed';
-    lines.push(
-      actorName
-        ? `${actorName} ${verb} the group description.`
-        : `The group description was ${verb}.`,
-    );
-  }
-  if (before.expireTimerSec !== after.expireTimerSec) {
-    lines.push(timerSentence(actorName, after.expireTimerSec));
-  }
-  const was = new Set(before.memberIds);
-  const is = new Set(after.memberIds);
-  const joined = after.memberIds.filter((id) => !was.has(id));
-  const left = before.memberIds.filter((id) => !is.has(id));
-  const names = (ids: string[]): string => ids.map(nameOf).join(', ');
-  // The protocol doesn't tell us whether someone joined or was added (or left
-  // vs. was removed), so the wording stays neutral.
-  if (joined.length > 0) lines.push(`${names(joined)} joined the group.`);
-  if (left.length > 0) lines.push(`${names(left)} left the group.`);
-  const wasAdmin = new Set(before.adminIds);
-  const promoted = after.adminIds.filter((id) => !wasAdmin.has(id) && was.has(id));
-  if (promoted.length > 0) {
-    lines.push(`${names(promoted)} ${promoted.length === 1 ? 'is' : 'are'} now an admin.`);
-  }
-  return lines;
-}
+export { describeGroupChange, timerSentence } from '../../groupLines';

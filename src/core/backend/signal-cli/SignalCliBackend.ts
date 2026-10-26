@@ -50,6 +50,7 @@ import type {
   ChatBackend,
   ConversationPatch,
   EditInput,
+  GroupChange,
   HistoryPage,
   HistoryQuery,
   HistoryReadRef,
@@ -59,6 +60,7 @@ import type {
   ReadSummary,
   MessageRef,
   MessageRequestResponse,
+  NewGroupInput,
   PhonePrivacyPatch,
   PhonePrivacySettings,
   PinInput,
@@ -100,7 +102,9 @@ import { normaliseReceive } from './normalise/envelope';
 import type { AdapterEvent, NormaliseContext } from './normalise/types';
 import {
   enrichSendError,
+  groupChangeParams,
   messageParams,
+  newGroupParams,
   pinDurationParam,
   pollCreateParams,
   pollVoteParams,
@@ -124,6 +128,7 @@ import { isRecord, unknownValue } from './validate';
 import {
   wireAccounts,
   wireFinishLink,
+  wireGroupResult,
   wireSendResult,
   wirePhonePrivacy,
   wireStartLink,
@@ -166,6 +171,9 @@ const SENT_QUOTES_MAX = 500;
 
 /** For commands whose result we don't need (it varies across daemon versions). */
 const ignoreResult = unknownValue;
+
+/** A group change can upload a photo and notify every member. */
+const GROUP_TIMEOUT_MS = 60_000;
 
 const ATTACHMENT_BACKFILL_STATUSES = new Set(['pending', 'ready', 'failed']);
 
@@ -291,6 +299,7 @@ export class SignalCliBackend implements ChatBackend {
       scheduler: this.scheduler,
       identity: () => this.identity,
       peers: () => this.peers,
+      storage: this.options.storage,
       debug: this.debugLog,
       onContactChanged: (contact) => {
         this.emitter.emit('contactUpdated', contact);
@@ -1809,10 +1818,100 @@ export class SignalCliBackend implements ChatBackend {
     if (patch.expireTimerSec !== undefined) next.expireTimerSec = patch.expireTimerSec;
     this.directory.setGroup(next);
     this.emitter.emit('conversationUpdated', next);
-    const lines = describeGroupChange(current, next, 'You', (id) => this.nameOf(id));
+    const lines = describeGroupChange(current, next, 'You', (id) => this.nameOf(id), true);
     if (lines.length > 0) {
       this.emitOwnSystem(conversationId, this.resultTimestamp(result), lines.join(' '), 'group');
     }
+  }
+
+  /**
+   * `updateGroup`: one call for any mix of details, members, admins,
+   * permissions and link. Nothing echoes our own change, so afterwards the
+   * group is re-listed (which is what the directory keeps current, and what
+   * "what changed" is diffed from) and the system line is written locally.
+   */
+  async updateGroup(conversationId: ConversationId, change: GroupChange): Promise<void> {
+    this.assertAccount();
+    const parsed = parseConversationId(conversationId);
+    if (parsed?.kind !== 'group') throw new SignalCliError('user', 'That is not a group.');
+    const params = groupChangeParams(parsed.target, change);
+    const before = this.directory.group(conversationId);
+    const result = await this.rpc.call('updateGroup', params, wireGroupResult, {
+      timeoutMs: GROUP_TIMEOUT_MS,
+    });
+    let after = before;
+    try {
+      after = (await this.directory.fetchGroup(parsed.target)) ?? before;
+    } catch (error) {
+      this.directory.invalidateGroups();
+      log.warn('re-listing a group after changing it failed', { kind: describeError(error) });
+    }
+    if (after && change.avatar !== undefined) {
+      after = this.directory.rememberGroupAvatar(conversationId, change.avatar) ?? after;
+    }
+    if (!after) return;
+    this.emitter.emit('conversationUpdated', after);
+    const lines = describeGroupChange(before, after, 'You', (id) => this.nameOf(id), true);
+    if (lines.length > 0) {
+      const sentAt = this.resultTimestamp(result);
+      this.emitOwnSystem(conversationId, sentAt, lines.join(' '), 'group');
+    }
+  }
+
+  /** `updateGroup` with no `groupId` makes the group; its first system line is ours. */
+  async createGroup(input: NewGroupInput): Promise<Conversation> {
+    this.assertAccount();
+    const result = await this.rpc.call('updateGroup', newGroupParams(input), wireGroupResult, {
+      timeoutMs: GROUP_TIMEOUT_MS,
+    });
+    if (!result.groupId) {
+      throw new SignalCliError('invalid-response', 'signal-cli did not say which group it made.');
+    }
+    let group = await this.directory.fetchGroup(result.groupId);
+    if (!group) throw new SignalCliError('invalid-response', 'The new group could not be read.');
+    if (input.avatar !== undefined) {
+      group = this.directory.rememberGroupAvatar(group.id, input.avatar) ?? group;
+    }
+    this.emitter.emit('conversationUpdated', group);
+    this.emitOwnSystem(group.id, this.resultTimestamp(result), 'You created the group.', 'group');
+    return group;
+  }
+
+  /**
+   * `quitGroup`, without `delete`: signal-cli keeps the group (listed as not
+   * joined) and this device keeps the chat, read-only, as Signal Desktop does.
+   * The last admin has to hand the role on (`admin`), or signal-cli refuses.
+   * Nothing echoes our own leaving, so the "You left the group." line is ours.
+   */
+  async leaveGroup(
+    conversationId: ConversationId,
+    newAdminIds: readonly string[] = [],
+  ): Promise<void> {
+    this.assertAccount();
+    const parsed = parseConversationId(conversationId);
+    if (parsed?.kind !== 'group') throw new SignalCliError('user', 'That is not a group.');
+    const before = this.directory.group(conversationId);
+    const params: RpcParams = { groupId: parsed.target };
+    if (newAdminIds.length > 0) params.admin = [...newAdminIds];
+    const result = await this.rpc.call('quitGroup', params, ignoreResult, {
+      timeoutMs: GROUP_TIMEOUT_MS,
+    });
+    this.directory.markLeft(parsed.target);
+    let after: Conversation | undefined;
+    try {
+      after = (await this.directory.fetchGroup(parsed.target)) ?? undefined;
+    } catch (error) {
+      log.warn('re-listing a group after leaving it failed', { kind: describeError(error) });
+    }
+    after ??= before ? this.directory.leftConversation(before, this.selfId) : undefined;
+    if (!after) return;
+    this.emitter.emit('conversationUpdated', after);
+    this.emitOwnSystem(
+      conversationId,
+      this.resultTimestamp(result),
+      'You left the group.',
+      'group',
+    );
   }
 
   /**

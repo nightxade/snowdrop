@@ -3,12 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { axe } from 'vitest-axe';
 import type { Snowdrop } from '@/app/createSnowdrop';
 import { bootSnowdrop, renderWithSnowdrop } from '@/test/renderWithSnowdrop';
-import type * as AvatarLib from '../lib/profileAvatar';
+import type * as AvatarLib from '@/ui/lib/avatarImage';
 import { ProfilePage } from './ProfilePage';
 
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
-vi.mock('../lib/profileAvatar', async (importOriginal) => ({
+vi.mock('@/ui/lib/avatarImage', async (importOriginal) => ({
   ...(await importOriginal<typeof AvatarLib>()),
   prepareAvatar: vi.fn(() => Promise.resolve({ contentType: 'image/jpeg', base64: 'AAAA' })),
 }));
@@ -201,7 +201,7 @@ describe('Settings → Profile editor', () => {
   });
 
   it('says so when the picked file is not an image it can read', async () => {
-    const lib = await import('../lib/profileAvatar');
+    const lib = await import('@/ui/lib/avatarImage');
     vi.mocked(lib.prepareAvatar).mockRejectedValueOnce(new Error('bad'));
     const { container } = open();
     const file = container.querySelector<HTMLInputElement>('input[type="file"]')!;

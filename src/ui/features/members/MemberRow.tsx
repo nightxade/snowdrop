@@ -1,5 +1,10 @@
 import { memo, useCallback, useRef, type CSSProperties } from 'react';
-import { initialsFor, type Contact, type ConversationId } from '@/core/domain';
+import {
+  initialsFor,
+  type Contact,
+  type ConversationId,
+  type GroupMemberLabel,
+} from '@/core/domain';
 import { useSnowdrop } from '@/ui/hooks';
 import { Avatar, ContextMenu } from '@/ui/primitives';
 import { memberMenu } from './memberMenu';
@@ -10,10 +15,13 @@ export const MemberRow = memo(function MemberRow({
   contact,
   conversationId,
   tabStop,
+  label,
 }: {
   contact: Contact;
   conversationId: ConversationId;
   tabStop: boolean;
+  /** The member's label in this group (Signal's "member label"), if they set one. */
+  label?: GroupMemberLabel | undefined;
 }) {
   const app = useSnowdrop();
   const button = useRef<HTMLButtonElement | null>(null);
@@ -55,6 +63,12 @@ export const MemberRow = memo(function MemberRow({
                 {contact.name}
                 {contact.isSelf && <span className={styles.you}> (you)</span>}
               </span>
+              {label && (
+                <span className={styles.label}>
+                  {label.emoji && <span aria-hidden>{label.emoji} </span>}
+                  {label.label}
+                </span>
+              )}
               {contact.aboutEmoji && (
                 <span className={styles.emoji} aria-label={contact.about ?? undefined}>
                   {contact.aboutEmoji}

@@ -8,9 +8,11 @@ export {
   muteState,
   openConversation,
   openDirectConversation,
+  openGroupModal,
   TIMER_OPTIONS,
   updateConversation,
 } from './actions';
+export type { GroupMemberAction, GroupModalType } from './actions';
 export { previewText, type PreviewContext } from './preview';
 export {
   conversationAvatar,

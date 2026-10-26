@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { coverCrop } from './profileAvatar';
+import { coverCrop } from '@/ui/lib/avatarImage';
 import { fieldCounter, fitField, normalizeDraft, sameDraft } from './profileFields';
 
 describe('fitField', () => {

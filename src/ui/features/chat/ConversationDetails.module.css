@@ -66,17 +66,25 @@
   font-weight: var(--snowdrop-font-weight-medium);
 }
 
-.rename {
+.actionList {
   display: flex;
   flex-direction: column;
-  gap: var(--snowdrop-space-3);
+  gap: 1px;
   width: 100%;
 }
 
-.renameActions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--snowdrop-space-3);
+.action {
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.actionLabel {
+  flex: 1;
+}
+
+.actionValue {
+  color: var(--snowdrop-text-muted);
+  font-weight: var(--snowdrop-font-weight-regular);
 }
 
 .actions {

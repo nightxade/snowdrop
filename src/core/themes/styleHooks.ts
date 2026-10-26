@@ -52,7 +52,7 @@ export const STYLE_HOOKS = [
   { hook: 'composer-input', what: 'The composer’s textarea' },
   {
     hook: 'message-request',
-    what: 'The bar that stands in for the composer on a message request or blocked chat',
+    what: 'The bar that stands in for the composer on a message request, a blocked chat, a left group or an announcement-only group',
   },
   { hook: 'attachment-tray', what: 'Attachments waiting to be sent' },
   { hook: 'reply-bar', what: '“Replying to …” bar' },
@@ -68,6 +68,7 @@ export const STYLE_HOOKS = [
   { hook: 'search-panel', what: 'In-conversation search results' },
   { hook: 'members', what: 'Member list' },
   { hook: 'member-row', what: 'One member' },
+  { hook: 'pending-row', what: 'One person invited to, or asking to join, the group' },
   { hook: 'settings', what: 'Settings screen' },
   { hook: 'plugin-card', what: 'A plugin in Settings → Plugins' },
   { hook: 'welcome', what: 'Welcome / connection setup screens' },

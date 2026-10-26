@@ -298,7 +298,26 @@ export const wireGroup = object({
   isMember: withDefault(bool, true),
   isBlocked: withDefault(bool, false),
   messageExpirationTime: withDefault(num, 0),
-  members: list(object({ number: optStr, uuid: optStr, isAdmin: optBool })),
+  members: list(
+    object({
+      number: optStr,
+      uuid: optStr,
+      isAdmin: optBool,
+      labelEmoji: optStr,
+      label: optStr,
+    }),
+  ),
+  /** Invited and not yet joined. Absent from older daemons (and so "unknown"). */
+  pendingMembers: maybe(list(wireMemberAddress)),
+  /** Waiting for an admin to approve a join through the group link. */
+  requestingMembers: maybe(list(wireMemberAddress)),
+  banned: maybe(list(wireMemberAddress)),
+  /** The enum's names: EVERY_MEMBER | ONLY_ADMINS. */
+  permissionAddMember: optStr,
+  permissionEditDetails: optStr,
+  permissionSendMessage: optStr,
+  /** The `https://signal.group/…` link, null while the link is off. */
+  groupInviteLink: optStr,
   /** Deprecated in favour of members[].isAdmin; kept for older daemons. */
   admins: list(wireMemberAddress),
   isTerminated: optBool,
@@ -320,6 +339,14 @@ export const wireSendResult = object({
   results: list(wireSendResultItem),
 });
 export type WireSendResult = Infer<typeof wireSendResult>;
+
+/**
+ * `updateGroup`'s reply: when the change went out, and (for a new group, or a
+ * `joinGroup`) the group's id. Lenient: a change that needed no message has no
+ * timestamp.
+ */
+export const wireGroupResult = object({ timestamp: optNum, groupId: optStr });
+export type WireGroupResult = Infer<typeof wireGroupResult>;
 
 /**
  * `sendReceipt` reply. Lenient on purpose (a receipt has always been fire and forget): `results`

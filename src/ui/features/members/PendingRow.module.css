@@ -1,0 +1,20 @@
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--snowdrop-space-3);
+  min-height: 40px;
+  padding: 1px var(--snowdrop-space-3);
+}
+
+.name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-ui);
+  font-weight: var(--snowdrop-font-weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* A contact name is attacker-controlled (profile data); contain any bidi controls. */
+  unicode-bidi: isolate;
+}

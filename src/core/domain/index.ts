@@ -12,3 +12,5 @@ export * from './messageRequests';
 export * from './poll';
 export * from './recipient';
 export * from './profile';
+export * from './groups';
+export * from './contacts';

@@ -199,6 +199,30 @@ mod tests {
     }
 
     #[test]
+    fn update_group_takes_a_group_photo_only_inline() {
+        let params = |avatar: &str| {
+            json!({
+                "groupId": "G==",
+                "name": "Club",
+                "member": ["a", "b"],
+                "removeMember": ["c"],
+                "admin": ["a"],
+                "link": "enabled-with-approval",
+                "resetLink": true,
+                "setPermissionAddMember": "only-admins",
+                "avatar": avatar
+            })
+        };
+        assert!(check_request("updateGroup", params("data:image/jpeg;filename=avatar;base64,AAAA")).is_ok());
+        for bad in ["/home/u/.ssh/id_rsa", "~/photo.png", "file:///etc/passwd", "data:image/png;base64,", "DATA:image/png;base64,AAAA"] {
+            assert!(check_request("updateGroup", params(bad)).is_err(), "{bad}");
+        }
+        // A new group is the same call with no groupId.
+        assert!(check_request("updateGroup", json!({ "name": "Club", "member": ["a"] })).is_ok());
+        assert!(check_request("updateGroup", json!({ "name": "Club", "avatar": "/etc/passwd" })).is_err());
+    }
+
+    #[test]
     fn rejects_paths_for_preview_image_and_avatar() {
         assert!(check(json!({ "previewImage": "/home/u/.ssh/id_rsa" })).is_err());
         assert!(check(json!({ "avatar": "/home/u/.ssh/id_rsa" })).is_err());

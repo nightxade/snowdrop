@@ -15,7 +15,7 @@ import {
   type ProfileDraft,
   type ProfileField,
 } from '../lib/profileFields';
-import { AVATAR_ACCEPT, prepareAvatar, type PreparedAvatar } from '../lib/profileAvatar';
+import { AVATAR_ACCEPT, prepareAvatar, type PreparedAvatar } from '@/ui/lib/avatarImage';
 import { SettingRow } from '../rows/SettingRow';
 import { SettingsSection } from '../rows/SettingsSection';
 import styles from './pages.module.css';

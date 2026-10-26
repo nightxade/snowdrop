@@ -10,7 +10,9 @@
  */
 import type { Contact, Conversation, ConversationId } from '@/core/domain';
 import type { Cancel, Scheduler } from '@/core/lib';
+import type { KeyValueStorage } from '@/core/persistence';
 import type { SelfIdentity } from './identity';
+import { leftGroupsStorageKey } from './storageKeys';
 import { toContact, toGroupConversation } from './normalise/directory';
 import type { DirectPeers } from './peers';
 import type { JsonRpcClient } from './rpc';
@@ -34,6 +36,8 @@ export interface DirectoryDeps {
   onContactChanged: (contact: Contact) => void;
   /** A group appeared or changed after a (re)load (not from a group-update envelope). */
   onGroupChanged: (conversation: Conversation) => void;
+  /** Where the groups this device left are remembered (see `markLeft`). */
+  storage?: KeyValueStorage | undefined;
   debug: (message: string, detail?: unknown) => void;
 }
 
@@ -41,6 +45,14 @@ export class Directory {
   private readonly contacts = new Map<string, Contact>();
   private readonly dmTimers = new Map<string, number>();
   private readonly groups = new Map<ConversationId, Conversation>();
+  /**
+   * Photos this session set on a group, as data: URIs. listGroups reports no
+   * photo and `getAvatar` isn't something the UI may call, so this is all we
+   * know of a group's picture; it is lost when the app restarts.
+   */
+  private readonly groupAvatars = new Map<ConversationId, string>();
+  /** Raw ids of groups this device left; loaded from storage on first use. */
+  private left: Set<string> | null = null;
   private contactsLoadedAt = -Infinity;
   private groupsLoadedAt = -Infinity;
   private contactsLoading: Promise<void> | null = null;
@@ -56,6 +68,8 @@ export class Directory {
     this.contacts.clear();
     this.dmTimers.clear();
     this.groups.clear();
+    this.groupAvatars.clear();
+    this.left = null;
     this.contactsLoadedAt = -Infinity;
     this.groupsLoadedAt = -Infinity;
     this.contactsLoading = null;
@@ -94,6 +108,73 @@ export class Directory {
 
   setGroup(conv: Conversation): void {
     this.groups.set(conv.id, conv);
+  }
+
+  /** Remembers a photo just set on a group (see `groupAvatars`) and returns the group with it. */
+  rememberGroupAvatar(id: ConversationId, dataUri: string): Conversation | undefined {
+    this.groupAvatars.set(id, dataUri);
+    const group = this.groups.get(id);
+    if (!group) return undefined;
+    const next = { ...group, avatarUrl: dataUri };
+    this.groups.set(id, next);
+    return next;
+  }
+
+  private withAvatar(conv: Conversation): Conversation {
+    const avatarUrl = this.groupAvatars.get(conv.id);
+    return avatarUrl ? { ...conv, avatarUrl } : conv;
+  }
+
+  private leftIds(): Set<string> {
+    if (this.left) return this.left;
+    const found = new Set<string>();
+    const key = leftGroupsStorageKey(this.deps.identity().selfId);
+    try {
+      const parsed: unknown = JSON.parse(this.deps.storage?.getItem(key) ?? '[]');
+      if (Array.isArray(parsed)) for (const id of parsed) if (typeof id === 'string') found.add(id);
+    } catch {
+      // A damaged list is the same as none: the group just won't be kept after a restart.
+    }
+    this.left = found;
+    return found;
+  }
+
+  /**
+   * Remembers that this device left a group. signal-cli keeps the group but
+   * lists it as not joined, and a group we merely aren't in (an invite, a
+   * request, one we never opened) must stay out of the list, so only the ones
+   * we left are kept, and listed as `left`.
+   */
+  markLeft(rawGroupId: string): void {
+    const ids = this.leftIds();
+    ids.add(rawGroupId);
+    try {
+      this.deps.storage?.setItem(
+        leftGroupsStorageKey(this.deps.identity().selfId),
+        JSON.stringify([...ids]),
+      );
+    } catch {
+      // Storage full or blocked: the group stays listed for this session.
+    }
+  }
+
+  /** The group as we now know it after leaving: no longer ours to edit, history kept. */
+  leftConversation(conv: Conversation, selfId: string): Conversation {
+    const next: Conversation = {
+      ...conv,
+      memberIds: conv.memberIds.filter((m) => m !== selfId),
+      adminIds: conv.adminIds.filter((m) => m !== selfId),
+      left: true,
+    };
+    this.groups.set(next.id, next);
+    return next;
+  }
+
+  /** A listed group as a conversation: joined, or one we left; null for any other. */
+  private toConversation(raw: WireGroup, resolve: (id: string) => string): Conversation | null {
+    if (!raw.isMember && !this.leftIds().has(raw.id)) return null;
+    const conv = this.withAvatar(toGroupConversation(raw, resolve, 0));
+    return raw.isMember ? conv : { ...conv, left: true };
   }
 
   /** Next listGroups call re-lists (e.g. a message arrived for an unknown group). */
@@ -147,7 +228,14 @@ export class Directory {
     // Members carry both identifiers: learn the pairs first, since groups can
     // load before the contact listing that would otherwise teach them.
     for (const g of groups) {
-      for (const m of [...g.members, ...g.admins]) {
+      const everyone = [
+        ...g.members,
+        ...g.admins,
+        ...(g.pendingMembers ?? []),
+        ...(g.requestingMembers ?? []),
+        ...(g.banned ?? []),
+      ];
+      for (const m of everyone) {
         identity.learnPair(m.uuid ?? undefined, m.number ?? undefined);
         peers?.learnPair(m.uuid ?? undefined, m.number ?? undefined);
       }
@@ -161,8 +249,9 @@ export class Directory {
   /** Lists one group now (after a group update). */
   async fetchGroup(groupId: string): Promise<Conversation | null> {
     const [raw] = await this.deps.rpc.call('listGroups', { groupId: [groupId] }, wireGroups);
-    if (!raw?.isMember) return null;
-    const conv = toGroupConversation(raw, this.resolveMember([raw]), 0);
+    if (!raw) return null;
+    const conv = this.toConversation(raw, this.resolveMember([raw]));
+    if (!conv) return null;
     this.groups.set(conv.id, conv);
     return conv;
   }
@@ -220,8 +309,8 @@ export class Directory {
     const before = new Map(this.groups);
     this.groups.clear();
     for (const g of raw) {
-      if (!g.isMember) continue;
-      const conv = toGroupConversation(g, resolve, 0);
+      const conv = this.toConversation(g, resolve);
+      if (!conv) continue;
       this.groups.set(conv.id, conv);
     }
     this.groupsLoadedAt = this.deps.now();

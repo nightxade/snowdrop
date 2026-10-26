@@ -56,6 +56,11 @@ const ALLOWED_METHODS: &[&str] = &[
     "sendPollTerminate",
     "remoteDelete",
     "updateContact",
+    // Groups (SignalCliBackend.ts: updateGroup, createGroup, leaveGroup): edit
+    // details, members, admins, permissions and the link; with no groupId it
+    // makes a group; quitGroup leaves one. The photo is the only file-like
+    // parameter and rpc_guard.rs requires it to be a data: URI. Never joinGroup:
+    // the UI has no way to open a group link.
     "updateGroup",
     // Message requests (SignalCliBackend.ts: respondToMessageRequest,
     // setBlocked): accept or delete a request, block/unblock a contact or
@@ -786,6 +791,15 @@ mod tests {
         for method in ["sendMessageRequestResponse", "block", "unblock", "quitGroup"] {
             assert!(is_allowed_method(method), "{method} should be allowed");
         }
+    }
+
+    /// Group management (updateGroup makes, edits; quitGroup leaves) is
+    /// reachable; joining by link is not.
+    #[test]
+    fn allows_group_management_but_not_joining_by_link() {
+        assert!(is_allowed_method("updateGroup"));
+        assert!(is_allowed_method("quitGroup"));
+        assert!(!is_allowed_method("joinGroup"));
     }
 
     /// The sticker picker lists packs and sends through `send`, and the pack

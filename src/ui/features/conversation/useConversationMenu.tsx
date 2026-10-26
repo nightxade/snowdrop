@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { useCallback } from 'react';
 import { isMuted } from '@/core/stores';
-import type { ConversationId } from '@/core/domain';
+import { canEditGroupInfo, type ConversationId } from '@/core/domain';
 import { spacesSelectors } from '@/core/stores';
 import { useSnowdrop } from '@/ui/hooks';
 import type { MenuEntry } from '@/ui/primitives';
@@ -89,26 +89,31 @@ export function useConversationMenu(id: ConversationId): () => MenuEntry[] {
       conversation,
       registries,
     );
-    const timer: MenuEntry[] = app.send.capabilities.updateConversation
-      ? [
-          {
-            kind: 'submenu',
-            id: 'timer',
-            label: 'Disappearing messages',
-            icon: <Timer size={ICON} />,
-            items: TIMER_OPTIONS.map((option): MenuEntry => ({
-              kind: 'check',
-              id: `timer-${option.seconds}`,
-              label: option.label,
-              checked: conversation.expireTimerSec === option.seconds,
-              onSelect: () => {
-                if (option.seconds !== conversation.expireTimerSec)
-                  void updateConversation(app, id, { expireTimerSec: option.seconds });
-              },
-            })),
-          },
-        ]
-      : [];
+    // In a group the timer is group info: only who may edit it sees the choice (Desktop disables it).
+    const mayTime =
+      conversation.kind !== 'group' ||
+      canEditGroupInfo(conversation, stores.session.getState().self?.id ?? null);
+    const timer: MenuEntry[] =
+      app.send.capabilities.updateConversation && mayTime
+        ? [
+            {
+              kind: 'submenu',
+              id: 'timer',
+              label: 'Disappearing messages',
+              icon: <Timer size={ICON} />,
+              items: TIMER_OPTIONS.map((option): MenuEntry => ({
+                kind: 'check',
+                id: `timer-${option.seconds}`,
+                label: option.label,
+                checked: conversation.expireTimerSec === option.seconds,
+                onSelect: () => {
+                  if (option.seconds !== conversation.expireTimerSec)
+                    void updateConversation(app, id, { expireTimerSec: option.seconds });
+                },
+              })),
+            },
+          ]
+        : [];
 
     return [
       isUnread

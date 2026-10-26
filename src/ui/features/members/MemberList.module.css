@@ -9,3 +9,7 @@
   font-size: var(--snowdrop-font-size-sm);
   font-weight: var(--snowdrop-font-weight-semibold);
 }
+
+.add {
+  margin: var(--snowdrop-space-3) 0 0;
+}

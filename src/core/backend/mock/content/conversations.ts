@@ -5,6 +5,7 @@
  * `{@}` mentions a random other member, `{@me}` mentions the local user.
  */
 
+import type { GroupPermissions } from '@/core/domain';
 import type { MockEmojiKind } from './customEmoji';
 
 export type ImageKind = 'peaks' | 'sunset' | 'bars' | 'palette' | 'garden';
@@ -48,6 +49,16 @@ export interface ConversationSeed {
   /** Person keys, excluding the local user (always a member). */
   members: string[];
   admins?: string[];
+  /** Groups only: the parts of a group's state beyond its members (all optional). */
+  group?: {
+    /** Person keys invited and not yet joined. */
+    pending?: string[];
+    /** Person keys asking to join through the group link. */
+    requesting?: string[];
+    /** The group link is on. */
+    link?: boolean;
+    permissions?: Partial<GroupPermissions>;
+  };
   /** Filler pool for generated bursts. */
   lines: string[];
   scripted?: ScriptedMessage[];
@@ -111,6 +122,7 @@ export const CONVERSATIONS: readonly ConversationSeed[] = [
     description: 'Day-to-day engineering chat for the Orchard app. Incidents go to #release-train.',
     members: ['ines', 'tomasz', 'oren', 'dev', 'mireille', 'priya'],
     admins: ['ines', 'me'],
+    group: { pending: ['emeka'], requesting: ['sunniva', 'wren'], link: true },
     activity: 1.4,
     unread: 4,
     lines: [
@@ -213,6 +225,7 @@ export const CONVERSATIONS: readonly ConversationSeed[] = [
     description: 'Show work early. Be kind, be specific.',
     members: ['priya', 'mireille', 'ines', 'samir'],
     admins: ['priya'],
+    group: { permissions: { editDetails: 'only-admins', addMember: 'only-admins' } },
     activity: 0.7,
     lines: [
       'I think the empty state needs a clearer next action',
@@ -547,6 +560,7 @@ export const CONVERSATIONS: readonly ConversationSeed[] = [
     description: 'Family recipes, typed up before they are lost to time.',
     members: ['nan', 'mum', 'cleo'],
     admins: ['nan'],
+    group: { permissions: { sendMessages: 'only-admins' } },
     activity: 0.3,
     lines: [
       'what temperature for the apple pie?',

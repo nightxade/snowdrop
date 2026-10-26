@@ -1,0 +1,282 @@
+/* Shared by the group dialogs. */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--snowdrop-space-6);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--snowdrop-space-3);
+}
+
+.fieldLabel {
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
+  font-weight: var(--snowdrop-font-weight-semibold);
+}
+
+.textarea {
+  width: 100%;
+  min-height: 96px;
+  padding: var(--snowdrop-space-4);
+  border: 1px solid var(--snowdrop-border-strong);
+  border-radius: var(--snowdrop-radius-sm);
+  background: var(--snowdrop-bg-input);
+  color: var(--snowdrop-text-strong);
+  font-size: var(--snowdrop-font-size-ui);
+  line-height: 1.45;
+  resize: vertical;
+}
+
+.textarea:focus-visible {
+  border-color: var(--snowdrop-accent);
+  outline: none;
+}
+
+.textarea:disabled {
+  opacity: 0.6;
+}
+
+.note {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--snowdrop-space-4);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
+  line-height: 1.4;
+}
+
+.counter {
+  flex: none;
+  color: var(--snowdrop-text-faint);
+  font-size: var(--snowdrop-font-size-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.counter[data-warn] {
+  color: var(--snowdrop-danger);
+}
+
+/* A refusal or a failure, read out when it appears; hidden while empty. */
+.error {
+  color: var(--snowdrop-danger);
+  font-size: var(--snowdrop-font-size-sm);
+  line-height: 1.4;
+}
+
+.error:empty {
+  display: none;
+}
+
+.error:not(:empty) {
+  margin-top: var(--snowdrop-space-4);
+}
+
+.status {
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
+}
+
+.status:empty {
+  display: none;
+}
+
+.photo {
+  display: flex;
+  align-items: center;
+  gap: var(--snowdrop-space-6);
+}
+
+.photoActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--snowdrop-space-3);
+}
+
+/* Contact checklist (new group, add members, choose new admins) */
+.checklist {
+  display: flex;
+  flex-direction: column;
+  gap: var(--snowdrop-space-3);
+}
+
+.checklistHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.count {
+  color: var(--snowdrop-text-faint);
+  font-size: var(--snowdrop-font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--snowdrop-space-2);
+  max-height: 64px;
+  overflow-y: auto;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 200px;
+  height: 26px;
+  padding: 0 2px 0 var(--snowdrop-space-3);
+  border-radius: var(--snowdrop-radius-full);
+  background: var(--snowdrop-accent-soft);
+  color: var(--snowdrop-text-strong);
+  font-size: var(--snowdrop-font-size-sm);
+}
+
+.chipText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  unicode-bidi: isolate;
+}
+
+.chipRemove {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--snowdrop-radius-full);
+  color: var(--snowdrop-text-muted);
+}
+
+.chipRemove:hover {
+  background: var(--snowdrop-bg-active);
+  color: var(--snowdrop-text-strong);
+}
+
+.contactList {
+  max-height: min(320px, 40vh);
+  margin: 0 calc(-1 * var(--snowdrop-space-3));
+  padding: 0 var(--snowdrop-space-3);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.contactRow {
+  min-height: 44px;
+  padding: var(--snowdrop-space-2) var(--snowdrop-space-3);
+  border-radius: var(--snowdrop-radius-sm);
+}
+
+.contactRow:hover {
+  background: var(--snowdrop-bg-hover);
+}
+
+.contactText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.contactName {
+  overflow: hidden;
+  color: var(--snowdrop-text-strong);
+  font-weight: var(--snowdrop-font-weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  unicode-bidi: isolate;
+}
+
+.contactMeta {
+  overflow: hidden;
+  color: var(--snowdrop-text-faint);
+  font-size: var(--snowdrop-font-size-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.contactRow:hover .contactMeta {
+  color: var(--snowdrop-text-muted);
+}
+
+.none {
+  padding: var(--snowdrop-space-5) 0;
+  color: var(--snowdrop-text-muted);
+}
+
+/* Permissions */
+.rules {
+  display: flex;
+  flex-direction: column;
+  gap: var(--snowdrop-space-6);
+}
+
+.rule {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--snowdrop-space-6);
+}
+
+.ruleText {
+  display: flex;
+  flex-direction: column;
+  gap: var(--snowdrop-space-2);
+  min-width: 0;
+}
+
+.ruleLabel {
+  color: var(--snowdrop-text-strong);
+  font-size: var(--snowdrop-font-size-ui);
+  font-weight: var(--snowdrop-font-weight-medium);
+}
+
+/* Group link */
+.linkBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--snowdrop-space-5);
+}
+
+.linkCard {
+  display: flex;
+  align-items: center;
+  gap: var(--snowdrop-space-4);
+  padding: var(--snowdrop-space-4);
+  border-radius: var(--snowdrop-radius-sm);
+  background: var(--snowdrop-bg-input);
+}
+
+.linkText {
+  flex: 1;
+  min-width: 0;
+  color: var(--snowdrop-text);
+  font-family: var(--snowdrop-font-mono);
+  font-size: var(--snowdrop-font-size-xs);
+  overflow-wrap: anywhere;
+}
+
+.qr {
+  display: flex;
+  justify-content: center;
+}
+
+.approval {
+  display: flex;
+  flex-direction: column;
+  gap: var(--snowdrop-space-3);
+  min-width: 0;
+  padding: 0;
+  border: none;
+}
+
+.approvalButtons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--snowdrop-space-3);
+}

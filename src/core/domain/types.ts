@@ -82,7 +82,46 @@ export interface Conversation {
    * through `isConversationBlocked`.
    */
   blocked?: boolean;
+  // The rest of what a group's details carry. Absent for direct conversations
+  // and for backends that don't report them (a missing field is "unknown", not
+  // "nobody"). Ids are in the same form as `memberIds`.
+
+  /**
+   * We left this group (or were taken out of it) but keep its chat and history,
+   * read-only, as Signal Desktop does. `memberIds` no longer lists us.
+   */
+  left?: true;
+  /** Invited and not yet joined (signal-cli `pendingMembers`). */
+  pendingMemberIds?: string[];
+  /** Asked to join through the group link and waiting for an admin (`requestingMembers`). */
+  requestingMemberIds?: string[];
+  /** Barred from joining again (`banned`). */
+  bannedIds?: string[];
+  /** Who may add members, edit the details and send messages. */
+  permissions?: GroupPermissions;
+  /** The group's `https://signal.group/…` link; present only while the link is on. */
+  inviteLink?: string;
+  /** Members' labels (emoji and/or text), keyed by member id; only members that have one. */
+  memberLabels?: Record<string, GroupMemberLabel>;
 }
+
+/** Who a group setting is open to. */
+export type GroupPermission = 'every-member' | 'only-admins';
+
+export interface GroupPermissions {
+  addMember: GroupPermission;
+  editDetails: GroupPermission;
+  /** `only-admins` is an announcement group: only admins can send. */
+  sendMessages: GroupPermission;
+}
+
+export interface GroupMemberLabel {
+  emoji?: string;
+  label?: string;
+}
+
+/** The group link as a setting: off, on (anyone with it joins), or on with admin approval. */
+export type GroupLinkMode = 'off' | 'on' | 'approval';
 
 /** Device-local per-conversation state (never sent to Signal). */
 export interface LocalConversationState {

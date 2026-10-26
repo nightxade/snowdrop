@@ -676,6 +676,20 @@ export function buildWorld({ seed, now, bulk }: WorldOptions): MockWorld {
       lastActivityAt: messages.at(-1)?.sentAt ?? now - HISTORY_DAYS * DAY,
     };
     if (seedConv.description) conversation.description = seedConv.description;
+    if (seedConv.kind === 'group') {
+      // What signal-cli reports for every group: Signal's defaults unless the script says otherwise.
+      conversation.permissions = {
+        addMember: 'every-member',
+        editDetails: 'every-member',
+        sendMessages: 'every-member',
+        ...seedConv.group?.permissions,
+      };
+      conversation.pendingMemberIds = (seedConv.group?.pending ?? []).map(personId);
+      conversation.requestingMemberIds = (seedConv.group?.requesting ?? []).map(personId);
+      conversation.bannedIds = [];
+      if (seedConv.group?.link)
+        conversation.inviteLink = `https://signal.group/#demo-${seedConv.key}`;
+    }
     if (seedConv.historyArchived) conversation.historyArchived = true;
 
     conversations.set(id, conversation);

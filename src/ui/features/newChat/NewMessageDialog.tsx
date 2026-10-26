@@ -1,4 +1,4 @@
-import { LoaderCircle, Phone, AtSign } from 'lucide-react';
+import { LoaderCircle, Phone, AtSign, UsersRound } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import type { RecipientLookup } from '@/core/backend';
@@ -86,6 +86,8 @@ export function NewMessageDialog({ onClose }: { onClose: () => void }) {
     [query, contacts, self?.number],
   );
   const find = canLookup ? search.find : null;
+  /** Signal Desktop's "New group" sits at the top of the compose list, until you start searching. */
+  const offerGroup = app.groups.available && query.trim() === '';
 
   const finish = (id: ConversationId) => {
     target.current = () => conversationFocusTarget(id, true);
@@ -127,7 +129,7 @@ export function NewMessageDialog({ onClose }: { onClose: () => void }) {
 
   const text = query.trim();
   const empty =
-    search.contacts.length > 0 || find
+    search.contacts.length > 0 || find || offerGroup
       ? undefined
       : text === ''
         ? canLookup
@@ -196,6 +198,21 @@ export function NewMessageDialog({ onClose }: { onClose: () => void }) {
           {failure && failureMessage(failure.kind, failure.query)}
         </div>
         <CommandPaletteList label="People" empty={empty}>
+          {offerGroup && (
+            <CommandPaletteGroup heading="Group">
+              <CommandPaletteItem
+                key="new-group"
+                value="new-group"
+                onSelect={() => {
+                  // Replaces this dialog: the group dialog takes over the same layer.
+                  stores.ui.getState().openModal({ type: 'newGroup' });
+                }}
+                icon={<UsersRound size={18} />}
+              >
+                New group
+              </CommandPaletteItem>
+            </CommandPaletteGroup>
+          )}
           {find && (
             <CommandPaletteGroup
               heading={find.kind === 'phone' ? 'Find by phone number' : 'Find by username'}

@@ -596,6 +596,14 @@ describe('SignalCliBackend: directory', () => {
         adminIds: [SELF_ACI],
         expireTimerSec: 0,
         lastActivityAt: 0,
+        pendingMemberIds: [],
+        requestingMemberIds: [],
+        bannedIds: [],
+        permissions: {
+          addMember: 'every-member',
+          editDetails: 'every-member',
+          sendMessages: 'every-member',
+        },
       },
     ]);
 

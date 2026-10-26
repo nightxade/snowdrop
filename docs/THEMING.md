@@ -414,76 +414,77 @@ instead.
 
 **Regions: `[data-snowdrop='…']`.** Every value used in the app:
 
-| Hook                    | Element                                                               |
-| ----------------------- | --------------------------------------------------------------------- |
-| `app`                   | The whole shell                                                       |
-| `demo-banner`           | Persistent demo-mode banner above the shell                           |
-| `pane-area`             | TUI shell: the rail/sidebar/chat row of panes                         |
-| `rail`                  | Spaces rail                                                           |
-| `drawer`                | Rail + sidebar slide-over on narrow screens                           |
-| `status-line`           | TUI shell status line at the bottom of the window                     |
-| `sidebar`               | Conversation sidebar                                                  |
-| `sidebar-header`        | Sidebar title bar                                                     |
-| `conversation-list`     | Conversation list                                                     |
-| `conversation-row`      | One conversation in the sidebar                                       |
-| `section-header`        | Sidebar section / category header                                     |
-| `user-panel`            | Your profile at the bottom of the sidebar                             |
-| `chat`                  | Chat column                                                           |
-| `chat-title-tag`        | TUI shell: the chat pane border's title (the open conversation)       |
-| `chat-header`           | Chat title bar                                                        |
-| `member-toggle`         | Member-list button in the chat header                                 |
-| `connection-banner`     | Connection-problem banner above the chat                              |
-| `message-pane`          | Message area                                                          |
-| `message-log`           | The message list                                                      |
-| `conversation-intro`    | "Beginning of your conversation" block                                |
-| `history-skeleton`      | Loading placeholder rows                                              |
-| `day-divider`           | The date rule between days of messages                                |
-| `message`               | One message row (see attributes below)                                |
-| `message-body`          | The text of a message                                                 |
-| `message-author`        | The author-name button in a message row                               |
-| `message-time`          | A message row's timestamp (has data-variant)                          |
-| `message-status`        | Delivery/read mark after an outgoing message's meta (has data-status) |
-| `message-content`       | The name + body + trailing content of a message row                   |
-| `message-quote`         | A message row's reply-to quote                                        |
-| `sticker`               | A sticker message's image, placeholder or fallback chip               |
-| `poll`                  | A poll message's card: question, options and votes (has data-ended)   |
-| `hover-bar`             | Message hover actions                                                 |
-| `message-action-sheet`  | Long-press action sheet (touch)                                       |
-| `system-message`        | Joined / renamed / timer lines                                        |
-| `new-divider`           | The "New" line at the first unread message                            |
-| `new-messages-bar`      | "N new messages since …" bar                                          |
-| `jump-to-present`       | Jump-to-present pill                                                  |
-| `composer`              | Message composer                                                      |
-| `composer-input`        | The composer's textarea                                               |
-| `message-request`       | Stands in for the composer on a message request or blocked chat       |
-| `attachment-tray`       | Attachments waiting to be sent                                        |
-| `reply-bar`             | "Replying to …" bar                                                   |
-| `composer-link-preview` | The composer's own link-preview card                                  |
-| `autocomplete`          | @ / : / slash suggestions                                             |
-| `sticker-picker`        | The composer's sticker picker (grid, header and pack tabs)            |
-| `sticker-cell`          | One sticker button in the picker's grid                               |
-| `sticker-pack`          | The sticker pack dialog opened from a received sticker                |
-| `poll-create`           | The form in the New poll dialog                                       |
-| `custom-emoji-card`     | The “add to my emoji” card for an emoji someone else sent             |
-| `typing-line`           | "… is typing" strip                                                   |
-| `drop-overlay`          | Drag-and-drop overlay                                                 |
-| `search-panel`          | In-conversation search results                                        |
-| `members`               | Member list                                                           |
-| `member-row`            | One member                                                            |
-| `settings`              | Settings screen                                                       |
-| `plugin-card`           | A plugin in Settings → Plugins                                        |
-| `welcome`               | Welcome / connection setup screens                                    |
-| `link-device`           | Device-linking screen                                                 |
-| `storage-setup`         | "Protect your data" encrypted-storage setup screen                    |
-| `recovery-key`          | Recovery-key suggestion / creation screen                             |
-| `unlock`                | Encrypted-storage unlock screen                                       |
-| `storage-unavailable`   | Encrypted-storage unavailable screen                                  |
-| `restart-required`      | Restart-Snowdrop-to-finish screen, after an erase                     |
-| `app-error`             | App-level error boundary's fallback card                              |
-| `note-badge`            | Pronoun & Notes Badge plugin's badge                                  |
-| `vim-mode`              | Vim Mode plugin's mode pill                                           |
-| `vim-caret`             | Vim Mode plugin's block cursor                                        |
-| `vim-caret-layer`       | Clipping layer that holds the block cursor                            |
+| Hook                    | Element                                                                                                     |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `app`                   | The whole shell                                                                                             |
+| `demo-banner`           | Persistent demo-mode banner above the shell                                                                 |
+| `pane-area`             | TUI shell: the rail/sidebar/chat row of panes                                                               |
+| `rail`                  | Spaces rail                                                                                                 |
+| `drawer`                | Rail + sidebar slide-over on narrow screens                                                                 |
+| `status-line`           | TUI shell status line at the bottom of the window                                                           |
+| `sidebar`               | Conversation sidebar                                                                                        |
+| `sidebar-header`        | Sidebar title bar                                                                                           |
+| `conversation-list`     | Conversation list                                                                                           |
+| `conversation-row`      | One conversation in the sidebar                                                                             |
+| `section-header`        | Sidebar section / category header                                                                           |
+| `user-panel`            | Your profile at the bottom of the sidebar                                                                   |
+| `chat`                  | Chat column                                                                                                 |
+| `chat-title-tag`        | TUI shell: the chat pane border's title (the open conversation)                                             |
+| `chat-header`           | Chat title bar                                                                                              |
+| `member-toggle`         | Member-list button in the chat header                                                                       |
+| `connection-banner`     | Connection-problem banner above the chat                                                                    |
+| `message-pane`          | Message area                                                                                                |
+| `message-log`           | The message list                                                                                            |
+| `conversation-intro`    | "Beginning of your conversation" block                                                                      |
+| `history-skeleton`      | Loading placeholder rows                                                                                    |
+| `day-divider`           | The date rule between days of messages                                                                      |
+| `message`               | One message row (see attributes below)                                                                      |
+| `message-body`          | The text of a message                                                                                       |
+| `message-author`        | The author-name button in a message row                                                                     |
+| `message-time`          | A message row's timestamp (has data-variant)                                                                |
+| `message-status`        | Delivery/read mark after an outgoing message's meta (has data-status)                                       |
+| `message-content`       | The name + body + trailing content of a message row                                                         |
+| `message-quote`         | A message row's reply-to quote                                                                              |
+| `sticker`               | A sticker message's image, placeholder or fallback chip                                                     |
+| `poll`                  | A poll message's card: question, options and votes (has data-ended)                                         |
+| `hover-bar`             | Message hover actions                                                                                       |
+| `message-action-sheet`  | Long-press action sheet (touch)                                                                             |
+| `system-message`        | Joined / renamed / timer lines                                                                              |
+| `new-divider`           | The "New" line at the first unread message                                                                  |
+| `new-messages-bar`      | "N new messages since …" bar                                                                                |
+| `jump-to-present`       | Jump-to-present pill                                                                                        |
+| `composer`              | Message composer                                                                                            |
+| `composer-input`        | The composer's textarea                                                                                     |
+| `message-request`       | Stands in for the composer on a message request, a blocked chat, a left group or an announcement-only group |
+| `attachment-tray`       | Attachments waiting to be sent                                                                              |
+| `reply-bar`             | "Replying to …" bar                                                                                         |
+| `composer-link-preview` | The composer's own link-preview card                                                                        |
+| `autocomplete`          | @ / : / slash suggestions                                                                                   |
+| `sticker-picker`        | The composer's sticker picker (grid, header and pack tabs)                                                  |
+| `sticker-cell`          | One sticker button in the picker's grid                                                                     |
+| `sticker-pack`          | The sticker pack dialog opened from a received sticker                                                      |
+| `poll-create`           | The form in the New poll dialog                                                                             |
+| `custom-emoji-card`     | The “add to my emoji” card for an emoji someone else sent                                                   |
+| `typing-line`           | "… is typing" strip                                                                                         |
+| `drop-overlay`          | Drag-and-drop overlay                                                                                       |
+| `search-panel`          | In-conversation search results                                                                              |
+| `members`               | Member list                                                                                                 |
+| `member-row`            | One member                                                                                                  |
+| `pending-row`           | One person invited to, or asking to join, the group                                                         |
+| `settings`              | Settings screen                                                                                             |
+| `plugin-card`           | A plugin in Settings → Plugins                                                                              |
+| `welcome`               | Welcome / connection setup screens                                                                          |
+| `link-device`           | Device-linking screen                                                                                       |
+| `storage-setup`         | "Protect your data" encrypted-storage setup screen                                                          |
+| `recovery-key`          | Recovery-key suggestion / creation screen                                                                   |
+| `unlock`                | Encrypted-storage unlock screen                                                                             |
+| `storage-unavailable`   | Encrypted-storage unavailable screen                                                                        |
+| `restart-required`      | Restart-Snowdrop-to-finish screen, after an erase                                                           |
+| `app-error`             | App-level error boundary's fallback card                                                                    |
+| `note-badge`            | Pronoun & Notes Badge plugin's badge                                                                        |
+| `vim-mode`              | Vim Mode plugin's mode pill                                                                                 |
+| `vim-caret`             | Vim Mode plugin's block cursor                                                                              |
+| `vim-caret-layer`       | Clipping layer that holds the block cursor                                                                  |
 
 **Attributes on those elements:**
 
@@ -501,7 +502,7 @@ instead.
   Its colours are `--snowdrop-vim-caret` (default: the accent) and
   `--snowdrop-vim-caret-text` (default: text-on-accent); set them on `:root`
   in Custom CSS to restyle it.
-- `[data-snowdrop='message-request']` carries `data-state='request' | 'blocked'`;
+- `[data-snowdrop='message-request']` carries `data-state='request' | 'blocked' | 'announcement' | 'left'`;
   a sidebar row for a message request carries `data-request` (`data-blocked` when
   blocked).
 - Sidebar rows carry `data-conversation-id`.

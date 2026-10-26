@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect } from 'react';
 import { useStore } from 'zustand';
 import type { ConversationId } from '@/core/domain';
+import type { GroupMemberAction } from '@/ui/features/conversation';
 import { uiSelectors } from '@/core/stores';
 import { useStores } from '@/ui/hooks';
 import { SettingsFallback } from './SettingsFallback';
@@ -18,6 +19,19 @@ const SettingsOverlay = lazy(() =>
 // New message: opened from the Home sidebar and the palette; prefetched with the switcher.
 const loadNewChat = () => import('@/ui/features/newChat');
 const NewMessageDialog = lazy(() => loadNewChat().then((m) => ({ default: m.NewMessageDialog })));
+
+// Group dialogs (edit, add members, link, permissions, leave, new group): opened from the
+// chat header, the member list and New message; prefetched with the rest.
+const loadGroups = () => import('@/ui/features/groups');
+const NewGroupDialog = lazy(() => loadGroups().then((m) => ({ default: m.NewGroupDialog })));
+const EditGroupDialog = lazy(() => loadGroups().then((m) => ({ default: m.EditGroupDialog })));
+const AddMembersDialog = lazy(() => loadGroups().then((m) => ({ default: m.AddMembersDialog })));
+const GroupLinkDialog = lazy(() => loadGroups().then((m) => ({ default: m.GroupLinkDialog })));
+const PermissionsDialog = lazy(() => loadGroups().then((m) => ({ default: m.PermissionsDialog })));
+const LeaveGroupDialog = lazy(() => loadGroups().then((m) => ({ default: m.LeaveGroupDialog })));
+const MemberActionDialog = lazy(() =>
+  loadGroups().then((m) => ({ default: m.MemberActionDialog })),
+);
 
 // Space/folder/category dialogs and the shortcut sheet: small, but opened rarely.
 // Prefetched with the switcher so opening one doesn't wait on the network.
@@ -43,6 +57,19 @@ function stringProp(props: Record<string, unknown> | undefined, key: string): st
   return typeof value === 'string' ? value : undefined;
 }
 
+const MEMBER_ACTIONS: readonly GroupMemberAction[] = [
+  'remove',
+  'make-admin',
+  'remove-admin',
+  'approve',
+  'deny',
+  'revoke',
+];
+
+function conversationProp(props: Record<string, unknown> | undefined): ConversationId | undefined {
+  return stringProp(props, 'conversationId') as ConversationId | undefined;
+}
+
 function pageProp(props: Record<string, unknown> | undefined): { initialPage?: string } {
   const page = stringProp(props, 'page');
   return page ? { initialPage: page } : {};
@@ -56,6 +83,7 @@ export function ModalHost() {
     const prefetch = () => {
       void loadSwitcher();
       void loadNewChat();
+      void loadGroups();
       void loadSpaces();
       void loadShortcuts();
     };
@@ -83,6 +111,15 @@ function modalElement(modal: Modal, close: () => void) {
       return <QuickSwitcher onClose={close} initialQuery={stringProp(modal.props, 'query')} />;
     case 'newMessage':
       return <NewMessageDialog onClose={close} />;
+    case 'newGroup':
+      return <NewGroupDialog onClose={close} />;
+    case 'editGroup':
+    case 'addMembers':
+    case 'groupLink':
+    case 'groupPermissions':
+    case 'leaveGroup':
+    case 'groupMemberAction':
+      return groupElement(modal, close);
     case 'settings':
       return <SettingsOverlay onClose={close} {...pageProp(modal.props)} />;
     case 'shortcuts':
@@ -114,6 +151,38 @@ function modalElement(modal: Modal, close: () => void) {
         <CategoryDialog
           spaceId={spaceId}
           categoryId={stringProp(modal.props, 'categoryId')}
+          onClose={close}
+        />
+      ) : null;
+    }
+    default:
+      return null;
+  }
+}
+
+/** The dialogs about one group: they all need its id (and a member and action for the last). */
+function groupElement(modal: Modal, close: () => void) {
+  const conversationId = conversationProp(modal.props);
+  if (!conversationId) return null;
+  switch (modal.type) {
+    case 'editGroup':
+      return <EditGroupDialog conversationId={conversationId} onClose={close} />;
+    case 'addMembers':
+      return <AddMembersDialog conversationId={conversationId} onClose={close} />;
+    case 'groupLink':
+      return <GroupLinkDialog conversationId={conversationId} onClose={close} />;
+    case 'groupPermissions':
+      return <PermissionsDialog conversationId={conversationId} onClose={close} />;
+    case 'leaveGroup':
+      return <LeaveGroupDialog conversationId={conversationId} onClose={close} />;
+    case 'groupMemberAction': {
+      const memberId = stringProp(modal.props, 'memberId');
+      const action = MEMBER_ACTIONS.find((a) => a === stringProp(modal.props, 'action'));
+      return memberId && action ? (
+        <MemberActionDialog
+          conversationId={conversationId}
+          memberId={memberId}
+          action={action}
           onClose={close}
         />
       ) : null;

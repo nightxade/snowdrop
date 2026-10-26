@@ -12,6 +12,8 @@ import type {
   Contact,
   Conversation,
   ConversationId,
+  GroupLinkMode,
+  GroupPermissions,
   LinkPreview,
   Message,
   MessageId,
@@ -193,6 +195,36 @@ export type MessageRequestResponse = 'accept' | 'delete';
 export type ConversationPatch = Partial<
   Pick<Conversation, 'expireTimerSec' | 'title' | 'description'>
 >;
+
+/**
+ * One edit to a group, as signal-cli's `updateGroup` takes it: any mix of
+ * fields, all applied in one call. Member ids are ids from `Conversation`.
+ * Adding someone who is asking to join through the group link approves them;
+ * removing someone who is invited revokes the invite and someone who is
+ * asking to join denies the request.
+ */
+export interface GroupChange {
+  title?: string;
+  description?: string;
+  /** A new group photo as a `data:` URI (signal-cli can set one but not remove it). */
+  avatar?: string;
+  addMemberIds?: readonly string[];
+  removeMemberIds?: readonly string[];
+  addAdminIds?: readonly string[];
+  removeAdminIds?: readonly string[];
+  link?: GroupLinkMode;
+  /** Gives the group link a new password, so the old link stops working. */
+  resetLink?: boolean;
+  permissions?: Partial<GroupPermissions>;
+}
+
+export interface NewGroupInput {
+  title: string;
+  /** Everyone to start with except us. */
+  memberIds: readonly string[];
+  /** The group photo as a `data:` URI. */
+  avatar?: string;
+}
 
 export type RecipientFailureReason =
   'unregistered' | 'untrusted-identity' | 'rate-limited' | 'network' | 'unknown';
@@ -486,6 +518,22 @@ export interface ChatBackend {
    */
   supportsReadSync?(): boolean;
   updateConversation?(conversationId: ConversationId, patch: ConversationPatch): Promise<void>;
+
+  /**
+   * Edits a group: its details, members, admins, permissions and link. The
+   * group updates (and our own "You added…" line is written) once Signal has
+   * accepted the change; a refusal (not an admin, a stale group) rejects with
+   * nothing changed. The three group methods below go together: a backend
+   * that can edit groups can make and leave them.
+   */
+  updateGroup?(conversationId: ConversationId, change: GroupChange): Promise<void>;
+  /** Makes a group, announces it, and resolves with it as it now stands. */
+  createGroup?(input: NewGroupInput): Promise<Conversation>;
+  /**
+   * Leaves a group. The last admin must name `newAdminIds`, who are made
+   * admins on the way out. The group is deleted from this device too.
+   */
+  leaveGroup?(conversationId: ConversationId, newAdminIds?: readonly string[]): Promise<void>;
 
   /**
    * Asks the server whether a phone number or username belongs to a Signal

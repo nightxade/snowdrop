@@ -1,0 +1,17 @@
+.bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--snowdrop-space-4);
+  margin: 0 var(--snowdrop-space-5) var(--snowdrop-space-5);
+  padding: var(--snowdrop-space-4) var(--snowdrop-space-5);
+  border-radius: var(--snowdrop-radius-md);
+  background: var(--snowdrop-bg-elevated);
+  box-shadow: inset 0 0 0 1px var(--snowdrop-border);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-ui);
+}
+
+.bar svg {
+  flex: none;
+}

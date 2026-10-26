@@ -20,7 +20,11 @@
  * was first loaded), moving the pending scope's data to the account's own
  * scope without losing anything written in between.
  */
-import { CURSOR_KEY_PREFIX, peersStorageKey } from '@/core/backend/signal-cli/storageKeys';
+import {
+  CURSOR_KEY_PREFIX,
+  leftGroupsStorageKey,
+  peersStorageKey,
+} from '@/core/backend/signal-cli/storageKeys';
 import { HISTORY_IMPORT_KEY_PREFIX } from '@/core/services';
 import { localSchema } from '@/core/stores';
 import {
@@ -96,6 +100,7 @@ export function accountDataKeys(
   }
   if (accountId) {
     wanted.add(peersStorageKey(accountId));
+    wanted.add(leftGroupsStorageKey(accountId));
     for (const key of storageKeys) {
       if (key.startsWith(CURSOR_KEY_PREFIX) && key.endsWith(`.${accountId}`)) wanted.add(key);
     }

@@ -3,6 +3,7 @@ export * from './CatchUpTracker';
 export * from './SendService';
 export * from './SyncService';
 export * from './MessageRequestService';
+export * from './GroupService';
 export * from './HistoryService';
 export * from './historyImport';
 export * from './ReceiptBuffer';

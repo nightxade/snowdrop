@@ -37,6 +37,7 @@ import {
   NotificationService,
   PendingOpsBuffer,
   ReceiptBuffer,
+  GroupService,
   MessageRequestService,
   SendService,
   SyncService,
@@ -140,6 +141,8 @@ export interface Snowdrop {
   send: SendService;
   /** Accept, delete, block and unblock a message request. */
   requests: MessageRequestService;
+  /** Edit, make and leave groups. */
+  groups: GroupService;
   history: HistoryService;
   /** The one-time background import of the whole history archive (Settings → Data & storage). */
   historyImport: HistoryImportService;
@@ -447,6 +450,15 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
       syncLog.error(context, error);
     },
   });
+  const groups = new GroupService({
+    backend,
+    repository,
+    stores,
+    clock,
+    onError: (error, context) => {
+      syncLog.error(context, error);
+    },
+  });
   const history = new HistoryService({
     backend,
     repository,
@@ -629,6 +641,7 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     sync,
     send,
     requests,
+    groups,
     history,
     historyImport,
     backendReady: ready,

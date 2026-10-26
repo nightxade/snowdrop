@@ -1,49 +1,74 @@
-import { Copy, Pencil, Timer } from 'lucide-react';
-import { useState, type SyntheticEvent } from 'react';
+import type { ReactNode } from 'react';
+import { Copy, KeyRound, Link2, LogOut, Pencil, Timer, UserPlus } from 'lucide-react';
 import { useStore } from 'zustand';
-import { formatDuration, type ConversationView } from '@/core/domain';
+import {
+  canAddMembers,
+  canEditGroupInfo,
+  canManageGroup,
+  formatDuration,
+  isGroupMember,
+  type ConversationView,
+} from '@/core/domain';
 import { sessionSelectors } from '@/core/stores';
 import { useSnowdrop } from '@/ui/hooks';
 import {
   ConversationAvatar,
   copyText,
-  updateConversation,
+  openGroupModal,
   usePeer,
+  type GroupModalType,
 } from '@/ui/features/conversation';
-import { Button, TextInput } from '@/ui/primitives';
+import { Button, PopoverClose } from '@/ui/primitives';
 import styles from './ConversationDetails.module.css';
 
-const MAX_GROUP_NAME = 32;
-
-/** The "about this conversation" popover opened from the header title. */
+/**
+ * The "about this conversation" popover opened from the header title. For a
+ * group it is also where its settings start: edit, add members, link,
+ * permissions and leave, each shown only when our role allows it (the same
+ * split Signal Desktop makes).
+ */
 export function ConversationDetails({ conversation }: { conversation: ConversationView }) {
   const app = useSnowdrop();
   const peer = usePeer(conversation);
   const selfId = useStore(app.stores.session, sessionSelectors.selfId);
   const isGroup = conversation.kind === 'group';
   const about = isGroup ? conversation.description : peer?.about;
-  // Signal lets admins rename a group (the default "edit group info" access).
-  const canRename =
-    isGroup &&
-    app.send.capabilities.updateConversation &&
-    selfId !== null &&
-    conversation.adminIds.includes(selfId);
-  const [renaming, setRenaming] = useState(false);
-  const [name, setName] = useState(conversation.title);
-  const [saving, setSaving] = useState(false);
-  const trimmed = name.trim();
+  const manageable = isGroup && app.groups.available;
+  const canEdit = manageable && canEditGroupInfo(conversation, selfId);
+  const canAdd = manageable && canAddMembers(conversation, selfId);
+  const canManage = manageable && canManageGroup(conversation, selfId);
+  // Anyone can see and copy the link while it is on; only an admin turns it on.
+  const showLink = manageable && (canManage || conversation.inviteLink !== undefined);
+  const canLeave = manageable && isGroupMember(conversation, selfId);
+  const left = conversation.left === true;
+  const announcement = conversation.permissions?.sendMessages === 'only-admins';
 
-  const submit = async (e: SyntheticEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!trimmed || trimmed === conversation.title) {
-      setRenaming(false);
-      return;
-    }
-    setSaving(true);
-    const ok = await updateConversation(app, conversation.id, { title: trimmed });
-    setSaving(false);
-    if (ok) setRenaming(false);
+  const open = (type: GroupModalType) => () => {
+    openGroupModal(app, type, { conversationId: conversation.id });
   };
+  const action = (
+    type: GroupModalType,
+    label: string,
+    icon: ReactNode,
+    value?: string,
+    danger = false,
+  ) => (
+    <li>
+      <PopoverClose asChild>
+        <Button
+          size="sm"
+          variant={danger ? 'danger' : 'ghost'}
+          fullWidth
+          className={styles.action}
+          icon={icon}
+          onClick={open(type)}
+        >
+          <span className={styles.actionLabel}>{label}</span>
+          {value && <span className={styles.actionValue}>{value}</span>}
+        </Button>
+      </PopoverClose>
+    </li>
+  );
 
   return (
     <div className={styles.details}>
@@ -58,36 +83,6 @@ export function ConversationDetails({ conversation }: { conversation: Conversati
           </p>
         </div>
       </div>
-      {renaming && (
-        <form className={styles.rename} onSubmit={(e) => void submit(e)}>
-          <TextInput
-            label="Group name"
-            value={name}
-            maxLength={MAX_GROUP_NAME}
-            autoFocus
-            disabled={saving}
-            onChange={(e) => {
-              setName(e.target.value);
-            }}
-          />
-          <div className={styles.renameActions}>
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={saving}
-              onClick={() => {
-                setName(conversation.title);
-                setRenaming(false);
-              }}
-            >
-              Cancel
-            </Button>
-            <Button size="sm" variant="primary" type="submit" disabled={saving || !trimmed}>
-              {saving ? 'Saving…' : 'Save'}
-            </Button>
-          </div>
-        </form>
-      )}
       {about && <p className={styles.about}>{about}</p>}
       <dl className={styles.facts}>
         <div className={styles.fact}>
@@ -96,21 +91,34 @@ export function ConversationDetails({ conversation }: { conversation: Conversati
           </dt>
           <dd>{formatDuration(conversation.expireTimerSec)}</dd>
         </div>
-      </dl>
-      <div className={styles.actions}>
-        {canRename && !renaming && (
-          <Button
-            size="sm"
-            variant="secondary"
-            icon={<Pencil size={14} />}
-            onClick={() => {
-              setName(conversation.title);
-              setRenaming(true);
-            }}
-          >
-            Rename group
-          </Button>
+        {left && (
+          <div className={styles.fact}>
+            <dt>Your membership</dt>
+            <dd>You left this group</dd>
+          </div>
         )}
+        {announcement && !left && (
+          <div className={styles.fact}>
+            <dt>Who can send messages</dt>
+            <dd>Only admins</dd>
+          </div>
+        )}
+      </dl>
+      {(canEdit || canAdd || showLink || canManage) && (
+        <ul className={styles.actionList} aria-label="Group settings">
+          {canEdit && action('editGroup', 'Edit group', <Pencil size={14} />)}
+          {canAdd && action('addMembers', 'Add members', <UserPlus size={14} />)}
+          {showLink &&
+            action(
+              'groupLink',
+              'Group link',
+              <Link2 size={14} />,
+              conversation.inviteLink ? 'On' : 'Off',
+            )}
+          {canManage && action('groupPermissions', 'Permissions', <KeyRound size={14} />)}
+        </ul>
+      )}
+      <div className={styles.actions}>
         <Button
           size="sm"
           variant="secondary"
@@ -121,6 +129,18 @@ export function ConversationDetails({ conversation }: { conversation: Conversati
         >
           Copy ID
         </Button>
+        {canLeave && (
+          <PopoverClose asChild>
+            <Button
+              size="sm"
+              variant="danger"
+              icon={<LogOut size={14} />}
+              onClick={open('leaveGroup')}
+            >
+              Leave group
+            </Button>
+          </PopoverClose>
+        )}
       </div>
     </div>
   );

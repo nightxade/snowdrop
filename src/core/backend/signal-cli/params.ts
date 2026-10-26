@@ -4,9 +4,16 @@
  * Param names are the CLI flags in camelCase (`--quote-timestamp` →
  * `quoteTimestamp`); multi-value flags accept arrays under the singular name.
  */
-import { PROFILE_LIMITS, parseConversationId, type ConversationId } from '@/core/domain';
+import {
+  GROUP_LIMITS,
+  PROFILE_LIMITS,
+  parseConversationId,
+  type ConversationId,
+} from '@/core/domain';
 import { graphemes, pollDraftProblem, tidyPollDraft, utf8Length } from '@/core/lib';
 import type {
+  GroupChange,
+  NewGroupInput,
   OutgoingPoll,
   PollVoteInput,
   ProfileUpdate,
@@ -82,6 +89,67 @@ export function profileParams(update: ProfileUpdate): RpcParams {
   else if (update.avatar) {
     params.avatar = toDataUri(update.avatar.contentType, 'avatar', update.avatar.base64);
   }
+  return params;
+}
+
+const GROUP_AVATAR = /^data:(image\/(?:jpeg|png|gif|webp));base64,([A-Za-z0-9+/]+={0,2})$/u;
+
+/** A group photo is a data URI of an image type we know; anything else never reaches signal-cli. */
+function groupAvatarParam(dataUri: string): string {
+  const match = GROUP_AVATAR.exec(dataUri);
+  if (!match?.[1] || !match[2]) throw new SignalCliError('user', 'That group photo is not usable.');
+  return toDataUri(match[1], 'avatar', match[2]);
+}
+
+function checkGroupText(text: string, max: number, what: string): void {
+  if (graphemes(text).length > max) throw new SignalCliError('user', `That ${what} is too long.`);
+}
+
+/**
+ * `updateGroup` params for one `GroupChange`. Only the fields that are set
+ * are sent; the permission values are signal-cli's own spelling.
+ */
+export function groupChangeParams(groupId: string, change: GroupChange): RpcParams {
+  const params: RpcParams = { groupId };
+  if (change.title !== undefined) {
+    const title = change.title.trim();
+    if (!title) throw new SignalCliError('user', 'A group needs a name.');
+    checkGroupText(title, GROUP_LIMITS.title, 'group name');
+    params.name = title;
+  }
+  if (change.description !== undefined) {
+    checkGroupText(change.description, GROUP_LIMITS.description, 'group description');
+    params.description = change.description;
+  }
+  if (change.avatar !== undefined) params.avatar = groupAvatarParam(change.avatar);
+  if (change.addMemberIds?.length) params.member = [...change.addMemberIds];
+  if (change.removeMemberIds?.length) params.removeMember = [...change.removeMemberIds];
+  if (change.addAdminIds?.length) params.admin = [...change.addAdminIds];
+  if (change.removeAdminIds?.length) params.removeAdmin = [...change.removeAdminIds];
+  if (change.link !== undefined) {
+    params.link =
+      change.link === 'off'
+        ? 'disabled'
+        : change.link === 'on'
+          ? 'enabled'
+          : 'enabled-with-approval';
+  }
+  if (change.resetLink) params.resetLink = true;
+  const rules = change.permissions;
+  if (rules?.addMember) params.setPermissionAddMember = rules.addMember;
+  if (rules?.editDetails) params.setPermissionEditDetails = rules.editDetails;
+  if (rules?.sendMessages) params.setPermissionSendMessages = rules.sendMessages;
+  return params;
+}
+
+/** `updateGroup` without a `groupId` creates the group. */
+export function newGroupParams(input: NewGroupInput): RpcParams {
+  const title = input.title.trim();
+  if (!title) throw new SignalCliError('user', 'A group needs a name.');
+  checkGroupText(title, GROUP_LIMITS.title, 'group name');
+  const params: RpcParams = { name: title };
+  if (input.memberIds.length > 0) params.member = [...input.memberIds];
+  if (input.avatar !== undefined) params.avatar = groupAvatarParam(input.avatar);
   return params;
 }
 

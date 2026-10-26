@@ -20,6 +20,7 @@ import type {
   HistoryImportService,
   HistoryService,
   NotificationService,
+  GroupService,
   MessageRequestService,
   SendService,
   SyncService,
@@ -95,6 +96,7 @@ export interface AppServices {
   sync: SyncService;
   send: SendService;
   requests: MessageRequestService;
+  groups: GroupService;
   history: HistoryService;
   /**
    * Progress lives in `stores.session.getState().historyImport`; this is

@@ -13,9 +13,15 @@ import {
   applyPollVote,
   applyReaction,
   colorForId,
+  canAddMembers,
+  canEditGroupInfo,
+  canSendToGroup,
   directConversationId,
   formatDuration,
+  groupConversationId,
+  isGroupAdmin,
   messageId,
+  mustChooseNewAdmin,
   parseConversationId,
   type Attachment,
   type ConnectionStatus,
@@ -40,12 +46,14 @@ import type {
   ChatBackend,
   ConversationPatch,
   EditInput,
+  GroupChange,
   HistoryPage,
   HistoryQuery,
   MarkReadOptions,
   ReadSummary,
   MessageRef,
   MessageRequestResponse,
+  NewGroupInput,
   PinInput,
   PollVoteInput,
   ProfileUpdate,
@@ -56,6 +64,7 @@ import type {
   StickerPackDetails,
   StickerPackInfo,
 } from '../types';
+import { describeGroupChange } from '../groupLines';
 import { MOCK_STICKER_PACKS, type MockStickerPack } from './content/stickers';
 import { generateStickerUrl } from './images';
 import { Liveliness, type LivelinessOptions } from './liveliness';
@@ -268,6 +277,9 @@ export class MockBackend implements ChatBackend {
     this.assertOnline();
     this.takeFailure();
     const conv = this.requireConversation(input.conversationId, true);
+    if (!canSendToGroup(conv, this.world.self.id)) {
+      throw new MockBackendError('Only admins can send messages in this group');
+    }
 
     const sentAt = Math.max(this.clock.now(), this.lastSentAt + 1);
     this.lastSentAt = sentAt;
@@ -639,25 +651,177 @@ export class MockBackend implements ChatBackend {
           ? `You set disappearing messages to ${formatDuration(patch.expireTimerSec)}.`
           : 'You turned off disappearing messages.',
       );
-    if (lines.length > 0) {
-      const sentAt = Math.max(this.clock.now(), this.lastSentAt + 1);
-      this.lastSentAt = sentAt;
-      const selfId = this.world.self.id;
-      this.deliver({
-        id: messageId(selfId, sentAt),
-        conversationId,
-        authorId: selfId,
-        sentAt,
-        receivedAt: sentAt,
-        body: '',
-        ranges: [],
-        attachments: [],
-        reactions: [],
-        status: 'sent',
-        kind: 'system',
-        systemText: lines.join(' '),
-      });
+    if (lines.length > 0) this.deliverOwnSystem(conversationId, lines.join(' '));
+  }
+
+  /** A local system line for a change we made (the transport never echoes it). */
+  private deliverOwnSystem(conversationId: ConversationId, text: string): void {
+    const sentAt = Math.max(this.clock.now(), this.lastSentAt + 1);
+    this.lastSentAt = sentAt;
+    const selfId = this.world.self.id;
+    this.deliver({
+      id: messageId(selfId, sentAt),
+      conversationId,
+      authorId: selfId,
+      sentAt,
+      receivedAt: sentAt,
+      body: '',
+      ranges: [],
+      attachments: [],
+      reactions: [],
+      status: 'sent',
+      kind: 'system',
+      systemText: text,
+    });
+  }
+
+  private requireGroup(id: ConversationId): Conversation {
+    const conv = this.requireConversation(id);
+    if (conv.kind !== 'group') throw new MockBackendError('Not a group');
+    return conv;
+  }
+
+  private nameOf(id: string): string {
+    return id === this.world.self.id ? 'You' : (this.world.contacts.get(id)?.name ?? id);
+  }
+
+  /**
+   * Applies a group edit the way the server would: the rules (who may add,
+   * edit details, manage) are checked against our role, and an edit that
+   * breaks them rejects with nothing changed.
+   */
+  async updateGroup(conversationId: ConversationId, change: GroupChange): Promise<void> {
+    await this.delay();
+    this.assertOnline();
+    this.takeFailure();
+    const conv = this.requireGroup(conversationId);
+    const selfId = this.world.self.id;
+    const admin = isGroupAdmin(conv, selfId);
+    const adminOnly =
+      change.removeMemberIds?.length ||
+      change.addAdminIds?.length ||
+      change.removeAdminIds?.length ||
+      change.link !== undefined ||
+      change.resetLink ||
+      change.permissions;
+    const details =
+      change.title !== undefined || change.description !== undefined || change.avatar !== undefined;
+    if (
+      (adminOnly && !admin) ||
+      (details && !canEditGroupInfo(conv, selfId)) ||
+      (change.addMemberIds?.length && !canAddMembers(conv, selfId))
+    ) {
+      throw new MockBackendError('Not allowed to do that in this group');
     }
+    const next: Conversation = structuredClone(conv);
+    if (change.title !== undefined) next.title = change.title;
+    if (change.description !== undefined) {
+      if (change.description) next.description = change.description;
+      else delete next.description;
+    }
+    if (change.avatar !== undefined) next.avatarUrl = change.avatar;
+    const pending = new Set(next.pendingMemberIds ?? []);
+    const requesting = new Set(next.requestingMemberIds ?? []);
+    const members = new Set(next.memberIds);
+    const admins = new Set(next.adminIds);
+    for (const id of change.addMemberIds ?? []) {
+      // A request is approved; anyone else we know is simply added.
+      requesting.delete(id);
+      pending.delete(id);
+      members.add(id);
+    }
+    for (const id of change.removeMemberIds ?? []) {
+      pending.delete(id);
+      requesting.delete(id);
+      members.delete(id);
+      admins.delete(id);
+    }
+    for (const id of change.addAdminIds ?? []) if (members.has(id)) admins.add(id);
+    for (const id of change.removeAdminIds ?? []) admins.delete(id);
+    next.memberIds = [...members];
+    next.adminIds = [...admins];
+    next.pendingMemberIds = [...pending];
+    next.requestingMemberIds = [...requesting];
+    if (change.link === 'off') delete next.inviteLink;
+    else if (
+      (change.link !== undefined && !next.inviteLink) ||
+      (change.resetLink && next.inviteLink)
+    ) {
+      next.inviteLink = `https://signal.group/#demo-${this.rnd.base64(9)}`;
+    }
+    if (change.permissions) {
+      next.permissions = {
+        addMember: 'every-member',
+        editDetails: 'every-member',
+        sendMessages: 'every-member',
+        ...conv.permissions,
+        ...change.permissions,
+      };
+    }
+    this.world.conversations.set(conversationId, next);
+    this.emitter.emit('conversationUpdated', structuredClone(next));
+    const lines = describeGroupChange(conv, next, 'You', (id) => this.nameOf(id), true);
+    if (lines.length > 0) this.deliverOwnSystem(conversationId, lines.join(' '));
+  }
+
+  async createGroup(input: NewGroupInput): Promise<Conversation> {
+    await this.delay();
+    this.assertOnline();
+    this.takeFailure();
+    const selfId = this.world.self.id;
+    const id = groupConversationId(this.rnd.base64(32));
+    const conv: Conversation = {
+      id,
+      kind: 'group',
+      title: input.title,
+      memberIds: [selfId, ...input.memberIds.filter((m) => m !== selfId)],
+      adminIds: [selfId],
+      expireTimerSec: 0,
+      lastActivityAt: this.clock.now(),
+      permissions: {
+        addMember: 'every-member',
+        editDetails: 'every-member',
+        sendMessages: 'every-member',
+      },
+      pendingMemberIds: [],
+      requestingMemberIds: [],
+      bannedIds: [],
+    };
+    if (input.avatar) conv.avatarUrl = input.avatar;
+    this.world.conversations.set(id, conv);
+    this.world.histories.set(id, []);
+    this.emitter.emit('conversationUpdated', structuredClone(conv));
+    this.deliverOwnSystem(id, 'You created the group.');
+    return structuredClone(this.world.conversations.get(id) ?? conv);
+  }
+
+  async leaveGroup(
+    conversationId: ConversationId,
+    newAdminIds: readonly string[] = [],
+  ): Promise<void> {
+    await this.delay();
+    this.assertOnline();
+    this.takeFailure();
+    const conv = this.requireGroup(conversationId);
+    if (mustChooseNewAdmin(conv, this.world.self.id) && newAdminIds.length === 0) {
+      throw new MockBackendError('Choose a new admin before leaving');
+    }
+    const selfId = this.world.self.id;
+    // The chat and its history stay, read-only.
+    const next: Conversation = {
+      ...structuredClone(conv),
+      memberIds: conv.memberIds.filter((m) => m !== selfId),
+      adminIds: [
+        ...new Set([
+          ...conv.adminIds.filter((m) => m !== selfId),
+          ...newAdminIds.filter((m) => conv.memberIds.includes(m) && m !== selfId),
+        ]),
+      ],
+      left: true,
+    };
+    this.world.conversations.set(conversationId, next);
+    this.emitter.emit('conversationUpdated', structuredClone(next));
+    this.deliverOwnSystem(conversationId, 'You left the group.');
   }
 
   // ─── Test & demo hooks (not part of ChatBackend) ───────────────────────

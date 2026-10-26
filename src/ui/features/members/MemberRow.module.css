@@ -50,3 +50,18 @@
   flex: none;
   font-size: var(--snowdrop-font-size-ui);
 }
+
+/* The member's label in this group: an emoji and/or a few words, after the name. */
+.label {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  padding: 1px var(--snowdrop-space-3);
+  border-radius: var(--snowdrop-radius-full);
+  background: var(--snowdrop-bg-active);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  unicode-bidi: isolate;
+}
