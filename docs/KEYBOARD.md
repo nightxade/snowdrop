@@ -68,6 +68,7 @@ The list is one tab stop (the newest message by default).
 | E                          | Edit (your own message)                                                                                         |
 | + (or =)                   | Add a reaction                                                                                                  |
 | Delete / Backspace         | Delete: for everyone on your own messages, for you on others' (asks first; hold **Shift** to skip the question) |
+| Mod+Shift+S                | Forward (Signal Desktop's shortcut): pick up to five chats, edit, send                                          |
 | Shift+F10, Menu, Mod+Enter | Message menu (copy, copy as Markdown, pin, …)                                                                   |
 
 Clicking a quoted message (or Enter on it) jumps to the original and focuses it.

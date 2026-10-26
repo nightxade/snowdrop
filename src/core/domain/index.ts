@@ -18,3 +18,4 @@ export * from './groups';
 export * from './contacts';
 export * from './attachmentKind';
 export * from './gallery';
+export * from './forward';

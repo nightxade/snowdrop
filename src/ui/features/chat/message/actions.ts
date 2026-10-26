@@ -2,7 +2,7 @@
  * Message actions shared by the hover bar, the context menu, reaction pills
  * and keyboard shortcuts, so every entry point behaves the same.
  */
-import { bodyToPlainText, isPendingMessageId, type Message } from '@/core/domain';
+import { bodyToPlainText, isForwardable, isPendingMessageId, type Message } from '@/core/domain';
 import { selectMessageRequestState, UNKNOWN_CONTACT_NAME } from '@/core/stores';
 import type { AppServices } from '@/ui/hooks';
 import { copyText } from '@/ui/features/conversation';
@@ -21,6 +21,14 @@ function report(app: AppServices, message: string): void {
 export function reply(app: AppServices, chat: ChatController, m: Message): void {
   app.stores.ui.getState().setReplyTo(m.conversationId, m.id);
   chat.focusComposer();
+}
+
+/** Opens the forward dialog for this message (the dialog fetches its files and sends). */
+export function forward(app: AppServices, m: Message): void {
+  app.stores.ui.getState().openModal({
+    type: 'forward',
+    props: { conversationId: m.conversationId, messageIds: [m.id] },
+  });
 }
 
 export function startEdit(app: AppServices, m: Message): void {
@@ -111,6 +119,8 @@ export interface MessagePermissions {
   pending: boolean;
   canEdit: boolean;
   canReact: boolean;
+  /** Forwarding needs the message's files, so (like reacting) not before the chat is accepted. */
+  canForward: boolean;
   canAdminDelete: boolean;
   canPin: boolean;
   /** A poll that is open, sent, and one the user may answer. */
@@ -139,6 +149,7 @@ export function permissionsFor(app: AppServices, m: Message): MessagePermissions
     pending,
     canEdit: own && normal && m.poll === undefined,
     canReact: normal && !failed && accepted,
+    canForward: accepted && isForwardable(m),
     canAdminDelete: normal && !own && admin && conversation?.kind === 'group' && caps.adminDelete,
     canPin: normal && !failed && accepted && caps.pin,
     canVotePoll: openPoll && accepted && caps.polls,

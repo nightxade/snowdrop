@@ -14,6 +14,7 @@ import type { MessageAction } from './list/rowState';
 
 const MESSAGE_ACTIONS: readonly [id: string, title: string, action: MessageAction][] = [
   [MessageCommand.Reply, 'Reply to focused message', 'reply'],
+  [MessageCommand.Forward, 'Forward focused message', 'forward'],
   [MessageCommand.Edit, 'Edit focused message', 'edit'],
   [MessageCommand.React, 'React to focused message', 'react'],
   [MessageCommand.CopyText, 'Copy focused message text', 'copyText'],

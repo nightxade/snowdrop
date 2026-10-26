@@ -357,9 +357,13 @@ export class MockBackend implements ChatBackend {
     await this.delay();
     this.assertOnline();
     this.takeFailure();
-    const match = /^data:([^;,]*);base64,(.*)$/u.exec(attachment.url ?? '');
+    // Base64 (a sent file) or percent-encoded text (the demo's generated images).
+    const match = /^data:([^;,]*)((?:;[^;,]*)*),(.*)$/su.exec(attachment.url ?? '');
     if (!match) throw new MockBackendError('Attachment not available');
-    const bytes = Uint8Array.from(atob(match[2] ?? ''), (c) => c.charCodeAt(0));
+    const base64 = (match[2] ?? '').split(';').includes('base64');
+    const bytes = base64
+      ? Uint8Array.from(atob(match[3] ?? ''), (c) => c.charCodeAt(0))
+      : new TextEncoder().encode(decodeURIComponent(match[3] ?? ''));
     if (options?.maxBytes !== undefined && bytes.length > options.maxBytes)
       throw new MockBackendError('Attachment is too large');
     return new Blob([bytes], { type: match[1] ?? '' });

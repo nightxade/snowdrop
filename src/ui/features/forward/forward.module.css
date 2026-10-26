@@ -1,0 +1,263 @@
+.modal {
+  overflow: hidden;
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* What is being forwarded, above the list. */
+.preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--snowdrop-space-4);
+  max-height: 168px;
+  padding: var(--snowdrop-space-4) var(--snowdrop-space-7);
+  overflow-y: auto;
+  border-bottom: 1px solid var(--snowdrop-border);
+  background: var(--snowdrop-bg-sidebar);
+  scrollbar-color: var(--snowdrop-scrollbar-thumb) transparent;
+  scrollbar-width: thin;
+}
+
+.editor .preview {
+  max-height: none;
+  margin-top: var(--snowdrop-space-5);
+  border: 1px solid var(--snowdrop-border);
+  border-radius: var(--snowdrop-radius-sm);
+}
+
+.item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--snowdrop-space-2);
+  min-width: 0;
+}
+
+.from {
+  margin: 0;
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
+  font-weight: var(--snowdrop-font-weight-semibold);
+}
+
+.text {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: var(--snowdrop-text);
+  font-size: var(--snowdrop-font-size-ui);
+  line-height: var(--snowdrop-line-height-ui);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+}
+
+.sticker {
+  display: flex;
+  align-items: center;
+  gap: var(--snowdrop-space-3);
+  margin: 0;
+  color: var(--snowdrop-text);
+  font-size: var(--snowdrop-font-size-ui);
+}
+
+.files {
+  display: flex;
+  flex-direction: column;
+  gap: var(--snowdrop-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.file {
+  display: flex;
+  align-items: center;
+  gap: var(--snowdrop-space-3);
+  min-width: 0;
+}
+
+.fileIcon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--snowdrop-radius-xs);
+  background: var(--snowdrop-bg-elevated);
+  color: var(--snowdrop-accent-text);
+}
+
+.fileText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.fileName {
+  overflow: hidden;
+  color: var(--snowdrop-text);
+  font-size: var(--snowdrop-font-size-ui);
+  font-weight: var(--snowdrop-font-weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fileDetail {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--snowdrop-space-2);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
+}
+
+.fileDetail:empty {
+  display: none;
+}
+
+.fileDetail[data-error] {
+  color: var(--snowdrop-danger);
+}
+
+.link {
+  display: flex;
+  align-items: center;
+  gap: var(--snowdrop-space-3);
+  margin: 0;
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
+}
+
+.linkText {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Choice and failure messages, between the field and the list. */
+.notice {
+  display: flex;
+  align-items: center;
+  gap: var(--snowdrop-space-3);
+  padding: var(--snowdrop-space-4) var(--snowdrop-space-5) 0;
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
+}
+
+.notice:empty {
+  display: none;
+}
+
+.notice[data-error] {
+  color: var(--snowdrop-danger);
+}
+
+.editor .notice {
+  padding: var(--snowdrop-space-4) 0 0;
+}
+
+.editor {
+  display: flex;
+  flex-direction: column;
+  padding: var(--snowdrop-space-3) var(--snowdrop-space-7) var(--snowdrop-space-6);
+}
+
+.label {
+  margin-bottom: var(--snowdrop-space-3);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
+  font-weight: var(--snowdrop-font-weight-semibold);
+}
+
+.textarea {
+  width: 100%;
+  min-height: 112px;
+  max-height: 40vh;
+  padding: var(--snowdrop-space-4);
+  border: 1px solid var(--snowdrop-border-strong);
+  border-radius: var(--snowdrop-radius-sm);
+  background: var(--snowdrop-bg-input);
+  color: var(--snowdrop-text-strong);
+  font: inherit;
+  font-size: var(--snowdrop-font-size-message);
+  line-height: var(--snowdrop-line-height-message);
+  resize: vertical;
+  scrollbar-color: var(--snowdrop-scrollbar-thumb) transparent;
+  scrollbar-width: thin;
+}
+
+.textarea:focus-visible {
+  border-color: var(--snowdrop-accent);
+  outline: none;
+}
+
+.textarea:disabled {
+  opacity: 0.6;
+}
+
+.footer {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--snowdrop-space-3) var(--snowdrop-space-5);
+  min-width: 0;
+}
+
+.summary {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--snowdrop-space-1);
+  min-width: 160px;
+}
+
+.names {
+  overflow: hidden;
+  color: var(--snowdrop-text);
+  font-size: var(--snowdrop-font-size-ui);
+  font-weight: var(--snowdrop-font-weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hint,
+.keys {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--snowdrop-space-2);
+  color: var(--snowdrop-text-muted);
+  font-size: var(--snowdrop-font-size-sm);
+}
+
+/* A touch screen has no keyboard shortcut to hint at. */
+@media (pointer: coarse) {
+  .keys {
+    display: none;
+  }
+}
+
+.actions {
+  display: flex;
+  gap: var(--snowdrop-space-3);
+}
+
+.spin {
+  flex: none;
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

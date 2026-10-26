@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect } from 'react';
 import { useStore } from 'zustand';
-import type { ConversationId } from '@/core/domain';
+import type { ConversationId, MessageId } from '@/core/domain';
 import type { GroupMemberAction } from '@/ui/features/conversation';
 import { uiSelectors } from '@/core/stores';
 import { useStores } from '@/ui/hooks';
@@ -23,6 +23,10 @@ const GlobalSearch = lazy(() => loadSearch().then((m) => ({ default: m.GlobalSea
 // New message: opened from the Home sidebar and the palette; prefetched with the switcher.
 const loadNewChat = () => import('@/ui/features/newChat');
 const NewMessageDialog = lazy(() => loadNewChat().then((m) => ({ default: m.NewMessageDialog })));
+
+// Forward to: opened from a message's menu; prefetched with the switcher.
+const loadForward = () => import('@/ui/features/forward');
+const ForwardDialog = lazy(() => loadForward().then((m) => ({ default: m.ForwardDialog })));
 
 // Group dialogs (edit, add members, link, permissions, leave, new group): opened from the
 // chat header, the member list and New message; prefetched with the rest.
@@ -88,6 +92,7 @@ export function ModalHost() {
       void loadSwitcher();
       void loadSearch();
       void loadNewChat();
+      void loadForward();
       void loadGroups();
       void loadSpaces();
       void loadShortcuts();
@@ -118,6 +123,16 @@ function modalElement(modal: Modal, close: () => void) {
       return <GlobalSearch onClose={close} />;
     case 'newMessage':
       return <NewMessageDialog onClose={close} />;
+    case 'forward': {
+      const conversationId = conversationProp(modal.props);
+      const ids = modal.props?.messageIds;
+      const messageIds = Array.isArray(ids)
+        ? ids.filter((x): x is MessageId => typeof x === 'string')
+        : [];
+      return conversationId && messageIds.length > 0 ? (
+        <ForwardDialog conversationId={conversationId} messageIds={messageIds} onClose={close} />
+      ) : null;
+    }
     case 'newGroup':
       return <NewGroupDialog onClose={close} />;
     case 'editGroup':

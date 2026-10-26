@@ -85,6 +85,7 @@ export const MessageCommand = {
   LineUp: 'chat.list.lineUp',
   Center: 'chat.message.center',
   Reply: 'chat.message.reply',
+  Forward: 'chat.message.forward',
   Edit: 'chat.message.edit',
   React: 'chat.message.react',
   CopyText: 'chat.message.copyText',

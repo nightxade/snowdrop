@@ -62,6 +62,10 @@ export const STYLE_HOOKS = [
   { hook: 'sticker-cell', what: 'One sticker button in the picker’s grid' },
   { hook: 'sticker-pack', what: 'The sticker pack dialog opened from a received sticker' },
   { hook: 'poll-create', what: 'The form in the New poll dialog' },
+  {
+    hook: 'forward-preview',
+    what: 'The message being forwarded, at the top of the Forward dialog',
+  },
   { hook: 'custom-emoji-card', what: 'The “add to my emoji” card for an emoji someone else sent' },
   { hook: 'typing-line', what: '“… is typing” strip' },
   { hook: 'drop-overlay', what: 'Drag-and-drop overlay' },

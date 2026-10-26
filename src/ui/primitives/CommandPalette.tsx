@@ -4,6 +4,7 @@
  * (`shouldFilter={false}`) so ranking and highlighting stay ours.
  */
 import { Command } from 'cmdk';
+import { Check } from 'lucide-react';
 import type { ComponentProps, ReactNode } from 'react';
 import styles from './CommandPalette.module.css';
 
@@ -62,15 +63,23 @@ export function CommandPaletteList({
   children,
   label,
   empty,
+  multiselectable,
 }: {
   children: ReactNode;
   label: string;
   empty?: ReactNode;
+  /** The items are checked on and off (see `CommandPaletteItem`'s `checked`). */
+  multiselectable?: boolean;
 }) {
   const isEmpty = empty !== undefined && empty !== null && empty !== false;
   return (
     <>
-      <Command.List className={styles.list} label={label} hidden={isEmpty}>
+      <Command.List
+        className={styles.list}
+        label={label}
+        hidden={isEmpty}
+        {...(multiselectable ? { 'aria-multiselectable': true } : {})}
+      >
         {children}
       </Command.List>
       {isEmpty && (
@@ -105,6 +114,11 @@ export interface CommandPaletteItemProps {
   /** Right-aligned extras: space name, badge, shortcut. */
   meta?: ReactNode;
   disabled?: boolean;
+  /**
+   * Makes the item a checkable one (a multi-pick list): a box shows before it
+   * and `aria-checked` says whether it's ticked. Selecting still calls `onSelect`.
+   */
+  checked?: boolean;
 }
 
 export function CommandPaletteItem({
@@ -114,6 +128,7 @@ export function CommandPaletteItem({
   children,
   meta,
   disabled,
+  checked,
 }: CommandPaletteItemProps) {
   return (
     <Command.Item
@@ -121,7 +136,13 @@ export function CommandPaletteItem({
       value={value}
       onSelect={onSelect}
       disabled={disabled ?? false}
+      {...(checked !== undefined ? { 'aria-checked': checked } : {})}
     >
+      {checked !== undefined && (
+        <span className={styles.check} data-checked={checked ? '' : undefined} aria-hidden>
+          {checked && <Check size={12} strokeWidth={3} />}
+        </span>
+      )}
       {icon && (
         <span className={styles.icon} aria-hidden>
           {icon}

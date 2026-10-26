@@ -10,7 +10,7 @@ import type { MessageId } from '@/core/domain';
  */
 /** Actions a row performs on itself (keyboard layers reach them through the list). */
 export type MessageAction =
-  'reply' | 'edit' | 'react' | 'copyText' | 'copyMarkdown' | 'delete' | 'pin' | 'open';
+  'reply' | 'forward' | 'edit' | 'react' | 'copyText' | 'copyMarkdown' | 'delete' | 'pin' | 'open';
 
 export type RowActionHandler = (action: MessageAction) => boolean;
 

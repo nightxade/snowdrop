@@ -464,6 +464,26 @@ describe('mock sticker pack install and delivered custom emoji', () => {
   });
 });
 
+describe('mock attachment bytes', () => {
+  it('decodes the demo’s percent-encoded images as well as base64 ones', async () => {
+    const { backend } = setup();
+    await backend.connect();
+    const id = [...backend.world.conversations.keys()][0]!;
+    const svg = await backend.readAttachmentBlob(id, {
+      id: 'a',
+      contentType: 'image/svg+xml',
+      url: `data:image/svg+xml;charset=utf-8,${encodeURIComponent('<svg a="1"/>')}`,
+    });
+    expect(await svg.text()).toBe('<svg a="1"/>');
+    const png = await backend.readAttachmentBlob(id, {
+      id: 'b',
+      contentType: 'image/png',
+      url: 'data:image/png;base64,aGk=',
+    });
+    expect(await png.text()).toBe('hi');
+  });
+});
+
 describe('mock recipient lookup', () => {
   it('finds a person by number, a stranger in the demo directory, and not anyone else', async () => {
     const { backend } = setup();

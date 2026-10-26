@@ -42,14 +42,14 @@ export function openConversation(
 }
 
 /**
- * Opens the direct conversation with a contact, creating a local placeholder
- * if there's none yet (Signal has no "create DM" call: the conversation
- * exists as soon as either side sends; the sync engine replaces the
- * placeholder with the backend's record).
+ * The direct conversation with a contact, creating a local placeholder if
+ * there's none yet (Signal has no "create DM" call: the conversation exists
+ * as soon as either side sends; the sync engine replaces the placeholder with
+ * the backend's record). Opens nothing.
  */
-export function openDirectConversation(app: AppServices, contact: Contact): ConversationId {
+export function ensureDirectConversation(app: AppServices, contact: Contact): ConversationId {
   const id = directConversationId(contact.id);
-  const { conversations, session, ui } = app.stores;
+  const { conversations, session } = app.stores;
   if (!conversations.getState().byId[id]) {
     const selfId = session.getState().self?.id;
     const isSelf = contact.isSelf === true || contact.id === selfId;
@@ -65,7 +65,13 @@ export function openDirectConversation(app: AppServices, contact: Contact): Conv
     // The user's own move, not someone writing to them: no request to answer.
     app.stores.local.getState().markAccepted(id, Date.now());
   }
-  ui.getState().selectConversation(id, HOME);
+  return id;
+}
+
+/** Opens the direct conversation with a contact (see `ensureDirectConversation`). */
+export function openDirectConversation(app: AppServices, contact: Contact): ConversationId {
+  const id = ensureDirectConversation(app, contact);
+  app.stores.ui.getState().selectConversation(id, HOME);
   return id;
 }
 

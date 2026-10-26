@@ -4,6 +4,7 @@ export { resetRevealedAvatars } from './avatarHold';
 export {
   archive,
   copyText,
+  ensureDirectConversation,
   markRead,
   markUnread,
   MUTE_OPTIONS,

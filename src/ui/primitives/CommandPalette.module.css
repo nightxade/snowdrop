@@ -47,9 +47,13 @@
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: var(--snowdrop-space-3);
   transition: height var(--snowdrop-duration-base) var(--snowdrop-ease);
   scroll-padding-block: var(--snowdrop-space-7) var(--snowdrop-space-3);
+}
+
+/* The padding sits inside cmdk's sizer, so the height it measures includes it and a short list isn't clipped. */
+.list > :global([cmdk-list-sizer]) {
+  padding: var(--snowdrop-space-3);
 }
 
 .group + .group {
@@ -83,6 +87,22 @@
 .item[data-disabled='true'] {
   opacity: 0.5;
   cursor: default;
+}
+
+.check {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--snowdrop-border-strong);
+  border-radius: var(--snowdrop-radius-xs);
+  color: var(--snowdrop-text-on-accent);
+}
+
+.check[data-checked] {
+  border-color: var(--snowdrop-accent);
+  background: var(--snowdrop-accent);
 }
 
 .icon {

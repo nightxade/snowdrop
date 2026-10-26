@@ -202,7 +202,7 @@ where `Mod` is Cmd on macOS and Ctrl elsewhere. Core command ids are exported
 from `@/core/commands`: `CoreCommand` (the default shortcuts), `NavCommand`
 (focus composer/messages, next/previous space, command palette, open search)
 and `MessageCommand` (next/previous/first/last message, scrolling, and
-reply/edit/react/copy/delete/pin/open on the focused message). Vim Mode drives
+reply/forward/edit/react/copy/delete/pin/open on the focused message). Vim Mode drives
 the whole app through these ids.
 
 ### Slash commands

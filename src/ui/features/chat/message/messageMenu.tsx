@@ -1,5 +1,6 @@
 import {
   Copy,
+  Forward,
   CircleStop,
   Hash,
   Info,
@@ -103,6 +104,17 @@ export function buildMessageMenu(
       icon: <Reply size={ICON} />,
       onSelect: () => {
         act.reply(app, chat, m);
+      },
+    });
+  }
+  if (p.canForward) {
+    entries.push({
+      kind: 'item',
+      id: 'forward',
+      label: 'Forward',
+      icon: <Forward size={ICON} />,
+      onSelect: () => {
+        act.forward(app, m);
       },
     });
   }

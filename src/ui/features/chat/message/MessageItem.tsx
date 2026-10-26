@@ -126,6 +126,9 @@ export const MessageItem = memo(function MessageItem({
         case 'reply':
           if (p.canReact) act.reply(app, chat, msg);
           return p.canReact;
+        case 'forward':
+          if (p.canForward) act.forward(app, msg);
+          return p.canForward;
         case 'edit':
           if (p.canEdit) act.startEdit(app, msg);
           return p.canEdit;
@@ -248,6 +251,13 @@ export const MessageItem = memo(function MessageItem({
       return;
     }
     if (e.defaultPrevented) return;
+    // Signal Desktop's shortcut for forwarding the focused message.
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && e.key.toLowerCase() === 's') {
+      if (!perms.canForward) return;
+      act.forward(app, m);
+      e.preventDefault();
+      return;
+    }
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     const key = e.key.toLowerCase();
     if (key === 'enter' && !editing) {
@@ -273,7 +283,7 @@ export const MessageItem = memo(function MessageItem({
       role="article"
       aria-labelledby={labelId}
       aria-describedby={bodyId}
-      aria-keyshortcuts="Enter R E Plus Delete"
+      aria-keyshortcuts="Enter R E Plus Delete Control+Shift+S"
       data-snowdrop="message"
       data-compact={compact ? '' : undefined}
       data-continuation={continuation && !compact ? '' : undefined}

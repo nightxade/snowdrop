@@ -464,6 +464,7 @@ instead.
 | `sticker-cell`          | One sticker button in the picker's grid                                                                     |
 | `sticker-pack`          | The sticker pack dialog opened from a received sticker                                                      |
 | `poll-create`           | The form in the New poll dialog                                                                             |
+| `forward-preview`       | The message being forwarded, at the top of the Forward dialog                                               |
 | `custom-emoji-card`     | The “add to my emoji” card for an emoji someone else sent                                                   |
 | `typing-line`           | "… is typing" strip                                                                                         |
 | `drop-overlay`          | Drag-and-drop overlay                                                                                       |
