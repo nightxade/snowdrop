@@ -11,7 +11,7 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { MessageRef } from '@/core/backend';
-import type { Attachment, ConversationId } from '@/core/domain';
+import type { Attachment, ConversationId, MessageId } from '@/core/domain';
 import { createStores } from '@/core/stores';
 import { SnowdropContextProvider, type AppServices } from '@/ui/hooks';
 import { TooltipProvider } from '@/ui/primitives';
@@ -175,5 +175,69 @@ describe('attachment viewer', () => {
       'src',
       'blob:4',
     );
+  });
+});
+
+describe('voice notes', () => {
+  const voiceMessageId = 'm-voice' as MessageId;
+
+  function renderVoice(attachment: Attachment, author = 'author-1') {
+    const app = fakeApp(vi.fn().mockResolvedValue('blob:voice'));
+    app.stores.session.setState({ self: { id: 'me', name: 'Me' } } as never);
+    render(
+      <SnowdropContextProvider value={app}>
+        <TooltipProvider>
+          <Attachments
+            conversationId={conversationId}
+            message={{ authorId: author, sentAt: 1_000 }}
+            messageId={voiceMessageId}
+            attachments={[attachment]}
+            pending={false}
+          />
+        </TooltipProvider>
+      </SnowdropContextProvider>,
+    );
+    return app;
+  }
+
+  it("shows a flagged attachment as a voice player, with the unplayed dot on others' notes", async () => {
+    renderVoice({
+      id: 'v1',
+      contentType: 'audio/mpeg',
+      fileName: 'voice-note.mp3',
+      voiceNote: true,
+    });
+    expect(await screen.findByRole('group', { name: 'Voice message' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Play voice message' })).toBeTruthy();
+    expect(screen.getByText('Not played yet')).toBeTruthy();
+    expect(document.querySelector('audio')).toBeNull();
+  });
+
+  it('treats audio with no file name as a voice note (older Android clients)', async () => {
+    renderVoice({ id: 'v2', contentType: 'audio/aac' });
+    expect(await screen.findByRole('group', { name: 'Voice message' })).toBeTruthy();
+  });
+
+  it('forgets the dot once the note has been played here', async () => {
+    const app = renderVoice({ id: 'v3', contentType: 'audio/aac', voiceNote: true });
+    await screen.findByText('Not played yet');
+    act(() => {
+      app.stores.local.getState().markVoiceNotePlayed('author-1\u00001000');
+    });
+    expect(screen.queryByText('Not played yet')).toBeNull();
+  });
+
+  it('shows no dot on your own notes', async () => {
+    renderVoice({ id: 'v4', contentType: 'audio/mpeg', fileName: 'v.mp3', voiceNote: true }, 'me');
+    await screen.findByRole('group', { name: 'Voice message' });
+    expect(screen.queryByText('Not played yet')).toBeNull();
+  });
+
+  it('keeps an ordinary named audio file as the plain audio card', async () => {
+    renderVoice({ id: 'a1', contentType: 'audio/mpeg', fileName: 'song.mp3' });
+    await vi.waitFor(() => {
+      expect(document.querySelector('audio')).toBeTruthy();
+    });
+    expect(screen.queryByRole('group', { name: 'Voice message' })).toBeNull();
   });
 });

@@ -51,6 +51,7 @@ export function toAttachment(a: WireAttachment, fallbackId: string): Attachment 
   if (a.size !== undefined) out.size = a.size;
   if (a.width !== undefined && a.width > 0) out.width = a.width;
   if (a.height !== undefined && a.height > 0) out.height = a.height;
+  if (a.isVoiceNote === true) out.voiceNote = true;
   return out;
 }
 

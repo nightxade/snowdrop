@@ -17,6 +17,7 @@ pub mod jsonrpc;
 pub mod keyslots;
 pub mod link_preview;
 pub mod logfile;
+pub mod mic_gate;
 pub mod notifications;
 pub mod paste_gate;
 pub mod perf;
@@ -153,6 +154,23 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .manage(Arc::new(notifications::Notifications::default()))
         .plugin(tauri_plugin_opener::init())
+        // Voice notes: the microphone, once, right after a real click or key
+        // press; nothing else is ever granted (`mic_gate.rs`).
+        .on_permission_request(|webview, kind| {
+            #[cfg(target_os = "linux")]
+            {
+                use tauri::Manager;
+                match webview.try_state::<Arc<mic_gate::MicGate>>() {
+                    Some(gate) => mic_gate::decide(kind, &gate, std::time::Instant::now()),
+                    None => tauri::webview::PermissionResponse::Deny,
+                }
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                let _ = (webview, kind);
+                tauri::webview::PermissionResponse::Default
+            }
+        })
         .setup(|app| {
             // First thing: `app_log_dir()` needs the `AppHandle`, which
             // doesn't exist before `.setup()` runs, so this is as early as
@@ -291,7 +309,9 @@ pub fn run() {
             });
             let paste_gate = Arc::new(paste_gate::PasteGate::default());
             app.manage(paste_gate.clone());
-            webview_privacy::configure_main_window(app.handle(), paste_gate);
+            let mic_gate = Arc::new(mic_gate::MicGate::default());
+            app.manage(mic_gate.clone());
+            webview_privacy::configure_main_window(app.handle(), paste_gate, mic_gate);
             startup::mark("setup complete");
             Ok(())
         })

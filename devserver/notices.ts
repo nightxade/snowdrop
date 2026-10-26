@@ -109,6 +109,22 @@ export function rustCrateNotices(): Plugin {
   };
 }
 
+/**
+ * `wasm-media-encoders` (MIT) ships LAME, the MP3 encoder, as a separate
+ * `mp3.wasm` file; LAME is LGPL, which its MIT wrapper's licence file doesn't
+ * say. Voice notes use it, so its terms and where to get the source are
+ * stated next to the package's own notice.
+ */
+export const LAME_NOTICE = [
+  'wasm-media-encoders includes LAME (https://lame.sourceforge.io/), the MP3 encoder,',
+  'compiled to WebAssembly. LAME is licensed under the GNU Lesser General Public',
+  'License, version 2 or (at your option) any later version',
+  '(https://www.gnu.org/licenses/old-licenses/lgpl-2.0.html). Snowdrop ships it',
+  'unmodified as its own file (mp3.wasm), loaded at run time and not linked into',
+  "Snowdrop's code, so it can be replaced with another build of LAME. The source",
+  'of the build used is at https://github.com/arseneyr/wasm-media-encoders.',
+].join('\n');
+
 export function thirdPartyNotices({ bundled = false }: { bundled?: boolean } = {}): Plugin {
   return {
     name: 'snowdrop:third-party-notices',
@@ -152,10 +168,13 @@ export function thirdPartyNotices({ bundled = false }: { bundled?: boolean } = {
             `${'='.repeat(72)}\n${e.name} ${e.version} (${e.license})\n${'='.repeat(72)}\n\n${e.text}\n`,
         )
         .join('\n');
+      const lame = entries.some((e) => e.name === 'wasm-media-encoders')
+        ? `\n${'='.repeat(72)}\nLAME (inside wasm-media-encoders)\n${'='.repeat(72)}\n\n${LAME_NOTICE}\n`
+        : '';
       this.emitFile({
         type: 'asset',
         fileName: 'THIRD_PARTY_NOTICES.txt',
-        source: `Snowdrop includes the following third-party software (${entries.length} packages).\n\n${body}${bundled ? bundledProgramNotices(process.cwd()) : ''}`,
+        source: `Snowdrop includes the following third-party software (${entries.length} packages).\n\n${body}${lame}${bundled ? bundledProgramNotices(process.cwd()) : ''}`,
       });
     },
   };

@@ -11,6 +11,10 @@ export interface PendingAttachment {
   /** Natural size of an image, once its preview has loaded. */
   width?: number;
   height?: number;
+  /** A recorded voice note (its `previewUrl` plays it; `levels` and `duration` come from the recorder). */
+  voiceNote?: boolean;
+  levels?: readonly number[];
+  duration?: number;
 }
 
 export function AttachmentTray({

@@ -291,6 +291,7 @@ export class MockBackend implements ChatBackend {
         contentType: a.contentType,
         fileName: a.fileName,
         size: a.data.size,
+        ...(a.voiceNote ? { voiceNote: true } : {}),
         ...(a.width !== undefined ? { width: a.width } : {}),
         ...(a.height !== undefined ? { height: a.height } : {}),
         ...(a.data.size <= INLINE_ATTACHMENT_MAX

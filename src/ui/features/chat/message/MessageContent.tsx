@@ -182,6 +182,7 @@ export function MessageContent({
           <Attachments
             conversationId={conversationId}
             message={m}
+            messageId={m.id}
             attachments={m.attachments}
             pending={pending}
             caption={name}

@@ -189,6 +189,7 @@ export async function encodeOutgoing(
     fileName: file.fileName,
     size: bytes.length,
   };
+  if (file.voiceNote) attachment.voiceNote = true;
   if (safeMediaType(file.contentType).startsWith('image/')) {
     const thumb = await thumbnailer(file.data).catch(() => undefined);
     if (thumb) {

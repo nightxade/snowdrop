@@ -255,6 +255,28 @@ describe('phone-history messages', () => {
     });
     expect(JSON.stringify(result)).not.toContain('secret');
   });
+  it('carries the archive voice-message flag (by name or number) and ignores the other flags', () => {
+    const pointer = { contentType: 'audio/aac', locatorInfo: { size: 8 } };
+    const result = convert({
+      ...base,
+      standardMessage: {
+        attachments: [
+          { pointer, flag: 'VOICE_MESSAGE' },
+          { pointer, flag: 1 },
+          { pointer, flag: 'BORDERLESS' },
+          { pointer, flag: 'NONE' },
+          { pointer },
+        ],
+      },
+    });
+    expect(result?.attachments.map((a) => a.voiceNote)).toEqual([
+      true,
+      true,
+      undefined,
+      undefined,
+      undefined,
+    ]);
+  });
   it('does not revive expired, deleted or view-once content', () => {
     expect(
       convert({

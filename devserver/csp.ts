@@ -13,6 +13,8 @@ export const CSP = [
   "media-src 'self' data: blob:",
   "font-src 'self' data:",
   "style-src 'self' 'unsafe-inline'",
+  // WebAssembly may be compiled (the voice-note MP3 encoder) but nothing else may be eval'd.
+  "script-src 'self' 'wasm-unsafe-eval'",
   "connect-src 'self'",
   "object-src 'none'",
   "base-uri 'none'",

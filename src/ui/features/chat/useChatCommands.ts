@@ -83,6 +83,17 @@ export function useChatCommands(): void {
         },
       }),
       commands.register({
+        id: CoreCommand.RecordVoiceNote,
+        title: 'Record a voice message',
+        category: 'Conversation',
+        keybind: DEFAULT_KEYBINDS[CoreCommand.RecordVoiceNote],
+        allowInInputs: true,
+        enabled: hasConversation,
+        run: () => {
+          chat.startVoiceNote();
+        },
+      }),
+      commands.register({
         id: NavCommand.OpenSearch,
         title: 'Open search in conversation',
         category: 'Conversation',

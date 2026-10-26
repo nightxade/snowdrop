@@ -1,7 +1,7 @@
 import { Download, FileText, ImageOff, Loader2, Play, RotateCw, Video } from 'lucide-react';
 import { lazy, memo, Suspense, useState, type CSSProperties } from 'react';
 import type { MessageRef } from '@/core/backend';
-import type { Attachment, ConversationId } from '@/core/domain';
+import { isVoiceNote, type Attachment, type ConversationId, type MessageId } from '@/core/domain';
 import { Tooltip, type LightboxItem } from '@/ui/primitives';
 import {
   attachmentFailureCopy,
@@ -11,6 +11,7 @@ import {
   isGridMedia,
   safeHref,
 } from '../lib/attachments';
+import { VoiceNoteCard } from '../voice/VoiceNoteCard';
 import { useAttachmentUrl } from './useAttachmentUrl';
 import styles from './Attachments.module.css';
 
@@ -18,6 +19,8 @@ export interface AttachmentsProps {
   conversationId: ConversationId;
   /** Identifies the message these attachments belong to, for attachment backfill requests. */
   message: MessageRef;
+  /** The message's own id, which voice notes need to find the one after them. */
+  messageId?: MessageId | undefined;
   attachments: readonly Attachment[];
   /** Upload in progress (optimistic message). */
   pending: boolean;
@@ -34,6 +37,7 @@ const Lightbox = lazy(() =>
 export const Attachments = memo(function Attachments({
   conversationId,
   message,
+  messageId,
   attachments,
   pending,
   caption,
@@ -87,6 +91,7 @@ export const Attachments = memo(function Attachments({
             key={a.id}
             conversationId={conversationId}
             message={message}
+            messageId={messageId}
             attachmentIds={attachmentIds}
             attachment={a}
             pending={pending}
@@ -364,7 +369,14 @@ function FileCard({ conversationId, message, attachmentIds, attachment, pending 
   );
 }
 
-function AudioCard({ conversationId, message, attachmentIds, attachment, pending }: CardProps) {
+function AudioCard({
+  conversationId,
+  message,
+  messageId,
+  attachmentIds,
+  attachment,
+  pending,
+}: CardProps & { messageId: MessageId | undefined }) {
   const state = useAttachmentUrl(conversationId, message, attachment, attachmentIds);
   if (state.status !== 'ready')
     return (
@@ -376,6 +388,21 @@ function AudioCard({ conversationId, message, attachmentIds, attachment, pending
         pending={pending}
       />
     );
+  if (messageId !== undefined && isVoiceNote(attachment)) {
+    return (
+      <div className={styles.voice}>
+        <VoiceNoteCard
+          conversationId={conversationId}
+          messageId={messageId}
+          authorId={message.authorId}
+          sentAt={message.sentAt}
+          attachment={attachment}
+          url={state.url}
+        />
+        <DownloadButton url={state.url} fileName={attachment.fileName} />
+      </div>
+    );
+  }
   return (
     <div className={styles.card} data-audio="">
       <div className={styles.cardText}>

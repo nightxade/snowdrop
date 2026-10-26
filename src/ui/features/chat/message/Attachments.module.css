@@ -235,6 +235,13 @@
   font-size: var(--snowdrop-font-size-sm);
 }
 
+.voice {
+  display: flex;
+  align-items: center;
+  gap: var(--snowdrop-space-2);
+  width: min(400px, 100%);
+}
+
 .audio {
   width: 100%;
   height: 32px;

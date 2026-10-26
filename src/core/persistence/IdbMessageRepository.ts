@@ -110,7 +110,7 @@ interface OutboxAttachmentRow {
 
 /** `SendInput` as actually stored: each attachment's Blob replaced by its metadata. */
 type StoredSendInput = Omit<SendInput, 'attachments'> & {
-  attachments?: { fileName: string; contentType: string }[];
+  attachments?: { fileName: string; contentType: string; voiceNote?: boolean }[];
 };
 
 interface SnowdropDB extends DBSchema {
@@ -658,6 +658,7 @@ export class IdbMessageRepository implements MessageRepository {
             attachments: attachments.map((a) => ({
               fileName: a.fileName,
               contentType: a.contentType,
+              ...(a.voiceNote ? { voiceNote: true } : {}),
             })),
           }
         : {}),
@@ -701,6 +702,7 @@ export class IdbMessageRepository implements MessageRepository {
           fileName: meta.fileName,
           contentType: meta.contentType,
           data: new File([new Uint8Array(bytes)], meta.fileName, { type: meta.contentType }),
+          ...(meta.voiceNote ? { voiceNote: true } : {}),
         });
       } catch {
         lost = true;

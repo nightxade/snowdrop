@@ -65,6 +65,12 @@ export interface LocalData {
    * until the other side writes again.
    */
   deletedChats: Record<ConversationId, number>;
+  /**
+   * `${authorId}\u0000${sentAt}` → when a voice note from someone else was first played here:
+   * the unplayed dot goes away. Signal Desktop keeps this as the message's "viewed" state; here it
+   * stays on this device (nothing is sent to the sender).
+   */
+  playedVoiceNotes: Record<string, number>;
   /** `grandfather` has run: existing chats were accepted once, never again. */
   requestsSeeded: boolean;
   /** Demo defaults are applied once per install. */
@@ -93,6 +99,8 @@ export interface LocalState extends LocalData {
   /** Moves (or adds) a sticker to the front of the recents, capped. */
   noteStickerSent(sticker: RecentSticker): void;
   markBackfillRequested(key: string): void;
+  /** Local only; a note already marked keeps its first time. */
+  markVoiceNotePlayed(key: string): void;
   /** Accepts a conversation on this device (idempotent; also lifts a delete). */
   markAccepted(id: ConversationId, at: number): void;
   /** Hides a deleted message request until `clearDeleted`. */
@@ -113,6 +121,7 @@ export function defaultLocalData(): LocalData {
     contactNotes: {},
     reactionUsage: {},
     backfillRequested: {},
+    playedVoiceNotes: {},
     acceptedChats: {},
     deletedChats: {},
     requestsSeeded: false,
@@ -206,6 +215,17 @@ export function createLocalStore(initial: LocalData = defaultLocalData()): Local
         return { backfillRequested: Object.fromEntries(kept) };
       });
     },
+    markVoiceNotePlayed: (key) => {
+      if (get().playedVoiceNotes[key] !== undefined) return;
+      set((s) => {
+        const next = { ...s.playedVoiceNotes, [key]: Date.now() };
+        // Keep the map small: only the most recently played survive.
+        const kept = Object.entries(next)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, MAX_TRACKED_PLAYED_VOICE_NOTES);
+        return { playedVoiceNotes: Object.fromEntries(kept) };
+      });
+    },
     markAccepted: (id, at) => {
       const { acceptedChats, deletedChats } = get();
       if (acceptedChats[id] !== undefined && deletedChats[id] === undefined) return;
@@ -245,6 +265,7 @@ export function createLocalStore(initial: LocalData = defaultLocalData()): Local
 
 const MAX_TRACKED_REACTIONS = 24;
 const MAX_TRACKED_BACKFILL_REQUESTS = 200;
+const MAX_TRACKED_PLAYED_VOICE_NOTES = 1000;
 /** Offered before the user has reacted enough for a personal top list. */
 export const DEFAULT_QUICK_REACTIONS: readonly string[] = ['👍', '❤️', '😂'];
 
@@ -255,6 +276,7 @@ export const localSelectors = {
   conversation: (id: ConversationId) => (s: LocalState) =>
     s.conversations[id] ?? DEFAULT_LOCAL_CONVERSATION,
   draft: (id: ConversationId) => (s: LocalState) => s.conversations[id]?.draft ?? '',
+  voiceNotePlayed: (key: string) => (s: LocalState) => s.playedVoiceNotes[key] !== undefined,
   acceptedHere: (id: ConversationId) => (s: LocalState) => s.acceptedChats[id] !== undefined,
   note: (contactId: string) => (s: LocalState) => s.contactNotes[contactId] ?? '',
   /** The three most used reactions, topped up with defaults. Stable per usage map. */
@@ -279,6 +301,7 @@ export function selectLocalData(s: LocalState): LocalData {
     contactNotes: s.contactNotes,
     reactionUsage: s.reactionUsage,
     backfillRequested: s.backfillRequested,
+    playedVoiceNotes: s.playedVoiceNotes,
     acceptedChats: s.acceptedChats,
     deletedChats: s.deletedChats,
     requestsSeeded: s.requestsSeeded,
@@ -312,6 +335,15 @@ export function mergeLocalData(existing: LocalData, incoming: LocalData): LocalD
       .sort((a, b) => b[1] - a[1])
       .slice(0, MAX_TRACKED_BACKFILL_REQUESTS),
   );
+  const playedVoiceNotes: Record<string, number> = { ...incoming.playedVoiceNotes };
+  for (const [key, at] of Object.entries(existing.playedVoiceNotes)) {
+    playedVoiceNotes[key] = Math.min(playedVoiceNotes[key] ?? at, at);
+  }
+  const trimmedPlayed = Object.fromEntries(
+    Object.entries(playedVoiceNotes)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, MAX_TRACKED_PLAYED_VOICE_NOTES),
+  );
   const seen = new Set<string>();
   const recentStickers = [...existing.recentStickers, ...incoming.recentStickers]
     .filter((r) => {
@@ -328,6 +360,7 @@ export function mergeLocalData(existing: LocalData, incoming: LocalData): LocalD
     contactNotes: { ...incoming.contactNotes, ...existing.contactNotes },
     reactionUsage: trimmed,
     backfillRequested: trimmedBackfillRequested,
+    playedVoiceNotes: trimmedPlayed,
     // A chat deleted on one side and accepted on the other keeps the
     // existing (current) side's verdict, like every other conflict here.
     acceptedChats: mergeVerdicts(existing, incoming, 'acceptedChats', 'deletedChats'),
@@ -384,8 +417,9 @@ function parseChatTimes(value: unknown): Record<ConversationId, number> {
 
 export const localSchema: VersionedSchema<LocalData> = {
   key: 'snowdrop.local',
-  // `markedUnread` is optional and simply absent in older data, so it needs
-  // no migration; a build without it ignores the field on load.
+  // `markedUnread` and `playedVoiceNotes` are optional and simply absent in
+  // older data, so they need no migration; a build without them ignores the
+  // fields on load.
   version: 1,
   defaults: defaultLocalData,
   parse: (data) => {
@@ -425,6 +459,12 @@ export const localSchema: VersionedSchema<LocalData> = {
           backfillRequested[key] = requestedAt;
       }
     }
+    const playedVoiceNotes: Record<string, number> = {};
+    if (isRecord(data.playedVoiceNotes)) {
+      for (const [key, at] of Object.entries(data.playedVoiceNotes)) {
+        if (typeof at === 'number' && Number.isFinite(at) && at > 0) playedVoiceNotes[key] = at;
+      }
+    }
     const recentStickers: RecentSticker[] = [];
     if (Array.isArray(data.recentStickers)) {
       for (const raw of data.recentStickers) {
@@ -439,6 +479,7 @@ export const localSchema: VersionedSchema<LocalData> = {
       contactNotes,
       reactionUsage,
       backfillRequested,
+      playedVoiceNotes,
       acceptedChats: parseChatTimes(data.acceptedChats),
       deletedChats: parseChatTimes(data.deletedChats),
       requestsSeeded: data.requestsSeeded === true,

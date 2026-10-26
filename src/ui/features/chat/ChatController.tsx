@@ -43,6 +43,8 @@ export interface ComposerHandle {
   conversationId: ConversationId;
   addFiles(files: readonly File[]): void;
   focus(): void;
+  /** Starts a voice message when the composer is empty (the record button's own rule). */
+  startVoiceNote(): void;
 }
 
 export class ChatController {
@@ -113,6 +115,10 @@ export class ChatController {
 
   focusComposer(): void {
     this.composer?.focus();
+  }
+
+  startVoiceNote(): void {
+    this.composer?.startVoiceNote();
   }
 
   /** The open list's keyboard navigation, or null when no conversation is open. */

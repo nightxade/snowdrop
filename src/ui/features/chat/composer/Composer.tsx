@@ -1,10 +1,15 @@
-import { ChartBar, CirclePlus, FileUp, Smile, Sticker } from 'lucide-react';
+import { ChartBar, CirclePlus, FileUp, Mic, Smile, Sticker } from 'lucide-react';
 import { memo, useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import { useStore } from 'zustand';
 import { CoreCommand } from '@/core/commands';
 import type { ConversationId, ConversationView } from '@/core/domain';
 import { messagesSelectors, sessionSelectors, uiSelectors } from '@/core/stores';
-import { setConversationFocusResolver, useObservableList, useSnowdrop } from '@/ui/hooks';
+import {
+  setConversationFocusResolver,
+  useKeybindLabel,
+  useObservableList,
+  useSnowdrop,
+} from '@/ui/hooks';
 import { useConversationView } from '@/ui/features/conversation';
 import {
   DropdownMenu,
@@ -22,6 +27,8 @@ import { emptyPollDraft, type PollDraft } from './pollDraft';
 import { ReplyBar } from './ReplyBar';
 import { StickerPicker } from './StickerPicker';
 import { TypingLine } from './TypingLine';
+import { useVoiceRecorder } from '../voice/useVoiceRecorder';
+import { VoiceDraftBar, VoiceRecorderBar } from '../voice/VoiceBars';
 import { useAutocompleteField } from './useAutocompleteField';
 import { useAutoGrow } from './useAutoGrow';
 import { useComposer } from './useComposer';
@@ -113,9 +120,51 @@ function ComposerInner({ conversation }: { conversation: ConversationView }) {
   const focus = useCallback(() => {
     textarea.current?.focus();
   }, []);
+
+  const voice = useVoiceRecorder({
+    onRecorded: (recording, outcome, limit) => {
+      requestAnimationFrame(focus);
+      if (outcome === 'send') {
+        void state.sendVoiceNote(recording);
+        return;
+      }
+      state.addVoiceNote(recording);
+      if (limit) state.setError('Recording stopped at the one hour limit. Send it or cancel.');
+    },
+    onError: (message) => {
+      state.setError(message);
+    },
+  });
+  const voiceDraft =
+    state.attachments.length === 1 && state.attachments[0]?.voiceNote === true
+      ? state.attachments[0]
+      : undefined;
+  const recording = voice.phase !== 'idle';
+  // As in Signal Desktop: the record button stands in while there is nothing to send.
+  const canRecord = text === '' && state.attachments.length === 0 && !recording;
+  const recordShortcut = useKeybindLabel(CoreCommand.RecordVoiceNote);
+  // The registered handle reads these at call time, so it never needs re-registering.
+  const voiceRef = useRef({ voice, state, text, recording });
+  useEffect(() => {
+    voiceRef.current = { voice, state, text, recording };
+  });
+  const addFiles = useCallback((files: readonly File[]) => {
+    const { state: current, recording: busy } = voiceRef.current;
+    if (busy) current.setError('A voice message must have only one attachment.');
+    else current.addFiles(files);
+  }, []);
+  const startVoiceNote = useCallback(() => {
+    const { voice: v, state: current, text: draft } = voiceRef.current;
+    if (draft !== '') return;
+    if (current.attachments.length > 0) {
+      current.setError('A voice message must have only one attachment.');
+      return;
+    }
+    v.start();
+  }, []);
   useEffect(
-    () => chat.registerComposer({ conversationId, addFiles: state.addFiles, focus }),
-    [chat, conversationId, state.addFiles, focus],
+    () => chat.registerComposer({ conversationId, addFiles, focus, startVoiceNote }),
+    [chat, conversationId, addFiles, focus, startVoiceNote],
   );
   // Navigating to this conversation (switcher, profile "Message") lands in the composer.
   useEffect(
@@ -202,152 +251,197 @@ function ComposerInner({ conversation }: { conversation: ConversationView }) {
         )}
         <ComposerLinkPreview view={state.linkPreview} />
         <div className={styles.box} data-tui-bare ref={setField}>
-          <AttachmentTray attachments={state.attachments} onRemove={state.removeAttachment} />
-          <div className={styles.field}>
-            {canPoll ? (
-              <DropdownMenu entries={attachEntries} side="top" align="start" label="Add to message">
-                <IconButton
-                  label="Add attachment or poll"
-                  icon={<CirclePlus />}
-                  className={styles.button}
-                />
-              </DropdownMenu>
-            ) : (
-              <IconButton
-                label="Upload a file"
-                icon={<CirclePlus />}
-                className={styles.button}
-                onClick={() => fileInput.current?.click()}
-              />
-            )}
-            <input
-              ref={fileInput}
-              type="file"
-              multiple
-              hidden
-              tabIndex={-1}
-              onChange={(e) => {
-                state.addFiles([...(e.target.files ?? [])]);
-                e.target.value = '';
-                focus();
+          {voice.phase !== 'idle' ? (
+            <VoiceRecorderBar
+              phase={voice.phase}
+              levels={voice.levels}
+              startedAt={voice.startedAt}
+              onCancel={() => {
+                voice.cancel();
+                requestAnimationFrame(focus);
+              }}
+              onSend={() => {
+                voice.finish('send');
               }}
             />
-            <textarea
-              ref={textarea}
-              className={styles.input}
-              rows={1}
-              value={text}
-              placeholder={placeholder}
-              aria-label={placeholder}
-              aria-describedby={accessories.length > 0 ? descriptionId : undefined}
-              {...field_.inputProps}
-              spellCheck
-              onChange={(e) => {
-                setText(e.target.value);
-                field_.syncCaret();
+          ) : voiceDraft?.previewUrl ? (
+            <VoiceDraftBar
+              playKey={`draft:${voiceDraft.id}`}
+              url={voiceDraft.previewUrl}
+              levels={voiceDraft.levels ?? []}
+              duration={voiceDraft.duration ?? 0}
+              onCancel={() => {
+                state.removeAttachment(voiceDraft.id);
+                requestAnimationFrame(focus);
               }}
-              onSelect={field_.syncCaret}
-              onKeyDown={onKeyDown}
-              data-snowdrop="composer-input"
-              onPaste={(e) => {
-                const files = [...e.clipboardData.files];
-                // Some webviews expose file clipboard entries only as items.
-                // Prefer files when available: both lists can describe the same data.
-                if (files.length === 0) {
-                  for (const item of Array.from(e.clipboardData.items)) {
-                    if (item.kind !== 'file') continue;
-                    const file = item.getAsFile();
-                    if (file) files.push(file);
+              onSend={() => {
+                void state.submit();
+              }}
+            />
+          ) : (
+            <>
+              <AttachmentTray attachments={state.attachments} onRemove={state.removeAttachment} />
+              <div className={styles.field}>
+                {canPoll ? (
+                  <DropdownMenu
+                    entries={attachEntries}
+                    side="top"
+                    align="start"
+                    label="Add to message"
+                  >
+                    <IconButton
+                      label="Add attachment or poll"
+                      icon={<CirclePlus />}
+                      className={styles.button}
+                    />
+                  </DropdownMenu>
+                ) : (
+                  <IconButton
+                    label="Upload a file"
+                    icon={<CirclePlus />}
+                    className={styles.button}
+                    onClick={() => fileInput.current?.click()}
+                  />
+                )}
+                <input
+                  ref={fileInput}
+                  type="file"
+                  multiple
+                  hidden
+                  tabIndex={-1}
+                  onChange={(e) => {
+                    state.addFiles([...(e.target.files ?? [])]);
+                    e.target.value = '';
+                    focus();
+                  }}
+                />
+                <textarea
+                  ref={textarea}
+                  className={styles.input}
+                  rows={1}
+                  value={text}
+                  placeholder={placeholder}
+                  aria-label={placeholder}
+                  aria-describedby={accessories.length > 0 ? descriptionId : undefined}
+                  {...field_.inputProps}
+                  spellCheck
+                  onChange={(e) => {
+                    setText(e.target.value);
+                    field_.syncCaret();
+                  }}
+                  onSelect={field_.syncCaret}
+                  onKeyDown={onKeyDown}
+                  data-snowdrop="composer-input"
+                  onPaste={(e) => {
+                    const files = [...e.clipboardData.files];
+                    // Some webviews expose file clipboard entries only as items.
+                    // Prefer files when available: both lists can describe the same data.
+                    if (files.length === 0) {
+                      for (const item of Array.from(e.clipboardData.items)) {
+                        if (item.kind !== 'file') continue;
+                        const file = item.getAsFile();
+                        if (file) files.push(file);
+                      }
+                    }
+                    if (files.length > 0) {
+                      e.preventDefault();
+                      state.addFiles(files);
+                    } else if (app.readClipboardFiles) {
+                      const types = Array.from(e.clipboardData.types);
+                      const plain = e.clipboardData.getData('text/plain');
+                      // Keep ordinary text paste synchronous. Native-only images have
+                      // no text; file managers advertise URI or copied-files formats.
+                      const native =
+                        !plain ||
+                        types.includes('Files') ||
+                        types.includes('x-special/gnome-copied-files') ||
+                        (types.includes('text/uri-list') && /^(file:\/\/|\/)/u.test(plain.trim()));
+                      if (!native) return;
+                      e.preventDefault();
+                      const source = e.currentTarget;
+                      void app
+                        .readClipboardFiles()
+                        .then((copied) => {
+                          // A slow clipboard owner must not attach to a different chat.
+                          if (source.isConnected) state.addFiles(copied);
+                        })
+                        .catch((error: unknown) => {
+                          if (source.isConnected)
+                            state.setError(error instanceof Error ? error.message : String(error));
+                        });
+                    }
+                  }}
+                />
+                <Slot
+                  name="composer.accessories"
+                  entries={accessories}
+                  props={{ conversationId, descriptionId }}
+                  className={styles.accessories}
+                />
+                {canSendStickers && (
+                  <StickerPicker
+                    conversationId={conversationId}
+                    open={stickersOpen}
+                    onOpenChange={setStickersOpen}
+                    onPick={(sticker) => {
+                      void state.sendSticker(sticker);
+                    }}
+                    onCloseFocus={focus}
+                  >
+                    <IconButton
+                      label="Stickers"
+                      icon={<Sticker />}
+                      className={styles.button}
+                      active={stickersOpen}
+                    />
+                  </StickerPicker>
+                )}
+                <EmojiPickerPopover
+                  customContent={
+                    <CustomEmojiPanel
+                      onSelect={(insert) => {
+                        const el = textarea.current;
+                        const start = el?.selectionStart ?? text.length;
+                        const end = el?.selectionEnd ?? text.length;
+                        replace(start, end, insert);
+                        setEmojiOpen(false);
+                        requestAnimationFrame(focus);
+                      }}
+                    />
                   }
-                }
-                if (files.length > 0) {
-                  e.preventDefault();
-                  state.addFiles(files);
-                } else if (app.readClipboardFiles) {
-                  const types = Array.from(e.clipboardData.types);
-                  const plain = e.clipboardData.getData('text/plain');
-                  // Keep ordinary text paste synchronous. Native-only images have
-                  // no text; file managers advertise URI or copied-files formats.
-                  const native =
-                    !plain ||
-                    types.includes('Files') ||
-                    types.includes('x-special/gnome-copied-files') ||
-                    (types.includes('text/uri-list') && /^(file:\/\/|\/)/u.test(plain.trim()));
-                  if (!native) return;
-                  e.preventDefault();
-                  const source = e.currentTarget;
-                  void app
-                    .readClipboardFiles()
-                    .then((copied) => {
-                      // A slow clipboard owner must not attach to a different chat.
-                      if (source.isConnected) state.addFiles(copied);
-                    })
-                    .catch((error: unknown) => {
-                      if (source.isConnected)
-                        state.setError(error instanceof Error ? error.message : String(error));
-                    });
-                }
-              }}
-            />
-            <Slot
-              name="composer.accessories"
-              entries={accessories}
-              props={{ conversationId, descriptionId }}
-              className={styles.accessories}
-            />
-            {canSendStickers && (
-              <StickerPicker
-                conversationId={conversationId}
-                open={stickersOpen}
-                onOpenChange={setStickersOpen}
-                onPick={(sticker) => {
-                  void state.sendSticker(sticker);
-                }}
-                onCloseFocus={focus}
-              >
-                <IconButton
-                  label="Stickers"
-                  icon={<Sticker />}
-                  className={styles.button}
-                  active={stickersOpen}
-                />
-              </StickerPicker>
-            )}
-            <EmojiPickerPopover
-              customContent={
-                <CustomEmojiPanel
-                  onSelect={(insert) => {
+                  open={emojiOpen}
+                  onOpenChange={(open) => {
+                    setEmojiOpen(open);
+                    if (!open) requestAnimationFrame(focus);
+                  }}
+                  onSelect={(emoji) => {
                     const el = textarea.current;
                     const start = el?.selectionStart ?? text.length;
                     const end = el?.selectionEnd ?? text.length;
-                    replace(start, end, insert);
-                    setEmojiOpen(false);
-                    requestAnimationFrame(focus);
+                    replace(start, end, emoji);
                   }}
-                />
-              }
-              open={emojiOpen}
-              onOpenChange={(open) => {
-                setEmojiOpen(open);
-                if (!open) requestAnimationFrame(focus);
-              }}
-              onSelect={(emoji) => {
-                const el = textarea.current;
-                const start = el?.selectionStart ?? text.length;
-                const end = el?.selectionEnd ?? text.length;
-                replace(start, end, emoji);
-              }}
-              side="top"
-              align="end"
-            >
-              <IconButton
-                label="Emoji"
-                icon={<Smile />}
-                className={styles.button}
-                active={emojiOpen}
-              />
-            </EmojiPickerPopover>
-          </div>
+                  side="top"
+                  align="end"
+                >
+                  <IconButton
+                    label="Emoji"
+                    icon={<Smile />}
+                    className={styles.button}
+                    active={emojiOpen}
+                  />
+                </EmojiPickerPopover>
+                {canRecord && (
+                  <IconButton
+                    label="Record a voice message"
+                    icon={<Mic />}
+                    className={styles.button}
+                    {...(recordShortcut ? { shortcut: recordShortcut } : {})}
+                    onClick={voice.start}
+                  />
+                )}
+              </div>
+            </>
+          )}
         </div>
       </div>
       {pollOpen && (

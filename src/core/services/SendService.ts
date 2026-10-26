@@ -414,6 +414,7 @@ export class SendService {
           contentType: a.contentType,
           fileName: a.fileName,
           size: a.data.size,
+          ...(a.voiceNote ? { voiceNote: true } : {}),
         })),
         reactions: [],
         status: 'failed',

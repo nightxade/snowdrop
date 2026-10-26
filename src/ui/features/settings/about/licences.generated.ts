@@ -167,6 +167,12 @@ export const LICENCES: readonly LicenceEntry[] = [
     url: 'https://github.com/unjs/uqr#readme',
   },
   {
+    name: 'wasm-media-encoders',
+    version: '0.7.0',
+    license: 'MIT',
+    url: 'https://github.com/arseneyr/wasm-media-encoders',
+  },
+  {
     name: 'zustand',
     version: '5.0.15',
     license: 'MIT',

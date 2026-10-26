@@ -54,8 +54,10 @@ export function toDataUri(contentType: string, fileName: string, base64: string)
   // at least one data character) as a *file path on the daemon host*. Never
   // let an empty payload fall through to that.
   if (base64.length === 0) throw new SignalCliError('user', "Empty files can't be sent.");
-  // The media type must look like type/subtype and contain no parameters.
-  const type = /^[\w.+-]+\/[\w.+-]+$/u.test(contentType) ? contentType : 'application/octet-stream';
+  // The media type must look like type/subtype and contain no parameters: a recorder's
+  // `audio/webm;codecs=opus` goes out as `audio/webm`.
+  const bare = (contentType.split(';', 1)[0] ?? '').trim();
+  const type = /^[\w.+-]+\/[\w.+-]+$/u.test(bare) ? bare : 'application/octet-stream';
   return `data:${type};filename=${encodeURIComponent(fileName || 'file')};base64,${base64}`;
 }
 
@@ -159,6 +161,8 @@ export interface MessageParamsInput {
   quote?: SendInput['quote'];
   /** Data URIs, already encoded. */
   attachments?: string[];
+  /** Flags every audio attachment of this send as a voice note (signal-cli's `--voice-note`). */
+  voiceNote?: boolean;
   /** Makes this an edit of the message sent at this timestamp. */
   editTimestamp?: number;
   /** Custom emoji used in `body`, for a daemon that can deliver them (patches/signal-cli). */
@@ -175,7 +179,10 @@ export function messageParams(input: MessageParamsInput): RpcParams {
   const mentions = mentionParams(input.ranges);
   if (styles.length > 0) params.textStyle = styles;
   if (mentions.length > 0) params.mention = mentions;
-  if (input.attachments && input.attachments.length > 0) params.attachment = input.attachments;
+  if (input.attachments && input.attachments.length > 0) {
+    params.attachment = input.attachments;
+    if (input.voiceNote) params.voiceNote = true;
+  }
   if (input.editTimestamp !== undefined) params.editTimestamp = input.editTimestamp;
   if (input.sticker !== undefined) params.sticker = input.sticker;
   if (input.preview) {

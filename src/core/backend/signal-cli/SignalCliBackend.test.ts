@@ -904,6 +904,38 @@ describe('SignalCliBackend: commands', () => {
     await backend.disconnect();
   });
 
+  it('sends a recorded voice note as one MP3 attachment flagged voiceNote, and says so locally', async () => {
+    const { backend, daemon } = await connected();
+    daemon.reply('send', { timestamp: T0 + 6000, results: [] });
+    const result = await backend.send({
+      conversationId: directConversationId(ALICE),
+      body: '',
+      ranges: [],
+      attachments: [
+        {
+          fileName: 'voice-note.mp3',
+          contentType: 'audio/mpeg',
+          data: new Blob(['hi']),
+          voiceNote: true,
+        },
+      ],
+    });
+    expect(daemon.callsTo('send').at(-1)).toMatchObject({
+      attachment: ['data:audio/mpeg;filename=voice-note.mp3;base64,aGk='],
+      voiceNote: true,
+    });
+    expect(result.attachments).toMatchObject([{ contentType: 'audio/mpeg', voiceNote: true }]);
+    // An ordinary file never carries the flag.
+    await backend.send({
+      conversationId: directConversationId(ALICE),
+      body: '',
+      ranges: [],
+      attachments: [{ fileName: 'a.mp3', contentType: 'audio/mpeg', data: new Blob(['hi']) }],
+    });
+    expect(daemon.callsTo('send').at(-1)).not.toHaveProperty('voiceNote');
+    await backend.disconnect();
+  });
+
   it('forwards customEmoji on send/edit only when the daemon supports it', async () => {
     const { daemon } = daemonWithAccount();
     daemon.reply('version', { version: '0.14.8-snowdrop-history.11' });

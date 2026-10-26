@@ -118,6 +118,37 @@ describe('normaliseReceive: messages', () => {
     });
   });
 
+  it('carries the sender voice-note flag into the domain, and nothing else about audio', () => {
+    const voice = {
+      contentType: 'audio/aac',
+      filename: null,
+      id: 'v1.aac',
+      size: 5_000,
+      width: null,
+      height: null,
+      caption: null,
+      uploadTimestamp: T0 - 10,
+    };
+    const { payload } = only(
+      run(
+        receive('alice', {
+          dataMessage: dataMessage({
+            message: '',
+            attachments: [
+              { ...voice, isVoiceNote: true },
+              { ...voice, id: 'a2.aac', filename: 'song.aac', isVoiceNote: false },
+            ],
+          }),
+        }),
+      ).events,
+      'message',
+    );
+    expect(payload.attachments).toEqual([
+      { id: 'v1.aac', contentType: 'audio/aac', size: 5_000, voiceNote: true },
+      { id: 'a2.aac', contentType: 'audio/aac', fileName: 'song.aac', size: 5_000 },
+    ]);
+  });
+
   it('maps attachments without resolving URLs (lazy download)', () => {
     const { payload } = only(run(fixtures.attachments).events, 'message');
     expect(payload.body).toBe('');

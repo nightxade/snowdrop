@@ -16,6 +16,7 @@ export const CoreCommand = {
   SearchConversation: 'core.searchConversation',
   JumpToPresent: 'core.jumpToPresent',
   ShortcutHelp: 'core.shortcutHelp',
+  RecordVoiceNote: 'core.recordVoiceNote',
 } as const;
 
 export type CoreCommandId = (typeof CoreCommand)[keyof typeof CoreCommand];
@@ -35,6 +36,8 @@ export const DEFAULT_KEYBINDS: Readonly<Record<CoreCommandId, string>> = {
   [CoreCommand.SearchConversation]: 'Mod+F',
   [CoreCommand.JumpToPresent]: 'Shift+PageDown',
   [CoreCommand.ShortcutHelp]: 'Mod+/',
+  // The same shortcut Signal Desktop uses to start a voice message.
+  [CoreCommand.RecordVoiceNote]: 'Mod+Shift+Y',
 };
 
 /**

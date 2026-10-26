@@ -13,18 +13,19 @@ the composer and dialogs, and the optional **Vim mode** plugin.
 Change or remove any of these in **Settings → Keybinds** (click a shortcut,
 press the new keys; Esc or Tab cancels, Backspace or Delete removes it).
 
-| Action                              | Keys                             |
-| ----------------------------------- | -------------------------------- |
-| Quick switcher                      | Mod+K                            |
-| New message                         | Mod+N (as in Signal Desktop)     |
-| Previous / next conversation        | Alt+↑ / Alt+↓                    |
-| Previous / next unread conversation | Alt+Shift+↑ / Alt+Shift+↓        |
-| Mark conversation read              | Esc (when the composer is empty) |
-| Toggle member list                  | Mod+Shift+M                      |
-| Settings                            | Mod+,                            |
-| Search in conversation              | Mod+F                            |
-| Jump to latest                      | Shift+PageDown                   |
-| Keyboard shortcuts                  | Mod+/                            |
+| Action                              | Keys                               |
+| ----------------------------------- | ---------------------------------- |
+| Quick switcher                      | Mod+K                              |
+| New message                         | Mod+N (as in Signal Desktop)       |
+| Previous / next conversation        | Alt+↑ / Alt+↓                      |
+| Previous / next unread conversation | Alt+Shift+↑ / Alt+Shift+↓          |
+| Mark conversation read              | Esc (when the composer is empty)   |
+| Toggle member list                  | Mod+Shift+M                        |
+| Settings                            | Mod+,                              |
+| Search in conversation              | Mod+F                              |
+| Jump to latest                      | Shift+PageDown                     |
+| Keyboard shortcuts                  | Mod+/                              |
+| Record a voice message              | Mod+Shift+Y (as in Signal Desktop) |
 
 These have no default keys but are in the quick switcher (type `>`) and can
 be bound in Settings → Keybinds: create a space, toggle compact mode, toggle
@@ -77,6 +78,7 @@ Clicking a quoted message (or Enter on it) jumps to the original and focuses it.
 | Enter                       | Send (Shift+Enter: new line; swap them in Settings → Behaviour) |
 | ↑ in an empty composer      | Edit your last message                                          |
 | Esc                         | Close suggestions → cancel the reply → mark read (when empty)   |
+| Esc (while recording)       | Cancel the voice message                                        |
 | Mod+B / Mod+I / Mod+Shift+X | Bold / italic / strikethrough the selection                     |
 | `@`, `:`, `/`               | Suggest members, emoji and slash commands                       |
 | ↑ / ↓, Tab or Enter, Esc    | Move through / accept / dismiss suggestions                     |

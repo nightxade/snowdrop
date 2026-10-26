@@ -82,6 +82,17 @@ describe('messageParams', () => {
     });
   });
 
+  it('flags the send as a voice note only with an attachment to flag', () => {
+    const attachments = ['data:audio/mpeg;filename=voice-note.mp3;base64,AA=='];
+    expect(messageParams({ body: '', ranges: [], attachments, voiceNote: true })).toEqual({
+      message: '',
+      attachment: attachments,
+      voiceNote: true,
+    });
+    expect(messageParams({ body: '', ranges: [], attachments })).not.toHaveProperty('voiceNote');
+    expect(messageParams({ body: 'hi', ranges: [], voiceNote: true })).toEqual({ message: 'hi' });
+  });
+
   it('adds customEmoji as {name, attachment} pairs, omitted when empty', () => {
     expect(
       messageParams({
@@ -103,14 +114,45 @@ describe('attachments', () => {
       'data:image/png;filename=my%20pic%3B1%2Cx.png;base64,AAA=',
     );
     expect(toDataUri('', 'a', 'AA==')).toMatch(/^data:application\/octet-stream;/u);
-    expect(toDataUri('text/plain;charset=utf-8', 'a', 'AA==')).toMatch(
-      /^data:application\/octet-stream;/u,
+    expect(toDataUri('not a type', 'a', 'AA==')).toMatch(/^data:application\/octet-stream;/u);
+  });
+
+  it('strips media-type parameters instead of rejecting the type (a recorder says audio/webm;codecs=opus)', () => {
+    expect(toDataUri('audio/webm;codecs=opus', 'v.webm', 'AA==')).toBe(
+      'data:audio/webm;filename=v.webm;base64,AA==',
+    );
+    expect(toDataUri('text/plain; charset=utf-8', 'a', 'AA==')).toBe(
+      'data:text/plain;filename=a;base64,AA==',
+    );
+    // Whatever follows the first `;` can't smuggle another data-URI parameter in.
+    expect(toDataUri('audio/mpeg;filename=evil;base64', 'v', 'AA==')).toBe(
+      'data:audio/mpeg;filename=v;base64,AA==',
     );
   });
 
   it('round-trips base64 for large binary buffers', () => {
     const bytes = new Uint8Array(100_000).map((_, i) => (i * 31) % 256);
     expect(base64ToBytes(bytesToBase64(bytes))).toEqual(bytes);
+  });
+
+  it('records the voice-note flag on the local copy of the attachment', async () => {
+    const voice = await encodeOutgoing(
+      {
+        fileName: 'voice-note.mp3',
+        contentType: 'audio/mpeg',
+        data: new Blob([new Uint8Array(4)]),
+        voiceNote: true,
+      },
+      'local:v',
+    );
+    expect(voice.param).toMatch(/^data:audio\/mpeg;filename=voice-note\.mp3;base64,/u);
+    expect(voice.attachment).toEqual({
+      id: 'local:v',
+      contentType: 'audio/mpeg',
+      fileName: 'voice-note.mp3',
+      size: 4,
+      voiceNote: true,
+    });
   });
 
   it('keeps only a thumbnail preview, for images only', async () => {

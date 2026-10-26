@@ -14,6 +14,9 @@
 pub fn apply(settings: &webkit2gtk::Settings) -> bool {
     use webkit2gtk::SettingsExt;
     settings.set_enable_dns_prefetching(false);
+    // `getUserMedia` (voice notes) only exists with this on; every request it
+    // raises is answered by `mic_gate.rs`, which grants the microphone alone.
+    settings.set_enable_media_stream(true);
     !settings.enables_dns_prefetching()
 }
 
@@ -21,7 +24,11 @@ pub fn apply(settings: &webkit2gtk::Settings) -> bool {
 /// thread by Tauri), logs the verified result, and starts watching its native
 /// paste gestures for `gate` (see `paste_gate.rs`).
 #[cfg(target_os = "linux")]
-pub fn configure_main_window(app: &tauri::AppHandle, gate: std::sync::Arc<crate::paste_gate::PasteGate>) {
+pub fn configure_main_window(
+    app: &tauri::AppHandle,
+    gate: std::sync::Arc<crate::paste_gate::PasteGate>,
+    mic_gate: std::sync::Arc<crate::mic_gate::MicGate>,
+) {
     use tauri::Manager;
     use webkit2gtk::WebViewExt;
     let Some(window) = app.get_webview_window("main") else {
@@ -30,6 +37,7 @@ pub fn configure_main_window(app: &tauri::AppHandle, gate: std::sync::Arc<crate:
     };
     let result = window.with_webview(move |webview| {
         crate::paste_gate::watch(&webview.inner(), gate);
+        crate::mic_gate::watch(&webview.inner(), mic_gate);
         let off = webview.inner().settings().is_some_and(|settings| apply(&settings));
         if off {
             log::debug!("webview privacy: DNS prefetching is disabled");
@@ -43,7 +51,12 @@ pub fn configure_main_window(app: &tauri::AppHandle, gate: std::sync::Arc<crate:
 }
 
 #[cfg(not(target_os = "linux"))]
-pub fn configure_main_window(_app: &tauri::AppHandle, _gate: std::sync::Arc<crate::paste_gate::PasteGate>) {}
+pub fn configure_main_window(
+    _app: &tauri::AppHandle,
+    _gate: std::sync::Arc<crate::paste_gate::PasteGate>,
+    _mic_gate: std::sync::Arc<crate::mic_gate::MicGate>,
+) {
+}
 
 #[cfg(all(test, target_os = "linux"))]
 mod tests {

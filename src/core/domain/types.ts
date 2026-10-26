@@ -190,6 +190,8 @@ export interface Attachment {
   /** Resolved, directly renderable URL (blob:, data: or http:). */
   url?: string;
   blurhash?: string;
+  /** The sender marked this as a voice note (Signal's `VOICE_MESSAGE` flag); see `isVoiceNote`. */
+  voiceNote?: boolean;
 }
 
 /**

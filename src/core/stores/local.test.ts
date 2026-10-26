@@ -42,6 +42,35 @@ describe('localStore', () => {
     expect(store.getState().contactNotes).toEqual({});
   });
 
+  it('remembers which voice notes were played here, keeping the first time, and survives a reload', () => {
+    const store = createLocalStore();
+    expect(localSelectors.voiceNotePlayed('x\u00001')(store.getState())).toBe(false);
+    store.getState().markVoiceNotePlayed('x\u00001');
+    const first = store.getState().playedVoiceNotes['x\u00001'];
+    expect(localSelectors.voiceNotePlayed('x\u00001')(store.getState())).toBe(true);
+    const before = store.getState().playedVoiceNotes;
+    store.getState().markVoiceNotePlayed('x\u00001');
+    expect(store.getState().playedVoiceNotes).toBe(before);
+    expect(store.getState().playedVoiceNotes['x\u00001']).toBe(first);
+
+    const storage = createMemoryStorage();
+    saveVersioned(storage, localSchema, selectLocalData(store.getState()));
+    expect(loadVersioned(storage, localSchema).playedVoiceNotes).toEqual(before);
+  });
+
+  it('caps the played list, dropping the oldest, and ignores junk on load', () => {
+    const store = createLocalStore();
+    for (let i = 0; i < 1010; i++) store.getState().markVoiceNotePlayed(`k${i}`);
+    expect(Object.keys(store.getState().playedVoiceNotes).length).toBe(1000);
+    const junk = createMemoryStorage({
+      [localSchema.key]: JSON.stringify({
+        v: 1,
+        data: { playedVoiceNotes: { good: 5, bad: 'x', neg: -1 } },
+      }),
+    });
+    expect(loadVersioned(junk, localSchema).playedVoiceNotes).toEqual({ good: 5 });
+  });
+
   it('marks a conversation unread, locally, and clears it without leaving a trace', () => {
     const store = createLocalStore();
     store.getState().setMarkedUnread(a, false);
@@ -125,6 +154,7 @@ describe('localStore', () => {
       contactNotes: {},
       reactionUsage: {},
       backfillRequested: {},
+      playedVoiceNotes: {},
       acceptedChats: {},
       deletedChats: {},
       requestsSeeded: false,

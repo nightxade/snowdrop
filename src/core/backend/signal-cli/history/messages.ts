@@ -69,12 +69,21 @@ function quote(value: unknown, directory: BackupDirectory): Quote | undefined {
   };
 }
 
+/**
+ * `MessageAttachment.flag` (Backups.proto): protobuf JSON spells the enum by name; a bare number
+ * is accepted too (VOICE_MESSAGE = 1).
+ */
+function isVoiceFlag(flag: unknown): boolean {
+  return flag === 'VOICE_MESSAGE' || flag === 1;
+}
+
 /** Only display metadata crosses into the domain; download keys stay in signal-cli. */
-function attachment(pointer: BackupRecord, id: string): Attachment {
+function attachment(pointer: BackupRecord, id: string, flag?: unknown): Attachment {
   const result: Attachment = {
     id,
     contentType: text(pointer.contentType) || 'application/octet-stream',
   };
+  if (isVoiceFlag(flag)) result.voiceNote = true;
   if (text(pointer.fileName)) result.fileName = text(pointer.fileName);
   if (text(pointer.blurHash)) result.blurhash = text(pointer.blurHash);
   const size = uint32(record(pointer.locatorInfo).size);
@@ -243,7 +252,13 @@ export function backupMessage({
   if (quoted) message.quote = quoted;
   message.attachments = records(standard.attachments).flatMap((entry, index) =>
     isRecord(entry.pointer)
-      ? [attachment(entry.pointer, `history:${archiveId}:${cursor}:attachment:${index}`)]
+      ? [
+          attachment(
+            entry.pointer,
+            `history:${archiveId}:${cursor}:attachment:${index}`,
+            entry.flag,
+          ),
+        ]
       : [],
   );
   message.reactions = reactions(standard.reactions, directory);

@@ -53,6 +53,11 @@ export interface OutgoingAttachment {
   /** Pixel size, when known (images): reserves the layout before load. */
   width?: number;
   height?: number;
+  /**
+   * Sent as a voice note (Signal's voice-message flag). The transport applies it to the send as a
+   * whole, so a voice note is the message's only attachment.
+   */
+  voiceNote?: boolean;
 }
 
 /**

@@ -1600,6 +1600,7 @@ export class SignalCliBackend implements ChatBackend {
         ...(input.quote ? { quote: input.quote } : {}),
         ...(sticker ? { sticker } : {}),
         attachments: encoded.map((e) => e.param),
+        ...((input.attachments ?? []).some((file) => file.voiceNote) ? { voiceNote: true } : {}),
         ...(encodedPreview ? { preview: encodedPreview.param } : {}),
         // Defensive: never forward customEmoji to a daemon that hasn't
         // advertised support for it, even if the caller built one anyway.

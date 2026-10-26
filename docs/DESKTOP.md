@@ -460,8 +460,8 @@ unknown (replay everything currently held/available).
   `open_external`). `build.rs` declares the app's command manifest, so no
   other command is callable at all, capability or not.
 - **CSP.** `tauri.conf.json`'s `app.security.csp` is Snowdrop's normal
-  production policy (`default-src 'self'`, no remote fetches) plus Tauri's
-  own IPC origins (`connect-src ... ipc: http://ipc.localhost`); `devCsp` is
+  production policy (`default-src 'self'`, no remote fetches, WebAssembly
+  allowed for the voice-note encoder) plus Tauri's own IPC origins (`connect-src ... ipc: http://ipc.localhost`); `devCsp` is
   `null` and `freezePrototype` is on. `devserver/csp.ts` exports the same
   policy as `TAURI_CSP` and a test keeps the two in sync, but a Tauri build
   injects no `<meta>` CSP tag — Tauri applies the one from `tauri.conf.json`
@@ -753,3 +753,28 @@ Broadway server with `GDK_BACKEND=broadway` and a separate `BROADWAY_DISPLAY`.
 It checks native image retrieval, file URIs (including escaped spaces), and
 ordinary text. The non-display tests cover file bytes, directories and size
 limits.
+
+### Voice notes and the microphone (Linux)
+
+Recording a voice message needs the webview's `getUserMedia`. Two things make
+it work on WebKitGTK:
+
+- `webview_privacy.rs` turns on the engine's `enable-media-stream` setting
+  (off by default; wry doesn't set it).
+- WebKitGTK raises a permission request for the microphone that nothing
+  answers unless the app does. `lib.rs` registers Tauri's
+  `on_permission_request` handler, and `mic_gate.rs` decides: the microphone is
+  allowed **once**, only within five seconds of a native click or key press on
+  the webview (GTK events, which page script can't forge), and every other
+  permission (camera, screen capture, location, …) is always refused. A page
+  that was merely loaded can't open the microphone on its own.
+
+The recorder (`src/ui/features/chat/voice/`) turns the microphone off the
+moment recording stops, is cancelled, fails or the conversation changes. The
+MP3 encoder is LAME compiled to WebAssembly (`wasm-media-encoders`, bundled);
+compiling it needs `'wasm-unsafe-eval'` in the CSP, which is the only addition
+(`script-src 'self' 'wasm-unsafe-eval'`).
+
+If recording is refused on your system, check that PipeWire or PulseAudio is
+running and that WebKitGTK's GStreamer has a source for it
+(`gst-plugins-good`, and `pipewire-gstreamer` on PipeWire-only systems).

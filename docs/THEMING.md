@@ -633,14 +633,17 @@ the dev server needs inline scripts for hot reload):
 
 ```text
 default-src 'self'; img-src 'self' data: blob:; media-src 'self' data: blob:;
-font-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self';
-object-src 'none'; base-uri 'none'
+font-src 'self' data:; style-src 'self' 'unsafe-inline';
+script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; object-src 'none';
+base-uri 'none'
 ```
 
 Everything Snowdrop needs is same-origin, including signal-cli through the
 `/signal-cli` proxy path, so even CSS that slipped past the sanitiser couldn't
 load a remote font or image. `style-src 'unsafe-inline'` is required because
 themes, plugin CSS and Custom CSS are inline `<style>` tags.
+`'wasm-unsafe-eval'` only lets the voice-note MP3 encoder (WebAssembly) compile;
+it doesn't allow `eval` or inline scripts.
 
 The rest of the app keeps the same rule: fonts (Inter, JetBrains Mono) are
 bundled with `@fontsource-variable`, emoji data is served from our own origin

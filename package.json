@@ -58,6 +58,7 @@
     "react-virtuoso": "^4.18.16",
     "sonner": "^2.0.8",
     "uqr": "^0.1.3",
+    "wasm-media-encoders": "0.7.0",
     "zustand": "^5.0.15"
   },
   "devDependencies": {

@@ -13,6 +13,7 @@ export function localAttachment(a: OutgoingAttachment, id: string): Attachment {
     contentType: a.contentType,
     fileName: a.fileName,
     size: a.data.size,
+    ...(a.voiceNote ? { voiceNote: true } : {}),
     ...(a.previewUrl !== undefined ? { url: a.previewUrl } : {}),
     ...(a.width !== undefined ? { width: a.width } : {}),
     ...(a.height !== undefined ? { height: a.height } : {}),
