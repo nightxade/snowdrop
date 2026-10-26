@@ -1,6 +1,7 @@
 import { ImagePlus } from 'lucide-react';
 import { useRef, useState, type ChangeEvent } from 'react';
-import { initialsFor } from '@/core/domain';
+import { initialsFor, type ConversationId } from '@/core/domain';
+import { useAvatarSrc } from '@/ui/hooks';
 import { AVATAR_ACCEPT, prepareAvatar } from '@/ui/lib/avatarImage';
 import { Avatar, Button } from '@/ui/primitives';
 import styles from './groups.module.css';
@@ -18,6 +19,8 @@ export interface StagedPhoto {
 export function GroupPhotoField({
   name,
   color,
+  groupId,
+  avatarVersion,
   current,
   staged,
   onStage,
@@ -26,7 +29,10 @@ export function GroupPhotoField({
 }: {
   name: string;
   color: string;
-  /** The photo the group has now, if known. */
+  /** The group being edited: its stored photo is fetched, so it shows after a restart too. */
+  groupId?: ConversationId | undefined;
+  avatarVersion?: number | undefined;
+  /** A photo the app already holds for the group (set in this session), shown until the stored one arrives. */
   current?: string | undefined;
   staged: StagedPhoto | null;
   onStage: (photo: StagedPhoto) => void;
@@ -36,7 +42,8 @@ export function GroupPhotoField({
 }) {
   const input = useRef<HTMLInputElement>(null);
   const [reading, setReading] = useState(false);
-  const shown = staged?.dataUri ?? current;
+  const [ref, fetched] = useAvatarSrc('group', groupId, { version: avatarVersion, known: current });
+  const shown = staged?.dataUri ?? fetched;
 
   const pick = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -57,6 +64,7 @@ export function GroupPhotoField({
   return (
     <div className={styles.photo}>
       <Avatar
+        ref={ref}
         size={80}
         shape="rounded"
         {...(shown ? { src: shown } : {})}

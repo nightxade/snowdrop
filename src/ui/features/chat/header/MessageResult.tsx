@@ -9,7 +9,7 @@ import {
 } from '@/core/domain';
 import { contactsSelectors, sessionSelectors, UNKNOWN_CONTACT_NAME } from '@/core/stores';
 import { useStores } from '@/ui/hooks';
-import { Avatar } from '@/ui/primitives';
+import { PersonAvatar } from '@/ui/features/conversation';
 import { useMinuteClock } from '../lib/useMinuteClock';
 import { MessageBody } from '../message/MessageBody';
 import styles from './MessageResult.module.css';
@@ -38,9 +38,10 @@ export function MessageResult({
     <button type="button" className={styles.result} onClick={onOpen} data-search-result>
       {context && <span className={styles.context}>{context}</span>}
       <span className={styles.row}>
-        <Avatar
+        <PersonAvatar
           size={32}
-          {...(author?.avatarUrl ? { src: author.avatarUrl } : {})}
+          contactId={m.authorId}
+          conversationId={m.conversationId}
           fallback={initialsFor(name)}
           color={author?.color ?? 'var(--snowdrop-avatar-1)'}
         />

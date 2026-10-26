@@ -238,6 +238,8 @@ const signalCliBackend: BackendRegistration = {
     'readAttachmentBlob',
     'retainAttachmentUrl',
     'releaseAttachmentUrl',
+    'resolveAvatarUrl',
+    'peekAvatarUrl',
     'resolveStickerUrl',
     'retainStickerUrl',
     'releaseStickerUrl',

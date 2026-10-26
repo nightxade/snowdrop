@@ -108,7 +108,7 @@ export interface AppServices {
    * lazy attachment URLs (render-only, see ChatBackend.resolveAttachmentUrl,
    * plus the retain/release pair `useAttachmentUrl` uses to keep an
    * on-screen one from being evicted), the same pair for stickers
-   * (`useStickerUrl`), the sticker picker's pack list, the new-message
+   * (`useStickerUrl`), people's and groups' pictures (`useAvatarSrc`), the sticker picker's pack list, the new-message
    * dialog's read-only recipient lookup, and attachment backfill (`useAttachmentUrl` — the
    * actual outcome still arrives through the sync engine as a
    * `session.attachmentBackfills` update, not read back from here).
@@ -121,6 +121,8 @@ export interface AppServices {
     | 'readAttachmentBlob'
     | 'retainAttachmentUrl'
     | 'releaseAttachmentUrl'
+    | 'resolveAvatarUrl'
+    | 'peekAvatarUrl'
     | 'resolveStickerUrl'
     | 'retainStickerUrl'
     | 'releaseStickerUrl'

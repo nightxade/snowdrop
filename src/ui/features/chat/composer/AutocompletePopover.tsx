@@ -9,8 +9,8 @@ import {
 } from '@floating-ui/react';
 import { Slash } from 'lucide-react';
 import { useEffect, useRef } from 'react';
-import { initialsFor } from '@/core/domain';
-import { Avatar } from '@/ui/primitives';
+import { initialsFor, type ConversationId } from '@/core/domain';
+import { PersonAvatar } from '@/ui/features/conversation';
 import { optionId } from './optionId';
 import type { Suggestion } from './useAutocomplete';
 import type { TriggerKind } from './triggers';
@@ -31,6 +31,8 @@ export interface AutocompletePopoverProps {
   active: number;
   onHover: (index: number) => void;
   onPick: (index: number) => void;
+  /** The conversation being written in (a stranger's photo stays hidden until it's accepted). */
+  conversationId?: ConversationId | undefined;
 }
 
 /** Suggestion list floating above the composer (a listbox the textarea controls). */
@@ -43,6 +45,7 @@ export function AutocompletePopover({
   active,
   onHover,
   onPick,
+  conversationId,
 }: AutocompletePopoverProps) {
   const { refs, floatingStyles } = useFloating({
     open: true,
@@ -109,7 +112,7 @@ export function AutocompletePopover({
                 onPick(i);
               }}
             >
-              <SuggestionRow suggestion={s} />
+              <SuggestionRow suggestion={s} conversationId={conversationId} />
             </div>
           ))}
         </div>
@@ -123,13 +126,20 @@ export function AutocompletePopover({
   );
 }
 
-function SuggestionRow({ suggestion: s }: { suggestion: Suggestion }) {
+function SuggestionRow({
+  suggestion: s,
+  conversationId,
+}: {
+  suggestion: Suggestion;
+  conversationId: ConversationId | undefined;
+}) {
   if (s.kind === 'mention') {
     return (
       <>
-        <Avatar
+        <PersonAvatar
           size={24}
-          {...(s.contact.avatarUrl ? { src: s.contact.avatarUrl } : {})}
+          contactId={s.contact.id}
+          conversationId={conversationId}
           fallback={initialsFor(s.contact.name)}
           color={s.contact.color}
         />

@@ -1,8 +1,8 @@
 import { X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { fuzzyMatch, initialsFor, type Contact } from '@/core/domain';
-import { formatPhone } from '@/ui/features/conversation';
-import { Avatar, Checkbox, SearchInput } from '@/ui/primitives';
+import { formatPhone, PersonAvatar } from '@/ui/features/conversation';
+import { Checkbox, SearchInput } from '@/ui/primitives';
 import styles from './groups.module.css';
 
 export interface ContactChecklistProps {
@@ -117,9 +117,9 @@ export function ContactChecklist({
                   toggle(c.id, on);
                 }}
               >
-                <Avatar
+                <PersonAvatar
                   size={24}
-                  src={c.avatarUrl}
+                  contactId={c.id}
                   fallback={initialsFor(c.name).slice(0, 2)}
                   color={c.color}
                 />

@@ -21,10 +21,12 @@
  *   configured account for our own identity (see SelfIdentity).
  */
 import {
+  avatarKey,
   colorForId,
   directConversationId,
   parseConversationId,
   type Attachment,
+  type AvatarRef,
   type ConnectionStatus,
   type Contact,
   type Conversation,
@@ -81,6 +83,7 @@ import {
   stickerCacheId,
   type Thumbnailer,
 } from './attachments';
+import { AvatarResolver } from './avatars';
 import {
   supportsAttachmentBackfill as detectAttachmentBackfillSupport,
   supportsCustomEmojiDelivery as detectCustomEmojiSupport,
@@ -233,6 +236,9 @@ export class SignalCliBackend implements ChatBackend {
   private readonly clock: Clock;
   private readonly scheduler: Scheduler;
   private readonly attachments: AttachmentResolver;
+  private readonly avatars: AvatarResolver;
+  /** The last `avatarVersion` handed out for the user's own edit (see `updateProfile`). */
+  private selfAvatarVersion = 0;
   private readonly directory: Directory;
   private history: Promise<HistoryArchive | null> | null = null;
   private historyAbort = new AbortController();
@@ -293,6 +299,7 @@ export class SignalCliBackend implements ChatBackend {
       ...(options.rpcTimeoutMs === undefined ? {} : { timeoutMs: options.rpcTimeoutMs }),
     });
     this.attachments = new AttachmentResolver({ rpc: this.rpc });
+    this.avatars = new AvatarResolver({ rpc: this.rpc, now: () => this.clock.now() });
     this.directory = new Directory({
       rpc: this.rpc,
       now: () => this.clock.now(),
@@ -313,6 +320,9 @@ export class SignalCliBackend implements ChatBackend {
       },
       onGroupChanged: (conv) => {
         this.emitter.emit('conversationUpdated', conv);
+      },
+      onAvatarChanged: (ref) => {
+        this.avatars.invalidate(avatarKey(ref));
       },
     });
     this.link = {
@@ -477,7 +487,21 @@ export class SignalCliBackend implements ChatBackend {
     this.assertAccount();
     await this.rpc.call('updateProfile', profileParams(update), ignoreResult);
     await this.directory.loadContacts(true);
-    return this.getSelf();
+    const self = await this.getSelf();
+    if (update.avatar === undefined) return self;
+    // signal-cli stored (or deleted) the photo itself; show what was just set at once.
+    const ref: AvatarRef = { kind: 'contact', id: self.id };
+    this.avatars.prime(
+      avatarKey(ref),
+      update.avatar ? `data:${update.avatar.contentType};base64,${update.avatar.base64}` : null,
+    );
+    // Strictly newer than the last version we gave out, so a shown avatar always asks again.
+    this.selfAvatarVersion = Math.max(
+      this.clock.now(),
+      this.selfAvatarVersion + 1,
+      (self.avatarVersion ?? 0) + 1,
+    );
+    return { ...self, avatarVersion: this.selfAvatarVersion };
   }
 
   /**
@@ -542,6 +566,7 @@ export class SignalCliBackend implements ChatBackend {
     this.history = null;
     await this.closeStream();
     this.attachments.clear();
+    this.avatars.clear();
     this.groupChanges.clear();
     this.customEmojiSupported = false;
     this.attachmentBackfillSupported = false;
@@ -648,6 +673,7 @@ export class SignalCliBackend implements ChatBackend {
     this.identity = new SelfIdentity(id, [account.aci, account.number]);
     this.peers = new DirectPeers(this.options.storage, id);
     this.directory.reset();
+    this.avatars.clear();
     this.historyAbort.abort();
     this.historyAbort = new AbortController();
     this.history = null;
@@ -1290,6 +1316,39 @@ export class SignalCliBackend implements ChatBackend {
     return this.attachments.readBlob(attachment, {}, options?.maxBytes);
   }
 
+  /**
+   * The `getAvatar` calls that can produce `ref`'s picture, best first, or
+   * none when we know it has none (so nothing is asked). Signal Desktop shows
+   * the contact's own photo (the one the phone shares) before the profile
+   * photo they chose, except for the user themselves, whose profile photo
+   * is the one that counts. The contact photo is only worth asking for on a
+   * saved contact, and the profile photo only when the profile says there is one.
+   */
+  private avatarAttempts(ref: AvatarRef): RpcParams[] {
+    if (ref.kind === 'group') {
+      const parsed = parseConversationId(ref.id);
+      return parsed?.kind === 'group' ? [{ groupId: parsed.target }] : [];
+    }
+    const contact = this.directory.contact(ref.id);
+    if (this.identity.isSelf(ref.id) || contact?.isSelf) return [{ profile: ref.id }];
+    const attempts: RpcParams[] = [];
+    if (contact?.inContacts) attempts.push({ contact: ref.id });
+    if (contact?.hasAvatar) attempts.push({ profile: ref.id });
+    return attempts;
+  }
+
+  async resolveAvatarUrl(ref: AvatarRef): Promise<string | null> {
+    const attempts = this.avatarAttempts(ref);
+    if (attempts.length === 0) return null;
+    this.assertAccount();
+    return this.avatars.resolve(avatarKey(ref), attempts);
+  }
+
+  peekAvatarUrl(ref: AvatarRef): string | null | undefined {
+    if (this.avatarAttempts(ref).length === 0) return null;
+    return this.avatars.peek(avatarKey(ref));
+  }
+
   retainAttachmentUrl(attachment: Attachment): void {
     this.attachments.retain(attachment.id);
   }
@@ -1849,6 +1908,7 @@ export class SignalCliBackend implements ChatBackend {
     }
     if (after && change.avatar !== undefined) {
       after = this.directory.rememberGroupAvatar(conversationId, change.avatar) ?? after;
+      this.avatars.prime(avatarKey({ kind: 'group', id: conversationId }), change.avatar);
     }
     if (!after) return;
     this.emitter.emit('conversationUpdated', after);
@@ -1872,6 +1932,7 @@ export class SignalCliBackend implements ChatBackend {
     if (!group) throw new SignalCliError('invalid-response', 'The new group could not be read.');
     if (input.avatar !== undefined) {
       group = this.directory.rememberGroupAvatar(group.id, input.avatar) ?? group;
+      this.avatars.prime(avatarKey({ kind: 'group', id: group.id }), input.avatar);
     }
     this.emitter.emit('conversationUpdated', group);
     this.emitOwnSystem(group.id, this.resultTimestamp(result), 'You created the group.', 'group');

@@ -22,7 +22,7 @@ export function ConversationIntro({ conversationId }: { conversationId: Conversa
   const isGroup = conversation.kind === 'group';
   return (
     <div className={styles.intro} data-snowdrop="conversation-intro">
-      <ConversationAvatar conversation={conversation} size={80} />
+      <ConversationAvatar conversation={conversation} size={80} revealable />
       <h2 className={styles.title}>{conversation.title}</h2>
       <p className={styles.lede}>
         {isGroup ? (

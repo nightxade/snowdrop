@@ -7,6 +7,7 @@
  */
 import type {
   Attachment,
+  AvatarRef,
   BodyRange,
   ConnectionStatus,
   Contact,
@@ -707,6 +708,26 @@ export interface ChatBackend {
     sticker: StickerContent,
     options?: { forceRefresh?: boolean },
   ): Promise<string>;
+
+  /**
+   * The picture of a person (a contact or the user) or a group, as a URL the
+   * UI can put in an `<img>`; `null` when they have none. Fetched lazily, so
+   * the UI asks only for avatars that are on screen. The backend caches the
+   * answer (concurrent asks share one fetch, and only a few run at once) and
+   * forgets it when it learns the picture changed (`Contact.avatarVersion`,
+   * `Conversation.avatarVersion`). The picture lives in the daemon's own
+   * store; nothing is written anywhere else. Omitted by backends whose
+   * contacts carry their picture (`Contact.avatarUrl`) themselves. Rejects
+   * when the daemon can't be reached (try again later).
+   */
+  resolveAvatarUrl?(ref: AvatarRef): Promise<string | null>;
+
+  /**
+   * What `resolveAvatarUrl` would answer without asking anyone: a URL, `null`
+   * for "has none", `undefined` for "not known yet". Lets a row that
+   * remounts show its picture on the first frame.
+   */
+  peekAvatarUrl?(ref: AvatarRef): string | null | undefined;
 
   /**
    * The user's *installed* sticker packs with their stickers, for the sticker

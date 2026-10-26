@@ -8,6 +8,7 @@ import {
   type ReactNode,
   type RefObject,
 } from 'react';
+import type { ConversationId } from '@/core/domain';
 import { optionId } from './optionId';
 import { wrapSelection } from './formatting';
 import type { MentionToken } from './mentionTokens';
@@ -46,6 +47,8 @@ export interface AutocompleteFieldOptions {
   text: string;
   setText: (text: string) => void;
   memberIds: readonly string[];
+  /** Passed on to the suggestions' avatars. */
+  conversationId?: ConversationId;
   onMention: (token: MentionToken) => void;
   /** Slash commands only make sense in the composer, not the inline editor. */
   slash: boolean;
@@ -162,6 +165,7 @@ export function useAutocompleteField(o: AutocompleteFieldOptions): AutocompleteF
             active={auto.active}
             onHover={auto.setActive}
             onPick={accept}
+            conversationId={o.conversationId}
           />
         </Suspense>
       ) : null,

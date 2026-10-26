@@ -46,6 +46,7 @@ export function MessageEditor({ message, onDone }: { message: Message; onDone: (
     text,
     setText,
     memberIds,
+    conversationId: message.conversationId,
     onMention: (token) => {
       setTokens((current) => addToken(current, token));
     },

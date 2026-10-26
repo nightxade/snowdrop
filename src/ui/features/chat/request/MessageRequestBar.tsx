@@ -91,7 +91,7 @@ export function MessageRequestBar({
     >
       <div className={styles.who} data-part="who">
         <span className={styles.avatar} data-part="avatar">
-          <ConversationAvatar conversation={view} size={32} />
+          <ConversationAvatar conversation={view} size={32} revealable />
         </span>
         <span className={styles.identity} data-part="identity">
           <strong className={styles.name}>

@@ -106,6 +106,7 @@ function ComposerInner({ conversation }: { conversation: ConversationView }) {
     text,
     setText,
     memberIds: conversation.memberIds,
+    conversationId: conversation.id,
     onMention: state.addMention,
     slash: true,
     suggestions,

@@ -36,6 +36,8 @@ export const OPTIONAL_METHODS = [
   'readAttachmentBlob',
   'retainAttachmentUrl',
   'releaseAttachmentUrl',
+  'resolveAvatarUrl',
+  'peekAvatarUrl',
   'resolveStickerUrl',
   'retainStickerUrl',
   'releaseStickerUrl',
@@ -205,6 +207,11 @@ export function deferredBackend(
       if (real) real.releaseAttachmentUrl?.(a);
       else attachmentRefs.push({ retain: false, attachment: a });
     };
+  if (caps.has('resolveAvatarUrl'))
+    backend.resolveAvatarUrl = (ref) =>
+      call((b) => (b.resolveAvatarUrl ? b.resolveAvatarUrl(ref) : missing('resolveAvatarUrl')));
+  // Synchronous: nothing is known before the real backend exists.
+  if (caps.has('peekAvatarUrl')) backend.peekAvatarUrl = (ref) => real?.peekAvatarUrl?.(ref);
   if (caps.has('resolveStickerUrl'))
     backend.resolveStickerUrl = (s, o) =>
       call((b) => (b.resolveStickerUrl ? b.resolveStickerUrl(s, o) : missing('resolveStickerUrl')));

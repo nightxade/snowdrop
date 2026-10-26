@@ -1,4 +1,5 @@
 export * from './ids';
+export * from './avatar';
 export * from './types';
 export * from './markdown';
 export * from './segments';

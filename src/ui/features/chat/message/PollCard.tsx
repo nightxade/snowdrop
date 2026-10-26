@@ -1,10 +1,17 @@
 import { Check, Star } from 'lucide-react';
 import { useId, useState } from 'react';
 import { useStore } from 'zustand';
-import { initialsFor, pollVoteOf, tallyPoll, type PollContent } from '@/core/domain';
+import {
+  initialsFor,
+  pollVoteOf,
+  tallyPoll,
+  type ConversationId,
+  type PollContent,
+} from '@/core/domain';
 import { contactsSelectors, UNKNOWN_CONTACT_NAME } from '@/core/stores';
 import { useStores } from '@/ui/hooks';
-import { Avatar, Button, Modal, VisuallyHidden } from '@/ui/primitives';
+import { PersonAvatar } from '@/ui/features/conversation';
+import { Button, Modal, VisuallyHidden } from '@/ui/primitives';
 import styles from './PollCard.module.css';
 
 /**
@@ -158,10 +165,13 @@ export function PollCard({ poll, mode, selfId, onVote, onViewVotes, id }: PollCa
  */
 export function PollVotesDialog({
   poll,
+  conversationId,
   onEnd,
   onOpenChange,
 }: {
   poll: PollContent;
+  /** The poll's conversation (a stranger's photo stays hidden until it's accepted). */
+  conversationId?: ConversationId;
   onEnd: (() => void) | undefined;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -214,8 +224,9 @@ export function PollVotesDialog({
                   const initials = initialsFor(contact?.name ?? name);
                   return (
                     <li key={id} className={styles.voter}>
-                      <Avatar
-                        {...(contact?.avatarUrl ? { src: contact.avatarUrl } : {})}
+                      <PersonAvatar
+                        contactId={id}
+                        conversationId={conversationId}
                         fallback={initials}
                         color={contact?.color ?? 'var(--snowdrop-avatar-1)'}
                         size={32}

@@ -1,4 +1,4 @@
-import { BellOff, Hash, Search, TerminalSquare, UserRound } from 'lucide-react';
+import { BellOff, Search, TerminalSquare } from 'lucide-react';
 import { useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
 import { useStore } from 'zustand';
 import { formatKeybind, isMacPlatform, resolveKeybinds } from '@/core/commands';
@@ -11,6 +11,7 @@ import {
   uiSelectors,
 } from '@/core/stores';
 import { conversationFocusTarget, useNow, useSnowdrop } from '@/ui/hooks';
+import { ConversationAvatarById } from '@/ui/features/conversation';
 import { Badge, Kbd, Modal } from '@/ui/primitives';
 import {
   CommandPalette,
@@ -255,7 +256,7 @@ function ItemIcon({ item }: { item: SwitcherItem }) {
         {item.emoji ?? initialsFor(item.title).slice(0, 2)}
       </span>
     );
-  return item.conversationKind === 'group' ? <Hash size={18} /> : <UserRound size={18} />;
+  return <ConversationAvatarById id={item.id} size={24} />;
 }
 
 function ItemMeta({

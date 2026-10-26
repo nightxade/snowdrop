@@ -94,6 +94,8 @@ export function EditGroupDialog({
         <GroupPhotoField
           name={name || group.title}
           color={colorForId(group.id)}
+          groupId={group.id}
+          avatarVersion={group.avatarVersion}
           current={group.avatarUrl}
           staged={photo}
           onStage={(p) => {

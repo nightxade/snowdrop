@@ -12,6 +12,7 @@ export { useKeybindLabel } from './useKeybindLabel';
 export { useNow } from './useNow';
 export { useEffectivePrivacy } from './useEffectivePrivacy';
 export { useInView } from './useInView';
+export { useAvatarSrc, type AvatarSrcOptions } from './useAvatarSrc';
 export { useFrozenWhile } from './useFrozenWhile';
 export { useRovingFocus, type RovingOrientation } from './useRovingFocus';
 export { ShellLayoutProvider, useShellLayout, type ShellLayout } from './ShellLayout';

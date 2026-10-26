@@ -355,6 +355,7 @@ export const MessageItem = memo(function MessageItem({
             quote={m.quote}
             nameFor={nameFor}
             compact={compact}
+            conversationId={conversationId}
             onJump={() => {
               const quoted = m.quote;
               if (quoted)
@@ -433,6 +434,7 @@ export const MessageItem = memo(function MessageItem({
       {votesOpen && m.poll && (
         <PollVotesDialog
           poll={m.poll}
+          conversationId={conversationId}
           onEnd={
             perms.canEndPoll
               ? () => {

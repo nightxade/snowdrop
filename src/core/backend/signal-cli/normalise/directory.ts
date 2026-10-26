@@ -38,6 +38,10 @@ export function toContact(c: WireContact, selfId: string): Contact | null {
   if (c.profile?.familyName) contact.profileFamilyName = c.profile.familyName;
   if (c.profile?.about) contact.about = c.profile.about;
   if (c.profile?.aboutEmoji) contact.aboutEmoji = c.profile.aboutEmoji;
+  if (c.profile?.hasAvatar === true) {
+    contact.hasAvatar = true;
+    if (c.profile.lastUpdateTimestamp) contact.avatarVersion = c.profile.lastUpdateTimestamp;
+  }
   if (c.isBlocked) contact.blocked = true;
   if (c.isHidden) contact.hidden = true;
   if (c.unregistered) contact.unregistered = true;

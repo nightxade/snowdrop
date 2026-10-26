@@ -6,7 +6,8 @@ import {
   type GroupMemberLabel,
 } from '@/core/domain';
 import { useSnowdrop } from '@/ui/hooks';
-import { Avatar, ContextMenu } from '@/ui/primitives';
+import { PersonAvatar } from '@/ui/features/conversation';
+import { ContextMenu } from '@/ui/primitives';
 import { memberMenu } from './memberMenu';
 import { ProfileTrigger } from './ProfileTrigger';
 import styles from './MemberRow.module.css';
@@ -50,8 +51,9 @@ export const MemberRow = memo(function MemberRow({
               tabIndex={tabStop ? 0 : -1}
               data-snowdrop="member-row"
             >
-              <Avatar
-                src={contact.avatarUrl}
+              <PersonAvatar
+                contactId={contact.id}
+                conversationId={conversationId}
                 fallback={initialsFor(contact.name)}
                 color={contact.color}
                 size={32}

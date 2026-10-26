@@ -123,6 +123,12 @@ const ALLOWED_METHODS: &[&str] = &[
     // fields (never `mobileCoinAddress`) and requires the photo to be a data:
     // URI. It uploads the profile and tells the phone to refetch it.
     "updateProfile",
+    // Avatars (SignalCliBackend.ts: getAvatar, via avatars.ts): reads one
+    // picture from signal-cli's own store as base64 — a contact's, a profile's
+    // (which also refreshes a stale profile) or a group's. Changes nothing.
+    // rpc_guard.rs lets through exactly one selector (`contact`, `profile`
+    // or `groupId`, plus `account`) and nothing else.
+    "getAvatar",
 ];
 
 #[cfg(test)]
@@ -830,6 +836,16 @@ mod tests {
     fn allows_updating_the_own_profile() {
         assert!(is_allowed_method("updateProfile"));
         assert!(!is_allowed_method("updateprofile"));
+    }
+
+    /// `getAvatar` is reachable for showing pictures, under rpc_guard's
+    /// one-selector rule; near-misses stay rejected.
+    #[test]
+    fn allows_reading_avatars() {
+        assert!(is_allowed_method("getAvatar"));
+        for method in ["getavatar", "getAvatars", "setAvatar", "getAvatar ", "retrieveAvatar"] {
+            assert!(!is_allowed_method(method), "{method:?}");
+        }
     }
 
     /// Account-destroying and config methods must never be reachable from the

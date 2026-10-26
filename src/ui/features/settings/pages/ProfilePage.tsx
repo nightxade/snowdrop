@@ -5,7 +5,7 @@ import { initialsFor, type Contact } from '@/core/domain';
 import { graphemes } from '@/core/lib';
 import { sessionSelectors } from '@/core/stores';
 import { copyText, formatPhone } from '@/ui/features/conversation';
-import { useSnowdrop } from '@/ui/hooks';
+import { useAvatarSrc, useSnowdrop } from '@/ui/hooks';
 import { Avatar, Button, EmojiPickerPopover, IconButton, TextInput } from '@/ui/primitives';
 import {
   fieldCounter,
@@ -88,7 +88,12 @@ function ProfileEditor({ self, demo }: { self: Contact; demo: boolean }) {
   const firstName = useRef<HTMLInputElement>(null);
   const busy = saving || reading;
 
-  const shownPhoto = avatar === undefined ? self.avatarUrl : avatar?.previewUrl;
+  // Your stored photo comes from signal-cli, so it is still here after a restart.
+  const [photoRef, savedPhoto] = useAvatarSrc('contact', self.id, {
+    version: self.avatarVersion,
+    known: self.avatarUrl,
+  });
+  const shownPhoto = avatar === undefined ? savedPhoto : avatar?.previewUrl;
   const photoStaged = avatar !== undefined;
   const dirty = photoStaged || !sameDraft(draft, saved);
   const normalized = normalizeDraft(draft);
@@ -154,6 +159,7 @@ function ProfileEditor({ self, demo }: { self: Contact; demo: boolean }) {
     <form className={styles.editor} onSubmit={(e) => void save(e)} noValidate>
       <div className={styles.profileHead}>
         <Avatar
+          ref={photoRef}
           size={80}
           {...(shownPhoto ? { src: shownPhoto } : {})}
           fallback={initialsFor(normalized.givenName || self.name)}

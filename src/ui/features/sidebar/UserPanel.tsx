@@ -4,7 +4,8 @@ import { CoreCommand } from '@/core/commands';
 import { initialsFor, type ConnectionStatus } from '@/core/domain';
 import { sessionSelectors } from '@/core/stores';
 import { useSnowdrop, useKeybindLabel } from '@/ui/hooks';
-import { Avatar, DropdownMenu, IconButton, type MenuEntry } from '@/ui/primitives';
+import { PersonAvatar } from '@/ui/features/conversation';
+import { DropdownMenu, IconButton, type MenuEntry } from '@/ui/primitives';
 import styles from './UserPanel.module.css';
 
 const STATUS_TEXT: Record<ConnectionStatus, string> = {
@@ -54,10 +55,10 @@ export function UserPanel() {
       data-pane-title="you"
     >
       <div className={styles.identity}>
-        <Avatar
+        <PersonAvatar
+          contactId={self?.id}
           fallback={initialsFor(name)}
           color={self?.color ?? 'var(--snowdrop-avatar-1)'}
-          src={self?.avatarUrl}
           size={32}
         />
         <div className={styles.text}>

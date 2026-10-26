@@ -8,9 +8,10 @@ import {
   copyText,
   formatPhone,
   openDirectConversation,
+  PersonAvatar,
   pluginMenuEntries,
 } from '@/ui/features/conversation';
-import { Avatar, Button } from '@/ui/primitives';
+import { Button } from '@/ui/primitives';
 import styles from './ProfilePopout.module.css';
 
 export function safetyNumberHint(name: string): string {
@@ -57,11 +58,13 @@ export function ProfilePopout({
       style={{ '--tint': contact.color } as CSSProperties}
     >
       <header className={styles.header}>
-        <Avatar
-          src={contact.avatarUrl}
+        <PersonAvatar
+          contactId={contact.id}
+          conversationId={conversationId}
           fallback={initialsFor(contact.name)}
           color={contact.color}
           size={48}
+          revealable
         />
         <div className={styles.names}>
           <p className={styles.name}>{contact.name}</p>

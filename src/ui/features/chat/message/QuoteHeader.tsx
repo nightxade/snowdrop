@@ -1,10 +1,10 @@
 import { Image as ImageIcon, Sticker as StickerIcon } from 'lucide-react';
 import type { CSSProperties } from 'react';
 import { useStore } from 'zustand';
-import { bodyToPlainText, type Quote } from '@/core/domain';
+import { bodyToPlainText, type ConversationId, type Quote } from '@/core/domain';
 import { contactsSelectors, UNKNOWN_CONTACT_NAME } from '@/core/stores';
 import { useStores } from '@/ui/hooks';
-import { Avatar } from '@/ui/primitives';
+import { PersonAvatar } from '@/ui/features/conversation';
 import { describeAttachment } from '../lib/attachments';
 import styles from './QuoteHeader.module.css';
 
@@ -13,10 +13,12 @@ export interface QuoteHeaderProps {
   nameFor: (id: string) => string;
   onJump: () => void;
   compact?: boolean;
+  /** The conversation the reply is in (a stranger's photo stays hidden until it's accepted). */
+  conversationId?: ConversationId;
 }
 
 /** "↱ (avatar) Name  snippet" above a reply; click jumps to and flashes the original. */
-export function QuoteHeader({ quote, nameFor, onJump, compact }: QuoteHeaderProps) {
+export function QuoteHeader({ quote, nameFor, onJump, compact, conversationId }: QuoteHeaderProps) {
   const stores = useStores();
   const author = useStore(stores.contacts, contactsSelectors.contact(quote.authorId));
   const name = author?.name ?? UNKNOWN_CONTACT_NAME;
@@ -40,9 +42,10 @@ export function QuoteHeader({ quote, nameFor, onJump, compact }: QuoteHeaderProp
         }}
         aria-label={`Reply to ${name}: ${clip(text || (quote.sticker ? 'sticker' : 'attachment'), 80)} (jump to message)`}
       >
-        <Avatar
+        <PersonAvatar
           size={16}
-          {...(author?.avatarUrl ? { src: author.avatarUrl } : {})}
+          contactId={quote.authorId}
+          conversationId={conversationId}
           // Too small for legible initials: a plain colour dot.
           fallback=""
           color={author?.color ?? 'var(--snowdrop-avatar-1)'}

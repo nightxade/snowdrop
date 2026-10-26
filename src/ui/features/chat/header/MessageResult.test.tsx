@@ -11,7 +11,7 @@ function renderResult(message = makeMessage({ authorId: 'ana', body: 'hello' }))
   const stores = createStores();
   stores.contacts.getState().upsert({ id: 'ana', name: 'Ana Lima', color: 'x' });
   render(
-    <SnowdropContextProvider value={{ stores } as unknown as AppServices}>
+    <SnowdropContextProvider value={{ stores, backend: {} } as unknown as AppServices}>
       <MessageResult message={message} onOpen={vi.fn()} />
     </SnowdropContextProvider>,
   );

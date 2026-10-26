@@ -10,8 +10,8 @@ import {
   type ConversationId,
 } from '@/core/domain';
 import { conversationFocusTarget, useSnowdrop } from '@/ui/hooks';
-import { formatPhone, openDirectConversation } from '@/ui/features/conversation';
-import { Avatar, Kbd, Modal } from '@/ui/primitives';
+import { formatPhone, openDirectConversation, PersonAvatar } from '@/ui/features/conversation';
+import { Kbd, Modal } from '@/ui/primitives';
 import {
   CommandPalette,
   CommandPaletteGroup,
@@ -243,9 +243,9 @@ export function NewMessageDialog({ onClose }: { onClose: () => void }) {
                     openContact(contact);
                   }}
                   icon={
-                    <Avatar
+                    <PersonAvatar
                       size={24}
-                      src={contact.avatarUrl}
+                      contactId={contact.id}
                       fallback={initialsFor(contact.name).slice(0, 2)}
                       color={contact.color}
                     />

@@ -8,7 +8,13 @@
  * are reused for a long TTL and refreshed on the events that make them stale
  * (contacts sync, a message from someone unknown, a group we don't know).
  */
-import type { Contact, Conversation, ConversationId } from '@/core/domain';
+import {
+  groupConversationId,
+  type AvatarRef,
+  type Contact,
+  type Conversation,
+  type ConversationId,
+} from '@/core/domain';
 import type { Cancel, Scheduler } from '@/core/lib';
 import type { KeyValueStorage } from '@/core/persistence';
 import type { SelfIdentity } from './identity';
@@ -36,6 +42,12 @@ export interface DirectoryDeps {
   onContactChanged: (contact: Contact) => void;
   /** A group appeared or changed after a (re)load (not from a group-update envelope). */
   onGroupChanged: (conversation: Conversation) => void;
+  /**
+   * A person's or group's picture may have changed (the profile was fetched
+   * again with a different photo, the group was updated): drop what was
+   * cached for it.
+   */
+  onAvatarChanged?: (ref: AvatarRef) => void;
   /** Where the groups this device left are remembered (see `markLeft`). */
   storage?: KeyValueStorage | undefined;
   debug: (message: string, detail?: unknown) => void;
@@ -47,10 +59,16 @@ export class Directory {
   private readonly groups = new Map<ConversationId, Conversation>();
   /**
    * Photos this session set on a group, as data: URIs. listGroups reports no
-   * photo and `getAvatar` isn't something the UI may call, so this is all we
-   * know of a group's picture; it is lost when the app restarts.
+   * photo, so until the picture is fetched from signal-cli's own store
+   * (`getAvatar`, see avatars.ts) this is what the group shows.
    */
   private readonly groupAvatars = new Map<ConversationId, string>();
+  /**
+   * Per group, how many times its photo may have changed since this session
+   * began (a group update, our own change). Stamped on the conversation as
+   * `avatarVersion`, so a shown avatar knows to fetch again.
+   */
+  private readonly groupAvatarRevisions = new Map<ConversationId, number>();
   /** Raw ids of groups this device left; loaded from storage on first use. */
   private left: Set<string> | null = null;
   private contactsLoadedAt = -Infinity;
@@ -69,6 +87,7 @@ export class Directory {
     this.dmTimers.clear();
     this.groups.clear();
     this.groupAvatars.clear();
+    this.groupAvatarRevisions.clear();
     this.left = null;
     this.contactsLoadedAt = -Infinity;
     this.groupsLoadedAt = -Infinity;
@@ -113,16 +132,28 @@ export class Directory {
   /** Remembers a photo just set on a group (see `groupAvatars`) and returns the group with it. */
   rememberGroupAvatar(id: ConversationId, dataUri: string): Conversation | undefined {
     this.groupAvatars.set(id, dataUri);
+    this.groupAvatarRevisions.set(id, (this.groupAvatarRevisions.get(id) ?? 0) + 1);
     const group = this.groups.get(id);
     if (!group) return undefined;
-    const next = { ...group, avatarUrl: dataUri };
+    const next = this.withAvatar({ ...group });
     this.groups.set(id, next);
     return next;
   }
 
+  /** A group update arrived: its photo may be new. */
+  private bumpGroupAvatar(id: ConversationId): void {
+    this.groupAvatarRevisions.set(id, (this.groupAvatarRevisions.get(id) ?? 0) + 1);
+    this.deps.onAvatarChanged?.({ kind: 'group', id });
+  }
+
   private withAvatar(conv: Conversation): Conversation {
     const avatarUrl = this.groupAvatars.get(conv.id);
-    return avatarUrl ? { ...conv, avatarUrl } : conv;
+    const avatarVersion = this.groupAvatarRevisions.get(conv.id);
+    return {
+      ...conv,
+      ...(avatarUrl ? { avatarUrl } : {}),
+      ...(avatarVersion ? { avatarVersion } : {}),
+    };
   }
 
   private leftIds(): Set<string> {
@@ -250,6 +281,7 @@ export class Directory {
   async fetchGroup(groupId: string): Promise<Conversation | null> {
     const [raw] = await this.deps.rpc.call('listGroups', { groupId: [groupId] }, wireGroups);
     if (!raw) return null;
+    this.bumpGroupAvatar(groupConversationId(raw.id));
     const conv = this.toConversation(raw, this.resolveMember([raw]));
     if (!conv) return null;
     this.groups.set(conv.id, conv);
@@ -296,6 +328,12 @@ export class Directory {
     for (const contact of next.values()) {
       const prev = before.get(contact.id);
       if (!prev || JSON.stringify(prev) !== JSON.stringify(contact)) {
+        if (
+          prev &&
+          (prev.hasAvatar !== contact.hasAvatar || prev.avatarVersion !== contact.avatarVersion)
+        ) {
+          this.deps.onAvatarChanged?.({ kind: 'contact', id: contact.id });
+        }
         this.deps.onContactChanged(contact);
       }
     }

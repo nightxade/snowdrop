@@ -128,13 +128,51 @@ fn validate_profile_params(params: Option<&Map<String, Value>>) -> Result<(), Er
     Ok(())
 }
 
+/// `getAvatar` reads one picture out of signal-cli's own store, picked by
+/// exactly one selector (canonical form): a contact's (`contact`), a profile's
+/// (`profile`) or a group's (`groupid`); `account` is the multi-account
+/// selector. Each is a string.
+const AVATAR_SELECTORS: &[&str] = &["contact", "profile", "groupid"];
+
+/// Only the selector keys get through, one of them, and no other key
+/// (signal-cli takes nothing else for `getAvatar`).
+fn validate_avatar_params(params: Option<&Map<String, Value>>) -> Result<(), Error> {
+    let reject = || {
+        Error::new(
+            ErrorKind::Config,
+            "Snowdrop may only ask getAvatar for one contact, profile or group picture.",
+        )
+    };
+    let Some(params) = params else { return Err(reject()) };
+    let mut selectors = 0;
+    for (key, value) in params {
+        let key = canonical(key);
+        if key == "account" {
+            if !matches!(value, Value::String(_) | Value::Null) {
+                return Err(reject());
+            }
+        } else if AVATAR_SELECTORS.contains(&key.as_str()) && value.as_str().is_some_and(|s| !s.is_empty()) {
+            selectors += 1;
+        } else {
+            return Err(reject());
+        }
+    }
+    if selectors == 1 {
+        Ok(())
+    } else {
+        Err(reject())
+    }
+}
+
 /// Every request's parameter check: the file-reference rules for all methods,
-/// plus the strict key allow-lists for `updateConfiguration` and `updateProfile`.
+/// plus the strict key allow-lists for `updateConfiguration`, `updateProfile`
+/// and `getAvatar`.
 pub fn validate_request(method: &str, params: Option<&Map<String, Value>>) -> Result<(), Error> {
     validate_params(params)?;
     match method {
         "updateConfiguration" => validate_configuration_params(params)?,
         "updateProfile" => validate_profile_params(params)?,
+        "getAvatar" => validate_avatar_params(params)?,
         _ => {}
     }
     Ok(())
@@ -319,6 +357,35 @@ mod tests {
         assert!(check_request("unblock", json!({ "groupId": ["Zm9v"] })).is_ok());
         assert!(check_request("quitGroup", json!({ "groupId": "Zm9v", "delete": true })).is_ok());
         assert!(check_request("block", json!({ "recipient": ["+15550001"], "attachment": "/etc/passwd" })).is_err());
+    }
+
+    #[test]
+    fn get_avatar_takes_exactly_one_selector() {
+        for ok in [
+            json!({ "contact": "+15550001" }),
+            json!({ "profile": "11111111-2222-3333-4444-555555555555", "account": "+15550002" }),
+            json!({ "groupId": "Zm9v" }),
+            json!({ "group-id": "Zm9v", "account": null }),
+            json!({ "Profile": "+15550001" }),
+        ] {
+            assert!(check_request("getAvatar", ok.clone()).is_ok(), "{ok}");
+        }
+        for bad in [
+            json!({}),
+            json!({ "account": "+15550002" }),
+            json!({ "contact": "+15550001", "profile": "+15550001" }),
+            json!({ "contact": "+15550001", "groupId": "Zm9v" }),
+            json!({ "contact": "" }),
+            json!({ "contact": ["+15550001"] }),
+            json!({ "contact": 5 }),
+            json!({ "contact": null }),
+            json!({ "contact": "+15550001", "extra": true }),
+            json!({ "contact": "+15550001", "avatar": "/etc/passwd" }),
+            json!({ "account": 5, "contact": "+15550001" }),
+        ] {
+            assert!(check_request("getAvatar", bad.clone()).is_err(), "{bad}");
+        }
+        assert!(validate_request("getAvatar", None).is_err());
     }
 
     #[test]

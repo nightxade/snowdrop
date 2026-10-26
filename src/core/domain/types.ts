@@ -18,7 +18,20 @@ export interface Contact {
   aboutEmoji?: string;
   /** Stable CSS colour value derived from the id (see colorForId). */
   color: string;
+  /**
+   * A picture the app already holds for this person (the session's just-set
+   * profile photo, the demo's). Anything the backend stores is fetched by
+   * reference instead (`ChatBackend.resolveAvatarUrl`).
+   */
   avatarUrl?: string;
+  /** The person has a profile photo (signal-cli's `profile.hasAvatar`). */
+  hasAvatar?: true;
+  /**
+   * Changes whenever the backend learns the photo may have changed (the
+   * profile's last-update time; bumped by the user's own edit). A shown
+   * avatar fetches again when it differs.
+   */
+  avatarVersion?: number;
   isSelf?: boolean;
   blocked?: boolean;
   /** signal-cli: contact is hidden on the primary device (user removed it from their list). */
@@ -55,7 +68,10 @@ export interface Conversation {
   kind: ConversationKind;
   title: string;
   description?: string;
+  /** A photo the app already holds (just set in this session); see `Contact.avatarUrl`. */
   avatarUrl?: string;
+  /** Changes when the group's photo may have changed; see `Contact.avatarVersion`. */
+  avatarVersion?: number;
   memberIds: string[];
   adminIds: string[];
   /** Disappearing-message timer in seconds; 0 = off. */

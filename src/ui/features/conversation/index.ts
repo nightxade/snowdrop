@@ -1,4 +1,6 @@
-export { ConversationAvatar } from './ConversationAvatar';
+export { ConversationAvatar, ConversationAvatarById } from './ConversationAvatar';
+export { PersonAvatar, type PersonAvatarProps } from './PersonAvatar';
+export { resetRevealedAvatars } from './avatarHold';
 export {
   archive,
   copyText,

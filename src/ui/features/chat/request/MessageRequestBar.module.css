@@ -18,6 +18,7 @@
 }
 
 .avatar {
+  display: flex;
   flex: none;
 }
 

@@ -3,7 +3,8 @@ import { useStore } from 'zustand';
 import { formatMessageTimestamp, initialsFor, type Message } from '@/core/domain';
 import { conversationsSelectors, contactsSelectors, UNKNOWN_CONTACT_NAME } from '@/core/stores';
 import { useEffectivePrivacy, useSnowdrop } from '@/ui/hooks';
-import { Avatar, Modal } from '@/ui/primitives';
+import { PersonAvatar } from '@/ui/features/conversation';
+import { Modal } from '@/ui/primitives';
 import { useMinuteClock } from '../lib/useMinuteClock';
 import styles from './MessageDetails.module.css';
 
@@ -11,7 +12,6 @@ interface DetailRow {
   id: string;
   name: string;
   color: string;
-  avatarUrl?: string;
   /** "Today at 14:02" (or the send time, for "Sent to") — same format the row's own meta uses. */
   when: string;
 }
@@ -63,7 +63,6 @@ export function MessageDetails({
         name: contact?.name ?? UNKNOWN_CONTACT_NAME,
         color: contact?.color ?? 'var(--snowdrop-avatar-1)',
         when: '',
-        ...(contact?.avatarUrl ? { avatarUrl: contact.avatarUrl } : {}),
       };
       if (failed.has(id)) {
         buckets.notDelivered.push({ ...row, when: "Couldn't deliver" });
@@ -107,8 +106,9 @@ export function MessageDetails({
             <ul className={styles.list}>
               {group.rows.map((row) => (
                 <li key={row.id} className={styles.row}>
-                  <Avatar
-                    {...(row.avatarUrl ? { src: row.avatarUrl } : {})}
+                  <PersonAvatar
+                    contactId={row.id}
+                    conversationId={m.conversationId}
                     fallback={initialsFor(row.name)}
                     color={row.color}
                     size={32}

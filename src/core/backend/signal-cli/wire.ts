@@ -284,6 +284,8 @@ export const wireContact = object({
       about: optStr,
       aboutEmoji: optStr,
       hasAvatar: optBool,
+      /** When signal-cli last fetched this profile (epoch ms). */
+      lastUpdateTimestamp: optNum,
     }),
   ),
 });

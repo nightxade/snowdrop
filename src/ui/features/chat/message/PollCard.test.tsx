@@ -205,7 +205,7 @@ function renderDetails(p: PollContent, onEnd?: () => void) {
   ]);
   const onOpenChange = vi.fn();
   render(
-    <SnowdropContextProvider value={{ stores } as unknown as AppServices}>
+    <SnowdropContextProvider value={{ stores, backend: {} } as unknown as AppServices}>
       <PollVotesDialog poll={p} onEnd={onEnd} onOpenChange={onOpenChange} />
     </SnowdropContextProvider>,
   );

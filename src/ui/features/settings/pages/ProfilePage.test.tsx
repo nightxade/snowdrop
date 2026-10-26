@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { axe } from 'vitest-axe';
 import type { Snowdrop } from '@/app/createSnowdrop';
+import { FakeIO, installFakeIO } from '@/test/fakeIntersectionObserver';
 import { bootSnowdrop, renderWithSnowdrop } from '@/test/renderWithSnowdrop';
 import type * as AvatarLib from '@/ui/lib/avatarImage';
 import { ProfilePage } from './ProfilePage';
@@ -224,5 +225,52 @@ describe('Settings → Profile editor', () => {
       await tick();
     });
     expect((await axe(container)).violations).toEqual([]);
+  });
+});
+
+describe('Settings → Profile photo after a restart', () => {
+  const STORED = 'data:image/jpeg;base64,STORED';
+
+  /** What signal-cli's own store would answer: the session itself knows no photo. */
+  function storedPhoto(photo: string | null) {
+    const resolve = vi.fn(() => Promise.resolve(photo));
+    Object.assign(snowdrop!.backend, {
+      resolveAvatarUrl: resolve,
+      peekAvatarUrl: () => undefined,
+    });
+    return resolve;
+  }
+
+  const shownPhoto = (container: HTMLElement) =>
+    container.querySelector('img')?.getAttribute('src') ?? null;
+
+  it('shows the stored photo although this session never set one', async () => {
+    installFakeIO();
+    const resolve = storedPhoto(STORED);
+    expect(self().avatarUrl).toBeUndefined();
+    const { container } = open();
+    expect(shownPhoto(container)).toBeNull();
+    await act(async () => {
+      for (const io of FakeIO.instances) io.emit(true);
+      await Promise.resolve();
+    });
+    expect(resolve).toHaveBeenCalledWith({ kind: 'contact', id: self().id });
+    expect(shownPhoto(container)).toBe(STORED);
+    expect(screen.getByRole('button', { name: 'Change photo' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Remove photo' })).toBeTruthy();
+    vi.unstubAllGlobals();
+  });
+
+  it('offers "Add photo" when none is stored', async () => {
+    installFakeIO();
+    storedPhoto(null);
+    const { container } = open();
+    await act(async () => {
+      for (const io of FakeIO.instances) io.emit(true);
+      await Promise.resolve();
+    });
+    expect(shownPhoto(container)).toBeNull();
+    expect(screen.getByRole('button', { name: 'Add photo' })).toBeTruthy();
+    vi.unstubAllGlobals();
   });
 });

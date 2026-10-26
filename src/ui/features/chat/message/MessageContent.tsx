@@ -4,7 +4,8 @@ import { useStore } from 'zustand';
 import { initialsFor, type ConversationId, type Message } from '@/core/domain';
 import { contactsSelectors } from '@/core/stores';
 import { useObservableList, useSnowdrop } from '@/ui/hooks';
-import { Avatar, Slot, VisuallyHidden } from '@/ui/primitives';
+import { PersonAvatar } from '@/ui/features/conversation';
+import { Slot, VisuallyHidden } from '@/ui/primitives';
 import * as act from './actions';
 import { Attachments } from './Attachments';
 import { AuthorPopover } from './AuthorPopover';
@@ -75,9 +76,10 @@ export function MessageContent({
   const delivered = m.authorId === selfId ? undefined : m.customEmoji;
 
   const avatar = (
-    <Avatar
+    <PersonAvatar
       size={compact ? 16 : 40}
-      {...(author?.avatarUrl ? { src: author.avatarUrl } : {})}
+      contactId={m.authorId}
+      conversationId={conversationId}
       fallback={compact ? '' : initialsFor(name)}
       color={color}
     />

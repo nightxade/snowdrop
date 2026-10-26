@@ -1,9 +1,9 @@
 import { Check, X } from 'lucide-react';
 import { initialsFor, colorForId, type Contact, type ConversationId } from '@/core/domain';
 import { stripBidiControls } from '@/core/lib';
-import { openGroupModal, type GroupMemberAction } from '@/ui/features/conversation';
+import { openGroupModal, PersonAvatar, type GroupMemberAction } from '@/ui/features/conversation';
 import { useSnowdrop } from '@/ui/hooks';
-import { Avatar, IconButton } from '@/ui/primitives';
+import { IconButton } from '@/ui/primitives';
 import styles from './PendingRow.module.css';
 
 /**
@@ -32,8 +32,9 @@ export function PendingRow({
   };
   return (
     <li className={styles.row} data-snowdrop="pending-row">
-      <Avatar
-        src={contact?.avatarUrl}
+      <PersonAvatar
+        contactId={id}
+        conversationId={conversationId}
         fallback={initialsFor(name)}
         color={contact?.color ?? colorForId(id)}
         size={32}

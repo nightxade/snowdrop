@@ -1,4 +1,4 @@
-import { Hash, Search, SearchX, UserRound } from 'lucide-react';
+import { Search, SearchX } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import {
@@ -16,7 +16,8 @@ import {
   UNKNOWN_CONTACT_NAME,
 } from '@/core/stores';
 import { conversationFocusTarget, useNow, useSnowdrop } from '@/ui/hooks';
-import { Avatar, Kbd, Modal, Skeleton, VisuallyHidden } from '@/ui/primitives';
+import { ConversationAvatarById, PersonAvatar } from '@/ui/features/conversation';
+import { Kbd, Modal, Skeleton, VisuallyHidden } from '@/ui/primitives';
 import {
   CommandPalette,
   CommandPaletteGroup,
@@ -255,9 +256,10 @@ export function GlobalSearch({ onClose }: { onClose: () => void }) {
                       openMessage(m);
                     }}
                     icon={
-                      <Avatar
+                      <PersonAvatar
                         size={24}
-                        {...(author?.avatarUrl ? { src: author.avatarUrl } : {})}
+                        contactId={m.authorId}
+                        conversationId={m.conversationId}
                         fallback={initialsFor(name)}
                         color={author?.color ?? 'var(--snowdrop-avatar-1)'}
                       />
@@ -312,7 +314,7 @@ function NameItem({
       onSelect={() => {
         onChoose(item);
       }}
-      icon={item.conversationKind === 'group' ? <Hash size={18} /> : <UserRound size={18} />}
+      icon={<ConversationAvatarById id={item.id} size={24} />}
     >
       {highlight(item.title, item.indices)}
     </CommandPaletteItem>
