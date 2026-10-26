@@ -30,6 +30,16 @@ export function registerCoreCommands(
     },
   });
   commands.register({
+    id: CoreCommand.SearchAll,
+    title: 'Search all chats',
+    category: 'Navigation',
+    keybind: DEFAULT_KEYBINDS[CoreCommand.SearchAll],
+    allowInInputs: true,
+    run: () => {
+      ui().openModal({ type: 'searchAll' });
+    },
+  });
+  commands.register({
     id: CoreCommand.NewMessage,
     title: 'New message',
     category: 'Navigation',

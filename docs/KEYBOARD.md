@@ -23,6 +23,7 @@ press the new keys; Esc or Tab cancels, Backspace or Delete removes it).
 | Toggle member list                  | Mod+Shift+M                        |
 | Settings                            | Mod+,                              |
 | Search in conversation              | Mod+F                              |
+| Search all chats                    | Mod+Shift+F                        |
 | Jump to latest                      | Shift+PageDown                     |
 | Keyboard shortcuts                  | Mod+/                              |
 | Record a voice message              | Mod+Shift+Y (as in Signal Desktop) |
@@ -96,6 +97,13 @@ opens, Esc closes.
 
 Enter opens the newest match; ↓ moves from the field into the results and
 ↑ / ↓ between them (↑ on the first goes back to the field); Esc closes.
+
+## Search all chats (Mod+Shift+F)
+
+Chats and people by name, then matching messages from every conversation
+(history stored on this device). ↑ / ↓ move, Enter opens the chat or jumps to
+the message, Esc closes. Signal Desktop puts this on Mod+F and the in-chat
+search on Mod+Shift+F; Snowdrop keeps Mod+F for the open chat.
 
 ## Dialogs and other surfaces
 

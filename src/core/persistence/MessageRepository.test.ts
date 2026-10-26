@@ -229,6 +229,58 @@ describe.each(implementations)('MessageRepository (%s)', (_name, create) => {
     expect(await repo.search('  ', { limit: 10 })).toEqual([]);
   });
 
+  it('searches every conversation, newest first, up to the limit', async () => {
+    const c = conversationIdFor('c');
+    const batch: Message[] = [];
+    for (let i = 0; i < 1300; i++) {
+      batch.push(
+        incoming({
+          conversationId: [a, b, c][i % 3] as Message['conversationId'],
+          authorId: 'z',
+          sentAt: 100_000 + i,
+          body: i % 100 === 0 ? `needle ${i}` : `filler ${i}`,
+        }),
+      );
+    }
+    await repo.upsertMany(batch, { backfill: false, merge: mergeDuplicate });
+    const all = await repo.search('needle', { limit: 100 });
+    expect(all.map((m) => m.body)).toEqual(
+      [1200, 1100, 1000, 900, 800, 700, 600, 500, 400, 300, 200, 100, 0].map((i) => `needle ${i}`),
+    );
+    expect((await repo.search('needle', { limit: 3 })).map((m) => m.body)).toEqual([
+      'needle 1200',
+      'needle 1100',
+      'needle 1000',
+    ]);
+    expect(
+      (await repo.search('needle', { conversationId: b, limit: 100 })).map((m) => m.body),
+    ).toEqual(['needle 1000', 'needle 700', 'needle 400', 'needle 100']);
+    expect(await repo.search('needle', { limit: 0 })).toEqual([]);
+  });
+
+  it("matches a poll's question, not its options", async () => {
+    const poll = {
+      question: 'Where shall we eat?',
+      options: ['Pizzeria', 'Noodles'],
+      allowMultiple: false,
+      votes: [],
+    };
+    await repo.upsert(
+      incoming({ conversationId: b, authorId: 'y', sentAt: 79, body: '', poll }),
+      mergeDuplicate,
+    );
+    expect((await repo.search('eat', { limit: 5 })).map((m) => m.poll?.question)).toEqual([
+      'Where shall we eat?',
+    ]);
+    expect(await repo.search('pizzeria', { limit: 5 })).toEqual([]);
+  });
+
+  it('rejects when its signal is already aborted', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    await expect(repo.search('a1', { limit: 5, signal: controller.signal })).rejects.toBeDefined();
+  });
+
   it('finds mentions of a contact, newest first', async () => {
     const mention = (sentAt: number) =>
       incoming({

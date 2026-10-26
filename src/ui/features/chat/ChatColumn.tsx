@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useStore } from 'zustand';
 import { CoreCommand } from '@/core/commands';
 import { uiSelectors } from '@/core/stores';
@@ -6,7 +6,12 @@ import { useKeybindLabel, useShellLayout, useStores } from '@/ui/hooks';
 import { MembersPanel } from '@/ui/features/members';
 import { Drawer, Kbd, SnowdropMark } from '@/ui/primitives';
 import { ChatHeader } from './ChatHeader';
-import { ChatController, ChatControllerProvider, useSearchOpen } from './ChatController';
+import {
+  ChatController,
+  ChatControllerProvider,
+  useChatController,
+  useSearchOpen,
+} from './ChatController';
 import { ConversationArea } from './ConversationArea';
 import { SearchSlot } from './SearchSlot';
 import { ConnectionBanner } from './ConnectionBanner';
@@ -33,6 +38,15 @@ function ChatColumnInner() {
   const stores = useStores();
   useChatCommands();
   const searchOpen = useSearchOpen();
+  const chat = useChatController();
+  // A jump asked for from outside the column (global search): the open
+  // conversation's list reveals it, or, once its list mounts, the new one's.
+  const revealRequest = useStore(stores.ui, uiSelectors.revealRequest);
+  useEffect(() => {
+    if (!revealRequest) return;
+    stores.ui.getState().clearRevealRequest();
+    void chat.reveal(revealRequest.conversationId, revealRequest.messageId, { focus: true });
+  }, [revealRequest, chat, stores]);
   const { narrow, drawer } = useShellLayout();
   const selected = useStore(stores.ui, uiSelectors.selectedConversation);
   const kind = useStore(stores.conversations, (s) =>

@@ -14,6 +14,7 @@ export const CoreCommand = {
   ToggleMemberList: 'core.toggleMemberList',
   OpenSettings: 'core.openSettings',
   SearchConversation: 'core.searchConversation',
+  SearchAll: 'core.searchAll',
   JumpToPresent: 'core.jumpToPresent',
   ShortcutHelp: 'core.shortcutHelp',
   RecordVoiceNote: 'core.recordVoiceNote',
@@ -34,6 +35,10 @@ export const DEFAULT_KEYBINDS: Readonly<Record<CoreCommandId, string>> = {
   [CoreCommand.ToggleMemberList]: 'Mod+Shift+M',
   [CoreCommand.OpenSettings]: 'Mod+,',
   [CoreCommand.SearchConversation]: 'Mod+F',
+  // Signal Desktop binds Mod+F to the all-chats search and Mod+Shift+F to the
+  // open chat; Snowdrop already had Mod+F in the chat, so only the all-chats
+  // key is new and the pair is the other way round.
+  [CoreCommand.SearchAll]: 'Mod+Shift+F',
   [CoreCommand.JumpToPresent]: 'Shift+PageDown',
   [CoreCommand.ShortcutHelp]: 'Mod+/',
   // The same shortcut Signal Desktop uses to start a voice message.

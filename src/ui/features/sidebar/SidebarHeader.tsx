@@ -1,4 +1,4 @@
-import { ChevronDown, Search, SquarePen } from 'lucide-react';
+import { ChevronDown, MessageSquareText, Search, SquarePen } from 'lucide-react';
 import { useStore } from 'zustand';
 import { CoreCommand } from '@/core/commands';
 import { HOME, uiSelectors } from '@/core/stores';
@@ -15,6 +15,7 @@ export function SidebarHeader() {
       {space === HOME ? (
         <>
           <FindButton />
+          <SearchAllButton />
           <NewMessageButton />
         </>
       ) : (
@@ -41,6 +42,23 @@ function FindButton() {
         <span className={styles.findText}>Find or start a conversation</span>
       </button>
     </Tooltip>
+  );
+}
+
+function SearchAllButton() {
+  const { commands } = useSnowdrop();
+  const shortcut = useKeybindLabel(CoreCommand.SearchAll);
+  return (
+    <IconButton
+      className={styles.searchAll}
+      label="Search all chats"
+      icon={<MessageSquareText />}
+      tooltipSide="bottom"
+      {...(shortcut ? { shortcut } : {})}
+      onClick={() => {
+        void commands.execute(CoreCommand.SearchAll);
+      }}
+    />
   );
 }
 

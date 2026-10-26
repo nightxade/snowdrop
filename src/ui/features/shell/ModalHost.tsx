@@ -16,6 +16,10 @@ const SettingsOverlay = lazy(() =>
   import('@/ui/features/settings').then((m) => ({ default: m.SettingsOverlay })),
 );
 
+// All-chats search: opened by its shortcut and the sidebar button; prefetched with the switcher.
+const loadSearch = () => import('@/ui/features/search');
+const GlobalSearch = lazy(() => loadSearch().then((m) => ({ default: m.GlobalSearch })));
+
 // New message: opened from the Home sidebar and the palette; prefetched with the switcher.
 const loadNewChat = () => import('@/ui/features/newChat');
 const NewMessageDialog = lazy(() => loadNewChat().then((m) => ({ default: m.NewMessageDialog })));
@@ -82,6 +86,7 @@ export function ModalHost() {
   useEffect(() => {
     const prefetch = () => {
       void loadSwitcher();
+      void loadSearch();
       void loadNewChat();
       void loadGroups();
       void loadSpaces();
@@ -109,6 +114,8 @@ function modalElement(modal: Modal, close: () => void) {
   switch (modal.type) {
     case 'switcher':
       return <QuickSwitcher onClose={close} initialQuery={stringProp(modal.props, 'query')} />;
+    case 'searchAll':
+      return <GlobalSearch onClose={close} />;
     case 'newMessage':
       return <NewMessageDialog onClose={close} />;
     case 'newGroup':

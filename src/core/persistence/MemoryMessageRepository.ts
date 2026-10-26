@@ -152,7 +152,8 @@ export class MemoryMessageRepository implements MessageRepository {
     return Promise.resolve(this.timelines.get(conversationId)?.length ?? 0);
   }
 
-  search(text: string, { conversationId, limit }: SearchQuery): Promise<Message[]> {
+  search(text: string, { conversationId, limit, signal }: SearchQuery): Promise<Message[]> {
+    if (signal?.aborted) return Promise.reject(new DOMException('Search aborted', 'AbortError'));
     const terms = searchTerms(text);
     if (terms.length === 0) return Promise.resolve([]);
     const pool =

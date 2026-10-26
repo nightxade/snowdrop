@@ -49,6 +49,12 @@ export interface Toast {
 /** Oldest toasts are dropped beyond this, so a chatty plugin can't flood the screen. */
 export const MAX_TOASTS = 4;
 
+/** A jump to a message asked for from outside the chat column (global search). */
+export interface RevealRequest {
+  conversationId: ConversationId;
+  messageId: MessageId;
+}
+
 export interface UiState {
   selectedSpace: SpaceSelection;
   /** Last opened conversation per space, so switching spaces feels like switching servers. */
@@ -59,6 +65,8 @@ export interface UiState {
   editing: EditingTarget | null;
   scrollAnchors: Record<ConversationId, ScrollAnchor>;
   windowFocused: boolean;
+  /** Consumed (and cleared) by the chat column, which owns the message list. */
+  revealRequest: RevealRequest | null;
   toasts: Toast[];
   /**
    * Read-cursor snapshot taken when a conversation is opened. The "new
@@ -79,6 +87,9 @@ export interface UiState {
   toggleMemberList(open?: boolean): void;
   openModal(modal: ModalState): void;
   closeModal(): void;
+  /** Opens the conversation (in `space`) and asks its list to scroll to the message. */
+  requestReveal(request: RevealRequest, space?: SpaceSelection): void;
+  clearRevealRequest(): void;
   setReplyTo(conversationId: ConversationId, messageId: MessageId | null): void;
   setEditing(target: EditingTarget | null): void;
   /** Updates the open editor's text (no-op when nothing is being edited). */
@@ -94,11 +105,12 @@ export interface UiState {
 export type UiStore = StoreApi<UiState>;
 
 export function createUiStore(newId: () => string = () => createNonce('toast')): UiStore {
-  return createStore<UiState>()((set) => ({
+  return createStore<UiState>()((set, get) => ({
     selectedSpace: HOME,
     selectedConversationBySpace: {},
     memberListOpen: true,
     modal: null,
+    revealRequest: null,
     replyTo: {},
     editing: null,
     scrollAnchors: {},
@@ -131,6 +143,13 @@ export function createUiStore(newId: () => string = () => createNonce('toast')):
     },
     closeModal: () => {
       set({ modal: null });
+    },
+    requestReveal: (request, space) => {
+      get().selectConversation(request.conversationId, space);
+      set({ revealRequest: request });
+    },
+    clearRevealRequest: () => {
+      set({ revealRequest: null });
     },
     setReplyTo: (conversationId, messageId) => {
       set((s) => {
@@ -193,6 +212,7 @@ export const uiSelectors = {
     s.selectedConversationBySpace[s.selectedSpace] ?? null,
   memberListOpen: (s: UiState) => s.memberListOpen,
   modal: (s: UiState) => s.modal,
+  revealRequest: (s: UiState) => s.revealRequest,
   replyTo: (id: ConversationId) => (s: UiState) => s.replyTo[id] ?? null,
   editing: (s: UiState) => s.editing,
   toasts: (s: UiState) => s.toasts,

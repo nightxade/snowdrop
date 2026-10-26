@@ -32,7 +32,7 @@ import {
   type Message,
   type MessageId,
 } from '@/core/domain';
-import { createLogger } from '@/core/lib';
+import { createLogger, yieldToEventLoop } from '@/core/lib';
 import { plaintextCipher, utf8Decode, utf8Encode, type RecordCipher } from './crypto';
 import {
   matchesSearch,
@@ -45,7 +45,9 @@ import {
   type UpsertResult,
 } from './MessageRepository';
 
-const DB_VERSION = 4;
+const DB_VERSION = 5;
+/** Rows read per slice of a search: decrypted together, then the event loop gets a turn. */
+const SEARCH_SLICE = 500;
 const SEQ_KEY = 'seq';
 const log = createLogger('storage');
 
@@ -121,6 +123,7 @@ interface SnowdropDB extends DBSchema {
       byConversationSeq: [string, number];
       byMention: string;
       byExpiresAt: number;
+      bySeq: number;
     };
   };
   readCursors: { key: string; value: CursorRow };
@@ -200,6 +203,11 @@ export class IdbMessageRepository implements MessageRepository {
           // `attachmentCount` and are handled as "attachments lost" on
           // read — see fromOutboxRow); nothing here needs re-encrypting.
           database.createObjectStore('outboxAttachments', { keyPath: 'id' });
+        }
+        if (oldVersion < 5) {
+          // Search across every conversation walks newest first and stops
+          // at its limit. `seq` is already plaintext, so this adds no leak.
+          transaction.objectStore('messages').createIndex('bySeq', 'seq');
         }
         if (oldVersion >= 3 && oldVersion < 4) {
           // Attachment file names and types were stored as plaintext fields
@@ -471,31 +479,64 @@ export class IdbMessageRepository implements MessageRepository {
     );
   }
 
-  async search(text: string, { conversationId, limit }: SearchQuery): Promise<Message[]> {
+  async search(
+    text: string,
+    { conversationId, limit, signal, onPartial }: SearchQuery,
+  ): Promise<Message[]> {
     const terms = searchTerms(text);
-    if (terms.length === 0) return [];
+    if (terms.length === 0 || limit <= 0) return [];
+    signal?.throwIfAborted();
     const key =
       conversationId === undefined ? undefined : await this.cipher.blindId(conversationId);
+    const found: Message[] = [];
+    // Body text is only readable once decrypted, so every row is a candidate:
+    // walk newest first in slices of SEARCH_SLICE (a bounded read, then a
+    // decrypt, then a turn for the event loop) and stop at `limit` matches.
+    // `upper` resumes just below the previous slice; rows sharing its seq
+    // are skipped by id rather than lost.
+    let upper = Infinity;
+    let tail = new Set<string>();
+    for (;;) {
+      const slice = await this.readSearchSlice(key, upper, tail);
+      if (slice.length === 0) break;
+      const last = slice[slice.length - 1] as MessageRow;
+      tail = new Set([
+        ...(last.seq === upper ? tail : []),
+        ...slice.filter((row) => row.seq === last.seq).map((row) => row.id),
+      ]);
+      upper = last.seq;
+      signal?.throwIfAborted();
+      const before = found.length;
+      for (const message of await this.fromRows(slice)) {
+        if (found.length < limit && matchesSearch(message, terms)) found.push(message);
+      }
+      if (found.length >= limit || slice.length < SEARCH_SLICE) break;
+      if (found.length > before) onPartial?.([...found]);
+      await yieldToEventLoop();
+      signal?.throwIfAborted();
+    }
+    return found;
+  }
+
+  /** The next SEARCH_SLICE rows at or below `upper`, newest first, minus `skip`. */
+  private async readSearchSlice(
+    key: string | undefined,
+    upper: number,
+    skip: ReadonlySet<string>,
+  ): Promise<MessageRow[]> {
     const rows: MessageRow[] = [];
-    const tx = this.db.transaction('messages');
+    const store = this.db.transaction('messages').store;
     let cursor =
       key === undefined
-        ? await tx.store.openCursor()
-        : await tx.store
+        ? await store.index('bySeq').openCursor(IDBKeyRange.upperBound(upper), 'prev')
+        : await store
             .index('byConversationSeq')
-            .openCursor(this.range(key, -Infinity, Infinity, false, false), 'prev');
-    // Can't filter by body match until it's decrypted, so (unlike the
-    // unencrypted version) there's no early break here per conversation —
-    // just a bound on the whole table scan, same as the cross-conversation case.
-    while (cursor) {
-      rows.push(cursor.value);
+            .openCursor(this.range(key, -Infinity, upper, false, false), 'prev');
+    while (cursor && rows.length < SEARCH_SLICE) {
+      if (!skip.has(cursor.value.id)) rows.push(cursor.value);
       cursor = await cursor.continue();
     }
-    const messages = await this.fromRows(rows);
-    return messages
-      .filter((m) => matchesSearch(m, terms))
-      .sort((a, b) => (b.seq ?? 0) - (a.seq ?? 0))
-      .slice(0, limit);
+    return rows;
   }
 
   async mentions(

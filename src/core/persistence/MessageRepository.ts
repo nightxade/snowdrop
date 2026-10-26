@@ -35,6 +35,14 @@ export type MergeFn = (existing: Message, incoming: Message) => Message;
 export interface SearchQuery {
   conversationId?: ConversationId;
   limit: number;
+  /** Abandons the scan; the promise then rejects with the signal's reason. */
+  signal?: AbortSignal;
+  /**
+   * Called with every match found so far (newest first, never more than
+   * `limit`) each time a slice of the history turned up new ones, so a long
+   * scan can show results before it finishes.
+   */
+  onPartial?: (matches: readonly Message[]) => void;
 }
 
 /** An outgoing message the backend hasn't acknowledged yet; survives reloads. */
@@ -84,8 +92,11 @@ export interface MessageRepository {
 
   /**
    * Case-insensitive search: every whitespace-separated term must appear in
-   * the body. Newest first. A linear scan for now; a token index can replace
-   * it behind this interface when histories grow.
+   * the body (a poll's question, for a poll). Newest first, across every
+   * conversation unless `conversationId` is given. A scan that stops at
+   * `limit` matches; implementations that must decrypt rows work in slices,
+   * yielding between them, and honour `signal` and `onPartial` (see
+   * SearchQuery).
    */
   search(text: string, query: SearchQuery): Promise<Message[]>;
   /** Messages mentioning a contact, newest first (the mentions inbox). */
@@ -128,11 +139,16 @@ export interface MessageRepository {
   clear(): Promise<void>;
 }
 
+/** The text a search matches: the body, or a poll's question (a poll has no body). */
+export function searchableText(message: Message): string {
+  return message.poll && message.body === '' ? message.poll.question : message.body;
+}
+
 /** Search matching shared by implementations. */
 export function matchesSearch(message: Message, terms: readonly string[]): boolean {
   if (message.deleted || message.kind !== 'normal') return false;
-  const body = message.body.toLowerCase();
-  return terms.every((t) => body.includes(t));
+  const text = searchableText(message).toLowerCase();
+  return terms.every((t) => text.includes(t));
 }
 
 export function searchTerms(text: string): string[] {

@@ -38,7 +38,7 @@ describe('IdbMessageRepository encryption', () => {
     await repo.setReadCursor(conversationId, 1);
 
     // Inspect the raw rows, bypassing the repository entirely.
-    const raw = await openDB(name, 4);
+    const raw = await openDB(name);
     const messageRows = await raw.getAll('messages');
     const cursorRows = await raw.getAll('readCursors');
     raw.close();
@@ -133,7 +133,7 @@ describe('IdbMessageRepository encryption', () => {
     // Tamper with the middle row's ciphertext directly, bypassing the
     // repository — the AEAD tag no longer matches, so decrypting it throws.
     const badKey = await cipher.blindId(bad.id);
-    const raw = await openDB(name, 4);
+    const raw = await openDB(name);
     const row = (await raw.get('messages', badKey)) as Record<string, unknown>;
     expect(row).toBeDefined();
     const payload = new Uint8Array(row.payload as Uint8Array);
@@ -170,7 +170,7 @@ describe('IdbMessageRepository encryption', () => {
       attachments: [{}],
     };
     const payload = await cipher.encrypt(utf8Encode(JSON.stringify({ input: legacyInput })), nonce);
-    const raw = await openDB(name, 4);
+    const raw = await openDB(name);
     await raw.put('outbox', { nonce, createdAt: 1, payload });
     raw.close();
 
@@ -203,7 +203,7 @@ describe('IdbMessageRepository encryption', () => {
       },
     });
 
-    const raw = await openDB(name, 4);
+    const raw = await openDB(name);
     const rows = (await raw.getAll('outboxAttachments')) as Record<string, unknown>[];
     raw.close();
     expect(rows).toHaveLength(1);
@@ -261,7 +261,7 @@ describe('IdbMessageRepository encryption', () => {
 
     repo = await IdbMessageRepository.open(name, cipher);
 
-    const raw = await openDB(name, 4);
+    const raw = await openDB(name);
     const rows = (await raw.getAll('outboxAttachments')) as Record<string, unknown>[];
     raw.close();
     expect(rows).toHaveLength(1);
