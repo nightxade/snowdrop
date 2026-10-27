@@ -85,6 +85,12 @@ Clicking a quoted message (or Enter on it) jumps to the original and focuses it.
 | `@`, `:`, `/`               | Suggest members, emoji and slash commands                                                                                    |
 | ↑ / ↓, Tab or Enter, Esc    | Move through / accept / dismiss suggestions                                                                                  |
 
+The composer's buttons all sit to the right of the field: Stickers, Emoji and
+**More options** (⋯) last. More options opens a menu with **Upload a file**,
+**Poll** (groups only) and **Voice message** (shown while there is nothing to
+send, with its Mod+Shift+Y shortcut beside it); the menu is a normal one
+(↑ / ↓, Enter, Esc). Files can still be dragged or pasted into the field.
+
 Inline message editor: Enter saves (same send-key setting), Esc cancels.
 
 ## Quick switcher (Mod+K)

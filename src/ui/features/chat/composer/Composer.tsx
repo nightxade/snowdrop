@@ -1,4 +1,4 @@
-import { ChartBar, CirclePlus, FileUp, Mic, Smile, Sticker } from 'lucide-react';
+import { ChartBar, Ellipsis, FileUp, Mic, Smile, Sticker } from 'lucide-react';
 import { memo, useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import { useStore } from 'zustand';
 import { CoreCommand, NavCommand } from '@/core/commands';
@@ -224,7 +224,8 @@ function ComposerInner({ conversation }: { conversation: ConversationView }) {
     }
   };
 
-  const attachEntries = (): MenuEntry[] => [
+  // One menu holds everything that isn't the text itself: a file, a poll (groups) and a voice message.
+  const moreEntries = (): MenuEntry[] => [
     {
       kind: 'item',
       id: 'upload',
@@ -232,15 +233,31 @@ function ComposerInner({ conversation }: { conversation: ConversationView }) {
       icon: <FileUp size={16} />,
       onSelect: () => fileInput.current?.click(),
     },
-    {
-      kind: 'item',
-      id: 'poll',
-      label: 'Poll',
-      icon: <ChartBar size={16} />,
-      onSelect: () => {
-        setPollOpen(true);
-      },
-    },
+    ...(canPoll
+      ? [
+          {
+            kind: 'item' as const,
+            id: 'poll',
+            label: 'Poll',
+            icon: <ChartBar size={16} />,
+            onSelect: () => {
+              setPollOpen(true);
+            },
+          },
+        ]
+      : []),
+    ...(canRecord
+      ? [
+          {
+            kind: 'item' as const,
+            id: 'voice',
+            label: 'Voice message',
+            icon: <Mic size={16} />,
+            ...(recordShortcut ? { hint: recordShortcut } : {}),
+            onSelect: voice.start,
+          },
+        ]
+      : []),
   ];
 
   const placeholder =
@@ -304,27 +321,6 @@ function ComposerInner({ conversation }: { conversation: ConversationView }) {
             <>
               <AttachmentTray attachments={state.attachments} onRemove={state.removeAttachment} />
               <div className={styles.field}>
-                {canPoll ? (
-                  <DropdownMenu
-                    entries={attachEntries}
-                    side="top"
-                    align="start"
-                    label="Add to message"
-                  >
-                    <IconButton
-                      label="Add attachment or poll"
-                      icon={<CirclePlus />}
-                      className={styles.button}
-                    />
-                  </DropdownMenu>
-                ) : (
-                  <IconButton
-                    label="Upload a file"
-                    icon={<CirclePlus />}
-                    className={styles.button}
-                    onClick={() => fileInput.current?.click()}
-                  />
-                )}
                 <input
                   ref={fileInput}
                   type="file"
@@ -452,15 +448,9 @@ function ComposerInner({ conversation }: { conversation: ConversationView }) {
                     active={emojiOpen}
                   />
                 </EmojiPickerPopover>
-                {canRecord && (
-                  <IconButton
-                    label="Record a voice message"
-                    icon={<Mic />}
-                    className={styles.button}
-                    {...(recordShortcut ? { shortcut: recordShortcut } : {})}
-                    onClick={voice.start}
-                  />
-                )}
+                <DropdownMenu entries={moreEntries} side="top" align="end" label="More options">
+                  <IconButton label="More options" icon={<Ellipsis />} className={styles.button} />
+                </DropdownMenu>
               </div>
             </>
           )}

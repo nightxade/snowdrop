@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { axe } from 'vitest-axe';
 import type { Snowdrop } from '@/app/createSnowdrop';
 import { NavCommand } from '@/core/commands';
 import { MENTION_PLACEHOLDER, type ConversationId } from '@/core/domain';
@@ -25,7 +26,7 @@ async function setup(title = 'Orchard · Engineering') {
     await snowdrop.history.open(conv.id);
   });
   const chat = new ChatController();
-  renderWithSnowdrop(
+  const view = renderWithSnowdrop(
     snowdrop,
     <ChatControllerProvider value={chat}>
       <Composer conversationId={conv.id} />
@@ -37,7 +38,7 @@ async function setup(title = 'Orchard · Engineering') {
     input.setSelectionRange(value.length, value.length);
     fireEvent.select(input);
   };
-  return { snowdrop, conv, input, typeText, chat };
+  return { snowdrop, conv, input, typeText, chat, view };
 }
 
 function lastOwn(snowdrop: Snowdrop, id: ConversationId) {
@@ -365,31 +366,83 @@ describe('<Composer />', () => {
     );
   });
 
-  describe('polls', () => {
-    const openPollDialog = async () => {
-      fireEvent.pointerDown(screen.getByRole('button', { name: 'Add attachment or poll' }), {
+  describe('buttons and the More options menu', () => {
+    const openMore = () => {
+      fireEvent.pointerDown(screen.getByRole('button', { name: 'More options' }), {
         button: 0,
         ctrlKey: false,
       });
+    };
+    const openPollDialog = async () => {
+      openMore();
       fireEvent.click(await screen.findByRole('menuitem', { name: 'Poll' }));
       return screen.findByRole('dialog', { name: 'New poll' });
     };
 
-    it('offers a poll next to uploading a file in a group', async () => {
-      await setup();
+    it('puts every button after the text field: Stickers, Emoji, then More options last', async () => {
+      const { input } = await setup();
+      const row = input.parentElement!;
+      const kids = [...row.children].filter((el) => !el.matches('[hidden]'));
+      expect(kids[0]).toBe(input);
+      const names = kids
+        .slice(1)
+        .map((el) => el.getAttribute('aria-label'))
+        .filter(Boolean);
+      expect(names).toEqual(['Stickers', 'Emoji', 'More options']);
+      // No separate plus or microphone button.
       expect(screen.queryByRole('button', { name: 'Upload a file' })).toBeNull();
-      fireEvent.pointerDown(screen.getByRole('button', { name: 'Add attachment or poll' }), {
-        button: 0,
-        ctrlKey: false,
-      });
-      const items = await screen.findAllByRole('menuitem');
-      expect(items.map((i) => i.textContent)).toEqual(['Upload a file', 'Poll']);
+      expect(screen.queryByRole('button', { name: /voice/iu })).toBeNull();
     });
 
-    it('keeps the plain upload button in a one-to-one chat, where Signal Desktop offers no poll', async () => {
+    it('offers a file, a poll and a voice message in a group', async () => {
+      await setup();
+      openMore();
+      const items = await screen.findAllByRole('menuitem');
+      expect(items.map((i) => i.textContent.replace(/\s*(Ctrl|Cmd|⌘|⌃).*$/u, ''))).toEqual([
+        'Upload a file',
+        'Poll',
+        'Voice message',
+      ]);
+    });
+
+    it('offers no poll in a one-to-one chat, where Signal Desktop has none', async () => {
       await setup('Tavi Nakamura');
-      expect(screen.getByRole('button', { name: 'Upload a file' })).toBeTruthy();
-      expect(screen.queryByRole('button', { name: 'Add attachment or poll' })).toBeNull();
+      openMore();
+      const items = await screen.findAllByRole('menuitem');
+      expect(items.map((i) => i.textContent.replace(/\s*(Ctrl|Cmd|⌘|⌃).*$/u, ''))).toEqual([
+        'Upload a file',
+        'Voice message',
+      ]);
+    });
+
+    it('leaves out the voice message while there is a draft to send', async () => {
+      const { typeText } = await setup('Tavi Nakamura');
+      typeText('hello');
+      openMore();
+      const items = await screen.findAllByRole('menuitem');
+      expect(items.map((i) => i.textContent)).toEqual(['Upload a file']);
+    });
+
+    it('opens the file picker from Upload a file', async () => {
+      await setup('Tavi Nakamura');
+      const picker = document.querySelector<HTMLInputElement>('input[type="file"]')!;
+      const click = vi.spyOn(picker, 'click').mockImplementation(() => undefined);
+      openMore();
+      fireEvent.click(await screen.findByRole('menuitem', { name: 'Upload a file' }));
+      expect(click).toHaveBeenCalledOnce();
+    });
+
+    it('has no axe violations with the menu closed or open', async () => {
+      const { view } = await setup();
+      // jsdom has no `hidden` styling, so the (display: none) file input reads as an unlabelled field.
+      view.container.querySelector('input[type="file"]')?.remove();
+      const rules = { region: { enabled: false } };
+      const ids = async (el: HTMLElement) => (await axe(el, { rules })).violations.map((v) => v.id);
+      expect(await ids(view.container)).toEqual([]);
+      openMore();
+      await screen.findAllByRole('menuitem');
+      // Radix hides the rest of the page from assistive tech while a menu is open, so check the menu itself.
+      expect(await ids(screen.getByRole('menu'))).toEqual([]);
     });
 
     it('creates a poll from the dialog: it appears in the chat and focus returns to the composer', async () => {

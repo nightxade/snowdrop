@@ -1,6 +1,6 @@
 /*
  * Composer: a `>` prompt, a transparent field (no inner filled box) and the
- * attach/emoji icons at the right. `data-tui-bare` (Composer.tsx) marks the
+ * sticker/emoji/more-options icons at the right. `data-tui-bare` (Composer.tsx) marks the
  * two wrappers that used to carry the filled "shell"/"box" look — in the TUI
  * shell the pane border is the only chrome, so they lose their own.
  */
@@ -41,15 +41,9 @@
   padding: 0;
 }
 
-/* Attach and emoji icons move to the right of the input (the `>` prompt and
-   the field already read left to right; only the icons need reordering). */
-:root[data-shell='tui'] div:has(> [data-snowdrop='composer-input']) [aria-label='Upload a file'],
-:root[data-shell='tui']
-  div:has(> [data-snowdrop='composer-input'])
-  [aria-label='Add attachment or poll'] {
-  order: 2;
-}
-
+/* Every button sits to the right of the input (the `>` prompt and the field
+   already read left to right; only the buttons need ordering — any button
+   without an `order` here would land at 0, i.e. before the field). */
 :root[data-shell='tui']
   div:has(> [data-snowdrop='composer-input'])
   [data-slot='composer.accessories'] {
@@ -63,6 +57,11 @@
 
 :root[data-shell='tui'] div:has(> [data-snowdrop='composer-input']) [aria-label='Emoji'] {
   order: 5;
+}
+
+/* "More options" (file, poll, voice message) is the last button. */
+:root[data-shell='tui'] div:has(> [data-snowdrop='composer-input']) [aria-label='More options'] {
+  order: 6;
 }
 
 /* The composer's own INSERT/NORMAL chip duplicates the status line's; the

@@ -48,14 +48,26 @@ async function setup() {
   return { snowdrop, conv, chat, view };
 }
 
-const record = () => screen.getByRole('button', { name: 'Record a voice message' });
+const openMore = () => {
+  fireEvent.pointerDown(screen.getByRole('button', { name: 'More options' }), {
+    button: 0,
+    ctrlKey: false,
+  });
+};
+const voiceItem = () => screen.findByRole('menuitem', { name: /^Voice message/u });
+/** Picks "Voice message" from the "More options" menu (what the old mic button did). */
+async function record() {
+  openMore();
+  const item = await voiceItem();
+  await act(async () => {
+    fireEvent.click(item);
+    await Promise.resolve();
+  });
+}
 const stopped = () => fake.current!.tracks.every((t) => t.stop.mock.calls.length > 0);
 
 async function startRecording() {
-  await act(async () => {
-    fireEvent.click(record());
-    await Promise.resolve();
-  });
+  await record();
   await vi.waitFor(() => {
     expect(screen.getByRole('button', { name: 'Send voice message' })).toHaveProperty(
       'disabled',
@@ -74,11 +86,30 @@ function lastOwn(snowdrop: Snowdrop, id: ConversationId) {
 describe('<Composer /> voice notes', () => {
   it('offers the microphone only while there is nothing to send', async () => {
     await setup();
-    expect(record()).toBeTruthy();
+    // There is no mic button of its own any more: voice lives in "More options".
+    expect(screen.queryByRole('button', { name: /voice/iu })).toBeNull();
+    openMore();
+    expect(await voiceItem()).toBeTruthy();
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+    await vi.waitFor(() => {
+      expect(screen.queryByRole('menu')).toBeNull();
+    });
+
     fireEvent.change(screen.getByRole('textbox'), { target: { value: 'hi' } });
-    expect(screen.queryByRole('button', { name: 'Record a voice message' })).toBeNull();
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: '' } });
-    expect(record()).toBeTruthy();
+    openMore();
+    await screen.findAllByRole('menuitem');
+    expect(screen.queryByRole('menuitem', { name: /^Voice message/u })).toBeNull();
+  });
+
+  it('shows the shortcut on the menu item', async () => {
+    const { snowdrop } = await setup();
+    // The chat commands (and so the default key) are registered by the chat screen, not this composer.
+    act(() => {
+      snowdrop.stores.settings.setState({ keybinds: { 'core.recordVoiceNote': 'Mod+Shift+Y' } });
+    });
+    openMore();
+    const item = await voiceItem();
+    expect(item.textContent).toMatch(/^Voice message.*Y/u);
   });
 
   it('records, shows the timer and the one-hour note, and sends a flagged MP3', async () => {
@@ -157,18 +188,12 @@ describe('<Composer /> voice notes', () => {
   it('says why when the microphone is refused, and when there is none', async () => {
     await setup();
     fake.current!.deps.openStream = () => Promise.reject(new DOMException('no', 'NotAllowedError'));
-    await act(async () => {
-      fireEvent.click(record());
-      await Promise.resolve();
-    });
+    await record();
     expect((await screen.findByRole('alert')).textContent).toMatch(/can't use the microphone/u);
     expect(screen.getByRole('textbox')).toBeTruthy();
 
     fake.current!.deps.openStream = () => Promise.reject(new DOMException('none', 'NotFoundError'));
-    await act(async () => {
-      fireEvent.click(record());
-      await Promise.resolve();
-    });
+    await record();
     await vi.waitFor(() => {
       expect(screen.getByRole('alert').textContent).toMatch(/No microphone found/u);
     });
@@ -210,7 +235,10 @@ describe('<Composer /> voice notes', () => {
     act(() => {
       chat.addFiles([new File(['x'], 'x.txt', { type: 'text/plain' })]);
     });
-    expect(screen.queryByRole('button', { name: 'Record a voice message' })).toBeNull();
+    openMore();
+    await screen.findAllByRole('menuitem');
+    expect(screen.queryByRole('menuitem', { name: /^Voice message/u })).toBeNull();
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
     act(() => {
       chat.startVoiceNote();
     });
