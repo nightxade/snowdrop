@@ -834,7 +834,7 @@ describe('Vim mode: lifecycle', () => {
   });
 
   it('restores default behaviour completely when disabled', async () => {
-    const { snowdrop } = await bootVim();
+    const { snowdrop, id } = await bootVim();
     // While on, a stray letter does nothing instead of jumping into the composer.
     blur();
     press('q');
@@ -854,6 +854,9 @@ describe('Vim mode: lifecycle', () => {
     expect(focused()).toBe(composer());
     // …and Escape in an empty composer marks the conversation read again.
     const markRead = vi.spyOn(snowdrop.sync, 'markConversationRead');
+    act(() => {
+      snowdrop.stores.local.getState().setMarkedUnread(id, true);
+    });
     press('Escape');
     await settle();
     expect(markRead).toHaveBeenCalledTimes(1);

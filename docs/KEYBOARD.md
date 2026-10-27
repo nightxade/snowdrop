@@ -75,15 +75,15 @@ Clicking a quoted message (or Enter on it) jumps to the original and focuses it.
 
 ## Composer
 
-| Keys                        | Action                                                          |
-| --------------------------- | --------------------------------------------------------------- |
-| Enter                       | Send (Shift+Enter: new line; swap them in Settings → Behaviour) |
-| ↑ in an empty composer      | Edit your last message                                          |
-| Esc                         | Close suggestions → cancel the reply → mark read (when empty)   |
-| Esc (while recording)       | Cancel the voice message                                        |
-| Mod+B / Mod+I / Mod+Shift+X | Bold / italic / strikethrough the selection                     |
-| `@`, `:`, `/`               | Suggest members, emoji and slash commands                       |
-| ↑ / ↓, Tab or Enter, Esc    | Move through / accept / dismiss suggestions                     |
+| Keys                        | Action                                                                                                                       |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Enter                       | Send (Shift+Enter: new line; swap them in Settings → Behaviour)                                                              |
+| ↑ in an empty composer      | Edit your last message                                                                                                       |
+| Esc                         | Close suggestions → cancel the reply → mark read (when empty and unread) → leave the field for the message list (draft kept) |
+| Esc (while recording)       | Cancel the voice message                                                                                                     |
+| Mod+B / Mod+I / Mod+Shift+X | Bold / italic / strikethrough the selection                                                                                  |
+| `@`, `:`, `/`               | Suggest members, emoji and slash commands                                                                                    |
+| ↑ / ↓, Tab or Enter, Esc    | Move through / accept / dismiss suggestions                                                                                  |
 
 Inline message editor: Enter saves (same send-key setting), Esc cancels.
 

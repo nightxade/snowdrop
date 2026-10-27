@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Snowdrop } from '@/app/createSnowdrop';
+import { NavCommand } from '@/core/commands';
 import { MENTION_PLACEHOLDER, type ConversationId } from '@/core/domain';
 import { messagesSelectors } from '@/core/stores';
 import { bootSnowdrop, renderWithSnowdrop, settle } from '@/test/renderWithSnowdrop';
@@ -221,6 +222,77 @@ describe('<Composer />', () => {
     expect(draft?.mentionIds).toHaveLength(1);
     const sent = lastOwn(snowdrop, conv.id);
     expect(sent?.ranges.some((r) => r.mentionId === draft?.mentionIds[0])).toBe(true);
+  });
+
+  describe('Escape leaves the field', () => {
+    async function escSetup() {
+      const ctx = await setup();
+      const focusMessages = vi.fn();
+      ctx.snowdrop.commands.register({
+        id: NavCommand.FocusMessages,
+        title: 'Focus messages',
+        run: focusMessages,
+      });
+      const read = vi.spyOn(ctx.snowdrop.sync, 'markConversationRead');
+      return { ...ctx, focusMessages, read };
+    }
+    const setUnread = (s: Snowdrop, id: ConversationId, count: number) => {
+      act(() => {
+        s.stores.conversations.getState().setUnread(id, { count, mentions: 0 });
+      });
+    };
+
+    it('moves focus to the message list and keeps the draft', async () => {
+      const { input, typeText, focusMessages, snowdrop, conv } = await escSetup();
+      setUnread(snowdrop, conv.id, 0);
+      typeText('half typed');
+      fireEvent.keyDown(input, { key: 'Escape' });
+      await settle(snowdrop);
+      expect(focusMessages).toHaveBeenCalledOnce();
+      expect(input.value).toBe('half typed');
+    });
+
+    it('goes autocomplete, reply, mark read, then leaves', async () => {
+      const { input, typeText, focusMessages, read, snowdrop, conv } = await escSetup();
+      setUnread(snowdrop, conv.id, 2);
+      typeText('@');
+      expect(await screen.findByRole('listbox')).toBeTruthy();
+      act(() => {
+        snowdrop.stores.ui.getState().setReplyTo(conv.id, 'x' as never);
+      });
+      fireEvent.keyDown(input, { key: 'Escape' });
+      expect(screen.queryByRole('listbox')).toBeNull();
+      expect(snowdrop.stores.ui.getState().replyTo[conv.id]).toBeTruthy();
+      fireEvent.keyDown(input, { key: 'Escape' });
+      expect(snowdrop.stores.ui.getState().replyTo[conv.id]).toBeFalsy();
+      typeText('');
+      fireEvent.keyDown(input, { key: 'Escape' });
+      await settle(snowdrop);
+      expect(read).toHaveBeenCalledOnce();
+      expect(focusMessages).not.toHaveBeenCalled();
+      setUnread(snowdrop, conv.id, 0);
+      fireEvent.keyDown(input, { key: 'Escape' });
+      await settle(snowdrop);
+      expect(focusMessages).toHaveBeenCalledOnce();
+    });
+
+    it('leaves from an empty draft with nothing unread, without marking read', async () => {
+      const { input, focusMessages, read, snowdrop, conv } = await escSetup();
+      setUnread(snowdrop, conv.id, 0);
+      fireEvent.keyDown(input, { key: 'Escape' });
+      await settle(snowdrop);
+      expect(focusMessages).toHaveBeenCalledOnce();
+      expect(read).not.toHaveBeenCalled();
+    });
+
+    it('blurs the field when there is no message list to focus', async () => {
+      const { input, snowdrop, conv } = await setup();
+      setUnread(snowdrop, conv.id, 0);
+      input.focus();
+      fireEvent.keyDown(input, { key: 'Escape' });
+      await settle(snowdrop);
+      expect(document.activeElement).not.toBe(input);
+    });
   });
 
   it('dismisses autocomplete with Escape and keeps it closed while typing on', async () => {

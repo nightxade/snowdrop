@@ -1,7 +1,7 @@
 import { ChartBar, CirclePlus, FileUp, Mic, Smile, Sticker } from 'lucide-react';
 import { memo, useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import { useStore } from 'zustand';
-import { CoreCommand } from '@/core/commands';
+import { CoreCommand, NavCommand } from '@/core/commands';
 import type { ConversationId, ConversationView } from '@/core/domain';
 import { messagesSelectors, sessionSelectors, uiSelectors } from '@/core/stores';
 import {
@@ -86,8 +86,13 @@ function ComposerInner({ conversation }: { conversation: ConversationView }) {
     escape: () => escape(),
   });
 
-  /** Escape: cancel the reply, else mark read when the draft is empty (PLAN §4.6). */
-  const escape = (): 'reply' | 'read' | 'none' => {
+  /**
+   * Escape: cancel the reply, else mark read when the draft is empty (PLAN §4.6).
+   * With `onlyIfUnread` (the plain field, which then leaves) an empty draft in a
+   * conversation with nothing unread is 'none'. Vim's Normal-mode Esc keeps the
+   * default, so its behaviour is unchanged.
+   */
+  const escape = (onlyIfUnread = false): 'reply' | 'read' | 'none' => {
     const ui = stores.ui.getState();
     if (ui.replyTo[conversationId]) {
       ui.setReplyTo(conversationId, null);
@@ -96,8 +101,20 @@ function ComposerInner({ conversation }: { conversation: ConversationView }) {
     // The field, not `text`: a key layer may have just edited it in this tick.
     const empty = (textarea.current?.value ?? text) === '' && state.attachments.length === 0;
     if (!empty) return 'none';
+    if (onlyIfUnread) {
+      const unread = stores.conversations.getState().unread[conversationId]?.count ?? 0;
+      const marked = conversation.markedUnread === true;
+      if (unread === 0 && !marked) return 'none';
+    }
     void commands.execute(CoreCommand.MarkRead);
     return 'read';
+  };
+
+  /** Moves focus to the message list; with no list to land on, just out of the field. */
+  const leave = () => {
+    void commands.execute(NavCommand.FocusMessages).then((ok) => {
+      if (!ok) textarea.current?.blur();
+    });
   };
 
   const field_ = useAutocompleteField({
@@ -200,7 +217,11 @@ function ComposerInner({ conversation }: { conversation: ConversationView }) {
       }
       return;
     }
-    if (e.key === 'Escape' && escape() !== 'none') e.preventDefault();
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      // Nothing left to close, cancel or mark read: leave the field (draft kept).
+      if (escape(true) === 'none') leave();
+    }
   };
 
   const attachEntries = (): MenuEntry[] => [
