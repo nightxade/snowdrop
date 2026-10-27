@@ -136,9 +136,11 @@ describe('Media, files & links', () => {
     act(() => {
       fireEvent.click(screen.getByRole('button', { name: 'Search this conversation' }));
     });
-    await settle();
+    // The search panel is a lazy chunk: wait for it rather than a fixed delay.
+    await waitFor(() => {
+      expect(document.querySelector('[data-snowdrop="search-panel"]')).toBeTruthy();
+    });
     expect(screen.queryByRole('complementary', { name: 'Media, files and links' })).toBeNull();
-    expect(document.querySelector('[data-snowdrop="search-panel"]')).toBeTruthy();
   });
 
   it('groups media under date headings, newest first', async () => {
@@ -523,4 +525,60 @@ describe('Media, files & links', () => {
       expect((await axe(panel)).violations.map((v) => v.id)).toEqual([]);
     }
   });
+});
+
+describe('expired media in the gallery never asks the phone by itself', () => {
+  it('shows a compact state, asks nothing on mount, and only the viewer button asks', async () => {
+    installFakeIO();
+    const snowdrop = await boot();
+    const resolve = vi
+      .fn()
+      .mockRejectedValue(
+        Object.assign(new Error('Attachment no longer available'), { kind: 'user' }),
+      );
+    const request = vi.fn().mockResolvedValue(undefined);
+    Object.assign(snowdrop.backend, {
+      resolveAttachmentUrl: resolve,
+      requestAttachmentBackfill: request,
+      supportsAttachmentBackfill: () => true,
+    });
+    await seed(snowdrop, [
+      {
+        attachments: [
+          { id: 'x1', contentType: 'image/png' },
+          { id: 'x2', contentType: 'image/png' },
+          { id: 'x3', contentType: 'image/png' },
+          { id: 'x4', contentType: 'image/png' },
+          { id: 'x5', contentType: 'image/png' },
+        ],
+      },
+    ]);
+    const panel = await openGallery();
+    await settle();
+    // Every tile scrolls into range at once: the worst case for a burst.
+    act(() => {
+      for (const io of FakeIO.instances)
+        if ([...io.observed].some((el) => el.tagName === 'LI')) io.emit(true);
+    });
+    await settle();
+    await waitFor(() => {
+      expect(within(panel).getAllByText('Not on this device').length).toBeGreaterThan(0);
+    });
+    expect(resolve).toHaveBeenCalled();
+    expect(request).not.toHaveBeenCalled();
+    expect((await axe(panel)).violations.map((v) => v.id)).toEqual([]);
+
+    // A tile click opens the item, whose viewer offers the action.
+    const [first] = tiles(panel);
+    act(() => {
+      fireEvent.click(first as HTMLElement);
+    });
+    const ask = await screen.findByRole('button', { name: 'Get from phone' });
+    expect(request).not.toHaveBeenCalled();
+    act(() => {
+      fireEvent.click(ask);
+    });
+    await screen.findByText('Getting it from your phone…');
+    expect(request).toHaveBeenCalledTimes(1);
+  }, 20_000);
 });

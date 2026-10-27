@@ -13,6 +13,7 @@ import type { MessageRef } from '@/core/backend';
 import type { Attachment, ConversationId } from '@/core/domain';
 import { createStores } from '@/core/stores';
 import { SnowdropContextProvider, type AppServices } from '@/ui/hooks';
+import { BACKFILL_MAX_OUTSTANDING } from './backfillGate';
 import { ATTACHMENT_BACKFILL_TIMEOUT_MS, useAttachmentUrl } from './useAttachmentUrl';
 
 afterEach(cleanup);
@@ -55,6 +56,11 @@ function Probe() {
       <button type="button" onClick={state.retry}>
         retry
       </button>
+      {state.fromPhone && (
+        <button type="button" onClick={state.fromPhone}>
+          from phone
+        </button>
+      )}
     </div>
   );
 }
@@ -132,7 +138,13 @@ describe('useAttachmentUrl: attachment backfill (patches/signal-cli, "0016")', (
   /** `classifyAttachmentFailure` reads `kind`/`message`, duck-typed — not a real SignalCliError. */
   const missingOnDisk = { kind: 'user', message: 'Could not find attachment with ID: att-1' };
 
-  it('auto-requests a backfill once per message and shows "backfilling"', async () => {
+  const click = (name: string) => {
+    act(() => {
+      screen.getByRole('button', { name }).click();
+    });
+  };
+
+  it('requests nothing on render, and exactly once per click', async () => {
     const resolveAttachmentUrl = vi
       .fn<(conversationId: ConversationId, attachment: Attachment) => Promise<string>>()
       .mockRejectedValue(missingOnDisk);
@@ -148,6 +160,20 @@ describe('useAttachmentUrl: attachment backfill (patches/signal-cli, "0016")', (
         <Probe />
       </SnowdropContextProvider>,
     );
+    await screen.findByText('error:missing-on-disk');
+    expect(requestAttachmentBackfill).not.toHaveBeenCalled();
+
+    // A fresh mount (e.g. a restart) asks nothing either.
+    cleanup();
+    render(
+      <SnowdropContextProvider value={app}>
+        <Probe />
+      </SnowdropContextProvider>,
+    );
+    await screen.findByText('error:missing-on-disk');
+    expect(requestAttachmentBackfill).not.toHaveBeenCalled();
+
+    click('from phone');
     await screen.findByText('backfilling');
     expect(requestAttachmentBackfill).toHaveBeenCalledTimes(1);
     expect(requestAttachmentBackfill).toHaveBeenCalledWith(
@@ -156,30 +182,21 @@ describe('useAttachmentUrl: attachment backfill (patches/signal-cli, "0016")', (
       message.sentAt,
       [attachment.id],
     );
-
-    // A fresh mount for the same message (e.g. a restart) must not ask again.
-    cleanup();
-    render(
-      <SnowdropContextProvider value={app}>
-        <Probe />
-      </SnowdropContextProvider>,
-    );
-    await screen.findByText('error:missing-on-disk');
-    expect(requestAttachmentBackfill).toHaveBeenCalledTimes(1);
+    expect(app.stores.local.getState().backfillRequested[backfillKey]).toBeDefined();
   });
 
-  it('does not request a backfill when the backend does not support it', async () => {
+  it('offers no phone action when the backend does not support it', async () => {
     const resolveAttachmentUrl = vi
       .fn<(conversationId: ConversationId, attachment: Attachment) => Promise<string>>()
       .mockRejectedValue(missingOnDisk);
     const app = fakeApp({ resolveAttachmentUrl });
-
     render(
       <SnowdropContextProvider value={app}>
         <Probe />
       </SnowdropContextProvider>,
     );
     await screen.findByText('error:missing-on-disk');
+    expect(screen.queryByRole('button', { name: 'from phone' })).toBeNull();
   });
 
   it('a "ready" answer retries the download automatically', async () => {
@@ -199,6 +216,8 @@ describe('useAttachmentUrl: attachment backfill (patches/signal-cli, "0016")', (
         <Probe />
       </SnowdropContextProvider>,
     );
+    await screen.findByText('error:missing-on-disk');
+    click('from phone');
     await screen.findByText('backfilling');
 
     act(() => {
@@ -226,6 +245,8 @@ describe('useAttachmentUrl: attachment backfill (patches/signal-cli, "0016")', (
         <Probe />
       </SnowdropContextProvider>,
     );
+    await screen.findByText('error:missing-on-disk');
+    click('from phone');
     await screen.findByText('backfilling');
 
     act(() => {
@@ -235,12 +256,72 @@ describe('useAttachmentUrl: attachment backfill (patches/signal-cli, "0016")', (
     });
     await screen.findByText('error:backfill-failed');
 
-    // Retry re-asks even though this message was already asked once.
+    // Retry asks the phone again even though this message was already asked once.
     act(() => {
       screen.getByRole('button', { name: 'retry' }).click();
     });
     await screen.findByText('backfilling');
     expect(requestAttachmentBackfill).toHaveBeenCalledTimes(2);
+  });
+
+  it('holds back clicks beyond the concurrency limit until an answer frees a place', async () => {
+    const resolveAttachmentUrl = vi
+      .fn<(conversationId: ConversationId, attachment: Attachment) => Promise<string>>()
+      .mockRejectedValue(missingOnDisk);
+    const requestAttachmentBackfill = vi.fn().mockResolvedValue(undefined);
+    const app = fakeApp({
+      resolveAttachmentUrl,
+      requestAttachmentBackfill,
+      supportsAttachmentBackfill: () => true,
+    });
+    const total = BACKFILL_MAX_OUTSTANDING + 2;
+    const messages = Array.from({ length: total }, (_, i) => ({
+      authorId: 'author-1',
+      sentAt: 2_000 + i,
+    }));
+    function Many() {
+      return (
+        <>
+          {messages.map((m) => (
+            <One key={m.sentAt} message={m} />
+          ))}
+        </>
+      );
+    }
+    function One({ message: m }: { message: MessageRef }) {
+      const state = useAttachmentUrl(conversationId, m, attachment);
+      return state.fromPhone ? (
+        <button type="button" onClick={state.fromPhone}>
+          {`ask ${m.sentAt}`}
+        </button>
+      ) : (
+        <span>{`${m.sentAt} ${state.status}`}</span>
+      );
+    }
+    render(
+      <SnowdropContextProvider value={app}>
+        <Many />
+      </SnowdropContextProvider>,
+    );
+    await screen.findByRole('button', { name: 'ask 2000' });
+    expect(requestAttachmentBackfill).not.toHaveBeenCalled();
+    for (const m of messages) click(`ask ${m.sentAt}`);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    // Every click shows the waiting state, but only the limit was sent.
+    expect(screen.getAllByText(/backfilling$/u)).toHaveLength(total);
+    expect(requestAttachmentBackfill).toHaveBeenCalledTimes(BACKFILL_MAX_OUTSTANDING);
+
+    act(() => {
+      app.stores.session
+        .getState()
+        .setAttachmentBackfill('author-1\u00002000', { status: 'failed', attachmentIds: [] });
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(requestAttachmentBackfill).toHaveBeenCalledTimes(BACKFILL_MAX_OUTSTANDING + 1);
   });
 
   it('times out ~2 minutes after asking, with no answer at all', async () => {
@@ -262,6 +343,10 @@ describe('useAttachmentUrl: attachment backfill (patches/signal-cli, "0016")', (
         </SnowdropContextProvider>,
       );
       await vi.waitFor(() => {
+        expect(screen.getByTestId('state')).toHaveProperty('textContent', 'error:missing-on-disk');
+      });
+      click('from phone');
+      await vi.waitFor(() => {
         expect(screen.getByTestId('state')).toHaveProperty('textContent', 'backfilling');
       });
 
@@ -269,6 +354,7 @@ describe('useAttachmentUrl: attachment backfill (patches/signal-cli, "0016")', (
         await vi.advanceTimersByTimeAsync(ATTACHMENT_BACKFILL_TIMEOUT_MS);
       });
       expect(screen.getByTestId('state')).toHaveProperty('textContent', 'error:backfill-timeout');
+      expect(requestAttachmentBackfill).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
     }

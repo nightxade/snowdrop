@@ -8,6 +8,7 @@ import {
   Music,
   Play,
   RotateCw,
+  Smartphone,
   type LucideIcon,
 } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
@@ -19,7 +20,14 @@ import {
   type GallerySection,
 } from '@/core/domain';
 import { IconButton } from '@/ui/primitives';
-import { attachmentFailureCopy, formatBytes, safeHref } from '../lib/attachments';
+import {
+  attachmentFailureCopy,
+  formatBytes,
+  FROM_PHONE_ACTION,
+  FROM_PHONE_DETAIL,
+  FROM_PHONE_STATUS,
+  safeHref,
+} from '../lib/attachments';
 import { previewDomain } from '../lib/linkPreviews';
 import { useAttachmentUrl, type AttachmentUrlState } from '../message/useAttachmentUrl';
 import { useIncomingMediaHeld } from '../message/useMediaHold';
@@ -239,11 +247,20 @@ function Pending({ state, what }: { state: AttachmentUrlState & ActionSet; what:
     );
   const failure = state.status === 'error' ? attachmentFailureCopy(state.kind) : undefined;
   return (
-    <span className={styles.progress} role="status" title={failure?.detail}>
+    <span
+      className={styles.progress}
+      role="status"
+      title={state.fromPhone ? FROM_PHONE_DETAIL : failure?.detail}
+    >
       {(state.status === 'loading' || state.status === 'backfilling') && (
         <Loader2 size={14} className={styles.spin} aria-hidden />
       )}
-      {progressText(state)}
+      {state.fromPhone ? FROM_PHONE_STATUS : progressText(state)}
+      {state.fromPhone && (
+        <button type="button" className={styles.inline} onClick={state.fromPhone}>
+          <Smartphone size={14} aria-hidden /> {FROM_PHONE_ACTION}
+        </button>
+      )}
       {failure?.retryable && (
         <button type="button" className={styles.inline} onClick={state.retry}>
           <RotateCw size={14} aria-hidden /> Retry
@@ -256,6 +273,7 @@ function Pending({ state, what }: { state: AttachmentUrlState & ActionSet; what:
 interface ActionSet {
   retry: () => void;
   download: () => void;
+  fromPhone: (() => void) | undefined;
 }
 
 // ---------------------------------------------------------------- Files

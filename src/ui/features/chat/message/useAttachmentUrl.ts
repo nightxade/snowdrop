@@ -6,6 +6,7 @@ import { createLogger } from '@/core/lib';
 import { sessionSelectors } from '@/core/stores';
 import { useSnowdrop } from '@/ui/hooks';
 import { classifyAttachmentFailure, type AttachmentFailureKind } from '../lib/attachments';
+import { backfillGate, type BackfillSlot } from './backfillGate';
 import { useMediaHold } from './useMediaHold';
 
 const log = createLogger('ui');
@@ -45,17 +46,19 @@ export type AttachmentUrlState =
  *
  * A `missing-on-disk`/`expired` failure — nothing local left to retry from
  * (patches/signal-cli's 0014 recovery path has no pointer, or never did) —
- * escalates once, automatically, to asking our primary device to re-upload
- * the attachment (`requestAttachmentBackfill`, patch 0016), when the
- * connected backend supports it. "Once" is tracked per message (not per
- * attachment) in `stores.local.backfillRequested`, so a restart doesn't
- * re-ask for something already pending or already answered; a user-clicked
- * "Try again" always re-asks regardless. While that request is outstanding
- * this reports `backfilling` instead of `error`; the phone's eventual
- * answer arrives through `stores.session.attachmentBackfills` (written by
- * SyncService from the backend's `attachmentBackfill` event) and either
- * triggers a fresh download attempt (`ready`) or settles into a
- * backfill-specific error (`failed`, or a ~2 minute silence).
+ * is only ever escalated to asking our primary device to re-upload the
+ * attachment (`requestAttachmentBackfill`, patch 0016) when the user asks:
+ * `fromPhone` is then defined, and calling it sends the request. Nothing is
+ * requested on mount or scroll — each request makes the phone re-upload and
+ * notify, and a gallery mounts dozens of old, expired tiles at once. Requests
+ * are also spread out by `backfillGate` (a handful outstanding at a time).
+ * The ask is recorded per message in `stores.local.backfillRequested`. While
+ * a request is outstanding this reports `backfilling` instead of `error`;
+ * the phone's eventual answer arrives through
+ * `stores.session.attachmentBackfills` (written by SyncService from the
+ * backend's `attachmentBackfill` event) and either triggers a fresh download
+ * attempt (`ready`) or settles into a backfill-specific error (`failed`, or
+ * a ~2 minute silence), whose `retry` asks the phone again.
  *
  * `error.kind` is a coarse, display-safe classification
  * (`src/ui/features/chat/lib/attachments.ts`'s `classifyAttachmentFailure`/
@@ -78,7 +81,13 @@ export function useAttachmentUrl(
    * custom emoji) whose attachment isn't part of a sibling list.
    */
   attachmentIds: readonly string[] = [attachment.id],
-): AttachmentUrlState & { retry: () => void; onMediaError: () => void; download: () => void } {
+): AttachmentUrlState & {
+  retry: () => void;
+  onMediaError: () => void;
+  download: () => void;
+  /** Defined only when the file is gone locally and the phone could re-send it. */
+  fromPhone: (() => void) | undefined;
+} {
   const { backend, stores } = useSnowdrop();
   const { held, release: download } = useMediaHold(conversationId, message.authorId, attachment.id);
   const key = `${conversationId}\u0000${attachment.id}`;
@@ -113,6 +122,41 @@ export function useAttachmentUrl(
   const retry = useCallback(() => {
     setAttempt((n) => n + 1);
   }, []);
+
+  // The turn this hook instance holds in `backfillGate`, from the click until
+  // the request is answered, fails, times out or the component goes away.
+  const slot = useRef<BackfillSlot | null>(null);
+  const freeSlot = useCallback(() => {
+    slot.current?.release();
+    slot.current = null;
+  }, []);
+  useEffect(() => freeSlot, [freeSlot]);
+
+  // The one place a backfill request is sent, and only ever from a click.
+  const askPhone = useCallback(() => {
+    if (!requestBackfill || !canBackfill) return;
+    freeSlot();
+    const mine = backfillGate.acquire();
+    slot.current = mine;
+    stores.local.getState().markBackfillRequested(backfillKey);
+    // A stale answer to an earlier request for this message (e.g. the
+    // "failed" that got us here) must not immediately end the new wait.
+    stores.session.getState().clearAttachmentBackfill(backfillKey);
+    setBackfillWait({ attempt, timedOut: false });
+    void mine.granted.then((go) => {
+      if (!go) return;
+      requestBackfill(conversationId, message.authorId, message.sentAt, attachmentIds).catch(
+        (backfillError: unknown) => {
+          log.warn('attachment backfill request failed', {
+            kind: classifyAttachmentFailure(backfillError),
+          });
+          if (slot.current === mine) freeSlot();
+        },
+      );
+    });
+    // The ids are the identity; the arrays/objects are re-created by unrelated updates.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestBackfill, canBackfill, freeSlot, stores, backfillKey, attempt, conversationId]);
 
   // Claims this attachment's cached URL for as long as this hook instance
   // stays mounted, so the backend's own cache (signal-cli's
@@ -155,25 +199,7 @@ export function useAttachmentUrl(
         const kind = classifyAttachmentFailure(error);
         log.warn('attachment download failed', { kind });
         setResult({ key, attempt, state: { status: 'error', kind } });
-        const recoverable = kind === 'missing-on-disk' || kind === 'expired';
-        const alreadyAsked = stores.local.getState().backfillRequested[backfillKey] !== undefined;
-        // Auto-request once per message; a manual retry (attempt > 0) always re-asks.
-        if (recoverable && requestBackfill && canBackfill && (attempt > 0 || !alreadyAsked)) {
-          stores.local.getState().markBackfillRequested(backfillKey);
-          // A stale answer to an earlier request for this message (e.g. the
-          // "failed" that got us here) must not immediately end the new wait.
-          stores.session.getState().clearAttachmentBackfill(backfillKey);
-          setBackfillWait({ attempt, timedOut: false });
-          requestBackfill(conversationId, message.authorId, message.sentAt, attachmentIds).catch(
-            (backfillError: unknown) => {
-              log.warn('attachment backfill request failed', {
-                kind: classifyAttachmentFailure(backfillError),
-              });
-            },
-          );
-        } else {
-          setBackfillWait(null);
-        }
+        setBackfillWait(null);
       });
     return () => {
       cancelled = true;
@@ -191,11 +217,12 @@ export function useAttachmentUrl(
       setBackfillWait((current) =>
         current && current.attempt === waitingAttempt ? { ...current, timedOut: true } : current,
       );
+      freeSlot();
     }, ATTACHMENT_BACKFILL_TIMEOUT_MS);
     return () => {
       clearTimeout(timer);
     };
-  }, [backfillWait]);
+  }, [backfillWait, freeSlot]);
 
   // The phone answered `ready`: re-download now rather than waiting for the
   // user to notice and click Retry. Subscribed directly (not derived from
@@ -210,12 +237,14 @@ export function useAttachmentUrl(
     return stores.session.subscribe((state) => {
       const { attempt: currentAttempt, backfillWait: currentWait } = latest.current;
       if (!currentWait || currentWait.attempt !== currentAttempt || currentWait.timedOut) return;
-      if (state.attachmentBackfills[backfillKey]?.status === 'ready') {
+      const answer = state.attachmentBackfills[backfillKey]?.status;
+      if (answer === 'ready' || answer === 'failed') freeSlot();
+      if (answer === 'ready') {
         setBackfillWait(null);
         retry();
       }
     });
-  }, [backfillKey, stores.session, retry]);
+  }, [backfillKey, stores.session, retry, freeSlot]);
 
   const onMediaError = useCallback(() => {
     if (direct === undefined && canResolve && autoRetried !== key) {
@@ -247,5 +276,13 @@ export function useAttachmentUrl(
     state = { status: 'error', kind: 'backfill-timeout' };
   } else if (result?.key === key && result.attempt === attempt) state = result.state;
   else state = { status: 'loading' };
-  return { ...state, retry, onMediaError, download };
+  let fromPhone: (() => void) | undefined;
+  let retryAction = retry;
+  if (state.status === 'error' && canBackfill) {
+    if (state.kind === 'expired' || state.kind === 'missing-on-disk') fromPhone = askPhone;
+    // Retrying a phone answer that was "no" or never came asks the phone again.
+    else if (state.kind === 'backfill-failed' || state.kind === 'backfill-timeout')
+      retryAction = askPhone;
+  }
+  return { ...state, retry: retryAction, onMediaError, download, fromPhone };
 }

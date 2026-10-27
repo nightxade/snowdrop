@@ -32,6 +32,8 @@ export interface LightboxProps {
   onMediaError?: () => void;
   /** Omitted (no Retry button shown) when the failure is permanent. */
   onRetry?: (() => void) | undefined;
+  /** The retry button's text; "Retry" by default. */
+  retryLabel?: string | undefined;
 }
 
 /** Full-screen media viewer on the dialog primitive: ←/→ between items, Esc closes. */
@@ -46,6 +48,7 @@ export function Lightbox({
   errorLabel,
   onMediaError,
   onRetry,
+  retryLabel = 'Retry',
 }: LightboxProps) {
   const item = items[index];
   const opener = useRef<HTMLElement | null>(null);
@@ -134,7 +137,9 @@ export function Lightbox({
                         ? 'Not available on this device'
                         : (errorLabel ?? "Couldn't load attachment")}
                 </p>
-                {mediaStatus === 'error' && onRetry && <Button onClick={onRetry}>Retry</Button>}
+                {mediaStatus === 'error' && onRetry && (
+                  <Button onClick={onRetry}>{retryLabel}</Button>
+                )}
               </div>
             ) : item?.kind === 'video' ? (
               <video

@@ -10,6 +10,7 @@
  */
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { axe } from 'vitest-axe';
 import type { MessageRef } from '@/core/backend';
 import type { Attachment, ConversationId, MessageId } from '@/core/domain';
 import { createStores } from '@/core/stores';
@@ -239,5 +240,67 @@ describe('voice notes', () => {
       expect(document.querySelector('audio')).toBeTruthy();
     });
     expect(screen.queryByRole('group', { name: 'Voice message' })).toBeNull();
+  });
+});
+
+describe('expired attachments in the message list: the phone is only asked on a click', () => {
+  const gone = Object.assign(new Error('Attachment no longer available'), { kind: 'user' });
+
+  function renderExpired(attachments: Attachment[]) {
+    const requestAttachmentBackfill = vi.fn().mockResolvedValue(undefined);
+    const app = {
+      backend: {
+        kind: 'signal-cli',
+        resolveAttachmentUrl: vi.fn().mockRejectedValue(gone),
+        requestAttachmentBackfill,
+        supportsAttachmentBackfill: () => true,
+      },
+      stores: createStores(),
+    } as unknown as AppServices;
+    const view = render(
+      <SnowdropContextProvider value={app}>
+        <TooltipProvider>
+          <Attachments
+            conversationId={conversationId}
+            message={message}
+            attachments={attachments}
+            pending={false}
+          />
+        </TooltipProvider>
+      </SnowdropContextProvider>,
+    );
+    return { ...view, requestAttachmentBackfill };
+  }
+
+  it('a photo shows "Get from phone", asks nothing until clicked, then asks once and waits', async () => {
+    const { requestAttachmentBackfill, container } = renderExpired([
+      { id: 'old-img', contentType: 'image/png' },
+    ]);
+    const action = await screen.findByRole('button', { name: /Get from phone/u });
+    expect(screen.getByText('Not on this device')).toBeTruthy();
+    expect((await axe(container)).violations.map((v) => v.id)).toEqual([]);
+    expect(requestAttachmentBackfill).not.toHaveBeenCalled();
+
+    act(() => {
+      fireEvent.click(action);
+    });
+    await screen.findByText('Getting it from your phone…');
+    expect(requestAttachmentBackfill).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('button', { name: /Get from phone/u })).toBeNull();
+    expect((await axe(container)).violations.map((v) => v.id)).toEqual([]);
+  });
+
+  it('a file card offers the same action and also asks nothing on render', async () => {
+    const { requestAttachmentBackfill, container } = renderExpired([
+      { id: 'old-file', contentType: 'application/pdf', fileName: 'notes.pdf' },
+    ]);
+    const action = await screen.findByRole('button', { name: 'Get from phone' });
+    expect(requestAttachmentBackfill).not.toHaveBeenCalled();
+    expect((await axe(container)).violations.map((v) => v.id)).toEqual([]);
+    act(() => {
+      fireEvent.click(action);
+    });
+    await screen.findByText('Getting it from your phone…');
+    expect(requestAttachmentBackfill).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,9 +1,23 @@
-import { Download, ImageOff, Loader2, MessageSquare, Play, RotateCw, Video } from 'lucide-react';
+import {
+  Download,
+  ImageOff,
+  Loader2,
+  MessageSquare,
+  Play,
+  RotateCw,
+  Smartphone,
+  Video,
+} from 'lucide-react';
 import { useCallback, useEffect, useState, type KeyboardEvent } from 'react';
 import type { MessageRef } from '@/core/backend';
 import type { ConversationId, GalleryItem, GallerySection } from '@/core/domain';
 import { ContextMenu, IconButton, type MenuEntry } from '@/ui/primitives';
-import { attachmentFailureCopy, attachmentKind } from '../lib/attachments';
+import {
+  attachmentFailureCopy,
+  attachmentKind,
+  FROM_PHONE_DETAIL,
+  FROM_PHONE_STATUS,
+} from '../lib/attachments';
 import { useAttachmentUrl } from '../message/useAttachmentUrl';
 import type { ItemMeta } from './useItemMeta';
 import { useNearView } from './useNearView';
@@ -273,9 +287,21 @@ function TileBody({
     );
   if (status === 'error')
     return (
-      <span className={styles.status} title={failure?.detail}>
-        {retryable ? <RotateCw size={18} aria-hidden /> : <ImageOff size={18} aria-hidden />}
-        <span>{retryable ? 'Retry' : (failure?.label ?? 'Not available')}</span>
+      <span className={styles.status} title={state.fromPhone ? FROM_PHONE_DETAIL : failure?.detail}>
+        {state.fromPhone ? (
+          <Smartphone size={18} aria-hidden />
+        ) : retryable ? (
+          <RotateCw size={18} aria-hidden />
+        ) : (
+          <ImageOff size={18} aria-hidden />
+        )}
+        <span>
+          {state.fromPhone
+            ? FROM_PHONE_STATUS
+            : retryable
+              ? 'Retry'
+              : (failure?.label ?? 'Not available')}
+        </span>
       </span>
     );
   if (status === 'unavailable')

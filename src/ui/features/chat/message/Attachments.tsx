@@ -1,4 +1,13 @@
-import { Download, FileText, ImageOff, Loader2, Play, RotateCw, Video } from 'lucide-react';
+import {
+  Download,
+  FileText,
+  ImageOff,
+  Loader2,
+  Play,
+  RotateCw,
+  Smartphone,
+  Video,
+} from 'lucide-react';
 import { lazy, memo, Suspense, useState, type CSSProperties } from 'react';
 import type { MessageRef } from '@/core/backend';
 import { isVoiceNote, type Attachment, type ConversationId, type MessageId } from '@/core/domain';
@@ -8,6 +17,9 @@ import {
   attachmentKind,
   fitMedia,
   formatBytes,
+  FROM_PHONE_ACTION,
+  FROM_PHONE_DETAIL,
+  FROM_PHONE_STATUS,
   isGridMedia,
   safeHref,
 } from '../lib/attachments';
@@ -169,9 +181,10 @@ function AttachmentViewer({
       items={items}
       index={index}
       mediaStatus={state.status === 'held' ? 'loading' : state.status}
-      errorLabel={failure?.label}
+      errorLabel={state.fromPhone ? FROM_PHONE_STATUS : failure?.label}
       onMediaError={state.onMediaError}
-      onRetry={failure?.retryable ? state.retry : undefined}
+      onRetry={state.fromPhone ?? (failure?.retryable ? state.retry : undefined)}
+      retryLabel={state.fromPhone ? FROM_PHONE_ACTION : undefined}
     />
   );
 }
@@ -233,9 +246,19 @@ function MediaTile({
     return (
       <div className={styles.tile} data-state={failed ? 'error' : 'loading'} aria-label={name}>
         {failed ? (
-          <span className={styles.tileError} title={failure?.detail}>
+          <span
+            className={styles.tileError}
+            title={state.fromPhone ? FROM_PHONE_DETAIL : failure?.detail}
+          >
             <ImageOff size={20} aria-hidden />
-            <span>{failure ? failure.label : 'Not available'}</span>
+            <span>
+              {state.fromPhone ? FROM_PHONE_STATUS : failure ? failure.label : 'Not available'}
+            </span>
+            {state.fromPhone && (
+              <button type="button" className={styles.retry} onClick={state.fromPhone}>
+                <Smartphone size={12} aria-hidden /> {FROM_PHONE_ACTION}
+              </button>
+            )}
             {failure?.retryable && (
               <button type="button" className={styles.retry} onClick={state.retry}>
                 <RotateCw size={12} aria-hidden /> Retry
@@ -330,11 +353,13 @@ function FileCard({ conversationId, message, attachmentIds, attachment, pending 
           : 'Preparing…'
         : state.status === 'backfilling'
           ? 'Getting it from your phone…'
-          : failure
-            ? failure.label
-            : state.status === 'unavailable'
-              ? 'Not available on this device'
-              : size;
+          : state.fromPhone
+            ? FROM_PHONE_STATUS
+            : failure
+              ? failure.label
+              : state.status === 'unavailable'
+                ? 'Not available on this device'
+                : size;
   return (
     <div className={styles.card}>
       <FileText className={styles.cardIcon} size={28} strokeWidth={1.5} aria-hidden />
@@ -342,7 +367,10 @@ function FileCard({ conversationId, message, attachmentIds, attachment, pending 
         <span className={styles.cardName} title={name}>
           {name}
         </span>
-        <span className={styles.cardMeta} title={failure?.detail}>
+        <span
+          className={styles.cardMeta}
+          title={state.fromPhone ? FROM_PHONE_DETAIL : failure?.detail}
+        >
           {meta}
         </span>
       </div>
@@ -358,6 +386,17 @@ function FileCard({ conversationId, message, attachmentIds, attachment, pending 
           onClick={state.download}
         >
           <Download size={18} aria-hidden />
+        </button>
+      )}
+      {state.fromPhone && (
+        <button
+          type="button"
+          className={styles.download}
+          aria-label={FROM_PHONE_ACTION}
+          title={FROM_PHONE_ACTION}
+          onClick={state.fromPhone}
+        >
+          <Smartphone size={18} aria-hidden />
         </button>
       )}
       {failure?.retryable && (

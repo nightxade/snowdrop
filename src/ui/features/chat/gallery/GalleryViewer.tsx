@@ -2,7 +2,13 @@ import type { MessageRef } from '@/core/backend';
 import type { ConversationId, GalleryItem } from '@/core/domain';
 import type { LightboxItem } from '@/ui/primitives';
 import { Lightbox } from '@/ui/primitives/Lightbox';
-import { attachmentFailureCopy, attachmentKind, safeHref } from '../lib/attachments';
+import {
+  attachmentFailureCopy,
+  attachmentKind,
+  FROM_PHONE_ACTION,
+  FROM_PHONE_STATUS,
+  safeHref,
+} from '../lib/attachments';
 import { useAttachmentUrl } from '../message/useAttachmentUrl';
 import type { ItemMeta } from './useItemMeta';
 
@@ -64,11 +70,20 @@ export function GalleryViewer({
       caption={`${meta.author} · ${meta.when}`}
       // A held item (message request) stays unfetched until its owner asks.
       mediaStatus={state.status === 'held' ? 'error' : state.status}
-      errorLabel={state.status === 'held' ? 'Not downloaded yet' : failure?.label}
+      errorLabel={
+        state.status === 'held'
+          ? 'Not downloaded yet'
+          : state.fromPhone
+            ? FROM_PHONE_STATUS
+            : failure?.label
+      }
       onMediaError={state.onMediaError}
       onRetry={
-        state.status === 'held' ? state.download : failure?.retryable ? state.retry : undefined
+        state.status === 'held'
+          ? state.download
+          : (state.fromPhone ?? (failure?.retryable ? state.retry : undefined))
       }
+      retryLabel={state.fromPhone ? FROM_PHONE_ACTION : undefined}
     />
   );
 }

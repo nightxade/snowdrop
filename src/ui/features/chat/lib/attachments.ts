@@ -121,6 +121,15 @@ export function classifyAttachmentFailure(error: unknown): AttachmentFailureKind
   return 'download-failed';
 }
 
+/**
+ * Shown instead of the failure's own label when the file is gone from this
+ * device but the phone could send it again, and the button that asks it to.
+ */
+export const FROM_PHONE_STATUS = 'Not on this device';
+export const FROM_PHONE_ACTION = 'Get from phone';
+export const FROM_PHONE_DETAIL =
+  "This file isn't on this device. Your phone can send it again, which shows a notification there.";
+
 export interface AttachmentFailureCopy {
   /** A few words for the tile/card itself. */
   label: string;
