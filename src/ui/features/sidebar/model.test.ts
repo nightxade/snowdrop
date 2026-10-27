@@ -4,6 +4,7 @@ import { conversationIdFor, makeConversation } from '@/core/domain/testing';
 import { HOME, type SpacesData } from '@/core/stores';
 import {
   buildHomeSections,
+  archivedIds,
   buildSpaceSections,
   globalOrder,
   navigationOrder,
@@ -179,5 +180,24 @@ describe('next/previous unread', () => {
     expect(wantsAttention(undefined, false)).toBe(false);
     expect(wantsAttention(undefined, false, true)).toBe(true);
     expect(wantsAttention(undefined, true, true)).toBe(false);
+  });
+});
+
+describe('archivedIds', () => {
+  const views = [
+    view('d1', { archived: true }),
+    view('g1', { archived: true }),
+    view('g2', { archived: true }),
+    view('g3'),
+  ];
+  const placed = spaces({ work: ['g2', 'g3'] });
+
+  it('Home lists the archived DMs and groups that are not in a space', () => {
+    expect(archivedIds(views, HOME, placed)).toEqual([id('d1'), id('g1')]);
+  });
+
+  it('a space lists only its own archived conversations', () => {
+    expect(archivedIds(views, 'work', placed)).toEqual([id('g2')]);
+    expect(archivedIds(views, 'nowhere', placed)).toEqual([]);
   });
 });

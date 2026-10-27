@@ -3,6 +3,8 @@ import { useState } from 'react';
 import type { ConversationId, MessageRequestState } from '@/core/domain';
 import { useSnowdrop } from '@/ui/hooks';
 import {
+  BlockDialog,
+  blockedNotice,
   ConversationAvatar,
   formatPhone,
   useConversationView,
@@ -12,14 +14,12 @@ import { Button, Modal } from '@/ui/primitives';
 import { useChatController } from '../ChatController';
 import styles from './MessageRequestBar.module.css';
 
-type Action = 'accept' | 'delete' | 'block' | 'unblock';
-type Confirm = 'delete' | 'block';
+type Action = 'accept' | 'delete';
+type Confirm = 'delete' | 'block' | 'unblock';
 
 const FAILED: Record<Action, string> = {
   accept: "Couldn't accept this request. Try again.",
   delete: "Couldn't delete this request. Try again.",
-  block: "Couldn't block this. Try again.",
-  unblock: "Couldn't unblock this. Try again.",
 };
 
 /**
@@ -59,13 +59,11 @@ export function MessageRequestBar({
     const done = await {
       accept: () => requests.accept(conversationId),
       delete: () => requests.remove(conversationId),
-      block: () => requests.block(conversationId),
-      unblock: () => requests.unblock(conversationId),
     }[action]();
     setBusy(null);
     if (!done) setFailed(action);
     // The composer replaces this bar once the chat is accepted.
-    else if (action === 'accept' || action === 'unblock')
+    else if (action === 'accept')
       window.setTimeout(() => {
         chat.focusComposer();
       }, 0);
@@ -74,9 +72,7 @@ export function MessageRequestBar({
 
   const copy =
     state === 'blocked'
-      ? group
-        ? 'You blocked this group. Unblock it to see and send messages here again.'
-        : 'You blocked this contact. Unblock them to message them again.'
+      ? blockedNotice({ group, name })
       : group
         ? "Nobody you know is in this group. If you accept, its members will see your name and photo, and will know when you've read their messages."
         : "If you accept, they will see your name and photo, and will know when you've read their messages. Photos and files from them stay hidden until you do.";
@@ -150,35 +146,41 @@ export function MessageRequestBar({
             variant="primary"
             disabled={disabled}
             onClick={() => {
-              void run('unblock');
+              setConfirm('unblock');
             }}
           >
             Unblock
           </Button>
         )}
       </div>
-      {confirm && (
+      {(confirm === 'block' || confirm === 'unblock') && (
+        <BlockDialog
+          conversationId={conversationId}
+          unblock={confirm === 'unblock'}
+          onClose={() => {
+            setConfirm(null);
+          }}
+          onDone={() => {
+            // The composer replaces this bar once the chat is unblocked.
+            if (confirm === 'unblock')
+              window.setTimeout(() => {
+                chat.focusComposer();
+              }, 0);
+          }}
+        />
+      )}
+      {confirm === 'delete' && (
         <Modal
           open
           onOpenChange={(open) => {
             if (!open) setConfirm(null);
           }}
           size="sm"
-          title={
-            confirm === 'delete'
-              ? group
-                ? 'Delete and leave?'
-                : 'Delete this chat?'
-              : `Block ${name}?`
-          }
+          title={group ? 'Delete and leave?' : 'Delete this chat?'}
           description={
-            confirm === 'delete'
-              ? group
-                ? "You'll leave the group and its messages will be deleted from this device."
-                : 'Its messages will be deleted from this device. They are not told.'
-              : group
-                ? "You won't receive messages or updates from this group."
-                : "They won't be able to message you, and they are not told."
+            group
+              ? "You'll leave the group and its messages will be deleted from this device."
+              : 'Its messages will be deleted from this device. They are not told.'
           }
           footer={
             <>
@@ -194,12 +196,11 @@ export function MessageRequestBar({
                 variant="danger"
                 data-autofocus
                 onClick={() => {
-                  const action = confirm;
                   setConfirm(null);
-                  void run(action);
+                  void run('delete');
                 }}
               >
-                {confirm === 'delete' ? (group ? 'Delete and leave' : 'Delete') : 'Block'}
+                {group ? 'Delete and leave' : 'Delete'}
               </Button>
             </>
           }

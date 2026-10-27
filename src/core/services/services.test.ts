@@ -565,6 +565,27 @@ describe('SyncService: events', () => {
     expect(list.mock.calls.length).toBeLessThanOrEqual(2);
   });
 
+  it('a new message brings an archived chat back to the list, pinned or muted or not; read state and system lines do not', async () => {
+    const { stores, backend, sync, conv, memberOf } = await setup();
+    const id = conv('crux-trips');
+    const other = conv('books');
+    stores.local.getState().setMuted(id, true);
+    stores.local.getState().setArchived(id, true);
+    stores.local.getState().setArchived(other, true);
+    backend.deliver(
+      incoming(other, memberOf(other), NOW + 1, { kind: 'system', systemText: 'timer changed' }),
+    );
+    await sync.idle();
+    expect(stores.local.getState().conversations[other]?.archived).toBe(true);
+    backend.deliver(incoming(id, memberOf(id), NOW + 2));
+    await sync.idle();
+    expect(stores.local.getState().conversations[id]).toMatchObject({
+      archived: false,
+      muted: true,
+    });
+    expect(stores.local.getState().conversations[other]?.archived).toBe(true);
+  });
+
   it('purges expired disappearing messages', async () => {
     const { backend, sync, scheduler, repository, conv, memberOf, history, list } = await setup();
     const id = conv('crux-trips');
@@ -758,6 +779,14 @@ describe('SyncService: events', () => {
 });
 
 describe('SendService', () => {
+  it('writing in an archived chat brings it back to the list', async () => {
+    const s = await setup();
+    const id = s.conv('books');
+    s.stores.local.getState().setArchived(id, true);
+    await s.send.send(draft(id, 'back again'));
+    expect(s.stores.local.getState().conversations[id]?.archived).toBe(false);
+  });
+
   it('shows a pending message in place, then reconciles it with the server identity', async () => {
     const s = await setup({ latencyMs: 100 });
     const id = s.conv('orchard-eng');

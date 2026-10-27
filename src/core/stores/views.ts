@@ -42,8 +42,8 @@ export function selectConversationView(
 /**
  * Sum of unread across conversations; muted ones don't add to the count
  * (mentions always do). A conversation the user marked unread that has
- * nothing unread counts as one, like Signal Desktop's badge (archived ones
- * don't count).
+ * nothing unread counts as one. Archived conversations count for nothing,
+ * as in Signal Desktop's badge.
  */
 export function totalUnread(
   unread: ConversationsState['unread'],
@@ -57,13 +57,14 @@ export function totalUnread(
   for (const id of ids) {
     const u = unread[id];
     const state = local[id] ?? DEFAULT_LOCAL_CONVERSATION;
+    if (state.archived) continue;
     mentions += u?.mentions ?? 0;
     if (isMuted(state.muted, now)) continue;
     const unreadCount = u?.count ?? 0;
     if (unreadCount > 0) {
       count += unreadCount;
       hasUnread = true;
-    } else if (state.markedUnread && !state.archived && !(u && u.mentions > 0)) {
+    } else if (state.markedUnread && !(u && u.mentions > 0)) {
       count += 1;
       hasUnread = true;
     }

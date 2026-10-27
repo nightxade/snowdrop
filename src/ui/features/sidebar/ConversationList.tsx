@@ -1,10 +1,10 @@
-import { Inbox } from 'lucide-react';
-import { Fragment, useEffect, useId, useState } from 'react';
+import { Archive, ArrowLeft, ChevronRight, Inbox } from 'lucide-react';
+import { Fragment, useEffect, useId, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import { markStartup } from '@/core/lib';
 import { HOME, sessionSelectors, type HomeSection } from '@/core/stores';
 import { useInView, useRovingFocus, useStores } from '@/ui/hooks';
-import { EmptyState, Scroller, Skeleton } from '@/ui/primitives';
+import { EmptyState, IconButton, Scroller, Skeleton } from '@/ui/primitives';
 import { CategoryHeader } from './CategoryHeader';
 import { ConversationRow } from './ConversationRow';
 import { useCategoryDrop } from './useCategoryDrop';
@@ -28,13 +28,25 @@ export function ConversationList() {
   for (const id of unreadKey ? unreadKey.split('\n') : []) unread[id] = { count: 1, mentions: 0 };
   const { space, sections, archived, selected, catchingUp } = useSidebarModel();
   const onKeyDown = useRovingFocus('vertical');
-  const [showArchived, setShowArchived] = useState(false);
+  // The archive is a view of its own, entered from the entry under the list; each space has its own.
+  const [archiveOpenIn, setArchiveOpenIn] = useState<string | null>(null);
+  const archiveOpen = archiveOpenIn === space;
+  const entryRef = useRef<HTMLButtonElement | null>(null);
+  const backRef = useRef<HTMLButtonElement | null>(null);
+  const focusAfterSwitch = useRef<'back' | 'entry' | null>(null);
   const baseId = useId();
   const drop = useCategoryDrop(space);
   const viewsById = useStore(stores.conversations, (s) => s.byId);
   useEffect(() => {
     if (ready) markStartup('conversation list shown');
   }, [ready]);
+  // Moving between the list and its archive moves focus with it, so the keyboard isn't left on a button that is gone.
+  useEffect(() => {
+    const target = focusAfterSwitch.current;
+    focusAfterSwitch.current = null;
+    if (target === 'back') backRef.current?.focus();
+    else if (target === 'entry') entryRef.current?.focus();
+  }, [archiveOpen]);
 
   if (!ready) return <ListSkeleton />;
 
@@ -53,6 +65,52 @@ export function ConversationList() {
   };
 
   const isEmpty = sections.every((s) => s.ids.length === 0) && archived.length === 0;
+  const rowVariant = space === HOME ? 'home' : 'channel';
+
+  if (archiveOpen) {
+    return (
+      <Scroller className={styles.scroller} data-snowdrop="conversation-list">
+        <nav aria-label="Archived chats" onKeyDown={onKeyDown}>
+          <div className={styles.archiveHeader}>
+            <IconButton
+              ref={backRef}
+              size="sm"
+              label="Back to conversations"
+              icon={<ArrowLeft />}
+              onClick={() => {
+                focusAfterSwitch.current = 'entry';
+                setArchiveOpenIn(null);
+              }}
+            />
+            <h2 className={styles.archiveTitle}>Archived chats</h2>
+          </div>
+          {archived.length === 0 ? (
+            <EmptyState size="sm" icon={<Archive />} title="No archived chats">
+              Archive a chat from its menu to tuck it away here.
+            </EmptyState>
+          ) : (
+            <>
+              <p className={styles.archiveHint}>
+                These chats are archived and will only appear in the list if new messages are
+                received.
+              </p>
+              <ul className={styles.list}>
+                {archived.map((id, i) => (
+                  <ConversationRow
+                    key={id}
+                    id={id}
+                    variant={rowVariant}
+                    selected={id === selected}
+                    tabStop={i === 0}
+                  />
+                ))}
+              </ul>
+            </>
+          )}
+        </nav>
+      </Scroller>
+    );
+  }
 
   return (
     <Scroller className={styles.scroller} data-snowdrop="conversation-list">
@@ -132,28 +190,24 @@ export function ConversationList() {
           );
         })}
         {archived.length > 0 && (
-          <section className={styles.section} aria-label="Archived">
-            <SectionHeader
-              title={`Archived · ${archived.length}`}
-              collapsed={!showArchived}
-              controls={`${baseId}-archived`}
-              onToggle={() => {
-                setShowArchived((v) => !v);
-              }}
-            />
-            <ul id={`${baseId}-archived`} className={styles.list}>
-              {showArchived &&
-                archived.map((id) => (
-                  <ConversationRow
-                    key={id}
-                    id={id}
-                    variant="home"
-                    selected={id === selected}
-                    tabStop={false}
-                  />
-                ))}
-            </ul>
-          </section>
+          <button
+            ref={entryRef}
+            type="button"
+            className={styles.archiveEntry}
+            data-roving-item
+            tabIndex={allIds.length === 0 ? 0 : -1}
+            onClick={() => {
+              focusAfterSwitch.current = 'back';
+              setArchiveOpenIn(space);
+            }}
+          >
+            <Archive size={16} aria-hidden />
+            <span className={styles.archiveLabel}>Archived chats</span>
+            <span className={styles.archiveCount} aria-label={`${archived.length} archived`}>
+              {archived.length}
+            </span>
+            <ChevronRight size={14} aria-hidden />
+          </button>
         )}
       </nav>
     </Scroller>

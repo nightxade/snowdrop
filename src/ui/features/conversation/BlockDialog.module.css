@@ -1,0 +1,10 @@
+/* A failure, read out when it appears; hidden while empty. */
+.error {
+  color: var(--snowdrop-danger);
+  font-size: var(--snowdrop-font-size-sm);
+  line-height: 1.4;
+}
+
+.error:empty {
+  display: none;
+}

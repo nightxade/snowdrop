@@ -118,6 +118,26 @@ describe('protocol vs local state', () => {
     expect(totalUnread(unread, local.getState().conversations, [conv, muted], 3000).count).toBe(7);
   });
 
+  it('counts nothing for an archived chat: not its messages, mentions or a marked-unread flag', () => {
+    const other = conversationIdFor('o');
+    const local = createLocalStore();
+    local.getState().setMarkedUnread(other, true);
+    local.getState().setArchived(conv, true);
+    local.getState().setArchived(other, true);
+    const unread = { [conv]: { count: 4, mentions: 2 } };
+    expect(totalUnread(unread, local.getState().conversations, [conv, other], 1000)).toEqual({
+      count: 0,
+      mentions: 0,
+      hasUnread: false,
+    });
+    local.getState().unarchive(conv);
+    expect(totalUnread(unread, local.getState().conversations, [conv, other], 1000)).toEqual({
+      count: 4,
+      mentions: 2,
+      hasUnread: true,
+    });
+  });
+
   it('counts a chat marked unread as one only when nothing in it is unread', () => {
     const other = conversationIdFor('o');
     const local = createLocalStore();

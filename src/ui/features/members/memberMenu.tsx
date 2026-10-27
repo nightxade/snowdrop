@@ -1,7 +1,13 @@
 import { Copy, IdCard, MessageSquare, ShieldCheck, ShieldOff, UserMinus } from 'lucide-react';
-import { canManageGroup, type Contact, type ConversationId } from '@/core/domain';
+import {
+  canManageGroup,
+  directConversationId,
+  type Contact,
+  type ConversationId,
+} from '@/core/domain';
 import type { AppServices } from '@/ui/hooks';
 import {
+  blockMenuEntries,
   copyText,
   formatPhone,
   openDirectConversation,
@@ -14,8 +20,8 @@ const ICON = 16;
 
 /**
  * The member row's context menu: open the profile, message them, copy the
- * number, what an admin can do to them (make or remove admin, remove from the
- * group), then plugin items registered with `ctx.menus.add('member', …)`.
+ * number, block or unblock them, what an admin can do to them (make or remove
+ * admin, remove from the group), then plugin items registered with `ctx.menus.add('member', …)`.
  */
 export function memberMenu(
   app: AppServices,
@@ -64,6 +70,7 @@ export function memberMenu(
           },
         ]
       : [];
+  const block = contact.isSelf ? [] : blockMenuEntries(app, directConversationId(contact.id));
   return [
     {
       kind: 'item',
@@ -98,6 +105,7 @@ export function memberMenu(
           } as const,
         ]
       : []),
+    ...(block.length > 0 ? [{ kind: 'separator', id: 's-block' } as const, ...block] : []),
     ...admins,
     ...(plugin.length > 0 ? [{ kind: 'separator', id: 's-plugins' } as const, ...plugin] : []),
   ];

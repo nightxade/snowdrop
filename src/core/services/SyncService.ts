@@ -1197,6 +1197,9 @@ export class SyncService {
       this.schedulePurge(message.expiresAt - this.deps.clock.now());
     // A re-delivery must not count twice or re-notify plugins.
     if (!created) return;
+    // New activity brings an archived chat back to the list, like Signal Desktop
+    // (it does so for a muted one too, unless "keep muted chats archived" is on).
+    if (message.kind === 'normal') stores.local.getState().unarchive(id);
     await this.updateReadState(message);
     this.events.emit('message', message);
     this.events.emit('messageArrived', { message, live });

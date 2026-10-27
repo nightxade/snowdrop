@@ -363,6 +363,8 @@ export class SendService {
     // Writing to someone accepts them, like Signal: signal-cli starts sharing
     // the profile with the first message, so this device must agree.
     stores.local.getState().markAccepted(input.conversationId, now);
+    // Writing in an archived chat brings it back to the list.
+    stores.local.getState().unarchive(input.conversationId);
     // Row and outbox entry together, or neither: a crash can't orphan one.
     await repository.stageOutgoing(optimistic, { nonce, input, createdAt: now });
     await this.attempt(nonce);

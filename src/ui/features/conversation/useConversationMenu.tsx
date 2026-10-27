@@ -28,6 +28,7 @@ import {
   TIMER_OPTIONS,
   updateConversation,
 } from './actions';
+import { blockMenuEntries } from './blockMenu';
 import { pluginMenuEntries } from './pluginMenu';
 
 const ICON = 16;
@@ -233,6 +234,7 @@ export function useConversationMenu(id: ConversationId): () => MenuEntry[] {
           archive(app, id, !local.archived);
         },
       },
+      ...blockMenuEntries(app, id),
     ];
   }, [app, id]);
 }

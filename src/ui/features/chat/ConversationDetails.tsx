@@ -1,5 +1,16 @@
 import type { ReactNode } from 'react';
-import { Copy, Images, KeyRound, Link2, LogOut, Pencil, Timer, UserPlus } from 'lucide-react';
+import {
+  Ban,
+  CircleSlash,
+  Copy,
+  Images,
+  KeyRound,
+  Link2,
+  LogOut,
+  Pencil,
+  Timer,
+  UserPlus,
+} from 'lucide-react';
 import { useStore } from 'zustand';
 import {
   canAddMembers,
@@ -12,9 +23,12 @@ import {
 import { sessionSelectors } from '@/core/stores';
 import { useSnowdrop } from '@/ui/hooks';
 import {
+  canBlock,
   ConversationAvatar,
   copyText,
+  openBlockDialog,
   openGroupModal,
+  useBlockTarget,
   usePeer,
   type GroupModalType,
 } from '@/ui/features/conversation';
@@ -26,7 +40,7 @@ import styles from './ConversationDetails.module.css';
  * The "about this conversation" popover opened from the header title. For a
  * group it is also where its settings start: edit, add members, link,
  * permissions and leave, each shown only when our role allows it (the same
- * split Signal Desktop makes).
+ * split Signal Desktop makes). Block or unblock the person or group sits beside them.
  */
 export function ConversationDetails({ conversation }: { conversation: ConversationView }) {
   const app = useSnowdrop();
@@ -43,6 +57,8 @@ export function ConversationDetails({ conversation }: { conversation: Conversati
   const showLink = manageable && (canManage || conversation.inviteLink !== undefined);
   const canLeave = manageable && isGroupMember(conversation, selfId);
   const left = conversation.left === true;
+  const blockTarget = useBlockTarget(conversation.id);
+  const showBlock = canBlock(app) && blockTarget !== undefined && !blockTarget.self;
   const announcement = conversation.permissions?.sendMessages === 'only-admins';
 
   const open = (type: GroupModalType) => () => {
@@ -149,6 +165,21 @@ export function ConversationDetails({ conversation }: { conversation: Conversati
         >
           Copy ID
         </Button>
+        {showBlock && (
+          <PopoverClose asChild>
+            <Button
+              size="sm"
+              variant={blockTarget.blocked ? 'secondary' : 'danger'}
+              icon={blockTarget.blocked ? <CircleSlash size={14} /> : <Ban size={14} />}
+              onClick={() => {
+                openBlockDialog(app, conversation.id, blockTarget.blocked);
+              }}
+            >
+              {blockTarget.blocked ? 'Unblock' : 'Block'}
+              {isGroup ? ' group' : ''}
+            </Button>
+          </PopoverClose>
+        )}
         {canLeave && (
           <PopoverClose asChild>
             <Button

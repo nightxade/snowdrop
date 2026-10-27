@@ -13,6 +13,7 @@ import {
 } from './local';
 
 const a = conversationIdFor('a');
+const b = conversationIdFor('b');
 
 describe('localStore', () => {
   it('stores drafts, dropping blank ones', () => {
@@ -34,12 +35,28 @@ describe('localStore', () => {
     store.getState().setArchived(a, true);
     expect(localSelectors.note('c1')(store.getState())).toBe('met at the crag');
     expect(localSelectors.conversation(a)(store.getState())).toEqual({
-      pinned: true,
+      pinned: false,
       muted: { until: 5 },
       archived: true,
     });
     store.getState().setNote('c1', '');
     expect(store.getState().contactNotes).toEqual({});
+  });
+
+  it('archiving unpins, pinning unarchives, and new activity unarchives only an archived chat', () => {
+    const store = createLocalStore();
+    store.getState().setPinned(a, true);
+    store.getState().setArchived(a, true);
+    expect(store.getState().conversations[a]).toMatchObject({ pinned: false, archived: true });
+    store.getState().setPinned(a, true);
+    expect(store.getState().conversations[a]).toMatchObject({ pinned: true, archived: false });
+    store.getState().setArchived(a, true);
+    store.getState().unarchive(a);
+    expect(store.getState().conversations[a]).toMatchObject({ pinned: false, archived: false });
+    const before = store.getState().conversations;
+    store.getState().unarchive(a);
+    store.getState().unarchive(b);
+    expect(store.getState().conversations).toBe(before);
   });
 
   it('remembers which voice notes were played here, keeping the first time, and survives a reload', () => {

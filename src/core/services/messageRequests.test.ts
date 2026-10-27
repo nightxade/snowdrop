@@ -326,6 +326,67 @@ describe('answering a request', () => {
   });
 });
 
+describe('blocking from anywhere', () => {
+  it('blocking a group leaves it and keeps its messages; unblocking does not rejoin', async () => {
+    const { backend, stores, repository, requests, group } = await setup();
+    const kept = await repository.count(group);
+    await requests.block(group);
+    expect(stores.conversations.getState().byId[group]).toMatchObject({
+      blocked: true,
+      left: true,
+    });
+    expect(await repository.count(group)).toBeGreaterThanOrEqual(kept);
+    await requests.unblock(group);
+    expect(stores.conversations.getState().byId[group]?.left).toBe(true);
+    expect(backend.requestResponses.map((r) => r.response)).toEqual(['block', 'unblock']);
+  });
+
+  it('does not leave a group whose only admin is the user, but still blocks it', async () => {
+    const { stores, requests, group, selfId, backend } = await setup();
+    const leave = vi.spyOn(backend, 'leaveGroup');
+    const current = backend.world.conversations.get(group)!;
+    const sole = {
+      ...current,
+      memberIds: [selfId, ...current.memberIds.filter((m) => m !== selfId)],
+      adminIds: [selfId],
+    };
+    backend.world.conversations.set(group, sole);
+    stores.conversations.getState().upsert(sole);
+    await requests.block(group);
+    expect(leave).not.toHaveBeenCalled();
+    expect(stores.conversations.getState().byId[group]?.blocked).toBe(true);
+  });
+
+  it('unblocks a person who has no chat, found only in the contact list', async () => {
+    const { stores, requests, backend } = await setup();
+    const stranger = 'c0c1d2e3-0000-4000-8000-0000000000aa';
+    const id = directConversationId(stranger);
+    expect(stores.conversations.getState().byId[id]).toBeUndefined();
+    backend.world.contacts.set(stranger, {
+      id: stranger,
+      name: 'Blocked Person',
+      color: '#fff',
+      blocked: true,
+    });
+    stores.contacts
+      .getState()
+      .upsert({ id: stranger, name: 'Blocked Person', color: '#fff', blocked: true });
+    expect(await requests.unblock(id)).toBe(true);
+    expect(stores.contacts.getState().byId[stranger]?.blocked).toBeUndefined();
+    expect(backend.requestResponses.at(-1)).toEqual({ conversationId: id, response: 'unblock' });
+    expect(requests.canBlock).toBe(true);
+  });
+
+  it('a failed block changes nothing and leaves nothing', async () => {
+    const { stores, requests, group, backend } = await setup();
+    const leave = vi.spyOn(backend, 'leaveGroup');
+    vi.spyOn(backend, 'setBlocked').mockRejectedValueOnce(new Error('offline'));
+    expect(await requests.block(group)).toBe(false);
+    expect(leave).not.toHaveBeenCalled();
+    expect(stores.conversations.getState().byId[group]?.blocked).toBeUndefined();
+  });
+});
+
 describe('sending accepts', () => {
   it('writing to a request accepts it, here and for the typing that follows', async () => {
     const { send, stores, dm, state, backend } = await setup();

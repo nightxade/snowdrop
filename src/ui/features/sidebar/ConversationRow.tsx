@@ -1,4 +1,4 @@
-import { BellOff, Ellipsis, Hash, AtSign, Pin, X } from 'lucide-react';
+import { ArchiveRestore, BellOff, Ellipsis, Hash, AtSign, Pin, X } from 'lucide-react';
 import { memo, useState } from 'react';
 import type { ConversationId } from '@/core/domain';
 import { startConversationDrag, useSnowdrop } from '@/ui/hooks';
@@ -134,16 +134,28 @@ export const ConversationRow = memo(function ConversationRow({
         <DropdownMenu entries={menu} align="start" side="right" label={`${view.title} options`}>
           <IconButton size="sm" label="More options" icon={<Ellipsis />} tabIndex={-1} />
         </DropdownMenu>
-        {variant === 'home' && (
+        {view.archived ? (
           <IconButton
             size="sm"
-            label="Archive"
-            icon={<X />}
+            label="Unarchive"
+            icon={<ArchiveRestore />}
             tabIndex={-1}
             onClick={() => {
-              archive(app, id, true);
+              archive(app, id, false);
             }}
           />
+        ) : (
+          variant === 'home' && (
+            <IconButton
+              size="sm"
+              label="Archive"
+              icon={<X />}
+              tabIndex={-1}
+              onClick={() => {
+                archive(app, id, true);
+              }}
+            />
+          )
         )}
       </span>
     </li>

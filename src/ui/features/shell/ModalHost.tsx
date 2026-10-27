@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect } from 'react';
 import { useStore } from 'zustand';
 import type { ConversationId, MessageId } from '@/core/domain';
-import type { GroupMemberAction } from '@/ui/features/conversation';
+import { BlockDialog, type GroupMemberAction } from '@/ui/features/conversation';
 import { uiSelectors } from '@/core/stores';
 import { useStores } from '@/ui/hooks';
 import { SettingsFallback } from './SettingsFallback';
@@ -131,6 +131,16 @@ function modalElement(modal: Modal, close: () => void) {
         : [];
       return conversationId && messageIds.length > 0 ? (
         <ForwardDialog conversationId={conversationId} messageIds={messageIds} onClose={close} />
+      ) : null;
+    }
+    case 'blockConversation': {
+      const conversationId = conversationProp(modal.props);
+      return conversationId ? (
+        <BlockDialog
+          conversationId={conversationId}
+          unblock={modal.props?.unblock === true}
+          onClose={close}
+        />
       ) : null;
     }
     case 'newGroup':

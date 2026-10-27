@@ -54,10 +54,7 @@ export function buildHomeSections(
   const directRest: ConversationId[] = [];
   const groupsPinned: ConversationId[] = [];
   const groupsRest: ConversationId[] = [];
-  const assigned = new Set<string>();
-  for (const space of Object.values(spaces.spaces))
-    for (const category of space.categories)
-      for (const id of category.conversationIds) assigned.add(id);
+  const assigned = assignedIds(spaces);
   const inHome = (v: ConversationView) => v.kind === 'direct' || !assigned.has(v.id);
   for (const view of views) {
     if (view.archived || !inHome(view)) continue;
@@ -82,8 +79,35 @@ export function buildHomeSections(
   return sections.filter((s) => s.ids.length > 0);
 }
 
-export function archivedIds(views: readonly ConversationView[]): ConversationId[] {
-  return views.filter((v) => v.archived).map((v) => v.id);
+/**
+ * The archived conversations that belong to `space`: in Home, the DMs and
+ * groups not placed in a space (what Home would otherwise list); in a space,
+ * the ones placed in it. An archived chat stays where it lived, so each
+ * list's "Archived chats" entry opens that place's own archive.
+ */
+export function archivedIds(
+  views: readonly ConversationView[],
+  space: SpaceSelection,
+  spaces: Pick<SpacesData, 'spaces'>,
+): ConversationId[] {
+  if (space === HOME) {
+    const assigned = assignedIds(spaces);
+    return views
+      .filter((v) => v.archived && (v.kind === 'direct' || !assigned.has(v.id)))
+      .map((v) => v.id);
+  }
+  const placed = new Set(
+    (spaces.spaces[space]?.categories ?? []).flatMap((category) => category.conversationIds),
+  );
+  return views.filter((v) => v.archived && placed.has(v.id)).map((v) => v.id);
+}
+
+function assignedIds(spaces: Pick<SpacesData, 'spaces'>): Set<string> {
+  const assigned = new Set<string>();
+  for (const space of Object.values(spaces.spaces))
+    for (const category of space.categories)
+      for (const id of category.conversationIds) assigned.add(id);
+  return assigned;
 }
 
 /** A space's categories in user order, hiding unknown and archived conversations. */

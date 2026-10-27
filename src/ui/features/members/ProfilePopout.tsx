@@ -1,15 +1,23 @@
-import { MessageSquare, ShieldCheck } from 'lucide-react';
+import { Ban, CircleSlash, MessageSquare, ShieldCheck } from 'lucide-react';
 import { useId, type CSSProperties } from 'react';
 import { useStore } from 'zustand';
-import { initialsFor, type Contact, type ConversationId } from '@/core/domain';
+import {
+  directConversationId,
+  initialsFor,
+  type Contact,
+  type ConversationId,
+} from '@/core/domain';
 import { localSelectors } from '@/core/stores';
 import { useObservableList, useSnowdrop } from '@/ui/hooks';
 import {
+  canBlock,
   copyText,
   formatPhone,
+  openBlockDialog,
   openDirectConversation,
   PersonAvatar,
   pluginMenuEntries,
+  useBlockTarget,
 } from '@/ui/features/conversation';
 import { Button } from '@/ui/primitives';
 import styles from './ProfilePopout.module.css';
@@ -48,6 +56,8 @@ export function ProfilePopout({
   const isAdmin = useStore(stores.conversations, (s) =>
     conversationId ? (s.byId[conversationId]?.adminIds.includes(contact.id) ?? false) : false,
   );
+  const blockTarget = useBlockTarget(directConversationId(contact.id));
+  const blocked = blockTarget?.blocked === true;
   const noteId = useId();
   const showProfileName = contact.profileName && contact.profileName !== contact.name;
 
@@ -70,6 +80,7 @@ export function ProfilePopout({
           <p className={styles.name}>{contact.name}</p>
           {showProfileName && <p className={styles.profileName}>{contact.profileName}</p>}
           {isAdmin && <span className={styles.role}>Group admin</span>}
+          {blocked && <span className={styles.role}>Blocked</span>}
         </div>
       </header>
       <div className={styles.body}>
@@ -109,6 +120,21 @@ export function ProfilePopout({
             >
               Copy safety-number steps
             </Button>
+            {canBlock(app) && blockTarget && (
+              <Button
+                variant="ghost"
+                size="sm"
+                fullWidth
+                icon={blocked ? <CircleSlash size={14} /> : <Ban size={14} />}
+                className={blocked ? undefined : styles.dangerAction}
+                onClick={() => {
+                  openBlockDialog(app, directConversationId(contact.id), blocked);
+                  onClose();
+                }}
+              >
+                {blocked ? 'Unblock' : 'Block'}
+              </Button>
+            )}
           </div>
         )}
         {plugin.length > 0 && (

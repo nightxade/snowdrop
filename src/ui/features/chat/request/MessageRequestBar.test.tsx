@@ -132,12 +132,41 @@ describe('MessageRequestBar in the conversation', () => {
         .getAllByRole('button')
         .map((b) => b.textContent),
     ).toEqual(['Delete', 'Unblock']);
-    expect(within(region).getByText(/You blocked this contact/u)).toBeTruthy();
+    expect(
+      within(region).getByText(
+        "Let Marlowe Quist message you and share your name and photo with them? You won't receive any messages until you unblock them.",
+      ),
+    ).toBeTruthy();
+    // Unblocking asks first, too.
     fireEvent.click(within(region).getByRole('button', { name: 'Unblock' }));
+    const unblockDialog = await screen.findByRole('dialog');
+    expect(within(unblockDialog).getByText('Unblock Marlowe Quist?')).toBeTruthy();
+    expect(setBlocked).toHaveBeenCalledTimes(1);
+    fireEvent.click(within(unblockDialog).getByRole('button', { name: 'Unblock' }));
     await settle(app);
     expect(setBlocked).toHaveBeenLastCalledWith(conversationId, false);
     expect(bar()).toBeNull();
     expect(composer()).not.toBeNull();
+  });
+
+  it('blocking a group request blocks and leaves it, keeping its history, and says so first', async () => {
+    const { snowdrop: app, conversationId } = await open('request-group');
+    const setBlocked = vi.spyOn(app.backend, 'setBlocked');
+    const leave = vi.spyOn(app.backend, 'leaveGroup');
+    const kept = await app.repository.count(conversationId);
+    expect(kept).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole('button', { name: 'Block' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('Block and Leave Thursday Wheel Club?')).toBeTruthy();
+    expect(leave).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Block' }));
+    await settle(app);
+    expect(setBlocked).toHaveBeenCalledWith(conversationId, true);
+    expect(leave).toHaveBeenCalledWith(conversationId, []);
+    const group = app.stores.conversations.getState().byId[conversationId];
+    expect(group).toMatchObject({ blocked: true, left: true });
+    expect(await app.repository.count(conversationId)).toBeGreaterThanOrEqual(kept);
+    expect(screen.getByRole('region', { name: 'Blocked conversation' })).toBeTruthy();
   });
 
   it('keeps the request, with a message, when the answer fails; Accept can be tried again', async () => {

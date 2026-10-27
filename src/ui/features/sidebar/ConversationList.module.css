@@ -57,3 +57,63 @@
   font-size: var(--snowdrop-font-size-sm);
   text-align: center;
 }
+
+/* "Archived chats": the entry under the list, and the view it opens. */
+.archiveEntry {
+  display: flex;
+  align-items: center;
+  gap: var(--snowdrop-space-4);
+  width: calc(100% - var(--snowdrop-space-3) * 2);
+  min-height: 36px;
+  margin: var(--snowdrop-space-4) var(--snowdrop-space-3) 0;
+  padding: var(--snowdrop-space-1) var(--snowdrop-space-3);
+  border-radius: var(--snowdrop-radius-sm);
+  color: var(--snowdrop-text-muted);
+  text-align: left;
+  transition:
+    background-color var(--snowdrop-duration-fast) var(--snowdrop-ease),
+    color var(--snowdrop-duration-fast) var(--snowdrop-ease);
+}
+
+.archiveEntry:hover {
+  background: var(--snowdrop-bg-hover);
+  color: var(--snowdrop-text);
+}
+
+.archiveEntry:focus-visible {
+  outline-offset: -2px;
+}
+
+.archiveLabel {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--snowdrop-font-size-sm);
+}
+
+.archiveCount {
+  color: var(--snowdrop-text-faint);
+  font-size: var(--snowdrop-font-size-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.archiveHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--snowdrop-space-3);
+  min-height: 32px;
+  margin: var(--snowdrop-space-4) var(--snowdrop-space-3) var(--snowdrop-space-2)
+    var(--snowdrop-space-3);
+}
+
+.archiveTitle {
+  color: var(--snowdrop-text-strong);
+  font-size: var(--snowdrop-font-size-sm);
+  font-weight: var(--snowdrop-font-weight-semibold);
+}
+
+.archiveHint {
+  margin: 0 var(--snowdrop-space-5) var(--snowdrop-space-3);
+  color: var(--snowdrop-text-faint);
+  font-size: var(--snowdrop-font-size-xs);
+  line-height: 1.45;
+}

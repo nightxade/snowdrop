@@ -8,7 +8,7 @@
  * own (no `respondToMessageRequest`) just means the answer is local.
  */
 import type { ChatBackend } from '@/core/backend';
-import { parseConversationId, type ConversationId } from '@/core/domain';
+import { mustChooseNewAdmin, parseConversationId, type ConversationId } from '@/core/domain';
 import type { Clock } from '@/core/lib';
 import type { MessageRepository } from '@/core/persistence';
 import { NO_UNREAD, type Stores } from '@/core/stores';
@@ -30,6 +30,11 @@ export class MessageRequestService {
 
   constructor(private readonly deps: MessageRequestServiceDeps) {
     this.onError = deps.onError ?? consoleReporter;
+  }
+
+  /** Whether the connected backend can block and unblock (menus hide the rest). */
+  get canBlock(): boolean {
+    return this.deps.backend.setBlocked !== undefined;
   }
 
   /** Accepts a request: profile sharing starts, the phone is told, receipts for read messages go out. */
@@ -70,12 +75,17 @@ export class MessageRequestService {
     return true;
   }
 
-  /** Blocks the sender (or group). The conversation stays, shown as blocked with an Unblock action. */
+  /**
+   * Blocks the sender (or group). The conversation stays, shown as blocked with an Unblock action,
+   * and its history is kept. Blocking a group also leaves it, as in Signal Desktop ("Block and
+   * Leave"); a group the user can't leave yet (the only admin) is blocked but not left.
+   */
   async block(id: ConversationId): Promise<boolean> {
     const { backend } = this.deps;
     if (!this.known(id)) return false;
     if (!(await this.ask('block', () => backend.setBlocked?.(id, true)))) return false;
     this.markBlocked(id, true);
+    await this.leaveBlockedGroup(id);
     return true;
   }
 
@@ -90,8 +100,32 @@ export class MessageRequestService {
     return true;
   }
 
+  /** A conversation on screen, or (for a person) a contact the backend lists, such as a blocked one with no chat. */
   private known(id: ConversationId): boolean {
-    return this.deps.stores.conversations.getState().byId[id] !== undefined;
+    const { stores } = this.deps;
+    if (stores.conversations.getState().byId[id] !== undefined) return true;
+    const parsed = parseConversationId(id);
+    return (
+      parsed?.kind === 'direct' && stores.contacts.getState().byId[parsed.target] !== undefined
+    );
+  }
+
+  private async leaveBlockedGroup(id: ConversationId): Promise<void> {
+    const { backend, stores } = this.deps;
+    const group = stores.conversations.getState().byId[id];
+    const selfId = stores.session.getState().self?.id ?? null;
+    if (!group || group.kind !== 'group' || group.left || !backend.leaveGroup) return;
+    if (!selfId || !group.memberIds.includes(selfId) || mustChooseNewAdmin(group, selfId)) return;
+    if (!(await this.ask('leave a blocked group', () => backend.leaveGroup?.(id, [])))) return;
+    // The backend announces the left group itself; this only makes sure of it.
+    const now = stores.conversations.getState().byId[id];
+    if (now && !now.left)
+      stores.conversations.getState().upsert({
+        ...now,
+        memberIds: now.memberIds.filter((m) => m !== selfId),
+        adminIds: now.adminIds.filter((m) => m !== selfId),
+        left: true,
+      });
   }
 
   private async ask(what: string, call: () => Promise<void> | undefined): Promise<boolean> {

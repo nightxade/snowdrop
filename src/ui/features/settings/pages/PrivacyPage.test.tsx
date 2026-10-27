@@ -94,6 +94,13 @@ describe('Settings → Privacy & security', () => {
     expect(screen.queryByRole('heading', { name: 'Danger zone' })).toBeNull();
     expect(screen.getByText('Send read receipts')).toBeTruthy();
   });
+
+  it('has a Blocked section, with its empty state', async () => {
+    snowdrop = await bootSnowdrop();
+    renderWithSnowdrop(snowdrop, <PrivacyPage />);
+    expect(screen.getByRole('heading', { name: 'Blocked' })).toBeTruthy();
+    expect(screen.getByText('No one is blocked')).toBeTruthy();
+  });
 });
 
 describe('Settings → Privacy: following the phone', () => {

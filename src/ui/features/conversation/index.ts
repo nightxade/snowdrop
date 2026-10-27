@@ -7,6 +7,7 @@ export {
   ensureDirectConversation,
   markRead,
   markUnread,
+  openBlockDialog,
   MUTE_OPTIONS,
   muteState,
   openConversation,
@@ -28,3 +29,13 @@ export {
 export { useConversationMenu } from './useConversationMenu';
 export { pluginMenuEntries } from './pluginMenu';
 export { formatPhone } from './formatPhone';
+export { BlockDialog } from './BlockDialog';
+export { blockMenuEntries } from './blockMenu';
+export {
+  blockCopy,
+  blockedNotice,
+  canBlock,
+  readBlockTarget,
+  useBlockTarget,
+  type BlockTarget,
+} from './blocking';

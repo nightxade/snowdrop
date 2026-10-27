@@ -553,16 +553,21 @@ export class MockBackend implements ChatBackend {
   async setBlocked(conversationId: ConversationId, blocked: boolean): Promise<void> {
     await this.delay();
     this.assertOnline();
-    const conv = this.requireConversation(conversationId);
+    // A person can be (un)blocked without a chat with them, as with signal-cli.
+    const parsed = parseConversationId(conversationId);
+    const conv =
+      parsed?.kind === 'direct' && !this.world.conversations.has(conversationId)
+        ? undefined
+        : this.requireConversation(conversationId);
     this.requestResponses.push({ conversationId, response: blocked ? 'block' : 'unblock' });
-    if (conv.kind === 'group') {
+    if (conv?.kind === 'group') {
       const next: Conversation = { ...conv, blocked };
       if (!blocked) delete next.blocked;
       this.world.conversations.set(conversationId, next);
       this.emitter.emit('conversationUpdated', structuredClone(next));
       return;
     }
-    const peer = conv.memberIds.find((id) => id !== this.world.self.id);
+    const peer = conv ? conv.memberIds.find((id) => id !== this.world.self.id) : parsed?.target;
     // Unblocking is also accepting, like Signal's own clients.
     this.updateContact(peer, { blocked, ...(blocked ? {} : { profileSharing: true }) });
   }

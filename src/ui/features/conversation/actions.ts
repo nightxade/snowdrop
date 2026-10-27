@@ -101,7 +101,7 @@ export function archive(app: AppServices, id: ConversationId, archived: boolean)
       app.stores.ui.setState({ selectedConversationBySpace: rest });
     }
     app.stores.ui.getState().pushToast({
-      message: 'Conversation archived. Find it under Archived in Home.',
+      message: 'Conversation archived. Find it under Archived chats at the bottom of the list.',
       kind: 'info',
       source: 'core',
     });
@@ -156,6 +156,18 @@ export async function updateConversation(
       source: 'core',
     });
   return ok;
+}
+
+/**
+ * Opens the block / unblock confirmation (`BlockDialog`). Waits a frame so the
+ * menu or popover that asked has closed and handed focus back first.
+ */
+export function openBlockDialog(app: AppServices, id: ConversationId, unblock: boolean): void {
+  requestAnimationFrame(() => {
+    app.stores.ui
+      .getState()
+      .openModal({ type: 'blockConversation', props: { conversationId: id, unblock } });
+  });
 }
 
 /** The group dialogs `ModalHost` knows (they live in the groups feature, loaded when first opened). */

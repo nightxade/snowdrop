@@ -7,6 +7,7 @@ import { SettingRow } from '../rows/SettingRow';
 import { SettingsSection } from '../rows/SettingsSection';
 import { useSettingsSection } from '../useSettingsSection';
 import { phoneSettingNote } from '../phoneSettingNote';
+import { BlockedList } from './BlockedList';
 import { EncryptionSection } from './EncryptionSection';
 import styles from './pages.module.css';
 
@@ -101,6 +102,16 @@ export function PrivacyPage() {
             />
           )}
         />
+      </SettingsSection>
+      <SettingsSection id="blocked" title="Blocked">
+        <SettingRow
+          id="privacy.blocked"
+          label="Blocked people and groups"
+          description="Blocked people can’t call you or send you messages. Blocking a group leaves it; its messages stay on this device. Blocks sync with your phone."
+          stacked
+        >
+          <BlockedList />
+        </SettingRow>
       </SettingsSection>
       <SettingsSection id="links" title="Links">
         <SettingRow

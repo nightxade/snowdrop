@@ -136,6 +136,13 @@ export const SETTINGS_PAGES: SettingsPageDef[] = [
         keywords: ['silent', 'typing'],
       },
       {
+        id: 'privacy.blocked',
+        section: 'blocked',
+        label: 'Blocked people and groups',
+        description: 'See who you blocked, and unblock them.',
+        keywords: ['block', 'unblock', 'blocked contacts'],
+      },
+      {
         id: 'privacy.clearUrls',
         section: 'links',
         label: 'Strip tracking parameters from links',

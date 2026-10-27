@@ -88,7 +88,10 @@ export interface LocalState extends LocalData {
   patchConversation(id: ConversationId, patch: Partial<LocalConversationState>): void;
   setPinned(id: ConversationId, pinned: boolean): void;
   setMuted(id: ConversationId, muted: MuteState): void;
+  /** Archiving unpins and pinning unarchives, as in Signal Desktop. */
   setArchived(id: ConversationId, archived: boolean): void;
+  /** New activity (a message arrived or was sent) brings an archived chat back; no-op for any other. */
+  unarchive(id: ConversationId): void;
   /** Local only. Clearing a conversation that isn't marked changes nothing. */
   setMarkedUnread(id: ConversationId, markedUnread: boolean): void;
   /** Empty/whitespace-only drafts are removed. */
@@ -160,13 +163,16 @@ export function createLocalStore(initial: LocalData = defaultLocalData()): Local
       });
     },
     setPinned: (id, pinned) => {
-      get().patchConversation(id, { pinned });
+      get().patchConversation(id, pinned ? { pinned, archived: false } : { pinned });
     },
     setMuted: (id, muted) => {
       get().patchConversation(id, { muted });
     },
     setArchived: (id, archived) => {
-      get().patchConversation(id, { archived });
+      get().patchConversation(id, archived ? { archived, pinned: false } : { archived });
+    },
+    unarchive: (id) => {
+      if (get().conversations[id]?.archived === true) get().setArchived(id, false);
     },
     setMarkedUnread: (id, markedUnread) => {
       if ((get().conversations[id]?.markedUnread === true) === markedUnread) return;

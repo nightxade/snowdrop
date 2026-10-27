@@ -93,7 +93,7 @@ export function useSidebarModel(): SidebarModel {
     return {
       space,
       sections,
-      archived: space === HOME ? archivedIds(views) : [],
+      archived: archivedIds(views, space, { spaces }),
       selected,
       catchingUp,
     };
