@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
-import { directConversationId, messageId, parseConversationId, type Message } from '@/core/domain';
+import {
+  directConversationId,
+  messageId,
+  parseConversationId,
+  systemMessageId,
+  type Message,
+} from '@/core/domain';
 import { ManualScheduler } from '@/core/lib';
 import type { BackendEvents } from '../types';
 import { MockBackend } from './MockBackend';
@@ -71,7 +77,8 @@ describe('mock world', () => {
         const m = history[i]!;
         expect(m.sentAt).toBeLessThan(NOW);
         if (i > 0) expect(m.sentAt).toBeGreaterThanOrEqual(history[i - 1]!.sentAt);
-        expect(m.id).toBe(messageId(m.authorId, m.sentAt));
+        if (m.systemAction) expect(m.id).toBe(systemMessageId(m.authorId, m.sentAt, 'decrypt'));
+        else expect(m.id).toBe(messageId(m.authorId, m.sentAt));
         expect(ids.has(m.id)).toBe(false);
         ids.add(m.id);
       }

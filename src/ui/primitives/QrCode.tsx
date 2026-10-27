@@ -3,7 +3,8 @@ import { encode as encodeQr } from 'uqr';
 import styles from './QrCode.module.css';
 
 export interface QrCodeProps {
-  value: string;
+  /** Text, or raw bytes (a safety number's scannable form is binary). */
+  value: string | readonly number[];
   /** Rendered size in CSS pixels. */
   size?: number;
   /** Accessible description of what scanning does. */

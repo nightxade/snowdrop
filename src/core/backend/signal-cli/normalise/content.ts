@@ -17,6 +17,7 @@ import {
   type CustomEmojiDelivery,
   type LinkPreview,
   type Message,
+  type SystemAction,
   type MessageStatus,
   type PollContent,
   type Quote,
@@ -249,6 +250,7 @@ export function systemMessage(
   sentAt: number,
   text: string,
   kind: string,
+  action?: SystemAction,
 ): Message {
   return {
     id: systemMessageId(meta.authorId, sentAt, kind),
@@ -263,5 +265,6 @@ export function systemMessage(
     status: 'sent',
     kind: 'system',
     systemText: text,
+    ...(action ? { systemAction: action } : {}),
   };
 }

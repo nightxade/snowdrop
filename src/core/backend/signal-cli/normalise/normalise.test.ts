@@ -617,9 +617,29 @@ describe('normaliseReceive: review fixes', () => {
       id: systemMessageId(ALICE, T0 + 7, 'decrypt'),
       conversationId: DM_ALICE,
       kind: 'system',
-      systemText:
-        "Couldn't decrypt a message from Alice. Their safety number changed — verify it on your phone.",
+      systemText: 'Safety Number with Alice has changed',
+      systemAction: { kind: 'safety-number', contactId: ALICE },
     });
+  });
+
+  it('keeps the plain wording for other decrypt failures, with no button', () => {
+    const payload = {
+      account: SELF_NUMBER,
+      exception: { message: 'No session', type: 'ProtocolNoSessionException' },
+      envelope: {
+        sourceNumber: '+15550001111',
+        sourceUuid: ALICE,
+        sourceName: 'Alice Liddell',
+        sourceDevice: 1,
+        timestamp: T0 + 7,
+      },
+    };
+    const { payload: m } = only(run(payload).events, 'message');
+    expect(m).toMatchObject({
+      kind: 'system',
+      systemText: "Couldn't decrypt a message from Alice. Check the safety number on your phone.",
+    });
+    expect(m.systemAction).toBeUndefined();
   });
 
   it('judges typing staleness by the server receive time, not the sender clock', () => {

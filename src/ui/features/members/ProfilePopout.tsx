@@ -11,7 +11,6 @@ import { localSelectors } from '@/core/stores';
 import { useObservableList, useSnowdrop } from '@/ui/hooks';
 import {
   canBlock,
-  copyText,
   formatPhone,
   openBlockDialog,
   openDirectConversation,
@@ -19,12 +18,9 @@ import {
   pluginMenuEntries,
   useBlockTarget,
 } from '@/ui/features/conversation';
+import { canViewSafetyNumber, openSafetyNumber, VerifiedBadge } from '@/ui/features/safety';
 import { Button } from '@/ui/primitives';
 import styles from './ProfilePopout.module.css';
-
-export function safetyNumberHint(name: string): string {
-  return `To verify ${name}, open your chat with them in the Signal app on your phone, tap their name, then “View safety number”, and compare it with theirs in person or over a call.`;
-}
 
 /**
  * Profile card for a contact (PLAN §4.7): identity on a header tinted with the
@@ -77,7 +73,10 @@ export function ProfilePopout({
           revealable
         />
         <div className={styles.names}>
-          <p className={styles.name}>{contact.name}</p>
+          <p className={styles.name}>
+            {contact.name}
+            {!contact.isSelf && <VerifiedBadge contactId={contact.id} />}
+          </p>
           {showProfileName && <p className={styles.profileName}>{contact.profileName}</p>}
           {isAdmin && <span className={styles.role}>Group admin</span>}
           {blocked && <span className={styles.role}>Blocked</span>}
@@ -109,17 +108,20 @@ export function ProfilePopout({
             >
               Message
             </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              fullWidth
-              icon={<ShieldCheck size={14} />}
-              onClick={() => {
-                void copyText(app, safetyNumberHint(contact.name), 'safety-number steps');
-              }}
-            >
-              Copy safety-number steps
-            </Button>
+            {canViewSafetyNumber(app, contact) && (
+              <Button
+                variant="secondary"
+                size="sm"
+                fullWidth
+                icon={<ShieldCheck size={14} />}
+                onClick={() => {
+                  openSafetyNumber(app, contact.id);
+                  onClose();
+                }}
+              >
+                View safety number
+              </Button>
+            )}
             {canBlock(app) && blockTarget && (
               <Button
                 variant="ghost"

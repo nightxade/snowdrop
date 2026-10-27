@@ -49,6 +49,7 @@ import type {
   GroupChange,
   HistoryPage,
   HistoryQuery,
+  IdentityTrust,
   MarkReadOptions,
   ReadSummary,
   MessageRef,
@@ -59,6 +60,7 @@ import type {
   ProfileUpdate,
   ReactInput,
   RecipientLookup,
+  SafetyNumber,
   SendResult,
   SendInput,
   StickerPackDetails,
@@ -93,6 +95,29 @@ export class MockBackendError extends Error {
   override name = 'MockBackendError';
 }
 
+/** A send the demo refuses like signal-cli does for a changed, unapproved key. */
+class MockUntrustedIdentityError extends MockBackendError {
+  readonly kind = 'send-failed';
+  readonly recipientFailures: { recipientId: string; reason: 'untrusted-identity' }[];
+  constructor(recipientId: string) {
+    super('Failed to send message due to untrusted identities');
+    this.recipientFailures = [{ recipientId, reason: 'untrusted-identity' }];
+  }
+}
+
+/** Fake but stable 60 digits (12 groups of 5) for the demo: not a real safety number. */
+function demoSafetyDigits(selfId: string, contactId: string, generation: number): string {
+  let h = 2166136261;
+  for (const c of `${selfId}|${contactId}|${generation}`)
+    h = Math.imul(h ^ c.charCodeAt(0), 16777619);
+  const groups: string[] = [];
+  for (let i = 0; i < 12; i++) {
+    h = Math.imul(h ^ (h >>> 15), 2246822519) + i;
+    groups.push(String((h >>> 0) % 100000).padStart(5, '0'));
+  }
+  return groups.join(' ');
+}
+
 export class MockBackend implements ChatBackend {
   readonly kind = 'mock' as const;
   readonly world: MockWorld;
@@ -120,6 +145,10 @@ export class MockBackend implements ChatBackend {
   /** Whether this mock claims to send `catchingUp` (a test turns it on to act like a patched signal-cli). */
   catchingUpSignalSupported = false;
   /** Every message-request answer, for the same reason. */
+  /** Trust per person's key; absent is `default`. Seeded from `world.untrustedIds`. */
+  private readonly identityTrust = new Map<string, IdentityTrust>();
+  /** How many times a person's key was replaced (changes their demo safety number). */
+  private readonly keyGeneration = new Map<string, number>();
   readonly requestResponses: {
     conversationId: ConversationId;
     response: MessageRequestResponse | 'block' | 'unblock';
@@ -138,6 +167,7 @@ export class MockBackend implements ChatBackend {
         now: this.clock.now(),
         ...(options.bulkMessages ? { bulk: { count: options.bulkMessages } } : {}),
       });
+    for (const id of this.world.untrustedIds) this.identityTrust.set(id, 'untrusted');
     this.liveliness = new Liveliness(
       {
         world: this.world,
@@ -280,6 +310,10 @@ export class MockBackend implements ChatBackend {
     if (!canSendToGroup(conv, this.world.self.id)) {
       throw new MockBackendError('Only admins can send messages in this group');
     }
+    const peerId =
+      conv.kind === 'direct' ? conv.memberIds.find((id) => id !== this.world.self.id) : undefined;
+    if (peerId !== undefined && this.identityTrust.get(peerId) === 'untrusted')
+      throw new MockUntrustedIdentityError(peerId);
 
     const sentAt = Math.max(this.clock.now(), this.lastSentAt + 1);
     this.lastSentAt = sentAt;
@@ -548,6 +582,47 @@ export class MockBackend implements ChatBackend {
     const peer =
       conv.kind === 'direct' ? conv.memberIds.find((id) => id !== this.world.self.id) : undefined;
     this.updateContact(peer, { profileSharing: true });
+  }
+
+  // ─── Safety numbers ────────────────────────────────────────────────────
+
+  async getSafetyNumber(contactId: string): Promise<SafetyNumber | null> {
+    await this.delay();
+    this.assertOnline();
+    this.takeFailure();
+    const contact = this.world.contacts.get(contactId);
+    if (!contact || contact.isSelf) return null;
+    const digits = demoSafetyDigits(
+      this.world.self.id,
+      contactId,
+      this.keyGeneration.get(contactId) ?? 0,
+    );
+    return {
+      digits,
+      qr: Array.from(digits.replaceAll(' ', ''), (c) => c.charCodeAt(0)),
+      trust: this.identityTrust.get(contactId) ?? 'default',
+    };
+  }
+
+  async verifyIdentity(contactId: string, digits: string): Promise<void> {
+    const current = await this.getSafetyNumber(contactId);
+    if (!current || current.digits !== digits)
+      throw Object.assign(new MockBackendError('The safety number does not match'), {
+        kind: 'user',
+      });
+    this.identityTrust.set(contactId, 'verified');
+  }
+
+  async approveIdentity(contactId: string): Promise<void> {
+    const current = await this.getSafetyNumber(contactId);
+    if (!current) throw Object.assign(new MockBackendError('No key'), { kind: 'user' });
+    this.identityTrust.set(contactId, 'default');
+  }
+
+  /** Test hook: the person's key changed and the user hasn't approved it. */
+  changeIdentity(contactId: string): void {
+    this.keyGeneration.set(contactId, (this.keyGeneration.get(contactId) ?? 0) + 1);
+    this.identityTrust.set(contactId, 'untrusted');
   }
 
   async setBlocked(conversationId: ConversationId, blocked: boolean): Promise<void> {

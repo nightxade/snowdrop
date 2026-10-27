@@ -95,8 +95,36 @@ export interface SendServiceDeps {
   pendingOps?: PendingOpsBuffer;
   /** Marks a conversation read the way reading it does (receipts and read sync included); sending a reply reads what came before it. */
   readConversation?: (conversationId: ConversationId) => Promise<void>;
+  /**
+   * A send stopped because someone's safety number changed (the message is now
+   * `failed` and lists them in `blockedByIdentity`): the app opens the review
+   * dialog. Called for sends the user just made or retried, never on restore.
+   */
+  onIdentityBlocked?: (blocked: {
+    conversationId: ConversationId;
+    nonce: string;
+    contactIds: string[];
+  }) => void;
   newNonce?: () => string;
   onError?: ErrorReporter;
+}
+
+/**
+ * The people a failed send was stopped for because their safety number changed:
+ * read structurally off an error that carries `recipientFailures` (the signal-cli
+ * adapter's does), so core never names an adapter. Empty for any other failure.
+ */
+function untrustedRecipients(error: unknown): string[] {
+  if (typeof error !== 'object' || error === null || !('recipientFailures' in error)) return [];
+  const failures: unknown = error.recipientFailures;
+  if (!Array.isArray(failures)) return [];
+  const ids = new Set<string>();
+  for (const f of failures as unknown[]) {
+    if (typeof f !== 'object' || f === null) continue;
+    const { recipientId, reason } = f as { recipientId?: unknown; reason?: unknown };
+    if (reason === 'untrusted-identity' && typeof recipientId === 'string') ids.add(recipientId);
+  }
+  return [...ids];
 }
 
 export class NotSignedInError extends Error {
@@ -442,7 +470,10 @@ export class SendService {
     // both pass the guard above and both call attempt().
     out.inFlight = true;
     try {
-      const setPending = (m: Message): Message => ({ ...m, status: 'pending' });
+      const setPending = (m: Message): Message => {
+        const { blockedByIdentity: _blocked, ...rest } = m;
+        return { ...rest, status: 'pending' };
+      };
       this.deps.stores.messages
         .getState()
         .update(conversationId, pendingMessageId(nonce), setPending);
@@ -475,10 +506,21 @@ export class SendService {
       result = await backend.send(out.input);
     } catch (error) {
       out.inFlight = false;
-      const markFailed = (m: Message): Message => ({ ...m, status: 'failed' });
+      const blocked = untrustedRecipients(error);
+      const markFailed = (m: Message): Message => ({
+        ...m,
+        status: 'failed',
+        ...(blocked.length > 0 ? { blockedByIdentity: blocked } : {}),
+      });
       stores.messages.getState().update(out.conversationId, pendingId, markFailed);
       await repository.update(pendingId, markFailed);
       this.onError(error, 'send failed');
+      if (blocked.length > 0)
+        this.deps.onIdentityBlocked?.({
+          conversationId: out.conversationId,
+          nonce,
+          contactIds: blocked,
+        });
       return;
     }
 

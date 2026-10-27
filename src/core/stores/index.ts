@@ -1,4 +1,5 @@
 import { createContactsStore, type ContactsStore } from './contacts';
+import { createIdentitiesStore, type IdentitiesStore } from './identities';
 import { createLocalStore, type LocalData, type LocalStore } from './local';
 import { createConversationsStore, type ConversationsStore } from './conversations';
 import { createMessagesStore, type MessagesStore } from './messages';
@@ -9,6 +10,7 @@ import { createTypingStore, type TypingStore } from './typing';
 import { createUiStore, type UiStore } from './ui';
 
 export * from './contacts';
+export * from './identities';
 export * from './local';
 export * from './messageRequests';
 export * from './privacy';
@@ -29,6 +31,8 @@ export interface Stores {
   /** Device-local conversation state (pin/mute/archive/draft) and contact notes. */
   local: LocalStore;
   messages: MessagesStore;
+  /** Trust level of people's keys, as last read (the verified badge). */
+  identities: IdentitiesStore;
   typing: TypingStore;
   spaces: SpacesStore;
   ui: UiStore;
@@ -50,6 +54,7 @@ export function createStores(init: StoresInit = {}): Stores {
     conversations: createConversationsStore(),
     local: createLocalStore(init.local),
     messages: createMessagesStore(init.windowCap),
+    identities: createIdentitiesStore(),
     typing: createTypingStore(),
     spaces: createSpacesStore(init.spaces),
     ui: createUiStore(),

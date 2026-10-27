@@ -5,7 +5,8 @@ import { CoreCommand, NavCommand } from '@/core/commands';
 import { formatDuration, type ConversationId } from '@/core/domain';
 import { isMuted, uiSelectors } from '@/core/stores';
 import { useSnowdrop, useKeybindLabel, useShellLayout } from '@/ui/hooks';
-import { ConversationAvatar, useConversationView } from '@/ui/features/conversation';
+import { ConversationAvatar, useConversationView, usePeer } from '@/ui/features/conversation';
+import { VerifiedBadge } from '@/ui/features/safety';
 import { Divider, IconButton, Popover, Tooltip } from '@/ui/primitives';
 import { useGalleryOpen, useSearchOpen } from './ChatController';
 import { ConversationDetails } from './ConversationDetails';
@@ -26,6 +27,7 @@ export const ChatHeader = memo(function ChatHeader({
   const galleryOpen = useGalleryOpen();
   const searchKey = useKeybindLabel(CoreCommand.SearchConversation);
   const conversation = useConversationView(conversationId);
+  const peer = usePeer(conversation);
   const membersOpen = useStore(stores.ui, uiSelectors.memberListOpen);
   const membersKey = useKeybindLabel(CoreCommand.ToggleMemberList);
   const [topicOpen, setTopicOpen] = useState(false);
@@ -65,6 +67,9 @@ export const ChatHeader = memo(function ChatHeader({
             >
               <ConversationDetails conversation={conversation} />
             </Popover>
+            {conversation.kind === 'direct' && peer && !peer.isSelf && (
+              <VerifiedBadge contactId={peer.id} />
+            )}
           </h1>
           {conversation.description && (
             <>

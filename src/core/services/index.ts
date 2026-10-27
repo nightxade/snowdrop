@@ -4,6 +4,7 @@ export * from './SendService';
 export * from './SyncService';
 export * from './MessageRequestService';
 export * from './GroupService';
+export * from './IdentityService';
 export * from './HistoryService';
 export * from './historyImport';
 export * from './ReceiptBuffer';

@@ -57,6 +57,7 @@ import type {
   HistoryQuery,
   HistoryReadRef,
   HistoryReadState,
+  IdentityTrust,
   LinkFlow,
   MarkReadOptions,
   ReadSummary,
@@ -70,6 +71,7 @@ import type {
   ProfileUpdate,
   ReactInput,
   RecipientLookup,
+  SafetyNumber,
   SendInput,
   SendResult,
   StickerPackDetails,
@@ -132,6 +134,7 @@ import {
   wireAccounts,
   wireFinishLink,
   wireGroupResult,
+  wireIdentities,
   wireSendResult,
   wirePhonePrivacy,
   wireStartLink,
@@ -2019,6 +2022,39 @@ export class SignalCliBackend implements ChatBackend {
     void this.directory.loadContacts(true);
   }
 
+  /**
+   * `listIdentities` for one person: their safety number (digits and scannable
+   * bytes) and trust level. Null when signal-cli holds no key for them.
+   * Never logged: the number is what the user is meant to compare.
+   */
+  async getSafetyNumber(contactId: string): Promise<SafetyNumber | null> {
+    this.assertAccount();
+    const rows = await this.rpc.call('listIdentities', { number: contactId }, wireIdentities);
+    const row = rows.find((r) => r.uuid === contactId || r.number === contactId) ?? rows[0];
+    if (!row?.safetyNumber) return null;
+    return {
+      digits: row.safetyNumber,
+      qr: row.scannableSafetyNumber ? base64Bytes(row.scannableSafetyNumber) : null,
+      trust: trustOf(row.trustLevel),
+    };
+  }
+
+  /** `trust` with `verifiedSafetyNumber`: signal-cli checks it against the key it holds. */
+  async verifyIdentity(contactId: string, digits: string): Promise<void> {
+    this.assertAccount();
+    await this.rpc.call(
+      'trust',
+      { recipient: contactId, verifiedSafetyNumber: digits },
+      ignoreResult,
+    );
+  }
+
+  /** `trust` with `trustAllKnownKeys`: accepts the current key, unverified. */
+  async approveIdentity(contactId: string): Promise<void> {
+    this.assertAccount();
+    await this.rpc.call('trust', { recipient: contactId, trustAllKnownKeys: true }, ignoreResult);
+  }
+
   /** `block` / `unblock` (signal-cli syncs both to the phone). */
   async setBlocked(conversationId: ConversationId, blocked: boolean): Promise<void> {
     this.assertAccount();
@@ -2074,6 +2110,22 @@ export class SignalCliBackend implements ChatBackend {
     if (!this.selfId) {
       throw new SignalCliError('no-account', 'Not connected to a signal-cli account');
     }
+  }
+}
+
+/** signal-cli's trust levels as Signal Desktop's states; anything unknown counts as untrusted. */
+function trustOf(level: string): IdentityTrust {
+  if (level === 'TRUSTED_VERIFIED') return 'verified';
+  if (level === 'TRUSTED_UNVERIFIED') return 'default';
+  return 'untrusted';
+}
+
+/** Bytes of a base64 string; null when it isn't valid base64. */
+function base64Bytes(value: string): number[] | null {
+  try {
+    return Array.from(atob(value), (c) => c.charCodeAt(0));
+  } catch {
+    return null;
   }
 }
 

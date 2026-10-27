@@ -241,6 +241,26 @@ export interface RecipientFailure {
 }
 
 /**
+ * How much the user trusts a person's current key, as Signal Desktop shows it:
+ * `verified` (they compared the safety number and marked it), `default` (the
+ * key is accepted but not verified), or `untrusted` (a new key the user hasn't
+ * approved yet: messages to them are held back until they do).
+ */
+export type IdentityTrust = 'verified' | 'default' | 'untrusted';
+
+/**
+ * A person's safety number with the user. `digits` is 12 groups of 5 digits
+ * separated by spaces (the grouping Signal Desktop shows) and `qr` the bytes
+ * their phone's scanner reads, or null when the backend can't make one.
+ * Sensitive only in that the user is meant to compare it: never log it.
+ */
+export interface SafetyNumber {
+  digits: string;
+  qr: readonly number[] | null;
+  trust: IdentityTrust;
+}
+
+/**
  * Result of a send. Adapters throw when nobody received the message; partial
  * failures in groups are reported per recipient and the message counts as sent.
  */
@@ -561,6 +581,27 @@ export interface ChatBackend {
     conversationId: ConversationId,
     response: MessageRequestResponse,
   ): Promise<void>;
+  /**
+   * The safety number between the user and a person, with how far their key is
+   * trusted (Signal Desktop's "View safety number"). Null when there is no key
+   * yet (nobody has exchanged messages with them), which can't be verified.
+   * Read-only; rejects when the backend can't be reached. The three safety
+   * number methods go together.
+   */
+  getSafetyNumber?(contactId: string): Promise<SafetyNumber | null>;
+  /**
+   * "Mark as verified": trusts the person's key as verified, but only if
+   * `digits` (the safety number the user compared) is still the number for the
+   * key held. Rejects with `kind: 'user'` when it no longer is (their key
+   * changed in between), changing nothing.
+   */
+  verifyIdentity?(contactId: string, digits: string): Promise<void>;
+  /**
+   * Accepts the person's current key without verifying it, which is both
+   * Desktop's "Send anyway" after a safety number change and "Clear
+   * verification". Their held-back messages, and ours, can then go through.
+   */
+  approveIdentity?(contactId: string): Promise<void>;
   /** Blocks or unblocks a contact or group (synced to the phone). Optional like the above. */
   setBlocked?(conversationId: ConversationId, blocked: boolean): Promise<void>;
 

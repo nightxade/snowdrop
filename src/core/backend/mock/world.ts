@@ -13,6 +13,7 @@ import {
   groupConversationId,
   messageId,
   parseMarkdownToRanges,
+  systemMessageId,
   MENTION_PLACEHOLDER,
   type Attachment,
   type Contact,
@@ -56,6 +57,12 @@ export interface MockWorld {
   pools: Map<ConversationId, readonly string[]>;
   /** Demo-only local organisation (pins/mutes are device-local in Snowdrop). */
   defaultLocal: { pinned: ConversationId[]; muted: ConversationId[] };
+  /**
+   * People whose key the demo says changed and the user hasn't approved: the
+   * safety-number review dialog appears when sending to them. One person, so
+   * the demo can show it.
+   */
+  untrustedIds: Set<string>;
   defaultSpaces: {
     name: string;
     emoji: string;
@@ -723,6 +730,7 @@ export function buildWorld({ seed, now, bulk }: WorldOptions): MockWorld {
     lively,
     pools,
     defaultSpaces,
+    untrustedIds: new Set(),
     defaultLocal: {
       pinned: CONVERSATIONS.filter((c) => c.pinned).flatMap(
         (c) => conversationIds.get(c.key) ?? [],
@@ -731,7 +739,37 @@ export function buildWorld({ seed, now, bulk }: WorldOptions): MockWorld {
     },
   };
   buildRequests(world, seed, now);
+  buildIdentityChange(world, 'annika');
   return world;
+}
+
+/**
+ * One demo person's safety number "changed": a system line closes their chat
+ * (with the View safety number button) and their key starts untrusted.
+ */
+function buildIdentityChange(world: MockWorld, key: string): void {
+  const personId = world.personIds.get(key);
+  const conversationId = personId ? world.conversationIds.get(`dm-${key}`) : undefined;
+  const history = conversationId ? world.histories.get(conversationId) : undefined;
+  const person = personId ? world.contacts.get(personId) : undefined;
+  if (!personId || !conversationId || !history || !person) return;
+  const sentAt = (history[history.length - 1]?.sentAt ?? 0) + 1;
+  history.push({
+    id: systemMessageId(personId, sentAt, 'decrypt'),
+    conversationId,
+    authorId: personId,
+    sentAt,
+    receivedAt: sentAt,
+    body: '',
+    ranges: [],
+    attachments: [],
+    reactions: [],
+    status: 'read',
+    kind: 'system',
+    systemText: `Safety Number with ${person.name} has changed`,
+    systemAction: { kind: 'safety-number', contactId: personId },
+  });
+  world.untrustedIds.add(personId);
 }
 
 export { renderText as renderMockText };

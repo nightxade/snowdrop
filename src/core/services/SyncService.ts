@@ -1175,6 +1175,14 @@ export class SyncService {
     // Someone the user deleted wrote again: it is a fresh message request.
     if (incoming.authorId !== this.selfId())
       stores.local.getState().clearDeleted(incoming.conversationId);
+    // A burst of held-back messages from someone whose key changed brings one
+    // "Safety Number … has changed" line, not one each: skip it while the last
+    // line in the chat is already that one.
+    if (incoming.systemAction?.kind === 'safety-number') {
+      // The key behind a verified badge just changed.
+      stores.identities.getState().setTrust(incoming.systemAction.contactId, 'untrusted');
+      if (this.repeatsLastLine(incoming)) return;
+    }
     const queued = this.pendingOps.take(incoming.id, this.deps.clock.now());
     const toStore = queued.reduce((m, op) => op(m), incoming);
     const { message, created } = await repository.upsert(toStore, mergeDuplicate);
@@ -1203,6 +1211,18 @@ export class SyncService {
     await this.updateReadState(message);
     this.events.emit('message', message);
     this.events.emit('messageArrived', { message, live });
+  }
+
+  /** Whether the newest loaded message is a system line with the same button for the same person. */
+  private repeatsLastLine(line: Message): boolean {
+    const window = this.deps.stores.messages.getState().windows[line.conversationId];
+    const lastId = window?.anchoredToPresent ? window.ids[window.ids.length - 1] : undefined;
+    const last = lastId === undefined ? undefined : window?.byId[lastId];
+    return (
+      last?.kind === 'system' &&
+      last.systemAction?.kind === line.systemAction?.kind &&
+      last.systemAction?.contactId === line.systemAction?.contactId
+    );
   }
 
   private async updateReadState(message: Message): Promise<void> {

@@ -38,6 +38,7 @@ import {
   PendingOpsBuffer,
   ReceiptBuffer,
   GroupService,
+  IdentityService,
   MessageRequestService,
   SendService,
   SyncService,
@@ -54,6 +55,7 @@ import {
   selectSpacesData,
   spacesSchema,
   totalUnread,
+  uiSelectors,
   type Stores,
 } from '@/core/stores';
 import { applyAppearance, toTheme, type ThemeDocument } from '@/core/themes';
@@ -143,6 +145,8 @@ export interface Snowdrop {
   requests: MessageRequestService;
   /** Edit, make and leave groups. */
   groups: GroupService;
+  /** Safety numbers: view, verify, clear, approve a changed key. */
+  identity: IdentityService;
   history: HistoryService;
   /** The one-time background import of the whole history archive (Settings → Data & storage). */
   historyImport: HistoryImportService;
@@ -424,6 +428,15 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     receipts,
     pendingOps,
     readConversation: (id) => sync.markConversationRead(id),
+    onIdentityBlocked: ({ conversationId, nonce, contactIds }) => {
+      identity.noteUntrusted(contactIds);
+      // The dialog only for the chat on screen; elsewhere the failed message
+      // carries a "Review safety number" action of its own.
+      if (uiSelectors.selectedConversation(stores.ui.getState()) !== conversationId) return;
+      stores.ui
+        .getState()
+        .openModal({ type: 'safetyNumberChange', props: { conversationId, nonce, contactIds } });
+    },
     onError: (error, context) => {
       sendLog.error(context, error);
     },
@@ -451,6 +464,15 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     },
   });
   const groups = new GroupService({
+    backend,
+    repository,
+    stores,
+    clock,
+    onError: (error, context) => {
+      syncLog.error(context, error);
+    },
+  });
+  const identity = new IdentityService({
     backend,
     repository,
     stores,
@@ -642,6 +664,7 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     send,
     requests,
     groups,
+    identity,
     history,
     historyImport,
     backendReady: ready,

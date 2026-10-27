@@ -14,6 +14,7 @@ import {
   openGroupModal,
   pluginMenuEntries,
 } from '@/ui/features/conversation';
+import { safetyNumberMenuEntries } from '@/ui/features/safety';
 import type { MenuEntry } from '@/ui/primitives';
 
 const ICON = 16;
@@ -105,6 +106,7 @@ export function memberMenu(
           } as const,
         ]
       : []),
+    ...safetyNumberMenuEntries(app, contact),
     ...(block.length > 0 ? [{ kind: 'separator', id: 's-block' } as const, ...block] : []),
     ...admins,
     ...(plugin.length > 0 ? [{ kind: 'separator', id: 's-plugins' } as const, ...plugin] : []),

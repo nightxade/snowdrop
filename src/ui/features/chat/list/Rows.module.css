@@ -71,6 +71,21 @@
   overflow-wrap: anywhere;
 }
 
+.systemAction {
+  margin-left: var(--snowdrop-space-4);
+  padding: 2px var(--snowdrop-space-4);
+  border: 1px solid var(--snowdrop-border-strong);
+  border-radius: var(--snowdrop-radius-full);
+  background: transparent;
+  color: var(--snowdrop-text);
+  font-size: var(--snowdrop-font-size-sm);
+  cursor: pointer;
+}
+
+.systemAction:hover {
+  background: var(--snowdrop-bg-hover);
+}
+
 .systemTime {
   margin-left: var(--snowdrop-space-3);
   color: var(--snowdrop-text-faint);

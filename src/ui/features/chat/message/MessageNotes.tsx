@@ -1,6 +1,7 @@
 import { AlertCircle } from 'lucide-react';
 import type { Message } from '@/core/domain';
 import { useSnowdrop } from '@/ui/hooks';
+import { openSafetyReview } from '@/ui/features/safety';
 import { Tooltip } from '@/ui/primitives';
 import { EditedTag } from './EditedTag';
 import * as act from './actions';
@@ -25,6 +26,21 @@ export function MessageNotes({
         <span className={styles.failed} role="status">
           <AlertCircle size={14} aria-hidden />
           Failed to send
+          {m.blockedByIdentity && m.nonce && (
+            <>
+              <span aria-hidden>·</span>
+              <button
+                type="button"
+                className={styles.action}
+                onClick={() => {
+                  if (m.nonce && m.blockedByIdentity)
+                    openSafetyReview(app, m.conversationId, m.nonce, m.blockedByIdentity);
+                }}
+              >
+                Review safety number
+              </button>
+            </>
+          )}
           <span aria-hidden>·</span>
           <button
             type="button"

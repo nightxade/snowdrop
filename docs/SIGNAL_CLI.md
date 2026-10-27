@@ -114,9 +114,11 @@ On a single-account daemon `connection.account` is required (Snowdrop reports
 - **Direct conversations** appear once a message is exchanged; groups appear immediately.
 - View-once media, payments and shared contacts are shown as a short note ("open it on your
   phone"); calls and stories are ignored. Stickers and polls are shown as themselves (see
-  [Polls](#polls)). Messages the daemon couldn't
-  decrypt (e.g. a changed safety number) appear as a system line asking you to check the
-  safety number on your phone.
+  [Polls](#polls)). A message from someone whose safety number changed is held by signal-cli
+  until you trust the new key: a "Safety Number with X has changed" line with a View Safety
+  Number button stands in for it (see [Safety numbers](#safety-numbers)). Any other message
+  the daemon couldn't decrypt appears as a system line asking you to check the safety
+  number on your phone.
 - Group updates are shown as a system line computed by comparing the group before and
   after (signal-cli does not say what changed). Several updates in a row are summarised
   in one line without naming who did what.
@@ -152,7 +154,7 @@ On a single-account daemon `connection.account` is required (Snowdrop reports
 | HTTP 403 "Forbidden: …" from `/signal-cli`                            | The dev proxy only serves the app's own origin on a loopback address. Open Snowdrop at `http://localhost:5173` (not a LAN address) and don't call the proxy from other sites.                                                                                                                             |
 | Stream stays "connecting" / status "error" right after connecting     | The event stream answered 400: the configured account doesn't exist on this daemon. Clear the account in settings (Advanced → Connection) or fix it.                                                                                                                                                      |
 | Messages from before Snowdrop was opened are missing                  | signal-cli has no history. Messages from before linking are never available. With the default `--receive-mode on-start`, messages the daemon received before Snowdrop's first connection (since the daemon started) are not buffered for Snowdrop; use `--receive-mode on-connection`.                    |
-| Sends fail with "untrusted identity"                                  | A contact's safety number changed. Verify it on your phone, or `signal-cli -a ACCOUNT trust -a NUMBER`.                                                                                                                                                                                                   |
+| Sends fail with "untrusted identity"                                  | A contact's safety number changed. Snowdrop opens "Safety Number Changes": review it, then Send anyway (see [Safety numbers](#safety-numbers)).                                                                                                                                                           |
 | Sends fail with "rate limited"                                        | Signal throttles new/linked devices; wait (the error includes the retry delay) or solve the captcha challenge with `submitRateLimitChallenge`.                                                                                                                                                            |
 | Images never load                                                     | The daemon was started with `--ignore-attachments`, or the file is larger than 100 MB (open it on your phone).                                                                                                                                                                                            |
 | A burst of old messages right after reconnecting                      | Snowdrop resumed with a saved event id the daemon doesn't know (it was restarted), so the daemon sent every event it has buffered since it started (at most 1000). Duplicates of messages Snowdrop already has are merged. If more than 1000 events arrived while Snowdrop was away, the oldest are gone. |
@@ -307,3 +309,28 @@ receive shape this builds on; `patches/signal-service-java/README.md` for the on
 (`SignalServiceDataMessage.Builder#withUnknownFields`) that made sending possible at all — the
 public send API otherwise only accepts a `SignalServiceDataMessage` with no unknown-field slot,
 and the raw-`Content` escape hatch (`resendContent`) has no group-send equivalent.
+
+## Safety numbers
+
+Snowdrop shows the same safety number Signal Desktop does (View safety number in a person's
+profile, member menu and chat details): the QR code and the 60 digits in 12 groups of five,
+with Mark as verified or Clear verification.
+
+- `listIdentities` (for one person only) gives the digits, the scannable bytes for the QR code
+  and the trust level: `TRUSTED_VERIFIED` is Desktop's verified, `TRUSTED_UNVERIFIED` its
+  default, `UNTRUSTED` a new key you haven't approved.
+- Mark as verified is `trust` with `verifiedSafetyNumber`: signal-cli checks the digits you
+  compared against the key it holds, so a key that changed meanwhile is refused and Snowdrop
+  shows Desktop's "has changed" notice with the new number.
+- Clear verification, and Send anyway, are `trust` with `trustAllKnownKeys` for that one person:
+  signal-cli accepts their current key unverified (Desktop's "default" state). signal-cli has no
+  separate un-verify call. The Rust guard allows `trust` only for one person with one of those two
+  forms, and `listIdentities` only for one person.
+- A send stopped only by changed keys fails with `-4` and per-person `IDENTITY_FAILURE`;
+  Snowdrop then opens Desktop's "Safety Number Changes" dialog. Send anyway accepts each new key
+  (one you just verified stays verified) and sends the message again. Cancel leaves it failed,
+  with Review safety number beside Retry.
+- Incoming messages from a changed key stay in signal-cli's cache; trusting the key (either way)
+  makes it deliver them.
+- Desktop's automatic key verification (key transparency) has no signal-cli equivalent and is not
+  offered. Safety numbers are never logged.

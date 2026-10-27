@@ -2442,6 +2442,93 @@ describe('SignalCliBackend: message requests', () => {
     await backend.disconnect();
   });
 
+  describe('safety numbers', () => {
+    const DIGITS = '12345 67890 12345 67890 12345 67890 12345 67890 12345 67890 12345 67890';
+    const row = (trustLevel: string) => ({
+      number: BOB_NUMBER,
+      uuid: BOB,
+      fingerprint: '05aabbcc',
+      safetyNumber: DIGITS,
+      scannableSafetyNumber: 'AQID',
+      trustLevel,
+      addedTimestamp: 1,
+    });
+
+    it('reads one person: digits, QR bytes and the trust level as Desktop names it', async () => {
+      const { backend, daemon } = await connected();
+      for (const [level, trust] of [
+        ['TRUSTED_VERIFIED', 'verified'],
+        ['TRUSTED_UNVERIFIED', 'default'],
+        ['UNTRUSTED', 'untrusted'],
+        ['SOMETHING_NEW', 'untrusted'],
+      ] as const) {
+        daemon.handle('listIdentities', () => ({ result: [row(level)] }));
+        await expect(backend.getSafetyNumber(BOB)).resolves.toEqual({
+          digits: DIGITS,
+          qr: [1, 2, 3],
+          trust,
+        });
+      }
+      expect(daemon.callsTo('listIdentities')[0]).toEqual({ account: SELF_ACI, number: BOB });
+      await backend.disconnect();
+    });
+
+    it('answers null when there is no key or no number yet', async () => {
+      const { backend, daemon } = await connected();
+      daemon.handle('listIdentities', () => ({ result: [] }));
+      await expect(backend.getSafetyNumber(BOB)).resolves.toBeNull();
+      daemon.handle('listIdentities', () => ({
+        result: [{ ...row('UNTRUSTED'), safetyNumber: null }],
+      }));
+      await expect(backend.getSafetyNumber(BOB)).resolves.toBeNull();
+      await backend.disconnect();
+    });
+
+    it('verifies with the number the user saw, and approves with trustAllKnownKeys', async () => {
+      const { backend, daemon } = await connected();
+      daemon.reply('trust', {});
+      await backend.verifyIdentity(BOB, DIGITS);
+      await backend.approveIdentity(BOB);
+      expect(daemon.callsTo('trust')).toEqual([
+        { account: SELF_ACI, recipient: BOB, verifiedSafetyNumber: DIGITS },
+        { account: SELF_ACI, recipient: BOB, trustAllKnownKeys: true },
+      ]);
+      await backend.disconnect();
+    });
+
+    it('rejects when signal-cli refuses the verification', async () => {
+      const { backend, daemon } = await connected();
+      daemon.handle('trust', () => ({ error: { code: -1, message: 'Failed to set the trust' } }));
+      await expect(backend.verifyIdentity(BOB, DIGITS)).rejects.toMatchObject({ kind: 'user' });
+      await backend.disconnect();
+    });
+
+    it('reports a send stopped only by a changed key as an untrusted-identity failure', async () => {
+      const { backend, daemon } = await connected();
+      daemon.handle('send', () => ({
+        error: {
+          code: -4,
+          message: 'Failed to send message due to untrusted identities',
+          data: {
+            response: {
+              timestamp: T0 + 5,
+              results: [
+                { recipientAddress: { uuid: BOB, number: BOB_NUMBER }, type: 'IDENTITY_FAILURE' },
+              ],
+            },
+          },
+        },
+      }));
+      await expect(
+        backend.send({ conversationId: directConversationId(BOB), body: 'hi', ranges: [] }),
+      ).rejects.toMatchObject({
+        kind: 'send-failed',
+        recipientFailures: [{ recipientId: BOB, reason: 'untrusted-identity' }],
+      });
+      await backend.disconnect();
+    });
+  });
+
   it('lists a blocked group as blocked, and a blocked contact with the flag', async () => {
     const { backend, groups, contacts } = await connected();
     Object.assign(groups[0]!, { isBlocked: true });

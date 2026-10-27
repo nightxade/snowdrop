@@ -32,6 +32,9 @@ export const OPTIONAL_METHODS = [
   'leaveGroup',
   'respondToMessageRequest',
   'setBlocked',
+  'getSafetyNumber',
+  'verifyIdentity',
+  'approveIdentity',
   'resolveAttachmentUrl',
   'readAttachmentBlob',
   'retainAttachmentUrl',
@@ -282,6 +285,15 @@ export function deferredBackend(
   if (caps.has('setBlocked'))
     backend.setBlocked = (conversationId, blocked) =>
       call((b) => (b.setBlocked ? b.setBlocked(conversationId, blocked) : missing('setBlocked')));
+  if (caps.has('getSafetyNumber'))
+    backend.getSafetyNumber = (id) =>
+      call((b) => (b.getSafetyNumber ? b.getSafetyNumber(id) : missing('getSafetyNumber')));
+  if (caps.has('verifyIdentity'))
+    backend.verifyIdentity = (id, digits) =>
+      call((b) => (b.verifyIdentity ? b.verifyIdentity(id, digits) : missing('verifyIdentity')));
+  if (caps.has('approveIdentity'))
+    backend.approveIdentity = (id) =>
+      call((b) => (b.approveIdentity ? b.approveIdentity(id) : missing('approveIdentity')));
   if (caps.has('lookupRecipient'))
     backend.lookupRecipient = (query) =>
       call((b) => (b.lookupRecipient ? b.lookupRecipient(query) : missing('lookupRecipient')));

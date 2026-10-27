@@ -129,6 +129,17 @@ const ALLOWED_METHODS: &[&str] = &[
     // rpc_guard.rs lets through exactly one selector (`contact`, `profile`
     // or `groupId`, plus `account`) and nothing else.
     "getAvatar",
+    // Safety numbers (SignalCliBackend.ts: getSafetyNumber, setVerified,
+    // approveIdentity). `listIdentities` reads one person's key: their safety
+    // number (as digits and as the QR payload) and trust level. `trust` changes
+    // what signal-cli will encrypt to, so rpc_guard.rs lets through only the two
+    // things the UI does for one person: `verifiedSafetyNumber` (the number the
+    // user compared and chose to verify, which signal-cli checks against the key
+    // it holds) and `trustAllKnownKeys: true` (approve their current key, which
+    // is also how a verification is cleared, as Signal Desktop's "Send anyway"
+    // and "Clear verification" do). Never listIdentities for everyone.
+    "listIdentities",
+    "trust",
 ];
 
 #[cfg(test)]
@@ -844,6 +855,17 @@ mod tests {
     fn allows_reading_avatars() {
         assert!(is_allowed_method("getAvatar"));
         for method in ["getavatar", "getAvatars", "setAvatar", "getAvatar ", "retrieveAvatar"] {
+            assert!(!is_allowed_method(method), "{method:?}");
+        }
+    }
+
+    /// The safety-number calls are reachable, under rpc_guard's one-person rules
+    /// (see `rpc_guard::validate_request`); near-misses stay rejected.
+    #[test]
+    fn allows_reading_and_trusting_one_identity() {
+        assert!(is_allowed_method("listIdentities"));
+        assert!(is_allowed_method("trust"));
+        for method in ["listidentities", "Trust", "trust ", "untrust", "trustIdentity", "getIdentities"] {
             assert!(!is_allowed_method(method), "{method:?}");
         }
     }

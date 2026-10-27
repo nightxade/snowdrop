@@ -8,6 +8,7 @@ import {
   Link2,
   LogOut,
   Pencil,
+  ShieldCheck,
   Timer,
   UserPlus,
 } from 'lucide-react';
@@ -32,6 +33,7 @@ import {
   usePeer,
   type GroupModalType,
 } from '@/ui/features/conversation';
+import { canViewSafetyNumber, openSafetyNumber, VerifiedBadge } from '@/ui/features/safety';
 import { Button, PopoverClose } from '@/ui/primitives';
 import { useChatController } from './ChatController';
 import styles from './ConversationDetails.module.css';
@@ -59,6 +61,7 @@ export function ConversationDetails({ conversation }: { conversation: Conversati
   const left = conversation.left === true;
   const blockTarget = useBlockTarget(conversation.id);
   const showBlock = canBlock(app) && blockTarget !== undefined && !blockTarget.self;
+  const safetyPeer = !isGroup && peer && canViewSafetyNumber(app, peer) ? peer : undefined;
   const announcement = conversation.permissions?.sendMessages === 'only-admins';
 
   const open = (type: GroupModalType) => () => {
@@ -93,7 +96,10 @@ export function ConversationDetails({ conversation }: { conversation: Conversati
       <div className={styles.top}>
         <ConversationAvatar conversation={conversation} size={48} />
         <div className={styles.names}>
-          <p className={styles.title}>{conversation.title}</p>
+          <p className={styles.title}>
+            {conversation.title}
+            {!isGroup && peer && !peer.isSelf && <VerifiedBadge contactId={peer.id} />}
+          </p>
           <p className={styles.meta}>
             {isGroup
               ? `Group, ${conversation.memberIds.length} members`
@@ -139,6 +145,24 @@ export function ConversationDetails({ conversation }: { conversation: Conversati
             </Button>
           </PopoverClose>
         </li>
+        {safetyPeer && (
+          <li>
+            <PopoverClose asChild>
+              <Button
+                size="sm"
+                variant="ghost"
+                fullWidth
+                className={styles.action}
+                icon={<ShieldCheck size={14} />}
+                onClick={() => {
+                  openSafetyNumber(app, safetyPeer.id);
+                }}
+              >
+                <span className={styles.actionLabel}>View safety number</span>
+              </Button>
+            </PopoverClose>
+          </li>
+        )}
       </ul>
       {(canEdit || canAdd || showLink || canManage) && (
         <ul className={styles.actionList} aria-label="Group settings">

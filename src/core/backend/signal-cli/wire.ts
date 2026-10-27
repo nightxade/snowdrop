@@ -395,6 +395,24 @@ export const wireUserStatuses = list(
   }),
 );
 
+/**
+ * `listIdentities` rows (ListIdentitiesCommand.JsonIdentity): one per known key.
+ * Only the safety number (as digits and as the scannable bytes, base64) and the
+ * trust level (`UNTRUSTED | TRUSTED_UNVERIFIED | TRUSTED_VERIFIED`, kept as a
+ * string so a newer value still reads) are decoded; the key's own fingerprint
+ * deliberately never leaves this decoder.
+ */
+export const wireIdentities = list(
+  object({
+    number: optStr,
+    uuid: optStr,
+    safetyNumber: optStr,
+    scannableSafetyNumber: optStr,
+    trustLevel: withDefault(str, 'UNTRUSTED'),
+  }),
+);
+export type WireIdentity = Infer<typeof wireIdentities>[number];
+
 export const wireStartLink = object({ deviceLinkUri: str });
 export const wireFinishLink = object({ number: optStr, aci: optStr, historyTransfer: optStr });
 export const wireAttachmentData = object({ data: str });

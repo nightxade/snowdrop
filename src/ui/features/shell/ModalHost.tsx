@@ -28,6 +28,16 @@ const NewMessageDialog = lazy(() => loadNewChat().then((m) => ({ default: m.NewM
 const loadForward = () => import('@/ui/features/forward');
 const ForwardDialog = lazy(() => loadForward().then((m) => ({ default: m.ForwardDialog })));
 
+// Safety number viewer and the "Safety Number Changes" dialog: opened from menus, system lines
+// and a send that a changed safety number stopped; prefetched with the rest.
+const loadSafety = () => import('@/ui/features/safety');
+const SafetyNumberDialog = lazy(() =>
+  loadSafety().then((m) => ({ default: m.SafetyNumberDialog })),
+);
+const SafetyNumberChangeDialog = lazy(() =>
+  loadSafety().then((m) => ({ default: m.SafetyNumberChangeDialog })),
+);
+
 // Group dialogs (edit, add members, link, permissions, leave, new group): opened from the
 // chat header, the member list and New message; prefetched with the rest.
 const loadGroups = () => import('@/ui/features/groups');
@@ -94,6 +104,7 @@ export function ModalHost() {
       void loadNewChat();
       void loadForward();
       void loadGroups();
+      void loadSafety();
       void loadSpaces();
       void loadShortcuts();
     };
@@ -139,6 +150,26 @@ function modalElement(modal: Modal, close: () => void) {
         <BlockDialog
           conversationId={conversationId}
           unblock={modal.props?.unblock === true}
+          onClose={close}
+        />
+      ) : null;
+    }
+    case 'safetyNumber': {
+      const contactId = stringProp(modal.props, 'contactId');
+      return contactId ? <SafetyNumberDialog contactId={contactId} onClose={close} /> : null;
+    }
+    case 'safetyNumberChange': {
+      const conversationId = conversationProp(modal.props);
+      const nonce = stringProp(modal.props, 'nonce');
+      const ids = modal.props?.contactIds;
+      const contactIds = Array.isArray(ids)
+        ? ids.filter((x): x is string => typeof x === 'string')
+        : [];
+      return conversationId && nonce && contactIds.length > 0 ? (
+        <SafetyNumberChangeDialog
+          conversationId={conversationId}
+          nonce={nonce}
+          contactIds={contactIds}
           onClose={close}
         />
       ) : null;

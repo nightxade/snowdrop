@@ -90,16 +90,26 @@ function decryptionFailure(
   const raw = addressId(envelope.sourceUuid, envelope.sourceNumber, envelope.source);
   if (!raw || ctx.selfAliases.has(raw)) return null;
   const name = stripBidiControls(ctx.nameOf(raw) ?? envelope.sourceName ?? raw);
-  const hint =
-    type === 'UntrustedIdentityException'
-      ? 'Their safety number changed — verify it on your phone.'
-      : 'Check the safety number on your phone.';
+  if (type === 'UntrustedIdentityException') {
+    // As Signal Desktop words it, with its "View safety number" button. signal-cli
+    // holds the message until the user trusts the new key, then delivers it.
+    return {
+      kind: 'message',
+      payload: systemMessage(
+        { conversationId: directConversationId(raw), authorId: raw, receivedAt: ctx.now },
+        envelope.timestamp,
+        `Safety Number with ${name} has changed`,
+        'decrypt',
+        { kind: 'safety-number', contactId: raw },
+      ),
+    };
+  }
   return {
     kind: 'message',
     payload: systemMessage(
       { conversationId: directConversationId(raw), authorId: raw, receivedAt: ctx.now },
       envelope.timestamp,
-      `Couldn't decrypt a message from ${name}. ${hint}`,
+      `Couldn't decrypt a message from ${name}. Check the safety number on your phone.`,
       'decrypt',
     ),
   };

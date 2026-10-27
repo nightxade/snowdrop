@@ -331,6 +331,16 @@ export type MessageStatus = 'pending' | 'sent' | 'delivered' | 'read' | 'failed'
 export type MessageKind = 'normal' | 'system';
 
 /**
+ * The button a system line carries. A safety-number line ("Safety Number with
+ * X has changed") opens that person's safety number; `contactId` is the person
+ * (ACI when known, else number, as in `Contact.id`).
+ */
+export interface SystemAction {
+  kind: 'safety-number';
+  contactId: string;
+}
+
+/**
  * A recipient's furthest-reached receipt for one of our outgoing messages
  * (Message details / "Read by, Delivered to"). Never regresses, same rule as
  * `status` (see `advanceStatus`/`applyRecipientReceipt`); absent for a
@@ -393,11 +403,18 @@ export interface Message {
   status: MessageStatus;
   kind: MessageKind;
   systemText?: string;
+  /** A system line's button, if it has one (see `SystemAction`). */
+  systemAction?: SystemAction;
   pinned?: boolean;
   /** Recipients the send failed for (partial group sends); status stays 'sent'. */
   failedRecipients?: string[];
   /** Why a `failed` status happened, when it's more specific than "send failed". */
   failureReason?: string;
+  /**
+   * People whose safety number changed and stopped this send (the message is
+   * `failed`): the review dialog lists them. Cleared when the send is retried.
+   */
+  blockedByIdentity?: string[];
   /**
    * Per-recipient delivery/read state of an outgoing message (groups and
    * DMs alike), keyed by recipient id. Only ever set on messages we sent;

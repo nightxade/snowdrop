@@ -164,15 +164,98 @@ fn validate_avatar_params(params: Option<&Map<String, Value>>) -> Result<(), Err
     }
 }
 
+/// `listIdentities` without `number` lists every key signal-cli knows, each with
+/// its safety number computed (thousands of hash rounds apiece). The UI only
+/// ever asks about one person, so exactly that is allowed: `number` (a contact's
+/// id or phone number, a non-empty string) and the `account` selector.
+fn validate_list_identities_params(params: Option<&Map<String, Value>>) -> Result<(), Error> {
+    let reject = || {
+        Error::new(ErrorKind::Config, "Snowdrop may only ask listIdentities about one person's safety number.")
+    };
+    let Some(params) = params else { return Err(reject()) };
+    let mut subjects = 0;
+    for (key, value) in params {
+        let key = canonical(key);
+        if key == "account" {
+            if !matches!(value, Value::String(_) | Value::Null) {
+                return Err(reject());
+            }
+        } else if key == "number" && value.as_str().is_some_and(|s| !s.is_empty()) {
+            subjects += 1;
+        } else {
+            return Err(reject());
+        }
+    }
+    if subjects == 1 {
+        Ok(())
+    } else {
+        Err(reject())
+    }
+}
+
+/// A safety number as signal-cli prints it: 60 digits, usually in groups of
+/// five. Nothing else (a 66-character fingerprint, or base64 of the scannable
+/// form, which signal-cli also parses) is something the UI sends.
+fn is_safety_number(s: &str) -> bool {
+    let digits: Vec<char> = s.chars().filter(|c| *c != ' ').collect();
+    digits.len() == 60 && digits.iter().all(char::is_ascii_digit)
+}
+
+/// `trust` changes who signal-cli will encrypt to, so it is held to the two
+/// things the UI does: mark one person's key verified (`verifiedSafetyNumber`,
+/// the number the user compared and chose to verify, which signal-cli checks
+/// against the key it holds) and approve or un-verify one person's current key
+/// (`trustAllKnownKeys: true`, what Signal Desktop's "Send anyway" and "Clear
+/// verification" do). `recipient` is one non-empty string, exactly one of the
+/// two selectors is present, and `account` is the multi-account selector.
+fn validate_trust_params(params: Option<&Map<String, Value>>) -> Result<(), Error> {
+    let reject = || {
+        Error::new(
+            ErrorKind::Config,
+            "Snowdrop may only mark one person's safety number verified or approve their current key through trust.",
+        )
+    };
+    let Some(params) = params else { return Err(reject()) };
+    let (mut recipients, mut selectors) = (0, 0);
+    for (key, value) in params {
+        let ok = match canonical(key).as_str() {
+            "account" => matches!(value, Value::String(_) | Value::Null),
+            "recipient" => {
+                recipients += 1;
+                value.as_str().is_some_and(|s| !s.is_empty())
+            }
+            "verifiedsafetynumber" => {
+                selectors += 1;
+                value.as_str().is_some_and(is_safety_number)
+            }
+            "trustallknownkeys" => {
+                selectors += 1;
+                *value == Value::Bool(true)
+            }
+            _ => false,
+        };
+        if !ok {
+            return Err(reject());
+        }
+    }
+    if recipients == 1 && selectors == 1 {
+        Ok(())
+    } else {
+        Err(reject())
+    }
+}
+
 /// Every request's parameter check: the file-reference rules for all methods,
-/// plus the strict key allow-lists for `updateConfiguration`, `updateProfile`
-/// and `getAvatar`.
+/// plus the strict key allow-lists for `updateConfiguration`, `updateProfile`,
+/// `getAvatar`, `listIdentities` and `trust`.
 pub fn validate_request(method: &str, params: Option<&Map<String, Value>>) -> Result<(), Error> {
     validate_params(params)?;
     match method {
         "updateConfiguration" => validate_configuration_params(params)?,
         "updateProfile" => validate_profile_params(params)?,
         "getAvatar" => validate_avatar_params(params)?,
+        "listIdentities" => validate_list_identities_params(params)?,
+        "trust" => validate_trust_params(params)?,
         _ => {}
     }
     Ok(())
@@ -445,6 +528,92 @@ mod tests {
         assert!(check_request("sendReceipt", params).is_ok());
         // The usual file-reference rules still apply to it.
         assert!(check_request("sendReceipt", json!({ "syncOnly": true, "attachment": "/etc/passwd" })).is_err());
+    }
+
+    const NUMBER: &str = "12345 67890 12345 67890 12345 67890 12345 67890 12345 67890 12345 67890";
+
+    #[test]
+    fn list_identities_takes_exactly_one_person() {
+        for ok in [
+            json!({ "number": "11111111-2222-3333-4444-555555555555" }),
+            json!({ "number": "+15550001", "account": "+15550002" }),
+            json!({ "Number": "+15550001", "account": null }),
+        ] {
+            assert!(check_request("listIdentities", ok.clone()).is_ok(), "{ok}");
+        }
+        for bad in [
+            json!({}),
+            json!({ "account": "+15550002" }),
+            json!({ "number": "" }),
+            json!({ "number": null }),
+            json!({ "number": ["+15550001"] }),
+            json!({ "number": 5 }),
+            json!({ "number": "+15550001", "extra": true }),
+            json!({ "number": "+15550001", "Number": "+15550002" }),
+            json!({ "number": "+15550001", "account": 5 }),
+            json!({ "number": "+15550001", "attachment": "/etc/passwd" }),
+        ] {
+            assert!(check_request("listIdentities", bad.clone()).is_err(), "{bad}");
+        }
+        assert!(validate_request("listIdentities", None).is_err());
+    }
+
+    #[test]
+    fn trust_takes_one_person_and_one_selector() {
+        for ok in [
+            json!({ "recipient": "+15550001", "verifiedSafetyNumber": NUMBER }),
+            json!({ "recipient": "11111111-2222-3333-4444-555555555555", "verified-safety-number": NUMBER, "account": "+15550002" }),
+            json!({ "recipient": "+15550001", "verifiedSafetyNumber": "1".repeat(60) }),
+            json!({ "recipient": "+15550001", "trustAllKnownKeys": true }),
+            json!({ "recipient": "+15550001", "trust-all-known-keys": true, "account": null }),
+        ] {
+            assert!(check_request("trust", ok.clone()).is_ok(), "{ok}");
+        }
+    }
+
+    #[test]
+    fn trust_rejects_everything_else() {
+        for bad in [
+            json!({}),
+            json!({ "recipient": "+15550001" }),
+            json!({ "verifiedSafetyNumber": NUMBER }),
+            json!({ "trustAllKnownKeys": true }),
+            // Both selectors, or one spelled twice.
+            json!({ "recipient": "+15550001", "verifiedSafetyNumber": NUMBER, "trustAllKnownKeys": true }),
+            json!({ "recipient": "+15550001", "verifiedSafetyNumber": NUMBER, "verified-safety-number": NUMBER }),
+            // A flag that is not a real `true`.
+            json!({ "recipient": "+15550001", "trustAllKnownKeys": false }),
+            json!({ "recipient": "+15550001", "trustAllKnownKeys": "true" }),
+            json!({ "recipient": "+15550001", "trustAllKnownKeys": 1 }),
+            json!({ "recipient": "+15550001", "trustAllKnownKeys": null }),
+            // Not a safety number: wrong length or characters, a fingerprint, scannable base64.
+            json!({ "recipient": "+15550001", "verifiedSafetyNumber": "" }),
+            json!({ "recipient": "+15550001", "verifiedSafetyNumber": "12345" }),
+            json!({ "recipient": "+15550001", "verifiedSafetyNumber": "1".repeat(59) }),
+            json!({ "recipient": "+15550001", "verifiedSafetyNumber": "1".repeat(61) }),
+            json!({ "recipient": "+15550001", "verifiedSafetyNumber": format!("{}x", "1".repeat(59)) }),
+            json!({ "recipient": "+15550001", "verifiedSafetyNumber": "a".repeat(66) }),
+            json!({ "recipient": "+15550001", "verifiedSafetyNumber": [NUMBER] }),
+            json!({ "recipient": "+15550001", "verifiedSafetyNumber": null }),
+            json!({ "recipient": "+15550001", "verifiedFingerprint": NUMBER }),
+            // One person, as a plain string.
+            json!({ "recipient": "", "trustAllKnownKeys": true }),
+            json!({ "recipient": ["+15550001"], "trustAllKnownKeys": true }),
+            json!({ "recipient": null, "trustAllKnownKeys": true }),
+            json!({ "recipient": "+15550001", "Recipient": "+15550002", "trustAllKnownKeys": true }),
+            // Nothing else rides along.
+            json!({ "recipient": "+15550001", "trustAllKnownKeys": true, "extra": true }),
+            json!({ "recipient": "+15550001", "trustAllKnownKeys": true, "account": 5 }),
+            json!({ "recipient": "+15550001", "trustAllKnownKeys": true, "attachment": "/etc/passwd" }),
+        ] {
+            assert!(check_request("trust", bad.clone()).is_err(), "{bad}");
+        }
+        assert!(validate_request("trust", None).is_err());
+    }
+
+    #[test]
+    fn the_identity_rules_apply_to_those_methods_only() {
+        assert!(check_request("send", json!({ "recipient": ["+15550001"], "trustAllKnownKeys": true })).is_ok());
     }
 
     #[test]
