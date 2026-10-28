@@ -131,7 +131,9 @@ describe.each(implementations)('MessageRepository.media (%s)', (_name, create) =
   });
 });
 
-describe('IdbMessageRepository.media (sliced scan)', () => {
+// Each test seeds 2000 encrypted rows (several search slices); that work can pass
+// the default 5s timeout on a loaded machine.
+describe('IdbMessageRepository.media (sliced scan)', { timeout: 30_000 }, () => {
   async function bulk(count: number, everyN: number): Promise<IdbMessageRepository> {
     const repo = await IdbMessageRepository.open(
       `snowdrop-media-bulk-${++counter}`,

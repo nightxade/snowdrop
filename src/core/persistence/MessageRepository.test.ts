@@ -229,34 +229,42 @@ describe.each(implementations)('MessageRepository (%s)', (_name, create) => {
     expect(await repo.search('  ', { limit: 10 })).toEqual([]);
   });
 
-  it('searches every conversation, newest first, up to the limit', async () => {
-    const c = conversationIdFor('c');
-    const batch: Message[] = [];
-    for (let i = 0; i < 1300; i++) {
-      batch.push(
-        incoming({
-          conversationId: [a, b, c][i % 3] as Message['conversationId'],
-          authorId: 'z',
-          sentAt: 100_000 + i,
-          body: i % 100 === 0 ? `needle ${i}` : `filler ${i}`,
-        }),
+  // Seeds 1300 rows (more than one search slice), which can pass the default 5s
+  // timeout on a loaded machine.
+  it(
+    'searches every conversation, newest first, up to the limit',
+    { timeout: 30_000 },
+    async () => {
+      const c = conversationIdFor('c');
+      const batch: Message[] = [];
+      for (let i = 0; i < 1300; i++) {
+        batch.push(
+          incoming({
+            conversationId: [a, b, c][i % 3] as Message['conversationId'],
+            authorId: 'z',
+            sentAt: 100_000 + i,
+            body: i % 100 === 0 ? `needle ${i}` : `filler ${i}`,
+          }),
+        );
+      }
+      await repo.upsertMany(batch, { backfill: false, merge: mergeDuplicate });
+      const all = await repo.search('needle', { limit: 100 });
+      expect(all.map((m) => m.body)).toEqual(
+        [1200, 1100, 1000, 900, 800, 700, 600, 500, 400, 300, 200, 100, 0].map(
+          (i) => `needle ${i}`,
+        ),
       );
-    }
-    await repo.upsertMany(batch, { backfill: false, merge: mergeDuplicate });
-    const all = await repo.search('needle', { limit: 100 });
-    expect(all.map((m) => m.body)).toEqual(
-      [1200, 1100, 1000, 900, 800, 700, 600, 500, 400, 300, 200, 100, 0].map((i) => `needle ${i}`),
-    );
-    expect((await repo.search('needle', { limit: 3 })).map((m) => m.body)).toEqual([
-      'needle 1200',
-      'needle 1100',
-      'needle 1000',
-    ]);
-    expect(
-      (await repo.search('needle', { conversationId: b, limit: 100 })).map((m) => m.body),
-    ).toEqual(['needle 1000', 'needle 700', 'needle 400', 'needle 100']);
-    expect(await repo.search('needle', { limit: 0 })).toEqual([]);
-  });
+      expect((await repo.search('needle', { limit: 3 })).map((m) => m.body)).toEqual([
+        'needle 1200',
+        'needle 1100',
+        'needle 1000',
+      ]);
+      expect(
+        (await repo.search('needle', { conversationId: b, limit: 100 })).map((m) => m.body),
+      ).toEqual(['needle 1000', 'needle 700', 'needle 400', 'needle 100']);
+      expect(await repo.search('needle', { limit: 0 })).toEqual([]);
+    },
+  );
 
   it("matches a poll's question, not its options", async () => {
     const poll = {

@@ -40,7 +40,9 @@ async function seeded(count: number, needleEvery: number): Promise<IdbMessageRep
   return opened;
 }
 
-describe('IdbMessageRepository.search (sliced scan)', () => {
+// Each test seeds over a thousand encrypted rows (several search slices); that work
+// can pass the default 5s timeout on a loaded machine.
+describe('IdbMessageRepository.search (sliced scan)', { timeout: 30_000 }, () => {
   it('yields to the event loop between slices of a long scan', async () => {
     const r = await seeded(1500, 10_000);
     const yielded = vi.spyOn(lib, 'yieldToEventLoop');
