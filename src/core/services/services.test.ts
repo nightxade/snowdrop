@@ -649,8 +649,11 @@ describe('SyncService: events', () => {
     expect(onError).not.toHaveBeenCalled();
     expect(consoleError).not.toHaveBeenCalled();
     // Logged exactly once, at info, with a clear message (not the raw exception text).
-    expect(consoleInfo).toHaveBeenCalledTimes(1);
-    expect(String(consoleInfo.mock.calls[0]?.[0])).toMatch(/no linked account yet/u);
+    // (The catch-up hold's own diagnostics line is a different message.)
+    const setupLines = consoleInfo.mock.calls.filter((call) =>
+      /no linked account yet/u.test(String(call[0])),
+    );
+    expect(setupLines).toHaveLength(1);
     // Tagged so other call sites that see the same rejection (App.tsx) skip it.
     expect(wasConnectionErrorReported(caught)).toBe(true);
 

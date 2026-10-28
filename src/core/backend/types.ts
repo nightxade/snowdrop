@@ -635,6 +635,13 @@ export interface ChatBackend {
    * ended by a quiet period or the ceiling, as before.
    */
   supportsCatchingUpSignal?(): boolean;
+  /**
+   * Whether `catchingUp` is strictly ordered before every message of the new
+   * connection and before the `caughtUp` that ends it (patches/signal-cli's
+   * "0027"). A drain can then be held until `caughtUp`, with no quiet period.
+   * Implies `supportsCatchingUpSignal()`. Omitted is the same as false.
+   */
+  supportsOrderedCatchingUp?(): boolean;
   /** The phone's synced privacy settings; rejects if the backend can't tell. */
   readPhonePrivacy?(): Promise<PhonePrivacySettings>;
   /**

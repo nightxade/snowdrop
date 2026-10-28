@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MockBackend } from '@/core/backend/mock';
 import { messageId, type ConversationId, type Message } from '@/core/domain';
-import { ManualScheduler } from '@/core/lib';
+import { addLogSink, ManualScheduler } from '@/core/lib';
 import { MemoryMessageRepository } from '@/core/persistence';
 import { createStores } from '@/core/stores';
 import {
@@ -13,10 +13,11 @@ import { SyncService } from './SyncService';
 
 const NOW = Date.UTC(2026, 8, 30, 15, 30);
 
-async function setup(options: { catchingUpSignal?: boolean } = {}) {
+async function setup(options: { catchingUpSignal?: boolean; ordered?: boolean } = {}) {
   const scheduler = new ManualScheduler(NOW);
   const backend = new MockBackend({ seed: 7, clock: scheduler, scheduler, latencyMs: 0 });
-  backend.catchingUpSignalSupported = options.catchingUpSignal ?? false;
+  backend.orderedCatchingUpSupported = options.ordered ?? false;
+  backend.catchingUpSignalSupported = options.catchingUpSignal ?? options.ordered ?? false;
   const stores = createStores();
   const sync = new SyncService({
     backend,
@@ -154,6 +155,200 @@ describe('catching up after signal-cli reconnects by itself', () => {
     expect(ctx.session().notificationsHeld).toBe(true);
     await drainFor(ctx, 2);
     expect(ctx.session().catchingUp).toBe(false);
+    expect(ctx.session().notificationsHeld).toBe(false);
+  });
+});
+
+/** The sync log lines written while `run` runs, as `level text`. */
+async function captureSyncLog(run: () => Promise<void> | void): Promise<string[]> {
+  const lines: string[] = [];
+  const remove = addLogSink({
+    write(level, scope, message) {
+      if (scope === 'sync') lines.push(`${level} ${message}`);
+    },
+  });
+  try {
+    await run();
+  } finally {
+    remove();
+  }
+  return lines;
+}
+
+describe('a backend that orders catchingUp before every message of the connection', () => {
+  it('holds through a long silence after catchingUp and ends only on caughtUp', async () => {
+    const ctx = await setup({ ordered: true });
+    ctx.backend.emit('catchingUp', undefined);
+    expect(ctx.session().notificationsHeld).toBe(true);
+
+    // After a wake the first queued message can take far longer than the quiet period.
+    ctx.scheduler.advance(5_000);
+    expect(ctx.session().notificationsHeld).toBe(true);
+    await ctx.arrive();
+    ctx.scheduler.advance(CATCH_UP_QUIET_MS * 4);
+    await ctx.arrive();
+    expect(ctx.session().notificationsHeld).toBe(true);
+    // The sidebar tracker keeps its own quiet behaviour: it ended long ago.
+    expect(ctx.session().catchingUp).toBe(false);
+
+    ctx.backend.emit('caughtUp', undefined);
+    await ctx.sync.idle();
+    expect(ctx.session().notificationsHeld).toBe(false);
+    expect(ctx.arrivals.map((a) => a.held)).toEqual([true, true]);
+    await ctx.arrive();
+    expect(ctx.arrivals.at(-1)!.held).toBe(false);
+  });
+
+  it('an empty queue still ends on caughtUp, after catchingUp', async () => {
+    const ctx = await setup({ ordered: true });
+    ctx.backend.emit('catchingUp', undefined);
+    ctx.scheduler.advance(10_000);
+    expect(ctx.session().notificationsHeld).toBe(true);
+    ctx.backend.emit('caughtUp', undefined);
+    await ctx.sync.idle();
+    expect(ctx.session().notificationsHeld).toBe(false);
+  });
+
+  it('ends at the long ceiling when caughtUp never comes, and says so at warn', async () => {
+    const ctx = await setup({ ordered: true });
+    const lines = await captureSyncLog(() => {
+      ctx.backend.emit('catchingUp', undefined);
+      ctx.scheduler.advance(NOTIFICATION_HOLD_CEILING_MS - 1);
+      expect(ctx.session().notificationsHeld).toBe(true);
+      ctx.scheduler.advance(1);
+    });
+    expect(ctx.session().notificationsHeld).toBe(false);
+    expect(lines).toEqual([
+      'info notification hold started {"strict":true,"restarted":false}',
+      'warn notification hold ended by its ceiling before caughtUp {"reason":"ceiling","strict":true,"messages":0}',
+    ]);
+  });
+
+  it('logs when a hold starts and ends with the reason and a count, and no content', async () => {
+    const ctx = await setup({ ordered: true });
+    const lines = await captureSyncLog(async () => {
+      ctx.backend.emit('catchingUp', undefined);
+      await ctx.arrive();
+      await ctx.arrive();
+      ctx.backend.emit('caughtUp', undefined);
+      await ctx.sync.idle();
+    });
+    expect(lines).toEqual([
+      'info notification hold started {"strict":true,"restarted":false}',
+      'info notification hold ended {"reason":"caughtUp","strict":true,"messages":2}',
+    ]);
+  });
+
+  it('a second catchingUp after a sleep restarts the hold with a full ceiling', async () => {
+    const ctx = await setup({ ordered: true });
+    ctx.backend.emit('catchingUp', undefined);
+    // The computer sleeps with the hold still open; on wake its clock is far ahead
+    // and the new connection announces itself again before anything else.
+    ctx.scheduler.advance(NOTIFICATION_HOLD_CEILING_MS - 1_000);
+    expect(ctx.session().notificationsHeld).toBe(true);
+    const lines = await captureSyncLog(() => {
+      ctx.backend.emit('catchingUp', undefined);
+    });
+    expect(lines).toEqual(['info notification hold started {"strict":true,"restarted":true}']);
+    ctx.scheduler.advance(NOTIFICATION_HOLD_CEILING_MS - 1);
+    expect(ctx.session().notificationsHeld).toBe(true);
+    ctx.scheduler.advance(1);
+    expect(ctx.session().notificationsHeld).toBe(false);
+  });
+
+  it('a hold whose ceiling already ran during the sleep is held again by the next catchingUp', async () => {
+    const ctx = await setup({ ordered: true });
+    ctx.backend.emit('catchingUp', undefined);
+    // The ceiling timer runs first on wake...
+    ctx.scheduler.advance(NOTIFICATION_HOLD_CEILING_MS);
+    expect(ctx.session().notificationsHeld).toBe(false);
+    // ...and the new connection's catchingUp comes before any of its messages.
+    ctx.backend.emit('catchingUp', undefined);
+    await ctx.arrive();
+    expect(ctx.arrivals.map((a) => a.held)).toEqual([true]);
+  });
+
+  it('a caughtUp that was already waiting when a newer catch-up began does not end it', async () => {
+    const ctx = await setup({ ordered: true });
+    ctx.backend.emit('catchingUp', undefined);
+    // The old connection's caughtUp is queued behind a message still being processed...
+    ctx.backend.deliver(ctx.build());
+    ctx.backend.emit('caughtUp', undefined);
+    // ...when the next connection announces itself.
+    const lines = await captureSyncLog(async () => {
+      ctx.backend.emit('catchingUp', undefined);
+      await ctx.sync.idle();
+    });
+    expect(ctx.session().notificationsHeld).toBe(true);
+    expect(lines).toContain('info ignored a caughtUp that belongs to an earlier catch-up');
+    // The new connection's own caughtUp ends it.
+    ctx.backend.emit('caughtUp', undefined);
+    await ctx.sync.idle();
+    expect(ctx.session().notificationsHeld).toBe(false);
+  });
+
+  describe('together with our own stream dropping and coming back', () => {
+    it('a stream drop alone on a capable backend ends by the quiet period, as there may be no caughtUp', async () => {
+      const ctx = await setup({ ordered: true });
+      ctx.backend.emit('status', 'offline');
+      ctx.backend.emit('status', 'online');
+      expect(ctx.session().notificationsHeld).toBe(true);
+      ctx.scheduler.advance(CATCH_UP_QUIET_MS);
+      expect(ctx.session().notificationsHeld).toBe(false);
+    });
+
+    it('catchingUp after the stream is back upgrades the hold, even if the quiet period already ended it', async () => {
+      const ctx = await setup({ ordered: true });
+      ctx.backend.emit('status', 'offline');
+      ctx.backend.emit('status', 'online');
+      ctx.scheduler.advance(5_000);
+      expect(ctx.session().notificationsHeld).toBe(false);
+
+      ctx.backend.emit('catchingUp', undefined);
+      expect(ctx.session().notificationsHeld).toBe(true);
+      ctx.scheduler.advance(5_000);
+      await ctx.arrive();
+      expect(ctx.arrivals.map((a) => a.held)).toEqual([true]);
+      ctx.backend.emit('caughtUp', undefined);
+      await ctx.sync.idle();
+      expect(ctx.session().notificationsHeld).toBe(false);
+    });
+
+    it('the stream coming back after catchingUp does not loosen the strict hold', async () => {
+      const ctx = await setup({ ordered: true });
+      ctx.backend.emit('catchingUp', undefined);
+      ctx.backend.emit('status', 'offline');
+      ctx.backend.emit('status', 'online');
+      ctx.scheduler.advance(5_000);
+      expect(ctx.session().notificationsHeld).toBe(true);
+      await ctx.arrive();
+      expect(ctx.arrivals.map((a) => a.held)).toEqual([true]);
+      ctx.backend.emit('caughtUp', undefined);
+      await ctx.sync.idle();
+      expect(ctx.session().notificationsHeld).toBe(false);
+    });
+  });
+});
+
+describe('older builds keep the quiet-period fallback', () => {
+  it('a build with catchingUp but without the ordering still ends the hold on the quiet period', async () => {
+    const ctx = await setup({ catchingUpSignal: true, ordered: false });
+    const lines = await captureSyncLog(() => {
+      ctx.backend.emit('catchingUp', undefined);
+      ctx.scheduler.advance(CATCH_UP_QUIET_MS);
+    });
+    expect(ctx.session().notificationsHeld).toBe(false);
+    expect(lines).toEqual([
+      'info notification hold started {"strict":false,"restarted":false}',
+      'info notification hold ended {"reason":"quiet","strict":false,"messages":0}',
+    ]);
+  });
+
+  it('a build with no catchingUp ends on the quiet period after a reconnect, as before', async () => {
+    const ctx = await setup();
+    ctx.backend.emit('status', 'offline');
+    ctx.backend.emit('status', 'online');
+    ctx.scheduler.advance(CATCH_UP_QUIET_MS);
     expect(ctx.session().notificationsHeld).toBe(false);
   });
 });

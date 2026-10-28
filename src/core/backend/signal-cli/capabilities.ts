@@ -120,6 +120,24 @@ export function supportsReadSync(version: string | undefined): boolean {
  */
 export const MIN_CATCHING_UP_SIGNAL_PATCH_LEVEL = 21;
 
+/**
+ * Whether `receiveCatchingUp` is also strictly ordered: sent on the receive
+ * thread, after the first read from a new connection returns and before any
+ * envelope from it or the `receiveCaughtUp` that follows (patches/signal-cli,
+ * "0027"). The 0025 build fired it from an asynchronous state observer, so
+ * after a wake it could arrive after the first queued messages. With the
+ * ordering, no quiet period is needed to cover that race: a notification hold
+ * can wait for `caughtUp` alone.
+ */
+export const MIN_ORDERED_CATCHING_UP_PATCH_LEVEL = 23;
+
+export function supportsOrderedCatchingUp(version: string | undefined): boolean {
+  if (!version) return false;
+  const match = SNOWDROP_PATCH_LEVEL.exec(version);
+  if (!match?.[1]) return false;
+  return Number(match[1]) >= MIN_ORDERED_CATCHING_UP_PATCH_LEVEL;
+}
+
 export function supportsCatchingUpSignal(version: string | undefined): boolean {
   if (!version) return false;
   const match = SNOWDROP_PATCH_LEVEL.exec(version);

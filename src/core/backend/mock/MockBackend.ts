@@ -144,6 +144,8 @@ export class MockBackend implements ChatBackend {
   readSyncSupported = true;
   /** Whether this mock claims to send `catchingUp` (a test turns it on to act like a patched signal-cli). */
   catchingUpSignalSupported = false;
+  /** Whether this mock also claims that `catchingUp` is ordered before every message (patch 0027). */
+  orderedCatchingUpSupported = false;
   /** Every message-request answer, for the same reason. */
   /** Trust per person's key; absent is `default`. Seeded from `world.untrustedIds`. */
   private readonly identityTrust = new Map<string, IdentityTrust>();
@@ -535,6 +537,10 @@ export class MockBackend implements ChatBackend {
 
   supportsCatchingUpSignal(): boolean {
     return this.catchingUpSignalSupported;
+  }
+
+  supportsOrderedCatchingUp(): boolean {
+    return this.orderedCatchingUpSupported;
   }
 
   async setTyping(conversationId: ConversationId, typing: boolean): Promise<void> {

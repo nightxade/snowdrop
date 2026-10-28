@@ -831,11 +831,9 @@ treats its own start as a catch-up cannot tell those from new messages.
 - New JSON-RPC notification `receiveCatchingUp`, same shape and subscription handling as
   `receiveCaughtUp` (`{"account": ...}` on the default subscription, wrapped with `subscription` /
   `result` on an explicit `subscribeReceive`). No other fields.
-- It fires from `ReceiveHelper.onWebSocketStateChange` when the authenticated websocket reaches
-  `CONNECTED`, so reconnects made inside the websocket layer count as well as the receive loop's
-  own retry. The state stream is de-duplicated before it gets there, so it fires once per
-  connection. The `receiveCaughtUp` that follows ends it. On a short or empty queue that one can
-  arrive first, so a client must not rely on the order.
+- It first fired from `ReceiveHelper.onWebSocketStateChange` when the authenticated websocket
+  reached `CONNECTED`. That runs on a scheduler thread, so it could arrive after messages the receive
+  thread had already read; 0027 below replaces it with an ordered signal.
 - `Manager` gains `addCatchingUpWithOldMessagesListener` / `remove...`; DBus does not support it.
 - No storage change and no `DATABASE_VERSION` bump. A notification needs no new method, so the
   native shell's allow-list (`rpc_guard.rs`) is unchanged; its notification forwarding gains the
@@ -846,8 +844,7 @@ Snowdrop gates it on `snowdrop-history.N` with N at least 21 (`supportsCatchingU
 
 Verification: `scripts/build-signal-cli.sh --test` (`ReceiveCatchingUpNotificationTest`: shape on
 both subscription kinds, once per connect, cleanup, not subscribed without `subscribeReceive`;
-`ReceiveHelperCatchingUpTest`: fires on `CONNECTED` only, again on reconnect, harmless with no
-listener). Not verified against a real wake from sleep. Builds as `0.14.8-snowdrop-history.21`.
+`ReceiveHelperCatchingUpTest`, rewritten by 0027). Not verified against a real wake from sleep. Builds as `0.14.8-snowdrop-history.21`.
 
 ## 0026: a profile edit also updates the storage-service account record
 
@@ -887,6 +884,40 @@ carries the new name and avatar and every other field as stored, an avatar remov
 path, an about-only change leaves the record unchanged, the rotated id makes the sync see a local-only
 record; `ProfileStoragePendingTest`: which edits count, when the flag clears). Not verified against a
 real phone. Builds as `0.14.8-snowdrop-history.22`.
+
+## 0027: catching up is ordered before the connection's first envelope
+
+0025's `receiveCatchingUp` came from a state observer on a scheduler thread. After a wake the receive
+loop can read and forward the first queued envelopes before it runs, so those messages arrived as
+ordinary live ones and notified. Looking for a synchronous observer to fix that, the state stream
+turned out not to be usable at all: `SignalWebSocket.getOrCreateWebSocketLocked` republishes each
+connection's state through `subscribeOn(Schedulers.io()).observeOn(Schedulers.io())`, so even a
+subscriber with no hop of its own sees `CONNECTED` after the read side already could. (The connection
+itself is fine: `LibSignalChatConnection.handleConnectionSuccess` holds its lock across `start()` and
+the state change, and `readRequest` needs that lock. It is the republishing that is late.)
+
+- `ReceiveHelper.readMessageBatch` wraps `AuthenticatedWebSocket.readMessageBatch`. When the read
+  returns, it compares `getConnectionName()` (the identity of the connection the websocket holds now)
+  with the last one it announced, and fires the catching-up listener on a change, before returning.
+  The connection is replaced inside `getWebSocket()`, which the read goes through, so after a read has
+  returned the name is that of the connection the read was served from, or of a newer one (which only
+  announces early). The receive loop handles the batch's envelopes, and the queue-empty indicator that
+  becomes `receiveCaughtUp`, after that call returns, on the same thread. So for each connection
+  `receiveCatchingUp` is sent strictly before its first envelope and before its `receiveCaughtUp`, and
+  it is sent once. The name is reset at the start of each receive session, so the first connection counts.
+- `onWebSocketStateChange` no longer fires it (it would have announced a second time, out of order).
+- The JSON-RPC shape, `Manager` API and DBus behaviour are unchanged from 0025. No storage change and
+  no `DATABASE_VERSION` bump.
+
+Snowdrop gates the stricter behaviour on `snowdrop-history.N` with N at least 23
+(`supportsOrderedCatchingUp`). With it, a notification hold started by `catchingUp` ends only on
+`caughtUp` or its 2 minute ceiling. Builds 21 and 22 behave as before (quiet period as well).
+
+Verification: `scripts/build-signal-cli.sh --test` (`ReceiveHelperCatchingUpTest`, a real
+`AuthenticatedWebSocket` over fake connections read the way the receive loop does: catching-up before
+the first envelope, before caught-up on an empty queue, once per connection and again on a reconnect
+whose backlog is already queued, nothing for a read that times out). Not verified against a real wake
+from sleep. Builds as `0.14.8-snowdrop-history.23`.
 
 ## User-controlled phone verification
 

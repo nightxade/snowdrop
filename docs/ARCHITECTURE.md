@@ -226,10 +226,17 @@ Adapters translate protocol quirks into the domain-level `BackendEvents`
   `stores.session.notificationsHeld`, which `NotificationService` checks: the
   same, except that with a backend that sends `catchingUp` (so `caughtUp` is
   reliable) its ceiling is 2 minutes, so a long backlog after waking from sleep
-  never notifies. signal-cli only sends `caughtUp` and `catchingUp` with the
-  `receiveCaughtUp` and `receiveCatchingUp` patches
-  (`patches/signal-cli/README.md`); other backends rely on the
-  quiet-period/ceiling fallback.
+  never notifies. With a backend that also orders `catchingUp` before every
+  message of the new connection (patch 0027), a hold started by it has no
+  quiet period at all: it ends only on `caughtUp` or that ceiling (logged at
+  warn), because silence right after a wake is not an end. A `caughtUp` that
+  was already queued when a newer catch-up began is ignored. If our own stream
+  drops and returns, a hold with no strict run in progress restarts with the
+  quiet period (signal-cli may not have reconnected, so no `caughtUp` is
+  promised); a `catchingUp` that follows upgrades it. signal-cli only sends
+  `caughtUp` and `catchingUp` with the `receiveCaughtUp` and
+  `receiveCatchingUp` patches (`patches/signal-cli/README.md`); other backends
+  rely on the quiet-period/ceiling fallback.
 - **Everything else goes through one ordered queue,** so an edit can never
   overtake the message it edits and a group refresh can't be overtaken by the
   next message. A handler that throws is reported and skipped; it never stalls

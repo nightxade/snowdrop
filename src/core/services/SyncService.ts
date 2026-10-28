@@ -186,11 +186,19 @@ export class SyncService {
   private readonly catchUpTracker: CatchUpTracker;
   /**
    * A second tracker driven in lockstep with `catchUpTracker`, with the same
-   * start, quiet period and `caughtUp`, that only differs in its ceiling: it
-   * drives `session.notificationsHeld`, which can outlast the sidebar's
+   * start and `caughtUp`, that differs in its ceiling and, when the backend
+   * orders its `catchingUp` signal, in having no quiet period: it drives
+   * `session.notificationsHeld`, which can outlast the sidebar's
    * `catchingUp` (see `startCatchUp`).
    */
   private readonly notificationHold: CatchUpTracker;
+  /**
+   * Bumped by every `startCatchUp`. A `caughtUp` is stamped with it when it
+   * arrives, because it is queued behind the messages before it and runs
+   * later; if a newer catch-up started in between, it belongs to the old one
+   * and must not end the new one.
+   */
+  private catchUpEpoch = 0;
   /** Read receipts earned while the phone's settings were still unknown; sent or dropped once they're known. */
   private heldReceipts: {
     conversationId: ConversationId;
@@ -230,6 +238,20 @@ export class SyncService {
       scheduler: deps.scheduler,
       onChange: (held) => {
         this.deps.stores.session.getState().setNotificationsHeld(held);
+      },
+      // Counts and reasons only, so a report of notifications arriving on wake
+      // can be told apart from the log: which kind of hold, how it ended.
+      onStart: ({ strict, restarted }) => {
+        log.info('notification hold started', { strict, restarted });
+      },
+      onEnd: (reason, { strict, messages }) => {
+        const detail = { reason, strict, messages };
+        if (reason === 'ceiling' && this.deps.backend.supportsCatchingUpSignal?.() === true) {
+          // This backend promises a `caughtUp`; hitting the ceiling means it never came.
+          log.warn('notification hold ended by its ceiling before caughtUp', detail);
+        } else {
+          log.info('notification hold ended', detail);
+        }
       },
     });
   }
@@ -302,19 +324,28 @@ export class SyncService {
 
   /**
    * Begins "catching up": the sidebar freeze, and the hold on notifications.
-   * Both end together on `caughtUp` or the quiet period; they differ only in
-   * the ceiling. The sidebar's stays short so the UI never looks stuck. The
+   * Both end together on `caughtUp` or the quiet period; they differ in the
+   * ceiling. The sidebar's stays short so the UI never looks stuck. The
    * hold's is much longer when the backend is known to send `caughtUp`
    * (`supportsCatchingUpSignal`), because then the ceiling is only a safety
    * net and a backlog still draining when it fires would all notify; without
    * that signal it is the same short one, so older builds behave as before.
+   *
+   * `ordered` is for a run started by the backend's own `catchingUp` when the
+   * backend orders it before every message of the connection
+   * (`supportsOrderedCatchingUp`). The quiet period only ever covered a
+   * `catchingUp` that could arrive late, and silence right after a wake is not
+   * an end (network and server coming back, timers running late), so that
+   * hold ends on `caughtUp` or the ceiling alone.
    */
-  private startCatchUp(): void {
+  private startCatchUp(ordered = false): void {
+    this.catchUpEpoch += 1;
     this.catchUpTracker.start();
     this.notificationHold.start(
       this.deps.backend.supportsCatchingUpSignal?.() === true
         ? NOTIFICATION_HOLD_CEILING_MS
         : undefined,
+      { strict: ordered },
     );
   }
 
@@ -1022,8 +1053,14 @@ export class SyncService {
         // the very first connect (its status goes 'connecting' → 'online',
         // never through 'offline').
         if (status === 'online' && this.deps.stores.session.getState().status === 'offline') {
-          this.startCatchUp();
-          this.armCatchUpQuiet();
+          // Our own stream dropped, which says nothing about whether signal-cli
+          // reconnected too. If its `catchingUp` already started a strict hold,
+          // keep it: restarting would bring back a quiet period that could end
+          // it before the backlog. If it comes after, it restarts the hold strictly.
+          if (!this.notificationHold.isStrict) {
+            this.startCatchUp();
+            this.armCatchUpQuiet();
+          }
           // The daemon may have restarted: read the phone's settings again.
           void this.refreshPhonePrivacy();
         }
@@ -1066,17 +1103,30 @@ export class SyncService {
       'catchingUp',
       () => {
         if (this.gated) return;
-        this.startCatchUp();
+        this.startCatchUp(backend.supportsOrderedCatchingUp?.() === true);
         this.armCatchUpQuiet();
       },
       true,
     );
     // Queued (and parked behind the initial sync) like messages, so catch-up
-    // ends only once every message before it has reached the stores.
-    on('caughtUp', () => {
-      this.catchUpTracker.finish();
-      this.notificationHold.finish();
-    });
+    // ends only once every message before it has reached the stores. It is
+    // stamped on arrival (see `catchUpEpoch`): one that was already waiting
+    // when a newer catch-up began belongs to the one before.
+    this.unsubscribers.push(
+      backend.on('caughtUp', () => {
+        const epoch = this.catchUpEpoch;
+        const end = (): void => {
+          if (epoch !== this.catchUpEpoch) {
+            log.info('ignored a caughtUp that belongs to an earlier catch-up');
+            return;
+          }
+          this.catchUpTracker.finish();
+          this.notificationHold.finish();
+        };
+        if (this.gated) this.backlog.push({ event: 'caughtUp', task: end });
+        else this.enqueue('caughtUp', end);
+      }),
+    );
     on(
       'typing',
       (e) => {

@@ -162,8 +162,11 @@ describe('createSnowdrop with signal-cli', () => {
     await flush();
 
     expect(snowdrop.stores.session.getState().errorKind).toBe('no-account');
-    expect(consoleInfo).toHaveBeenCalledTimes(1);
-    expect(String(consoleInfo.mock.calls[0]?.[0])).toMatch(/no linked account yet/u);
+    // (The catch-up hold's own diagnostics line is a different message.)
+    const setupLines = consoleInfo.mock.calls.filter((call) =>
+      /no linked account yet/u.test(String(call[0])),
+    );
+    expect(setupLines).toHaveLength(1);
     expect(consoleError).not.toHaveBeenCalled();
 
     consoleInfo.mockRestore();

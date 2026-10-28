@@ -428,6 +428,21 @@ describe('SignalCliBackend: connection', () => {
     }
   });
 
+  it('reports the ordered catching-up signal only on a build with patch 0027', async () => {
+    for (const [version, expected] of [
+      ['0.14.8-snowdrop-history.22', false],
+      ['0.14.8-snowdrop-history.23', true],
+      ['0.14.8', false],
+    ] as const) {
+      const { daemon } = daemonWithAccount();
+      daemon.reply('version', { version });
+      const { backend } = await connected({ daemon });
+      expect(backend.supportsOrderedCatchingUp()).toBe(expected);
+      await backend.disconnect();
+      expect(backend.supportsOrderedCatchingUp()).toBe(false);
+    }
+  });
+
   it('can connect again after the stream failed fatally', async () => {
     const { daemon } = daemonWithAccount();
     daemon.eventStatuses = [400];

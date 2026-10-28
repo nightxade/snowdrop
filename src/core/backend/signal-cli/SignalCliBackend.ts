@@ -93,6 +93,7 @@ import {
   supportsPhonePrivacy as detectPhonePrivacySupport,
   supportsReadSync as detectReadSyncSupport,
   supportsCatchingUpSignal as detectCatchingUpSignalSupport,
+  supportsOrderedCatchingUp as detectOrderedCatchingUpSupport,
   supportsStickerPackInstall as detectStickerPackInstallSupport,
 } from './capabilities';
 import { Directory } from './directory';
@@ -274,6 +275,7 @@ export class SignalCliBackend implements ChatBackend {
   private phonePrivacySupported = false;
   private readSyncSupported = false;
   private catchingUpSignalSupported = false;
+  private orderedCatchingUpSupported = false;
   /** Installed packs whose download `listStickerPacks` already started this session. */
   private readonly stickerPacksFetchTried = new Set<string>();
   /** listConversations logs its counts once per backend, not on every refresh. */
@@ -387,6 +389,7 @@ export class SignalCliBackend implements ChatBackend {
       this.phonePrivacySupported = detectPhonePrivacySupport(version);
       this.readSyncSupported = detectReadSyncSupport(version);
       this.catchingUpSignalSupported = detectCatchingUpSignalSupport(version);
+      this.orderedCatchingUpSupported = detectOrderedCatchingUpSupport(version);
       this.selectAccount(await this.discoverAccount());
       // Stream first: nothing sent to us while we load the directory is missed.
       this.openStream();
@@ -446,6 +449,11 @@ export class SignalCliBackend implements ChatBackend {
   /** Whether the build tells us when a drain starts (see capabilities.ts, `supportsCatchingUpSignal`). */
   supportsCatchingUpSignal(): boolean {
     return this.catchingUpSignalSupported;
+  }
+
+  /** Whether `catchingUp` is ordered before every message of a connection (see capabilities.ts). */
+  supportsOrderedCatchingUp(): boolean {
+    return this.orderedCatchingUpSupported;
   }
 
   /** See `ChatBackend.readPhonePrivacy`: the stored configuration the phone synced to us. */
@@ -578,6 +586,7 @@ export class SignalCliBackend implements ChatBackend {
     this.phonePrivacySupported = false;
     this.readSyncSupported = false;
     this.catchingUpSignalSupported = false;
+    this.orderedCatchingUpSupported = false;
     this.setStatus('offline');
   }
 
