@@ -242,7 +242,13 @@ function render(segments: readonly Segment[], props: MessageBodyProps, path: str
   });
 }
 
-const JUMBO = /^(?:\p{Extended_Pictographic}|\p{Emoji_Component}|‍|️|\s)+$/u;
+/**
+ * One emoji grapheme: a pictograph with its modifiers and ZWJ parts, a flag
+ * (two regional indicators), or a keycap. Bare digits, `#` and `*` are emoji
+ * components in Unicode but plain text on their own, so "2" is never jumbo.
+ */
+const JUMBO_GRAPHEME =
+  /^(?:\p{Extended_Pictographic}(?:\p{Emoji_Component}|\p{Extended_Pictographic})*|\p{Regional_Indicator}{2}|[0-9#*]\ufe0f?\u20e3)$/u;
 /** A standin pictographic char so a resolved `:name:` token counts as one jumbo-eligible unit. */
 const JUMBO_PLACEHOLDER = '🟡';
 
@@ -264,9 +270,8 @@ export function isJumbo(
         resolveCustomEmoji(name) ? JUMBO_PLACEHOLDER : token,
       )
     : trimmed;
-  if (!JUMBO.test(withPlaceholders)) return false;
-  const count = splitGraphemes(withPlaceholders).filter((g) => g.trim() !== '').length;
-  return count <= 10;
+  const graphemes = splitGraphemes(withPlaceholders).filter((g) => g.trim() !== '');
+  return graphemes.length <= 10 && graphemes.every((g) => JUMBO_GRAPHEME.test(g));
 }
 
 /** Renders a Signal body with its native formatting, mentions and spoilers. */

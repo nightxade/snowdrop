@@ -107,6 +107,16 @@ describe('MessageBody', () => {
     expect(isJumbo('🎯', [{ start: 0, length: 2, style: 'bold' }])).toBe(false);
   });
 
+  it('never shows digits, # or * large on their own, but does show keycaps and flags', () => {
+    expect(isJumbo('2', [])).toBe(false);
+    expect(isJumbo('42', [])).toBe(false);
+    expect(isJumbo('# *', [])).toBe(false);
+    expect(isJumbo('2 👍', [])).toBe(false);
+    expect(isJumbo('2️⃣', [])).toBe(true);
+    expect(isJumbo('🇫🇷', [])).toBe(true);
+    expect(isJumbo('👩‍👩‍👧‍👦 🏳️‍🌈', [])).toBe(true);
+  });
+
   const wave = (name: string) => (name === 'wave' ? 'data:image/png;base64,aGVsbG8=' : undefined);
 
   it('renders a resolvable :name: token as its image', () => {
