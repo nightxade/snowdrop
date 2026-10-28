@@ -200,6 +200,17 @@ describe('createDesktopAdmin().locate', () => {
     });
   });
 
+  it('accepts the native build as a source', async () => {
+    const admin = createDesktopAdmin(
+      fakeIpc({ path: '/data/bin/signal-cli-history-native/signal-cli', source: 'patchedNative' }),
+    );
+    await expect(admin.locate({ binaryPath: '' })).resolves.toEqual({
+      ok: true,
+      path: '/data/bin/signal-cli-history-native/signal-cli',
+      source: 'patchedNative',
+    });
+  });
+
   it('rejects a source outside the known set', async () => {
     const admin = createDesktopAdmin(fakeIpc({ path: '/x', source: 'mystery' }));
     await expect(admin.locate({ binaryPath: '' })).resolves.toMatchObject({

@@ -134,6 +134,7 @@ async fn process_matches_responses_and_forwards_notifications() {
     let process = RpcProcess::start(
         ProcessOptions {
             program: fake(),
+            fallback: None,
             args: snowdrop_lib::config::spawn_args(&dir, None),
             envs: Vec::new(),
             backoff: fast_backoff(),
@@ -182,6 +183,7 @@ async fn process_restarts_after_a_crash() {
     let process = RpcProcess::start(
         ProcessOptions {
             program: fake(),
+            fallback: None,
             args: snowdrop_lib::config::spawn_args(&dir, None),
             envs: Vec::new(),
             backoff: fast_backoff(),
@@ -748,4 +750,276 @@ async fn erase_and_sign_out_stop_a_prespawned_child_and_nothing_starts_after() {
     LastConnectFile::new(&dir).save(&record(true));
     assert_eq!(svc.prespawn().await, Prespawn::Skipped);
     assert_eq!(starts(&dir), 1);
+}
+
+// ─── Native build with the Java build as its fallback ───────────────────
+
+/// Installs fake builds the way `scripts/build-signal-cli.sh --install` lays them out under `app`:
+/// the Java build (a wrapper around the node fake) and a native one running `native_script`, which
+/// appends a line to `starts` every time it starts. Returns the file counting native starts.
+#[cfg(unix)]
+fn install_fake_builds(app: &Path, native_script: &str, provenance: &str) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    let write_exec = |path: &Path, text: &str| {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    };
+    write_exec(&app.join("bin/signal-cli-history/bin/signal-cli"), &format!("#!/bin/sh\nexec '{}' \"$@\"\n", fake().display()));
+    let starts = app.join("native.starts");
+    write_exec(
+        &app.join("bin/signal-cli-history-native/signal-cli"),
+        &format!("#!/bin/sh\necho started >> '{}'\n{native_script}\n", starts.display()),
+    );
+    std::fs::write(app.join("bin/signal-cli-history-native/PROVENANCE.txt"), provenance).unwrap();
+    starts
+}
+
+#[cfg(unix)]
+fn native_starts(starts: &Path) -> usize {
+    std::fs::read_to_string(starts).map_or(0, |text| text.lines().count())
+}
+
+#[cfg(unix)]
+const AUTO: ConnectConfig = ConnectConfig::Spawn { binary_path: None, account: None };
+
+/// What a native build that can't run here (a missing libsignal_jni.so, an older glibc) does: it
+/// prints why and exits before answering anything.
+#[cfg(unix)]
+const NATIVE_EXITS_EARLY: &str = "echo \"Can't load library: signal_jni\" >&2\nexit 1";
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_native_build_that_exits_before_answering_falls_back_to_java_and_is_remembered() {
+    require_node!();
+    let dir = temp_dir("native-exits");
+    let starts = install_fake_builds(&dir, NATIVE_EXITS_EARLY, "Built: 1\n");
+    let logger = capturing_logger();
+
+    let svc = service(&dir, Arc::new(Recorder::default()));
+    assert_eq!(svc.locate(None).unwrap().source, snowdrop_lib::config::BinarySource::PatchedNative);
+    let info = svc.connect(AUTO).await.unwrap();
+
+    // The Java build answered (the node fake's version line), and the app says so.
+    assert_eq!(info.version.as_deref(), Some("0.0.0-fake"));
+    let running = info.binary.unwrap();
+    assert_eq!(running.source, snowdrop_lib::config::BinarySource::Patched);
+    assert!(running.path.ends_with("signal-cli-history/bin/signal-cli"));
+    assert_eq!(native_starts(&starts), 1);
+    // Logged by category only; nothing the process printed.
+    let lines = logger.0.lock().unwrap().clone();
+    assert!(lines.iter().any(|l| l.contains("|WARN|signal-cli native build failed (exited before its first reply)")), "{lines:?}");
+    assert!(!lines.iter().any(|l| l.contains("signal_jni") && l.contains("WARN|signal-cli native build failed")));
+
+    // Remembered for this exact build: the next launch never starts it, and Settings shows the Java build.
+    svc.shutdown().await;
+    let next = service(&dir, Arc::new(Recorder::default()));
+    assert_eq!(next.locate(None).unwrap().source, snowdrop_lib::config::BinarySource::Patched);
+    next.connect(AUTO).await.unwrap();
+    assert_eq!(native_starts(&starts), 1, "the failed native build isn't retried");
+    next.shutdown().await;
+
+    // A newly installed native build is tried again.
+    install_fake_builds(&dir, NATIVE_EXITS_EARLY, "Built: 2\n");
+    let fresh = service(&dir, Arc::new(Recorder::default()));
+    assert_eq!(fresh.locate(None).unwrap().source, snowdrop_lib::config::BinarySource::PatchedNative);
+    fresh.connect(AUTO).await.unwrap();
+    assert_eq!(native_starts(&starts), 2);
+    fresh.shutdown().await;
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_native_build_that_never_answers_falls_back_to_java() {
+    require_node!();
+    let dir = temp_dir("native-hangs");
+    let starts = install_fake_builds(&dir, "exec sleep 30", "Built: 1\n");
+    let svc = Service::with_timeouts(
+        Paths { app_data_dir: dir.clone(), data_dir: dir.clone(), bundled: None },
+        Arc::new(Recorder::default()),
+        Timeouts { first_answer: Duration::from_millis(700), backoff: fast_backoff(), grace: Duration::from_secs(2), ..Timeouts::default() },
+        VaultBridge::disabled(),
+    );
+    let info = svc.connect(AUTO).await.unwrap();
+    assert_eq!(info.version.as_deref(), Some("0.0.0-fake"));
+    assert_eq!(info.binary.unwrap().source, snowdrop_lib::config::BinarySource::Patched);
+    assert_eq!(native_starts(&starts), 1);
+    svc.shutdown().await;
+    assert_eq!(svc.locate(None).unwrap().source, snowdrop_lib::config::BinarySource::Patched, "remembered");
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_native_build_that_dies_with_a_native_image_error_falls_back_to_java() {
+    require_node!();
+    let dir = temp_dir("native-fault");
+    // Answers the first request, then hits an unregistered reflection access on the second and dies.
+    let script = r#"read first
+echo '{"jsonrpc":"2.0","result":{"version":"0.14.8-snowdrop-history.23"},"id":1}'
+read second
+echo "org.graalvm.nativeimage.MissingReflectionRegistrationError: The program tried to reflectively access x" >&2
+exit 1"#;
+    install_fake_builds(&dir, script, "Built: 1\n");
+    let svc = service(&dir, Arc::new(Recorder::default()));
+    let info = svc.connect(AUTO).await.unwrap();
+    assert_eq!(info.version.as_deref(), Some("0.14.8-snowdrop-history.23"));
+    assert_eq!(info.binary.unwrap().source, snowdrop_lib::config::BinarySource::PatchedNative);
+
+    // The second request is the one that kills it; the app moves on to the Java build.
+    let first = svc.request("version", None, Duration::from_secs(10)).await;
+    assert!(first.is_err(), "the dying process can't answer");
+    // Requests in the gap before the Java build is up fail like in any restart; the next one works.
+    let mut reply = None;
+    for _ in 0..200 {
+        match svc.request("version", None, Duration::from_secs(10)).await {
+            Ok(r) => {
+                reply = Some(r);
+                break;
+            }
+            Err(_) => tokio::time::sleep(Duration::from_millis(50)).await,
+        }
+    }
+    let reply = reply.expect("the Java build never answered");
+    assert_eq!(reply.pointer("/result/version").and_then(Value::as_str), Some("0.0.0-fake"));
+    // Once the Java build has answered, the failure is remembered.
+    eventually("the failure to be remembered", || svc.locate(None).is_ok_and(|b| b.source == snowdrop_lib::config::BinarySource::Patched)).await;
+    svc.shutdown().await;
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn an_ordinary_restart_of_a_working_native_build_is_not_a_failure() {
+    require_node!();
+    let dir = temp_dir("native-restart");
+    // Answers, then exits cleanly on the next request (a restart after wake, say): no error output.
+    let script = r#"read first
+echo '{"jsonrpc":"2.0","result":{"version":"0.14.8-snowdrop-history.23"},"id":1}'
+read second
+exit 0"#;
+    let starts = install_fake_builds(&dir, script, "Built: 1\n");
+    let svc = service(&dir, Arc::new(Recorder::default()));
+    svc.connect(AUTO).await.unwrap();
+    let _ = svc.request("version", None, Duration::from_secs(10)).await;
+    eventually("the native build to be started again", || native_starts(&starts) >= 2).await;
+    assert_eq!(svc.locate(None).unwrap().source, snowdrop_lib::config::BinarySource::PatchedNative, "not remembered as failed");
+    svc.shutdown().await;
+    assert_eq!(service(&dir, Arc::new(Recorder::default())).locate(None).unwrap().source, snowdrop_lib::config::BinarySource::PatchedNative);
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_user_supplied_binary_wins_over_both_patched_builds() {
+    require_node!();
+    let dir = temp_dir("native-configured");
+    let starts = install_fake_builds(&dir, NATIVE_EXITS_EARLY, "Built: 1\n");
+    let svc = service(&dir, Arc::new(Recorder::default()));
+    let info = svc.connect(spawn_config()).await.unwrap();
+    assert_eq!(info.binary.unwrap().source, snowdrop_lib::config::BinarySource::Configured);
+    assert_eq!(native_starts(&starts), 0);
+    svc.shutdown().await;
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn probing_a_native_build_that_cannot_run_checks_the_java_build_instead() {
+    require_node!();
+    let dir = temp_dir("native-probe");
+    install_fake_builds(&dir, NATIVE_EXITS_EARLY, "Built: 1\n");
+    let svc = service(&dir, Arc::new(Recorder::default()));
+    let probe = svc.probe(AUTO).await.unwrap();
+    assert_eq!(probe.version.as_deref(), Some("0.0.0-fake"));
+    assert_eq!(probe.binary.unwrap().source, snowdrop_lib::config::BinarySource::Patched);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_missing_native_program_falls_back_at_the_process_level() {
+    require_node!();
+    let dir = temp_dir("native-missing");
+    let confirmed = Arc::new(Mutex::new(Vec::new()));
+    let sink = confirmed.clone();
+    let process = RpcProcess::start(
+        ProcessOptions {
+            program: PathBuf::from("/nonexistent/native/signal-cli"),
+            fallback: Some(snowdrop_lib::process::Fallback {
+                program: fake(),
+                on_confirmed: Arc::new(move |reason| sink.lock().unwrap().push(reason)),
+            }),
+            args: snowdrop_lib::config::spawn_args(&dir, None),
+            envs: Vec::new(),
+            backoff: fast_backoff(),
+            grace: Duration::from_secs(2),
+        },
+        Arc::new(|_, _| {}),
+        Arc::new(|_| {}),
+    );
+    let reply = process.request_first("version", None, Duration::from_secs(10)).await.unwrap();
+    assert_eq!(reply.pointer("/result/version").and_then(Value::as_str), Some("0.0.0-fake"));
+    assert_eq!(process.running_program(), fake());
+    assert_eq!(*confirmed.lock().unwrap(), vec![snowdrop_lib::native_build::FailureReason::SpawnFailed]);
+    process.shutdown().await;
+}
+
+/// The real thing, when `scripts/build-signal-cli.sh --native` has produced both builds: laid out
+/// the way `--install` does (the Java build linked in, the native build copied so one file can be
+/// removed from it), the native build runs and answers; with its `libsignal_jni.so` gone it can't,
+/// and Snowdrop ends up on the Java build without anything being asked of the user.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn real_native_build_falls_back_to_the_real_java_build_when_it_cannot_load_its_library() {
+    use snowdrop_lib::config::BinarySource;
+    let patches = Path::new(env!("CARGO_MANIFEST_DIR")).join("../patches/signal-cli");
+    let (native, java) = (patches.join("dist-native/signal-cli"), patches.join("dist/signal-cli"));
+    if !native.join("signal-cli").is_file() || !java.join("bin/signal-cli").is_file() {
+        eprintln!("skipped: no built native and Java signal-cli (run scripts/build-signal-cli.sh --native)");
+        return;
+    }
+    let java = java.canonicalize().unwrap();
+    let app = temp_dir("real-native");
+    let bin = app.join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    std::os::unix::fs::symlink(&java, bin.join("signal-cli-history")).unwrap();
+    let installed_native = bin.join("signal-cli-history-native");
+    assert!(std::process::Command::new("cp").arg("-a").arg(&native).arg(&installed_native).status().unwrap().success());
+
+    let svc = || {
+        Service::with_timeouts(
+            Paths { app_data_dir: app.clone(), data_dir: app.join("data"), bundled: None },
+            Arc::new(Recorder::default()),
+            Timeouts { backoff: fast_backoff(), grace: Duration::from_secs(10), ..Timeouts::default() },
+            VaultBridge::disabled(),
+        )
+    };
+    let auto = ConnectConfig::Spawn { binary_path: None, account: None };
+
+    // Installed layout, intact: the native build.
+    let first = svc();
+    assert_eq!(first.locate(None).unwrap().source, BinarySource::PatchedNative);
+    let native_info = first.connect(auto.clone()).await.unwrap();
+    assert_eq!(native_info.binary.as_ref().unwrap().source, BinarySource::PatchedNative);
+    let native_version = native_info.version.clone().unwrap();
+    assert!(native_version.contains("snowdrop-history"), "{native_version}");
+    let accounts = first.request("listAccounts", None, Duration::from_secs(30)).await.unwrap();
+    assert_eq!(accounts["result"], json!([]));
+    let started = Instant::now();
+    first.shutdown().await;
+    assert!(started.elapsed() < Duration::from_secs(5), "stdin EOF stops the native build promptly");
+
+    // Without its JNI library the native build can't answer.
+    std::fs::remove_file(installed_native.join("libsignal_jni.so")).unwrap();
+    let second = svc();
+    assert_eq!(second.locate(None).unwrap().source, BinarySource::PatchedNative, "nothing is remembered yet");
+    let java_info = second.connect(auto.clone()).await.unwrap();
+    let running = java_info.binary.unwrap();
+    assert_eq!(running.source, BinarySource::Patched);
+    assert!(running.path.ends_with("signal-cli-history/bin/signal-cli"));
+    // Capabilities read the same from both builds.
+    assert_eq!(java_info.version.unwrap(), native_version);
+    let accounts = second.request("listAccounts", None, Duration::from_secs(30)).await.unwrap();
+    assert_eq!(accounts["result"], json!([]));
+    second.shutdown().await;
+
+    // Remembered for that build; the next launch goes straight to Java.
+    let third = svc();
+    assert_eq!(third.locate(None).unwrap().source, BinarySource::Patched);
+    let _ = std::fs::remove_dir_all(&app);
 }

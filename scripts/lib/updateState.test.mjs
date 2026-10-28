@@ -4,8 +4,10 @@ import {
   computeStampDigest,
   diffSignalCliSources,
   isSnowdropProcessRunning,
+  nativeInstallAction,
   parseEnvFile,
   parseProvenance,
+  planNativeBuild,
   provenanceTextsMatch,
   sha256Hex,
   stampsEqual,
@@ -249,5 +251,128 @@ describe('isSnowdropProcessRunning', () => {
 
   it('trims whitespace from process names', () => {
     expect(isSnowdropProcessRunning(['  snowdrop  '])).toBe(true);
+  });
+});
+
+const NATIVE_PROVENANCE =
+  SAMPLE_PROVENANCE.replace(
+    'jlink modules: java.base,java.desktop',
+    'Build kind: native image\nGraalVM: openjdk version "25.0.4.1" 2026-08-18\nlibsignal_jni.so sha256: ' +
+      'f'.repeat(64),
+  ) + `\nNative build files (sha256):\n  ${'5'.repeat(64)}  gen-native-metadata.py\n`;
+
+describe('native provenance', () => {
+  it('parses with the same fields as the Java build, plus the native build files', () => {
+    expect(parseProvenance(NATIVE_PROVENANCE)).toEqual({
+      ...parseProvenance(SAMPLE_PROVENANCE),
+      nativeFiles: [{ name: 'gen-native-metadata.py', hash: '5'.repeat(64) }],
+    });
+  });
+});
+
+describe('planNativeBuild', () => {
+  const current = {
+    signalCliPatches: [
+      { name: '0001-a.patch', hash: '1'.repeat(64) },
+      { name: '0002-b.patch', hash: '2'.repeat(64) },
+    ],
+    ssjPatches: [{ name: '0001-ssj.patch', hash: '3'.repeat(64) }],
+    buildScriptHash: 'aaaa000000000000000000000000000000000000000000000000000000000001',
+    nativeFiles: [{ name: 'gen-native-metadata.py', hash: '5'.repeat(64) }],
+  };
+
+  it('does nothing, and says why, without a GraalVM', () => {
+    expect(
+      planNativeBuild({
+        graalvmConfigured: false,
+        javaNeedsBuild: true,
+        nativeProvenanceText: null,
+        current,
+      }),
+    ).toEqual({ needsBuild: false, skipped: true, reasons: [] });
+  });
+
+  it('builds when there is no native build yet', () => {
+    const plan = planNativeBuild({
+      graalvmConfigured: true,
+      javaNeedsBuild: false,
+      nativeProvenanceText: null,
+      current,
+    });
+    expect(plan.needsBuild).toBe(true);
+    expect(plan.reasons).toEqual(['no native build at patches/signal-cli/dist-native yet']);
+  });
+
+  it('is up to date when it was built from these sources', () => {
+    const plan = planNativeBuild({
+      graalvmConfigured: true,
+      javaNeedsBuild: false,
+      nativeProvenanceText: NATIVE_PROVENANCE,
+      current,
+    });
+    expect(plan).toEqual({ needsBuild: false, skipped: false, reasons: [] });
+  });
+
+  it('rebuilds when a patch changed since the native build', () => {
+    const plan = planNativeBuild({
+      graalvmConfigured: true,
+      javaNeedsBuild: false,
+      nativeProvenanceText: NATIVE_PROVENANCE,
+      current: {
+        ...current,
+        signalCliPatches: [
+          ...current.signalCliPatches,
+          { name: '0003-c.patch', hash: '4'.repeat(64) },
+        ],
+      },
+    });
+    expect(plan.needsBuild).toBe(true);
+    expect(plan.reasons).toEqual(['patches/signal-cli/*.patch changed since the last build']);
+  });
+
+  it('rebuilds when a file only the native build uses changed', () => {
+    const plan = planNativeBuild({
+      graalvmConfigured: true,
+      javaNeedsBuild: false,
+      nativeProvenanceText: NATIVE_PROVENANCE,
+      current: {
+        ...current,
+        nativeFiles: [{ name: 'gen-native-metadata.py', hash: '6'.repeat(64) }],
+      },
+    });
+    expect(plan.needsBuild).toBe(true);
+    expect(plan.reasons).toEqual([
+      'patches/signal-cli/native/* changed since the last native build',
+    ]);
+  });
+
+  it('rebuilds whenever the Java build it is made from is rebuilt', () => {
+    const plan = planNativeBuild({
+      graalvmConfigured: true,
+      javaNeedsBuild: true,
+      nativeProvenanceText: NATIVE_PROVENANCE,
+      current,
+    });
+    expect(plan.needsBuild).toBe(true);
+    expect(plan.reasons).toEqual(['the Java build is being rebuilt']);
+  });
+});
+
+describe('nativeInstallAction', () => {
+  it('installs a native build that is not installed yet, or differs', () => {
+    expect(nativeInstallAction(NATIVE_PROVENANCE, null)).toBe('install');
+    expect(nativeInstallAction(NATIVE_PROVENANCE, NATIVE_PROVENANCE + 'x')).toBe('install');
+  });
+
+  it('leaves an identical installed copy alone', () => {
+    expect(nativeInstallAction(NATIVE_PROVENANCE, NATIVE_PROVENANCE)).toBe('none');
+  });
+
+  it('retires an installed native build that no build matches any more', () => {
+    expect(nativeInstallAction(null, NATIVE_PROVENANCE)).toBe('retire');
+  });
+
+  it('does nothing when there is no native build anywhere', () => {
+    expect(nativeInstallAction(null, null)).toBe('none');
   });
 });

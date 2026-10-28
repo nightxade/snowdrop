@@ -17,7 +17,8 @@ use crate::error::{Error, ErrorKind};
 use crate::events::{EventLog, HeldEvent};
 use crate::external::{ExternalDaemon, StreamUpdate, CURSOR_PREFIX};
 use crate::jsonrpc::receive_payload;
-use crate::process::{Backoff, ProcessOptions, ProcessState, RpcProcess};
+use crate::native_build;
+use crate::process::{Backoff, Fallback, ProcessOptions, ProcessState, RpcProcess};
 use crate::startup::{self, LastConnect, LastConnectFile};
 use crate::vault_bridge::{self, VaultBridge};
 
@@ -195,9 +196,13 @@ impl Service {
 
     pub fn locate(&self, binary_path: Option<&str>) -> Result<ResolvedBinary, Error> {
         let patched = config::patched_binary(&self.paths.app_data_dir);
+        // The native build, unless it's switched off or already failed on this machine.
+        let native =
+            native_build::preferred_native(&self.paths.app_data_dir, std::env::var_os(native_build::FORCE_JVM_ENV).as_deref());
         let downloaded = crate::signal_cli_install::installed_binary(&self.paths.app_data_dir);
         config::resolve_binary(
             binary_path,
+            native.as_deref(),
             patched.as_deref(),
             downloaded.as_deref(),
             self.paths.bundled.as_deref(),
@@ -340,9 +345,9 @@ impl Service {
 
     fn info(&self, active: &Active) -> ConnectInfo {
         match active {
-            Active::Child { binary, version, .. } => ConnectInfo {
+            Active::Child { binary, version, process, .. } => ConnectInfo {
                 mode: "spawn",
-                binary: Some(binary.clone()),
+                binary: Some(running_binary(binary, process)),
                 version: version.clone(),
                 run: self.run_id(),
             },
@@ -374,8 +379,26 @@ impl Service {
                     .map_err(|e| Error::new(ErrorKind::Internal, format!("Couldn't create {}: {e}", config_dir.display())))?;
                 // Keys and message history live here; no other local account should read them.
                 config::secure_dir(&config_dir)?;
+                // A native build with the Java build beside it: if it can't run here, the
+                // supervisor switches to the Java build, and the failure is remembered for
+                // exactly this build once the Java one has answered.
+                let fallback = binary.fallback.clone().map(|program| {
+                    let app_data_dir = self.paths.app_data_dir.clone();
+                    let key = native_build::build_key(&binary.path);
+                    Fallback {
+                        program,
+                        on_confirmed: Arc::new(move |reason| {
+                            log::info!(
+                                "remembering the native signal-cli build as failed ({}); the Java build is used until a new native build is installed",
+                                reason.as_str()
+                            );
+                            native_build::record_failure(&app_data_dir, &key, reason);
+                        }),
+                    }
+                });
                 let options = ProcessOptions {
                     program: binary.path.clone(),
+                    fallback,
                     args: config::spawn_args(&config_dir, account.as_deref()),
                     envs: config::spawn_env(std::env::var_os("MALLOC_ARENA_MAX").as_deref()),
                     backoff: self.timeouts.backoff.clone(),
@@ -397,10 +420,11 @@ impl Service {
                 startup::mark_once("signal-cli spawned");
                 process.wait_running(self.timeouts.start).await?;
                 // signal-cli answers once it has loaded its accounts.
-                let reply = process.request("version", None, self.timeouts.first_answer).await?;
+                let reply = process.request_first("version", None, self.timeouts.first_answer).await?;
                 startup::mark_once("signal-cli answering");
                 let version = reply.pointer("/result/version").and_then(Value::as_str).map(str::to_owned);
-                log::info!("signal-cli {} running from {} ({:?})", version.as_deref().unwrap_or("?"), binary.path.display(), binary.source);
+                let running = running_binary(&binary, &process);
+                log::info!("signal-cli {} running from {} ({:?})", version.as_deref().unwrap_or("?"), running.path.display(), running.source);
                 Ok(Active::Child { config, process, binary, version })
             }
             ConnectConfig::External { url } => {
@@ -664,8 +688,17 @@ impl Service {
                 if let Some(account) = account.as_deref().map(str::trim).filter(|a| !a.is_empty()) {
                     config::validate_account(account)?;
                 }
-                let binary = self.locate(binary_path.as_deref())?;
-                let version = binary_version(&binary).await?;
+                let mut binary = self.locate(binary_path.as_deref())?;
+                let version = match (binary_version(&binary).await, binary.fallback.take()) {
+                    (Ok(version), _) => version,
+                    // A native build that can't even print its version: the app would run the
+                    // Java build, so that's the one to check.
+                    (Err(_), Some(java)) => {
+                        binary = ResolvedBinary::new(java, BinarySource::Patched);
+                        binary_version(&binary).await?
+                    }
+                    (Err(error), None) => return Err(error),
+                };
                 // Accounts are only known from a running child with this binary
                 // (a second signal-cli on the same data would wait for its lock).
                 let running = match self.active.lock().await.as_ref() {
@@ -689,6 +722,16 @@ impl Service {
                 Ok(ProbeResult { accounts: count_accounts(accounts), version: None, binary: None })
             }
         }
+    }
+}
+
+/// What is actually running: the resolved binary, or the Java build that took over from it.
+fn running_binary(resolved: &ResolvedBinary, process: &RpcProcess) -> ResolvedBinary {
+    let running = process.running_program();
+    if running == resolved.path {
+        resolved.clone()
+    } else {
+        ResolvedBinary::new(running, BinarySource::Patched)
     }
 }
 

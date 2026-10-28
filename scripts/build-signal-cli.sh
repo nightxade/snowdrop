@@ -14,9 +14,17 @@
 #                                            # test suite before `installDist`
 #   scripts/build-signal-cli.sh --install   # build (unless dist/ already has a
 #                                            # working build) and then install it
+#   scripts/build-signal-cli.sh --native    # additionally compile a GraalVM native
+#                                            # build (patches/signal-cli/dist-native/);
+#                                            # needs SNOWDROP_GRAALVM, else prints a hint
+#                                            # and leaves the Java build as the only one.
+#                                            # With --install it is installed beside the
+#                                            # Java build, which stays where it is.
 #
 # Env vars (all optional, with defaults below):
 #   SNOWDROP_JDK          JDK 25 home. `java -version` under it must report 25.
+#   SNOWDROP_GRAALVM      GraalVM JDK 25 home (with bin/native-image), for --native only.
+#                         The native build takes ~6 minutes and ~5 GiB of RAM.
 #   SIGNAL_CLI_SRC        git URL or local path to clone signal-cli from.
 #   SIGNAL_SERVICE_JAVA_SRC  git URL or local path to clone signal-service-java from
 #                            (patches/signal-service-java; default: upstream's GitHub repo).
@@ -57,6 +65,7 @@ SSJ_SRC_DIR="$SSJ_WORK_DIR/libsignal-service-java-src"
 SSJ_REPO_DIR="$SSJ_WORK_DIR/m2repo"
 SRC_DIR="$WORK_DIR/signal-cli-src"
 DIST_DIR="$PATCHES_DIR/dist"
+NATIVE_DIST_DIR="$PATCHES_DIR/dist-native"
 
 SIGNAL_CLI_SRC="${SIGNAL_CLI_SRC:-https://github.com/AsamK/signal-cli.git}"
 SIGNAL_SERVICE_JAVA_SRC="${SIGNAL_SERVICE_JAVA_SRC:-https://github.com/Turasa/libsignal-service-java.git}"
@@ -71,12 +80,14 @@ readonly RUNTIME_MODULES="java.base,java.desktop,java.logging,java.management,ja
 
 DO_TEST=0
 DO_INSTALL=0
+DO_NATIVE=0
 for arg in "$@"; do
   case "$arg" in
+    --native) DO_NATIVE=1 ;;
     --test) DO_TEST=1 ;;
     --install) DO_INSTALL=1 ;;
     *)
-      echo "build-signal-cli.sh: unknown flag '$arg' (expected --test and/or --install)" >&2
+      echo "build-signal-cli.sh: unknown flag '$arg' (expected --test, --native and/or --install)" >&2
       exit 1
       ;;
   esac
@@ -84,6 +95,87 @@ done
 
 log() { echo "[build-signal-cli] $*"; }
 die() { echo "[build-signal-cli] ERROR: $*" >&2; exit 1; }
+
+# ─── Patch lists (top level: --native and --install need them even when the Java build is skipped) ─
+shopt -s nullglob
+patches=("$PATCHES_DIR"/*.patch)
+ssj_patches=("$SSJ_PATCHES_DIR"/*.patch)
+shopt -u nullglob
+SRC_CLASSES_DIR="$SRC_DIR/build/classes/java/main"
+
+# Writes a PROVENANCE.txt: what a dist was built from. $1 = output file, $2 = "jvm" or "native",
+# $3 = (native only) an extra line to record. scripts/desktop-update.mjs (via
+# scripts/lib/updateState.mjs) reads the shared fields to decide whether a rebuild or an install
+# is needed.
+write_provenance() {
+  local out="$1" kind="$2" extra="${3:-}"
+  {
+    echo "Upstream commit: $UPSTREAM_COMMIT ($UPSTREAM_TAG)"
+    echo "Build script sha256: $(sha256sum "$SCRIPT_PATH" | cut -d' ' -f1)"
+    echo "Built: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    echo "JDK: $("$SNOWDROP_JDK/bin/java" -version 2>&1 | head -1)"
+    if [ "$kind" = "native" ]; then
+      echo "Build kind: native image"
+      echo "GraalVM: $("$SNOWDROP_GRAALVM/bin/java" -version 2>&1 | head -1)"
+      [ -z "$extra" ] || echo "$extra"
+    else
+      echo "jlink modules: $RUNTIME_MODULES"
+    fi
+    echo
+    echo "Patches applied (sha256, in order):"
+    for patch in "${patches[@]}"; do
+      printf '  %s  %s\n' "$(sha256sum "$patch" | cut -d' ' -f1)" "$(basename "$patch")"
+    done
+    echo
+    echo "signal-service-java upstream commit: $SSJ_UPSTREAM_COMMIT ($SSJ_UPSTREAM_TAG)"
+    echo "signal-service-java patched version: $SSJ_PATCHED_VERSION"
+    echo "signal-service-java patches applied (sha256, in order):"
+    for patch in "${ssj_patches[@]}"; do
+      printf '  %s  %s\n' "$(sha256sum "$patch" | cut -d' ' -f1)" "$(basename "$patch")"
+    done
+    if [ "$kind" = "native" ]; then
+      echo
+      echo "Native build files (sha256):"
+      for f in "$PATCHES_DIR"/native/*; do
+        printf '  %s  %s\n' "$(sha256sum "$f" | cut -d' ' -f1)" "$(basename "$f")"
+      done
+    fi
+  } > "$out"
+}
+
+# Whether the PROVENANCE.txt at $1 was written from exactly the sources on disk now.
+provenance_is_current() {
+  local f="$1" p n
+  [ -f "$f" ] || return 1
+  grep -qF "Build script sha256: $(sha256sum "$SCRIPT_PATH" | cut -d' ' -f1)" "$f" || return 1
+  for p in "${patches[@]}" "${ssj_patches[@]}"; do
+    grep -qF "$(sha256sum "$p" | cut -d' ' -f1)  $(basename "$p")" "$f" || return 1
+  done
+  n="$(grep -cE '^  [0-9a-f]{64}  ' "$f" || true)"
+  [ "$n" -eq $((${#patches[@]} + ${#ssj_patches[@]})) ]
+}
+
+# Smoke test of a launcher in a clean environment: the version string, then one JSON-RPC round
+# trip (`version` over jsonRpc, in an empty config dir, so no account is involved) that must end
+# with exit status 0 once stdin closes, the way Snowdrop stops signal-cli.
+smoke_test() {
+  local launcher="$1" label="$2" out reply tmp rc=0
+  out="$(env -i PATH=/usr/bin:/bin HOME="$HOME" "$launcher" --version)"
+  case "$out" in
+    *snowdrop-history*) ;;
+    *) die "$label smoke test failed — expected a version containing 'snowdrop-history', got: $out" ;;
+  esac
+  tmp="$(mktemp -d)"
+  reply="$({ printf '{"jsonrpc":"2.0","id":1,"method":"version"}\n'; sleep 3; } \
+    | env -i PATH=/usr/bin:/bin HOME="$HOME" timeout 120 "$launcher" --config "$tmp" jsonRpc)" || rc=$?
+  rm -rf "$tmp"
+  [ "$rc" -eq 0 ] || die "$label smoke test failed — jsonRpc exited with status $rc after stdin closed"
+  case "$reply" in
+    *'"id":1'*snowdrop-history*|*snowdrop-history*'"id":1'*)
+      log "$label smoke test OK: $out (JSON-RPC version answered, clean exit on stdin close)" ;;
+    *) die "$label smoke test failed — unexpected JSON-RPC reply: $reply" ;;
+  esac
+}
 
 # ─── JDK 25 ────────────────────────────────────────────────────────────────
 resolve_jdk() {
@@ -110,10 +202,17 @@ export JAVA_HOME="$SNOWDROP_JDK"
 export PATH="$SNOWDROP_JDK/bin:$PATH"
 
 # ─── Build (skipped entirely for a plain --install if dist/ already works) ─
+# A plain --install reuses an existing dist/. --native reuses it only if it was built from exactly
+# these sources and its class files are still in the work tree (the native step reads them).
 NEED_BUILD=1
-if [ "$DO_INSTALL" -eq 1 ] && [ "$DO_TEST" -eq 0 ] && [ -x "$DIST_DIR/signal-cli/bin/signal-cli" ]; then
-  log "dist/signal-cli already exists; skipping the build (remove $DIST_DIR to force one, or pass no --install to always rebuild)."
-  NEED_BUILD=0
+if [ "$DO_TEST" -eq 0 ] && [ -x "$DIST_DIR/signal-cli/bin/signal-cli" ]; then
+  if [ "$DO_NATIVE" -eq 0 ] && [ "$DO_INSTALL" -eq 1 ]; then
+    log "dist/signal-cli already exists; skipping the build (remove $DIST_DIR to force one, or pass no --install to always rebuild)."
+    NEED_BUILD=0
+  elif [ "$DO_NATIVE" -eq 1 ] && [ -d "$SRC_CLASSES_DIR" ] && provenance_is_current "$DIST_DIR/signal-cli/PROVENANCE.txt"; then
+    log "dist/signal-cli is current for these sources; skipping the Java build."
+    NEED_BUILD=0
+  fi
 fi
 
 if [ "$NEED_BUILD" -eq 1 ]; then
@@ -211,7 +310,7 @@ if [ "$NEED_BUILD" -eq 1 ]; then
   # ── Optional: the README's history test suite, before installDist ─────
   if [ "$DO_TEST" -eq 1 ]; then
     log "Running the history test suite"
-    (cd "$SRC_DIR" && ./gradlew --no-daemon test --tests '*HistoryCommandTest' --tests '*GetConfigurationCommandTest' --tests '*SendReceiptCommandTest' --tests '*ReceiveConfigurationChangedNotificationTest' --tests '*ReceiveCatchingUpNotificationTest' :libsignal-cli:test --tests '*History*Test' --tests '*StickerHelperTest' --tests '*ConfigurationStoreTest' --tests '*ReceiptSyncOutcomeTest' --tests '*ReceiveHelperCatchingUpTest' --tests '*AccountRecordProfileWinsTest' --tests '*ProfileStorageUploadTest' --tests '*ProfileStoragePendingTest') \
+    (cd "$SRC_DIR" && ./gradlew --no-daemon test --tests '*HistoryCommandTest' --tests '*GetConfigurationCommandTest' --tests '*SendReceiptCommandTest' --tests '*ReceiveConfigurationChangedNotificationTest' --tests '*ReceiveCatchingUpNotificationTest' --tests '*ShutdownTest' :libsignal-cli:test --tests '*History*Test' --tests '*StickerHelperTest' --tests '*ConfigurationStoreTest' --tests '*ReceiptSyncOutcomeTest' --tests '*ReceiveHelperCatchingUpTest' --tests '*AccountRecordProfileWinsTest' --tests '*ProfileStorageUploadTest' --tests '*ProfileStoragePendingTest') \
       || die "history tests failed"
   fi
 
@@ -276,64 +375,129 @@ exec "$bin_dir/signal-cli.gradle" "$@"
 LAUNCHER
   chmod +x "$BUILD_TMP/signal-cli/bin/signal-cli"
 
-  {
-    echo "Upstream commit: $UPSTREAM_COMMIT ($UPSTREAM_TAG)"
-    echo "Build script sha256: $(sha256sum "$SCRIPT_PATH" | cut -d' ' -f1)"
-    echo "Built: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    echo "JDK: $("$SNOWDROP_JDK/bin/java" -version 2>&1 | head -1)"
-    echo "jlink modules: $all_modules"
-    echo
-    echo "Patches applied (sha256, in order):"
-    for patch in "${patches[@]}"; do
-      printf '  %s  %s\n' "$(sha256sum "$patch" | cut -d' ' -f1)" "$(basename "$patch")"
-    done
-    echo
-    echo "signal-service-java upstream commit: $SSJ_UPSTREAM_COMMIT ($SSJ_UPSTREAM_TAG)"
-    echo "signal-service-java patched version: $SSJ_PATCHED_VERSION"
-    echo "signal-service-java patches applied (sha256, in order):"
-    for patch in "${ssj_patches[@]}"; do
-      printf '  %s  %s\n' "$(sha256sum "$patch" | cut -d' ' -f1)" "$(basename "$patch")"
-    done
-  } > "$BUILD_TMP/signal-cli/PROVENANCE.txt"
+  write_provenance "$BUILD_TMP/signal-cli/PROVENANCE.txt" jvm
 
   log "Swapping the new build into $DIST_DIR"
   rm -rf "$DIST_DIR"
   mv "$BUILD_TMP" "$DIST_DIR"
+  # A native build made from the previous Java build is stale now.
+  rm -rf "$NATIVE_DIST_DIR"
 
   # ── Smoke test: a clean environment, no inherited JAVA_HOME/PATH tricks ─
-  log "Smoke-testing $DIST_DIR/signal-cli/bin/signal-cli --version"
-  smoke_output="$(env -i PATH=/usr/bin:/bin HOME="$HOME" "$DIST_DIR/signal-cli/bin/signal-cli" --version)"
-  case "$smoke_output" in
-    *snowdrop-history*) log "Smoke test OK: $smoke_output" ;;
-    *) die "smoke test failed — expected a version containing 'snowdrop-history', got: $smoke_output" ;;
-  esac
+  smoke_test "$DIST_DIR/signal-cli/bin/signal-cli" "Java build"
+fi
+
+# ─── Optional GraalVM native build ──────────────────────────────────────────
+# Compiles the already-built, already-patched classes (the Java build above, or its work tree) into
+# one native executable: $NATIVE_DIST_DIR/signal-cli/signal-cli, with the AWT/ImageIO shim
+# libraries the compiler emits beside it and libsignal's linux-x86_64 JNI library, which is left
+# out of the image (see native/native-image.properties) and shipped stripped as libsignal_jni.so.
+# It starts in tens of milliseconds and idles at well under half the Java build's memory.
+if [ "$DO_NATIVE" -eq 1 ]; then
+  if [ -z "${SNOWDROP_GRAALVM:-}" ]; then
+    log "hint: set SNOWDROP_GRAALVM to a GraalVM JDK 25 home to also build the faster native build; only the Java build was built."
+  else
+    [ -x "$SNOWDROP_GRAALVM/bin/native-image" ] || die "SNOWDROP_GRAALVM ($SNOWDROP_GRAALVM) has no bin/native-image."
+    graal_version="$("$SNOWDROP_GRAALVM/bin/java" -version 2>&1 | head -1)"
+    case "$graal_version" in
+      *'"25'*) ;;
+      *) die "SNOWDROP_GRAALVM ($SNOWDROP_GRAALVM) isn't a JDK 25 (java -version said: $graal_version)." ;;
+    esac
+    [ "$(uname -m)" = "x86_64" ] || die "the native build supports Linux x86-64 only (libsignal's bundled JNI library)."
+    [ -d "$SRC_CLASSES_DIR" ] || die "no compiled classes at $SRC_CLASSES_DIR to compile natively."
+    export SNOWDROP_SIGNAL_SERVICE_VERSION="$SSJ_PATCHED_VERSION"
+    export SNOWDROP_SIGNAL_SERVICE_REPO="$SSJ_REPO_DIR"
+    log "Using GraalVM: $graal_version ($SNOWDROP_GRAALVM)"
+
+    meta_dir="$SRC_DIR/src/main/resources/META-INF/native-image/org.asamk/signal-cli-snowdrop"
+    rm -rf "$meta_dir"
+    mkdir -p "$meta_dir"
+    # Reflection metadata for the types the patches add or extend (Jackson result types, protobuf).
+    python3 "$PATCHES_DIR/native/gen-native-metadata.py" "$SRC_DIR" "$meta_dir/reachability-metadata.json"
+    cp "$PATCHES_DIR/native/awt-reachability-metadata.json" "$meta_dir/reachability-metadata-awt.json"
+    cp "$PATCHES_DIR/native/native-image.properties" "$meta_dir/native-image.properties"
+
+    log "nativeCompile with $SNOWDROP_GRAALVM (several minutes, ~5 GiB RAM)"
+    (cd "$SRC_DIR" && GRAALVM_HOME="$SNOWDROP_GRAALVM" JAVA_HOME="$SNOWDROP_GRAALVM" PATH="$SNOWDROP_GRAALVM/bin:$PATH" ./gradlew --no-daemon nativeCompile) \
+      || die "./gradlew nativeCompile failed"
+    nat_out="$SRC_DIR/build/native/nativeCompile"
+    [ -x "$nat_out/signal-cli" ] || die "nativeCompile didn't produce $nat_out/signal-cli"
+
+    NAT_TMP="$NATIVE_DIST_DIR.build.$$"
+    rm -rf "$NAT_TMP"
+    mkdir -p "$NAT_TMP/signal-cli"
+    cp -a "$nat_out"/. "$NAT_TMP/signal-cli/"
+    libsignal_jar="$(ls "$DIST_DIR/signal-cli/lib"/libsignal-client-*.jar | head -1)"
+    unzip -p "$libsignal_jar" libsignal_jni_amd64.so > "$NAT_TMP/signal-cli/libsignal_jni.so"
+    strip --strip-unneeded "$NAT_TMP/signal-cli/libsignal_jni.so"
+    chmod 755 "$NAT_TMP/signal-cli/libsignal_jni.so"
+    write_provenance "$NAT_TMP/signal-cli/PROVENANCE.txt" native \
+      "libsignal_jni.so sha256: $(sha256sum "$NAT_TMP/signal-cli/libsignal_jni.so" | cut -d' ' -f1)"
+
+    log "Swapping the native build into $NATIVE_DIST_DIR"
+    rm -rf "$NATIVE_DIST_DIR"
+    mv "$NAT_TMP" "$NATIVE_DIST_DIR"
+    smoke_test "$NATIVE_DIST_DIR/signal-cli/signal-cli" "Native build"
+  fi
 fi
 
 # ─── Optional install into Snowdrop's app data dir ─────────────────────────
+# Layout under <app data>/bin/: signal-cli-history/ (the Java build, bin/signal-cli: the path the
+# desktop app has always looked for) and signal-cli-history-native/ (the native build, with
+# signal-cli at its top level), each with one rollback copy next to it (*.previous). Installing one
+# never replaces the other.
+# install_tree <source dir, or empty> <name>: copies the source in atomically, keeping the old copy
+# as <name>.previous. With no source it only retires the installed copy (the same rotation).
+install_tree() {
+  local src="$1" name="$2"
+  local target="$bin_dir/$name" tmp="$bin_dir/.tmp-install-$$-$name" previous="$bin_dir/$name.previous"
+  # The same build is already there: leave it, and the rollback copy next to it, as they are.
+  if [ -n "$src" ] && [ -f "$src/PROVENANCE.txt" ] && cmp -s "$src/PROVENANCE.txt" "$target/PROVENANCE.txt"; then
+    log "$name is already up to date."
+    return 0
+  fi
+  if [ -n "$src" ]; then
+    rm -rf "$tmp"
+    cp -a "$src" "$tmp"
+  fi
+  # Keep exactly one rollback copy; everything else in $bin_dir (a downloaded
+  # install, the download scratch dir) is left completely alone.
+  rm -rf "$previous"
+  if [ -e "$target" ]; then
+    mv "$target" "$previous"
+  fi
+  if [ -n "$src" ]; then
+    mv "$tmp" "$target"
+  fi
+}
+
 if [ "$DO_INSTALL" -eq 1 ]; then
   [ -x "$DIST_DIR/signal-cli/bin/signal-cli" ] || die "nothing to install: $DIST_DIR/signal-cli/bin/signal-cli doesn't exist"
 
   app_data="${SNOWDROP_APP_DATA:-${XDG_DATA_HOME:-$HOME/.local/share}/local.snowdrop.desktop}"
   bin_dir="$app_data/bin"
   target_dir="$bin_dir/signal-cli-history"
-  tmp_dir="$bin_dir/.tmp-install-$$"
-  previous_dir="$bin_dir/signal-cli-history.previous"
+  native_target_dir="$bin_dir/signal-cli-history-native"
+  mkdir -p "$bin_dir"
 
   log "Installing into $target_dir"
-  mkdir -p "$bin_dir"
-  rm -rf "$tmp_dir"
-  cp -a "$DIST_DIR/signal-cli" "$tmp_dir"
+  install_tree "$DIST_DIR/signal-cli" signal-cli-history
 
-  # Keep exactly one rollback copy; everything else in $bin_dir (a downloaded
-  # install, the download scratch dir) is left completely alone.
-  rm -rf "$previous_dir"
-  if [ -e "$target_dir" ]; then
-    mv "$target_dir" "$previous_dir"
+  if [ -x "$NATIVE_DIST_DIR/signal-cli/signal-cli" ]; then
+    log "Installing the native build into $native_target_dir"
+    install_tree "$NATIVE_DIST_DIR/signal-cli" signal-cli-history-native
+  elif [ -e "$native_target_dir" ]; then
+    # An installed native build that doesn't match the Java build just installed would make the
+    # app's behaviour depend on which one runs; retire it (it stays as the rollback copy).
+    log "No native build matches this Java build; retiring the installed native build."
+    install_tree "" signal-cli-history-native
   fi
-  mv "$tmp_dir" "$target_dir"
 
-  log "Installed. Verifying the installed copy runs:"
+  log "Installed. Verifying the installed copies run:"
   env -i PATH=/usr/bin:/bin HOME="$HOME" "$target_dir/bin/signal-cli" --version
+  if [ -x "$native_target_dir/signal-cli" ]; then
+    env -i PATH=/usr/bin:/bin HOME="$HOME" "$native_target_dir/signal-cli" --version
+  fi
 fi
 
 log "Done."

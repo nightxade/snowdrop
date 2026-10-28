@@ -12,6 +12,10 @@
  *  2. AppImage — rebuilds (npm run tauri:build) only if the app's sources
  *     changed since the last successful build (a stamp file, see
  *     computeAppImageStamp below).
+ *     With a GraalVM configured (SNOWDROP_GRAALVM, same places as the JDK) the
+ *     native build is built and installed the same way, beside the Java build;
+ *     the app prefers it and falls back to the Java build on its own. Without
+ *     one only the Java build is built and installed, and one line says so.
  *  3. JDK — read from SNOWDROP_JDK, else .snowdrop.local.env, else this
  *     prints one-time setup instructions instead of guessing.
  *
@@ -32,8 +36,10 @@ import {
   computeStampDigest,
   diffSignalCliSources,
   isSnowdropProcessRunning,
+  nativeInstallAction,
   parseEnvFile,
   parseProvenance,
+  planNativeBuild,
   provenanceTextsMatch,
   sha256Hex,
   stampsEqual,
@@ -59,6 +65,11 @@ const SSJ_PATCHES_DIR = path.join(ROOT, 'patches/signal-service-java');
 const BUILD_SCRIPT = path.join(ROOT, 'scripts/build-signal-cli.sh');
 const DIST_PROVENANCE = path.join(SIGNAL_CLI_PATCHES_DIR, 'dist/signal-cli/PROVENANCE.txt');
 const DIST_BINARY = path.join(SIGNAL_CLI_PATCHES_DIR, 'dist/signal-cli/bin/signal-cli');
+const NATIVE_DIST_PROVENANCE = path.join(
+  SIGNAL_CLI_PATCHES_DIR,
+  'dist-native/signal-cli/PROVENANCE.txt',
+);
+const NATIVE_DIST_BINARY = path.join(SIGNAL_CLI_PATCHES_DIR, 'dist-native/signal-cli/signal-cli');
 
 function log(msg) {
   console.log(`[desktop-update] ${msg}`);
@@ -101,11 +112,20 @@ function hashPatchFiles(dir) {
     .map((name) => ({ name, hash: sha256Hex(readFileSync(path.join(dir, name))) }));
 }
 
+function hashNativeFiles() {
+  const dir = path.join(SIGNAL_CLI_PATCHES_DIR, 'native');
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir)
+    .sort()
+    .map((name) => ({ name, hash: sha256Hex(readFileSync(path.join(dir, name))) }));
+}
+
 function currentSignalCliSources() {
   return {
     signalCliPatches: hashPatchFiles(SIGNAL_CLI_PATCHES_DIR),
     ssjPatches: hashPatchFiles(SSJ_PATCHES_DIR),
     buildScriptHash: sha256Hex(readFileSync(BUILD_SCRIPT)),
+    nativeFiles: hashNativeFiles(),
   };
 }
 
@@ -126,6 +146,17 @@ function resolveJdk() {
   if (text != null) {
     const jdk = parseEnvFile(text).SNOWDROP_JDK;
     if (jdk) return jdk;
+  }
+  return null;
+}
+
+/** The GraalVM for the native build: optional, so null just means "Java build only". */
+function resolveGraalvm() {
+  if (process.env.SNOWDROP_GRAALVM) return process.env.SNOWDROP_GRAALVM;
+  const text = readFileIfExists(LOCAL_ENV_FILE);
+  if (text != null) {
+    const graalvm = parseEnvFile(text).SNOWDROP_GRAALVM;
+    if (graalvm) return graalvm;
   }
   return null;
 }
@@ -158,6 +189,7 @@ function isSnowdropRunning() {
 function planSignalCli(flags) {
   const current = currentSignalCliSources();
   const distText = readFileIfExists(DIST_PROVENANCE);
+  const nativeDistText = readFileIfExists(NATIVE_DIST_PROVENANCE);
 
   let needsBuild;
   let buildReasons;
@@ -173,34 +205,71 @@ function planSignalCli(flags) {
     buildReasons = diff.reasons;
   }
 
-  return { current, distText, needsBuild, buildReasons };
+  const graalvm = resolveGraalvm();
+  const native = planNativeBuild({
+    graalvmConfigured: graalvm != null,
+    javaNeedsBuild: needsBuild,
+    nativeProvenanceText: nativeDistText,
+    current,
+  });
+  if (flags.force && graalvm != null) {
+    native.needsBuild = true;
+    native.reasons = ['--force'];
+  }
+
+  return { current, distText, nativeDistText, needsBuild, buildReasons, graalvm, native };
 }
 
 function runSignalCliStep(flags, plan) {
-  const summary = { built: false, installed: false, version: null, blockedReason: null };
+  const summary = {
+    built: false,
+    installed: false,
+    version: null,
+    nativeVersion: null,
+    nativeBuilt: false,
+    nativeInstalled: false,
+    blockedReason: null,
+  };
   let distText = plan.distText;
+  let nativeDistText = plan.nativeDistText;
 
-  if (plan.needsBuild) {
-    log(`signal-cli: rebuild needed (${plan.buildReasons.join('; ')}).`);
+  if (plan.native.skipped) {
+    log(
+      'signal-cli: no SNOWDROP_GRAALVM configured, so only the Java build is built and installed (set it, like SNOWDROP_JDK, for the faster native build).',
+    );
+  }
+
+  if (plan.needsBuild || plan.native.needsBuild) {
+    if (plan.needsBuild) log(`signal-cli: rebuild needed (${plan.buildReasons.join('; ')}).`);
+    if (plan.native.needsBuild) {
+      log(`signal-cli: native build needed (${plan.native.reasons.join('; ')}).`);
+    }
     if (flags.dryRun) {
-      summary.wouldBuild = true;
+      summary.wouldBuild = plan.needsBuild;
+      summary.wouldBuildNative = plan.native.needsBuild;
     } else {
       const jdk = resolveJdk();
       if (!jdk) {
         printJdkSetupMessage();
         die('cannot build signal-cli without SNOWDROP_JDK.');
       }
-      const buildResult = spawnSync(BUILD_SCRIPT, [], {
+      const env = { ...process.env, SNOWDROP_JDK: jdk };
+      if (plan.graalvm != null) env.SNOWDROP_GRAALVM = plan.graalvm;
+      // The script reuses a Java build that is already current, so asking for --native when only
+      // the native build is out of date compiles only that.
+      const buildResult = spawnSync(BUILD_SCRIPT, plan.graalvm != null ? ['--native'] : [], {
         cwd: ROOT,
         stdio: 'inherit',
-        env: { ...process.env, SNOWDROP_JDK: jdk },
+        env,
       });
       if (buildResult.status !== 0) die('scripts/build-signal-cli.sh failed (see output above).');
-      summary.built = true;
+      summary.built = plan.needsBuild;
+      summary.nativeBuilt = plan.native.needsBuild;
       distText = readFileIfExists(DIST_PROVENANCE);
       if (distText == null) {
         die('build succeeded but patches/signal-cli/dist/signal-cli/PROVENANCE.txt is missing.');
       }
+      nativeDistText = readFileIfExists(NATIVE_DIST_PROVENANCE);
     }
   } else {
     log('signal-cli: build up to date, skipping.');
@@ -209,12 +278,20 @@ function runSignalCliStep(flags, plan) {
   const appData = appDataDir();
   const installedProvenancePath = path.join(appData, 'bin/signal-cli-history/PROVENANCE.txt');
   const installedBinary = path.join(appData, 'bin/signal-cli-history/bin/signal-cli');
+  const installedNativeDir = path.join(appData, 'bin/signal-cli-history-native');
+  const installedNativeBinary = path.join(installedNativeDir, 'signal-cli');
   const installedText = readFileIfExists(installedProvenancePath);
-  const needsInstall = distText != null && !provenanceTextsMatch(distText, installedText);
+  const installedNativeText = readFileIfExists(path.join(installedNativeDir, 'PROVENANCE.txt'));
+  const javaNeedsInstall = distText != null && !provenanceTextsMatch(distText, installedText);
+  // A dry run that would rebuild sees the old dist's provenance; the rebuild changes it.
+  const nativeAction = nativeInstallAction(nativeDistText, installedNativeText);
+  const needsInstall = javaNeedsInstall || nativeAction !== 'none';
 
+  const versionIfExists = (file) => (existsSync(file) ? signalCliVersion(file) : null);
   if (flags.dryRun) {
     summary.wouldInstall = needsInstall;
     summary.version = signalCliVersion(distText != null ? DIST_BINARY : installedBinary);
+    summary.nativeVersion = versionIfExists(NATIVE_DIST_BINARY);
     if (needsInstall && isSnowdropRunning())
       summary.blockedReason = 'Snowdrop is currently running';
     log(
@@ -222,9 +299,9 @@ function runSignalCliStep(flags, plan) {
         ? 'signal-cli: install needed (installed copy differs from dist, or nothing is installed yet).'
         : 'signal-cli: installed copy already up to date.',
     );
-    if (summary.wouldBuild) {
+    if (summary.wouldBuild || summary.wouldBuildNative) {
       log(
-        'signal-cli: note — a rebuild changes dist/PROVENANCE.txt, so install would then be needed regardless.',
+        'signal-cli: note — a rebuild changes the dist PROVENANCE.txt, so install would then be needed regardless.',
       );
     }
     return summary;
@@ -233,6 +310,7 @@ function runSignalCliStep(flags, plan) {
   if (!needsInstall) {
     log('signal-cli: installed copy already up to date, skipping install.');
     summary.version = signalCliVersion(existsSync(installedBinary) ? installedBinary : DIST_BINARY);
+    summary.nativeVersion = versionIfExists(installedNativeBinary);
     return summary;
   }
 
@@ -258,8 +336,10 @@ function runSignalCliStep(flags, plan) {
   });
   if (installResult.status !== 0)
     die('scripts/build-signal-cli.sh --install failed (see output above).');
-  summary.installed = true;
+  summary.installed = javaNeedsInstall;
+  summary.nativeInstalled = nativeAction === 'install';
   summary.version = signalCliVersion(installedBinary);
+  summary.nativeVersion = versionIfExists(installedNativeBinary);
   return summary;
 }
 
@@ -405,6 +485,7 @@ function main() {
     console.log(
       `signal-cli: would ${signalCli.wouldBuild ? 'rebuild' : 'not rebuild'}, ` +
         `would ${signalCli.wouldInstall ? 'install' : 'not install'}` +
+        (signalCli.wouldBuildNative ? ', would build the native build' : '') +
         (signalCli.version ? ` (dist version: ${signalCli.version})` : '') +
         (signalCli.blockedReason ? ` — install would be refused: ${signalCli.blockedReason}` : ''),
     );
@@ -412,6 +493,9 @@ function main() {
     console.log(
       `signal-cli: built=${signalCli.built} installed=${signalCli.installed}` +
         (signalCli.version ? ` version=${signalCli.version}` : '') +
+        (signalCli.nativeVersion
+          ? `; native: built=${signalCli.nativeBuilt} installed=${signalCli.nativeInstalled} version=${signalCli.nativeVersion}`
+          : '') +
         (signalCli.blockedReason ? ` (install refused: ${signalCli.blockedReason})` : ''),
     );
   }

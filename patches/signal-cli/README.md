@@ -13,7 +13,7 @@ Apply to a clean checkout of the pinned upstream commit:
 
 ```sh
 git apply /path/to/snowdrop/patches/signal-cli/*.patch
-./gradlew test --tests '*HistoryCommandTest' --tests '*GetConfigurationCommandTest' --tests '*SendReceiptCommandTest' --tests '*ReceiveConfigurationChangedNotificationTest' --tests '*ReceiveCatchingUpNotificationTest' :libsignal-cli:test --tests '*History*Test' --tests '*StickerHelperTest' --tests '*ConfigurationStoreTest' --tests '*ReceiptSyncOutcomeTest' --tests '*ReceiveHelperCatchingUpTest' --tests '*AccountRecordProfileWinsTest' --tests '*ProfileStorageUploadTest' --tests '*ProfileStoragePendingTest'
+./gradlew test --tests '*HistoryCommandTest' --tests '*GetConfigurationCommandTest' --tests '*SendReceiptCommandTest' --tests '*ReceiveConfigurationChangedNotificationTest' --tests '*ReceiveCatchingUpNotificationTest' --tests '*ShutdownTest' :libsignal-cli:test --tests '*History*Test' --tests '*StickerHelperTest' --tests '*ConfigurationStoreTest' --tests '*ReceiptSyncOutcomeTest' --tests '*ReceiveHelperCatchingUpTest' --tests '*AccountRecordProfileWinsTest' --tests '*ProfileStorageUploadTest' --tests '*ProfileStoragePendingTest'
 ./gradlew installDist
 ```
 
@@ -30,6 +30,7 @@ directory's own gitignored `.work/` (the clone + Gradle build tree) and
 npm run signal-cli:build            # patches/signal-cli/dist/signal-cli/{bin,lib,runtime}
 npm run signal-cli:build -- --test  # same, running the history test suite first
 npm run signal-cli:install          # build (if dist/ isn't already there) and install it
+npm run signal-cli:build -- --native # also compile the GraalVM native build (see "The native build")
 ```
 
 `dist/signal-cli/bin/signal-cli` is a small launcher script, not the JVM
@@ -918,6 +919,74 @@ Verification: `scripts/build-signal-cli.sh --test` (`ReceiveHelperCatchingUpTest
 the first envelope, before caught-up on an empty queue, once per connection and again on a reconnect
 whose backlog is already queued, nothing for a read that times out). Not verified against a real wake
 from sleep. Builds as `0.14.8-snowdrop-history.23`.
+
+## 0028: a clean exit when stdin closes
+
+Snowdrop stops signal-cli by closing its stdin. The command then returns, the managers are closed
+(`ManagerImpl.close`: the receive thread stops, the websockets disconnect, the account database
+closes) and `Main` calls `System.exit(0)`. A JVM exits 0. The GraalVM native build aborted with
+`Fatal error: java.lang.InterruptedException` and exit status 134 (SIGABRT), with or without a pending
+`startLink`.
+
+The cause is the interrupt flag of the thread that calls `System.exit`. `Shutdown`'s JVM shutdown hook
+ran `triggerShutdown()` whenever the shutdown future was not yet complete, which is always the case
+when the exit was not a signal. That ran the listeners `JsonRpcDispatcherCommand` registers
+(`thread::interrupt`), interrupting `main` while it was inside `System.exit` (a closed manager's
+`addClosedListener(currentThread::interrupt)` does the same in single-account mode). A JVM ignores the
+flag there. A native image's `System.exit` joins its signal-dispatcher thread
+(`PosixSignalHandlerSupport.stopDispatcherThread`), and `Thread.join` on an interrupted thread throws,
+which the runtime treats as fatal. By then the command had finished and the managers were closed, so the
+crash lost no data; it only turned a normal stop into an abort (and a crash dump in Snowdrop's log).
+
+- `Shutdown.onJvmShutdown` (the hook's body) no longer triggers the shutdown once `Main` has reported
+  the command finished: there is nothing left to stop, and the listeners only interrupt.
+- `Shutdown.shutdownComplete`, which `Main` calls right before `System.exit`, clears the thread's
+  interrupt flag, for the single-account case where the manager's own close listener sets it.
+- What is saved on stdin EOF is unchanged and still happens before the exit: the subscriptions are
+  removed, then the managers are closed (and the databases with them). A signal (INT/TERM) still goes
+  through `triggerShutdown`, which is what stops a blocking read.
+- No JSON-RPC, storage or `Manager` change, no `DATABASE_VERSION` bump, and no version bump: nothing
+  Snowdrop gates on changed, and the Java and native builds report the same version.
+
+Verification: `ShutdownTest` (the flag is cleared; the hook does not run listeners after completion).
+On the native build, `-vv` shows the old sequence (`JVM is shutting down`, `Triggering shutdown.`, then
+the abort) replaced by `JVM is shutting down`, `Waiting for app to shut down`, `Exiting`, and exit status
+0 with and without a pending `startLink`. `scripts/build-signal-cli.sh` smoke-tests both builds with a
+`version` round trip over `jsonRpc` that must end with exit status 0 once stdin closes.
+
+## The native build
+
+`scripts/build-signal-cli.sh --native` (with `SNOWDROP_GRAALVM` set to a GraalVM CE JDK 25 home that has
+`bin/native-image`) compiles the patched classes into one executable under `dist-native/signal-cli/`,
+after the Java build. It needs about 5 GiB of RAM and about 6 minutes. Without `SNOWDROP_GRAALVM` the
+script builds only the Java build and prints a one-line hint. `--install` installs `dist-native` next to
+the Java build (`<app data>/bin/signal-cli-history-native/`, with its own `.previous` copy) and never in
+place of it; a Java build installed without a matching native one retires the installed native one, and
+an install whose `PROVENANCE.txt` is identical to what is there is left alone.
+
+What the native step adds, all under `patches/signal-cli/native/` and generated or copied into the work
+tree at build time (nothing is patched into signal-cli for it):
+
+- `gen-native-metadata.py` scans the compiled classes of the patch's JSON-RPC result types, the history
+  types and the backup protobufs and registers every one for reflection in full (upstream's own metadata
+  lists some of them member by member, which goes stale as soon as a patch adds a field). Run it again
+  whenever a patch adds such a type: the build does that every time.
+- `awt-reachability-metadata.json` is the JNI access the JDK's ImageIO/AWT code (`AttachmentUtils`
+  probes an attachment image's size) needs inside an image, recorded with the native-image tracing agent.
+- `native-image.properties` leaves libsignal's embedded JNI libraries out of the image (about 270 MB for
+  all platforms); the linux-x86_64 one is shipped stripped beside the binary as `libsignal_jni.so`, where
+  `System.loadLibrary` finds it, together with the JDK's AWT/ImageIO shim libraries the compiler emits.
+
+`dist-native/signal-cli/PROVENANCE.txt` has the same fields as the Java build's (upstream commit, the
+build script's hash, every patch's hash, signal-service-java's) plus the GraalVM version and the JNI
+library's hash, so `desktop-update` decides rebuilds and installs from it the same way. The build
+smoke-tests the result: the version string and a `version` JSON-RPC round trip with a clean exit on stdin
+EOF. A Java rebuild deletes a native build made from the previous one. It is Linux x86-64 only. Measured
+against the Java build with no account (medians): first JSON-RPC reply in 29 ms instead of 1360 ms, idle RSS 53 MiB
+instead of 138 MiB.
+
+Snowdrop prefers the native build and falls back to the Java one when it cannot run (see
+docs/DESKTOP.md, "Native build and the Java fallback").
 
 ## User-controlled phone verification
 

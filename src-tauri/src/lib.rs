@@ -18,6 +18,7 @@ pub mod keyslots;
 pub mod link_preview;
 pub mod logfile;
 pub mod mic_gate;
+pub mod native_build;
 pub mod notifications;
 pub mod paste_gate;
 pub mod perf;

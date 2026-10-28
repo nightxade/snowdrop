@@ -4,6 +4,14 @@
 //! process exits unexpectedly it is restarted with exponential backoff
 //! (reset once it has stayed up for a while); `shutdown` closes stdin (which
 //! makes signal-cli save its state and exit) and kills it if it lingers.
+//!
+//! The program may have a [`Fallback`]: the native build, with the Java build
+//! behind it. When the native one fails in a way that points at the build
+//! itself (it can't start, exits before saying anything, never answers its
+//! first request, or dies after a native-image runtime error), the supervisor
+//! switches to the fallback at once, without a backoff, and reports the
+//! failure once the fallback has answered. An ordinary restart, after the
+//! process had been answering, is never a failure of the build.
 
 use serde::Serialize;
 use serde_json::{Map, Value};
@@ -11,16 +19,17 @@ use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::Stdio;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
-use tokio::sync::{mpsc, oneshot, watch};
+use tokio::sync::{mpsc, oneshot, watch, Notify};
 use tokio::task::JoinHandle;
 
 use crate::error::{Error, ErrorKind};
 use crate::jsonrpc::{parse_line, request_line, FrameError, Incoming};
+use crate::native_build::{self, FailureReason};
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "state", rename_all = "camelCase")]
@@ -58,8 +67,18 @@ impl Backoff {
     }
 }
 
+/// What to run instead when `ProcessOptions::program` fails as a build.
+pub struct Fallback {
+    pub program: PathBuf,
+    /// Called once, with the reason, when `program` was given up on and the
+    /// fallback then answered (so a machine where neither can start isn't
+    /// blamed on the first).
+    pub on_confirmed: FailureSink,
+}
+
 pub struct ProcessOptions {
     pub program: PathBuf,
+    pub fallback: Option<Fallback>,
     pub args: Vec<OsString>,
     /// Extra environment variables for the child only (e.g. `MALLOC_ARENA_MAX`
     /// on Linux, `config::spawn_env`); the child otherwise inherits ours.
@@ -69,6 +88,8 @@ pub struct ProcessOptions {
     pub grace: Duration,
 }
 
+/// Told, once, why the primary program was given up on.
+pub type FailureSink = Arc<dyn Fn(FailureReason) + Send + Sync>;
 pub type NotificationSink = Arc<dyn Fn(String, Value) + Send + Sync>;
 pub type StateSink = Arc<dyn Fn(&ProcessState) + Send + Sync>;
 
@@ -79,6 +100,16 @@ struct Shared {
     state: watch::Sender<ProcessState>,
     on_notification: NotificationSink,
     on_state: StateSink,
+    /// Counts spawns; the generation the supervisor is on or about to be on.
+    generation: AtomicU64,
+    /// Which program is running now (the primary until a fallback takes over).
+    program: Mutex<PathBuf>,
+    /// A fallback was configured at all.
+    has_fallback: bool,
+    /// A fallback exists and hasn't been switched to yet.
+    can_fall_back: AtomicBool,
+    /// Asks the supervisor to give up on the primary (it never answered).
+    abandon: Notify,
 }
 
 impl Shared {
@@ -110,6 +141,11 @@ impl RpcProcess {
             state,
             on_notification,
             on_state,
+            generation: AtomicU64::new(0),
+            program: Mutex::new(options.program.clone()),
+            has_fallback: options.fallback.is_some(),
+            can_fall_back: AtomicBool::new(options.fallback.is_some()),
+            abandon: Notify::new(),
         });
         let (shutdown, shutdown_rx) = watch::channel(false);
         let supervisor = tokio::spawn(supervise(shared.clone(), options, shutdown_rx));
@@ -139,6 +175,58 @@ impl RpcProcess {
         tokio::time::timeout(timeout, wait)
             .await
             .unwrap_or_else(|_| Err(Error::new(ErrorKind::Timeout, "signal-cli didn't start in time.")))
+    }
+
+    /// The program running now: the primary, or the fallback once it took over.
+    pub fn running_program(&self) -> PathBuf {
+        self.shared.program.lock().expect("program lock").clone()
+    }
+
+    /// Resolves once a generation later than `after` is running.
+    async fn wait_running_after(&self, after: u64, timeout: Duration) -> Result<u64, Error> {
+        let mut rx = self.shared.state.subscribe();
+        let wait = async {
+            loop {
+                match &*rx.borrow_and_update() {
+                    ProcessState::Running { generation } if *generation > after => return Ok(*generation),
+                    ProcessState::Failed { kind, message } => return Err(Error::new(*kind, message.clone())),
+                    ProcessState::Stopped => return Err(Error::new(ErrorKind::Unreachable, "signal-cli was stopped.")),
+                    _ => {}
+                }
+                if rx.changed().await.is_err() {
+                    return Err(Error::new(ErrorKind::Unreachable, "signal-cli was stopped."));
+                }
+            }
+        };
+        tokio::time::timeout(timeout, wait)
+            .await
+            .unwrap_or_else(|_| Err(Error::new(ErrorKind::Timeout, "signal-cli didn't start in time.")))
+    }
+
+    /// The first request after starting. Without a fallback this is just
+    /// [`request`](Self::request). With one, a primary that exits before
+    /// answering or doesn't answer in time is replaced by the fallback and the
+    /// request is made once more on it.
+    pub async fn request_first(&self, method: &str, params: Option<&Map<String, Value>>, timeout: Duration) -> Result<Value, Error> {
+        let generation = self.wait_running(timeout).await?;
+        let first = self.request(method, params, timeout).await;
+        let Err(error) = &first else { return first };
+        if !self.shared.has_fallback || !matches!(error.kind, ErrorKind::Timeout | ErrorKind::Unreachable) {
+            return first;
+        }
+        if error.kind == ErrorKind::Timeout {
+            // Still the primary: ask the supervisor to give up on it. (A fallback that
+            // doesn't answer either has nothing to fall back to.)
+            if !self.shared.can_fall_back.load(Ordering::SeqCst) {
+                return first;
+            }
+            self.shared.abandon.notify_one();
+        }
+        // Unreachable means the process is gone: the supervisor is switching, or stopping.
+        match self.wait_running_after(generation, timeout).await {
+            Ok(_) => self.request(method, params, timeout).await,
+            Err(_) => first,
+        }
     }
 
     /// One JSON-RPC call; resolves with the reply (`{ result }` or `{ error }`).
@@ -189,15 +277,28 @@ impl Drop for RpcProcess {
     }
 }
 
+/// What ended one child's run, or made the supervisor stop waiting for it.
+enum Wake {
+    Exited(std::io::Result<std::process::ExitStatus>),
+    Shutdown,
+    /// The primary never answered and was asked to give up.
+    Abandon,
+}
+
 async fn supervise(shared: Arc<Shared>, options: ProcessOptions, mut shutdown: watch::Receiver<bool>) {
     let mut attempt: u32 = 0;
     let mut generation: u64 = 0;
+    // Something to fall back to while the primary is running; taken once it is.
+    let mut fallback = options.fallback.as_ref();
+    let mut program = options.program.clone();
+    // Why the primary was given up on, until the fallback has answered.
+    let mut unconfirmed: Option<FailureReason> = None;
     loop {
         if *shutdown.borrow() {
             break;
         }
         shared.set_state(ProcessState::Starting { attempt });
-        let mut command = Command::new(&options.program);
+        let mut command = Command::new(&program);
         command
             .args(&options.args)
             .envs(options.envs.iter().map(|(k, v)| (k.as_os_str(), v.as_os_str())))
@@ -208,68 +309,119 @@ async fn supervise(shared: Arc<Shared>, options: ProcessOptions, mut shutdown: w
         let mut child = match command.spawn() {
             Ok(child) => child,
             Err(error) => {
+                if let Some(next) = fallback.take() {
+                    let reason = FailureReason::SpawnFailed;
+                    log::warn!("signal-cli native build failed ({}); using the Java build", reason.as_str());
+                    switch_to_fallback(&shared, &mut program, next);
+                    unconfirmed = Some(reason);
+                    continue;
+                }
                 let kind = if error.kind() == std::io::ErrorKind::NotFound { ErrorKind::NotInstalled } else { ErrorKind::Internal };
-                let message = format!("Couldn't start signal-cli ({}): {error}", options.program.display());
+                let message = format!("Couldn't start signal-cli ({}): {error}", program.display());
                 log::error!("{message}");
                 shared.set_state(ProcessState::Failed { kind, message });
                 return;
             }
         };
         generation += 1;
+        shared.generation.store(generation, Ordering::SeqCst);
         let (Some(stdin), Some(stdout), Some(stderr)) = (child.stdin.take(), child.stdout.take(), child.stderr.take()) else {
             shared.set_state(ProcessState::Failed { kind: ErrorKind::Internal, message: "signal-cli's pipes are missing.".into() });
             return;
         };
         let (tx, rx) = mpsc::unbounded_channel::<String>();
         *shared.writer.lock().expect("writer lock") = Some(tx);
+        let answered = Arc::new(AtomicBool::new(false));
+        let native_fault = Arc::new(AtomicBool::new(false));
+        // The first time this child speaks, a failure of the one before it is confirmed.
+        let confirm = unconfirmed.take().zip(options.fallback.as_ref()).map(|(reason, f)| (reason, f.on_confirmed.clone()));
         let writer = tokio::spawn(write_loop(stdin, rx));
-        let reader = tokio::spawn(read_loop(stdout, shared.clone()));
-        let drain = tokio::spawn(drain_stderr(stderr, shutdown.clone()));
+        let reader = tokio::spawn(read_loop(stdout, shared.clone(), answered.clone(), confirm));
+        let drain = tokio::spawn(drain_stderr(stderr, shutdown.clone(), native_fault.clone()));
         shared.set_state(ProcessState::Running { generation });
         let started = Instant::now();
 
-        let exited = tokio::select! {
-            status = child.wait() => Some(status),
-            _ = shutdown.changed() => None,
+        let wake = tokio::select! {
+            status = child.wait() => Wake::Exited(status),
+            _ = shutdown.changed() => Wake::Shutdown,
+            _ = shared.abandon.notified(), if fallback.is_some() => Wake::Abandon,
         };
         // No new requests from here; closing the channel also closes stdin.
         shared.writer.lock().expect("writer lock").take();
-        match exited {
-            None => {
-                stop_child(&mut child, writer, options.grace).await;
-                let _ = reader.await;
-                let _ = drain.await;
-                shared.fail_pending();
+        if matches!(wake, Wake::Shutdown) {
+            stop_child(&mut child, writer, options.grace).await;
+            let _ = reader.await;
+            let _ = drain.await;
+            shared.fail_pending();
+            shared.set_state(ProcessState::Stopped);
+            return;
+        }
+        let abandoned = matches!(wake, Wake::Abandon);
+        let status = match wake {
+            Wake::Exited(status) => status,
+            _ => {
+                let _ = child.start_kill();
+                child.wait().await
+            }
+        };
+        writer.abort();
+        let _ = reader.await;
+        let _ = drain.await;
+        shared.fail_pending();
+
+        // Only the primary can fail as a build, and only in these ways; a restart of a
+        // process that had been answering is the ordinary kind.
+        let failure = if fallback.is_none() {
+            None
+        } else if native_fault.load(Ordering::SeqCst) {
+            Some(FailureReason::NativeFault)
+        } else if abandoned {
+            Some(FailureReason::NoAnswer)
+        } else if !answered.load(Ordering::SeqCst) {
+            Some(FailureReason::NoReply)
+        } else {
+            None
+        };
+        if let (Some(reason), Some(next)) = (failure, fallback) {
+            fallback = None;
+            log::warn!("signal-cli native build failed ({}); using the Java build", reason.as_str());
+            switch_to_fallback(&shared, &mut program, next);
+            unconfirmed = Some(reason);
+            attempt = 0;
+            shared.set_state(ProcessState::Restarting {
+                attempt: 0,
+                delay_ms: 0,
+                reason: format!("the native build failed ({}); starting the Java build", reason.as_str()),
+            });
+            continue;
+        }
+
+        if started.elapsed() >= options.backoff.stable_after {
+            attempt = 0;
+        }
+        let delay = options.backoff.delay(attempt);
+        attempt += 1;
+        let reason = match status {
+            Ok(status) => format!("signal-cli exited ({status})"),
+            Err(error) => format!("signal-cli was lost ({error})"),
+        };
+        log::warn!("{reason}; restarting in {} ms", delay.as_millis());
+        shared.set_state(ProcessState::Restarting { attempt, delay_ms: delay.as_millis() as u64, reason });
+        tokio::select! {
+            _ = tokio::time::sleep(delay) => {}
+            _ = shutdown.changed() => {
                 shared.set_state(ProcessState::Stopped);
                 return;
-            }
-            Some(status) => {
-                writer.abort();
-                let _ = reader.await;
-                let _ = drain.await;
-                shared.fail_pending();
-                if started.elapsed() >= options.backoff.stable_after {
-                    attempt = 0;
-                }
-                let delay = options.backoff.delay(attempt);
-                attempt += 1;
-                let reason = match status {
-                    Ok(status) => format!("signal-cli exited ({status})"),
-                    Err(error) => format!("signal-cli was lost ({error})"),
-                };
-                log::warn!("{reason}; restarting in {} ms", delay.as_millis());
-                shared.set_state(ProcessState::Restarting { attempt, delay_ms: delay.as_millis() as u64, reason });
-                tokio::select! {
-                    _ = tokio::time::sleep(delay) => {}
-                    _ = shutdown.changed() => {
-                        shared.set_state(ProcessState::Stopped);
-                        return;
-                    }
-                }
             }
         }
     }
     shared.set_state(ProcessState::Stopped);
+}
+
+fn switch_to_fallback(shared: &Shared, program: &mut PathBuf, next: &Fallback) {
+    *program = next.program.clone();
+    *shared.program.lock().expect("program lock") = next.program.clone();
+    shared.can_fall_back.store(false, Ordering::SeqCst);
 }
 
 /// Closes stdin (signal-cli then saves and exits), waits `grace`, then kills.
@@ -290,13 +442,25 @@ async fn write_loop(mut stdin: tokio::process::ChildStdin, mut rx: mpsc::Unbound
     // Dropping stdin closes it.
 }
 
-async fn read_loop(stdout: impl AsyncRead + Unpin, shared: Arc<Shared>) {
+async fn read_loop(
+    stdout: impl AsyncRead + Unpin,
+    shared: Arc<Shared>,
+    answered: Arc<AtomicBool>,
+    mut confirm: Option<(FailureReason, FailureSink)>,
+) {
     let mut lines = BufReader::new(stdout).lines();
     while let Ok(Some(line)) = lines.next_line().await {
         if line.trim().is_empty() {
             continue;
         }
-        match parse_line(&line) {
+        let frame = parse_line(&line);
+        if frame.is_ok() {
+            answered.store(true, Ordering::SeqCst);
+            if let Some((reason, on_confirmed)) = confirm.take() {
+                on_confirmed(reason);
+            }
+        }
+        match frame {
             Ok(Incoming::Response { id, reply }) => {
                 let waiter = shared.pending.lock().expect("pending lock").remove(&id);
                 if let Some(waiter) = waiter {
@@ -342,7 +506,7 @@ fn is_known_benign_signal_cli_warning(line: &str) -> bool {
 ///   native-image teardown bug) and at Error otherwise.
 /// - A handful of known-benign WARN lines are logged at Info instead (see
 ///   [`KNOWN_BENIGN_SIGNAL_CLI_WARNINGS`]).
-async fn drain_stderr(stderr: impl AsyncRead + Unpin, shutting_down: watch::Receiver<bool>) {
+async fn drain_stderr(stderr: impl AsyncRead + Unpin, shutting_down: watch::Receiver<bool>, native_fault: Arc<AtomicBool>) {
     let mut lines = BufReader::new(stderr).lines();
     let mut crash_dump_run: u32 = 0;
     // The line right before a crash-dump run started, if any: usually the
@@ -358,6 +522,10 @@ async fn drain_stderr(stderr: impl AsyncRead + Unpin, shutting_down: watch::Rece
         flush_crash_dump_run(&mut crash_dump_run, line_before_dump.take(), &shutting_down);
         if line.trim().is_empty() {
             continue;
+        }
+        // Not acted on here: the supervisor decides, from whether the process then died.
+        if native_build::is_native_fault_line(&line) {
+            native_fault.store(true, Ordering::SeqCst);
         }
         let level = stderr_level(&line);
         let level = if level == log::Level::Warn && is_known_benign_signal_cli_warning(&line) {
@@ -543,7 +711,7 @@ mod tests {
         let before = logger.0.lock().unwrap().len();
         let (tx, rx) = watch::channel(shutting_down);
         let _ = &tx; // kept alive for the duration of the call
-        drain_stderr(input.as_bytes(), rx).await;
+        drain_stderr(input.as_bytes(), rx, Arc::new(AtomicBool::new(false))).await;
         logger.0.lock().unwrap()[before..].to_vec()
     }
 

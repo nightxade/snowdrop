@@ -27,9 +27,10 @@ export function parseProvenance(text) {
     ssjUpstreamCommit: null,
     ssjPatchedVersion: null,
     ssjPatches: [],
+    nativeFiles: [],
   };
 
-  let section = null; // 'patches' | 'ssjPatches' | null
+  let section = null; // 'patches' | 'ssjPatches' | 'nativeFiles' | null
   for (const rawLine of text.split('\n')) {
     const line = rawLine.trim();
     if (line === '') {
@@ -44,6 +45,10 @@ export function parseProvenance(text) {
     }
     if (section === 'ssjPatches' && patchLine) {
       result.ssjPatches.push({ hash: patchLine[1], name: patchLine[2] });
+      continue;
+    }
+    if (section === 'nativeFiles' && patchLine) {
+      result.nativeFiles.push({ hash: patchLine[1], name: patchLine[2] });
       continue;
     }
 
@@ -62,6 +67,8 @@ export function parseProvenance(text) {
       result.ssjPatchedVersion = m[1];
     } else if (line === 'signal-service-java patches applied (sha256, in order):') {
       section = 'ssjPatches';
+    } else if (line === 'Native build files (sha256):') {
+      section = 'nativeFiles';
     }
   }
   return result;
@@ -95,6 +102,49 @@ export function diffSignalCliSources(provenance, current) {
     reasons.push('scripts/build-signal-cli.sh changed since the last build');
   }
   return { needsRebuild: reasons.length > 0, reasons };
+}
+
+/**
+ * Whether the GraalVM native build (patches/signal-cli/dist-native) needs building. It is built
+ * from the Java build's classes, so it is stale whenever that is rebuilt, and it uses the same
+ * PROVENANCE.txt fields as the Java build. Without a GraalVM there is nothing to build: the
+ * result says so (`skipped`) so the caller can print its one-line hint, and the Java build stays
+ * the only one.
+ *
+ * `nativeProvenanceText` is dist-native's PROVENANCE.txt, or null if there isn't one; `current`
+ * is what `diffSignalCliSources` takes plus `nativeFiles` (`{name, hash}[]` of
+ * patches/signal-cli/native/*, which only the native build depends on).
+ */
+export function planNativeBuild({
+  graalvmConfigured,
+  javaNeedsBuild,
+  nativeProvenanceText,
+  current,
+}) {
+  if (!graalvmConfigured) return { needsBuild: false, skipped: true, reasons: [] };
+  const reasons = [];
+  if (javaNeedsBuild) reasons.push('the Java build is being rebuilt');
+  if (nativeProvenanceText == null) {
+    reasons.push('no native build at patches/signal-cli/dist-native yet');
+  } else {
+    const recorded = parseProvenance(nativeProvenanceText);
+    reasons.push(...diffSignalCliSources(recorded, current).reasons);
+    if (!sameHashList(recorded.nativeFiles, current.nativeFiles ?? [])) {
+      reasons.push('patches/signal-cli/native/* changed since the last native build');
+    }
+  }
+  return { needsBuild: reasons.length > 0, skipped: false, reasons };
+}
+
+/**
+ * What installing does about the native build, given dist-native's PROVENANCE.txt and the
+ * installed native copy's (each null when absent): copy it in (`install`), take an installed copy
+ * that no longer matches any build out (`retire`: it would otherwise run beside a newer Java
+ * build), or nothing.
+ */
+export function nativeInstallAction(distText, installedText) {
+  if (distText != null) return provenanceTextsMatch(distText, installedText) ? 'none' : 'install';
+  return installedText != null ? 'retire' : 'none';
 }
 
 /**

@@ -42,10 +42,12 @@ export interface ResolvedProgram {
   path: string;
   /**
    * Where it came from: the history-enabled build installed by `scripts/
-   * build-signal-cli.sh --install` (`patched`), downloaded by Snowdrop,
-   * bundled with the app, the configured path, or PATH.
+   * build-signal-cli.sh --install`, as a native executable (`patchedNative`,
+   * preferred) or as the Java build (`patched`, also what runs when the
+   * native one can't), downloaded by Snowdrop, bundled with the app, the
+   * configured path, or PATH.
    */
-  source: 'patched' | 'downloaded' | 'bundled' | 'configured' | 'path';
+  source: 'patchedNative' | 'patched' | 'downloaded' | 'bundled' | 'configured' | 'path';
 }
 
 export type DesktopProbeResult =

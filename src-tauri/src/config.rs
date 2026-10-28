@@ -19,8 +19,9 @@ pub enum ConnectConfig {
     #[serde(rename_all = "camelCase")]
     Spawn {
         /// A signal-cli the user installed: an absolute path, or empty to use
-        /// whatever `resolve_binary` finds (the downloaded install, then a
-        /// bundled sidecar in a bundled build, then PATH).
+        /// whatever `resolve_binary` finds (the patched native or Java build,
+        /// then the downloaded install, then a bundled sidecar in a bundled
+        /// build, then PATH).
         #[serde(default)]
         binary_path: Option<String>,
         /// Run signal-cli for this account only (`-a`); empty = multi-account.
@@ -37,11 +38,14 @@ pub enum ConnectConfig {
 #[serde(rename_all = "camelCase")]
 pub enum BinarySource {
     Configured,
-    /// The history-patched build (`patches/signal-cli/`), installed by
+    /// The history-patched Java build (`patches/signal-cli/`), installed by
     /// `scripts/build-signal-cli.sh --install` at `<app_data_dir>/bin/
     /// signal-cli-history/bin/signal-cli` (see [`patched_binary`]). Never
     /// placed there automatically — a human runs the install script.
     Patched,
+    /// The same patches compiled to a GraalVM native executable, installed
+    /// beside the Java build (see `native_build`). Preferred over it.
+    PatchedNative,
     /// Downloaded into the app data dir on first launch (signal_cli_install.rs).
     Downloaded,
     /// A sidecar shipped inside the app package (only in a `bundled-sidecar` build).
@@ -54,6 +58,16 @@ pub enum BinarySource {
 pub struct ResolvedBinary {
     pub path: PathBuf,
     pub source: BinarySource,
+    /// The Java build to run instead if this native one turns out not to work
+    /// (`process::Fallback`). Only ever set for [`BinarySource::PatchedNative`].
+    #[serde(skip)]
+    pub fallback: Option<PathBuf>,
+}
+
+impl ResolvedBinary {
+    pub fn new(path: PathBuf, source: BinarySource) -> Self {
+        Self { path, source, fallback: None }
+    }
 }
 
 pub const INSTALL_HINT: &str = "Install signal-cli (https://github.com/AsamK/signal-cli/releases; the Linux-native build needs no Java), then set its path in Settings → Connection, or use a Snowdrop build that bundles it.";
@@ -155,33 +169,46 @@ pub fn patched_binary(app_data_dir: &Path) -> Option<PathBuf> {
     is_executable(&path).then_some(path)
 }
 
-/// Resolution order: a user-configured path, then the installed
-/// history-patched build (if `scripts/build-signal-cli.sh --install` has put
-/// one in place), then the version Snowdrop downloaded into the app data dir
-/// on first launch, then (only in a build with the `bundled-sidecar` Cargo
-/// feature) the sidecar shipped inside the app package, then `signal-cli` on
-/// PATH.
+/// Resolution order: a user-configured path (which always wins), then the
+/// installed history-patched native build, then the installed history-patched
+/// Java build (if `scripts/build-signal-cli.sh --install` has put them in
+/// place), then the version Snowdrop downloaded into the app data dir on first
+/// launch, then (only in a build with the `bundled-sidecar` Cargo feature) the
+/// sidecar shipped inside the app package, then `signal-cli` on PATH. `native`
+/// is what `native_build::preferred_native` found: absent when none is
+/// installed, when the Java build is forced, or when that build failed here
+/// before. A native build resolved while the Java build is also installed
+/// carries it as its fallback.
 pub fn resolve_binary(
     configured: Option<&str>,
+    native: Option<&Path>,
     patched: Option<&Path>,
     downloaded: Option<&Path>,
     bundled: Option<&Path>,
     path_var: Option<&OsStr>,
 ) -> Result<ResolvedBinary, Error> {
     if let Some(raw) = configured.map(str::trim).filter(|s| !s.is_empty()) {
-        return Ok(ResolvedBinary { path: validate_binary_path(raw)?, source: BinarySource::Configured });
+        return Ok(ResolvedBinary::new(validate_binary_path(raw)?, BinarySource::Configured));
     }
-    if let Some(path) = patched.filter(|p| is_executable(p)) {
-        return Ok(ResolvedBinary { path: path.to_path_buf(), source: BinarySource::Patched });
+    let patched = patched.filter(|p| is_executable(p));
+    if let Some(path) = native.filter(|p| is_executable(p)) {
+        return Ok(ResolvedBinary {
+            path: path.to_path_buf(),
+            source: BinarySource::PatchedNative,
+            fallback: patched.map(Path::to_path_buf),
+        });
+    }
+    if let Some(path) = patched {
+        return Ok(ResolvedBinary::new(path.to_path_buf(), BinarySource::Patched));
     }
     if let Some(path) = downloaded.filter(|p| is_executable(p)) {
-        return Ok(ResolvedBinary { path: path.to_path_buf(), source: BinarySource::Downloaded });
+        return Ok(ResolvedBinary::new(path.to_path_buf(), BinarySource::Downloaded));
     }
     if let Some(path) = bundled.filter(|p| is_executable(p)) {
-        return Ok(ResolvedBinary { path: path.to_path_buf(), source: BinarySource::Bundled });
+        return Ok(ResolvedBinary::new(path.to_path_buf(), BinarySource::Bundled));
     }
     find_on_path(path_var)
-        .map(|path| ResolvedBinary { path, source: BinarySource::Path })
+        .map(|path| ResolvedBinary::new(path, BinarySource::Path))
         .ok_or_else(|| Error::new(ErrorKind::NotInstalled, format!("signal-cli wasn't found. {INSTALL_HINT}")))
 }
 
@@ -321,37 +348,44 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn resolves_configured_then_patched_then_downloaded_then_bundled_then_path() {
+    fn resolves_configured_then_native_then_patched_then_downloaded_then_bundled_then_path() {
         let dir = temp_dir("resolve");
         let dir = dir.path();
         let configured = dir.join("configured").join("signal-cli");
+        let native = dir.join("native").join("signal-cli");
         let patched = dir.join("patched").join("signal-cli");
         let downloaded = dir.join("downloaded").join("signal-cli");
         let bundled = dir.join("bundled").join("signal-cli");
         let on_path = dir.join("onpath").join("signal-cli");
-        for p in [&configured, &patched, &downloaded, &bundled, &on_path] {
+        for p in [&configured, &native, &patched, &downloaded, &bundled, &on_path] {
             fs::create_dir_all(p.parent().unwrap()).unwrap();
             make_exec(p);
         }
         let path_var = std::env::join_paths([on_path.parent().unwrap()]).unwrap();
         let cfg = configured.to_str().unwrap();
 
-        // Configured beats everything else.
-        let r = resolve_binary(Some(cfg), Some(&patched), Some(&downloaded), Some(&bundled), Some(&path_var)).unwrap();
+        // Configured beats everything else, the native build included.
+        let r = resolve_binary(Some(cfg), Some(&native), Some(&patched), Some(&downloaded), Some(&bundled), Some(&path_var)).unwrap();
         assert_eq!((r.source, r.path), (BinarySource::Configured, configured.clone()));
-        // No configured path: the patched build beats the downloaded install.
-        let r = resolve_binary(None, Some(&patched), Some(&downloaded), Some(&bundled), Some(&path_var)).unwrap();
-        assert_eq!((r.source, r.path), (BinarySource::Patched, patched.clone()));
+        // No configured path: the native build beats the Java build, which it keeps as its fallback.
+        let r = resolve_binary(None, Some(&native), Some(&patched), Some(&downloaded), Some(&bundled), Some(&path_var)).unwrap();
+        assert_eq!((r.source, r.path.clone(), r.fallback), (BinarySource::PatchedNative, native.clone(), Some(patched.clone())));
+        // A native build with no Java build beside it has nothing to fall back to.
+        let r = resolve_binary(None, Some(&native), None, Some(&downloaded), Some(&bundled), Some(&path_var)).unwrap();
+        assert_eq!((r.source, r.fallback), (BinarySource::PatchedNative, None));
+        // No native build (none installed, forced off, or failed before): the Java build.
+        let r = resolve_binary(None, None, Some(&patched), Some(&downloaded), Some(&bundled), Some(&path_var)).unwrap();
+        assert_eq!((r.source, r.path, r.fallback), (BinarySource::Patched, patched.clone(), None));
         // No patched build: the downloaded install beats the bundled sidecar.
-        let r = resolve_binary(None, None, Some(&downloaded), Some(&bundled), Some(&path_var)).unwrap();
+        let r = resolve_binary(None, None, None, Some(&downloaded), Some(&bundled), Some(&path_var)).unwrap();
         assert_eq!((r.source, r.path), (BinarySource::Downloaded, downloaded.clone()));
         // No downloaded install: the bundled sidecar beats PATH.
-        let r = resolve_binary(None, None, None, Some(&bundled), Some(&path_var)).unwrap();
+        let r = resolve_binary(None, None, None, None, Some(&bundled), Some(&path_var)).unwrap();
         assert_eq!((r.source, r.path), (BinarySource::Bundled, bundled.clone()));
         // Nothing else: PATH.
-        let r = resolve_binary(None, None, None, None, Some(&path_var)).unwrap();
+        let r = resolve_binary(None, None, None, None, None, Some(&path_var)).unwrap();
         assert_eq!((r.source, r.path), (BinarySource::Path, on_path));
-        let missing = resolve_binary(Some(""), None, None, None, Some(OsStr::new(""))).unwrap_err();
+        let missing = resolve_binary(Some(""), None, None, None, None, Some(OsStr::new(""))).unwrap_err();
         assert_eq!(missing.kind, ErrorKind::NotInstalled);
         assert!(missing.message.contains("Install signal-cli"));
     }

@@ -160,6 +160,17 @@ describe('DesktopConnectionRows', () => {
     expect(await screen.findByText(/signal-cli 0\.14\.8 .*works, with 1 account\./u)).toBeTruthy();
   });
 
+  it.each([
+    ['patchedNative', /Snowdrop will run the history-enabled native build/u],
+    ['patched', /Snowdrop will run the history-enabled Java build/u],
+  ] as const)('says which patched build it will run (%s)', async (source, note) => {
+    const admin = fakeAdmin({
+      locate: () => Promise.resolve({ ok: true, path: '/data/bin/signal-cli', source }),
+    });
+    render(<Controlled admin={admin} />);
+    expect(await screen.findByText(note)).toBeTruthy();
+  });
+
   it('falls back to a safe note for a program source it does not recognise', async () => {
     const admin = fakeAdmin({
       probe: () =>

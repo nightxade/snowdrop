@@ -240,7 +240,12 @@ located in this order:
    (`DesktopConnection.binaryPath`). It must point to a file literally named
    `signal-cli` (or `.exe`/`.bat`), including through a symlink, and be
    executable; anything else is rejected before it's ever spawned.
-2. **Patched** — the history-enabled build at `<app_data_dir>/bin/signal-cli-
+2. **Patched, native** — the history-enabled build compiled with GraalVM, at
+   `<app_data_dir>/bin/signal-cli-history-native/signal-cli`
+   (`native_build::native_binary`), if it was installed (see "Native build"
+   below). It is preferred over the Java build; if it can't run here, the app
+   uses the Java build by itself.
+3. **Patched, Java** — the history-enabled build at `<app_data_dir>/bin/signal-cli-
 history/bin/signal-cli` (`config::patched_binary`), if an operator has run
    `npm run signal-cli:install` (see `patches/signal-cli/README.md`). Nothing
    puts a binary there automatically — this step only ever matches after that
@@ -248,17 +253,17 @@ history/bin/signal-cli` (`config::patched_binary`), if an operator has run
    around a jlinked JVM, not an ELF executable, which resolves fine: Rust's
    `is_executable` only checks the file's permission bits, and spawning it
    execs the launcher through its `#!` shebang like any other script.
-3. **Downloaded** — the pinned version Snowdrop downloaded into
+4. **Downloaded** — the pinned version Snowdrop downloaded into
    `<app_data_dir>/bin/signal-cli/<version>/` (above), if present.
-4. **Bundled** — a sidecar Tauri installed next to the app's own executable,
+5. **Bundled** — a sidecar Tauri installed next to the app's own executable,
    only in a build made with `npm run tauri:build:bundled` (the
    `bundled-sidecar` Cargo feature; see below). The default build has no
    such sidecar at all — this step never matches.
-5. **PATH** — the first `signal-cli`/`signal-cli.exe`/`signal-cli.bat` found
+6. **PATH** — the first `signal-cli`/`signal-cli.exe`/`signal-cli.bat` found
    on `PATH`.
 
-`bin/signal-cli-history/` is a sibling of `bin/signal-cli/<version>/` and
-`bin/.install-tmp/`: `signal_cli_install.rs`'s `migrate_old_installs` only
+`bin/signal-cli-history/` and `bin/signal-cli-history-native/` are siblings of
+`bin/signal-cli/<version>/` and `bin/.install-tmp/`: `signal_cli_install.rs`'s `migrate_old_installs` only
 ever lists the pre-fix `<app_data_dir>/signal-cli/` location (not `bin/`
 itself), so it can't see, move, or delete it, and nothing else in that
 module scans `bin/` generically either.
@@ -268,8 +273,64 @@ screen (`DownloadSignalCli.tsx`) when nothing is configured and nothing was
 found at all, or `MissingSignalCli.tsx` (asks for a path) when a _configured_
 path turned out bad. Settings → Connection can also just **locate** a binary
 (`signal_cli_locate` → `ResolvedBinary { path, source }`) without connecting,
-to show which one would be used, and has its own "Installed signal-cli" row
+to show which one would be used (`patchedNative` reads "the history-enabled
+native build", `patched` "the history-enabled Java build"), and has its own "Installed signal-cli" row
 with a "Re-download" action.
+
+### Native build and the Java fallback
+
+The patched signal-cli also builds as one GraalVM native executable. Against
+the Java build it answers its first JSON-RPC request in about 30 ms instead of
+about 1.4 s, and idles in about 53 MiB instead of about 138 MiB (no account,
+same machine). It is
+optional, needs a GraalVM CE JDK 25 (with `native-image`), and is built and
+installed beside the Java build, never instead of it:
+
+```sh
+echo 'SNOWDROP_GRAALVM=/path/to/graalvm-community-jdk-25' >> .snowdrop.local.env
+npm run desktop:update               # builds and installs both; or
+scripts/build-signal-cli.sh --native # builds both into patches/signal-cli/dist{,-native}
+```
+
+Plan for about 6 minutes and about 5 GiB of free RAM for the native compile
+(the Java build comes first, then the compile reuses its classes). Without
+`SNOWDROP_GRAALVM` (read like `SNOWDROP_JDK`: the environment, then
+`.snowdrop.local.env`) both the script and `desktop:update` build and install
+only the Java build and print a one-line hint. The install layout is
+`<app data dir>/bin/signal-cli-history/` (Java, `bin/signal-cli`) and
+`bin/signal-cli-history-native/` (`signal-cli` at its top level, with the
+`libsignal_jni.so` and AWT libraries it needs beside it), each with a
+`.previous` rollback copy. A Java build installed without a matching native
+build retires the old native one, so the two can never be different patch
+levels. It is Linux x86-64 only.
+
+When both are installed Snowdrop runs the native one and **falls back to the
+Java build on its own** if the native one fails in a way that points at the
+build and not the data:
+
+- it can't be started, or exits before its first reply (a missing
+  `libsignal_jni.so`, an older glibc);
+- it doesn't answer its first request within the usual start-up timeout;
+- it dies after printing a native-image runtime error (an unregistered
+  reflection, JNI or resource access, a library that can't load, a runtime
+  abort).
+
+The switch is immediate and needs no action; the connection resumes on the
+Java build. Once the Java build has answered, the failure is remembered for
+that exact native build (`<app data dir>/bin/signal-cli-history-native.failed`,
+keyed on the hash of its `PROVENANCE.txt`), so later launches go straight to
+the Java build; installing a new native build tries native again. A native
+process that had been answering and then restarts (after a wake, a lost
+connection) is an ordinary restart and never counts. It is logged at WARN by
+reason category only ("exited before its first reply", "didn't answer",
+"couldn't start", "native-image runtime error"), never any content. The
+`history.N` capability in the version string is the same from both builds, so
+nothing in the UI depends on which one runs; Settings → Connection says which
+one it will use.
+
+To force the Java build for diagnosis, start Snowdrop with
+`SNOWDROP_SIGNAL_CLI_JVM=1` (anything but empty or `0`); a Custom signal-cli
+path still wins over both, as always.
 
 ## Updating your local install
 
@@ -294,7 +355,10 @@ the build script's own hash, alongside the signal-service-java patch hashes
 it already tracked). It then installs (`--install`) only if the installed
 copy's `PROVENANCE.txt` (under `<app data dir>/bin/signal-cli-history/`)
 differs from dist's — an exact text match means nothing changed since the
-last install. If Snowdrop looks like it's running (an exact process-name
+last install. With a GraalVM configured it does the same for the native build
+(`dist-native/signal-cli/PROVENANCE.txt` and the installed
+`signal-cli-history-native/PROVENANCE.txt`), which is rebuilt whenever the Java
+build is. If Snowdrop looks like it's running (an exact process-name
 match, e.g. the `snowdrop` binary inside the AppImage — nothing is ever
 killed), it refuses to install and tells you to close it first; rerunning
 `npm run desktop:update` afterwards finishes the install.
@@ -316,7 +380,8 @@ echo 'SNOWDROP_JDK=/path/to/your/jdk-25' > .snowdrop.local.env
 ```
 
 If neither is set, the command prints that one-time setup message instead
-of guessing — it's never hard-coded into a tracked file.
+of guessing — it's never hard-coded into a tracked file. `SNOWDROP_GRAALVM`
+is optional and read the same way ("Native build and the Java fallback").
 
 It finishes with a short summary: whether signal-cli was built and/or
 installed (with its version, e.g. `0.14.8-snowdrop-history.12`), whether the

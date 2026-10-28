@@ -1,0 +1,106 @@
+diff --git a/src/main/java/org/asamk/signal/Shutdown.java b/src/main/java/org/asamk/signal/Shutdown.java
+index c51c12e..9d0204c 100644
+--- a/src/main/java/org/asamk/signal/Shutdown.java
++++ b/src/main/java/org/asamk/signal/Shutdown.java
+@@ -23,20 +23,25 @@ public class Shutdown {
+         initialized = true;
+         Signal.handle(new Signal("INT"), Shutdown::handleSignal);
+         Signal.handle(new Signal("TERM"), Shutdown::handleSignal);
+-        Runtime.getRuntime().addShutdownHook(Thread.ofPlatform().unstarted(() -> {
+-            logger.debug("JVM is shutting down");
+-            if (!shutdown.isDone()) {
+-                triggerShutdown();
+-            }
++        Runtime.getRuntime().addShutdownHook(Thread.ofPlatform().unstarted(Shutdown::onJvmShutdown));
++    }
+ 
+-            try {
+-                logger.debug("Waiting for app to shut down");
+-                shutdownComplete.get();
+-                logger.debug("Exiting");
+-            } catch (InterruptedException | ExecutionException e) {
+-                throw new RuntimeException(e);
+-            }
+-        }));
++    static void onJvmShutdown() {
++        logger.debug("JVM is shutting down");
++        // Once Main has finished (it calls shutdownComplete() right before System.exit), there is
++        // nothing left to stop. Triggering the shutdown now would only run the registered listeners,
++        // which interrupt the thread that is inside System.exit.
++        if (!shutdown.isDone() && !shutdownComplete.isDone()) {
++            triggerShutdown();
++        }
++
++        try {
++            logger.debug("Waiting for app to shut down");
++            shutdownComplete.get();
++            logger.debug("Exiting");
++        } catch (InterruptedException | ExecutionException e) {
++            throw new RuntimeException(e);
++        }
+     }
+ 
+     public static void triggerShutdown() {
+@@ -64,8 +69,17 @@ public class Shutdown {
+         shutdown.thenRun(action);
+     }
+ 
++    /**
++     * Called by Main on its way to System.exit. The shutdown and closed listeners interrupt the
++     * thread that ran the command (so that its blocking read returns), and that is the thread that
++     * exits now. A GraalVM native image joins its signal dispatcher thread while exiting, which
++     * throws InterruptedException on an interrupted thread and aborts the process (exit status 134)
++     * instead of exiting cleanly; a JVM ignores the flag. Everything the command had to save has
++     * been closed by now, so the pending interrupt has nothing left to interrupt.
++     */
+     static void shutdownComplete() {
+         shutdownComplete.complete(null);
++        Thread.interrupted();
+     }
+ 
+     private static void handleSignal(Signal signal) {
+diff --git a/src/test/java/org/asamk/signal/ShutdownTest.java b/src/test/java/org/asamk/signal/ShutdownTest.java
+new file mode 100644
+index 0000000..7fa730a
+--- /dev/null
++++ b/src/test/java/org/asamk/signal/ShutdownTest.java
+@@ -0,0 +1,39 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal;
++
++import org.junit.jupiter.api.Test;
++
++import java.util.concurrent.atomic.AtomicBoolean;
++
++import static org.junit.jupiter.api.Assertions.assertFalse;
++
++/**
++ * What happens on the way out of the process after stdin closes (snowdrop-history patch 0028).
++ * Snowdrop stops signal-cli by closing its stdin; the command then returns, its managers are closed,
++ * and Main exits. A GraalVM native image aborts that exit when the exiting thread is interrupted.
++ */
++class ShutdownTest {
++
++    @Test
++    void completingTheShutdownClearsThePendingInterrupt() {
++        Thread.currentThread().interrupt();
++        try {
++            Shutdown.shutdownComplete();
++            assertFalse(Thread.currentThread().isInterrupted(),
++                    "the thread that calls System.exit next must not be left interrupted");
++        } finally {
++            Thread.interrupted();
++        }
++    }
++
++    @Test
++    void theJvmShutdownHookDoesNotRunTheListenersOnceTheCommandHasFinished() {
++        final var listenerRan = new AtomicBoolean();
++        Shutdown.shutdownComplete();
++        Shutdown.registerShutdownListener(() -> listenerRan.set(true));
++
++        Shutdown.onJvmShutdown();
++
++        assertFalse(listenerRan.get(), "listeners interrupt the exiting thread, so they must not run on a normal exit");
++    }
++}
