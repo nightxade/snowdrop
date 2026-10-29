@@ -225,11 +225,16 @@ export function createLocalStore(initial: LocalData = defaultLocalData()): Local
       if (get().playedVoiceNotes[key] !== undefined) return;
       set((s) => {
         const next = { ...s.playedVoiceNotes, [key]: Date.now() };
-        // Keep the map small: only the most recently played survive.
-        const kept = Object.entries(next)
-          .sort((a, b) => b[1] - a[1])
-          .slice(0, MAX_TRACKED_PLAYED_VOICE_NOTES);
-        return { playedVoiceNotes: Object.fromEntries(kept) };
+        // Keep the map small: past the cap, the earliest played goes (the
+        // first inserted among equal times, so a new entry is never the one dropped).
+        const entries = Object.entries(next);
+        if (entries.length <= MAX_TRACKED_PLAYED_VOICE_NOTES) return { playedVoiceNotes: next };
+        let oldest = 0;
+        entries.forEach(([, at], i) => {
+          if (at < (entries[oldest] as [string, number])[1]) oldest = i;
+        });
+        entries.splice(oldest, 1);
+        return { playedVoiceNotes: Object.fromEntries(entries) };
       });
     },
     markAccepted: (id, at) => {

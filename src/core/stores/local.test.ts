@@ -78,7 +78,13 @@ describe('localStore', () => {
   it('caps the played list, dropping the oldest, and ignores junk on load', () => {
     const store = createLocalStore();
     for (let i = 0; i < 1010; i++) store.getState().markVoiceNotePlayed(`k${i}`);
-    expect(Object.keys(store.getState().playedVoiceNotes).length).toBe(1000);
+    const played = store.getState().playedVoiceNotes;
+    expect(Object.keys(played).length).toBe(1000);
+    // Played within the same millisecond, the first ones go and the latest stay.
+    expect(played.k0).toBeUndefined();
+    expect(played.k9).toBeUndefined();
+    expect(played.k10).toBeDefined();
+    expect(played.k1009).toBeDefined();
     const junk = createMemoryStorage({
       [localSchema.key]: JSON.stringify({
         v: 1,
