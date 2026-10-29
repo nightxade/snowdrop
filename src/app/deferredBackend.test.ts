@@ -6,7 +6,7 @@ import { ManualScheduler } from '@/core/lib';
 import { createMemoryStorage } from '@/core/persistence';
 import { DEFAULT_DESKTOP_CONNECTION } from '@/core/stores';
 import { BackendRegistry, BUILTIN_BACKENDS, type BackendEnvironment } from './backends';
-import { deferredBackend, OPTIONAL_METHODS } from './deferredBackend';
+import { deferredBackend, FORWARDING, OPTIONAL_METHODS } from './deferredBackend';
 
 const present = (b: ChatBackend) =>
   OPTIONAL_METHODS.filter((m) => (b as unknown as Record<string, unknown>)[m] !== undefined).sort();
@@ -162,5 +162,128 @@ describe('deferredBackend', () => {
     await pending;
     expect(request).toHaveBeenCalledWith('conv', 'author', 5, ['a1']);
     expect(deferred.supportsAttachmentBackfill?.()).toBe(true);
+  });
+
+  describe('forwarding every ChatBackend member', () => {
+    const ARGS = ['arg-1', 'arg-2', 'arg-3', 'arg-4', 'arg-5'];
+    const RESULT = { sentinel: true };
+    type Fn = (...args: unknown[]) => unknown;
+    const keys = Object.keys(FORWARDING) as Array<keyof typeof FORWARDING>;
+    const forwarded = keys.filter((k) => !['kind', 'getStatus', 'on'].includes(k));
+
+    /** A real backend whose every member is a spy, so each call's arguments can be compared. */
+    const fakeReal = () => {
+      const spies: Record<string, ReturnType<typeof vi.fn>> = {};
+      const real: Record<string, unknown> = { kind: 'signal-cli', getStatus: () => 'connected' };
+      for (const key of forwarded) {
+        if (key === 'link') continue;
+        const kind = FORWARDING[key];
+        spies[key] = vi.fn(() =>
+          kind === 'flag'
+            ? true
+            : kind === 'required' || kind === 'async'
+              ? Promise.resolve(RESULT)
+              : RESULT,
+        );
+        real[key] = spies[key];
+      }
+      spies['link.start'] = vi.fn(() => Promise.resolve(RESULT));
+      spies['link.finish'] = vi.fn(() => Promise.resolve(RESULT));
+      real['link'] = { start: spies['link.start'], finish: spies['link.finish'] };
+      return { real: real as unknown as ChatBackend, spies };
+    };
+
+    const wrap = (real: ChatBackend) =>
+      deferredBackend('signal-cli', new Set(OPTIONAL_METHODS), Promise.resolve(real));
+
+    it('exposes every member when every capability is declared', () => {
+      const deferred = wrap(fakeReal().real);
+      for (const key of keys) expect(key in deferred, key).toBe(true);
+    });
+
+    it('passes every argument of every member through unchanged, and returns the result', async () => {
+      const { real, spies } = fakeReal();
+      const deferred = wrap(real) as unknown as Record<string, Fn>;
+      await Promise.resolve();
+      for (const key of forwarded) {
+        const kind = FORWARDING[key];
+        if (key === 'link') {
+          const link = deferred['link'] as unknown as Record<string, Fn>;
+          await link['start']!(...ARGS);
+          await link['finish']!(...ARGS);
+          expect(spies['link.start']).toHaveBeenCalledWith(...ARGS);
+          expect(spies['link.finish']).toHaveBeenCalledWith(...ARGS);
+          continue;
+        }
+        const result = deferred[key]!(...ARGS);
+        if (kind === 'flag') expect(result, key).toBe(true);
+        else if (kind === 'required' || kind === 'async') expect(await result, key).toBe(RESULT);
+        else if (kind === 'peek') expect(result, key).toBe(RESULT);
+        expect(spies[key], key).toHaveBeenCalledWith(...ARGS);
+      }
+    });
+
+    it('rejects, or reports false, for what the adapter does not have', async () => {
+      const bare = { kind: 'signal-cli', getStatus: () => 'connected' } as unknown as ChatBackend;
+      const deferred = wrap(bare) as unknown as Record<string, Fn>;
+      for (const key of forwarded) {
+        const kind = FORWARDING[key];
+        if (kind === 'flag') expect(deferred[key]!(), key).toBe(false);
+        else if (kind === 'required' || kind === 'async')
+          await expect(deferred[key]!(...ARGS), key).rejects.toThrow(TypeError);
+      }
+      await expect(
+        deferred['link'] ? (deferred['link'] as never as { start: Fn }).start() : 0,
+      ).rejects.toThrow(TypeError);
+    });
+
+    it('replays fire-and-forget calls made before the adapter loads, in order', async () => {
+      let resolve!: (b: ChatBackend) => void;
+      const ready = new Promise<ChatBackend>((r) => {
+        resolve = r;
+      });
+      const deferred = deferredBackend(
+        'signal-cli',
+        new Set(['retainAttachmentUrl', 'releaseAttachmentUrl', 'acknowledge']),
+        ready,
+      );
+      const calls: string[] = [];
+      const attachment = { id: 'a1' } as never;
+      deferred.retainAttachmentUrl!(attachment);
+      deferred.acknowledge!('c1');
+      deferred.releaseAttachmentUrl!(attachment);
+      resolve({
+        kind: 'signal-cli',
+        retainAttachmentUrl: () => calls.push('retain'),
+        releaseAttachmentUrl: () => calls.push('release'),
+        acknowledge: (c: string) => calls.push(`ack ${c}`),
+      } as unknown as ChatBackend);
+      await ready;
+      await Promise.resolve();
+      expect(calls).toEqual(['retain', 'ack c1', 'release']);
+    });
+
+    it('delivers custom emoji through the wrapper once the adapter is known', async () => {
+      let resolve!: (b: ChatBackend) => void;
+      const ready = new Promise<ChatBackend>((r) => {
+        resolve = r;
+      });
+      const deferred = deferredBackend('signal-cli', new Set(), ready);
+      expect(deferred.supportsCustomEmojiDelivery?.()).toBe(false);
+      resolve({
+        kind: 'signal-cli',
+        supportsCustomEmojiDelivery: () => true,
+      } as unknown as ChatBackend);
+      await ready;
+      expect(deferred.supportsCustomEmojiDelivery?.()).toBe(true);
+    });
+
+    it('forwards resolveAttachmentUrl options, so Retry refetches', async () => {
+      const resolveAttachmentUrl = vi.fn(() => Promise.resolve('blob:fresh'));
+      const deferred = wrap({ kind: 'signal-cli', resolveAttachmentUrl } as unknown as ChatBackend);
+      const attachment = { id: 'a1' } as never;
+      await deferred.resolveAttachmentUrl!('conv' as never, attachment, { forceRefresh: true });
+      expect(resolveAttachmentUrl).toHaveBeenCalledWith('conv', attachment, { forceRefresh: true });
+    });
   });
 });

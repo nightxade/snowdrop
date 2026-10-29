@@ -224,6 +224,7 @@ const signalCliBackend: BackendRegistration = {
   capabilities: new Set([
     'fetchHistory',
     'historyHasOutgoing',
+    'getHistoryArchiveId',
     'remapHistoryMessages',
     'readHistory',
     'getHistoryReadState',

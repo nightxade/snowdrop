@@ -11,53 +11,114 @@
  *
  * Async methods await the adapter; `on()` subscriptions made early are
  * attached once it arrives; `getStatus()` is "connecting" until then.
+ *
+ * Every `ChatBackend` member is listed once in `FORWARDING`, which is typed
+ * to cover the whole interface: adding a member without saying how it is
+ * forwarded is a compile error. Arguments always pass through unchanged.
  */
-import type { BackendEvents, BackendKind, ChatBackend } from '@/core/backend';
-import type { Attachment, StickerContent } from '@/core/domain';
+import type { BackendEvents, BackendKind, ChatBackend, LinkFlow } from '@/core/backend';
 import type { Unsubscribe } from '@/core/lib';
 
-export const OPTIONAL_METHODS = [
-  'fetchHistory',
-  'remapHistoryMessages',
-  'historyHasOutgoing',
-  'readHistory',
-  'getHistoryReadState',
-  'adminDelete',
-  'pinMessage',
-  'votePoll',
-  'terminatePoll',
-  'updateConversation',
-  'updateGroup',
-  'createGroup',
-  'leaveGroup',
-  'respondToMessageRequest',
-  'setBlocked',
-  'getSafetyNumber',
-  'verifyIdentity',
-  'approveIdentity',
-  'resolveAttachmentUrl',
-  'readAttachmentBlob',
-  'retainAttachmentUrl',
-  'releaseAttachmentUrl',
-  'resolveAvatarUrl',
-  'peekAvatarUrl',
-  'resolveStickerUrl',
-  'retainStickerUrl',
-  'releaseStickerUrl',
-  'listStickerPacks',
-  'getStickerPack',
-  'installStickerPack',
-  'requestAttachmentBackfill',
-  'readPhonePrivacy',
-  'updatePhonePrivacy',
-  'updateProfile',
-  'acknowledge',
-  'link',
-  'syncContactsAndGroups',
-  'lookupRecipient',
-] as const;
+type Keys = keyof ChatBackend;
+type RequiredKeys = {
+  [K in Keys]-?: object extends Pick<ChatBackend, K> ? never : K;
+}[Keys];
+/** The `supports*()` capability flags: known only once the adapter has connected. */
+export type CapabilityFlag = Extract<Keys, `supports${string}`>;
+/** Every optional, non-flag member: present only when the registration declares it. */
+export type OptionalMethod = Exclude<Keys, RequiredKeys | CapabilityFlag>;
 
-export type OptionalMethod = (typeof OPTIONAL_METHODS)[number];
+/**
+ * How each member is forwarded:
+ * - `required`: always present; awaits the adapter, then calls it with the same arguments;
+ * - `async`: the same, but only present when the registration declares it, and a
+ *   method the adapter lacks rejects with `missing(...)`;
+ * - `flag`: `false` until the adapter is known, then whatever it answers (a flag
+ *   the adapter lacks stays `false`);
+ * - `queued`: synchronous and fire-and-forget; calls made before the adapter loads
+ *   are replayed, in order, when it does;
+ * - `peek`: synchronous lookup, `undefined` until the adapter is known;
+ * - `link`: the device-linking object (two async methods);
+ * - `custom`: written out by hand below (`kind`, `getStatus`, `on`).
+ */
+type FlagKind = 'flag';
+type OptionalKind = 'async' | 'queued' | 'peek' | 'link';
+type Forwarding = {
+  [K in Keys]: K extends CapabilityFlag
+    ? FlagKind
+    : K extends RequiredKeys
+      ? 'required' | 'custom'
+      : OptionalKind;
+};
+
+export const FORWARDING: Forwarding = {
+  kind: 'custom',
+  getStatus: 'custom',
+  on: 'custom',
+  connect: 'required',
+  disconnect: 'required',
+  getSelf: 'required',
+  listContacts: 'required',
+  listConversations: 'required',
+  send: 'required',
+  edit: 'required',
+  react: 'required',
+  deleteForEveryone: 'required',
+  setTyping: 'required',
+  markRead: 'required',
+  fetchHistory: 'async',
+  remapHistoryMessages: 'async',
+  historyHasOutgoing: 'async',
+  getHistoryArchiveId: 'async',
+  readHistory: 'async',
+  getHistoryReadState: 'async',
+  adminDelete: 'async',
+  pinMessage: 'async',
+  votePoll: 'async',
+  terminatePoll: 'async',
+  updateConversation: 'async',
+  updateGroup: 'async',
+  createGroup: 'async',
+  leaveGroup: 'async',
+  respondToMessageRequest: 'async',
+  setBlocked: 'async',
+  getSafetyNumber: 'async',
+  verifyIdentity: 'async',
+  approveIdentity: 'async',
+  resolveAttachmentUrl: 'async',
+  readAttachmentBlob: 'async',
+  retainAttachmentUrl: 'queued',
+  releaseAttachmentUrl: 'queued',
+  resolveAvatarUrl: 'async',
+  peekAvatarUrl: 'peek',
+  resolveStickerUrl: 'async',
+  retainStickerUrl: 'queued',
+  releaseStickerUrl: 'queued',
+  listStickerPacks: 'async',
+  getStickerPack: 'async',
+  installStickerPack: 'async',
+  requestAttachmentBackfill: 'async',
+  readPhonePrivacy: 'async',
+  updatePhonePrivacy: 'async',
+  updateProfile: 'async',
+  acknowledge: 'queued',
+  link: 'link',
+  syncContactsAndGroups: 'async',
+  lookupRecipient: 'async',
+  supportsReadSync: 'flag',
+  supportsCustomEmojiDelivery: 'flag',
+  supportsPhonePrivacy: 'flag',
+  supportsCatchingUpSignal: 'flag',
+  supportsOrderedCatchingUp: 'flag',
+  supportsStickerPackInstall: 'flag',
+  supportsAttachmentBackfill: 'flag',
+};
+
+const keysOf = (kinds: readonly string[]): Keys[] =>
+  (Object.keys(FORWARDING) as Keys[]).filter((k) => kinds.includes(FORWARDING[k]));
+
+/** Every optional method a registration may declare (`BackendRegistration.capabilities`). */
+export const OPTIONAL_METHODS = keysOf(['async', 'queued', 'peek', 'link']) as OptionalMethod[];
 
 interface Subscription {
   event: keyof BackendEvents;
@@ -82,12 +143,11 @@ export function deferredBackend(
 ): ChatBackend {
   let real: ChatBackend | null = null;
   const subscriptions = new Set<Subscription>();
-  const acks: string[] = [];
-  // A retain/release pair made before the adapter loads must still land in
-  // order once it does — an id retained then released while still
-  // "connecting" must not end up retained forever (or vice versa).
-  const attachmentRefs: Array<{ retain: boolean; attachment: Attachment }> = [];
-  const stickerRefs: Array<{ retain: boolean; sticker: StickerContent }> = [];
+  // Fire-and-forget calls made before the adapter loads (acknowledge, and the
+  // retain/release pairs) are replayed in order once it does: an id retained
+  // then released while still "connecting" must not end up retained forever
+  // (or vice versa).
+  const replay: Array<(backend: ChatBackend) => void> = [];
   // Avoid an unhandled rejection before a call observes it; calls reject with the error.
   ready.then(
     (backend) => {
@@ -99,41 +159,63 @@ export function deferredBackend(
             sub.fn as (payload: BackendEvents[typeof sub.event]) => void,
           );
       }
-      for (const cursor of acks.splice(0)) backend.acknowledge?.(cursor);
-      for (const { retain, attachment } of attachmentRefs.splice(0)) {
-        if (retain) backend.retainAttachmentUrl?.(attachment);
-        else backend.releaseAttachmentUrl?.(attachment);
-      }
-      for (const { retain, sticker } of stickerRefs.splice(0)) {
-        if (retain) backend.retainStickerUrl?.(sticker);
-        else backend.releaseStickerUrl?.(sticker);
-      }
+      for (const apply of replay.splice(0)) apply(backend);
     },
     () => undefined,
   );
   const call = <T>(fn: (backend: ChatBackend) => Promise<T>): Promise<T> => ready.then(fn);
 
-  const backend: ChatBackend = {
+  // Members are assigned by name from the table, so this is the one untyped spot.
+  const target: Record<string, unknown> = {};
+  const declared = (key: Keys) =>
+    caps.has(key as OptionalMethod) || !OPTIONAL_METHODS.includes(key as OptionalMethod);
+
+  for (const key of keysOf(['required', 'async'])) {
+    if (!declared(key)) continue;
+    target[key] = (...args: unknown[]) =>
+      call((b) => {
+        const method = (b as unknown as Record<string, unknown>)[key];
+        return typeof method === 'function'
+          ? (Reflect.apply(method, b, args) as Promise<unknown>)
+          : missing(key);
+      });
+  }
+  for (const key of keysOf(['flag'])) {
+    target[key] = (...args: unknown[]) => {
+      const method = real ? (real as unknown as Record<string, unknown>)[key] : undefined;
+      return typeof method === 'function' ? (Reflect.apply(method, real, args) as boolean) : false;
+    };
+  }
+
+  const named = (backend: ChatBackend, key: Keys) =>
+    (backend as unknown as Record<string, unknown>)[key];
+  for (const key of keysOf(['queued'])) {
+    if (!declared(key)) continue;
+    target[key] = (...args: unknown[]) => {
+      const apply = (b: ChatBackend) => {
+        const method = named(b, key);
+        if (typeof method === 'function') Reflect.apply(method, b, args);
+      };
+      if (real) apply(real);
+      else replay.push(apply);
+    };
+  }
+  // Synchronous lookups: nothing is known before the real backend exists.
+  for (const key of keysOf(['peek'])) {
+    if (!declared(key)) continue;
+    target[key] = (...args: unknown[]) => {
+      const method = real ? named(real, key) : undefined;
+      return typeof method === 'function'
+        ? (Reflect.apply(method, real, args) as unknown)
+        : undefined;
+    };
+  }
+
+  const backend = target as unknown as ChatBackend;
+  Object.assign(target, {
     kind,
-    connect: () => call((b) => b.connect()),
-    disconnect: () => call((b) => b.disconnect()),
     // Loading the adapter is the first step of connecting.
     getStatus: () => real?.getStatus() ?? 'connecting',
-    getSelf: () => call((b) => b.getSelf()),
-    listContacts: () => call((b) => b.listContacts()),
-    listConversations: () => call((b) => b.listConversations()),
-    send: (input) => call((b) => b.send(input)),
-    edit: (input) => call((b) => b.edit(input)),
-    react: (input) => call((b) => b.react(input)),
-    deleteForEveryone: (conversationId, sentAt) =>
-      call((b) => b.deleteForEveryone(conversationId, sentAt)),
-    setTyping: (conversationId, typing) => call((b) => b.setTyping(conversationId, typing)),
-    markRead: (conversationId, messages, options) =>
-      call((b) => b.markRead(conversationId, messages, options)),
-    // Known only once the adapter has connected and read signal-cli's version.
-    supportsReadSync: () => real?.supportsReadSync?.() ?? false,
-    supportsCatchingUpSignal: () => real?.supportsCatchingUpSignal?.() ?? false,
-    supportsOrderedCatchingUp: () => real?.supportsOrderedCatchingUp?.() ?? false,
     on(event, fn) {
       const sub: Subscription = { event, fn, off: null, active: true };
       subscriptions.add(sub);
@@ -144,164 +226,14 @@ export function deferredBackend(
         subscriptions.delete(sub);
       };
     },
-  };
+  } satisfies Pick<ChatBackend, 'kind' | 'getStatus' | 'on'>);
 
-  if (caps.has('remapHistoryMessages'))
-    backend.remapHistoryMessages = (m) =>
-      call((b) =>
-        b.remapHistoryMessages ? b.remapHistoryMessages(m) : missing('remapHistoryMessages'),
-      );
-  if (caps.has('historyHasOutgoing'))
-    backend.historyHasOutgoing = (c) =>
-      call((b) => (b.historyHasOutgoing ? b.historyHasOutgoing(c) : missing('historyHasOutgoing')));
-  if (caps.has('fetchHistory'))
-    backend.fetchHistory = (c, q) =>
-      call((b) => (b.fetchHistory ? b.fetchHistory(c, q) : missing('fetchHistory')));
-  if (caps.has('readHistory'))
-    backend.readHistory = (messages) =>
-      call((b) => (b.readHistory ? b.readHistory(messages) : missing('readHistory')));
-  if (caps.has('getHistoryReadState'))
-    backend.getHistoryReadState = (messages) =>
-      call((b) =>
-        b.getHistoryReadState ? b.getHistoryReadState(messages) : missing('getHistoryReadState'),
-      );
-  if (caps.has('adminDelete'))
-    backend.adminDelete = (c, t) =>
-      call((b) => (b.adminDelete ? b.adminDelete(c, t) : missing('adminDelete')));
-  if (caps.has('pinMessage'))
-    backend.pinMessage = (input) =>
-      call((b) => (b.pinMessage ? b.pinMessage(input) : missing('pinMessage')));
-  if (caps.has('votePoll'))
-    backend.votePoll = (input) =>
-      call((b) => (b.votePoll ? b.votePoll(input) : missing('votePoll')));
-  if (caps.has('terminatePoll'))
-    backend.terminatePoll = (c, sentAt) =>
-      call((b) => (b.terminatePoll ? b.terminatePoll(c, sentAt) : missing('terminatePoll')));
-  if (caps.has('updateConversation'))
-    backend.updateConversation = (c, patch) =>
-      call((b) =>
-        b.updateConversation ? b.updateConversation(c, patch) : missing('updateConversation'),
-      );
-  if (caps.has('updateGroup'))
-    backend.updateGroup = (c, change) =>
-      call((b) => (b.updateGroup ? b.updateGroup(c, change) : missing('updateGroup')));
-  if (caps.has('createGroup'))
-    backend.createGroup = (input) =>
-      call((b) => (b.createGroup ? b.createGroup(input) : missing('createGroup')));
-  if (caps.has('leaveGroup'))
-    backend.leaveGroup = (c, admins) =>
-      call((b) => (b.leaveGroup ? b.leaveGroup(c, admins) : missing('leaveGroup')));
-  if (caps.has('resolveAttachmentUrl'))
-    backend.resolveAttachmentUrl = (c, a) =>
-      call((b) =>
-        b.resolveAttachmentUrl ? b.resolveAttachmentUrl(c, a) : missing('resolveAttachmentUrl'),
-      );
-  if (caps.has('readAttachmentBlob'))
-    backend.readAttachmentBlob = (c, a, o) =>
-      call((b) =>
-        b.readAttachmentBlob ? b.readAttachmentBlob(c, a, o) : missing('readAttachmentBlob'),
-      );
-  if (caps.has('retainAttachmentUrl'))
-    backend.retainAttachmentUrl = (a) => {
-      if (real) real.retainAttachmentUrl?.(a);
-      else attachmentRefs.push({ retain: true, attachment: a });
-    };
-  if (caps.has('releaseAttachmentUrl'))
-    backend.releaseAttachmentUrl = (a) => {
-      if (real) real.releaseAttachmentUrl?.(a);
-      else attachmentRefs.push({ retain: false, attachment: a });
-    };
-  if (caps.has('resolveAvatarUrl'))
-    backend.resolveAvatarUrl = (ref) =>
-      call((b) => (b.resolveAvatarUrl ? b.resolveAvatarUrl(ref) : missing('resolveAvatarUrl')));
-  // Synchronous: nothing is known before the real backend exists.
-  if (caps.has('peekAvatarUrl')) backend.peekAvatarUrl = (ref) => real?.peekAvatarUrl?.(ref);
-  if (caps.has('resolveStickerUrl'))
-    backend.resolveStickerUrl = (s, o) =>
-      call((b) => (b.resolveStickerUrl ? b.resolveStickerUrl(s, o) : missing('resolveStickerUrl')));
-  if (caps.has('retainStickerUrl'))
-    backend.retainStickerUrl = (s) => {
-      if (real) real.retainStickerUrl?.(s);
-      else stickerRefs.push({ retain: true, sticker: s });
-    };
-  if (caps.has('releaseStickerUrl'))
-    backend.releaseStickerUrl = (s) => {
-      if (real) real.releaseStickerUrl?.(s);
-      else stickerRefs.push({ retain: false, sticker: s });
-    };
-  if (caps.has('listStickerPacks'))
-    backend.listStickerPacks = () =>
-      call((b) => (b.listStickerPacks ? b.listStickerPacks() : missing('listStickerPacks')));
-  if (caps.has('getStickerPack'))
-    backend.getStickerPack = (s) =>
-      call((b) => (b.getStickerPack ? b.getStickerPack(s) : missing('getStickerPack')));
-  if (caps.has('installStickerPack')) {
-    backend.installStickerPack = (s) =>
-      call((b) => (b.installStickerPack ? b.installStickerPack(s) : missing('installStickerPack')));
-    // Known only once the adapter has connected and read signal-cli's version.
-    backend.supportsStickerPackInstall = () => real?.supportsStickerPackInstall?.() ?? false;
-  }
-  if (caps.has('requestAttachmentBackfill')) {
-    backend.requestAttachmentBackfill = (c, author, sentAt, ids) =>
-      call((b) =>
-        b.requestAttachmentBackfill
-          ? b.requestAttachmentBackfill(c, author, sentAt, ids)
-          : missing('requestAttachmentBackfill'),
-      );
-    // Known only once the adapter has connected and read signal-cli's version.
-    backend.supportsAttachmentBackfill = () => real?.supportsAttachmentBackfill?.() ?? false;
-  }
-  if (caps.has('readPhonePrivacy')) {
-    backend.readPhonePrivacy = () =>
-      call((b) => (b.readPhonePrivacy ? b.readPhonePrivacy() : missing('readPhonePrivacy')));
-    // Known only once the adapter has connected and read signal-cli's version.
-    backend.supportsPhonePrivacy = () => real?.supportsPhonePrivacy?.() ?? false;
-  }
-  if (caps.has('updatePhonePrivacy'))
-    backend.updatePhonePrivacy = (patch) =>
-      call((b) =>
-        b.updatePhonePrivacy ? b.updatePhonePrivacy(patch) : missing('updatePhonePrivacy'),
-      );
-  if (caps.has('updateProfile'))
-    backend.updateProfile = (update) =>
-      call((b) => (b.updateProfile ? b.updateProfile(update) : missing('updateProfile')));
-  if (caps.has('acknowledge'))
-    backend.acknowledge = (cursor) => {
-      if (real) real.acknowledge?.(cursor);
-      else acks.push(cursor);
-    };
   if (caps.has('link'))
     backend.link = {
-      start: () => call((b) => (b.link ? b.link.start() : missing('link.start'))),
-      finish: (uri, name) =>
-        call((b) => (b.link ? b.link.finish(uri, name) : missing('link.finish'))),
+      start: (...args: Parameters<LinkFlow['start']>) =>
+        call((b) => (b.link ? b.link.start(...args) : missing('link.start'))),
+      finish: (...args: Parameters<LinkFlow['finish']>) =>
+        call((b) => (b.link ? b.link.finish(...args) : missing('link.finish'))),
     };
-  if (caps.has('respondToMessageRequest'))
-    backend.respondToMessageRequest = (conversationId, response) =>
-      call((b) =>
-        b.respondToMessageRequest
-          ? b.respondToMessageRequest(conversationId, response)
-          : missing('respondToMessageRequest'),
-      );
-  if (caps.has('setBlocked'))
-    backend.setBlocked = (conversationId, blocked) =>
-      call((b) => (b.setBlocked ? b.setBlocked(conversationId, blocked) : missing('setBlocked')));
-  if (caps.has('getSafetyNumber'))
-    backend.getSafetyNumber = (id) =>
-      call((b) => (b.getSafetyNumber ? b.getSafetyNumber(id) : missing('getSafetyNumber')));
-  if (caps.has('verifyIdentity'))
-    backend.verifyIdentity = (id, digits) =>
-      call((b) => (b.verifyIdentity ? b.verifyIdentity(id, digits) : missing('verifyIdentity')));
-  if (caps.has('approveIdentity'))
-    backend.approveIdentity = (id) =>
-      call((b) => (b.approveIdentity ? b.approveIdentity(id) : missing('approveIdentity')));
-  if (caps.has('lookupRecipient'))
-    backend.lookupRecipient = (query) =>
-      call((b) => (b.lookupRecipient ? b.lookupRecipient(query) : missing('lookupRecipient')));
-  if (caps.has('syncContactsAndGroups'))
-    backend.syncContactsAndGroups = () =>
-      call((b) =>
-        b.syncContactsAndGroups ? b.syncContactsAndGroups() : missing('syncContactsAndGroups'),
-      );
   return backend;
 }

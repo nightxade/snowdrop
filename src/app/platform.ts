@@ -7,6 +7,7 @@ import type { DesktopAdmin, OutgoingLinkPreview, StorageAdmin } from '@/core/bac
 import { addLogSink, createLogger, setStartupSink, type LogAdmin } from '@/core/lib';
 import type { NotificationApi } from '@/core/services';
 import { isTauri } from '@/platform/detect';
+import { deferredAsync } from './deferredRepository';
 import type { LastIpcCommand } from '@/platform/tauri';
 
 export { isTauri };
@@ -28,29 +29,10 @@ const platform = () => (platformModule ??= importPlatform());
  * loading `@tauri-apps/*` directly.
  */
 export function desktopStorageAdmin(): StorageAdmin {
-  const admin = platform().then((m) => m.createStorageAdmin());
-  // A second handler, so a rejection (the module failed to load, or a test
-  // mocks @/platform/tauri without createStorageAdmin because it's testing
-  // something unrelated) never becomes an unhandled rejection just from
-  // constructing this object. Every method below awaits `admin` itself and
-  // surfaces the same failure to its actual caller.
-  admin.catch(() => {});
-  return {
-    status: async () => (await admin).status(),
-    keyringStatus: async () => (await admin).keyringStatus(),
-    setup: async (mode, passphrase) => (await admin).setup(mode, passphrase),
-    unlock: async (method, secret, remember) => (await admin).unlock(method, secret, remember),
-    createRecovery: async () => (await admin).createRecovery(),
-    removeRecovery: async () => (await admin).removeRecovery(),
-    setPassphrase: async (passphrase) => (await admin).setPassphrase(passphrase),
-    enrollKeyring: async () => (await admin).enrollKeyring(),
-    webcacheKey: async () => (await admin).webcacheKey(),
-    encryptExport: async (passphrase, plaintext) =>
-      (await admin).encryptExport(passphrase, plaintext),
-    eraseAll: async () => (await admin).eraseAll(),
-    signOut: async () => (await admin).signOut(),
-    restart: async () => (await admin).restart(),
-  };
+  return deferredAsync(
+    platform().then((m) => m.createStorageAdmin()),
+    'StorageAdmin',
+  );
 }
 
 /** Native notifications; `permission()` reads "default" until the plugin has answered. */
@@ -99,18 +81,10 @@ export function desktopLastIpcCommand(): LastIpcCommand | null {
 }
 
 export function desktopAdmin(): DesktopAdmin {
-  const admin = platform().then((m) => m.createDesktopAdmin());
-  // See desktopStorageAdmin's matching guard just above.
-  admin.catch(() => {});
-  return {
-    probe: async (desktop) => (await admin).probe(desktop),
-    locate: async (desktop) => (await admin).locate(desktop),
-    info: async () => (await admin).info(),
-    pinnedRelease: async () => (await admin).pinnedRelease(),
-    installStatus: async () => (await admin).installStatus(),
-    install: async (onProgress) => (await admin).install(onProgress),
-    cancelInstall: async () => (await admin).cancelInstall(),
-  };
+  return deferredAsync(
+    platform().then((m) => m.createDesktopAdmin()),
+    'DesktopAdmin',
+  );
 }
 
 /** Web links open in the system browser instead of navigating the app. */

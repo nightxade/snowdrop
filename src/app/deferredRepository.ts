@@ -11,19 +11,28 @@
 import type { MessageRepository } from '@/core/persistence';
 
 export function deferredRepository(ready: Promise<MessageRepository>): MessageRepository {
+  return deferredAsync(ready, 'MessageRepository');
+}
+
+/**
+ * Forwards every method of `T` to the object `ready` resolves with, passing
+ * all arguments through unchanged. `T` must have only async methods. Meant
+ * for facades that are handed out before their implementation has loaded.
+ */
+export function deferredAsync<T extends object>(ready: Promise<T>, name: string): T {
   // Avoid an unhandled rejection before the first call observes it.
   ready.catch(() => undefined);
-  return new Proxy({} as MessageRepository, {
+  return new Proxy({} as T, {
     get(_target, key) {
       // Never look like a thenable (await on the proxy itself must not hang).
       if (key === 'then') return undefined;
       return (...args: unknown[]): Promise<unknown> =>
-        ready.then((repository) => {
-          const method: unknown = Reflect.get(repository, key);
+        ready.then((target) => {
+          const method: unknown = Reflect.get(target, key);
           if (typeof method !== 'function') {
-            throw new TypeError(`MessageRepository has no method ${String(key)}`);
+            throw new TypeError(`${name} has no method ${String(key)}`);
           }
-          return Reflect.apply(method, repository, args) as unknown;
+          return Reflect.apply(method, target, args) as unknown;
         });
     },
   });
