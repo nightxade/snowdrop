@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { MockBackend } from '@/core/backend/mock';
 import { messageId, type ConversationId, type Message } from '@/core/domain';
 import { addLogSink, ManualScheduler } from '@/core/lib';
@@ -70,6 +70,66 @@ async function drainFor(ctx: Awaited<ReturnType<typeof setup>>, seconds: number)
     await ctx.arrive();
   }
 }
+
+describe('the hold on the first connect', () => {
+  /** A backend that only learns what the build can do while connecting, like signal-cli. */
+  async function connectLate(ordered: boolean) {
+    const scheduler = new ManualScheduler(NOW);
+    const backend = new MockBackend({ seed: 7, clock: scheduler, scheduler, latencyMs: 0 });
+    backend.orderedCatchingUpSupported = false;
+    backend.catchingUpSignalSupported = false;
+    const realConnect = backend.connect.bind(backend);
+    const realEmit = backend.emit.bind(backend);
+    vi.spyOn(backend, 'connect').mockImplementation(async () => {
+      // Unlike the demo backend, signal-cli sends caughtUp only once the
+      // server's queue has drained, never as part of connecting.
+      const emit = vi.spyOn(backend, 'emit').mockImplementation((event, payload) => {
+        if (event !== 'caughtUp') realEmit(event, payload);
+      });
+      await realConnect();
+      emit.mockRestore();
+      backend.catchingUpSignalSupported = true;
+      backend.orderedCatchingUpSupported = ordered;
+    });
+    const stores = createStores();
+    const sync = new SyncService({
+      backend,
+      repository: new MemoryMessageRepository(),
+      stores,
+      clock: scheduler,
+      scheduler,
+      onError: () => undefined,
+    });
+    const log = await captureSyncLog(async () => {
+      await sync.start();
+      await sync.idle();
+    });
+    const starts = log.filter((l) => l.includes('notification hold started'));
+    return { backend, scheduler, sync, session: () => stores.session.getState(), starts };
+  }
+
+  it('is strict, with the long ceiling, on a build that orders catchingUp, though the version is only known after connecting', async () => {
+    const { backend, scheduler, sync, session, starts } = await connectLate(true);
+    expect(
+      starts.map((l) => /"strict":(true|false),"restarted":(true|false)/u.exec(l)?.[0]),
+    ).toEqual(['"strict":false,"restarted":false', '"strict":true,"restarted":true']);
+    expect(session().notificationsHeld).toBe(true);
+    // Neither the quiet period nor the short ceiling ends it.
+    scheduler.advance(CATCH_UP_CEILING_MS + CATCH_UP_QUIET_MS);
+    expect(session().notificationsHeld).toBe(true);
+    backend.emit('caughtUp', undefined);
+    await sync.idle();
+    expect(session().notificationsHeld).toBe(false);
+  });
+
+  it('gets the long ceiling, and the quiet period, on a build that only sends caughtUp', async () => {
+    const { scheduler, session, starts } = await connectLate(false);
+    expect(starts).toHaveLength(2);
+    expect(starts.every((l) => l.includes('"strict":false'))).toBe(true);
+    scheduler.advance(CATCH_UP_QUIET_MS);
+    expect(session().notificationsHeld).toBe(false);
+  });
+});
 
 describe('catching up after signal-cli reconnects by itself', () => {
   it('a catchingUp mid-session holds notifications until caughtUp', async () => {

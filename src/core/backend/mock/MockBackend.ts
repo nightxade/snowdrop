@@ -195,7 +195,7 @@ export class MockBackend implements ChatBackend {
     this.setStatus('online');
     // The demo backend has no stale server queue to drain, so it's caught up
     // the moment it connects.
-    this.emitter.emit('caughtUp', undefined);
+    this.emit('caughtUp', undefined);
   }
 
   async disconnect(): Promise<void> {

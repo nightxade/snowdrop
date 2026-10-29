@@ -282,6 +282,7 @@ export class SyncService {
     stores.session.getState().setPhonePrivacy({ status: 'pending', values: UNKNOWN_PHONE_PRIVACY });
     try {
       await backend.connect();
+      this.restartHoldForConnectedBackend();
       await this.refreshPhonePrivacy();
       await this.initialSync();
     } catch (error) {
@@ -347,6 +348,24 @@ export class SyncService {
         : undefined,
       { strict: ordered },
     );
+  }
+
+  /**
+   * The hold begun at the top of `doStart` was sized before the backend had
+   * been asked for its version, so a build that sends `caughtUp` was treated
+   * as one that doesn't: the short ceiling and a quiet period instead of the
+   * long ceiling and `caughtUp` alone. Its own `catchingUp` can't fix that, as
+   * events are ignored during the initial sync. Once connected, begin the hold
+   * again the way `catchingUp` would have. Nothing is released early: the new
+   * run only ever lasts longer, and a `caughtUp` already parked is still
+   * applied when the gate opens (the epoch is unchanged).
+   */
+  private restartHoldForConnectedBackend(): void {
+    const { backend } = this.deps;
+    if (backend.supportsCatchingUpSignal?.() !== true) return;
+    this.notificationHold.start(NOTIFICATION_HOLD_CEILING_MS, {
+      strict: backend.supportsOrderedCatchingUp?.() === true,
+    });
   }
 
   private armCatchUpQuiet(): void {
