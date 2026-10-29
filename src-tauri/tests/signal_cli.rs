@@ -5,7 +5,7 @@
 
 use serde_json::{json, Value};
 use snowdrop_lib::config::ConnectConfig;
-use snowdrop_lib::error::ErrorKind;
+use snowdrop_lib::error::{Error, ErrorKind};
 use snowdrop_lib::events::HeldEvent;
 use snowdrop_lib::process::{Backoff, ProcessOptions, ProcessState, RpcProcess};
 use snowdrop_lib::service::{EventSink, Paths, Prespawn, Service, StreamState, Timeouts};
@@ -313,6 +313,163 @@ async fn service_resubscribes_after_a_restart() {
     svc.shutdown().await;
 }
 
+/// A restarted child whose first `subscribeReceive` fails: the renewal is
+/// retried (with backoff) until it works, instead of leaving the stream
+/// "waiting" for good.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failed_resubscribe_after_a_restart_is_retried() {
+    require_node!();
+    let dir = temp_dir("resubscribe-retry");
+    // version, subscribeReceive, listAccounts → crash; on the second start the
+    // first subscribeReceive is refused, the next one works.
+    std::fs::write(dir.join("fake.json"), r#"{"crashAfter":3,"messages":1,"failFirstSubscribeFromStart":2}"#).unwrap();
+    let recorder = Arc::new(Recorder::default());
+    let svc = service(&dir, recorder.clone());
+    svc.connect(spawn_config()).await.unwrap();
+    svc.subscribe(None, String::new()).await.unwrap();
+    eventually("the first event", || recorder.events.lock().unwrap().len() == 1).await;
+    let _ = svc.request("listAccounts", None, Duration::from_secs(5)).await;
+    eventually("an event from the restarted child", || recorder.events.lock().unwrap().len() >= 2).await;
+    let states = recorder.states.lock().unwrap().clone();
+    let failed_at = states.iter().position(|s| matches!(s, StreamState::Waiting { reason, .. } if reason.contains("subscribeReceive failed")));
+    assert!(failed_at.is_some(), "the refused renewal should have been reported: {states:?}");
+    assert_eq!(states.last(), Some(&StreamState::Open), "{states:?}");
+    svc.shutdown().await;
+}
+
+/// A request that is never answered (a `finishLink` waiting for a scan) must
+/// not hold shutdown up: stdin closes at once and signal-cli exits.
+#[tokio::test(flavor = "multi_thread")]
+async fn shutdown_does_not_wait_for_a_request_that_is_never_answered() {
+    require_node!();
+    let dir = temp_dir("shutdown-held-request");
+    std::fs::write(dir.join("fake.json"), r#"{"hang":["finishLink"]}"#).unwrap();
+    let svc = service(&dir, Arc::new(Recorder::default()));
+    svc.connect(spawn_config()).await.unwrap();
+    let held = {
+        let svc = svc.clone();
+        tokio::spawn(async move { svc.request("finishLink", None, Duration::from_secs(60)).await })
+    };
+    // Let the request reach the child.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let pid = std::fs::read_to_string(dir.join("fake.pid")).unwrap();
+
+    let started = Instant::now();
+    // The grace period is 2 s; anything near the request's 60 s is the bug.
+    tokio::time::timeout(Duration::from_secs(6), svc.shutdown()).await.expect("shutdown waited for the open request");
+    assert!(started.elapsed() < Duration::from_secs(4), "shutdown took {:?}", started.elapsed());
+    let proc = PathBuf::from(format!("/proc/{}", pid.trim()));
+    eventually("signal-cli to exit", || !proc.exists()).await;
+    // The caller is released with an error rather than left hanging.
+    let result = tokio::time::timeout(Duration::from_secs(5), held).await.expect("the held request was never released").unwrap();
+    assert!(result.is_err());
+}
+
+/// Quitting (or erasing) while signal-cli is still starting stops it at once;
+/// it doesn't wait for the start to finish behind the `active` lock.
+#[tokio::test(flavor = "multi_thread")]
+async fn stop_backend_cancels_a_connect_that_is_still_starting() {
+    require_node!();
+    let dir = temp_dir("stop-mid-start");
+    // The first answer comes after 20 s, far longer than this test allows.
+    std::fs::write(dir.join("fake.json"), r#"{"delayMs":{"version":20000}}"#).unwrap();
+    let svc = service(&dir, Arc::new(Recorder::default()));
+    let connecting = {
+        let svc = svc.clone();
+        tokio::spawn(async move { svc.connect(spawn_config()).await })
+    };
+    eventually("signal-cli to be spawned", || starts(&dir) == 1).await;
+    // Past the spawn, into the wait for the first answer.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let pid = std::fs::read_to_string(dir.join("fake.pid")).unwrap();
+
+    let started = Instant::now();
+    tokio::time::timeout(Duration::from_secs(6), svc.stop_backend()).await.expect("stop_backend waited for the start");
+    assert!(started.elapsed() < Duration::from_secs(5), "stop_backend took {:?}", started.elapsed());
+    let result = tokio::time::timeout(Duration::from_secs(5), connecting).await.expect("the connect never returned").unwrap();
+    assert!(result.is_err(), "a stopped connect must not report success");
+    let proc = PathBuf::from(format!("/proc/{}", pid.trim()));
+    eventually("signal-cli to exit", || !proc.exists()).await;
+}
+
+fn service_with_grace(dir: &Path, grace: Duration) -> Arc<Service> {
+    Service::with_timeouts(
+        Paths { app_data_dir: dir.to_path_buf(), data_dir: dir.to_path_buf(), bundled: None },
+        Arc::new(Recorder::default()),
+        Timeouts { backoff: fast_backoff(), grace, ..Timeouts::default() },
+        VaultBridge::disabled(),
+    )
+}
+
+/// A child that ignores the stdin close is killed once the grace period is
+/// over: shutdown takes about that long, and leaves no process.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_child_that_ignores_stdin_close_is_killed_after_the_grace_period() {
+    require_node!();
+    let dir = temp_dir("kill-after-grace");
+    std::fs::write(dir.join("fake.json"), r#"{"ignoreStdinClose":true}"#).unwrap();
+    let svc = service_with_grace(&dir, Duration::from_millis(800));
+    svc.connect(spawn_config()).await.unwrap();
+    let pid = std::fs::read_to_string(dir.join("fake.pid")).unwrap();
+    let proc = PathBuf::from(format!("/proc/{}", pid.trim()));
+
+    let started = Instant::now();
+    tokio::time::timeout(Duration::from_secs(8), svc.shutdown()).await.expect("shutdown never finished");
+    let took = started.elapsed();
+    assert!(took >= Duration::from_millis(700), "it was killed before the grace period was up: {took:?}");
+    assert!(took < Duration::from_secs(5), "shutdown took {took:?}");
+    eventually("the child to be gone", || !proc.exists()).await;
+}
+
+/// The Exit handler's budget covers stopping signal-cli only: when that
+/// overruns, `shutdown_within` gives up on it at the budget (instead of the
+/// whole grace period) and still goes on to the vault stage.
+#[tokio::test(flavor = "multi_thread")]
+async fn shutdown_within_gives_up_on_a_slow_stop_at_its_budget() {
+    require_node!();
+    let dir = temp_dir("exit-budget");
+    std::fs::write(dir.join("fake.json"), r#"{"ignoreStdinClose":true}"#).unwrap();
+    // A long grace period, so only the budget can end this early.
+    let svc = service_with_grace(&dir, Duration::from_secs(20));
+    svc.connect(spawn_config()).await.unwrap();
+    let pid = std::fs::read_to_string(dir.join("fake.pid")).unwrap();
+
+    let started = Instant::now();
+    tokio::time::timeout(Duration::from_secs(8), svc.shutdown_within(Duration::from_millis(400)))
+        .await
+        .expect("shutdown_within ignored its budget");
+    assert!(started.elapsed() < Duration::from_secs(4), "took {:?}", started.elapsed());
+    // Left to stop in the background; clean up so no process outlives the test.
+    let _ = std::process::Command::new("kill").arg("-9").arg(pid.trim()).status();
+}
+
+/// A start that fails (here: cancelled by a stop) hands its error back at
+/// once; it doesn't wait out a child that ignores stdin close.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failed_start_returns_its_error_without_waiting_for_the_child_to_stop() {
+    require_node!();
+    let dir = temp_dir("failed-start-prompt");
+    // Never answers `version`, and won't leave when stdin closes.
+    std::fs::write(dir.join("fake.json"), r#"{"hang":["version"],"ignoreStdinClose":true}"#).unwrap();
+    let svc = Service::with_timeouts(
+        Paths { app_data_dir: dir.clone(), data_dir: dir.clone(), bundled: None },
+        Arc::new(Recorder::default()),
+        Timeouts {
+            backoff: fast_backoff(),
+            grace: Duration::from_secs(20),
+            first_answer: Duration::from_millis(500),
+            ..Timeouts::default()
+        },
+        VaultBridge::disabled(),
+    );
+    let started = Instant::now();
+    let result = svc.connect(spawn_config()).await;
+    assert!(result.is_err());
+    assert!(started.elapsed() < Duration::from_secs(5), "the error came back after {:?}", started.elapsed());
+    let pid = std::fs::read_to_string(dir.join("fake.pid")).unwrap();
+    let _ = std::process::Command::new("kill").arg("-9").arg(pid.trim()).status();
+}
+
 /// A minimal signal-cli HTTP daemon: /api/v1/check, /api/v1/rpc and one SSE burst.
 fn http_daemon() -> (String, Arc<Mutex<Vec<String>>>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -461,7 +618,7 @@ async fn vault_backed_service_spawns_into_the_runtime_dir_and_stops_signal_cli_b
     require_node!();
     let dir = temp_dir("vault-backed");
     let parts = Mutex::new(Some(vault_fixture(&dir)));
-    let (vault, vault_rx) = VaultBridge::new(false, Box::new(|| true), Box::new(move || parts.lock().unwrap().take()));
+    let (vault, vault_rx) = VaultBridge::new(false, Box::new(|| true), Box::new(move || parts.lock().unwrap().take().ok_or_else(|| Error::new(ErrorKind::StorageLocked, "taken"))));
     tokio::spawn(snowdrop_lib::vault_bridge::run_sync_loop(vault.clone(), vault_rx));
 
     let recorder = Arc::new(Recorder::default());
@@ -651,7 +808,7 @@ async fn prespawn_only_runs_for_a_linked_account_with_storage_open() {
         Paths { app_data_dir: dir.clone(), data_dir: dir.clone(), bundled: None },
         Arc::new(Recorder::default()),
         Timeouts { backoff: fast_backoff(), grace: Duration::from_secs(2), ..Timeouts::default() },
-        VaultBridge::new(false, Box::new(|| false), Box::new(|| None)).0,
+        VaultBridge::new(false, Box::new(|| false), Box::new(|| Err(Error::new(ErrorKind::StorageLocked, "locked")))).0,
     );
     assert_eq!(locked.prespawn().await, Prespawn::Skipped);
     assert_eq!(starts(&dir), 0);

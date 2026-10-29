@@ -346,6 +346,20 @@ describe('SignalCliBackend: connection', () => {
     await backend.disconnect();
   });
 
+  it("connect() while the stream waits to retry skips the wait (the UI's Retry)", async () => {
+    const { backend, daemon, statuses } = await connected();
+    const first = daemon.lastStream;
+    first!.end();
+    await flush();
+    expect(statuses.at(-1)).toBe('connecting');
+    // No scheduler advance: the retry timer has not fired.
+    await backend.connect();
+    await flush();
+    expect(daemon.lastStream).not.toBe(first);
+    expect(statuses.at(-1)).toBe('online');
+    await backend.disconnect();
+  });
+
   it('persists the resume position only when acknowledged, after the events', async () => {
     const { backend, daemon, scheduler, storage } = await connected();
     const order: string[] = [];

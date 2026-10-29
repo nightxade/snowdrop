@@ -387,7 +387,16 @@ pub fn run() {
         if let RunEvent::Exit = event {
             // Stop signal-cli with the app (closing stdin lets it save first).
             let service = app.state::<Arc<Service>>().inner().clone();
-            tauri::async_runtime::block_on(service.shutdown());
+            // Bounded: the window is already gone, so a stuck shutdown would
+            // only leave a process nobody can see, holding the instance lock.
+            // Stopping signal-cli and the vault's final sync each get their
+            // own budget, so a slow stop can't cut the final sync short.
+            tauri::async_runtime::block_on(service.shutdown_within(EXIT_BACKEND_BUDGET));
         }
     });
 }
+
+/// Longest the Exit handler waits for signal-cli to stop (its own grace
+/// period plus the kill and reap waits fit inside it). The vault's final sync
+/// that follows is bounded separately, by `vault_bridge`'s shutdown budget.
+const EXIT_BACKEND_BUDGET: std::time::Duration = std::time::Duration::from_secs(10);

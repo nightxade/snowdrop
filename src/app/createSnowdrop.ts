@@ -41,6 +41,7 @@ import {
   IdentityService,
   MessageRequestService,
   SendService,
+  PostConnect,
   SyncService,
   type NotificationApi,
 } from '@/core/services';
@@ -441,6 +442,12 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
       sendLog.error(context, error);
     },
   });
+  // What follows every successful connect (steps are added below, once the
+  // services they need exist). SyncService runs it, so a connect recovered by
+  // Retry or its own timer is no different from the first one.
+  const postConnect = new PostConnect((error, context) => {
+    syncLog.error(context, error);
+  });
   const sync = new SyncService({
     backend,
     repository,
@@ -449,6 +456,7 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     scheduler,
     receipts,
     pendingOps,
+    postConnect,
     onError: (error, context) => {
       syncLog.error(context, error);
     },
@@ -582,6 +590,30 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     cleanups.push(installStallDetector(stores));
   }
 
+  postConnect.add('before-live', 'notifications', () => {
+    notifications.start();
+  });
+  postConnect.add('after-ready', 'history import', () => {
+    // Fire-and-forget: it waits on the session store (ready, not
+    // catchingUp) and runs in the background for as long as it takes;
+    // nothing here should block on it.
+    void historyImport.start();
+  });
+  postConnect.add('after-ready', 'outbox restore', async () => {
+    await send.restoreOutbox();
+  });
+  postConnect.add('after-ready', 'backend registration', async () => {
+    // sync.start() connected, so the adapter has loaded.
+    const loaded = await ready;
+    registration.onStarted?.(loaded, { stores });
+  });
+  postConnect.add('after-ready', 'plugins', async () => {
+    await runtime.startAll();
+  });
+  postConnect.add('after-ready', 'backend attach', async () => {
+    const loaded = await ready;
+    if (registration.attach) cleanups.push(registration.attach(loaded, { stores }));
+  });
   let started = false;
   const admin: AppAdmin = {
     probeDaemon: async (url) => {
@@ -692,20 +724,13 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
           reportError(error, 'retrying a pending history clear from sign-out');
         }
       }
-      // A failure (e.g. signal-cli has no account yet) leaves `started` false so a retry runs everything.
+      // A failure (e.g. signal-cli has no account yet) leaves `started` false so
+      // a retry runs this again. Once connected, SyncService has also run the
+      // post-connect steps (see `postConnect`), whichever path got it there.
       await sync.start();
-      // Fire-and-forget: it waits on the session store (ready, not
-      // catchingUp) and runs in the background for as long as it takes;
-      // nothing here should block on it.
-      void historyImport.start();
-      await send.restoreOutbox();
-      // sync.start() connected, so the adapter has loaded.
-      const loaded = await ready;
-      registration.onStarted?.(loaded, { stores });
-      await runtime.startAll();
-      notifications.start();
+      // Boot waits for the steps (Retry, which calls `sync.start()`, doesn't).
+      await sync.settled();
       started = true;
-      if (registration.attach) cleanups.push(registration.attach(loaded, { stores }));
     },
 
     flush() {

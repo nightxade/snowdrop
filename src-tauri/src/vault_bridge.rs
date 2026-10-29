@@ -38,10 +38,12 @@ use crate::vault::{VaultSession, DEFAULT_MEDIA_BUDGET_BYTES, DEFAULT_MEDIA_IDLE}
 /// lock or I/O error further down.
 pub type IsUnlocked = Box<dyn Fn() -> bool + Send + Sync>;
 
-/// Takes the vault/runtime-dir/lock triple exactly once (in practice
-/// `StorageService::vault_session_parts`); `None` after the first success,
-/// or whenever storage isn't `Unlocked`.
-pub type TakeSessionParts = Box<dyn Fn() -> Option<VaultSessionParts> + Send + Sync>;
+/// Takes the vault/runtime-dir/lock triple (in practice
+/// `StorageService::vault_session_parts`): an error when storage isn't
+/// `Unlocked` or the parts can't be built, and `StorageLocked` once the lock
+/// has been handed over. The bridge keeps what it takes (see
+/// `Inner::pending_parts`), so it asks once per session that starts.
+pub type TakeSessionParts = Box<dyn Fn() -> Result<VaultSessionParts, Error> + Send + Sync>;
 
 /// How long a sync debounces after the last trigger (docs/ENCRYPTION.md,
 /// "When to sync").
@@ -77,6 +79,10 @@ struct Inner {
     is_unlocked: IsUnlocked,
     take_session_parts: TakeSessionParts,
     session: Mutex<Option<VaultSession>>,
+    /// The parts a session start failed with, kept (instance lock included)
+    /// so the next attempt can use them: the lock is only ever handed over
+    /// once, and a failed start must not lose it.
+    pending_parts: Mutex<Option<VaultSessionParts>>,
     /// Set once, by [`VaultBridge::discard`]: no sync may run again, even
     /// one already mid-flight when it finds the session gone.
     erased: AtomicBool,
@@ -106,6 +112,7 @@ impl VaultBridge {
                 is_unlocked,
                 take_session_parts,
                 session: Mutex::new(None),
+                pending_parts: Mutex::new(None),
                 erased: AtomicBool::new(false),
                 #[cfg(test)]
                 sync_attempts: AtomicUsize::new(0),
@@ -119,7 +126,7 @@ impl VaultBridge {
     /// external daemon (docs/ENCRYPTION.md, "Not covered") — every method
     /// here is a cheap pass-through/no-op, and no background task is needed.
     pub fn disabled() -> Arc<Self> {
-        Self::new(true, Box::new(|| false), Box::new(|| None)).0
+        Self::new(true, Box::new(|| false), Box::new(|| Err(Error::new(ErrorKind::StorageLocked, "Local storage isn't in use.")))).0
     }
 
     /// The signal-cli `--config` directory for a managed child: the vault's
@@ -138,15 +145,27 @@ impl VaultBridge {
         if self.inner.erased.load(Ordering::SeqCst) {
             return Err(Error::new(ErrorKind::Internal, "Local storage was erased; restart Snowdrop to connect again."));
         }
-        let locked_err = || Error::new(ErrorKind::StorageLocked, "Unlock local storage before connecting.");
         if !(self.inner.is_unlocked)() {
-            return Err(locked_err());
+            return Err(Error::new(ErrorKind::StorageLocked, "Unlock local storage before connecting."));
         }
-        let (vault, runtime_dir, lock) = (self.inner.take_session_parts)().ok_or_else(locked_err)?;
-        let session = VaultSession::start(vault, runtime_dir, lock)?;
-        let dir = session.runtime_dir().to_path_buf();
-        *self.inner.session.lock().expect("vault session lock") = Some(session);
-        Ok(dir)
+        // Parts a failed start left behind come first; only then ask storage.
+        let pending = self.inner.pending_parts.lock().expect("vault pending parts lock").take();
+        let (vault, runtime_dir, lock) = match pending {
+            Some(parts) => parts,
+            None => (self.inner.take_session_parts)()?,
+        };
+        match VaultSession::start_or_return(vault, runtime_dir, lock) {
+            Ok(session) => {
+                let dir = session.runtime_dir().to_path_buf();
+                *self.inner.session.lock().expect("vault session lock") = Some(session);
+                Ok(dir)
+            }
+            Err((error, parts)) => {
+                // Keep the lock: a retry starts again from these.
+                *self.inner.pending_parts.lock().expect("vault pending parts lock") = Some(*parts);
+                Err(error)
+            }
+        }
     }
 
     /// Whether a managed child could be spawned right now without asking the
@@ -241,6 +260,7 @@ impl VaultBridge {
     /// rebuilt here even after a fresh `storage_setup` in the same run.
     pub fn discard(&self) {
         self.inner.erased.store(true, Ordering::SeqCst);
+        self.inner.pending_parts.lock().expect("vault pending parts lock").take();
         let Some(session) = self.inner.session.lock().expect("vault session lock").take() else { return };
         let runtime_dir = session.runtime_dir().to_path_buf();
         drop(session); // dropped, not `shutdown()`'d: no final sync.
@@ -347,7 +367,12 @@ mod tests {
     fn once(fixture: (TempDir, VaultSessionParts)) -> (TempDir, TakeSessionParts) {
         let (guard, parts) = fixture;
         let slot = Mutex::new(Some(parts));
-        (guard, Box::new(move || slot.lock().expect("fixture lock").take()))
+        (
+            guard,
+            Box::new(move || {
+                slot.lock().expect("fixture lock").take().ok_or_else(|| Error::new(ErrorKind::StorageLocked, "already handed over"))
+            }),
+        )
     }
 
     #[test]
@@ -390,6 +415,40 @@ mod tests {
         // A reconnect reuses the same session/dir rather than erroring (the
         // one-shot `take_session_parts` was already spent above).
         assert_eq!(bridge.spawn_config_dir(&fallback).unwrap(), dir);
+    }
+
+    #[test]
+    fn a_failed_session_start_keeps_the_lock_and_a_retry_succeeds() {
+        let (guard, parts) = fixture("start-retry");
+        let runtime_dir = parts.1.clone();
+        let app_data = guard.path().join("app-data");
+        // A file where the runtime dir should be: the restore can't use it.
+        fs::write(&runtime_dir, b"in the way").unwrap();
+        let (_guard, take_parts) = once((guard, parts));
+        let (bridge, _rx) = VaultBridge::new(false, always_unlocked(), take_parts);
+
+        let err = bridge.spawn_config_dir(Path::new("/fallback")).unwrap_err();
+        // The real failure, not a made-up "locked": storage is unlocked.
+        assert_ne!(err.kind, ErrorKind::StorageLocked);
+        // The instance lock is still held (a second instance can't start).
+        assert!(InstanceLock::acquire(&app_data).is_err(), "the failed start released the instance lock");
+
+        fs::remove_file(&runtime_dir).unwrap();
+        // `once` hands its parts out a single time, so this only works if the
+        // bridge kept what the failed start was given.
+        let dir = bridge.spawn_config_dir(Path::new("/fallback")).unwrap();
+        assert!(dir.join("data/account").exists());
+    }
+
+    #[test]
+    fn a_real_error_from_taking_the_parts_reaches_the_caller() {
+        let (bridge, _rx) = VaultBridge::new(
+            false,
+            always_unlocked(),
+            Box::new(|| Err(Error::new(ErrorKind::NoRamDir, "no RAM dir in this test"))),
+        );
+        let err = bridge.spawn_config_dir(Path::new("/fallback")).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::NoRamDir);
     }
 
     #[test]

@@ -10,7 +10,11 @@
 //   FAKE_SIGNAL_CLI_CRASH_AFTER  exit(3) after this many requests (restart tests)
 //   FAKE_SIGNAL_CLI_ARGS_FILE  write the command line here (argument tests)
 // The same settings can come from `<--config dir>/fake.json` ({ accounts,
-// messages, crashAfter }), which is how the Rust tests configure it; the
+// messages, crashAfter, hang, delayMs, failFirstSubscribeFromStart, ignoreStdinClose }), which is
+// how the Rust tests configure it: `hang` lists methods that are never
+// answered, `delayMs` maps a method to how long its answer is held back, and
+// `failFirstSubscribeFromStart: n` makes the first `subscribeReceive` of the
+// n-th and later starts fail. The
 // fake also writes its pid to `<--config dir>/fake.pid` and appends it to
 // `<--config dir>/fake.starts` (one line per start).
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -38,6 +42,11 @@ if (configDir && existsSync(configDir)) {
   writeFileSync(path.join(configDir, 'fake.pid'), String(process.pid));
   appendFileSync(path.join(configDir, 'fake.starts'), `${process.pid}\n`);
 }
+const startNumber =
+  configDir && existsSync(configDir)
+    ? readFileSync(path.join(configDir, 'fake.starts'), 'utf8').split('\n').filter(Boolean).length
+    : 1;
+let failedSubscribe = false;
 const ACI = '11111111-1111-4111-8111-111111111111';
 const accounts = process.env.FAKE_SIGNAL_CLI_ACCOUNTS
   ? JSON.parse(process.env.FAKE_SIGNAL_CLI_ACCOUNTS)
@@ -94,6 +103,14 @@ const methods = {
   startLink: () => ({ deviceLinkUri: 'sgnl://linkdevice?uuid=ZmFrZQ&pub_key=BfakeKey' }),
   finishLink: () => ({ number: '+15550001', aci: ACI }),
   subscribeReceive: (params) => {
+    if (
+      file.failFirstSubscribeFromStart &&
+      startNumber >= file.failFirstSubscribeFromStart &&
+      !failedSubscribe
+    ) {
+      failedSubscribe = true;
+      throw { code: -32603, message: 'subscribeReceive failed (fake)' };
+    }
     const subscription = nextSubscription++;
     const account = params?.account ?? single ?? accounts[0]?.number ?? null;
     setTimeout(() => {
@@ -122,6 +139,14 @@ readline
     }
     const { id, method, params } = request;
     const handler = methods[method];
+    if (file.hang?.includes(method)) return;
+    if (file.delayMs?.[method]) {
+      setTimeout(() => {
+        ok(id, handler(params));
+      }, file.delayMs[method]);
+      handled++;
+      return;
+    }
     if (!handler) fail(id, -32601, 'Method not implemented');
     else if (
       !single &&
@@ -142,6 +167,10 @@ readline
       setTimeout(() => process.exit(3), 10);
     }
   })
-  .on('close', () => setTimeout(() => process.exit(0), 50));
+  .on('close', () => {
+    // `ignoreStdinClose`: stays up when stdin closes (a child that has to be killed).
+    if (!file.ignoreStdinClose) setTimeout(() => process.exit(0), 50);
+  });
+if (file.ignoreStdinClose) setInterval(() => undefined, 1000);
 
 if (process.env.FAKE_SIGNAL_CLI_LOG) appendFileSync(process.env.FAKE_SIGNAL_CLI_LOG, 'started\n');

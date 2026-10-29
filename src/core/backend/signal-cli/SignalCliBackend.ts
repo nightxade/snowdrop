@@ -377,7 +377,12 @@ export class SignalCliBackend implements ChatBackend {
   }
 
   private async doConnect(): Promise<void> {
-    if (this.stream) return;
+    if (this.stream) {
+      // Already connected, or the stream is waiting to retry: a call now (the
+      // UI's "Retry") skips that wait.
+      this.stream.reconnectNow();
+      return;
+    }
     this.setStatus('connecting');
     try {
       await this.rpc.check({ timeoutMs: this.transport.checkTimeoutMs ?? 5_000 });

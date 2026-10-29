@@ -153,6 +153,9 @@ pub struct EvictReport {
     pub remaining_bytes: u64,
 }
 
+/// What [`VaultSession::start_or_return`] was given, handed back when it fails.
+pub type StartParts = (Vault, PathBuf, InstanceLock);
+
 /// Ties a [`Vault`], its RAM-backed runtime dir and the process-wide
 /// [`InstanceLock`] together for the lifetime of one signal-cli run.
 pub struct VaultSession {
@@ -200,6 +203,32 @@ impl VaultSession {
     /// Either way, media (`MEDIA_PREFIXES`) is excluded from the restore
     /// and left to [`ensure_media`](Self::ensure_media).
     pub fn start(vault: Vault, runtime_dir: PathBuf, lock: InstanceLock) -> Result<Self, Error> {
+        Self::start_or_return(vault, runtime_dir, lock).map_err(|(error, _)| error)
+    }
+
+    /// [`start`](Self::start), but a failure hands back what it was given, so
+    /// the caller still holds the instance lock (and can try again) rather
+    /// than losing it with the error.
+    pub fn start_or_return(
+        vault: Vault,
+        runtime_dir: PathBuf,
+        lock: InstanceLock,
+    ) -> Result<Self, (Error, Box<StartParts>)> {
+        match Self::prepare(&vault, &runtime_dir) {
+            Ok(kind) => Ok(Self {
+                vault,
+                runtime_dir,
+                _lock: lock,
+                last_start: kind,
+                last_access: HashMap::new(),
+                materialized_media: HashSet::new(),
+            }),
+            Err(error) => Err((error, Box::new((vault, runtime_dir, lock)))),
+        }
+    }
+
+    /// Everything [`start`](Self::start) does that can fail, borrowing its inputs.
+    fn prepare(vault: &Vault, runtime_dir: &Path) -> Result<StartKind, Error> {
         // Clean up any manifest entry left over from before `ALLOWED_TOP_DIRS`
         // existed — in particular one pointing at an installed signal-cli
         // binary rather than its data (docs/ENCRYPTION.md, "Migration") —
@@ -211,13 +240,13 @@ impl VaultSession {
             Err(e) => log::warn!("vault: couldn't purge non-allowlisted manifest entries: {e}"),
         }
 
-        let marker = read_marker(&runtime_dir);
+        let marker = read_marker(runtime_dir);
         let matches_vault =
             marker.as_ref().and_then(|m| from_hex(&m.vault_id)).is_some_and(|id| id.as_slice() == vault.vault_id.as_slice());
 
         let kind = if marker.is_some() && matches_vault {
             StartKind::Recovered
-        } else if marker.is_some() || dir_has_entries(&runtime_dir) {
+        } else if marker.is_some() || dir_has_entries(runtime_dir) {
             StartKind::Wiped
         } else {
             StartKind::Fresh
@@ -235,25 +264,18 @@ impl VaultSession {
                 // absent media entry unconditionally; an ordinary sync once
                 // the session exists can tell the difference and will catch
                 // up on a real deletion then.
-                sync::sync(&vault, &runtime_dir, is_media)?;
-                sweep_non_allowlisted(&runtime_dir)?;
+                sync::sync(vault, runtime_dir, is_media)?;
+                sweep_non_allowlisted(runtime_dir)?;
                 let (manifest, _source) = manifest::load_with_fallback(&vault.dir, &vault.key, &vault.vault_id)?;
-                write_marker(&runtime_dir, &vault.vault_id, manifest.generation)?;
+                write_marker(runtime_dir, &vault.vault_id, manifest.generation)?;
             }
             StartKind::Wiped | StartKind::Fresh => {
-                wipe_runtime_dir(&runtime_dir)?;
-                do_restore(&vault, &runtime_dir)?;
+                wipe_runtime_dir(runtime_dir)?;
+                do_restore(vault, runtime_dir)?;
             }
         }
 
-        Ok(Self {
-            vault,
-            runtime_dir,
-            _lock: lock,
-            last_start: kind,
-            last_access: HashMap::new(),
-            materialized_media: HashSet::new(),
-        })
+        Ok(kind)
     }
 
     /// What [`start`](Self::start) found, for logging/tests.

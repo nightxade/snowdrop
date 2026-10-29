@@ -64,6 +64,7 @@ import {
 import { CatchUpTracker, NOTIFICATION_HOLD_CEILING_MS } from './CatchUpTracker';
 import { PendingOpsBuffer } from './PendingOpsBuffer';
 import { ReceiptBuffer } from './ReceiptBuffer';
+import type { PostConnectRunner } from './PostConnect';
 import { consoleReporter, type ErrorReporter } from './types';
 
 export interface SyncServiceDeps {
@@ -77,6 +78,8 @@ export interface SyncServiceDeps {
   /** Shared with SendService so ops that beat their target message aren't lost. */
   pendingOps?: PendingOpsBuffer;
   onError?: ErrorReporter;
+  /** The app's steps for after a successful connect (see PostConnect); run after every one. */
+  postConnect?: PostConnectRunner;
   /** Newest messages copied from backend history per conversation on first sync. */
   seedPageSize?: number;
   /** How often expired (disappearing) messages are purged. */
@@ -109,6 +112,9 @@ const RECEIPT_STATUS: Record<BackendEvents['receipt']['type'], MessageStatus> = 
 
 /** How many purged message ids are remembered to suppress re-delivery. */
 const PURGED_TOMBSTONES = 2_000;
+
+/** How long `stop()` waits for post-connect steps that are still running. */
+const POST_READY_STOP_WAIT_MS = 2_000;
 
 const log = createLogger('sync');
 
@@ -168,7 +174,20 @@ export class SyncService {
   private readonly onError: ErrorReporter;
   private unsubscribers: Unsubscribe[] = [];
   private queue: Promise<void> = Promise.resolve();
+  /** The connect attempt in flight, if any; callers join it rather than starting a second. */
   private startPromise: Promise<void> | null = null;
+  /**
+   * True from the first successful connect until `stop()`. From then on a
+   * `start()` while the connection is down reconnects the backend (the Retry
+   * buttons and the retry timer) instead of repeating the initial sync.
+   */
+  private connected = false;
+  /**
+   * The `after-ready` post-connect steps, running in the background: a
+   * connect is done once the session is ready, so Retry and startup never
+   * wait on a plugin's start, and `stop()` never waits long for one.
+   */
+  private postReady: Promise<void> | null = null;
   /** Bumped on stop; queued handlers from older generations are dropped. */
   private generation = 0;
   /**
@@ -256,13 +275,25 @@ export class SyncService {
     });
   }
 
-  /** Subscribes, connects and performs the initial sync. Safe to call repeatedly. */
+  /**
+   * Connects (or reconnects) and, the first time, performs the initial sync.
+   * Safe to call repeatedly: a call while a connect is in flight joins it, one
+   * while the connection is healthy does nothing, and one after a dropped or
+   * failed connection (the Retry buttons, the retry timer) reconnects.
+   */
   start(): Promise<void> {
-    this.startPromise ??= this.doStart().catch((error: unknown) => {
-      this.startPromise = null;
-      throw error;
-    });
-    return this.startPromise;
+    if (this.startPromise) return this.startPromise;
+    if (this.connected) {
+      const { status } = this.deps.stores.session.getState();
+      if (status !== 'error' && status !== 'offline') return Promise.resolve();
+    }
+    const attempt: Promise<void> = (this.connected ? this.doReconnect() : this.doStart()).finally(
+      () => {
+        if (this.startPromise === attempt) this.startPromise = null;
+      },
+    );
+    this.startPromise = attempt;
+    return attempt;
   }
 
   private async doStart(): Promise<void> {
@@ -290,37 +321,102 @@ export class SyncService {
       // backlog: those envelopes are gone from the daemon once delivered.
       this.unsubscribeAll();
       this.disposeCatchUp();
-      const kind = errorKindOf(error);
-      stores.session
-        .getState()
-        .setError(error instanceof Error ? error.message : String(error), kind);
-      stores.session.getState().setStatus('error');
-      // The single place this failure is logged (see `wasConnectionErrorReported`):
-      // an expected setup state (no account yet, signal-cli not installed, …)
-      // is routed to its own screen and logged once at info, not at error;
-      // a real failure still logs once, at error, never from the other
-      // places (App.tsx, ConnectionBanner) that also observe this rejection.
-      const setupMessage = kind !== null ? SETUP_STATE_MESSAGES[kind] : undefined;
-      if (setupMessage !== undefined) log.info(setupMessage);
-      else this.onError(error, 'initial sync failed');
-      markConnectionErrorReported(error);
-      // The backend already backed off restarting signal-cli a few times
-      // (see SignalCliBackend's `resolveAccount`); keep that going at a
-      // slower, steady pace rather than leaving it to a manual Retry click —
-      // this must never happen for `no-account`/`account-required`, which
-      // mean the user has to act (link, or enter an account number).
-      if (kind === 'account-unavailable') {
-        this.accountRetryCancel = this.deps.scheduler.setTimeout(() => {
-          this.accountRetryCancel = null;
-          this.start().catch(() => undefined);
-        }, ACCOUNT_UNAVAILABLE_RETRY_MS);
-      }
+      this.failConnect(error, 'initial sync failed');
       throw error;
     }
+    this.connected = true;
+    // Before the gate opens: nothing live can have been let through yet, so
+    // whatever listens for it (notifications) is ready for the first one.
+    await this.deps.postConnect?.run('before-live');
     stores.session.getState().setReady(true);
     this.openGate();
     this.armCatchUpQuiet();
     this.schedulePurge(0);
+    this.runPostReady();
+  }
+
+  /**
+   * Reconnects after the connection dropped or the last attempt failed, once
+   * the initial sync has already succeeded: the subscriptions and the gate
+   * stay as they are. When the backend's stream gave up (`error`) it starts
+   * over, so this does what its offline-to-online step would: catch up again
+   * and read the phone's settings again. When the stream is only waiting to
+   * retry (`offline`), `connect()` makes it retry now, and the backend's
+   * status events do the rest.
+   */
+  private async doReconnect(): Promise<void> {
+    const { backend, stores } = this.deps;
+    const startedOver = stores.session.getState().status === 'error';
+    this.accountRetryCancel?.();
+    this.accountRetryCancel = null;
+    if (startedOver) this.startCatchUp();
+    try {
+      await backend.connect();
+      if (startedOver) {
+        this.restartHoldForConnectedBackend();
+        await this.refreshPhonePrivacy();
+        this.armCatchUpQuiet();
+        // The stream's own `open` may still be on its way; don't leave the
+        // banner on the old error until it arrives.
+        stores.session.getState().setStatus(backend.getStatus());
+      }
+    } catch (error) {
+      if (startedOver) this.disposeCatchUp();
+      this.failConnect(error, 'reconnect failed');
+      throw error;
+    }
+    await this.deps.postConnect?.run('before-live');
+    this.runPostReady();
+  }
+
+  /** Starts the `after-ready` steps in the background, unless a run is already going. */
+  private runPostReady(): void {
+    const { postConnect } = this.deps;
+    if (!postConnect || this.postReady) return;
+    const run: Promise<void> = postConnect
+      .run('after-ready')
+      .catch((error: unknown) => {
+        this.onError(error, 'post-connect steps failed');
+      })
+      .finally(() => {
+        if (this.postReady === run) this.postReady = null;
+      });
+    this.postReady = run;
+  }
+
+  /** Resolves once the post-connect steps that follow a connect have finished (tests, startup). */
+  settled(): Promise<void> {
+    return this.postReady ?? Promise.resolve();
+  }
+
+  /** Records a failed connect in the session store and logs it, once. */
+  private failConnect(error: unknown, context: string): void {
+    const { stores } = this.deps;
+    const kind = errorKindOf(error);
+    stores.session
+      .getState()
+      .setError(error instanceof Error ? error.message : String(error), kind);
+    stores.session.getState().setStatus('error');
+    // The single place this failure is logged (see `wasConnectionErrorReported`):
+    // an expected setup state (no account yet, signal-cli not installed, …)
+    // is routed to its own screen and logged once at info, not at error;
+    // a real failure still logs once, at error, never from the other
+    // places (App.tsx, ConnectionBanner) that also observe this rejection.
+    const setupMessage = kind !== null ? SETUP_STATE_MESSAGES[kind] : undefined;
+    if (setupMessage !== undefined) log.info(setupMessage);
+    else this.onError(error, context);
+    markConnectionErrorReported(error);
+    // The backend already backed off restarting signal-cli a few times
+    // (see SignalCliBackend's `resolveAccount`); keep that going at a
+    // slower, steady pace rather than leaving it to a manual Retry click —
+    // this must never happen for `no-account`/`account-required`, which
+    // mean the user has to act (link, or enter an account number).
+    if (kind === 'account-unavailable') {
+      this.accountRetryCancel = this.deps.scheduler.setTimeout(() => {
+        this.accountRetryCancel = null;
+        this.start().catch(() => undefined);
+      }, ACCOUNT_UNAVAILABLE_RETRY_MS);
+    }
   }
 
   /**
@@ -409,12 +505,29 @@ export class SyncService {
     this.pruneTimer = null;
     this.purgeTimer = null;
     this.disposeCatchUp();
+    // Steps due again after a reconnect; one still running stops after its
+    // current step, and a step that hangs is only waited for briefly.
+    this.deps.postConnect?.reset();
+    await this.waitForPostReady();
     await this.idle();
     // Disconnect while still subscribed so the final "offline" status reaches the store.
     await this.deps.backend.disconnect();
     this.teardown();
     this.startPromise = null;
+    this.connected = false;
     this.deps.stores.session.getState().setReady(false);
+  }
+
+  private async waitForPostReady(): Promise<void> {
+    const running = this.postReady;
+    if (!running) return;
+    let cancel: Cancel | undefined;
+    const gaveUp = new Promise<void>((resolve) => {
+      cancel = this.deps.scheduler.setTimeout(resolve, POST_READY_STOP_WAIT_MS);
+    });
+    await Promise.race([running, gaveUp]);
+    cancel?.();
+    this.postReady = null;
   }
 
   private teardown(): void {

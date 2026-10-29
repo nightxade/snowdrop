@@ -498,16 +498,23 @@ impl<S: SecretStore> StorageService<S> {
     }
 
     /// Hands the vault, its runtime dir and the single-instance lock to task
-    /// 4b, which builds a `vault::VaultSession` around them. `None` when
-    /// storage isn't `Unlocked`, the runtime dir can't be resolved, or this
-    /// has already been called once (the lock only has one holder).
-    pub fn vault_session_parts(&mut self) -> Option<VaultSessionParts> {
-        let StorageState::Unlocked { unlocked } = &self.state else { return None };
-        let vault_id = unlocked.vault_id().ok()?;
-        let vault = Vault::open(&self.paths.vault_dir, unlocked.vault_key(), vault_id).ok()?;
-        let runtime_dir = (self.resolve_runtime_dir)().ok()?;
-        let lock = self.lock.take()?;
-        Some((vault, runtime_dir, lock))
+    /// 4b, which builds a `vault::VaultSession` around them. Fails with
+    /// `StorageLocked` when storage isn't `Unlocked` (or the lock has already
+    /// been handed over), and with the real error (`NoRamDir`, a vault that
+    /// won't open, ...) when something else is wrong. The lock is taken last,
+    /// so a failure here never consumes it.
+    pub fn vault_session_parts(&mut self) -> Result<VaultSessionParts, Error> {
+        let StorageState::Unlocked { unlocked } = &self.state else {
+            return Err(Error::new(ErrorKind::StorageLocked, "Unlock local storage before connecting."));
+        };
+        let vault_id = unlocked.vault_id()?;
+        let vault = Vault::open(&self.paths.vault_dir, unlocked.vault_key(), vault_id)?;
+        let runtime_dir = (self.resolve_runtime_dir)()?;
+        let lock = self
+            .lock
+            .take()
+            .ok_or_else(|| Error::new(ErrorKind::StorageLocked, "Unlock local storage before connecting."))?;
+        Ok((vault, runtime_dir, lock))
     }
 
     /// Phase 1 of `storage_erase_all` (docs/ENCRYPTION.md, "Erase"):
@@ -1131,6 +1138,37 @@ mod tests {
         assert_eq!(fs::read(restored.join("data/account")).unwrap(), b"the account file");
         assert_eq!(fs::read(restored.join("attachments/one.jpg")).unwrap(), b"fake jpeg bytes");
         let _ = runtime_dir; // just proving it resolved
+    }
+
+    #[test]
+    fn session_parts_report_the_real_error_and_keep_the_lock_for_a_retry() {
+        use std::sync::atomic::AtomicBool;
+        let fx = Fixture::new("parts-ram-dir");
+        let runtime = fx.base.path().join("runtime");
+        let broken = Arc::new(AtomicBool::new(false));
+        let resolver: RuntimeDirResolver = {
+            let broken = broken.clone();
+            Box::new(move || {
+                if broken.load(Ordering::SeqCst) {
+                    return Err(Error::new(ErrorKind::NoRamDir, "no RAM dir in this test"));
+                }
+                fs::create_dir_all(&runtime).map_err(|e| Error::new(ErrorKind::Internal, e.to_string()))?;
+                Ok(runtime.clone())
+            })
+        };
+        let mut svc = StorageService::new(fx.paths(), Arc::new(FakeStore::new()), resolver);
+        svc.setup().unwrap();
+        svc.setup_new(SetupMode::Keyring, None).unwrap();
+
+        broken.store(true, Ordering::SeqCst);
+        // Its own error, not "Unlock local storage" (storage is unlocked).
+        assert_eq!(svc.vault_session_parts().err().unwrap().kind, ErrorKind::NoRamDir);
+
+        // The failure did not consume the lock: the next call still gets it.
+        broken.store(false, Ordering::SeqCst);
+        assert!(svc.vault_session_parts().is_ok());
+        // And now it has been handed over, once.
+        assert_eq!(svc.vault_session_parts().err().unwrap().kind, ErrorKind::StorageLocked);
     }
 
     #[test]

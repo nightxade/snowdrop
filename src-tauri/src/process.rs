@@ -231,19 +231,24 @@ impl RpcProcess {
 
     /// One JSON-RPC call; resolves with the reply (`{ result }` or `{ error }`).
     pub async fn request(&self, method: &str, params: Option<&Map<String, Value>>, timeout: Duration) -> Result<Value, Error> {
-        let writer = self
-            .shared
-            .writer
-            .lock()
-            .expect("writer lock")
-            .clone()
-            .ok_or_else(|| Error::new(ErrorKind::Unreachable, "signal-cli isn't running right now."))?;
         let id = self.shared.next_id.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
-        self.shared.pending.lock().expect("pending lock").insert(id, tx);
-        if writer.send(request_line(id, method, params)).is_err() {
-            self.shared.pending.lock().expect("pending lock").remove(&id);
-            return Err(Error::new(ErrorKind::Unreachable, "signal-cli isn't running right now."));
+        // The writer is only held while the line is queued, never across the
+        // wait for the answer: a clone kept that long would stop `shutdown`
+        // from closing stdin until every request had been answered.
+        {
+            let writer = self
+                .shared
+                .writer
+                .lock()
+                .expect("writer lock")
+                .clone()
+                .ok_or_else(|| Error::new(ErrorKind::Unreachable, "signal-cli isn't running right now."))?;
+            self.shared.pending.lock().expect("pending lock").insert(id, tx);
+            if writer.send(request_line(id, method, params)).is_err() {
+                self.shared.pending.lock().expect("pending lock").remove(&id);
+                return Err(Error::new(ErrorKind::Unreachable, "signal-cli isn't running right now."));
+            }
         }
         match tokio::time::timeout(timeout, rx).await {
             Ok(Ok(reply)) => Ok(reply),
@@ -253,6 +258,14 @@ impl RpcProcess {
                 Err(Error::new(ErrorKind::Timeout, format!("signal-cli didn't answer {method} within {} s.", timeout.as_secs())))
             }
         }
+    }
+
+    /// Asks the supervisor to stop signal-cli without waiting for it: the
+    /// stop (close stdin, grace, kill) finishes in the background, bounded
+    /// the same way as [`shutdown`](Self::shutdown). For a caller that needs
+    /// to hand an error back promptly rather than wait for the process to go.
+    pub fn request_stop(&self) {
+        self.shutdown.send_replace(true);
     }
 
     /// Stops signal-cli (and the restart loop) and waits for it to exit.
@@ -350,8 +363,8 @@ async fn supervise(shared: Arc<Shared>, options: ProcessOptions, mut shutdown: w
         shared.writer.lock().expect("writer lock").take();
         if matches!(wake, Wake::Shutdown) {
             stop_child(&mut child, writer, options.grace).await;
-            let _ = reader.await;
-            let _ = drain.await;
+            join_bounded(reader).await;
+            join_bounded(drain).await;
             shared.fail_pending();
             shared.set_state(ProcessState::Stopped);
             return;
@@ -424,12 +437,30 @@ fn switch_to_fallback(shared: &Shared, program: &mut PathBuf, next: &Fallback) {
     shared.can_fall_back.store(false, Ordering::SeqCst);
 }
 
-/// Closes stdin (signal-cli then saves and exits), waits `grace`, then kills.
-async fn stop_child(child: &mut Child, writer: JoinHandle<()>, grace: Duration) {
-    let _ = writer.await;
-    if tokio::time::timeout(grace, child.wait()).await.is_err() {
+/// Closes stdin (signal-cli then saves and exits), waits up to `grace` in all
+/// for the writer to finish and the child to exit, then kills. Bounded end to
+/// end: a writer stuck on a child that isn't reading, or a child that won't
+/// die, can't hold shutdown up past `grace` plus a short wait for the kill.
+async fn stop_child(child: &mut Child, mut writer: JoinHandle<()>, grace: Duration) {
+    let deadline = tokio::time::Instant::now() + grace;
+    if tokio::time::timeout_at(deadline, &mut writer).await.is_err() {
+        writer.abort();
+    }
+    if tokio::time::timeout_at(deadline, child.wait()).await.is_err() {
         let _ = child.start_kill();
-        let _ = child.wait().await;
+        let _ = tokio::time::timeout(KILL_WAIT, child.wait()).await;
+    }
+}
+
+/// How long to wait for a killed child to be reaped.
+const KILL_WAIT: Duration = Duration::from_secs(2);
+
+/// Waits for a pipe-reading task that ends when the child's pipe closes, but
+/// no longer than `KILL_WAIT`: a grandchild holding the pipe open must not
+/// hold shutdown up.
+async fn join_bounded(mut task: JoinHandle<()>) {
+    if tokio::time::timeout(KILL_WAIT, &mut task).await.is_err() {
+        task.abort();
     }
 }
 

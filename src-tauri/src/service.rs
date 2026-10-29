@@ -8,7 +8,7 @@ use serde::Serialize;
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -114,6 +114,13 @@ pub struct Service {
     /// Set by [`stop_backend`](Self::stop_backend) (erase, sign-out, quit):
     /// nothing may pre-spawn after that.
     retired: AtomicBool,
+    /// The child a `start` is still bringing up (not yet answering), so
+    /// [`stop_backend`](Self::stop_backend) can stop it instead of waiting
+    /// behind the `active` lock for the whole start.
+    starting: Mutex<Option<Arc<RpcProcess>>>,
+    /// Bumped by every [`stop_backend`](Self::stop_backend): a `start` that
+    /// began before one gives up rather than finishing a connect nobody wants.
+    stop_epoch: AtomicU64,
 }
 
 /// What [`Service::prespawn`] did.
@@ -172,6 +179,8 @@ impl Service {
             last: LastConnectFile::new(&paths_app_data_dir),
             prespawn_tried: AtomicBool::new(false),
             retired: AtomicBool::new(false),
+            starting: Mutex::new(None),
+            stop_epoch: AtomicU64::new(0),
         })
     }
 
@@ -366,6 +375,7 @@ impl Service {
     }
 
     async fn start(&self, config: ConnectConfig) -> Result<Active, Error> {
+        let epoch = self.stop_epoch.load(Ordering::SeqCst);
         match &config {
             ConnectConfig::Spawn { binary_path, account } => {
                 let account = account.as_deref().map(str::trim).filter(|a| !a.is_empty()).map(config::validate_account).transpose()?;
@@ -418,9 +428,31 @@ impl Service {
                 });
                 let process = Arc::new(RpcProcess::start(options, on_notification, on_state));
                 startup::mark_once("signal-cli spawned");
-                process.wait_running(self.timeouts.start).await?;
-                // signal-cli answers once it has loaded its accounts.
-                let reply = process.request_first("version", None, self.timeouts.first_answer).await?;
+                // Reachable by `stop_backend` while it comes up. Registered
+                // first and the epoch checked after, so a stop either sees the
+                // child here or has already bumped the epoch.
+                *self.starting.lock().expect("starting lock") = Some(process.clone());
+                let up = if self.stop_epoch.load(Ordering::SeqCst) != epoch {
+                    Err(Error::new(ErrorKind::Unreachable, "signal-cli was stopped."))
+                } else {
+                    async {
+                        process.wait_running(self.timeouts.start).await?;
+                        // signal-cli answers once it has loaded its accounts.
+                        process.request_first("version", None, self.timeouts.first_answer).await
+                    }
+                    .await
+                };
+                self.starting.lock().expect("starting lock").take();
+                let reply = match up {
+                    Ok(reply) => reply,
+                    Err(error) => {
+                        // Not left running, but not waited for either: the error goes back
+                        // now and the child finishes stopping in the background (bounded by
+                        // the grace period). A stop that cancelled this start awaits it itself.
+                        process.request_stop();
+                        return Err(error);
+                    }
+                };
                 startup::mark_once("signal-cli answering");
                 let version = reply.pointer("/result/version").and_then(Value::as_str).map(str::to_owned);
                 let running = running_binary(&binary, &process);
@@ -459,6 +491,13 @@ impl Service {
         // Before taking `active`, so a pre-spawn waiting on it gives up
         // instead of starting a child right after this stopped the last one.
         self.retired.store(true, Ordering::SeqCst);
+        // A connect still starting signal-cli holds `active` for up to the
+        // whole start: stop that child first, which ends the start at once.
+        self.stop_epoch.fetch_add(1, Ordering::SeqCst);
+        let starting = self.starting.lock().expect("starting lock").take();
+        if let Some(process) = starting {
+            process.shutdown().await;
+        }
         let active = self.active.lock().await.take();
         if let Some(active) = active {
             self.stop_active(active).await;
@@ -470,6 +509,19 @@ impl Service {
     /// "When to sync": "On shutdown, while still blocking exit").
     pub async fn shutdown(&self) {
         self.stop_backend().await;
+        self.vault.shutdown().await;
+    }
+
+    /// [`shutdown`](Self::shutdown) for app exit: stopping signal-cli gets
+    /// `backend_budget` at most, and the vault's final sync then runs with
+    /// its own budget (`vault_bridge`'s), so a slow stop can't eat the time
+    /// the final sync needs. A stop that overran is only logged; the child
+    /// keeps stopping on its own (bounded by the grace period) and dies with
+    /// the process at the latest.
+    pub async fn shutdown_within(&self, backend_budget: Duration) {
+        if tokio::time::timeout(backend_budget, self.stop_backend()).await.is_err() {
+            log::warn!("signal-cli didn't stop within {backend_budget:?}; going on to the vault's final sync");
+        }
         self.vault.shutdown().await;
     }
 
@@ -648,7 +700,7 @@ impl Service {
             ProcessState::Running { generation } => {
                 if *generation > 1 {
                     // A restarted child has no subscriptions: renew them.
-                    self.resubscribe();
+                    self.resubscribe(*generation);
                 }
                 return;
             }
@@ -662,20 +714,45 @@ impl Service {
         self.sink.state(&stream);
     }
 
-    fn resubscribe(&self) {
+    /// Renews the subscriptions on a restarted child (`generation` is the
+    /// one that just came up). A failed attempt is retried with the process
+    /// backoff until every account is subscribed, giving up if that child
+    /// stops or is replaced (a newer generation renews for itself).
+    fn resubscribe(&self, generation: u64) {
         let Some(me) = self.me.upgrade() else { return };
         tokio::spawn(async move {
-            let process = match me.active.lock().await.as_ref() {
-                Some(Active::Child { process, .. }) => process.clone(),
-                _ => return,
-            };
-            let accounts = me.subs.lock().expect("subs lock").accounts.clone();
-            for key in accounts {
-                if let Err(error) = me.subscribe_child(&process, &key).await {
-                    log::warn!("couldn't renew the subscription after a restart: {error}");
-                    me.sink.state(&StreamState::Waiting { attempt: 0, delay_ms: 1000, reason: error.message });
+            let mut attempt: u32 = 0;
+            let mut renewed: Vec<String> = Vec::new();
+            loop {
+                let process = match me.active.lock().await.as_ref() {
+                    Some(Active::Child { process, .. }) => process.clone(),
+                    _ => return,
+                };
+                if !matches!(process.state(), ProcessState::Running { generation: g } if g == generation) {
                     return;
                 }
+                let accounts = me.subs.lock().expect("subs lock").accounts.clone();
+                let mut failure = None;
+                for key in &accounts {
+                    if renewed.contains(key) {
+                        continue;
+                    }
+                    // The UI may have subscribed this account itself meanwhile.
+                    let already = me.subs.lock().expect("subs lock").by_id.values().any(|a| a == key);
+                    if !already {
+                        if let Err(error) = me.subscribe_child(&process, key).await {
+                            failure = Some(error);
+                            break;
+                        }
+                    }
+                    renewed.push(key.clone());
+                }
+                let Some(error) = failure else { break };
+                let delay = me.timeouts.backoff.delay(attempt);
+                log::warn!("couldn't renew the subscription after a restart: {error}; retrying in {} ms", delay.as_millis());
+                me.sink.state(&StreamState::Waiting { attempt, delay_ms: delay.as_millis() as u64, reason: error.message });
+                attempt += 1;
+                tokio::time::sleep(delay).await;
             }
             me.sink.state(&StreamState::Open);
         });

@@ -19,6 +19,7 @@ import {
   type Stores,
 } from '@/core/stores';
 import { HistoryService } from './HistoryService';
+import { PostConnect } from './PostConnect';
 import { ReceiptBuffer } from './ReceiptBuffer';
 import { ATTACHMENTS_LOST_ERROR, SendService } from './SendService';
 import { SyncService, wasConnectionErrorReported } from './SyncService';
@@ -308,6 +309,144 @@ describe('SyncService: initial sync', () => {
     s.backend.emit('message', incoming(group, s.memberOf(group), NOW + 1));
     await s.sync.idle();
     expect(s.stores.conversations.getState().unread[group]?.count).toBe(before + 1);
+  });
+});
+
+describe('SyncService: reconnecting', () => {
+  /** Counts `connect` calls on the real mock backend. */
+  function countConnects(backend: MockBackend) {
+    const connect = backend.connect.bind(backend);
+    const spy = vi.fn(connect);
+    backend.connect = spy;
+    return spy;
+  }
+
+  it('start() while healthy does not reconnect', async () => {
+    const s = await setup();
+    const connect = countConnects(s.backend);
+    await s.sync.start();
+    expect(connect).not.toHaveBeenCalled();
+  });
+
+  it.each(['error', 'offline'] as const)(
+    'a Retry after a successful start that later dropped (%s) reconnects the backend',
+    async (status) => {
+      const s = await setup();
+      const connect = countConnects(s.backend);
+      s.stores.session.getState().setStatus(status);
+      await s.sync.start();
+      expect(connect).toHaveBeenCalledTimes(1);
+      expect(s.stores.session.getState()).toMatchObject({ status: 'online', ready: true });
+      // Still subscribed exactly once: one arrival, one unread.
+      s.stores.ui.getState().setWindowFocused(false);
+      const group = s.conv('books');
+      const before = s.stores.conversations.getState().unread[group]?.count ?? 0;
+      s.backend.emit('message', incoming(group, s.memberOf(group), NOW + 77_777));
+      await s.sync.idle();
+      expect(s.stores.conversations.getState().unread[group]?.count).toBe(before + 1);
+    },
+  );
+
+  it('a failed reconnect reports the error, and the next Retry tries again', async () => {
+    const s = await setup();
+    const connect = s.backend.connect.bind(s.backend);
+    let fail = true;
+    const spy = vi.fn(async () => {
+      if (fail) throw new Error('still down');
+      return connect();
+    });
+    s.backend.connect = spy;
+    s.stores.session.getState().setStatus('error');
+    await expect(s.sync.start()).rejects.toThrow('still down');
+    expect(s.stores.session.getState()).toMatchObject({
+      status: 'error',
+      error: 'still down',
+      ready: true,
+    });
+    fail = false;
+    await s.sync.start();
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(s.stores.session.getState()).toMatchObject({ status: 'online', error: null });
+  });
+
+  it('a Retry while a connect is in flight joins it', async () => {
+    const s = await setup({ start: false });
+    const connect = countConnects(s.backend);
+    const first = s.sync.start();
+    const second = s.sync.start();
+    await Promise.all([first, second]);
+    expect(connect).toHaveBeenCalledTimes(1);
+    // Same while reconnecting.
+    s.stores.session.getState().setStatus('error');
+    const third = s.sync.start();
+    const fourth = s.sync.start();
+    await Promise.all([third, fourth]);
+    expect(connect).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('SyncService: post-connect steps', () => {
+  function build() {
+    const scheduler = new ManualScheduler(NOW);
+    const backend = new MockBackend({ seed: 7, clock: scheduler, scheduler, latencyMs: 0 });
+    const postConnect = new PostConnect(vi.fn());
+    const sync = new SyncService({
+      backend,
+      repository: new MemoryMessageRepository(),
+      stores: createStores(),
+      clock: scheduler,
+      scheduler,
+      postConnect,
+    });
+    return { scheduler, sync, postConnect };
+  }
+
+  it('start() resolves once the session is ready, not when the after-ready steps are done', async () => {
+    const { sync, postConnect } = build();
+    let release: () => void = () => undefined;
+    postConnect.add(
+      'after-ready',
+      'slow',
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+    await sync.start();
+    let settled = false;
+    void sync.settled().then(() => {
+      settled = true;
+    });
+    await flush();
+    expect(settled).toBe(false);
+    release();
+    await sync.settled();
+    expect(settled).toBe(true);
+  });
+
+  it('stop() does not wait on a step that hangs', async () => {
+    const { sync, postConnect, scheduler } = build();
+    postConnect.add('after-ready', 'hung', () => new Promise<void>(() => undefined));
+    await sync.start();
+    const stopping = sync.stop();
+    await flush();
+    scheduler.advance(5_000);
+    await expect(stopping).resolves.toBeUndefined();
+  });
+
+  it('runs the steps again after a stop() and a new start()', async () => {
+    const { sync, postConnect } = build();
+    const step = vi.fn();
+    const early = vi.fn();
+    postConnect.add('before-live', 'early', early);
+    postConnect.add('after-ready', 'step', step);
+    await sync.start();
+    await sync.settled();
+    await sync.stop();
+    await sync.start();
+    await sync.settled();
+    expect(early).toHaveBeenCalledTimes(2);
+    expect(step).toHaveBeenCalledTimes(2);
   });
 });
 

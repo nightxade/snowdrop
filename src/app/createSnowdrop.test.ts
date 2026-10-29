@@ -245,3 +245,61 @@ describe('start() and a pending history clear (sign-out fallback)', () => {
     await snowdrop.dispose();
   });
 });
+
+describe('createSnowdrop: connecting after a failure', () => {
+  const quiet = () => vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+  function spies(snowdrop: ReturnType<typeof createSnowdrop>) {
+    return {
+      notifications: vi.spyOn(snowdrop.notifications, 'start'),
+      plugins: vi.spyOn(snowdrop.plugins, 'startAll'),
+      outbox: vi.spyOn(snowdrop.send, 'restoreOutbox'),
+      history: vi.spyOn(snowdrop.historyImport, 'start'),
+    };
+  }
+
+  it('runs every post-connect step when a Retry succeeds after a failed first connect', async () => {
+    quiet();
+    const snowdrop = createSnowdrop({ storage: createMemoryStorage(), mockLatencyMs: 0 });
+    const ran = spies(snowdrop);
+    vi.spyOn(snowdrop.backend, 'connect').mockRejectedValueOnce(new Error('down'));
+
+    await expect(snowdrop.start()).rejects.toThrow('down');
+    expect(snowdrop.stores.session.getState().status).toBe('error');
+    for (const spy of Object.values(ran)) expect(spy).not.toHaveBeenCalled();
+
+    // The Retry buttons call SyncService directly, not Snowdrop.start().
+    await snowdrop.sync.start();
+    await snowdrop.sync.settled();
+    expect(snowdrop.stores.session.getState().ready).toBe(true);
+    for (const spy of Object.values(ran)) expect(spy).toHaveBeenCalledTimes(1);
+    expect(snowdrop.plugins.get('clear-urls')?.status).toBe('running');
+
+    // And a later start() (e.g. after linking) does not run them again.
+    await snowdrop.start();
+    for (const spy of Object.values(ran)) expect(spy).toHaveBeenCalledTimes(1);
+    await snowdrop.dispose();
+  });
+
+  it('does not skip the other steps when one of them fails, and tries it again later', async () => {
+    quiet();
+    const snowdrop = createSnowdrop({ storage: createMemoryStorage(), mockLatencyMs: 0 });
+    const ran = spies(snowdrop);
+    ran.outbox.mockRejectedValueOnce(new Error('storage trouble'));
+
+    await snowdrop.start();
+    expect(snowdrop.stores.session.getState().ready).toBe(true);
+    expect(ran.notifications).toHaveBeenCalledTimes(1);
+    expect(ran.history).toHaveBeenCalledTimes(1);
+    expect(ran.plugins).toHaveBeenCalledTimes(1);
+    expect(ran.outbox).toHaveBeenCalledTimes(1);
+
+    // The failed step is pending still: the next successful connect runs it.
+    snowdrop.stores.session.getState().setStatus('error');
+    await snowdrop.sync.start();
+    await snowdrop.sync.settled();
+    expect(ran.outbox).toHaveBeenCalledTimes(2);
+    expect(ran.plugins).toHaveBeenCalledTimes(1);
+    await snowdrop.dispose();
+  });
+});
