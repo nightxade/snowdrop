@@ -14,7 +14,6 @@
 import { createStore, type StoreApi } from 'zustand/vanilla';
 import {
   groupMessages,
-  isPendingMessageId,
   type ConversationId,
   type Message,
   type MessageId,
@@ -278,30 +277,20 @@ export const messagesSelectors = {
   message: (conversationId: ConversationId, id: MessageId) => (s: MessagesState) =>
     s.windows[conversationId]?.byId[id],
   /**
-   * Newest own, acknowledged, non-deleted message that can be edited (not a poll) — the target of
-   * "↑ to edit".
-   * Pending/failed messages are excluded: they have no server identity yet.
+   * The newest message of the window that `accept` takes: the target of "↑ to
+   * edit" is the newest one the edit rules allow, not merely the newest own one.
    */
-  lastOwn: (conversationId: ConversationId, selfId: string) => (s: MessagesState) => {
-    const w = s.windows[conversationId];
-    if (!w) return undefined;
-    for (let i = w.ids.length - 1; i >= 0; i--) {
-      const id = w.ids[i];
-      const m = id === undefined ? undefined : w.byId[id];
-      if (
-        m &&
-        m.authorId === selfId &&
-        m.kind === 'normal' &&
-        !m.deleted &&
-        m.poll === undefined &&
-        !isPendingMessageId(m.id) &&
-        m.status !== 'failed'
-      ) {
-        return m;
+  newestWhere:
+    (conversationId: ConversationId, accept: (m: Message) => boolean) => (s: MessagesState) => {
+      const w = s.windows[conversationId];
+      if (!w) return undefined;
+      for (let i = w.ids.length - 1; i >= 0; i--) {
+        const id = w.ids[i];
+        const m = id === undefined ? undefined : w.byId[id];
+        if (m && accept(m)) return m;
       }
-    }
-    return undefined;
-  },
+      return undefined;
+    },
 };
 
 /**

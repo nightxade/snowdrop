@@ -25,6 +25,13 @@ export interface EditingTarget {
    * being virtualised away and back. Undefined until the user types.
    */
   draft?: string;
+  /**
+   * Mentions picked while editing, kept beside the draft for the same reason.
+   * Undefined until one is picked (the editor then starts from the message's own).
+   */
+  mentions?: readonly { id: string; label: string }[];
+  /** The link whose preview card the user removed while editing (kept for the same reason). */
+  dismissedPreview?: string;
   /** Increments per edit started, so the editor autofocuses once per edit, not on remount. */
   session?: number;
 }
@@ -102,6 +109,10 @@ export interface UiState {
   setEditing(target: EditingTarget | null): void;
   /** Updates the open editor's text (no-op when nothing is being edited). */
   setEditDraft(draft: string): void;
+  /** Replaces the open editor's picked mentions (no-op when nothing is being edited). */
+  setEditMentions(mentions: readonly { id: string; label: string }[]): void;
+  /** Records that the open editor's preview card for `url` was removed (no-op when not editing). */
+  dismissEditPreview(url: string): void;
   setScrollAnchor(conversationId: ConversationId, anchor: ScrollAnchor | null): void;
   setWindowFocused(focused: boolean): void;
   setUnreadMarker(conversationId: ConversationId, seq: number | null): void;
@@ -182,6 +193,12 @@ export function createUiStore(newId: () => string = () => createNonce('toast')):
     },
     setEditDraft: (draft) => {
       set((s) => (s.editing ? { editing: { ...s.editing, draft } } : s));
+    },
+    dismissEditPreview: (url) => {
+      set((s) => (s.editing ? { editing: { ...s.editing, dismissedPreview: url } } : s));
+    },
+    setEditMentions: (mentions) => {
+      set((s) => (s.editing ? { editing: { ...s.editing, mentions } } : s));
     },
     setScrollAnchor: (conversationId, anchor) => {
       set((s) => {

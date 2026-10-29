@@ -1,10 +1,14 @@
-import { useLayoutEffect, useRef, useState, type RefObject } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import type { TextSurface } from '@/core/commands';
 import { registerTextSurface } from '@/ui/hooks';
 import { replaceRange } from './useAutoGrow';
 
 export interface ComposerSurfaceOptions {
-  textarea: RefObject<HTMLTextAreaElement | null>;
+  /**
+   * The mounted textarea (state, not a ref: it unmounts while a voice message is recorded or
+   * held as a draft, and the new element must be registered in its place).
+   */
+  textarea: HTMLTextAreaElement | null;
   /** Surface id: per-conversation state (Vim mode, undo) is keyed by it. */
   id: string;
   setText: (text: string) => void;
@@ -41,9 +45,8 @@ export function useComposerSurface(options: ComposerSurfaceOptions): boolean {
     latest.current = options;
   });
 
-  const { textarea, id } = options;
+  const { textarea: el, id } = options;
   useLayoutEffect(() => {
-    const el = textarea.current;
     if (!el) return;
     const surface: TextSurface = {
       id,
@@ -74,7 +77,7 @@ export function useComposerSurface(options: ComposerSurfaceOptions): boolean {
       unregister();
       setSuggestions(true);
     };
-  }, [textarea, id]);
+  }, [el, id]);
 
   return suggestions;
 }

@@ -75,6 +75,19 @@ describe('MessageBody', () => {
     expect(screen.queryByRole('button', { name: /Spoiler/u })).toBeNull();
   });
 
+  it('keeps a link inside a hidden spoiler out of reach until the spoiler is revealed', () => {
+    const { body, ranges } = parseMarkdownToRanges('||https://example.org/secret||');
+    const { container } = renderBody(body, ranges);
+    // Hidden: neither focusable nor clickable (an inert subtree), so a click on the bar
+    // can only reveal it and never follows the link.
+    const hidden = container.querySelector('a');
+    expect(hidden?.closest('[inert]')).not.toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Spoiler/u }));
+    const link = screen.getByRole('link');
+    expect(link.closest('[inert]')).toBeNull();
+    expect(link.getAttribute('href')).toBe('https://example.org/secret');
+  });
+
   it('links http(s) URLs safely', () => {
     renderBody('see https://example.org/a?b=1.');
     const link = screen.getByRole('link');
@@ -115,6 +128,26 @@ describe('MessageBody', () => {
     expect(isJumbo('2️⃣', [])).toBe(true);
     expect(isJumbo('🇫🇷', [])).toBe(true);
     expect(isJumbo('👩‍👩‍👧‍👦 🏳️‍🌈', [])).toBe(true);
+  });
+
+  it('does not show text-presentation symbols large unless they carry the emoji selector', () => {
+    for (const symbol of ['©', '®', '™', '↔', '▶', '☺', '❤', '‼']) {
+      expect(isJumbo(symbol, [])).toBe(false);
+      expect(isJumbo(`${symbol}\ufe0f`, [])).toBe(true);
+    }
+    expect(isJumbo('❤️', [])).toBe(true);
+    // Parts that are not pictographs of their own: half a flag, a bare skin-tone swatch.
+    expect(isJumbo('🇦', [])).toBe(false);
+    expect(isJumbo('🏻', [])).toBe(false);
+    expect(isJumbo('🇦 🇧', [])).toBe(false);
+    expect(isJumbo('👨‍👩‍👧‍👦 🏳️‍🌈 ❤️‍🔥', [])).toBe(true);
+    expect(isJumbo('🫶🏽 🇺🇸', [])).toBe(true);
+    expect(isJumbo('❤ ❤️', [])).toBe(false);
+    // Real emoji, a skin tone on a text-default pictograph, keycaps and flags still are.
+    expect(isJumbo('😀 😀', [])).toBe(true);
+    expect(isJumbo('☝🏽', [])).toBe(true);
+    expect(isJumbo('1️⃣', [])).toBe(true);
+    expect(isJumbo('🇫🇷', [])).toBe(true);
   });
 
   const wave = (name: string) => (name === 'wave' ? 'data:image/png;base64,aGVsbG8=' : undefined);

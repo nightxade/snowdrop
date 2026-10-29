@@ -3,7 +3,7 @@ import { memo, useCallback, useEffect, useId, useRef, useState, type KeyboardEve
 import { useStore } from 'zustand';
 import { CoreCommand, NavCommand } from '@/core/commands';
 import type { ConversationId, ConversationView } from '@/core/domain';
-import { messagesSelectors, sessionSelectors, uiSelectors } from '@/core/stores';
+import { messagesSelectors, uiSelectors } from '@/core/stores';
 import {
   setConversationFocusResolver,
   useKeybindLabel,
@@ -19,6 +19,7 @@ import {
   type MenuEntry,
 } from '@/ui/primitives';
 import { useChatController } from '../ChatController';
+import * as act from '../message/actions';
 import { CustomEmojiPanel } from './CustomEmojiPanel';
 import { AttachmentTray } from './AttachmentTray';
 import { ComposerLinkPreview } from './ComposerLinkPreview';
@@ -56,8 +57,13 @@ function ComposerInner({ conversation }: { conversation: ConversationView }) {
   const { text, setText } = state;
   const replyTo = useStore(stores.ui, uiSelectors.replyTo(conversationId));
   const enterToSend = useStore(stores.settings, (s) => s.behaviour.enterToSend);
-  const selfId = useStore(stores.session, sessionSelectors.selfId);
   const textarea = useRef<HTMLTextAreaElement>(null);
+  // The same element as state, for what must follow it across the voice recorder's remounts.
+  const [textareaEl, setTextareaEl] = useState<HTMLTextAreaElement | null>(null);
+  const bindTextarea = useCallback((el: HTMLTextAreaElement | null) => {
+    textarea.current = el;
+    setTextareaEl(el);
+  }, []);
   const fileInput = useRef<HTMLInputElement>(null);
   const [field, setField] = useState<HTMLDivElement | null>(null);
   const [emojiOpen, setEmojiOpen] = useState(false);
@@ -74,7 +80,7 @@ function ComposerInner({ conversation }: { conversation: ConversationView }) {
   const descriptionId = useId();
   const syncCaret = useRef<() => void>(() => undefined);
   const suggestions = useComposerSurface({
-    textarea,
+    textarea: textareaEl,
     id: conversationId,
     setText,
     syncCaret: () => {
@@ -207,12 +213,14 @@ function ComposerInner({ conversation }: { conversation: ConversationView }) {
       !e.shiftKey &&
       !e.altKey
     ) {
-      const last = selfId
-        ? messagesSelectors.lastOwn(conversationId, selfId)(stores.messages.getState())
-        : undefined;
+      // The newest message the edit rules allow (never a sticker, a voice note or one too old).
+      const last = messagesSelectors.newestWhere(
+        conversationId,
+        (m) => act.permissionsFor(app, m).canEdit,
+      )(stores.messages.getState());
       if (last) {
         e.preventDefault();
-        stores.ui.getState().setEditing({ conversationId, messageId: last.id });
+        act.startEdit(app, last);
         void chat.reveal(conversationId, last.id);
       }
       return;
@@ -334,7 +342,7 @@ function ComposerInner({ conversation }: { conversation: ConversationView }) {
                   }}
                 />
                 <textarea
-                  ref={textarea}
+                  ref={bindTextarea}
                   className={styles.input}
                   rows={1}
                   value={text}

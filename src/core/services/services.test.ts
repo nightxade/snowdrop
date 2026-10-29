@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { MockBackend } from '@/core/backend/mock';
 import {
   MENTION_PLACEHOLDER,
+  canEditMessage,
   directConversationId,
   messageId,
   pendingMessageId,
@@ -565,6 +566,36 @@ describe('SyncService: events', () => {
     });
     await sync.idle();
     expect(await repository.get(m.id)).toMatchObject({ body: 'v2', edits: 1 });
+  });
+
+  it('drops an edit that reaches the server more than 48 hours after its message', async () => {
+    const { backend, sync, repository, conv, memberOf } = await setup();
+    const id = conv('books');
+    const author = memberOf(id);
+    const m = incoming(id, author, NOW + 1000, { body: 'original' });
+    backend.emit('message', m);
+    const edit = (body: string, editedAt: number, serverAt: number | undefined) => {
+      backend.emit('messageEdited', {
+        conversationId: id,
+        authorId: author,
+        targetSentAt: NOW + 1000,
+        body,
+        ranges: [],
+        editedAt,
+        ...(serverAt === undefined ? {} : { serverAt }),
+      });
+    };
+    edit('too late', NOW + 2000, NOW + 1000 + 2 * 86_400_000 + 1);
+    await sync.idle();
+    expect(await repository.get(m.id)).toMatchObject({ body: 'original' });
+
+    // Just inside the window, and one the transport gave no server time for, both apply.
+    edit('in time', NOW + 3000, NOW + 1000 + 2 * 86_400_000);
+    await sync.idle();
+    expect(await repository.get(m.id)).toMatchObject({ body: 'in time', edits: 1 });
+    edit('no server time', NOW + 4000, undefined);
+    await sync.idle();
+    expect(await repository.get(m.id)).toMatchObject({ body: 'no server time', edits: 2 });
   });
 
   it('applies deletions (with admin attribution) and un-counts them', async () => {
@@ -1304,6 +1335,114 @@ describe('SendService', () => {
     expect(edit.mock.calls[0]?.[0].quote).toEqual(quote);
   });
 
+  describe('edit rules and link previews', () => {
+    const URL_ = 'https://example.org/post';
+    const sendWithPreview = async (text = `read ${URL_} please`) => {
+      const ctx = await setup();
+      const id = ctx.conv('dm-ines');
+      await ctx.history.open(id);
+      await ctx.send.send({
+        ...draft(id, text),
+        preview: {
+          url: URL_,
+          title: 'A post',
+          description: 'About things',
+          image: { contentType: 'image/png', data: new Blob([new Uint8Array([1, 2, 3])]) },
+        },
+      });
+      return { ...ctx, id, mine: ctx.list(id).at(-1)! };
+    };
+
+    it('refuses an edit once the 24 hour window has closed, without asking the backend', async () => {
+      const { send, backend, scheduler, id, list } = await sendWithPreview('tpyo');
+      const mine = list(id).at(-1)!;
+      const edit = vi.spyOn(backend, 'edit');
+      scheduler.advance(24 * 3_600_000 + 1);
+      expect(await send.edit(id, mine.id, 'typo')).toBe(false);
+      expect(edit).not.toHaveBeenCalled();
+      expect(list(id).at(-1)?.body).toBe('tpyo');
+    });
+
+    it('does not send a delete for everyone the recipients would drop (after 24 hours)', async () => {
+      const { send, backend, scheduler, id, list } = await sendWithPreview('old news');
+      const mine = list(id).at(-1)!;
+      const remove = vi.spyOn(backend, 'deleteForEveryone');
+      scheduler.advance(24 * 3_600_000 + 1);
+      expect(await send.deleteForEveryone(id, mine)).toBe(false);
+      expect(remove).not.toHaveBeenCalled();
+      expect(list(id).at(-1)?.deleted).toBeUndefined();
+    });
+
+    it('refuses an eleventh edit and an edit of a sticker', async () => {
+      const { send, scheduler, id, list } = await sendWithPreview('v0');
+      const mine = list(id).at(-1)!;
+      for (let i = 1; i <= 10; i++) {
+        // Edits are ordered by when they were made: each one lands after the last.
+        scheduler.advance(1000);
+        expect(await send.edit(id, mine.id, `v${i}`)).toBe(true);
+      }
+      expect(list(id).at(-1)?.edits).toBe(10);
+      scheduler.advance(1000);
+      expect(await send.edit(id, mine.id, 'v11')).toBe(false);
+
+      await send.sendSticker({ conversationId: id, sticker: { packId: 'p', stickerId: 1 } });
+      const sticker = list(id).at(-1)!;
+      expect(await send.edit(id, sticker.id, 'caption')).toBe(false);
+    });
+
+    it('sends the original preview, image included, again with an edit that keeps its link', async () => {
+      const { send, backend, id, mine, list } = await sendWithPreview();
+      const edit = vi.spyOn(backend, 'edit');
+      expect(await send.edit(id, mine.id, `read ${URL_} now`)).toBe(true);
+      const preview = edit.mock.calls[0]?.[0].preview;
+      expect(preview).toMatchObject({ url: URL_, title: 'A post', description: 'About things' });
+      expect(preview?.image?.contentType).toBe('image/png');
+      expect(preview?.image?.data.size).toBe(3);
+      expect(list(id).at(-1)?.previews?.[0]).toMatchObject({ url: URL_, title: 'A post' });
+    });
+
+    it('still sends the card when the original picture cannot be read', async () => {
+      const { send, backend, id, mine } = await sendWithPreview();
+      vi.spyOn(backend, 'readAttachmentBlob').mockRejectedValue(new Error('gone'));
+      const edit = vi.spyOn(backend, 'edit');
+      expect(await send.edit(id, mine.id, `read ${URL_} now`)).toBe(true);
+      expect(edit.mock.calls[0]?.[0].preview).toMatchObject({ url: URL_, title: 'A post' });
+      expect(edit.mock.calls[0]?.[0].preview?.image).toBeUndefined();
+    });
+
+    it('drops the preview, for everyone, when the edit removes its link', async () => {
+      const { send, backend, id, mine, list } = await sendWithPreview();
+      const edit = vi.spyOn(backend, 'edit');
+      expect(await send.edit(id, mine.id, 'never mind the link')).toBe(true);
+      expect(edit.mock.calls[0]?.[0].preview).toBeUndefined();
+      expect(list(id).at(-1)?.previews).toBeUndefined();
+    });
+
+    it('sends a freshly fetched preview for a link the edit added, and none when told to drop it', async () => {
+      const { send, backend, scheduler, id, mine, list } = await sendWithPreview();
+      const edit = vi.spyOn(backend, 'edit');
+      const other = 'https://example.net/other';
+      const fresh = { url: other, title: 'Another' };
+      expect(await send.edit(id, mine.id, `see ${other}`, [], fresh)).toBe(true);
+      expect(edit.mock.calls[0]?.[0].preview).toMatchObject(fresh);
+      expect(list(id).at(-1)?.previews?.[0]).toMatchObject({ url: other, title: 'Another' });
+
+      // A preview whose link is not in the text is never sent; `null` drops the original's.
+      scheduler.advance(1000);
+      expect(await send.edit(id, mine.id, `see ${other} again`, [], null)).toBe(true);
+      expect(edit.mock.calls[1]?.[0].preview).toBeUndefined();
+      expect(list(id).at(-1)?.previews).toBeUndefined();
+    });
+
+    it('restores the original preview when the edit fails', async () => {
+      const { send, backend, id, mine, list } = await sendWithPreview();
+      backend.failNext();
+      expect(await send.edit(id, mine.id, 'no link now')).toBe(false);
+      expect(list(id).at(-1)).toMatchObject({ body: mine.body });
+      expect(list(id).at(-1)?.previews?.[0]).toMatchObject({ url: URL_ });
+    });
+  });
+
   it('shows the local preview of a sent attachment and keeps it when the transport has no URL', async () => {
     const { send, backend, conv, list, history } = await setup();
     const id = conv('dm-ines');
@@ -1372,9 +1511,11 @@ describe('SendService', () => {
     const pending = s.list(id).at(-1)!;
     expect(pending.status).toBe('pending');
     // Pending messages are never the target of "↑ to edit".
-    expect(messagesSelectors.lastOwn(id, s.selfId)(s.stores.messages.getState())?.id).not.toBe(
-      pending.id,
-    );
+    expect(
+      messagesSelectors.newestWhere(id, (m) =>
+        canEditMessage(m, { selfId: s.selfId, now: pending.sentAt }),
+      )(s.stores.messages.getState())?.id,
+    ).not.toBe(pending.id);
 
     expect(await s.send.edit(id, pending.id, 'hi edited')).toBe(true);
     expect(await s.send.react(id, s.list(id).at(-1)!, '👍')).toBe(true);

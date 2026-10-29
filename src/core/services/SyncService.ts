@@ -23,6 +23,7 @@ import {
   advanceStatus,
   applyDelete,
   applyEdit,
+  isTooOldToEdit,
   applyPollTerminate,
   applyPollVote,
   applyReaction,
@@ -1575,12 +1576,16 @@ export class SyncService {
     on('message', (m, live) => this.onMessage(m, live));
     on('messageEdited', (e) =>
       this.updateMessage(e.conversationId, messageId(e.authorId, e.targetSentAt), (m) =>
-        applyEdit(m, {
-          body: e.body,
-          ranges: e.ranges,
-          editedAt: e.editedAt,
-          ...(e.previews ? { previews: e.previews } : {}),
-        }),
+        // Like Desktop, an edit that reaches the server more than two days after the
+        // message is dropped (the user's own note-to-self is exempt).
+        e.serverAt !== undefined && isTooOldToEdit(m, e.serverAt, this.selfId() ?? null)
+          ? m
+          : applyEdit(m, {
+              body: e.body,
+              ranges: e.ranges,
+              editedAt: e.editedAt,
+              ...(e.previews ? { previews: e.previews } : {}),
+            }),
       ),
     );
     on('messageDeleted', (e) =>

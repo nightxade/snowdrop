@@ -2,7 +2,13 @@
  * Message actions shared by the hover bar, the context menu, reaction pills
  * and keyboard shortcuts, so every entry point behaves the same.
  */
-import { bodyToPlainText, isForwardable, isPendingMessageId, type Message } from '@/core/domain';
+import {
+  bodyToPlainText,
+  editRefusal,
+  messagePermissions,
+  type Message,
+  type MessagePermissions,
+} from '@/core/domain';
 import { selectMessageRequestState, UNKNOWN_CONTACT_NAME } from '@/core/stores';
 import type { AppServices } from '@/ui/hooks';
 import { copyText } from '@/ui/features/conversation';
@@ -31,8 +37,21 @@ export function forward(app: AppServices, m: Message): void {
   });
 }
 
-export function startEdit(app: AppServices, m: Message): void {
+/**
+ * Opens the editor, if the edit rules still allow it right now (a row on screen can outlive its
+ * window): otherwise says why, rather than letting someone type text that can't be sent.
+ */
+export function startEdit(app: AppServices, m: Message): boolean {
+  const reason = editRefusal(m, {
+    selfId: app.stores.session.getState().self?.id ?? null,
+    now: Date.now(),
+  });
+  if (reason !== undefined) {
+    report(app, reason);
+    return false;
+  }
   app.stores.ui.getState().setEditing({ conversationId: m.conversationId, messageId: m.id });
+  return true;
 }
 
 /** Adds (or switches to) a reaction; Signal allows one per person. */
@@ -113,46 +132,15 @@ export function discard(app: AppServices, m: Message): void {
   if (m.nonce) void app.send.discard(m.conversationId, m.nonce);
 }
 
-export interface MessagePermissions {
-  own: boolean;
-  failed: boolean;
-  pending: boolean;
-  canEdit: boolean;
-  canReact: boolean;
-  /** Forwarding needs the message's files, so (like reacting) not before the chat is accepted. */
-  canForward: boolean;
-  canAdminDelete: boolean;
-  canPin: boolean;
-  /** A poll that is open, sent, and one the user may answer. */
-  canVotePoll: boolean;
-  /** One of the user's own polls that is open and sent. */
-  canEndPoll: boolean;
-}
+export type { MessagePermissions };
 
+/** The shared rules (see `messagePermissions`) applied to the app's current state. */
 export function permissionsFor(app: AppServices, m: Message): MessagePermissions {
-  const selfId = app.stores.session.getState().self?.id ?? null;
-  const own = m.authorId === selfId;
-  const failed = m.status === 'failed' && own;
-  const pending = isPendingMessageId(m.id);
-  const conversation = app.stores.conversations.getState().byId[m.conversationId];
-  const admin = selfId !== null && (conversation?.adminIds.includes(selfId) ?? false);
-  const normal = m.kind === 'normal' && !m.deleted;
-  const caps = app.send.capabilities;
-  // Reacting, replying and pinning all send something to the other side: not
-  // before the user has accepted them (a message request is read-only).
-  const accepted = selectMessageRequestState(app.stores, m.conversationId) === 'accepted';
-  // Answering or ending a poll needs it to exist for everyone already: unsent and failed ones can't be.
-  const openPoll = normal && m.poll !== undefined && m.poll.ended !== true && !pending && !failed;
-  return {
-    own,
-    failed,
-    pending,
-    canEdit: own && normal && m.poll === undefined,
-    canReact: normal && !failed && accepted,
-    canForward: accepted && isForwardable(m),
-    canAdminDelete: normal && !own && admin && conversation?.kind === 'group' && caps.adminDelete,
-    canPin: normal && !failed && accepted && caps.pin,
-    canVotePoll: openPoll && accepted && caps.polls,
-    canEndPoll: openPoll && own && caps.polls,
-  };
+  return messagePermissions(m, {
+    selfId: app.stores.session.getState().self?.id ?? null,
+    conversation: app.stores.conversations.getState().byId[m.conversationId],
+    accepted: selectMessageRequestState(app.stores, m.conversationId) === 'accepted',
+    capabilities: app.send.capabilities,
+    now: Date.now(),
+  });
 }

@@ -12,28 +12,29 @@ import styles from './ComposerParts.module.css';
  */
 export function ComposerLinkPreview({ view }: { view: LinkPreviewView }) {
   if (!view.url) return null;
+  // A fetched preview, or (editing) the one the message already has.
+  const card = view.preview
+    ? { url: view.preview.url, title: view.preview.title, thumb: view.preview.image?.previewUrl }
+    : view.kept
+      ? { url: view.kept.url, title: view.kept.title ?? view.kept.url, thumb: view.kept.image?.url }
+      : undefined;
   return (
     <div className={styles.linkPreview} data-snowdrop="composer-link-preview">
-      {view.loading || !view.preview ? (
+      {view.loading || !card ? (
         <span className={styles.linkPreviewLoading} aria-live="polite">
           <LinkIcon size={14} aria-hidden />
           Fetching a preview…
         </span>
       ) : (
         <>
-          {view.preview.image?.previewUrl ? (
-            <img
-              src={view.preview.image.previewUrl}
-              alt=""
-              className={styles.linkPreviewThumb}
-              draggable={false}
-            />
+          {card.thumb ? (
+            <img src={card.thumb} alt="" className={styles.linkPreviewThumb} draggable={false} />
           ) : (
             <LinkIcon size={16} aria-hidden className={styles.linkPreviewIcon} />
           )}
           <span className={styles.linkPreviewText}>
-            <span className={styles.linkPreviewDomain}>{previewDomain(view.preview.url)}</span>
-            <span className={styles.linkPreviewTitle}>{view.preview.title}</span>
+            <span className={styles.linkPreviewDomain}>{previewDomain(card.url)}</span>
+            <span className={styles.linkPreviewTitle}>{card.title}</span>
           </span>
         </>
       )}

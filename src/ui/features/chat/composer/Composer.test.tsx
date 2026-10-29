@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { axe } from 'vitest-axe';
 import type { Snowdrop } from '@/app/createSnowdrop';
 import { NavCommand } from '@/core/commands';
-import { MENTION_PLACEHOLDER, type ConversationId } from '@/core/domain';
+import { MENTION_PLACEHOLDER, pendingMessageId, type ConversationId } from '@/core/domain';
 import { messagesSelectors } from '@/core/stores';
 import { bootSnowdrop, renderWithSnowdrop, settle } from '@/test/renderWithSnowdrop';
 import { ChatController, ChatControllerProvider } from '../ChatController';
@@ -341,6 +341,145 @@ describe('<Composer />', () => {
       conversationId: conv.id,
       messageId: own.id,
     });
+  });
+
+  it('opens the newest message that can be edited, skipping stickers and ones too old', async () => {
+    const { snowdrop, conv, input, typeText } = await setup();
+    typeText('fresh words');
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await settle(snowdrop);
+    const text = lastOwn(snowdrop, conv.id)!;
+    await act(async () => {
+      await snowdrop.send.sendSticker({
+        conversationId: conv.id,
+        sticker: { packId: 'pack', stickerId: 1, emoji: '😀' },
+      });
+    });
+    await settle(snowdrop);
+    expect(lastOwn(snowdrop, conv.id)?.sticker).toBeDefined();
+    // The sticker is the newest own message but has no text: the one before it is opened.
+    fireEvent.keyDown(input, { key: 'ArrowUp' });
+    expect(snowdrop.stores.ui.getState().editing).toMatchObject({ messageId: text.id });
+
+    // Past the 24 hour window the old message is not offered, but a newer one that can be is.
+    act(() => {
+      snowdrop.stores.ui.getState().setEditing(null);
+      snowdrop.stores.messages
+        .getState()
+        .update(conv.id, text.id, (m) => ({ ...m, sentAt: Date.now() - 2 * 24 * 3_600_000 }));
+    });
+    fireEvent.keyDown(input, { key: 'ArrowUp' });
+    expect(snowdrop.stores.ui.getState().editing?.messageId).not.toBe(text.id);
+
+    typeText('newer words');
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await settle(snowdrop);
+    const newer = lastOwn(snowdrop, conv.id)!;
+    expect(newer.id).not.toBe(text.id);
+    // A sticker is last again: still skipped, and the newer text (not the old one) opens.
+    await act(async () => {
+      await snowdrop.send.sendSticker({
+        conversationId: conv.id,
+        sticker: { packId: 'pack', stickerId: 1, emoji: '😀' },
+      });
+    });
+    await settle(snowdrop);
+    fireEvent.keyDown(input, { key: 'ArrowUp' });
+    expect(snowdrop.stores.ui.getState().editing).toMatchObject({ messageId: newer.id });
+  });
+
+  it('opens nothing on ArrowUp when every own message is past the window', async () => {
+    const { snowdrop, conv, input, typeText } = await setup();
+    typeText('only one');
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await settle(snowdrop);
+    const only = lastOwn(snowdrop, conv.id)!;
+    act(() => {
+      const old = Date.now() - 2 * 24 * 3_600_000;
+      const state = snowdrop.stores.messages.getState();
+      for (const id of state.windows[conv.id]!.ids) {
+        if (state.windows[conv.id]!.byId[id]?.authorId === only.authorId)
+          state.update(conv.id, id, (m) => ({ ...m, sentAt: old }));
+      }
+    });
+    fireEvent.keyDown(input, { key: 'ArrowUp' });
+    expect(snowdrop.stores.ui.getState().editing).toBeNull();
+  });
+
+  it('puts the words, the files and the reply back when a send throws', async () => {
+    const { snowdrop, conv, input, typeText, chat } = await setup();
+    const target = messagesSelectors
+      .list(conv.id)(snowdrop.stores.messages.getState())
+      .findLast((m) => m.kind === 'normal' && !m.deleted)!;
+    act(() => {
+      snowdrop.stores.ui.getState().setReplyTo(conv.id, target.id);
+      chat.addFiles([new File(['x'], 'keep-me.txt', { type: 'text/plain' })]);
+    });
+    typeText('do not lose this');
+    vi.spyOn(snowdrop.send, 'send').mockRejectedValueOnce(new Error('Storage is full'));
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect((await screen.findByRole('alert')).textContent).toBe('Storage is full');
+    expect(input.value).toBe('do not lose this');
+    expect(screen.getByRole('button', { name: 'Remove keep-me.txt' })).toBeTruthy();
+    expect(snowdrop.stores.ui.getState().replyTo[conv.id]).toBe(target.id);
+    expect(snowdrop.stores.local.getState().conversations[conv.id]?.draft).toBe('do not lose this');
+  });
+
+  it('does not overwrite what was typed while a failing send was out', async () => {
+    const { snowdrop, input, typeText } = await setup();
+    typeText('first try');
+    let fail!: (e: Error) => void;
+    vi.spyOn(snowdrop.send, 'send').mockReturnValueOnce(
+      new Promise((_, reject) => {
+        fail = reject;
+      }),
+    );
+    fireEvent.keyDown(input, { key: 'Enter' });
+    typeText('second thought');
+    await act(async () => {
+      fail(new Error('nope'));
+      await Promise.resolve();
+    });
+    await screen.findByRole('alert');
+    expect(input.value).toBe('second thought');
+  });
+
+  it('leaves the failed message, not a restored draft, when the send fails after staging it', async () => {
+    const { snowdrop, conv, input, typeText } = await setup();
+    typeText('staged then thrown');
+    vi.spyOn(snowdrop.send, 'send').mockImplementationOnce(() => {
+      // As SendService does: the optimistic row is shown, then something rejects.
+      const selfId = snowdrop.stores.session.getState().self!.id;
+      act(() => {
+        snowdrop.stores.messages.getState().appendLive({
+          id: pendingMessageId('n1'),
+          conversationId: conv.id,
+          authorId: selfId,
+          sentAt: Date.now(),
+          receivedAt: Date.now(),
+          body: 'staged then thrown',
+          ranges: [],
+          attachments: [],
+          reactions: [],
+          status: 'failed',
+          kind: 'normal',
+          nonce: 'n1',
+        });
+      });
+      return Promise.reject(new Error('Storage is full'));
+    });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect((await screen.findByRole('alert')).textContent).toBe('Storage is full');
+    expect(input.value).toBe('');
+  });
+
+  it('brings the text back when a send comes back empty (a plugin emptied it)', async () => {
+    const { snowdrop, input, typeText } = await setup();
+    typeText('swallowed');
+    vi.spyOn(snowdrop.send, 'send').mockResolvedValueOnce(null);
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await settle(snowdrop);
+    expect(input.value).toBe('swallowed');
   });
 
   it('does not start editing when there is text', async () => {

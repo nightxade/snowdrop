@@ -53,6 +53,7 @@ import type {
   ChatBackend,
   ConversationPatch,
   EditInput,
+  EditResult,
   GroupChange,
   HistoryPage,
   HistoryQuery,
@@ -1844,10 +1845,13 @@ export class SignalCliBackend implements ChatBackend {
    * session). Attachments can't be re-sent cheaply; Signal clients keep the
    * original's attachments for an edit, but this is unverified for signal-cli.
    */
-  async edit(input: EditInput): Promise<{ sentAt: number }> {
+  async edit(input: EditInput): Promise<EditResult> {
     this.assertAccount();
     const quote =
       input.quote ?? this.sentQuotes.get(`${input.conversationId}|${input.targetSentAt}`);
+    const encodedPreview = input.preview
+      ? await encodeOutgoingPreview(input.preview, `local:${input.targetSentAt}:preview`)
+      : undefined;
     const params = {
       ...targetParams(input.conversationId, this.identity.aliases),
       ...messageParams({
@@ -1855,6 +1859,7 @@ export class SignalCliBackend implements ChatBackend {
         ranges: input.ranges,
         ...(quote ? { quote } : {}),
         editTimestamp: input.targetSentAt,
+        ...(encodedPreview ? { preview: encodedPreview.param } : {}),
         ...(this.customEmojiSupported && input.customEmoji
           ? { customEmoji: input.customEmoji }
           : {}),
@@ -1862,7 +1867,10 @@ export class SignalCliBackend implements ChatBackend {
     };
     try {
       const result = await this.rpc.call('send', params, wireSendResult, { timeoutMs: 60_000 });
-      return { sentAt: result.timestamp };
+      return {
+        sentAt: result.timestamp,
+        ...(encodedPreview ? { preview: encodedPreview.preview } : {}),
+      };
     } catch (error) {
       throw enrichSendError(error);
     }

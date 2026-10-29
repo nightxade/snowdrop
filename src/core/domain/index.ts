@@ -19,3 +19,5 @@ export * from './contacts';
 export * from './attachmentKind';
 export * from './gallery';
 export * from './forward';
+export * from './editing';
+export * from './messageActions';

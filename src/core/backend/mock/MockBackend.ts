@@ -46,6 +46,8 @@ import type {
   ChatBackend,
   ConversationPatch,
   EditInput,
+  EditResult,
+  OutgoingLinkPreview,
   GroupChange,
   HistoryPage,
   HistoryQuery,
@@ -335,31 +337,9 @@ export class MockBackend implements ChatBackend {
           : {}),
       })),
     );
-    const preview: LinkPreview | undefined = input.preview && {
-      url: input.preview.url,
-      title: input.preview.title,
-      ...(input.preview.description ? { description: input.preview.description } : {}),
-      ...(input.preview.image
-        ? {
-            image: {
-              id: `${sentAt.toString(36)}-preview`,
-              contentType: input.preview.image.contentType,
-              size: input.preview.image.data.size,
-              ...(input.preview.image.width !== undefined
-                ? { width: input.preview.image.width }
-                : {}),
-              ...(input.preview.image.height !== undefined
-                ? { height: input.preview.image.height }
-                : {}),
-              ...(input.preview.image.data.size <= INLINE_ATTACHMENT_MAX
-                ? {
-                    url: await toDataUrl(input.preview.image.data, input.preview.image.contentType),
-                  }
-                : {}),
-            },
-          }
-        : {}),
-    };
+    const preview = input.preview
+      ? await mockPreview(input.preview, `${sentAt.toString(36)}-preview`)
+      : undefined;
     const selfId = this.world.self.id;
     const message: Message = {
       id: messageId(selfId, sentAt),
@@ -457,16 +437,24 @@ export class MockBackend implements ChatBackend {
     this.installedPacks.add(sticker.packId);
   }
 
-  async edit(input: EditInput): Promise<{ sentAt: number }> {
+  async edit(input: EditInput): Promise<EditResult> {
     await this.delay();
     this.assertOnline();
     this.takeFailure();
     const editedAt = Math.max(this.clock.now(), this.lastSentAt + 1);
     this.lastSentAt = editedAt;
+    const preview = input.preview
+      ? await mockPreview(input.preview, `${editedAt.toString(36)}-preview`)
+      : undefined;
     this.updateMessage(input.conversationId, this.world.self.id, input.targetSentAt, (m) =>
-      applyEdit(m, { body: input.body, ranges: input.ranges, editedAt }),
+      applyEdit(m, {
+        body: input.body,
+        ranges: input.ranges,
+        editedAt,
+        ...(preview ? { previews: [preview] } : {}),
+      }),
     );
-    return { sentAt: editedAt };
+    return { sentAt: editedAt, ...(preview ? { preview } : {}) };
   }
 
   async react(input: ReactInput): Promise<void> {
@@ -1030,4 +1018,28 @@ async function toDataUrl(blob: Blob, contentType: string): Promise<string> {
     binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   }
   return `data:${contentType || 'application/octet-stream'};base64,${btoa(binary)}`;
+}
+
+/** The demo's copy of a sent link preview; its image is kept inline like an attachment's. */
+async function mockPreview(input: OutgoingLinkPreview, imageId: string): Promise<LinkPreview> {
+  const { image } = input;
+  return {
+    url: input.url,
+    title: input.title,
+    ...(input.description ? { description: input.description } : {}),
+    ...(image
+      ? {
+          image: {
+            id: imageId,
+            contentType: image.contentType,
+            size: image.data.size,
+            ...(image.width !== undefined ? { width: image.width } : {}),
+            ...(image.height !== undefined ? { height: image.height } : {}),
+            ...(image.data.size <= INLINE_ATTACHMENT_MAX
+              ? { url: await toDataUrl(image.data, image.contentType) }
+              : {}),
+          },
+        }
+      : {}),
+  };
 }

@@ -40,3 +40,17 @@
 .link:hover {
   text-decoration: underline;
 }
+
+/* The shared card is built to sit on top of the composer box: here it stands alone. */
+.preview > * {
+  border-radius: var(--snowdrop-radius-sm);
+}
+
+.problem {
+  padding: var(--snowdrop-space-2) var(--snowdrop-space-4);
+  border-radius: var(--snowdrop-radius-sm);
+  background: var(--snowdrop-danger-soft);
+  color: var(--snowdrop-danger);
+  font-size: var(--snowdrop-font-size-sm);
+  font-weight: var(--snowdrop-font-weight-medium);
+}

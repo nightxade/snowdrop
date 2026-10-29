@@ -172,6 +172,19 @@ export interface EditInput {
   quote?: Quote;
   /** Deduplicated custom emoji used in `body`; only sent when the backend supports it. */
   customEmoji?: OutgoingCustomEmoji[];
+  /**
+   * The edited message's link preview. Like the quote, signal-cli rebuilds the
+   * whole data message from the call's params and Signal clients replace the
+   * original's previews with the edit's, so one left out is dropped for
+   * everyone. At most one; its `url` must appear in `body`.
+   */
+  preview?: OutgoingLinkPreview;
+}
+
+/** What an edit sent: when it went out, and its preview as transmitted (for the local copy). */
+export interface EditResult {
+  sentAt: number;
+  preview?: LinkPreview;
 }
 
 export interface ReactInput {
@@ -383,6 +396,8 @@ export interface BackendEvents {
     body: string;
     ranges: BodyRange[];
     editedAt: number;
+    /** When the server got the edit (epoch ms), when the transport reports it; see `isTooOldToEdit`. */
+    serverAt?: number;
     /** The edit's own previews, replacing whatever the original had (possibly none). */
     previews?: LinkPreview[];
   };
@@ -527,7 +542,7 @@ export interface ChatBackend {
 
   /** Resolves with the timestamp Signal assigned, which becomes the message identity. */
   send(input: SendInput): Promise<SendResult>;
-  edit(input: EditInput): Promise<{ sentAt: number }>;
+  edit(input: EditInput): Promise<EditResult>;
   react(input: ReactInput): Promise<void>;
   deleteForEveryone(conversationId: ConversationId, sentAt: number): Promise<void>;
   /** Group admins deleting someone else's message, when the protocol supports it. */

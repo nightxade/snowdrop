@@ -81,12 +81,8 @@ export function HoverBar(props: HoverBarProps) {
           </>
         )
       )}
-      {m.kind === 'normal' && !m.deleted && !p.failed && (
-        <IconButton label="Reply" icon={<Reply />} onClick={props.onReply} />
-      )}
-      {p.canEdit && !p.failed && (
-        <IconButton label="Edit" icon={<Pencil />} onClick={props.onEdit} />
-      )}
+      {p.canReply && <IconButton label="Reply" icon={<Reply />} onClick={props.onReply} />}
+      {p.canEdit && <IconButton label="Edit" icon={<Pencil />} onClick={props.onEdit} />}
       {plugins.map((action) => {
         const Icon = isRenderableComponent<{ size?: number }>(action.icon) ? action.icon : Puzzle;
         return (
@@ -104,9 +100,9 @@ export function HoverBar(props: HoverBarProps) {
           </PluginBoundary>
         );
       })}
-      {shift && !p.failed && (p.own || !m.deleted) ? (
+      {shift && p.canDelete ? (
         <IconButton
-          label={p.own && !m.deleted ? 'Delete for everyone' : 'Delete for me'}
+          label={p.canDeleteForEveryone ? 'Delete for everyone' : 'Delete for me'}
           icon={<Trash2 />}
           className={styles.danger}
           onClick={props.onQuickDelete}

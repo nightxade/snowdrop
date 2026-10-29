@@ -185,7 +185,8 @@ export function normaliseEnvelope(envelope: WireEnvelope, ctx: NormaliseContext)
         actorName: 'You',
         timerStart,
       };
-      if (sent.editMessage) events.push(...fromEdit(sent.editMessage, origin, resolve));
+      if (sent.editMessage)
+        events.push(...fromEdit(sent.editMessage, origin, resolve, serverTime(envelope)));
       if (sent.dataMessage)
         events.push(...fromData(sent.dataMessage, origin, ctx, resolve, nameOf));
     }
@@ -231,7 +232,8 @@ export function normaliseEnvelope(envelope: WireEnvelope, ctx: NormaliseContext)
       actorName: nameOf(source, envelope.sourceName),
       timerStart,
     };
-    if (envelope.editMessage) return fromEdit(envelope.editMessage, origin, resolve);
+    if (envelope.editMessage)
+      return fromEdit(envelope.editMessage, origin, resolve, serverTime(envelope));
     return fromData(data, origin, ctx, resolve, nameOf);
   }
 
@@ -245,6 +247,7 @@ function fromEdit(
   edit: WireEditMessage,
   origin: Origin,
   resolve: (id: string) => string,
+  serverAt: number | undefined,
 ): AdapterEvent[] {
   const data = edit.dataMessage;
   const body = data.message ?? '';
@@ -265,6 +268,7 @@ function fromEdit(
         body,
         ranges,
         editedAt: data.timestamp,
+        ...(serverAt !== undefined ? { serverAt } : {}),
         ...(previews.length > 0 ? { previews } : {}),
       },
     },

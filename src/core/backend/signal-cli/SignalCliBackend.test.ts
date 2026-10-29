@@ -2153,6 +2153,44 @@ describe('SignalCliBackend: own changes and edits', () => {
   });
 });
 
+describe('SignalCliBackend: link preview on an edit', () => {
+  it('sends the edited message with its preview, and reports it for the local copy', async () => {
+    const { backend, daemon } = await connected();
+    const dm = directConversationId(ALICE);
+    const result = await backend.edit({
+      conversationId: dm,
+      targetSentAt: 99,
+      body: 'see https://example.org/a',
+      ranges: [],
+      preview: {
+        url: 'https://example.org/a',
+        title: 'A page',
+        description: 'About it',
+        image: { contentType: 'image/png', data: new Blob([new Uint8Array([1, 2, 3])]) },
+      },
+    });
+    expect(daemon.callsTo('send').at(-1)).toMatchObject({
+      editTimestamp: 99,
+      previewUrl: 'https://example.org/a',
+      previewTitle: 'A page',
+      previewDescription: 'About it',
+      previewImage: expect.stringMatching(/^data:image\/png/u) as unknown,
+    });
+    expect(result.preview).toMatchObject({ url: 'https://example.org/a', title: 'A page' });
+
+    // No preview on the edit means none goes out (recipients replace the original's).
+    const plain = await backend.edit({
+      conversationId: dm,
+      targetSentAt: 99,
+      body: 'no link',
+      ranges: [],
+    });
+    expect(daemon.callsTo('send').at(-1)).not.toHaveProperty('previewUrl');
+    expect(plain.preview).toBeUndefined();
+    await backend.disconnect();
+  });
+});
+
 describe('imported phone history', () => {
   it('loads history without emitting arrivals and explicitly starts viewed timers', async () => {
     const { backend, daemon } = setup();

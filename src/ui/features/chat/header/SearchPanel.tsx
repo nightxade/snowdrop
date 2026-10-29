@@ -61,7 +61,16 @@ export function SearchPanel({
     };
   }, [trimmed, repository, conversation.id]);
 
-  const view: SearchState = trimmed === '' ? { status: 'idle' } : state;
+  // Results (and "no match") belong to the query they were found for. While the field has moved
+  // on, old results stay up until the new ones land, but an old "no match" is no answer to the
+  // new text; and Enter only ever opens a match for what is typed now.
+  const current = state.status === 'done' && state.query === trimmed;
+  const view: SearchState =
+    trimmed === ''
+      ? { status: 'idle' }
+      : state.status === 'done' && !current && state.results.length === 0
+        ? { status: 'searching', query: trimmed }
+        : state;
 
   return (
     <aside
@@ -96,7 +105,7 @@ export function SearchPanel({
           aria-label="Search messages"
           onKeyDown={(e) => {
             // Enter opens the best (newest) match.
-            if (e.key === 'Enter' && state.status === 'done' && state.results[0]) {
+            if (e.key === 'Enter' && state.status === 'done' && current && state.results[0]) {
               e.preventDefault();
               void chat.reveal(conversation.id, state.results[0].id, { focus: true });
             }
@@ -136,7 +145,7 @@ export function SearchPanel({
               {view.results.length === LIMIT ? `${LIMIT}+` : view.results.length}{' '}
               {view.results.length === 1 ? 'result' : 'results'}
             </p>
-            <ul className={styles.list} ref={list}>
+            <ul className={styles.list} ref={list} aria-busy={!current}>
               {view.results.map((m) => (
                 <li key={m.id}>
                   <MessageResult

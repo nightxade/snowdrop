@@ -3,6 +3,7 @@ import {
   useEffect,
   useId,
   useLayoutEffect,
+  useReducer,
   useRef,
   useState,
   type KeyboardEvent,
@@ -14,6 +15,9 @@ import {
   isPendingMessageId,
   mentionsContact,
   messageId,
+  canSendToGroup,
+  EDIT_WINDOW_MS,
+  isNoteToSelf,
   type ConversationId,
   type MessageId,
 } from '@/core/domain';
@@ -41,7 +45,7 @@ import { MessageContent } from './MessageContent';
 import { MessageDetails } from './MessageDetails';
 import { PollVotesDialog } from './PollCard';
 import { StickerPackDialog } from './StickerPackDialog';
-import { buildMessageMenu, type DeleteKind } from './messageMenu';
+import { buildMessageMenu, deleteKindOf, type DeleteKind } from './messageMenu';
 import { QuoteHeader } from './QuoteHeader';
 import { firstControl, useInertUntilEntered, useLongPress, useMessageNames } from './rowHooks';
 import { isShiftHeld } from './useShiftHeld';
@@ -57,6 +61,8 @@ export interface MessageItemProps {
   /** Show 16px avatars in compact mode. */
   compactAvatars: boolean;
 }
+
+const MAX_TIMER_MS = 2 ** 31 - 1;
 
 /** Touch-first layouts: no hover bar on tap; long-press opens an action sheet instead. */
 const TOUCH_QUERY = `(pointer: coarse), ${BREAKPOINTS.drawer}`;
@@ -80,8 +86,10 @@ export const MessageItem = memo(function MessageItem({
   const m = useStore(stores.messages, messagesSelectors.message(conversationId, id));
   const nameFor = useMessageNames(m);
   const selfId = useStore(stores.session, sessionSelectors.selfId);
-  // Re-renders the row when the conversation is accepted, so its actions (permissionsFor) unlock.
+  // Re-render the row when the conversation is accepted or the user may (no longer) write in it,
+  // so its actions (permissionsFor) unlock and lock.
   useMessageRequestState(conversationId);
+  useStore(stores.conversations, (s) => canSendToGroup(s.byId[conversationId], selfId));
   const clock24h = useStore(stores.settings, (s) => s.appearance.clock24h);
   const editing = useStore(stores.ui, (s) => s.editing?.messageId === id);
   const replyTarget = useStore(stores.ui, (s) => s.replyTo[conversationId] === id);
@@ -95,6 +103,7 @@ export const MessageItem = memo(function MessageItem({
   useHistoryRead(row, m);
   const domId = useId();
   const [focused, setFocused] = useState(false);
+  const [, closeWindows] = useReducer((n: number) => n + 1, 0);
   const [contextOpen, setContextOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -111,6 +120,22 @@ export const MessageItem = memo(function MessageItem({
 
   useInertUntilEntered(row, entered);
   useRenderProbe(id);
+  // Edit and delete-for-everyone close 24 hours after sending: re-render the row then, so its
+  // bar and menu stop offering them without waiting for something else to touch it.
+  const windowCloses =
+    m && m.authorId === selfId && !isNoteToSelf(conversationId, selfId)
+      ? m.sentAt + EDIT_WINDOW_MS
+      : undefined;
+  useEffect(() => {
+    if (windowCloses === undefined) return;
+    const wait = windowCloses - Date.now();
+    // Not for a message long past it, nor beyond what a timer can hold.
+    if (wait <= 0 || wait > MAX_TIMER_MS) return;
+    const timer = setTimeout(closeWindows, wait + 50);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [windowCloses]);
   useLayoutEffect(() => rows.mount(id), [rows, id]);
 
   // Row actions for keyboard layers (Vim mode). Reads the message fresh, so
@@ -121,32 +146,31 @@ export const MessageItem = memo(function MessageItem({
       const msg = messagesSelectors.message(conversationId, id)(stores.messages.getState());
       if (!msg) return false;
       const p = act.permissionsFor(app, msg);
-      const hasText = msg.kind === 'normal' && !msg.deleted;
       switch (action) {
         case 'reply':
-          if (p.canReact) act.reply(app, chat, msg);
-          return p.canReact;
+          if (p.canReply) act.reply(app, chat, msg);
+          return p.canReply;
         case 'forward':
           if (p.canForward) act.forward(app, msg);
           return p.canForward;
         case 'edit':
-          if (p.canEdit) act.startEdit(app, msg);
-          return p.canEdit;
+          // Asks again (and says why not) in case the window closed since `p` was read.
+          return p.own && act.startEdit(app, msg);
         case 'react':
           if (!p.canReact) return false;
           setFocused(true);
           setPickerOpen(true);
           return true;
         case 'copyText':
-          if (hasText) act.copyMessageText(app, msg);
-          return hasText;
+          if (p.canCopy) act.copyMessageText(app, msg);
+          return p.canCopy;
         case 'copyMarkdown':
-          if (hasText) act.copyMarkdown(app, msg);
-          return hasText;
+          if (p.canCopy) act.copyMarkdown(app, msg);
+          return p.canCopy;
         case 'delete':
           // Always through the confirm dialog (like the Delete key without Shift).
-          if (!p.failed) setConfirm(p.own && !msg.deleted ? 'everyone' : 'me');
-          return !p.failed;
+          if (p.canDelete) setConfirm(deleteKindOf(p));
+          return p.canDelete;
         case 'pin':
           if (p.canPin) act.setPinned(app, msg, !msg.pinned);
           return p.canPin;
@@ -251,9 +275,11 @@ export const MessageItem = memo(function MessageItem({
       return;
     }
     if (e.defaultPrevented) return;
+    // Decided now, not when the row last rendered: an edit window may have closed since.
+    const live = act.permissionsFor(app, m);
     // Signal Desktop's shortcut for forwarding the focused message.
     if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && e.key.toLowerCase() === 's') {
-      if (!perms.canForward) return;
+      if (!live.canForward) return;
       act.forward(app, m);
       e.preventDefault();
       return;
@@ -263,13 +289,13 @@ export const MessageItem = memo(function MessageItem({
     if (key === 'enter' && !editing) {
       rows.enter(id);
       setFocused(true);
-    } else if (key === 'r' && perms.canReact) act.reply(app, chat, m);
-    else if (key === 'e' && perms.canEdit) act.startEdit(app, m);
-    else if ((key === '+' || key === '=') && perms.canReact) {
+    } else if (key === 'r' && live.canReply) act.reply(app, chat, m);
+    else if (key === 'e' && live.canEdit) void act.startEdit(app, m);
+    else if ((key === '+' || key === '=') && live.canReact) {
       setFocused(true);
       setPickerOpen(true);
-    } else if ((key === 'delete' || key === 'backspace') && !perms.failed)
-      requestDelete(perms.own && !m.deleted ? 'everyone' : 'me');
+    } else if ((key === 'delete' || key === 'backspace') && live.canDelete)
+      requestDelete(deleteKindOf(live));
     else return;
     e.preventDefault();
   };
@@ -355,7 +381,7 @@ export const MessageItem = memo(function MessageItem({
             act.retry(app, m);
           }}
           onQuickDelete={() => {
-            runDelete(perms.own && !m.deleted ? 'everyone' : 'me');
+            runDelete(deleteKindOf(perms));
           }}
         />
       )}

@@ -4,6 +4,7 @@ import { axe } from 'vitest-axe';
 import type { Snowdrop } from '@/app/createSnowdrop';
 import type { ConversationId } from '@/core/domain';
 import { messagesSelectors } from '@/core/stores';
+import { textSurfaceFor } from '@/ui/hooks';
 import { bootSnowdrop, renderWithSnowdrop } from '@/test/renderWithSnowdrop';
 import { ChatController, ChatControllerProvider } from '../ChatController';
 import { rig, type Rig } from '../voice/fakeRecorder';
@@ -183,6 +184,19 @@ describe('<Composer /> voice notes', () => {
     await vi.waitFor(() => {
       expect(lastOwn(snowdrop, conv.id)?.attachments[0]?.voiceNote).toBe(true);
     });
+  });
+
+  it('keeps key layers (Vim mode) attached to the text field across a recording', async () => {
+    await setup();
+    const before = screen.getByRole('textbox');
+    expect(textSurfaceFor(before)).not.toBeNull();
+    await startRecording();
+    // The field is gone while recording; cancelling mounts a new one, which must be registered too.
+    expect(textSurfaceFor(before)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    const after = screen.getByRole('textbox');
+    expect(after).not.toBe(before);
+    expect(textSurfaceFor(after)).not.toBeNull();
   });
 
   it('says why when the microphone is refused, and when there is none', async () => {

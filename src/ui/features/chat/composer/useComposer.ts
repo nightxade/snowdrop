@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useStore } from 'zustand';
-import { pollPreviewText, type Message, type Quote, type StickerContent } from '@/core/domain';
+import {
+  isPendingMessageId,
+  pollPreviewText,
+  type Message,
+  type Quote,
+  type StickerContent,
+} from '@/core/domain';
 import type { ConversationView } from '@/core/domain';
 import type { OutgoingPoll } from '@/core/backend';
 import { parseSlash } from '@/core/plugins';
@@ -91,6 +97,9 @@ export function useComposer(conversation: ConversationView): ComposerState {
   useEffect(() => {
     latest.current = attachments;
   }, [attachments]);
+  // What the field holds right now, readable after an await (a failed send puts the draft
+  // back only if nothing has been typed meanwhile).
+  const currentText = useRef(text);
   // Previews are object URLs: release whatever is still pending on unmount.
   useEffect(
     () => () => {
@@ -101,6 +110,7 @@ export function useComposer(conversation: ConversationView): ComposerState {
 
   const setText = useCallback(
     (next: string) => {
+      currentText.current = next;
       setTextState(next);
       setError(null);
       stores.local.getState().setDraft(conversationId, next);
@@ -156,8 +166,63 @@ export function useComposer(conversation: ConversationView): ComposerState {
     setText('');
     setTokens([]);
     for (const a of attachments) if (a.previewUrl) URL.revokeObjectURL(a.previewUrl);
+    latest.current = [];
     setAttachments([]);
     stores.ui.getState().setReplyTo(conversationId, null);
+  };
+
+  /** The unsent messages (sending or failed) the conversation shows right now. */
+  const pendingIds = (): Set<string> =>
+    new Set(
+      (stores.messages.getState().windows[conversationId]?.ids ?? []).filter((id) =>
+        isPendingMessageId(id),
+      ),
+    );
+
+  /** Puts back what a send that did not go out took from the composer (never over newer input). */
+  const restore = (draft: {
+    text: string;
+    tokens: MentionToken[];
+    attachments: readonly PendingAttachment[];
+    replyId: Message['id'] | undefined;
+  }) => {
+    if (currentText.current === '' && draft.text !== '') {
+      // Not `setText`: that would also clear the error that says why it came back.
+      currentText.current = draft.text;
+      setTextState(draft.text);
+      stores.local.getState().setDraft(conversationId, draft.text);
+      setTokens(draft.tokens);
+    }
+    if (latest.current.length === 0 && draft.attachments.length > 0) {
+      // The files are still held; their previews were released with the tray, so make new ones.
+      const back = draft.attachments.map((a) => ({
+        ...a,
+        ...(a.previewUrl !== undefined || a.voiceNote === true
+          ? { previewUrl: URL.createObjectURL(a.file) }
+          : {}),
+      }));
+      latest.current = back;
+      setAttachments(back);
+    }
+    if (draft.replyId && stores.ui.getState().replyTo[conversationId] === undefined)
+      stores.ui.getState().setReplyTo(conversationId, draft.replyId);
+  };
+
+  /**
+   * Runs a send once the list shows the present (a send only appears there), reports a failure
+   * in the composer, and scrolls to the end. Resolves with the send's result, or `FAILED`.
+   */
+  const sendInPresent = async <T>(run: () => Promise<T>, failure: string): Promise<T | Failed> => {
+    try {
+      const w = stores.messages.getState().windows[conversationId];
+      if (w && !w.anchoredToPresent) await history.jumpToPresent(conversationId);
+      return await run();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : failure);
+      return FAILED;
+    } finally {
+      void chat.jumpToPresent();
+    }
   };
 
   const addVoiceNote = (recording: VoiceRecording) => {
@@ -216,12 +281,12 @@ export function useComposer(conversation: ConversationView): ComposerState {
           }
         : {}),
     };
+    const draft = { text, tokens, attachments: outgoing, replyId };
     clear();
-    // Sent messages only appear in a window anchored to the present.
-    const w = stores.messages.getState().windows[conversationId];
-    if (w && !w.anchoredToPresent) await history.jumpToPresent(conversationId);
-    try {
-      await send.send({
+    let before = new Set<string>();
+    const sent = await sendInPresent(() => {
+      before = pendingIds();
+      return send.send({
         conversationId,
         text: encoded.text,
         mentionIds: encoded.mentionIds,
@@ -230,10 +295,12 @@ export function useComposer(conversation: ConversationView): ComposerState {
         ...(format ? { format } : {}),
         ...(preview ? { preview } : {}),
       });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not send the message');
-    }
-    void chat.jumpToPresent();
+    }, 'Could not send the message');
+    // Not sent (it threw, or a plugin emptied it): the user's words and files come back. Unless
+    // the message was already staged: its failed row, with Retry, is the way back then, and a
+    // restored draft would send it twice.
+    const staged = [...pendingIds()].some((id) => !before.has(id));
+    if ((sent === FAILED || sent === null) && !staged) restore(draft);
   };
 
   const submit = async () => {
@@ -279,33 +346,24 @@ export function useComposer(conversation: ConversationView): ComposerState {
     if (replyId) stores.ui.getState().setReplyTo(conversationId, null);
     setError(null);
     stores.local.getState().noteStickerSent(sticker);
-    // Sent messages only appear in a window anchored to the present.
-    const w = stores.messages.getState().windows[conversationId];
-    if (w && !w.anchoredToPresent) await history.jumpToPresent(conversationId);
-    try {
-      await send.sendSticker({
-        conversationId,
-        sticker,
-        ...(replyTarget ? { quote: quoteOf(replyTarget) } : {}),
-      });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not send the sticker');
-    }
-    void chat.jumpToPresent();
+    await sendInPresent(
+      () =>
+        send.sendSticker({
+          conversationId,
+          sticker,
+          ...(replyTarget ? { quote: quoteOf(replyTarget) } : {}),
+        }),
+      'Could not send the sticker',
+    );
   };
 
   const sendPoll = async (poll: OutgoingPoll) => {
     setError(null);
-    // Sent messages only appear in a window anchored to the present.
-    const w = stores.messages.getState().windows[conversationId];
-    if (w && !w.anchoredToPresent) await history.jumpToPresent(conversationId);
-    try {
-      const nonce = await send.sendPoll({ conversationId, poll });
-      if (nonce === null) setError("This connection can't send polls.");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not send the poll');
-    }
-    void chat.jumpToPresent();
+    const nonce = await sendInPresent(
+      () => send.sendPoll({ conversationId, poll }),
+      'Could not send the poll',
+    );
+    if (nonce === null) setError("This connection can't send polls.");
   };
 
   return {
@@ -328,6 +386,10 @@ export function useComposer(conversation: ConversationView): ComposerState {
     sendPoll,
   };
 }
+
+/** What `sendInPresent` resolves with when the send threw (the error is already shown). */
+const FAILED = Symbol('failed');
+type Failed = typeof FAILED;
 
 const VOICE_ALONE = 'A voice message must have only one attachment.';
 

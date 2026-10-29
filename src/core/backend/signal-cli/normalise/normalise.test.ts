@@ -362,6 +362,8 @@ describe('normaliseReceive: actions on messages', () => {
       body: 'hello there (edited)',
       ranges: [{ start: 6, length: 5, style: 'bold' }],
       editedAt: T0 + 20,
+      // The server's receive time, which decides whether a late edit still applies.
+      serverAt: T0 + 150,
     });
     const synced = only(run(fixtures.syncSentEdit).events, 'messageEdited').payload;
     expect(synced).toMatchObject({
@@ -369,6 +371,7 @@ describe('normaliseReceive: actions on messages', () => {
       authorId: SELF_ACI,
       targetSentAt: T0 + 11,
       editedAt: T0 + 30,
+      serverAt: T0 + 150,
     });
   });
 

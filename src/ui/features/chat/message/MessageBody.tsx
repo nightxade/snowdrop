@@ -148,7 +148,8 @@ function Spoiler({ children }: { children: ReactNode }) {
         }
       }}
     >
-      <span aria-hidden className={styles.spoilerText}>
+      {/* inert: hidden content can't be focused or clicked (a link under the bar would follow). */}
+      <span aria-hidden inert className={styles.spoilerText}>
         {children}
       </span>
     </span>
@@ -217,7 +218,8 @@ function render(segments: readonly Segment[], props: MessageBodyProps, path: str
         if (props.preview)
           return (
             <span key={key} className={styles.spoiler}>
-              <span aria-hidden className={styles.spoilerText}>
+              {/* inert: hidden content can't be focused or clicked (a link under the bar would follow). */}
+              <span aria-hidden inert className={styles.spoilerText}>
                 {render(s.children, props, key)}
               </span>
             </span>
@@ -243,12 +245,15 @@ function render(segments: readonly Segment[], props: MessageBodyProps, path: str
 }
 
 /**
- * One emoji grapheme: a pictograph with its modifiers and ZWJ parts, a flag
- * (two regional indicators), or a keycap. Bare digits, `#` and `*` are emoji
- * components in Unicode but plain text on their own, so "2" is never jumbo.
+ * One emoji grapheme: a pictograph shown as an emoji with its modifiers and
+ * ZWJ parts, a flag (two regional indicators), or a keycap. Bare digits, `#`
+ * and `*` are emoji components in Unicode but plain text on their own, so "2"
+ * is never jumbo. Neither are the pictographs that render as text unless
+ * followed by U+FE0F (©, ™, ↔, ▶, a bare ❤): without the emoji presentation
+ * selector (or a skin tone) they are ordinary characters.
  */
 const JUMBO_GRAPHEME =
-  /^(?:\p{Extended_Pictographic}(?:\p{Emoji_Component}|\p{Extended_Pictographic})*|\p{Regional_Indicator}{2}|[0-9#*]\ufe0f?\u20e3)$/u;
+  /^(?:\p{Extended_Pictographic}(?:(?<=\p{Emoji_Presentation})|\ufe0f|(?=\p{Emoji_Modifier}))(?:\p{Emoji_Component}|\p{Extended_Pictographic})*|\p{Regional_Indicator}{2}|[0-9#*]\ufe0f?\u20e3)$/u;
 /** A standin pictographic char so a resolved `:name:` token counts as one jumbo-eligible unit. */
 const JUMBO_PLACEHOLDER = '🟡';
 

@@ -24,6 +24,11 @@ import * as act from './actions';
 
 export type DeleteKind = 'everyone' | 'me' | 'admin';
 
+/** What a plain Delete does: for everyone on our own message, otherwise for ourselves. */
+export function deleteKindOf(p: act.MessagePermissions): DeleteKind {
+  return p.canDeleteForEveryone ? 'everyone' : 'me';
+}
+
 export interface MenuCallbacks {
   openPicker: () => void;
   /** Asks before deleting (skipped when Shift is held). */
@@ -96,7 +101,7 @@ export function buildMessageMenu(
       ],
     });
   }
-  if (m.kind === 'normal' && !m.deleted && !p.failed) {
+  if (p.canReply) {
     entries.push({
       kind: 'item',
       id: 'reply',
@@ -118,7 +123,7 @@ export function buildMessageMenu(
       },
     });
   }
-  if (p.canEdit && !p.failed) {
+  if (p.canEdit) {
     entries.push({
       kind: 'item',
       id: 'edit',
@@ -163,7 +168,7 @@ export function buildMessageMenu(
     });
   }
 
-  if (p.own && !p.failed && m.kind === 'normal' && !m.deleted) {
+  if (p.canShowDetails) {
     entries.push({
       kind: 'item',
       id: 'details',
@@ -214,7 +219,7 @@ export function buildMessageMenu(
     });
   }
 
-  if (m.kind === 'normal' && !m.deleted && m.body !== '') {
+  if (p.canCopy) {
     entries.push(
       { kind: 'separator', id: 'sep-copy' },
       {
@@ -271,9 +276,9 @@ export function buildMessageMenu(
     },
   );
 
-  if (!p.failed) {
+  if (p.canDelete) {
     entries.push({ kind: 'separator', id: 'sep-delete' });
-    if (p.own && m.kind === 'normal' && !m.deleted) {
+    if (p.canDeleteForEveryone) {
       entries.push({
         kind: 'item',
         id: 'delete-everyone',

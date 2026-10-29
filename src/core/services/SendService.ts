@@ -16,6 +16,7 @@ import type {
   ChatBackend,
   ConversationPatch,
   OutgoingCustomEmoji,
+  OutgoingLinkPreview,
   OutgoingPoll,
   SendInput,
 } from '@/core/backend';
@@ -34,6 +35,8 @@ import {
   applyReaction,
   attachMentions,
   escapeMarkdown,
+  isEditableContent,
+  isWithinDeleteWindow,
   isPendingMessageId,
   mergeDuplicate,
   mergeOutgoingCommit,
@@ -49,6 +52,7 @@ import {
   systemMessageId,
   type BodyRange,
   type ConversationId,
+  type LinkPreview,
   type Message,
   type MessageId,
   type PollVote,
@@ -653,12 +657,21 @@ export class SendService {
     return this.deps.stores.messages.getState().windows[conversationId]?.byId[id];
   }
 
-  /** Edits one of our messages; see the class comment for pending messages. */
+  /**
+   * Edits one of our messages; see the class comment for pending messages.
+   *
+   * The edit carries the message's link preview, because recipients replace
+   * the original's previews with the edit's (as Desktop does): `preview` is a
+   * freshly fetched one for a link the edit added, `null` drops it, and when
+   * left out the original's own preview goes again for as long as its link is
+   * still in the text.
+   */
   async edit(
     conversationId: ConversationId,
     id: MessageId,
     text: string,
     mentionIds: readonly string[] = [],
+    preview?: OutgoingLinkPreview | null,
   ): Promise<boolean> {
     const original = this.findLoaded(conversationId, id);
     if (!original || original.authorId !== this.selfId() || original.deleted) return false;
@@ -685,10 +698,21 @@ export class SendService {
       return true;
     }
 
-    let editedAt = this.deps.clock.now();
+    // The same limits the UI offers edits under: recipients' clients reject the rest.
+    const now = this.deps.clock.now();
+    if (!isEditableContent(original, { selfId: this.selfId(), now })) return false;
+
+    const carried = await this.previewForEdit(conversationId, original, body, preview);
+    let editedAt = now;
+    // What the message shows once edited: the optimistic copy first, the sent one after the commit.
+    let previews: LinkPreview[] | undefined = carried?.kept
+      ? original.previews
+      : carried
+        ? [localPreview(carried.send, `${original.sentAt}-${now}`)]
+        : undefined;
     return this.operate(conversationId, id, {
       context: 'edit failed',
-      apply: (m) => applyEdit(m, { body, ranges, editedAt }),
+      apply: (m) => applyEdit(m, { body, ranges, editedAt, ...(previews ? { previews } : {}) }),
       revert: (m) => restoreContent(m, original),
       commit: async (target) => {
         // signal-cli rebuilds the whole data message from the edit's params:
@@ -701,10 +725,53 @@ export class SendService {
           ranges,
           ...(target.quote ? { quote: target.quote } : {}),
           ...(customEmoji ? { customEmoji } : {}),
+          ...(carried ? { preview: carried.send } : {}),
         });
         editedAt = result.sentAt;
+        if (result.preview && previews && !carried?.kept) {
+          previews = [finalPreview(result.preview, previews[0]) ?? result.preview];
+        }
       },
     });
+  }
+
+  /**
+   * The preview an edit of `original` to `body` sends, if any: `preview` when
+   * given (and its link is in the text), nothing for `null`, otherwise the
+   * original's own while its link remains, rebuilt from the stored copy
+   * (`kept`). A message with files carries no preview (Desktop refuses both).
+   */
+  private async previewForEdit(
+    conversationId: ConversationId,
+    original: Message,
+    body: string,
+    preview: OutgoingLinkPreview | null | undefined,
+  ): Promise<{ send: OutgoingLinkPreview; kept: boolean } | undefined> {
+    if (preview === null || original.attachments.length > 0) return undefined;
+    if (preview) return body.includes(preview.url) ? { send: preview, kept: false } : undefined;
+    const old = original.previews?.[0];
+    if (!old || !body.includes(old.url)) return undefined;
+    const send: OutgoingLinkPreview = {
+      url: old.url,
+      title: old.title ?? old.url,
+      ...(old.description ? { description: old.description } : {}),
+    };
+    // The picture rides along when it can be read; without it the card still goes.
+    const { image } = old;
+    if (image && this.deps.backend.readAttachmentBlob) {
+      try {
+        const data = await this.deps.backend.readAttachmentBlob(conversationId, image);
+        send.image = {
+          contentType: image.contentType,
+          data,
+          ...(image.width !== undefined ? { width: image.width } : {}),
+          ...(image.height !== undefined ? { height: image.height } : {}),
+        };
+      } catch {
+        // Title and description only.
+      }
+    }
+    return { send, kept: true };
   }
 
   /** Adds, replaces or (when `remove`) removes our reaction on a message. */
@@ -754,6 +821,8 @@ export class SendService {
       await this.discard(conversationId, nonce);
       return true;
     }
+    // Recipients drop a later delete for everyone without a word, so don't send one.
+    if (!isWithinDeleteWindow(target, this.deps.clock.now(), this.selfId())) return false;
     return this.operate(conversationId, target.id, {
       context: 'delete failed',
       apply: (m) => applyDelete(m),
@@ -918,6 +987,7 @@ export class SendService {
     const adminDelete = this.deps.backend.adminDelete?.bind(this.deps.backend);
     if (!adminDelete || target.deleted || isPendingMessageId(target.id)) return false;
     const selfId = this.selfId();
+    if (!isWithinDeleteWindow(target, this.deps.clock.now(), selfId)) return false;
     return this.optimistic(conversationId, target.id, {
       context: 'delete failed',
       apply: (m) => applyDelete(m, selfId),

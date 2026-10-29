@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { messageId, pendingMessageId } from '@/core/domain';
+import { isPendingMessageId, messageId, pendingMessageId, type Message } from '@/core/domain';
 import { conversationIdFor, makeMessage } from '@/core/domain/testing';
 import { createMessagesStore, createRenderItemsSelector, messagesSelectors } from './messages';
 
@@ -139,7 +139,7 @@ describe('messagesStore windows', () => {
     expect(list[0]?.nonce).toBe('n1');
   });
 
-  it('never offers a pending or failed message for edit-last', () => {
+  it('finds the newest message the predicate takes, skipping the ones it refuses', () => {
     const store = createMessagesStore();
     store
       .getState()
@@ -154,7 +154,14 @@ describe('messagesStore windows', () => {
         ],
         { hasMoreBefore: false, hasMoreAfter: false },
       );
-    expect(messagesSelectors.lastOwn(conv, 'me')(store.getState())?.body).toBe('mine');
+    const mine = (x: Message) => x.authorId === 'me' && !x.deleted && x.status !== 'failed';
+    expect(
+      messagesSelectors.newestWhere(
+        conv,
+        (x) => mine(x) && !isPendingMessageId(x.id),
+      )(store.getState())?.body,
+    ).toBe('mine');
+    expect(messagesSelectors.newestWhere(conv, () => false)(store.getState())).toBeUndefined();
   });
 });
 

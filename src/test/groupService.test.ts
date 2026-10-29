@@ -109,19 +109,23 @@ describe('GroupService: actions and system lines', () => {
 
   it('turns the link on and off, resets it, and changes the rules', async () => {
     const { snowdrop, admin } = await boot();
+    // The backend's change reaches the store through the sync queue: wait for it to drain
+    // after each update rather than counting event-loop ticks.
+    const update = async (change: Parameters<Snowdrop['groups']['update']>[1]) => {
+      const failure = await snowdrop.groups.update(admin.id, change);
+      await snowdrop.sync.idle();
+      return failure;
+    };
     const first = stored(snowdrop, admin).inviteLink!;
-    expect(await snowdrop.groups.update(admin.id, { resetLink: true })).toBeNull();
+    expect(await update({ resetLink: true })).toBeNull();
     const second = stored(snowdrop, admin).inviteLink!;
     expect(second).not.toBe(first);
-    expect(await snowdrop.groups.update(admin.id, { link: 'off' })).toBeNull();
+    expect(await update({ link: 'off' })).toBeNull();
     expect(stored(snowdrop, admin).inviteLink).toBeUndefined();
-    expect(await snowdrop.groups.update(admin.id, { link: 'approval' })).toBeNull();
+    expect(await update({ link: 'approval' })).toBeNull();
     expect(stored(snowdrop, admin).inviteLink).toBeDefined();
-    expect(
-      await snowdrop.groups.update(admin.id, { permissions: { sendMessages: 'only-admins' } }),
-    ).toBeNull();
+    expect(await update({ permissions: { sendMessages: 'only-admins' } })).toBeNull();
     expect(stored(snowdrop, admin).permissions?.sendMessages).toBe('only-admins');
-    await snowdrop.sync.idle();
     expect((await snowdrop.repository.latest(admin.id))?.systemText).toContain('only allow admins');
   });
 
