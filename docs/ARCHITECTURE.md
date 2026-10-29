@@ -139,7 +139,8 @@ layer or a rule, add a case to the `cases` table in that script.
    actions, toasts, error reporting). `Registries`' error handler logs plugin
    failures and records them on the plugin (`reportRuntimeError`), so its card
    shows them with Retry.
-5. Creates `NotificationService` (fed by `sync.on('message')`, boosted by
+5. Creates `NotificationService` (fed by `sync.on('messageArrived')`,
+   `'pollActivity'`, `'reactionActivity'` and `'messageRemoved'`, boosted by
    `registries.boostReason`) and the `KeybindDispatcher`.
 6. Registers the core commands that need no view state (`coreCommands.ts`:
    switcher, settings, shortcuts, member list, mark read, spaces, theme
@@ -259,6 +260,27 @@ Adapters translate protocol quirks into the domain-level `BackendEvents`
   update the stored row and the loaded window in place; receipts only ever
   advance status (`advanceStatus`); disappearing messages are purged on a timer
   and remembered as tombstones so a replay can't resurrect them.
+- **A disappearing message's countdown starts when it is read**, as on Signal
+  Desktop: the adapter stores someone else's message with only its duration
+  (`expiresAfterReadMs`), and `SyncService` sets `expiresAt` when the read
+  position passes it (the user reads the chat, a read sync from the phone, a
+  message the user sent from another device) and schedules the purge. The
+  user's own messages count down from the send (`expiresAt` set when sent or
+  synced). Imported history keeps its own archive-driven start
+  (`readHistoryMessages`).
+- **Reactions and poll votes on the user's own messages** are news, as on
+  Desktop: the send time of the target goes into `localStore.unreadActivity`
+  (never the unread badge), and while the user is looking at the chat it is
+  read at once. Reading a chat (`markReadLocally`) clears it and sends one
+  sync-only read per target, authored by the user, so the phone drops its
+  notification (only with a signal-cli that can sync alone, `supportsReadSync`;
+  older builds send nothing, as before). `sync.on('reactionActivity')` and
+  `sync.on('pollActivity')` feed `NotificationService`; `sync.on('messageRemoved')`
+  (deleted for everyone, expired) withdraws what quoted the message.
+- `NotificationService` keeps what each notification announces and takes it
+  down when that no longer applies: the read position passes its message, the
+  unread activity for its target is cleared (read here or on the phone), a
+  reaction is taken back or replaced, or the message is removed.
 
 ### Event order: two queues, and what runs outside them
 

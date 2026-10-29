@@ -783,22 +783,32 @@ here should be read as having made it.
 ### Conversation notification replacement (Linux)
 
 `notifications.rs` uses `org.freedesktop.Notifications` through the existing
-zbus dependency. It retains the returned notification id per conversation tag
-and supplies that id as `replaces_id` on the next message. The frontend queues
-show/close calls and ignores obsolete handles, so bursts and slow IPC cannot
-withdraw a newer notification. Bodies are escaped for the desktop's markup
-support. Other operating systems retain the Tauri notification plugin fallback.
+zbus dependency, over one connection that is opened on first use and again
+after a failure. It retains the returned notification id per conversation tag
+and supplies that id as `replaces_id` on the next message; `notification_close`
+by tag closes it, which the frontend does when what it announced no longer
+applies (the chat was read here or on the phone, the message was deleted, a
+reaction was taken back). A listener thread forgets the id of a notification
+the user dismissed, so the next show is a new one and a later close is a
+no-op. The frontend queues show/close calls and ignores obsolete handles, so
+bursts and slow IPC cannot withdraw a newer notification. The service's
+capabilities are read once and bodies are escaped only when it renders markup
+(`body-markup`; assumed when it won't say). Other operating systems retain the
+Tauri notification plugin fallback, which cannot close a notification.
 
-The bridge test uses a fake notification service on a private bus:
+The id bookkeeping has plain unit tests. The bridge test uses a fake
+notification service on a private bus:
 
 ```sh
 cd src-tauri
-dbus-run-session -- cargo test notification_replacement -- --ignored
+dbus-run-session -- cargo test notification_service -- --ignored
 ```
 
-The test verifies replacement ids, separate conversations, withdrawal, and
-plain-text escaping. Do not run this ignored test against a real desktop bus.
-Notification clicks remain unsupported by this adapter.
+The test verifies replacement ids, separate conversations, withdrawal, the
+single connection and capability query, a dismissal by the user, and
+plain-text handling with and without markup. Do not run this ignored test
+against a real desktop bus. Notification clicks remain unsupported by this
+adapter.
 
 ### Native clipboard paste (Linux)
 

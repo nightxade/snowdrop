@@ -71,6 +71,14 @@ export interface LocalData {
    * stays on this device (nothing is sent to the sender).
    */
   playedVoiceNotes: Record<string, number>;
+  /**
+   * Conversation → send times of the user's own messages that someone else has reacted to or voted
+   * on since the chat was last read. Signal Desktop keeps this per reaction and poll vote; the
+   * messages are always the user's own, so a send time identifies one. Reading the chat clears it
+   * and tells the user's other devices (so the phone drops its notification); it never counts
+   * toward the unread badge.
+   */
+  unreadActivity: Record<ConversationId, number[]>;
   /** `grandfather` has run: existing chats were accepted once, never again. */
   requestsSeeded: boolean;
   /** Demo defaults are applied once per install. */
@@ -104,6 +112,10 @@ export interface LocalState extends LocalData {
   markBackfillRequested(key: string): void;
   /** Local only; a note already marked keeps its first time. */
   markVoiceNotePlayed(key: string): void;
+  /** Records that the user's message sent at `sentAt` got a reaction or vote from someone else. */
+  noteUnreadActivity(id: ConversationId, sentAt: number): void;
+  /** Forgets one message's unread reactions and votes, wherever it is (read on another device, deleted). */
+  dropUnreadActivity(sentAt: number): void;
   /** Accepts a conversation on this device (idempotent; also lifts a delete). */
   markAccepted(id: ConversationId, at: number): void;
   /** Hides a deleted message request until `clearDeleted`. */
@@ -127,6 +139,7 @@ export function defaultLocalData(): LocalData {
     playedVoiceNotes: {},
     acceptedChats: {},
     deletedChats: {},
+    unreadActivity: {},
     requestsSeeded: false,
     seeded: false,
   };
@@ -237,6 +250,23 @@ export function createLocalStore(initial: LocalData = defaultLocalData()): Local
         return { playedVoiceNotes: Object.fromEntries(entries) };
       });
     },
+    noteUnreadActivity: (id, sentAt) => {
+      const current = get().unreadActivity[id] ?? [];
+      if (current.includes(sentAt)) return;
+      // Bounded: past the cap the oldest go (they are long since read on the phone).
+      const next = [...current, sentAt].slice(-MAX_UNREAD_ACTIVITY);
+      set((s) => ({ unreadActivity: { ...s.unreadActivity, [id]: next } }));
+    },
+    dropUnreadActivity: (sentAt) => {
+      const { unreadActivity } = get();
+      if (!Object.values(unreadActivity).some((list) => list.includes(sentAt))) return;
+      const next: Record<ConversationId, number[]> = {};
+      for (const [key, list] of Object.entries(unreadActivity)) {
+        const kept = list.filter((at) => at !== sentAt);
+        if (kept.length > 0) next[key as ConversationId] = kept;
+      }
+      set({ unreadActivity: next });
+    },
     markAccepted: (id, at) => {
       const { acceptedChats, deletedChats } = get();
       if (acceptedChats[id] !== undefined && deletedChats[id] === undefined) return;
@@ -277,6 +307,8 @@ export function createLocalStore(initial: LocalData = defaultLocalData()): Local
 const MAX_TRACKED_REACTIONS = 24;
 const MAX_TRACKED_BACKFILL_REQUESTS = 200;
 const MAX_TRACKED_PLAYED_VOICE_NOTES = 1000;
+/** Most unread reaction/vote targets kept per conversation. */
+const MAX_UNREAD_ACTIVITY = 100;
 /** Offered before the user has reacted enough for a personal top list. */
 export const DEFAULT_QUICK_REACTIONS: readonly string[] = ['👍', '❤️', '😂'];
 
@@ -288,6 +320,7 @@ export const localSelectors = {
     s.conversations[id] ?? DEFAULT_LOCAL_CONVERSATION,
   draft: (id: ConversationId) => (s: LocalState) => s.conversations[id]?.draft ?? '',
   voiceNotePlayed: (key: string) => (s: LocalState) => s.playedVoiceNotes[key] !== undefined,
+  hasUnreadActivity: (id: ConversationId) => (s: LocalState) => s.unreadActivity[id] !== undefined,
   acceptedHere: (id: ConversationId) => (s: LocalState) => s.acceptedChats[id] !== undefined,
   note: (contactId: string) => (s: LocalState) => s.contactNotes[contactId] ?? '',
   /** The three most used reactions, topped up with defaults. Stable per usage map. */
@@ -315,6 +348,7 @@ export function selectLocalData(s: LocalState): LocalData {
     playedVoiceNotes: s.playedVoiceNotes,
     acceptedChats: s.acceptedChats,
     deletedChats: s.deletedChats,
+    unreadActivity: s.unreadActivity,
     requestsSeeded: s.requestsSeeded,
     seeded: s.seeded,
   };
@@ -376,9 +410,26 @@ export function mergeLocalData(existing: LocalData, incoming: LocalData): LocalD
     // existing (current) side's verdict, like every other conflict here.
     acceptedChats: mergeVerdicts(existing, incoming, 'acceptedChats', 'deletedChats'),
     deletedChats: mergeVerdicts(existing, incoming, 'deletedChats', 'acceptedChats'),
+    unreadActivity: mergeUnreadActivity(existing.unreadActivity, incoming.unreadActivity),
     requestsSeeded: existing.requestsSeeded || incoming.requestsSeeded,
     seeded: existing.seeded || incoming.seeded,
   };
+}
+
+/** Unread is unread on either side: the union per conversation, oldest first, capped. */
+function mergeUnreadActivity(
+  existing: LocalData['unreadActivity'],
+  incoming: LocalData['unreadActivity'],
+): LocalData['unreadActivity'] {
+  const merged: LocalData['unreadActivity'] = {};
+  for (const id of new Set([...Object.keys(existing), ...Object.keys(incoming)])) {
+    const key = id as ConversationId;
+    const union = [...new Set([...(incoming[key] ?? []), ...(existing[key] ?? [])])]
+      .sort((a, b) => a - b)
+      .slice(-MAX_UNREAD_ACTIVITY);
+    if (union.length > 0) merged[key] = union;
+  }
+  return merged;
 }
 
 /** `existing` wins a conflict between the two maps; anything only `incoming` knows is added. */
@@ -426,11 +477,29 @@ function parseChatTimes(value: unknown): Record<ConversationId, number> {
   return out;
 }
 
+function parseUnreadActivity(value: unknown): Record<ConversationId, number[]> {
+  const out: Record<ConversationId, number[]> = {};
+  if (!isRecord(value)) return out;
+  for (const [key, raw] of Object.entries(value)) {
+    const id = asConversationId(key);
+    if (!id || !Array.isArray(raw)) continue;
+    const times = [
+      ...new Set(
+        raw.filter(
+          (at): at is number => typeof at === 'number' && Number.isSafeInteger(at) && at > 0,
+        ),
+      ),
+    ].slice(-MAX_UNREAD_ACTIVITY);
+    if (times.length > 0) out[id] = times;
+  }
+  return out;
+}
+
 export const localSchema: VersionedSchema<LocalData> = {
   key: 'snowdrop.local',
-  // `markedUnread` and `playedVoiceNotes` are optional and simply absent in
-  // older data, so they need no migration; a build without them ignores the
-  // fields on load.
+  // `markedUnread`, `playedVoiceNotes` and `unreadActivity` are optional and
+  // simply absent in older data, so they need no migration; a build without
+  // them ignores the fields on load.
   version: 1,
   defaults: defaultLocalData,
   parse: (data) => {
@@ -493,6 +562,7 @@ export const localSchema: VersionedSchema<LocalData> = {
       playedVoiceNotes,
       acceptedChats: parseChatTimes(data.acceptedChats),
       deletedChats: parseChatTimes(data.deletedChats),
+      unreadActivity: parseUnreadActivity(data.unreadActivity),
       requestsSeeded: data.requestsSeeded === true,
       seeded: data.seeded === true,
     };

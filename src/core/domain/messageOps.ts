@@ -130,6 +130,8 @@ export function mergeDuplicate(existing: Message, incoming: Message): Message {
     status: advanceStatus(existing.status, incoming.status),
     ...(receipts ? { receipts } : {}),
   };
+  // A countdown that already runs is not "after reading" any more, whichever copy says so.
+  if (merged.expiresAt !== undefined) delete merged.expiresAfterReadMs;
   // Votes and the end of a poll accumulate from every copy, wherever they came from.
   if (existing.deleted) delete merged.poll;
   else if (existing.poll && incoming.poll) merged.poll = mergePolls(existing.poll, incoming.poll);

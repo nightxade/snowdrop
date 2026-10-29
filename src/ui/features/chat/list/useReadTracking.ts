@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useStore } from 'zustand';
 import type { ConversationId } from '@/core/domain';
-import { conversationsSelectors } from '@/core/stores';
+import { conversationsSelectors, localSelectors } from '@/core/stores';
 import { useSnowdrop } from '@/ui/hooks';
 
 /**
@@ -15,6 +15,8 @@ export function useReadTracking(conversationId: ConversationId, atPresent: boole
   const focused = useStore(stores.ui, (s) => s.windowFocused);
   const unread = useStore(stores.conversations, conversationsSelectors.unread(conversationId));
   const hasUnread = unread.count > 0 || unread.mentions > 0;
+  // Reactions and votes on the user's own messages are read with the chat, though they are no badge.
+  const hasActivity = useStore(stores.local, localSelectors.hasUnreadActivity(conversationId));
 
   useEffect(() => {
     stores.ui.getState().setScrolledUp(conversationId, !atPresent);
@@ -28,6 +30,7 @@ export function useReadTracking(conversationId: ConversationId, atPresent: boole
   );
 
   useEffect(() => {
-    if (atPresent && focused && hasUnread) void sync.markConversationRead(conversationId);
-  }, [atPresent, focused, hasUnread, sync, conversationId]);
+    if (atPresent && focused && (hasUnread || hasActivity))
+      void sync.markConversationRead(conversationId);
+  }, [atPresent, focused, hasUnread, hasActivity, sync, conversationId]);
 }

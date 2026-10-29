@@ -1453,6 +1453,34 @@ describe('SignalCliBackend sync-only read receipts', () => {
     await backend.disconnect();
   });
 
+  it('syncs a read of the user’s own message (its reactions were seen), never as a receipt', async () => {
+    const { backend, daemon } = await backendAt('0.14.8-snowdrop-history.20');
+    await backend.markRead(
+      GROUP,
+      [
+        { authorId: SELF_ACI, sentAt: 7 },
+        { authorId: ALICE, sentAt: 8 },
+        { authorId: SELF_ACI, sentAt: 9 },
+      ],
+      { syncOnly: true },
+    );
+    expect(daemon.callsTo('sendReceipt')).toEqual([
+      {
+        account: SELF_ACI,
+        recipient: SELF_ACI,
+        targetTimestamp: [7, 9],
+        type: 'read',
+        syncOnly: true,
+      },
+      { account: SELF_ACI, recipient: ALICE, targetTimestamp: [8], type: 'read', syncOnly: true },
+    ]);
+    // Without syncOnly it would be a receipt to oneself: nothing goes out.
+    daemon.calls.length = 0;
+    await backend.markRead(GROUP, [{ authorId: SELF_ACI, sentAt: 7 }]);
+    expect(daemon.callsTo('sendReceipt')).toEqual([]);
+    await backend.disconnect();
+  });
+
   it('never sends a sync-only read to an older build (it would be a real receipt)', async () => {
     const { backend, daemon } = await backendAt('0.14.8-snowdrop-history.18');
     expect(backend.supportsReadSync()).toBe(false);

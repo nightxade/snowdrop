@@ -290,6 +290,16 @@ describe('messageOps', () => {
     expect(mergeDuplicate(stored, newer)).toMatchObject({ body: 'newer', edits: 2, seq: 7 });
   });
 
+  it('a countdown that already runs is not "after reading" any more', () => {
+    const started = makeMessage({ expiresAt: 5_000 });
+    const redelivered = makeMessage({ expiresAfterReadMs: 3_600_000 });
+    const merged = mergeDuplicate(started, redelivered);
+    expect(merged.expiresAt).toBe(5_000);
+    expect(merged).not.toHaveProperty('expiresAfterReadMs');
+    // Not started yet: the duration is kept for when it is.
+    expect(mergeDuplicate(makeMessage(), redelivered).expiresAfterReadMs).toBe(3_600_000);
+  });
+
   it('(regression) commitOutgoing merge keeps our seq, nonce and attachment preview over a sync echo', () => {
     // A sync-transcript echo of our own send landed first and created the row
     // under the final (author:sentAt) id, with its own independently

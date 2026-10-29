@@ -40,7 +40,13 @@ export interface MessageMeta {
   status: MessageStatus;
   /** Maps an address to our canonical id (self aliases → selfId). */
   resolveId: (id: string) => string;
-  /** Start of the disappearing timer (server receive time, capped at now). */
+  /**
+   * The user's own message (sent from this account, whichever device): its
+   * disappearing timer is already running. Someone else's has not started;
+   * Signal starts it when the user reads the message.
+   */
+  own: boolean;
+  /** Start of an own message's disappearing timer (server receive time, capped at now). */
   timerStart: number;
 }
 
@@ -232,10 +238,15 @@ export function buildMessage(data: WireDataMessage, meta: MessageMeta): Message 
   if (sticker) message.sticker = sticker;
   if (poll) message.poll = poll;
   const expires = data.expiresInSeconds ?? 0;
-  // Signal starts the timer when the message is read; starting it when the
-  // server received it errs on the side of deleting early, never keeping a
-  // message longer than intended — and a replayed old message is already due.
-  if (expires > 0) message.expiresAt = meta.timerStart + expires * 1000;
+  // Signal starts the timer when the message is read, so a message from
+  // someone else only records how long it lasts; SyncService starts it once
+  // the user reads it, and a message that sat unread (or arrived while the app
+  // was closed) is never lost unseen. The user's own message is already on its
+  // way: its timer runs from when it was sent.
+  if (expires > 0) {
+    if (meta.own) message.expiresAt = meta.timerStart + expires * 1000;
+    else message.expiresAfterReadMs = expires * 1000;
+  }
   return message;
 }
 

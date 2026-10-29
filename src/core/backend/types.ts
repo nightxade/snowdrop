@@ -436,7 +436,14 @@ export interface BackendEvents {
    * We read these messages on another linked device. Signal identifies them
    * only by (author, sentAt); the sync engine resolves the conversation.
    */
-  readSync: { messages: MessageRef[] };
+  readSync: {
+    messages: MessageRef[];
+    /**
+     * When they were read on the other device (the sync message's own send
+     * time), if the adapter knows: a countdown that started there runs from it.
+     */
+    readAt?: number;
+  };
   conversationUpdated: Conversation;
   contactUpdated: Contact;
   /**

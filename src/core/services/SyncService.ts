@@ -63,7 +63,7 @@ import {
   type Stores,
 } from '@/core/stores';
 import { CatchUpTracker, NOTIFICATION_HOLD_CEILING_MS } from './CatchUpTracker';
-import { PendingOpsBuffer } from './PendingOpsBuffer';
+import { PendingOpsBuffer, PENDING_OPS_MAX, PENDING_OPS_TTL_MS } from './PendingOpsBuffer';
 import { ReceiptBuffer } from './ReceiptBuffer';
 import type { PostConnectRunner } from './PostConnect';
 import { consoleReporter, type ErrorReporter } from './types';
@@ -103,6 +103,23 @@ export interface SyncEvents {
    * stands. `live` is false when it was parked behind the initial sync.
    */
   pollActivity: { kind: 'vote' | 'end'; message: Message; actorId: string; live: boolean };
+  /**
+   * Someone else reacted to a message the user sent, once it has been applied:
+   * `react` is a new reaction (replacing that person's earlier one, if any),
+   * `unreact` is one taken back. `message` is the target as it now stands and
+   * `emoji` the reaction that arrived or went. `at` is when the reaction was sent;
+   * `live` is false when it was parked behind the initial sync.
+   */
+  reactionActivity: {
+    kind: 'react' | 'unreact';
+    message: Message;
+    actorId: string;
+    emoji: string;
+    at: number;
+    live: boolean;
+  };
+  /** A message was deleted for everyone or expired: what announced it (a notification) no longer applies. */
+  messageRemoved: { message: Message };
 }
 
 const RECEIPT_STATUS: Record<BackendEvents['receipt']['type'], MessageStatus> = {
@@ -577,6 +594,9 @@ export class SyncService {
     this.backlog = [];
     this.gated = true;
     this.heldReceipts = [];
+    this.timersWaiting.clear();
+    this.parkedReactions = [];
+    this.activityInFlight.clear();
     this.privacyReadSeq++;
     this.privacyRetryCancel?.();
     this.privacyRetryCancel = null;
@@ -850,6 +870,7 @@ export class SyncService {
     if (!selfId) return;
     const cursor = stores.conversations.getState().readCursors[conversationId] ?? 0;
     const after = await repository.listAfter(conversationId, cursor);
+    if (after.some((m) => this.waitsForRead(m))) this.timersWaiting.add(conversationId);
     stores.conversations.getState().setUnread(conversationId, computeUnread(after, selfId, cursor));
   }
 
@@ -1025,38 +1046,123 @@ export class SyncService {
     // A hand-set "unread" flag is local only and always ends here.
     stores.local.getState().setMarkedUnread(conversationId, false);
     const selfId = this.selfId();
+    // Reactions and votes on the user's own messages are read with the chat
+    // (Desktop's `getUnreadReactionsAndMarkRead`). They are not messages: they
+    // never counted toward the badge, and each target needs its own read sync,
+    // authored by the user, so the phone clears what it announced for it.
+    // They stay recorded until the sync has gone out, so a failed one is tried again
+    // the next time the chat is read.
+    const activity = (stores.local.getState().unreadActivity[conversationId] ?? []).filter(
+      (sentAt) => !this.activityInFlight.has(activityKey(conversationId, sentAt)),
+    );
+    const activitySync =
+      selfId !== undefined && activity.length > 0
+        ? this.sendActivityReadSync(
+            conversationId,
+            activity.map((sentAt) => ({ authorId: selfId, sentAt })),
+          )
+        : undefined;
+    const done = (receipts?: Promise<void>): { receipts?: Promise<void> } => {
+      const pending = [receipts, activitySync].filter((p) => p !== undefined);
+      return pending.length === 0 ? {} : { receipts: Promise.all(pending).then(() => undefined) };
+    };
     const cursor = stores.conversations.getState().readCursors[conversationId] ?? 0;
     const unread = await repository.listAfter(conversationId, cursor);
+    // Everything in this snapshot is about to be read; a later arrival is noted again.
+    this.timersWaiting.delete(conversationId);
     const latest = unread.at(-1)?.seq;
     if (latest === undefined) {
-      log.info('read sync skipped', { reason: 'no-unread' });
+      if (!activitySync) log.info('read sync skipped', { reason: 'no-unread' });
       stores.conversations.getState().setUnread(conversationId, { count: 0, mentions: 0 });
-      return {};
+      return done();
     }
     // Only what was read comes off the badge: a message counted since this
     // snapshot (seq beyond `latest`) is still unread.
     const read = selfId ? computeUnread(unread, selfId, cursor) : undefined;
     if (!stores.conversations.getState().markRead(conversationId, latest, read)) {
       log.info('read sync skipped', { reason: 'already-read' });
-      return {};
+      return done();
     }
     await repository.setReadCursor(conversationId, latest);
+    // Reading is what starts the countdown of a disappearing message.
+    if (unread.some((m) => this.waitsForRead(m))) await this.startReadTimers(unread);
     const toAck = unread.filter((m) => m.authorId !== selfId && m.kind === 'normal');
     if (toAck.length === 0) {
       log.info('read sync skipped', { reason: 'nothing-from-others' });
-      return {};
+      return done();
     }
     // Reading is always synced to the user's own devices (that is what marks
     // it read on their phone). A message request is read without telling the
     // sender anything: its receipts go out only if the user accepts
     // (`sendHeldReadReceipts`).
-    return {
-      receipts: this.sendReceiptsInOrder(
+    return done(
+      this.sendReceiptsInOrder(
         conversationId,
         toAck.map((m) => ({ authorId: m.authorId, sentAt: m.sentAt })),
         selectMessageRequestState(stores, conversationId) === 'accepted',
       ),
-    };
+    );
+  }
+
+  /**
+   * Conversations that may hold a message from someone else whose countdown
+   * waits for a read, so a read position that moves (the phone read, the user
+   * replied from another device) only looks when there is something to start.
+   */
+  private readonly timersWaiting = new Set<ConversationId>();
+
+  /** A disappearing message from someone else that nobody has read yet. */
+  private waitsForRead(message: Message): boolean {
+    return (
+      message.authorId !== this.selfId() &&
+      message.expiresAfterReadMs !== undefined &&
+      message.expiresAt === undefined &&
+      // (An imported copy merged into a live one counts too: its archive deadline
+      // only ever shortens this one, see `readHistoryMessages`.)
+      !message.deleted
+    );
+  }
+
+  /**
+   * Starts the countdown of the disappearing messages among `messages` that
+   * the user has just read: from now, as Signal does. A message from someone
+   * else carries only how long it lasts (`expiresAfterReadMs`) until then;
+   * the user's own is already running.
+   */
+  private async startReadTimers(messages: readonly Message[], readAt?: number): Promise<void> {
+    const { repository, stores, clock } = this.deps;
+    const generation = this.generation;
+    for (const m of messages.filter((message) => this.waitsForRead(message))) {
+      const now = clock.now();
+      // Read elsewhere earlier: it counts from then (never from the future), as on Desktop.
+      const from = Math.min(readAt ?? now, now);
+      const updated = await repository.update(m.id, (current) => {
+        if (current.expiresAfterReadMs === undefined || current.expiresAt !== undefined)
+          return current;
+        const { expiresAfterReadMs, ...rest } = current;
+        return { ...rest, expiresAt: from + expiresAfterReadMs };
+      });
+      if (generation !== this.generation) return;
+      if (updated?.expiresAt === undefined) continue;
+      stores.messages.getState().update(updated.conversationId, updated.id, () => updated);
+      this.schedulePurge(updated.expiresAt - now);
+    }
+  }
+
+  /** Starts the countdowns of what the read position just passed: `(after, upTo]` in arrival order. */
+  private async startReadTimersBetween(
+    conversationId: ConversationId,
+    after: number,
+    upTo: number,
+    readAt?: number,
+  ): Promise<void> {
+    const listed = await this.deps.repository.listAfter(conversationId, after);
+    await this.startReadTimers(
+      listed.filter((m) => m.seq !== undefined && m.seq <= upTo),
+      readAt,
+    );
+    if (!listed.some((m) => (m.seq ?? 0) > upTo && this.waitsForRead(m)))
+      this.timersWaiting.delete(conversationId);
   }
 
   /**
@@ -1105,15 +1211,57 @@ export class SyncService {
     accepted: boolean,
     syncWithoutReceipt = true,
   ): Promise<void> {
-    const generation = this.generation;
-    const run = this.receiptTail.then(() =>
-      generation === this.generation
-        ? this.sendReadReceipts(conversationId, messages, accepted, syncWithoutReceipt)
-        : undefined,
+    return this.inReceiptOrder(() =>
+      this.sendReadReceipts(conversationId, messages, accepted, syncWithoutReceipt),
     );
+  }
+
+  /** Runs `job` after the receipts asked before it, unless the session was torn down meanwhile. */
+  private inReceiptOrder(job: () => Promise<void>): Promise<void> {
+    const generation = this.generation;
+    const run = this.receiptTail.then(() => (generation === this.generation ? job() : undefined));
     this.receiptTail = run.catch(() => undefined);
     return run;
   }
+
+  /**
+   * Tells the user's own devices that the reactions and votes on these of
+   * their messages were seen (`refs` are the user's own messages), so the
+   * phone drops what it announced for them. Only ever a sync: nothing goes to
+   * anyone else. A signal-cli that can't send one alone (`supportsReadSync`)
+   * would send a real receipt, so there it sends nothing, as before.
+   */
+  private sendActivityReadSync(conversationId: ConversationId, refs: MessageRef[]): Promise<void> {
+    const keys = refs.map((ref) => activityKey(conversationId, ref.sentAt));
+    for (const key of keys) this.activityInFlight.add(key);
+    const forget = (): void => {
+      const { local } = this.deps.stores;
+      for (const ref of refs) local.getState().dropUnreadActivity(ref.sentAt);
+    };
+    return this.inReceiptOrder(async () => {
+      const { backend } = this.deps;
+      const generation = this.generation;
+      if (backend.supportsReadSync?.() !== true) {
+        // Nothing can be sent: the unread record would only ever pile up.
+        log.info('read sync skipped', { reason: 'unsupported', n: refs.length });
+        forget();
+        return;
+      }
+      try {
+        const summary = await backend.markRead(conversationId, refs, { syncOnly: true });
+        reportReadSync(refs.length, 'sync-only', summary);
+        // Only a sync that reached the user's devices counts; anything else stays unread.
+        if (readSyncReached(summary) && generation === this.generation) forget();
+      } catch (error) {
+        if (generation === this.generation) this.onError(error, 'read sync failed');
+      }
+    }).finally(() => {
+      for (const key of keys) this.activityInFlight.delete(key);
+    });
+  }
+
+  /** Unread activity whose sync is on its way (`${conversation}\0${sentAt}`). */
+  private readonly activityInFlight = new Set<string>();
 
   /**
    * Tells Signal these messages were read. A receipt to the senders goes out
@@ -1159,17 +1307,7 @@ export class SyncService {
         messages,
         receipt ? undefined : { syncOnly: true },
       );
-      // Types and counts only. Anything but a success is shown at the default log level: a read
-      // that clears here but stays unread on the phone has to leave a trace.
-      const fields = {
-        n: messages.length,
-        mode: receipt ? 'receipt' : 'sync-only',
-        receipt: summary?.receipt ?? 'unreported',
-        sync: summary?.sync ?? 'unreported',
-      };
-      const ok = (v: string) => v === 'success' || v === 'none' || v === 'unreported';
-      if (ok(fields.receipt) && ok(fields.sync)) log.info('read sync sent', fields);
-      else log.warn('read sync sent', fields);
+      reportReadSync(messages.length, receipt ? 'receipt' : 'sync-only', summary);
     } catch (error) {
       // A receipt that fails because the session was torn down under it is not news.
       if (generation === this.generation) this.onError(error, 'read receipt failed');
@@ -1455,12 +1593,7 @@ export class SyncService {
         return rest;
       }),
     );
-    on('reaction', (e) =>
-      this.updateMessage(e.conversationId, messageId(e.targetAuthorId, e.targetSentAt), (m) => ({
-        ...m,
-        reactions: applyReaction(m.reactions, e.reaction, e.remove),
-      })),
-    );
+    on('reaction', (e, live) => this.onReaction(e, live));
     on('pollVote', (e, live) => this.onPollVote(e, live));
     on('pollTerminate', (e, live) => this.onPollTerminate(e, live));
     on('receipt', (e) => this.onReceipt(e));
@@ -1508,7 +1641,9 @@ export class SyncService {
       // race with our own send) is replayed before the message is ever stored
       // or emitted, so it never has a window to show up "undone".
       // Someone the user deleted wrote again: it is a fresh message request.
-      if (incoming.authorId !== this.selfId())
+      // Only a real message does: a system line (a decrypt failure, a changed
+      // safety number, a timer change) from them never brings the chat back.
+      if (incoming.authorId !== this.selfId() && incoming.kind === 'normal')
         stores.local.getState().clearDeleted(incoming.conversationId);
       // A burst of held-back messages from someone whose key changed brings one
       // "Safety Number … has changed" line, not one each: skip it while the last
@@ -1538,6 +1673,7 @@ export class SyncService {
         this.ensureConversation(message);
       if (message.expiresAt !== undefined)
         this.schedulePurge(message.expiresAt - this.deps.clock.now());
+      if (this.waitsForRead(message)) this.timersWaiting.add(id);
       // A re-delivery must not count twice or re-notify plugins.
       if (!created) return;
       // New activity brings an archived chat back to the list, like Signal Desktop
@@ -1546,6 +1682,8 @@ export class SyncService {
       await this.updateReadState(message);
       this.events.emit('message', message);
       this.events.emit('messageArrived', { message, live });
+      if (this.parkedReactions.length > 0 && message.authorId === this.selfId())
+        await this.replayParkedReactions(message, live);
     } finally {
       this.catchUpTracker.onMessage();
       this.notificationHold.onMessage();
@@ -1571,8 +1709,11 @@ export class SyncService {
     if (!selfId || message.seq === undefined) return;
     if (message.authorId === selfId) {
       // Sent from another of our devices: we've evidently read up to here.
+      const before = stores.conversations.getState().readCursors[id] ?? 0;
       if (stores.conversations.getState().markRead(id, message.seq)) {
         await repository.setReadCursor(id, message.seq);
+        if (this.timersWaiting.has(id))
+          await this.startReadTimersBetween(id, before, message.seq, message.sentAt);
       }
     } else if (this.isViewing(id)) {
       // The receipt is a network call: it runs behind the queue, never in it.
@@ -1661,6 +1802,113 @@ export class SyncService {
   }
 
   /**
+   * A reaction. Someone else's reaction to a message of the user's own is
+   * news, as on Signal Desktop: it is kept unread until the chat is read (and
+   * the user's other devices are told, so the phone drops its notification),
+   * and announced (`reactionActivity`). Reading it at once when the user is
+   * looking at the chat is what stops the phone from announcing it at all.
+   */
+  private async onReaction(e: BackendEvents['reaction'], live: boolean): Promise<void> {
+    const id = messageId(e.targetAuthorId, e.targetSentAt);
+    const before = await this.deps.repository.get(id);
+    await this.updateMessage(e.conversationId, id, (m) => ({
+      ...m,
+      reactions: applyReaction(m.reactions, e.reaction, e.remove),
+    }));
+    const selfId = this.selfId();
+    const actorId = e.reaction.authorId;
+    if (!before) {
+      // Not stored yet: the reaction was parked; it counts once its target turns up.
+      if (selfId !== undefined && e.targetAuthorId === selfId && actorId !== selfId)
+        this.parkReaction(id, e, live);
+      return;
+    }
+    if (
+      selfId === undefined ||
+      before.authorId !== selfId ||
+      before.conversationId !== e.conversationId ||
+      before.deleted ||
+      actorId === selfId
+    )
+      return;
+    const previous = before.reactions.find((r) => r.authorId === actorId);
+    const message = (await this.deps.repository.get(id)) ?? before;
+    const base = { message, actorId, emoji: e.reaction.emoji, at: e.reaction.at, live };
+    if (e.remove) {
+      // Taking back what was never there (or already replaced) changes nothing.
+      if (previous?.emoji !== e.reaction.emoji) return;
+      // Nothing left to read for that message: no sync for it later.
+      if (!hasOthersActivity(message, selfId))
+        this.deps.stores.local.getState().dropUnreadActivity(message.sentAt);
+      this.events.emit('reactionActivity', { kind: 'unreact', ...base });
+      return;
+    }
+    // The same reaction again (a re-delivery) is not news.
+    if (previous?.emoji === e.reaction.emoji) return;
+    await this.noteActivity(before);
+    this.events.emit('reactionActivity', { kind: 'react', ...base });
+  }
+
+  /** Reactions to the user's messages that beat the message (see `replayParkedReactions`). */
+  private parkedReactions: {
+    id: MessageId;
+    e: BackendEvents['reaction'];
+    live: boolean;
+    at: number;
+  }[] = [];
+
+  private parkReaction(id: MessageId, e: BackendEvents['reaction'], live: boolean): void {
+    const now = this.deps.clock.now();
+    this.parkedReactions = this.parkedReactions.filter((p) => now - p.at <= PENDING_OPS_TTL_MS);
+    this.parkedReactions.push({ id, e, live, at: now });
+    if (this.parkedReactions.length > PENDING_OPS_MAX) this.parkedReactions.shift();
+  }
+
+  /**
+   * The message a reaction was waiting for has arrived (the parked reaction is
+   * already applied to it): count it as news like a reaction that came after,
+   * unless it has since been taken back or replaced, or has gone stale.
+   */
+  private async replayParkedReactions(message: Message, live: boolean): Promise<void> {
+    const now = this.deps.clock.now();
+    this.parkedReactions = this.parkedReactions.filter((p) => now - p.at <= PENDING_OPS_TTL_MS);
+    const mine = this.parkedReactions.filter((p) => p.id === message.id);
+    if (mine.length === 0) return;
+    this.parkedReactions = this.parkedReactions.filter((p) => p.id !== message.id);
+    // Each person's last word.
+    const last = new Map<string, (typeof mine)[number]>();
+    for (const p of mine) last.set(p.e.reaction.authorId, p);
+    for (const { e, live: parkedLive } of last.values()) {
+      const actorId = e.reaction.authorId;
+      if (
+        e.remove ||
+        e.conversationId !== message.conversationId ||
+        !message.reactions.some((r) => r.authorId === actorId && r.emoji === e.reaction.emoji)
+      )
+        continue;
+      await this.noteActivity(message);
+      this.events.emit('reactionActivity', {
+        kind: 'react',
+        message,
+        actorId,
+        emoji: e.reaction.emoji,
+        at: e.reaction.at,
+        live: live && parkedLive,
+      });
+    }
+  }
+
+  /**
+   * Records an unseen reaction or vote on one of the user's messages, and
+   * reads it straight away while the user is looking at the chat.
+   */
+  private async noteActivity(target: Message): Promise<void> {
+    const id = target.conversationId;
+    this.deps.stores.local.getState().noteUnreadActivity(id, target.sentAt);
+    if (this.isViewing(id)) await this.markReadLocally(id);
+  }
+
+  /**
    * A vote on a poll. Like the other message operations it is parked when
    * the poll isn't stored yet. It only ever applies to a poll in the
    * conversation it was sent to, so a vote can't reach into another chat.
@@ -1684,8 +1932,10 @@ export class SyncService {
     // Only someone else voting on a poll of ours is news, and only a vote that chooses something.
     if (before.authorId === selfId && e.voterId !== selfId && e.optionIndexes.length > 0) {
       const message = await this.deps.repository.get(id);
-      if (message)
+      if (message) {
+        await this.noteActivity(before);
         this.events.emit('pollActivity', { kind: 'vote', message, actorId: e.voterId, live });
+      }
     }
   }
 
@@ -1746,6 +1996,18 @@ export class SyncService {
     await this.updateMessage(conversationId, id, (m) => applyDelete(m, deletedBy));
     const selfId = this.selfId();
     if (selfId) this.deps.stores.conversations.getState().applyRemoval(before, selfId);
+    this.announceRemoved(before);
+  }
+
+  /**
+   * A message is gone (deleted for everyone, or expired): whatever was said
+   * about it stops applying: its unread reactions and votes, and a
+   * notification that quotes it (`messageRemoved`).
+   */
+  private announceRemoved(message: Message): void {
+    if (message.authorId === this.selfId())
+      this.deps.stores.local.getState().dropUnreadActivity(message.sentAt);
+    this.events.emit('messageRemoved', { message });
   }
 
   private async onReceipt(e: BackendEvents['receipt']): Promise<void> {
@@ -1776,17 +2038,29 @@ export class SyncService {
   }
 
   private async onReadSync(e: BackendEvents['readSync']): Promise<void> {
+    const selfId = this.selfId();
     const latestByConv = new Map<ConversationId, number>();
     for (const ref of e.messages) {
+      if (ref.authorId === selfId) {
+        // The reactions or votes on one of the user's own messages were read on
+        // another device. That says nothing about the messages around it, so the
+        // read position stays; only what was waiting on that message is done.
+        this.deps.stores.local.getState().dropUnreadActivity(ref.sentAt);
+        continue;
+      }
       const m = await this.deps.repository.get(messageId(ref.authorId, ref.sentAt));
       if (m?.seq === undefined) continue;
       latestByConv.set(m.conversationId, Math.max(latestByConv.get(m.conversationId) ?? 0, m.seq));
     }
     const conversations = this.deps.stores.conversations.getState();
     for (const [conv, seq] of latestByConv) {
-      if ((conversations.readCursors[conv] ?? 0) >= seq) continue;
+      const before = conversations.readCursors[conv] ?? 0;
+      if (before >= seq) continue;
       conversations.setReadCursors({ [conv]: seq });
       await this.deps.repository.setReadCursor(conv, seq);
+      // Read on the phone: the countdown of what it passed starts now.
+      if (this.timersWaiting.has(conv))
+        await this.startReadTimersBetween(conv, before, seq, e.readAt);
       await this.recomputeUnread(conv);
     }
   }
@@ -1808,7 +2082,9 @@ export class SyncService {
 
   /** Purges expired messages after `delayMs` (and then periodically while running). */
   private schedulePurge(delayMs: number): void {
-    if (!this.startPromise) return;
+    // Not while stopped (`stop()` cancels the timer); a connect that has
+    // finished is no reason to stop purging.
+    if (!this.connected) return;
     const at = this.deps.clock.now() + Math.max(0, delayMs);
     if (this.purgeTimer && at >= this.nextPurgeAt) return;
     this.purgeTimer?.();
@@ -1825,6 +2101,11 @@ export class SyncService {
     }, at - this.deps.clock.now());
   }
 
+  /** Purges at `at` (epoch ms) a message whose timer was set outside this service (one just sent). */
+  noteExpiry(at: number): void {
+    this.schedulePurge(at - this.deps.clock.now());
+  }
+
   /** Deletes disappearing messages whose time is up, locally and in the UI. */
   async purgeExpired(): Promise<number> {
     const { repository, stores, clock } = this.deps;
@@ -1836,6 +2117,7 @@ export class SyncService {
       stores.messages.getState().remove(m.conversationId, m.id);
       if (selfId) stores.conversations.getState().applyRemoval(m, selfId);
       await refreshPreviewAfterRemoval(stores.conversations, repository, m.conversationId, m);
+      this.announceRemoved(m);
     }
     return expired.length;
   }
@@ -1935,6 +2217,43 @@ export class SyncService {
     );
     return checked.filter((id): id is ConversationId => id !== null);
   }
+}
+
+/**
+ * Types and counts only. Anything but a success is shown at the default log
+ * level: a read that clears here but stays unread on the phone has to leave a trace.
+ */
+/** Whether anyone else's reaction or vote is still on the user's message. */
+function hasOthersActivity(message: Message, selfId: string): boolean {
+  return (
+    message.reactions.some((r) => r.authorId !== selfId) ||
+    (message.poll?.votes.some((v) => v.voterId !== selfId && v.optionIndexes.length > 0) ?? false)
+  );
+}
+
+function activityKey(conversationId: ConversationId, sentAt: number): string {
+  return `${conversationId}\u0000${sentAt}`;
+}
+
+/** Whether a read sync reached the user's devices (a backend that can't say is trusted). */
+function readSyncReached(summary: { sync: string } | undefined): boolean {
+  return summary === undefined || ['success', 'none', 'unreported'].includes(summary.sync);
+}
+
+function reportReadSync(
+  n: number,
+  mode: 'receipt' | 'sync-only',
+  summary: { receipt: string; sync: string } | undefined,
+): void {
+  const fields = {
+    n,
+    mode,
+    receipt: summary?.receipt ?? 'unreported',
+    sync: summary?.sync ?? 'unreported',
+  };
+  const ok = (v: string) => v === 'success' || v === 'none' || v === 'unreported';
+  if (ok(fields.receipt) && ok(fields.sync)) log.info('read sync sent', fields);
+  else log.warn('read sync sent', fields);
 }
 
 /** Adapters throw typed errors with a string `kind` (no import: core can't depend on adapters). */

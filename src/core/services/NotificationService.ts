@@ -3,7 +3,9 @@
  *
  * Rules, in order (see `decideNotification`):
  * 1. Notifications on, mode not "none", permission granted.
- * 2. Only other people's normal (non-system, non-deleted) messages.
+ * 2. Only other people's normal (non-system, non-deleted) messages, and, as
+ *    on Signal Desktop, someone else's reaction or vote on the user's own
+ *    message or poll (a reaction taken back or replaced withdraws it).
  * 3. Never for the conversation you're looking at: window focused, page
  *    visible, conversation open and scrolled to the newest message.
  * 4. A muted conversation or space stays silent unless the message mentions
@@ -11,17 +13,22 @@
  * 5. "Mentions only": groups notify only on mentions/boosts; direct messages
  *    still notify (they're addressed to you).
  *
+ * A notification is withdrawn when it no longer applies: the chat is read
+ * (here or on another device), or the message it is about is deleted.
+ *
  * The browser API is injected so the rules are testable headless.
  */
 import {
   mentionsContact,
   MENTION_PLACEHOLDER,
+  parseConversationId,
   POLL_EMOJI,
   pollEndedText,
   pollPreviewText,
   rangesToSegments,
   type ConversationId,
   type Message,
+  type MessageId,
   type Segment,
 } from '@/core/domain';
 import type { Clock, Unsubscribe } from '@/core/lib';
@@ -50,12 +57,25 @@ export interface NotificationApi {
   ): ShownNotification | null;
 }
 
+/**
+ * What a notification announces, so it can be withdrawn when that no longer
+ * applies: `seq` is the arrival position it is read once the chat's read
+ * position reaches; a reaction or vote is read when the chat's unread
+ * activity for its target message (`sentAt`) is cleared.
+ */
+export type NotificationSource =
+  | { kind: 'message'; messageId: MessageId; seq: number | undefined }
+  | { kind: 'poll-end'; messageId: MessageId; seq: number | undefined }
+  | { kind: 'reaction'; messageId: MessageId; sentAt: number; actorId: string }
+  | { kind: 'vote'; messageId: MessageId; sentAt: number };
+
 export interface NotificationDecision {
   title: string;
   body: string;
   conversationId: ConversationId;
   /** Why it got through a mute/mentions-only filter, if it did. */
   reason: 'mention' | 'boost' | 'normal';
+  source: NotificationSource;
 }
 
 /** Someone else's vote on a poll of ours, or the end of someone's poll (see SyncEvents.pollActivity). */
@@ -66,17 +86,29 @@ export interface PollActivityEvent {
   live: boolean;
 }
 
+/** Someone else's reaction to a message of the user's, or one taken back (see SyncEvents.reactionActivity). */
+export interface ReactionActivityEvent {
+  kind: 'react' | 'unreact';
+  message: Message;
+  actorId: string;
+  emoji: string;
+  at: number;
+  live: boolean;
+}
+
 export interface NotificationServiceDeps {
   stores: Stores;
   api: NotificationApi;
   clock: Clock;
-  /** New stored messages, and news about polls, with initial-sync provenance (SyncService). */
+  /** New stored messages, and news about polls and reactions, with initial-sync provenance (SyncService). */
   source: {
     on(
       event: 'messageArrived',
       fn: (event: { message: Message; live: boolean }) => void,
     ): Unsubscribe;
     on(event: 'pollActivity', fn: (event: PollActivityEvent) => void): Unsubscribe;
+    on(event: 'reactionActivity', fn: (event: ReactionActivityEvent) => void): Unsubscribe;
+    on(event: 'messageRemoved', fn: (event: { message: Message }) => void): Unsubscribe;
   };
   /** Plugin boosters (Registries.boostReason). */
   boost?: (message: Message) => string | null;
@@ -150,13 +182,12 @@ function passesGate(
     ui.scrolledUp[id] !== true;
   if (viewing) return false;
 
-  const conversation = stores.conversations.getState().byId[id];
   const local = stores.local.getState().conversations[id] ?? DEFAULT_LOCAL_CONVERSATION;
   const spaceId = spaceOf(stores, id);
   const spaceMuted = spaceId ? (stores.spaces.getState().spaces[spaceId]?.muted ?? false) : false;
   const muted = spaceMuted || isMuted(local.muted, options.now);
   if (muted && !gate.important) return false;
-  if (settings.mode === 'mentions' && conversation?.kind === 'group' && !gate.important)
+  if (settings.mode === 'mentions' && chatFacts(stores, id).isGroup && !gate.important)
     return false;
   return true;
 }
@@ -167,15 +198,36 @@ function nameResolver(stores: Stores): (id: string) => string {
   return (cid) => contacts[cid]?.name ?? (cid === self?.id ? self.name : UNKNOWN_CONTACT_NAME);
 }
 
+/**
+ * What a notification needs to know about the conversation. One the stores
+ * don't list yet (a group message that beat the group's description) is judged
+ * as the safe thing: a message request, so no preview is shown, and a group
+ * if its id says so, so "mentions only" still applies.
+ */
+function chatFacts(
+  stores: Stores,
+  id: ConversationId,
+): { isGroup: boolean; title: string | null; request: boolean } {
+  const conversation = stores.conversations.getState().byId[id];
+  if (conversation) {
+    return {
+      isGroup: conversation.kind === 'group',
+      title: conversation.title,
+      request: selectMessageRequestState(stores, id) !== 'accepted',
+    };
+  }
+  return {
+    isGroup: parseConversationId(id)?.kind === 'group',
+    title: null,
+    request: stores.local.getState().acceptedChats[id] === undefined,
+  };
+}
+
 /** The title a notification carries: the group, or the person in a direct chat. */
 function notificationTitle(stores: Stores, id: ConversationId, author: string): string {
-  const conversation = stores.conversations.getState().byId[id];
-  const request = selectMessageRequestState(stores, id) !== 'accepted';
-  return conversation?.kind === 'group'
-    ? request
-      ? `${author} in ${conversation.title}`
-      : conversation.title
-    : author;
+  const { isGroup, title, request } = chatFacts(stores, id);
+  if (!isGroup) return author;
+  return request || title === null ? `${author} in ${title ?? 'a group'}` : title;
 }
 
 /** Pure decision for one message given the current state (exported for tests). */
@@ -194,13 +246,12 @@ export function decideNotification(
   if (!passesGate(stores, { conversationId: id, important: mentioned || boosted }, options))
     return null;
 
-  const isGroup = stores.conversations.getState().byId[id]?.kind === 'group';
+  const { isGroup, request } = chatFacts(stores, id);
   const nameFor = nameResolver(stores);
   const author = nameFor(message.authorId);
   // An unaccepted message request, as Signal Desktop shows it: the sender
   // (and group) in the title, and "Message Request" instead of the text, so
   // a stranger's words never reach the desktop before the user has decided.
-  const request = selectMessageRequestState(stores, id) !== 'accepted';
   const title = notificationTitle(stores, id, author);
   let body = settings.showPreview
     ? request
@@ -214,6 +265,7 @@ export function decideNotification(
     body,
     conversationId: id,
     reason: mentioned ? 'mention' : boosted ? 'boost' : 'normal',
+    source: { kind: 'message', messageId: message.id, seq: message.seq },
   };
 }
 
@@ -236,7 +288,7 @@ export function decidePollNotification(
   const id = message.conversationId;
   if (!passesGate(stores, { conversationId: id, important: false }, options)) return null;
   const actor = nameResolver(stores)(event.actorId);
-  const request = selectMessageRequestState(stores, id) !== 'accepted';
+  const { request } = chatFacts(stores, id);
   const question = message.poll.question;
   const text =
     event.kind === 'vote'
@@ -247,14 +299,70 @@ export function decidePollNotification(
     body: settings.showPreview ? (request ? 'Message Request' : text) : 'New message',
     conversationId: id,
     reason: 'normal',
+    source:
+      event.kind === 'vote'
+        ? { kind: 'vote', messageId: message.id, sentAt: message.sentAt }
+        : {
+            // The "ended the poll" line is the newest message by now: read once the chat is.
+            kind: 'poll-end',
+            messageId: message.id,
+            seq: stores.conversations.getState().lastMessage[id]?.seq,
+          },
+  };
+}
+
+/**
+ * Signal Desktop's notification for a reaction to a message of the user's own
+ * (`Ana reacted 👍 to: Where to eat?`): the same rules as a message, minus
+ * mentions and boosts; with previews off it is only "New message".
+ */
+export function decideReactionNotification(
+  stores: Stores,
+  event: ReactionActivityEvent,
+  options: { now: number; visible: boolean },
+): NotificationDecision | null {
+  const settings = stores.settings.getState().notifications;
+  const selfId = stores.session.getState().self?.id ?? null;
+  const { message } = event;
+  if (
+    event.kind !== 'react' ||
+    message.deleted ||
+    message.authorId !== selfId ||
+    event.actorId === selfId
+  )
+    return null;
+  const id = message.conversationId;
+  if (!passesGate(stores, { conversationId: id, important: false }, options)) return null;
+  const nameFor = nameResolver(stores);
+  const actor = nameFor(event.actorId);
+  const { request } = chatFacts(stores, id);
+  const text = `${actor} reacted ${event.emoji} to: ${notificationText(message, nameFor)}`;
+  return {
+    title: notificationTitle(stores, id, actor),
+    body: settings.showPreview ? (request ? 'Message Request' : text) : 'New message',
+    conversationId: id,
+    reason: 'normal',
+    source: {
+      kind: 'reaction',
+      messageId: message.id,
+      sentAt: message.sentAt,
+      actorId: event.actorId,
+    },
   };
 }
 
 export class NotificationService {
   private unsub: Unsubscribe | null = null;
   private unsubPolls: Unsubscribe | null = null;
+  private unsubReactions: Unsubscribe | null = null;
+  private unsubRemoved: Unsubscribe | null = null;
+  private unsubStores: Unsubscribe[] = [];
   private startedAt = Infinity;
-  private readonly shown = new Map<ConversationId, ShownNotification>();
+  /** The notification on screen per conversation, with what it announces. */
+  private readonly shown = new Map<
+    ConversationId,
+    { handle: ShownNotification; source: NotificationSource }
+  >();
 
   constructor(private readonly deps: NotificationServiceDeps) {}
 
@@ -276,6 +384,47 @@ export class NotificationService {
       const held = this.deps.stores.session.getState().notificationsHeld;
       if (event.live && !held) this.handlePoll(event);
     });
+    this.unsubReactions = this.deps.source.on('reactionActivity', (event) => {
+      // A reaction taken back or replaced withdraws what announced it, however it arrives.
+      this.withdrawReaction(event);
+      const held = this.deps.stores.session.getState().notificationsHeld;
+      // Replayed (parked, drained after a reconnect, or older than this run) news is old news, as for messages.
+      if (event.kind === 'react' && event.live && !held && event.at >= this.startedAt)
+        this.handleReaction(event);
+    });
+    this.unsubRemoved = this.deps.source.on('messageRemoved', ({ message }) => {
+      for (const [id, { source }] of [...this.shown]) {
+        if (source.messageId === message.id) this.dismiss(id);
+      }
+    });
+    // Read elsewhere, or in Snowdrop: what a notification announces is read once the chat's
+    // read position passes it, or the unread reactions and votes on its target are cleared.
+    const { conversations, local } = this.deps.stores;
+    this.unsubStores = [
+      conversations.subscribe((state, prev) => {
+        if (state.readCursors === prev.readCursors || this.shown.size === 0) return;
+        for (const [id, { source }] of [...this.shown]) {
+          if (source.kind !== 'message' && source.kind !== 'poll-end') continue;
+          const cursor = state.readCursors[id];
+          if (
+            source.seq !== undefined &&
+            cursor !== undefined &&
+            cursor !== prev.readCursors[id] &&
+            cursor >= source.seq
+          )
+            this.dismiss(id);
+        }
+      }),
+      local.subscribe((state, prev) => {
+        if (state.unreadActivity === prev.unreadActivity || this.shown.size === 0) return;
+        for (const [id, { source }] of [...this.shown]) {
+          if (source.kind !== 'reaction' && source.kind !== 'vote') continue;
+          const wasUnread = prev.unreadActivity[id]?.includes(source.sentAt) === true;
+          if (wasUnread && state.unreadActivity[id]?.includes(source.sentAt) !== true)
+            this.dismiss(id);
+        }
+      }),
+    ];
   }
 
   stop(): void {
@@ -283,8 +432,32 @@ export class NotificationService {
     this.unsub = null;
     this.unsubPolls?.();
     this.unsubPolls = null;
-    for (const n of this.shown.values()) n.close();
+    this.unsubReactions?.();
+    this.unsubReactions = null;
+    this.unsubRemoved?.();
+    this.unsubRemoved = null;
+    for (const off of this.unsubStores) off();
+    this.unsubStores = [];
+    for (const n of this.shown.values()) n.handle.close();
     this.shown.clear();
+  }
+
+  /** Takes a conversation's notification down (it was read, or what it announced is gone). */
+  private dismiss(id: ConversationId): void {
+    this.shown.get(id)?.handle.close();
+    this.shown.delete(id);
+  }
+
+  /** The reaction a notification announced was taken back or replaced. */
+  private withdrawReaction(event: ReactionActivityEvent): void {
+    const id = event.message.conversationId;
+    const source = this.shown.get(id)?.source;
+    if (
+      source?.kind === 'reaction' &&
+      source.messageId === event.message.id &&
+      source.actorId === event.actorId
+    )
+      this.dismiss(id);
   }
 
   permission(): NotificationPermissionState {
@@ -324,16 +497,26 @@ export class NotificationService {
   private show(decision: NotificationDecision): NotificationDecision {
     const id = decision.conversationId;
     // One notification per conversation: a newer message replaces the older one.
-    this.shown.get(id)?.close();
+    this.shown.get(id)?.handle.close();
     const shown = this.deps.api.show(
       { title: decision.title, body: decision.body, tag: `snowdrop:${id}` },
       () => {
         this.open(id);
       },
     );
-    if (shown) this.shown.set(id, shown);
+    if (shown) this.shown.set(id, { handle: shown, source: decision.source });
     else this.shown.delete(id);
     return decision;
+  }
+
+  /** Returns the decision taken, like `handle`. */
+  handleReaction(event: ReactionActivityEvent): NotificationDecision | null {
+    if (this.deps.api.permission() !== 'granted') return null;
+    const decision = decideReactionNotification(this.deps.stores, event, {
+      now: this.deps.clock.now(),
+      visible: this.deps.isVisible?.() ?? true,
+    });
+    return decision ? this.show(decision) : null;
   }
 
   /** Returns the decision taken, like `handle`. */
@@ -355,8 +538,7 @@ export class NotificationService {
     const modal = stores.ui.getState().modal;
     if (modal && DISMISSIBLE_MODALS.has(modal.type)) stores.ui.getState().closeModal();
     stores.ui.getState().selectConversation(id, space);
-    this.shown.get(id)?.close();
-    this.shown.delete(id);
+    this.dismiss(id);
     this.deps.onOpened?.(id);
   }
 }

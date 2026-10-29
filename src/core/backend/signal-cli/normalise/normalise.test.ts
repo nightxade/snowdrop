@@ -83,8 +83,9 @@ describe('normaliseReceive: messages', () => {
       { start: 7, length: 12, style: 'italic' },
       { start: 12, length: 4, style: 'spoiler' },
     ]);
-    // Timer runs from the server's receive time, not from when we saw it.
-    expect(payload.expiresAt).toBe(T0 + 150 + 3_600_000);
+    // Someone else's timer starts when the user reads the message, not on arrival.
+    expect(payload.expiresAfterReadMs).toBe(3_600_000);
+    expect(payload).not.toHaveProperty('expiresAt');
   });
 
   it('accepts CLI-style "start:length:STYLE" text styles', () => {
@@ -562,7 +563,9 @@ describe('normaliseReceive: ephemeral events', () => {
   });
 
   it('maps read syncs from our other devices', () => {
+    // `readAt` is the sync message's own timestamp: when the other device sent it.
     expect(only(run(fixtures.readSync).events, 'readSync').payload).toEqual({
+      readAt: T0,
       messages: [
         { authorId: ALICE, sentAt: T0 },
         { authorId: '+15550002222', sentAt: T0 + 5 },
@@ -657,7 +660,25 @@ describe('normaliseReceive: review fixes', () => {
     expect(run(fresh).events.map((e) => e.kind)).toEqual(['typing']);
   });
 
-  it('drops the timer to server time so replayed messages are already due', () => {
+  it('runs the timer of the user’s own replayed message from server time', () => {
+    const replay = receive('self', {
+      sourceDevice: 2,
+      serverReceivedTimestamp: T0 - 7_200_000,
+      syncMessage: {
+        sentMessage: {
+          destination: BOB,
+          destinationNumber: null,
+          destinationUuid: BOB,
+          ...dataMessage({ timestamp: T0 - 7_200_000, message: 'old', expiresInSeconds: 3600 }),
+        },
+      },
+    });
+    const { payload } = only(run(replay).events, 'message');
+    expect(payload.expiresAt).toBe(T0 - 3_600_000);
+    expect(payload).not.toHaveProperty('expiresAfterReadMs');
+  });
+
+  it('does not start the timer of a replayed message from someone else', () => {
     const replay = receive('alice', {
       serverReceivedTimestamp: T0 - 7_200_000,
       dataMessage: dataMessage({
@@ -667,7 +688,8 @@ describe('normaliseReceive: review fixes', () => {
       }),
     });
     const { payload } = only(run(replay).events, 'message');
-    expect(payload.expiresAt).toBe(T0 - 3_600_000);
+    expect(payload.expiresAfterReadMs).toBe(3_600_000);
+    expect(payload).not.toHaveProperty('expiresAt');
   });
 
   it('(regression) does not fork a DM when a peer is later addressed by their other identifier', () => {

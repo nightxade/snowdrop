@@ -61,4 +61,25 @@ describe('useReadTracking', () => {
     });
     expect(markRead).toHaveBeenCalledWith(id);
   });
+  it('reads a chat whose only news is a reaction or vote on the user’s own message', async () => {
+    const { snowdrop, id, markRead } = await setup();
+    act(() => {
+      snowdrop.stores.conversations.getState().setUnread(id, { count: 0, mentions: 0 });
+      snowdrop.stores.local.getState().noteUnreadActivity(id, 1234);
+      snowdrop.stores.ui.getState().setWindowFocused(true);
+    });
+    renderWithSnowdrop(snowdrop, <Probe id={id} atPresent />);
+    expect(markRead).toHaveBeenCalledWith(id);
+  });
+
+  it('leaves that news for later while the chat is scrolled away', async () => {
+    const { snowdrop, id, markRead } = await setup();
+    act(() => {
+      snowdrop.stores.conversations.getState().setUnread(id, { count: 0, mentions: 0 });
+      snowdrop.stores.local.getState().noteUnreadActivity(id, 1234);
+      snowdrop.stores.ui.getState().setWindowFocused(true);
+    });
+    renderWithSnowdrop(snowdrop, <Probe id={id} atPresent={false} />);
+    expect(markRead).not.toHaveBeenCalled();
+  });
 });

@@ -33,7 +33,7 @@ const PAGE = 500;
  * and a backup file would outlive the timer.
  */
 export function toExportedMessage(message: Message): ExportedMessage | null {
-  if (message.expiresAt !== undefined) return null;
+  if (message.expiresAt !== undefined || message.expiresAfterReadMs !== undefined) return null;
   return {
     ...message,
     attachments: message.attachments.map((a) => ({

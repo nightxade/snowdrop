@@ -429,6 +429,9 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     receipts,
     pendingOps,
     readConversation: (id) => sync.markConversationRead(id),
+    onExpiry: (at) => {
+      sync.noteExpiry(at);
+    },
     onIdentityBlocked: ({ conversationId, nonce, contactIds }) => {
       identity.noteUntrusted(contactIds);
       // The dialog only for the chat on screen; elsewhere the failed message

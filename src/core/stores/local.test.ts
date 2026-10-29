@@ -180,6 +180,7 @@ describe('localStore', () => {
       playedVoiceNotes: {},
       acceptedChats: {},
       deletedChats: {},
+      unreadActivity: {},
       requestsSeeded: false,
       recentStickers: [],
       seeded: false,
@@ -222,6 +223,49 @@ describe('localStore', () => {
     expect(merged.acceptedChats).toEqual({ [x]: 1, [y]: 2 });
     expect(merged.deletedChats).toEqual({ [a]: 4 });
     expect(merged.requestsSeeded).toBe(true);
+  });
+
+  it('keeps unread reactions and votes per conversation, and forgets them when dropped', () => {
+    const store = createLocalStore();
+    expect(localSelectors.hasUnreadActivity(a)(store.getState())).toBe(false);
+    store.getState().noteUnreadActivity(a, 10);
+    store.getState().noteUnreadActivity(a, 20);
+    store.getState().noteUnreadActivity(b, 10);
+    const before = store.getState().unreadActivity;
+    store.getState().noteUnreadActivity(a, 20);
+    expect(store.getState().unreadActivity).toBe(before);
+    expect(localSelectors.hasUnreadActivity(a)(store.getState())).toBe(true);
+    store.getState().dropUnreadActivity(10);
+    expect(store.getState().unreadActivity).toEqual({ [a]: [20] });
+    store.getState().dropUnreadActivity(20);
+    expect(store.getState().unreadActivity).toEqual({});
+  });
+
+  it('caps unread activity per conversation, survives a reload and ignores junk on load', () => {
+    const store = createLocalStore();
+    for (let i = 1; i <= 110; i++) store.getState().noteUnreadActivity(a, i);
+    const kept = store.getState().unreadActivity[a]!;
+    expect(kept).toHaveLength(100);
+    expect(kept[0]).toBe(11);
+    expect(kept.at(-1)).toBe(110);
+    const storage = createMemoryStorage();
+    saveVersioned(storage, localSchema, selectLocalData(store.getState()));
+    expect(loadVersioned(storage, localSchema).unreadActivity).toEqual({ [a]: kept });
+    const junk = createMemoryStorage({
+      [localSchema.key]: JSON.stringify({
+        v: 1,
+        data: { unreadActivity: { [a]: [5, 'x', -1, 5, 1.5, 7], [b]: 'no', nonsense: [1] } },
+      }),
+    });
+    expect(loadVersioned(junk, localSchema).unreadActivity).toEqual({ [a]: [5, 7] });
+  });
+
+  it('merges unread activity as a union, oldest first', () => {
+    const merged = mergeLocalData(
+      { ...defaultLocalData(), unreadActivity: { [a]: [30, 10] } },
+      { ...defaultLocalData(), unreadActivity: { [a]: [20, 10], [b]: [5] } },
+    );
+    expect(merged.unreadActivity).toEqual({ [a]: [10, 20, 30], [b]: [5] });
   });
 
   it('tracks reaction usage and offers the three most used', () => {

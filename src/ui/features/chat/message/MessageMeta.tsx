@@ -119,8 +119,14 @@ export function MessageMeta({
     <>
       {time}
       {mark}
-      {m.expiresAt !== undefined && (
-        <Tooltip label={`Disappears in ${countdown(m.expiresAt - now)}`}>
+      {(m.expiresAt !== undefined || m.expiresAfterReadMs !== undefined) && (
+        <Tooltip
+          label={
+            m.expiresAt !== undefined
+              ? `Disappears in ${countdown(m.expiresAt - now)}`
+              : `Disappears ${countdown(m.expiresAfterReadMs ?? 0)} after you read it`
+          }
+        >
           <span className={styles.mark} tabIndex={0} aria-label="Disappearing message">
             <Timer size={12} aria-hidden />
           </span>

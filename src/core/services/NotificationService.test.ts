@@ -14,6 +14,7 @@ import {
   type NotificationApi,
   type NotificationPermissionState,
   type PollActivityEvent,
+  type ReactionActivityEvent,
 } from './NotificationService';
 
 const NOW = 1_000_000;
@@ -63,6 +64,8 @@ function setup(options: { permission?: NotificationPermissionState; visible?: bo
   const source = new Emitter<{
     messageArrived: { message: Message; live: boolean };
     pollActivity: PollActivityEvent;
+    reactionActivity: ReactionActivityEvent;
+    messageRemoved: { message: Message };
   }>();
   const focusWindow = vi.fn();
   const boost = vi.fn<(m: Message) => string | null>(() => null);
@@ -112,7 +115,44 @@ function setup(options: { permission?: NotificationPermissionState; visible?: bo
       }),
     });
   };
-  return { stores, service, shown, closed, receive, pollActivity, focusWindow, boost };
+  const reactionActivity = (
+    kind: ReactionActivityEvent['kind'],
+    actorId: string,
+    emoji: string,
+    partial: Partial<Message> = {},
+    live = true,
+    at = NOW,
+  ) => {
+    source.emit('reactionActivity', {
+      kind,
+      actorId,
+      emoji,
+      at,
+      live,
+      message: makeMessage({
+        conversationId: group,
+        authorId: 'me',
+        sentAt: NOW,
+        body: 'Where to eat?',
+        ...partial,
+      }),
+    });
+  };
+  const removed = (message: Message) => {
+    source.emit('messageRemoved', { message });
+  };
+  return {
+    stores,
+    service,
+    shown,
+    closed,
+    receive,
+    pollActivity,
+    reactionActivity,
+    removed,
+    focusWindow,
+    boost,
+  };
 }
 
 const mention = (id: string) => ({
@@ -422,6 +462,225 @@ describe('NotificationService', () => {
         poll: { question: 'Where to eat?', options: ['a', 'b'], allowMultiple: true, votes: [] },
       });
       expect(shown[0]?.body).toBe('Ana Lima: 📊 Poll: Where to eat?');
+    });
+  });
+  describe('reactions (as Signal Desktop words them)', () => {
+    it('names the reactor, the emoji and the message that was reacted to', () => {
+      const { shown, reactionActivity } = setup();
+      reactionActivity('react', 'ana', '👍');
+      expect(shown).toHaveLength(1);
+      expect(shown[0]).toMatchObject({
+        title: 'Climbing',
+        body: 'Ana Lima reacted 👍 to: Where to eat?',
+        tag: `snowdrop:${group}`,
+      });
+    });
+
+    it('titles a direct chat with the person, and never reveals a spoiler', () => {
+      const { shown, reactionActivity } = setup();
+      reactionActivity('react', 'ana', '❤️', {
+        conversationId: dm,
+        body: 'the end: he dies',
+        ranges: [{ start: 9, length: 7, style: 'spoiler' }],
+      });
+      expect(shown[0]).toMatchObject({
+        title: 'Ana Lima',
+        body: 'Ana Lima reacted ❤️ to: the end: ▒▒▒▒',
+      });
+    });
+
+    it('follows the same rules as a message: viewing, mute, mentions-only, switches', () => {
+      const { stores, shown, reactionActivity } = setup();
+      stores.ui.getState().selectConversation(group, HOME);
+      reactionActivity('react', 'ana', '👍');
+      expect(shown).toHaveLength(0);
+      stores.ui.getState().setWindowFocused(false);
+      stores.local.getState().setMuted(group, true);
+      reactionActivity('react', 'ana', '👍');
+      expect(shown).toHaveLength(0);
+      stores.local.getState().setMuted(group, false);
+      stores.settings.getState().update('notifications', { mode: 'mentions' });
+      reactionActivity('react', 'ana', '👍');
+      expect(shown).toHaveLength(0);
+      stores.settings.getState().update('notifications', { mode: 'all', enabled: false });
+      reactionActivity('react', 'ana', '👍');
+      expect(shown).toHaveLength(0);
+      stores.settings.getState().update('notifications', { enabled: true });
+      reactionActivity('react', 'ana', '👍');
+      expect(shown).toHaveLength(1);
+    });
+
+    it('never reveals the message when previews are off, nor to an unaccepted request', () => {
+      const { stores, shown, reactionActivity } = setup();
+      stores.settings.getState().update('notifications', { showPreview: false });
+      reactionActivity('react', 'ana', '👍');
+      expect(shown[0]?.body).toBe('New message');
+      stores.settings.getState().update('notifications', { showPreview: true });
+      reactionActivity('react', 'eve', '👍', { conversationId: requestDm });
+      expect(shown[1]).toMatchObject({ title: 'Eve Stranger', body: 'Message Request' });
+    });
+
+    it('stays silent while notifications are held for a catch-up, then speaks again', () => {
+      const { stores, shown, reactionActivity } = setup();
+      stores.session.getState().setNotificationsHeld(true);
+      reactionActivity('react', 'ana', '👍');
+      expect(shown).toHaveLength(0);
+      stores.session.getState().setNotificationsHeld(false);
+      reactionActivity('react', 'ana', '👍');
+      expect(shown).toHaveLength(1);
+    });
+
+    it('stays silent for old news, our own reactions, deleted messages and missing permission', () => {
+      const { shown, reactionActivity } = setup();
+      reactionActivity('react', 'ana', '👍', {}, false);
+      reactionActivity('react', 'ana', '👍', {}, true, NOW - 1);
+      reactionActivity('react', 'me', '👍');
+      reactionActivity('react', 'ana', '👍', { deleted: true });
+      reactionActivity('react', 'ana', '👍', { authorId: 'bo' });
+      expect(shown).toHaveLength(0);
+      const denied = setup({ permission: 'default' });
+      denied.reactionActivity('react', 'ana', '👍');
+      expect(denied.shown).toHaveLength(0);
+    });
+
+    it('withdraws it when the reaction is taken back', () => {
+      const { shown, closed, reactionActivity } = setup();
+      reactionActivity('react', 'ana', '👍');
+      expect(closed).not.toHaveBeenCalled();
+      reactionActivity('unreact', 'ana', '👍');
+      expect(closed).toHaveBeenCalledOnce();
+      expect(shown).toHaveLength(1);
+    });
+
+    it('withdraws it when the reaction is replaced, and announces the new one', () => {
+      const { shown, closed, reactionActivity } = setup();
+      reactionActivity('react', 'ana', '👍');
+      reactionActivity('react', 'ana', '❤️');
+      // One close for the withdrawal; the replacement's own notification takes the tag over.
+      expect(closed).toHaveBeenCalledOnce();
+      expect(shown.map((n) => n.body)).toEqual([
+        'Ana Lima reacted 👍 to: Where to eat?',
+        'Ana Lima reacted ❤️ to: Where to eat?',
+      ]);
+    });
+
+    it('leaves another person’s, or another message’s, reaction notification up', () => {
+      const { closed, reactionActivity } = setup();
+      reactionActivity('react', 'ana', '👍');
+      reactionActivity('unreact', 'bo', '👍');
+      reactionActivity('unreact', 'ana', '👍', { sentAt: NOW + 5 });
+      expect(closed).not.toHaveBeenCalled();
+    });
+
+    it('does not withdraw a message notification for a reaction taken back', () => {
+      const { closed, receive, reactionActivity } = setup();
+      receive({});
+      reactionActivity('unreact', 'ana', '👍');
+      expect(closed).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('withdrawing a notification that no longer applies', () => {
+    it('closes a message notification once the chat is read past it, here or on the phone', () => {
+      const { stores, closed, receive } = setup();
+      receive({ seq: 7 });
+      stores.conversations.getState().setReadCursors({ [group]: 6 });
+      expect(closed).not.toHaveBeenCalled();
+      stores.conversations.getState().setReadCursors({ [group]: 7 });
+      expect(closed).toHaveBeenCalledOnce();
+      // Nothing left to withdraw.
+      stores.conversations.getState().setReadCursors({ [group]: 8 });
+      expect(closed).toHaveBeenCalledOnce();
+    });
+
+    it('leaves a newer message’s notification when an older one is read', () => {
+      const { stores, closed, receive } = setup();
+      receive({ seq: 9, sentAt: NOW + 1 });
+      stores.conversations.getState().setReadCursors({ [group]: 5 });
+      expect(closed).not.toHaveBeenCalled();
+    });
+
+    it('leaves another conversation’s notification up', () => {
+      const { stores, closed, receive } = setup();
+      receive({ seq: 7 });
+      stores.conversations.getState().setReadCursors({ [dm]: 50 });
+      expect(closed).not.toHaveBeenCalled();
+    });
+
+    it('closes a reaction notification once its unread activity is cleared', () => {
+      const { stores, closed, reactionActivity } = setup();
+      stores.local.getState().noteUnreadActivity(group, NOW);
+      reactionActivity('react', 'ana', '👍');
+      stores.local.getState().noteUnreadActivity(group, NOW + 9);
+      expect(closed).not.toHaveBeenCalled();
+      stores.local.getState().dropUnreadActivity(NOW);
+      expect(closed).toHaveBeenCalledOnce();
+    });
+
+    it('closes a vote notification when the chat is read', () => {
+      const { stores, closed, pollActivity } = setup();
+      stores.local.getState().noteUnreadActivity(group, NOW);
+      pollActivity('vote', 'ana');
+      stores.local.getState().dropUnreadActivity(NOW);
+      expect(closed).toHaveBeenCalledOnce();
+    });
+
+    it('closes a poll-ended notification once the chat is read past the line', () => {
+      const { stores, closed, pollActivity } = setup();
+      stores.conversations.getState().noteLatest(makeMessage({ conversationId: group, seq: 12 }));
+      pollActivity('end', 'bo', { authorId: 'bo' });
+      stores.conversations.getState().setReadCursors({ [group]: 12 });
+      expect(closed).toHaveBeenCalledOnce();
+    });
+
+    it('closes the notification of a message that was deleted or expired', () => {
+      const a = setup();
+      a.receive({ sentAt: NOW + 1 });
+      a.removed(makeMessage({ conversationId: group, authorId: 'ana', sentAt: NOW + 1 }));
+      expect(a.closed).toHaveBeenCalledOnce();
+      const b = setup();
+      b.reactionActivity('react', 'ana', '👍');
+      b.removed(makeMessage({ conversationId: group, authorId: 'me', sentAt: NOW }));
+      expect(b.closed).toHaveBeenCalledOnce();
+      const c = setup();
+      c.receive({ sentAt: NOW + 1 });
+      c.removed(makeMessage({ conversationId: group, authorId: 'ana', sentAt: NOW + 2 }));
+      expect(c.closed).not.toHaveBeenCalled();
+    });
+
+    it('stops watching when stopped', () => {
+      const { stores, service, closed, receive } = setup();
+      receive({ seq: 7 });
+      service.stop();
+      closed.mockClear();
+      stores.conversations.getState().setReadCursors({ [group]: 9 });
+      expect(closed).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('a conversation the stores do not list yet', () => {
+    const fresh = conversationIdFor('not-listed-yet');
+
+    it('is judged a message request: no text, the sender and "a group" in the title', () => {
+      const { shown, receive } = setup();
+      receive({ conversationId: fresh, authorId: 'ana', body: 'click this link' });
+      expect(shown[0]).toMatchObject({ title: 'Ana Lima in a group', body: 'Message Request' });
+    });
+
+    it('is still a group for "mentions only"', () => {
+      const { stores, shown, receive } = setup();
+      stores.settings.getState().update('notifications', { mode: 'mentions' });
+      receive({ conversationId: fresh, authorId: 'ana' });
+      expect(shown).toHaveLength(0);
+      receive({ conversationId: fresh, authorId: 'ana', sentAt: NOW + 1, ...mention('me') });
+      expect(shown).toHaveLength(1);
+    });
+
+    it('shows the text once the user accepted it here', () => {
+      const { stores, shown, receive } = setup();
+      stores.local.getState().markAccepted(fresh, NOW);
+      receive({ conversationId: fresh, authorId: 'ana', body: 'hello' });
+      expect(shown[0]?.body).toBe('Ana Lima: hello');
     });
   });
 });

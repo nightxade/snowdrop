@@ -45,7 +45,7 @@ interface Origin {
   own: boolean;
   /** Human name of the author for system texts. */
   actorName: string;
-  /** When the disappearing timer starts (see buildMessage). */
+  /** When an own message's disappearing timer starts (see buildMessage). */
   timerStart: number;
 }
 
@@ -131,8 +131,8 @@ export function normaliseEnvelope(envelope: WireEnvelope, ctx: NormaliseContext)
   // isolation can protect.
   const nameOf = (id: string, fallback?: string): string =>
     id === ctx.selfId ? 'You' : stripBidiControls(ctx.nameOf(id) ?? fallback ?? id);
-  // Server time, so a replayed old message expires on schedule instead of
-  // getting a fresh timer from "now".
+  // Server time, so a replayed message of the user's own expires on schedule
+  // instead of getting a fresh timer from "now".
   const timerStart = Math.min(ctx.now, serverTime(envelope) ?? ctx.now);
 
   if (envelope.receiptMessage) {
@@ -193,6 +193,8 @@ export function normaliseEnvelope(envelope: WireEnvelope, ctx: NormaliseContext)
       events.push({
         kind: 'readSync',
         payload: {
+          // The sync message's own timestamp is when the other device sent it, i.e. read.
+          readAt: envelope.timestamp,
           messages: sync.readMessages.flatMap((r) => {
             const author = addressId(r.senderUuid, r.senderNumber, r.sender);
             return author ? [{ authorId: resolve(author), sentAt: r.timestamp }] : [];
@@ -423,6 +425,7 @@ function fromData(
     ...meta,
     status,
     resolveId: resolve,
+    own: origin.own,
     timerStart: origin.timerStart,
   });
   if (message) events.push({ kind: 'message', payload: message });

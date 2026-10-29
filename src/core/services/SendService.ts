@@ -96,6 +96,8 @@ export interface SendServiceDeps {
   pendingOps?: PendingOpsBuffer;
   /** Marks a conversation read the way reading it does (receipts and read sync included); sending a reply reads what came before it. */
   readConversation?: (conversationId: ConversationId) => Promise<void>;
+  /** A message just sent will disappear at this time (epoch ms): the sync engine purges it on schedule. */
+  onExpiry?: (at: number) => void;
   /**
    * A send stopped because someone's safety number changed (the message is now
    * `failed` and lists them in `blockedByIdentity`): the app opens the review
@@ -503,6 +505,9 @@ export class SendService {
     const pendingId = pendingMessageId(nonce);
     out.inFlight = true;
     let result;
+    // The conversation's timer as it is when the send goes out, which is what the
+    // daemon applies (not whatever it becomes while the send is in flight).
+    const timer = stores.conversations.getState().byId[out.conversationId]?.expireTimerSec ?? 0;
     try {
       result = await backend.send(out.input);
     } catch (error) {
@@ -556,6 +561,8 @@ export class SendService {
         ? { failedRecipients: result.recipientFailures.map((f) => f.recipientId) }
         : {}),
       ...(early?.recipients ? { receipts: early.recipients } : {}),
+      // The user's own message in a chat with a timer: it runs from the send, as on Desktop.
+      ...(timer > 0 ? { expiresAt: result.sentAt + timer * 1000 } : {}),
     };
 
     // Merge (not overwrite): a sync echo or receipts may have landed already.
@@ -593,6 +600,7 @@ export class SendService {
     const shown = out.queue.reduce((m, op) => op.apply(m), stored);
     stores.messages.getState().reconcile(out.conversationId, nonce, shown);
     stores.conversations.getState().noteLatest(shown);
+    if (stored.expiresAt !== undefined) this.deps.onExpiry?.(stored.expiresAt);
     // Replying means you've seen everything before it. That is a read like
     // any other, so it goes through the read path (which tells the senders
     // and the user's other devices) rather than just moving the cursor.

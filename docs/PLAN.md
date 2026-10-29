@@ -859,8 +859,9 @@ timestamp). Admin delete → `messageDeleted { authorId: target, deletedBy }`.
 Unsupported content (view-once, payment, shared contact) becomes an italic note
 in the body; stickers and polls are their own message content (a poll's votes and
 end change that message in place); calls and stories are ignored with a debug
-log. Disappearing timer: `expiresAt = receivedAt + timer` (Signal starts
-it on read, so we err on deleting early). Timer updates → system line +
+log. Disappearing timer: someone else's message records `expiresAfterReadMs`
+and its `expiresAt` is set when the user reads it, as Signal does; the user's
+own message counts down from the send. Timer updates → system line +
 conversation patch. Group updates (`groupInfo.type = UPDATE`) → the backend
 re-lists the group, diffs (name, description, timer, joined/left, new
 admins) and emits `conversationUpdated` + one system line (same
@@ -942,7 +943,7 @@ Attachments: blobs are typed only with allow-listed raster image/audio/video
 types (else `application/octet-stream`); sent images keep a ≤ 512 px WebP/JPEG
 thumbnail instead of the file; empty and > 100 MB files are rejected before
 encoding. Undecryptable envelopes become a system line. Typing staleness and
-disappearing timers use the server receive time.
+the timers of the user's own synced messages use the server receive time.
 
 **SyncService.** Tombstones for purged disappearing messages (in memory,
 bounded to 2000) and a drop of messages already past `expiresAt` on arrival,

@@ -28,6 +28,12 @@ describe('history export (M8)', () => {
           ],
         }),
         makeMessage({ conversationId: conv.id, sentAt: 2, body: 'gone soon', expiresAt: 99 }),
+        makeMessage({
+          conversationId: conv.id,
+          sentAt: 3,
+          body: 'gone once read',
+          expiresAfterReadMs: 3_600_000,
+        }),
       ],
       { backfill: true, merge: (a) => a },
     );

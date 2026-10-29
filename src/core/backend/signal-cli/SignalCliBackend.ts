@@ -1928,10 +1928,15 @@ export class SignalCliBackend implements ChatBackend {
     // An older signal-cli would treat `syncOnly` as a plain receipt: never send it one.
     if (options?.syncOnly && !this.readSyncSupported) return summariseReadReplies([]);
     // Receipts are addressed to each message's author, not to the conversation.
+    // The user's own messages never get a receipt, but a sync-only read may name
+    // them: that is how the phone learns the reactions and votes on them were
+    // seen (Desktop sends the same sync, with the user as the message's author).
     const byAuthor = new Map<string, number[]>();
     for (const m of messages) {
-      if (this.identity.isSelf(m.authorId) || m.authorId === this.selfId) continue;
-      byAuthor.set(m.authorId, [...(byAuthor.get(m.authorId) ?? []), m.sentAt]);
+      const own = this.identity.isSelf(m.authorId) || m.authorId === this.selfId;
+      if (own && !options?.syncOnly) continue;
+      const author = own ? this.selfId : m.authorId;
+      byAuthor.set(author, [...(byAuthor.get(author) ?? []), m.sentAt]);
     }
     const replies = await Promise.all(
       [...byAuthor].map(([author, timestamps]) =>
