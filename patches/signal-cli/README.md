@@ -985,7 +985,7 @@ EOF. A Java rebuild deletes a native build made from the previous one. It is Lin
 against the Java build with no account (medians): first JSON-RPC reply in 29 ms instead of 1360 ms, idle RSS 53 MiB
 instead of 138 MiB.
 
-Snowdrop prefers the native build and falls back to the Java one when it cannot run (see
+Snowdrop runs the native build only when asked to (`SNOWDROP_SIGNAL_CLI_NATIVE=1`) and falls back to the Java one when it cannot run (see
 docs/DESKTOP.md, "Native build and the Java fallback").
 
 ## User-controlled phone verification

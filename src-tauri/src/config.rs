@@ -44,7 +44,7 @@ pub enum BinarySource {
     /// placed there automatically — a human runs the install script.
     Patched,
     /// The same patches compiled to a GraalVM native executable, installed
-    /// beside the Java build (see `native_build`). Preferred over it.
+    /// beside the Java build (see `native_build`). Preferred over it when asked for.
     PatchedNative,
     /// Downloaded into the app data dir on first launch (signal_cli_install.rs).
     Downloaded,
@@ -175,8 +175,8 @@ pub fn patched_binary(app_data_dir: &Path) -> Option<PathBuf> {
 /// place), then the version Snowdrop downloaded into the app data dir on first
 /// launch, then (only in a build with the `bundled-sidecar` Cargo feature) the
 /// sidecar shipped inside the app package, then `signal-cli` on PATH. `native`
-/// is what `native_build::preferred_native` found: absent when none is
-/// installed, when the Java build is forced, or when that build failed here
+/// is what `native_build::preferred_native` found: absent unless asked for, or when none is
+/// installed, or when that build failed here
 /// before. A native build resolved while the Java build is also installed
 /// carries it as its fallback.
 pub fn resolve_binary(

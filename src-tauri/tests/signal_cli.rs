@@ -757,6 +757,14 @@ async fn erase_and_sign_out_stop_a_prespawned_child_and_nothing_starts_after() {
 /// Installs fake builds the way `scripts/build-signal-cli.sh --install` lays them out under `app`:
 /// the Java build (a wrapper around the node fake) and a native one running `native_script`, which
 /// appends a line to `starts` every time it starts. Returns the file counting native starts.
+/// The native build is opt-in (`SNOWDROP_SIGNAL_CLI_NATIVE`). Set once for the whole test
+/// process and never cleared, so tests running in parallel never see it flip; tests that install
+/// no native build are unaffected by it.
+#[cfg(unix)]
+fn opt_in_native() {
+    std::env::set_var(snowdrop_lib::native_build::NATIVE_ENV, "1");
+}
+
 #[cfg(unix)]
 fn install_fake_builds(app: &Path, native_script: &str, provenance: &str) -> PathBuf {
     use std::os::unix::fs::PermissionsExt;
@@ -791,6 +799,7 @@ const NATIVE_EXITS_EARLY: &str = "echo \"Can't load library: signal_jni\" >&2\ne
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_native_build_that_exits_before_answering_falls_back_to_java_and_is_remembered() {
+    opt_in_native();
     require_node!();
     let dir = temp_dir("native-exits");
     let starts = install_fake_builds(&dir, NATIVE_EXITS_EARLY, "Built: 1\n");
@@ -831,6 +840,7 @@ async fn a_native_build_that_exits_before_answering_falls_back_to_java_and_is_re
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_native_build_that_never_answers_falls_back_to_java() {
+    opt_in_native();
     require_node!();
     let dir = temp_dir("native-hangs");
     let starts = install_fake_builds(&dir, "exec sleep 30", "Built: 1\n");
@@ -851,6 +861,7 @@ async fn a_native_build_that_never_answers_falls_back_to_java() {
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_native_build_that_dies_with_a_native_image_error_falls_back_to_java() {
+    opt_in_native();
     require_node!();
     let dir = temp_dir("native-fault");
     // Answers the first request, then hits an unregistered reflection access on the second and dies.
@@ -889,6 +900,7 @@ exit 1"#;
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn an_ordinary_restart_of_a_working_native_build_is_not_a_failure() {
+    opt_in_native();
     require_node!();
     let dir = temp_dir("native-restart");
     // Answers, then exits cleanly on the next request (a restart after wake, say): no error output.
@@ -922,6 +934,7 @@ async fn a_user_supplied_binary_wins_over_both_patched_builds() {
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn probing_a_native_build_that_cannot_run_checks_the_java_build_instead() {
+    opt_in_native();
     require_node!();
     let dir = temp_dir("native-probe");
     install_fake_builds(&dir, NATIVE_EXITS_EARLY, "Built: 1\n");
@@ -933,6 +946,7 @@ async fn probing_a_native_build_that_cannot_run_checks_the_java_build_instead() 
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_missing_native_program_falls_back_at_the_process_level() {
+    opt_in_native();
     require_node!();
     let dir = temp_dir("native-missing");
     let confirmed = Arc::new(Mutex::new(Vec::new()));
@@ -966,6 +980,7 @@ async fn a_missing_native_program_falls_back_at_the_process_level() {
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn real_native_build_falls_back_to_the_real_java_build_when_it_cannot_load_its_library() {
+    opt_in_native();
     use snowdrop_lib::config::BinarySource;
     let patches = Path::new(env!("CARGO_MANIFEST_DIR")).join("../patches/signal-cli");
     let (native, java) = (patches.join("dist-native/signal-cli"), patches.join("dist/signal-cli"));

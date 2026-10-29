@@ -3,8 +3,9 @@
 //!
 //! `scripts/build-signal-cli.sh --native --install` puts it at `<app_data_dir>/bin/
 //! signal-cli-history-native/signal-cli`, next to the Java build (`config::patched_binary`).
-//! Snowdrop prefers it (it answers in tens of milliseconds and idles in less than half the
-//! memory) and falls back to the Java build by itself when it can't run: it wouldn't start, it
+//! It is opt-in: Snowdrop runs it only when [`NATIVE_ENV`] is set (it answers in tens of
+//! milliseconds and idles in less than half the memory, but some account-bound paths are still
+//! unproven), and falls back to the Java build by itself when it can't run: it wouldn't start, it
 //! exited before its first reply (a missing `libsignal_jni.so`, an older glibc), it never
 //! answered, or it died with a native-image runtime error. The failure is remembered for that
 //! exact build, so the next launch goes straight to the Java build; installing a new native
@@ -18,8 +19,9 @@ use std::path::{Path, PathBuf};
 
 use crate::config::is_executable;
 
-/// Set (to anything but empty or `0`) to run the Java build even when a native one is installed.
-pub const FORCE_JVM_ENV: &str = "SNOWDROP_SIGNAL_CLI_JVM";
+/// Set (to anything but empty or `0`) to run the native build when one is installed; otherwise
+/// Snowdrop runs the Java build.
+pub const NATIVE_ENV: &str = "SNOWDROP_SIGNAL_CLI_NATIVE";
 
 /// Why the native build was given up on. Only ever logged and stored by name.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -46,8 +48,8 @@ impl FailureReason {
     }
 }
 
-/// Whether `value` of [`FORCE_JVM_ENV`] asks for the Java build.
-pub fn jvm_forced(value: Option<&OsStr>) -> bool {
+/// Whether `value` of [`NATIVE_ENV`] asks for the native build.
+pub fn native_requested(value: Option<&OsStr>) -> bool {
     value.is_some_and(|v| !v.is_empty() && v != "0")
 }
 
@@ -126,9 +128,9 @@ pub fn has_failed(app_data_dir: &Path, key: &str) -> bool {
 }
 
 /// The native build to prefer, if there is one worth trying: installed, not switched off by
-/// [`FORCE_JVM_ENV`], and not the build that already failed here.
-pub fn preferred_native(app_data_dir: &Path, force_jvm: Option<&OsStr>) -> Option<PathBuf> {
-    if jvm_forced(force_jvm) {
+/// [`NATIVE_ENV`], and not the build that already failed here.
+pub fn preferred_native(app_data_dir: &Path, native_env: Option<&OsStr>) -> Option<PathBuf> {
+    if !native_requested(native_env) {
         return None;
     }
     let binary = native_binary(app_data_dir)?;
@@ -140,6 +142,11 @@ mod tests {
     use super::*;
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
+
+    /// The opt-in, as `NATIVE_ENV=1`.
+    fn on() -> Option<&'static OsStr> {
+        Some(OsStr::new("1"))
+    }
 
     fn install(app_data: &Path, provenance: Option<&str>) -> PathBuf {
         let dir = native_dir(app_data);
@@ -154,12 +161,12 @@ mod tests {
     }
 
     #[test]
-    fn force_jvm_env_values() {
-        assert!(!jvm_forced(None));
-        assert!(!jvm_forced(Some(OsStr::new(""))));
-        assert!(!jvm_forced(Some(OsStr::new("0"))));
-        assert!(jvm_forced(Some(OsStr::new("1"))));
-        assert!(jvm_forced(Some(OsStr::new("yes"))));
+    fn native_env_values() {
+        assert!(!native_requested(None));
+        assert!(!native_requested(Some(OsStr::new(""))));
+        assert!(!native_requested(Some(OsStr::new("0"))));
+        assert!(native_requested(Some(OsStr::new("1"))));
+        assert!(native_requested(Some(OsStr::new("yes"))));
     }
 
     #[test]
@@ -198,24 +205,25 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let app = dir.path();
         let bin = install(app, Some("Built: 1\n"));
-        assert_eq!(preferred_native(app, None), Some(bin.clone()));
+        assert_eq!(preferred_native(app, on()), Some(bin.clone()));
 
         record_failure(app, &build_key(&bin), FailureReason::NoReply);
-        assert_eq!(preferred_native(app, None), None, "the failed build is skipped");
+        assert_eq!(preferred_native(app, on()), None, "the failed build is skipped");
 
         // A newly installed build is tried again, with the old record still on disk.
         fs::write(bin.parent().unwrap().join("PROVENANCE.txt"), "Built: 2\n").unwrap();
-        assert_eq!(preferred_native(app, None), Some(bin));
+        assert_eq!(preferred_native(app, on()), Some(bin));
     }
 
     #[test]
-    fn nothing_installed_or_forced_off_means_no_native_build() {
+    fn nothing_installed_or_not_asked_for_means_no_native_build() {
         let dir = tempfile::tempdir().unwrap();
         let app = dir.path();
-        assert_eq!(preferred_native(app, None), None);
+        assert_eq!(preferred_native(app, on()), None);
         install(app, Some("Built: 1\n"));
-        assert_eq!(preferred_native(app, Some(OsStr::new("1"))), None);
-        assert!(preferred_native(app, Some(OsStr::new("0"))).is_some());
+        assert!(preferred_native(app, on()).is_some());
+        assert_eq!(preferred_native(app, None), None, "the Java build unless native is asked for");
+        assert_eq!(preferred_native(app, Some(OsStr::new("0"))), None);
     }
 
     #[test]

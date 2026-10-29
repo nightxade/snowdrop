@@ -196,9 +196,9 @@ impl Service {
 
     pub fn locate(&self, binary_path: Option<&str>) -> Result<ResolvedBinary, Error> {
         let patched = config::patched_binary(&self.paths.app_data_dir);
-        // The native build, unless it's switched off or already failed on this machine.
+        // The native build, only when asked for and not already failed on this machine.
         let native =
-            native_build::preferred_native(&self.paths.app_data_dir, std::env::var_os(native_build::FORCE_JVM_ENV).as_deref());
+            native_build::preferred_native(&self.paths.app_data_dir, std::env::var_os(native_build::NATIVE_ENV).as_deref());
         let downloaded = crate::signal_cli_install::installed_binary(&self.paths.app_data_dir);
         config::resolve_binary(
             binary_path,

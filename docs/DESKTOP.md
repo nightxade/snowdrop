@@ -304,9 +304,11 @@ only the Java build and print a one-line hint. The install layout is
 build retires the old native one, so the two can never be different patch
 levels. It is Linux x86-64 only.
 
-When both are installed Snowdrop runs the native one and **falls back to the
-Java build on its own** if the native one fails in a way that points at the
-build and not the data:
+Snowdrop runs the Java build by default. The native one is opt-in for now,
+because some account-bound paths still hang on it: start Snowdrop with
+`SNOWDROP_SIGNAL_CLI_NATIVE=1` (anything but empty or `0`) to run it. When
+asked for and installed, it **falls back to the Java build on its own** if
+the native one fails in a way that points at the build and not the data:
 
 - it can't be started, or exits before its first reply (a missing
   `libsignal_jni.so`, an older glibc);
@@ -328,9 +330,7 @@ reason category only ("exited before its first reply", "didn't answer",
 nothing in the UI depends on which one runs; Settings → Connection says which
 one it will use.
 
-To force the Java build for diagnosis, start Snowdrop with
-`SNOWDROP_SIGNAL_CLI_JVM=1` (anything but empty or `0`); a Custom signal-cli
-path still wins over both, as always.
+A Custom signal-cli path still wins over both, as always.
 
 ## Updating your local install
 
