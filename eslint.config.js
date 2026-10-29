@@ -150,9 +150,10 @@ export default tseslint.config(
       ecmaVersion: 2023,
       globals: globals.browser,
       parserOptions: {
-        // Explicit projects (not the solution-style root) so lint sees the
-        // same strict flags as tsc, e.g. noUncheckedIndexedAccess.
-        project: ['./tsconfig.app.json', './tsconfig.node.json'],
+        // TypeScript's project service resolves each file through the
+        // solution-style root to the tsconfig that includes it, so lint sees
+        // the same strict flags as tsc (e.g. noUncheckedIndexedAccess).
+        projectService: true,
         tsconfigRootDir: root,
       },
     },
