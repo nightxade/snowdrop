@@ -215,12 +215,13 @@ Adapters translate protocol quirks into the domain-level `BackendEvents`
 
 - **Ephemeral events apply immediately:** `status`, `typing` and
   `contactUpdated` go straight to their stores.
-- **`caughtUp`**, **`catchingUp`** (and every `message`, observed directly)
-  drive a `CatchUpTracker`, exposed as `stores.session.catchingUp`: true from
+- **`caughtUp`**, **`catchingUp`** (and every `message`, once it has been
+  processed) drive a `CatchUpTracker`, exposed as `stores.session.catchingUp`: true from
   `start()` (and again after a reconnect that followed being offline, or when
   signal-cli reports it reconnected to the server by itself) until the backend
   reports it caught up with the server's queue, a quiet period with no
-  messages, or a ~20s ceiling, whichever comes first. The sidebar freezes
+  processed messages (measured where notifications are decided; it never ends
+  while events are still waiting in the adapter's or the sync engine's queue), or a ~20s ceiling, whichever comes first. The sidebar freezes
   order/badges and shows "Loading…" previews while it's true
   (`useSidebarModel`, `useRowState`). A second tracker in lockstep drives
   `stores.session.notificationsHeld`, which `NotificationService` checks: the
@@ -258,6 +259,38 @@ Adapters translate protocol quirks into the domain-level `BackendEvents`
   update the stored row and the loaded window in place; receipts only ever
   advance status (`advanceStatus`); disappearing messages are purged on a timer
   and remembered as tombstones so a replay can't resurrect them.
+
+### Event order: two queues, and what runs outside them
+
+An event passes two serial queues in series, and each guarantees something the
+next layer relies on:
+
+1. **The adapter's queue** (`SignalCliBackend.enqueue`) applies decoded stream
+   events in arrival order and emits them. `caughtUp` is one of those events: it
+   is emitted only after everything that arrived before it, so the sync engine
+   never ends a catch-up while an earlier message is still on its way. The
+   `checkpoint` for a stream position follows every event of that position.
+2. **`SyncService`'s queue** applies what the adapter emitted, in order (parked
+   in a backlog until the initial sync is done), and acknowledges a checkpoint
+   only once everything before it is stored.
+
+Outside both queues, on purpose:
+
+- `catchingUp` (it has to run before the backlog it announces), `status`,
+  `typing`, `phonePrivacyChanged`, `attachmentBackfill` and `contactUpdated`
+  (ephemeral, or replaced by a later refresh).
+- Anything that waits on the network. The contact listing (signal-cli refreshes
+  profiles from the server, up to minutes) runs in the background and arrives as
+  `contactUpdated` / `conversationUpdated`; read receipts and read syncs go out
+  one at a time, in order, behind the queue, so a slow `sendReceipt` delays only
+  later receipts (receipts held while the phone's settings were unknown are
+  released together once they are known, and `stop()` waits briefly for the
+  one in flight). The initial queries (self, contacts, conversations) wait for
+  the contact listing at most a few seconds, and an unreadable history archive
+  degrades to "no imported history" rather than failing the listing.
+- What stays inside a queue does so because order is the point: a group update
+  waits on a local `listGroups` so its diff and system line land between the
+  messages around it.
 
 ### Ordering: `seq`, not timestamps
 

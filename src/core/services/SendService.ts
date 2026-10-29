@@ -58,6 +58,7 @@ import {
 import { createNonce, pollDraftProblem, tidyPollDraft, type Clock } from '@/core/lib';
 import type { MessageRepository } from '@/core/persistence';
 import { effectivePrivacy, selectMessageRequestState, type Stores } from '@/core/stores';
+import { refreshPreviewAfterRemoval } from './sidebarPreview';
 import { finalPreview, localAttachment, localPreview, withLocalUrls } from './localAttachments';
 import { PendingOpsBuffer } from './PendingOpsBuffer';
 import { ReceiptBuffer } from './ReceiptBuffer';
@@ -930,6 +931,12 @@ export class SendService {
     }
     this.deps.stores.messages.getState().remove(conversationId, target.id);
     await this.deps.repository.delete(target.id);
+    await refreshPreviewAfterRemoval(
+      this.deps.stores.conversations,
+      this.deps.repository,
+      conversationId,
+      target,
+    );
   }
 
   // ─── Conversation settings ─────────────────────────────────────────────

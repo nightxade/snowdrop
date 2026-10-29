@@ -362,6 +362,16 @@ export type RecipientLookup =
   | { status: 'not-registered' }
   | { status: 'rate-limited' };
 
+/**
+ * Numbers a backend's own catch-ups: `catchingUp` carries the count so far, and
+ * `caughtUp` the count when its signal *arrived* (not when it was emitted
+ * behind the queue), so a `caughtUp` that belongs to an earlier catch-up is
+ * recognisable even when a newer one began before it was delivered.
+ */
+export interface CatchUpMark {
+  seq: number;
+}
+
 export interface BackendEvents {
   status: ConnectionStatus;
   /** Incoming message, or one we sent from another linked device (sync). */
@@ -436,7 +446,7 @@ export interface BackendEvents {
    * it — upstream signal-cli) simply never emit this; the tracker falls back
    * to a quiet period instead.
    */
-  caughtUp: undefined;
+  caughtUp: CatchUpMark | undefined;
   /**
    * The backend's connection to the server just (re)started delivering a
    * queue that built up while it was away (signal-cli's own reconnect after
@@ -444,7 +454,7 @@ export interface BackendEvents {
    * SyncService starts "catching up" again; the next `caughtUp` ends it.
    * Only emitted where `supportsCatchingUpSignal()` is true.
    */
-  catchingUp: undefined;
+  catchingUp: CatchUpMark | undefined;
   /**
    * The phone's privacy settings may have changed (a sync from the phone, or
    * our own `updatePhonePrivacy`); the payload is empty, callers re-read with
@@ -776,6 +786,12 @@ export interface ChatBackend {
    * remounts show its picture on the first frame.
    */
   peekAvatarUrl?(ref: AvatarRef): string | null | undefined;
+  /**
+   * Whether decoded events are still waiting to be emitted (the adapter's own
+   * ordered queue). The sync engine's catch-up quiet period never ends while
+   * this is true. Omitted is the same as false.
+   */
+  hasPendingEvents?(): boolean;
 
   /**
    * The user's *installed* sticker packs with their stickers, for the sticker

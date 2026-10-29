@@ -91,6 +91,7 @@ export const FORWARDING: Forwarding = {
   releaseAttachmentUrl: 'queued',
   resolveAvatarUrl: 'async',
   peekAvatarUrl: 'peek',
+  hasPendingEvents: 'peek',
   resolveStickerUrl: 'async',
   retainStickerUrl: 'queued',
   releaseStickerUrl: 'queued',

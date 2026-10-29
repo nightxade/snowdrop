@@ -43,13 +43,25 @@ export interface ConversationsState {
   applyIncoming(message: Message, selfId: string): void;
   /** Un-counts a message that stopped counting (deleted) if it was unread. */
   applyRemoval(message: Message, selfId: string): void;
-  /** Advances the read cursor to `upToSeq` and clears unread. Returns true if anything changed. */
-  markRead(id: ConversationId, upToSeq: number): boolean;
+  /**
+   * Advances the read cursor to `upToSeq` and clears unread. Returns true if anything changed.
+   * With `read` (what the caller actually read, counted from the messages up
+   * to `upToSeq`), only that much is taken off the badge: a message counted
+   * since, beyond `upToSeq`, stays unread. Without it the badge is cleared.
+   */
+  markRead(id: ConversationId, upToSeq: number, read?: UnreadState): boolean;
   /**
    * Records `message` as the preview if it is newer (by seq) than the current
    * one, or is the same message (same id or nonce) in a newer state.
    */
   noteLatest(message: Message): void;
+  /**
+   * The message `removedId` left the conversation (deleted here, expired,
+   * purged): if it is still the preview, `next` (the newest message that
+   * remains, if any) takes its place. A preview that has since moved on to
+   * another message is left alone. Unlike `noteLatest` this can go backwards.
+   */
+  replaceLatest(id: ConversationId, removedId: Message['id'], next: Message | undefined): void;
 }
 
 export type ConversationsStore = StoreApi<ConversationsState>;
@@ -133,6 +145,9 @@ export function createConversationsStore(): ConversationsStore {
           byId: Object.fromEntries(
             Object.entries(s.byId).filter(([id]) => !drop.has(id as ConversationId)),
           ),
+          lastMessage: Object.fromEntries(
+            Object.entries(s.lastMessage).filter(([id]) => !drop.has(id as ConversationId)),
+          ),
         }));
       },
       bumpActivity: (id, at) => {
@@ -154,16 +169,35 @@ export function createConversationsStore(): ConversationsStore {
       applyRemoval: (message, selfId) => {
         adjustUnread(message, selfId, -1);
       },
-      markRead: (id, upToSeq) => {
+      markRead: (id, upToSeq, read) => {
         const s = get();
         const cursor = s.readCursors[id];
-        const hadUnread = (s.unread[id]?.count ?? 0) > 0;
+        const current = s.unread[id] ?? NO_UNREAD;
+        const hadUnread = current.count > 0;
         if (cursor !== undefined && cursor >= upToSeq && !hadUnread) return false;
+        const remaining: UnreadState = read
+          ? {
+              count: Math.max(0, current.count - read.count),
+              mentions: Math.max(0, current.mentions - read.mentions),
+            }
+          : NO_UNREAD;
         set((state) => ({
           readCursors: { ...state.readCursors, [id]: Math.max(cursor ?? upToSeq, upToSeq) },
-          unread: { ...state.unread, [id]: NO_UNREAD },
+          unread: { ...state.unread, [id]: remaining.count === 0 ? NO_UNREAD : remaining },
         }));
         return true;
+      },
+      replaceLatest: (id, removedId, next) => {
+        const current = get().lastMessage[id];
+        if (current?.id !== removedId) return;
+        set((s) => {
+          if (next) return { lastMessage: { ...s.lastMessage, [id]: next } };
+          return {
+            lastMessage: Object.fromEntries(
+              Object.entries(s.lastMessage).filter(([key]) => key !== id),
+            ),
+          };
+        });
       },
       noteLatest: (message) => {
         const id = message.conversationId;

@@ -93,6 +93,13 @@ export interface Conversation {
    */
   historyHasMessages?: boolean;
   /**
+   * The backend could not read its history archive for this listing, so it
+   * cannot say whether the archive has messages for this conversation.
+   * SyncService does not drop such a direct conversation as stale: it is kept
+   * until a listing that could read the archive says otherwise.
+   */
+  historyUnreadable?: boolean;
+  /**
    * The user blocked this group (signal-cli: a group's `isBlocked`). A blocked
    * direct conversation is `Contact.blocked` on its peer instead; both read
    * through `isConversationBlocked`.

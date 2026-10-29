@@ -247,6 +247,7 @@ const signalCliBackend: BackendRegistration = {
     'releaseAttachmentUrl',
     'resolveAvatarUrl',
     'peekAvatarUrl',
+    'hasPendingEvents',
     'resolveStickerUrl',
     'retainStickerUrl',
     'releaseStickerUrl',

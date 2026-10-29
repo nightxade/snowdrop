@@ -50,6 +50,12 @@ export interface CatchUpTrackerDeps {
   onStart?: (info: { strict: boolean; restarted: boolean }) => void;
   /** Called once when a run ends (not on `dispose()`). */
   onEnd?: (reason: CatchUpEndReason, info: CatchUpRunInfo) => void;
+  /**
+   * True while events are still waiting to be applied (in any queue). The
+   * quiet period never ends while it is: silence from a stalled queue is not
+   * quiet. The ceiling still bounds it.
+   */
+  isBusy?: () => boolean;
   quietMs?: number;
   ceilingMs?: number;
 }
@@ -146,6 +152,10 @@ export class CatchUpTracker {
     this.quietTimer = this.deps.scheduler.setTimeout(() => {
       if (generation !== this.generation) return;
       this.quietTimer = null;
+      if (this.deps.isBusy?.()) {
+        this.scheduleQuiet();
+        return;
+      }
       this.finish('quiet');
     }, this.deps.quietMs ?? CATCH_UP_QUIET_MS);
   }

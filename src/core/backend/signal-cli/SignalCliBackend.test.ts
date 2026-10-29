@@ -402,7 +402,7 @@ describe('SignalCliBackend: connection', () => {
     );
     await flush();
     await backend.idle();
-    expect(caughtUp).toEqual([undefined]);
+    expect(caughtUp).toEqual([{ seq: 0 }]);
     // No envelope to apply, but the event still advances (and can be acknowledged
     // for) the resume position like any other.
     expect(order).toEqual(['caughtUp', 'checkpoint:run-9']);
@@ -2933,5 +2933,286 @@ describe('SignalCliBackend: polls', () => {
       { conversationId: GROUP, authorId: ALICE, targetSentAt: T0, at: T0 + 60 },
     ]);
     await backend.disconnect();
+  });
+});
+
+describe('SignalCliBackend: event order and blocking', () => {
+  const aliceMessage = (at: number, text: string) =>
+    receive('alice', { dataMessage: dataMessage({ timestamp: at, message: text }) });
+  const never = (): Promise<never> => new Promise<never>(() => undefined);
+
+  it('delivers caughtUp only after the events that arrived before it', async () => {
+    const { backend, daemon, groups } = await connected();
+    // A group update waits on a listGroups answer inside the ordered queue.
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    daemon.handle('listGroups', async (params) => {
+      await held;
+      return {
+        result: params.groupId
+          ? groups.filter((g) => (params.groupId as string[]).includes(g.id))
+          : groups,
+      };
+    });
+    const order: string[] = [];
+    backend.on('message', (m) =>
+      order.push(m.kind === 'system' ? 'group line' : `message ${m.body}`),
+    );
+    backend.on('caughtUp', () => order.push('caughtUp'));
+    backend.on('catchingUp', () => order.push('catchingUp'));
+    void backend.ingest(fixtures.groupUpdate);
+    void backend.ingest(aliceMessage(T0 + 200, 'after the update'));
+    daemon.lastStream!.push(
+      `id:run-9\nevent:receiveCaughtUp\ndata:${JSON.stringify({ account: SELF_ACI })}\n\n`,
+    );
+    await flush();
+    // Nothing behind the held group update has been applied, and neither has caughtUp.
+    expect(order).toEqual([]);
+    release();
+    await backend.idle();
+    expect(order).toEqual(['group line', 'message after the update', 'caughtUp']);
+    await backend.disconnect();
+  });
+
+  it('still emits catchingUp at once, ahead of a held queue', async () => {
+    const { backend, daemon } = await connected();
+    daemon.handle('listGroups', never);
+    const order: string[] = [];
+    backend.on('catchingUp', () => order.push('catchingUp'));
+    void backend.ingest(fixtures.groupUpdate);
+    daemon.lastStream!.push(
+      `id:run-8\nevent:receiveCatchingUp\ndata:${JSON.stringify({ account: SELF_ACI })}\n\n`,
+    );
+    await flush();
+    expect(order).toEqual(['catchingUp']);
+    await backend.disconnect();
+  });
+
+  it('does not hold later events while a contacts sync waits on the contact listing', async () => {
+    const { backend, daemon } = await connected();
+    daemon.handle('listContacts', never);
+    const messages = collect(backend, 'message');
+    void backend.ingest(fixtures.contactsSync);
+    await backend.ingest(aliceMessage(T0 + 300, 'while contacts load'));
+    await backend.idle();
+    expect(messages.map((m) => m.body)).toEqual(['while contacts load']);
+    await backend.disconnect();
+  });
+
+  it('answers the initial queries without waiting out a slow contact listing', async () => {
+    const { daemon } = daemonWithAccount();
+    daemon.handle('listContacts', never);
+    const { backend, scheduler } = await connected({ daemon });
+    const slow = 'still waiting';
+    const settle = async (promise: Promise<unknown>): Promise<unknown> =>
+      Promise.race([promise, flush(3).then(() => slow)]);
+    const self = backend.getSelf();
+    const contacts = backend.listContacts();
+    const conversations = backend.listConversations();
+    // Nothing answers before the bound ...
+    expect(await settle(self)).toBe(slow);
+    scheduler.advance(5_000);
+    // ... and everything does once it passes.
+    expect(await settle(self)).toMatchObject({ isSelf: true });
+    expect(await settle(contacts)).toEqual([]);
+    const listed = await settle(conversations);
+    expect(listed).not.toBe(slow);
+    expect(listed).toEqual([expect.objectContaining({ id: groupConversationId(GROUP_ID) })]);
+    await backend.disconnect();
+  });
+
+  it('lists conversations and contacts even when the imported history cannot be read', async () => {
+    const { daemon } = daemonWithAccount();
+    daemon.handle('getHistoryDirectory', () => ({
+      error: { code: -3, message: 'broken archive' },
+    }));
+    const { backend } = await connected({ daemon });
+    const conversations = await backend.listConversations();
+    expect(conversations.map((c) => c.id)).toEqual([groupConversationId(GROUP_ID)]);
+    const contacts = await backend.listContacts();
+    expect(contacts.map((c) => c.id)).toContain(ALICE);
+    await backend.disconnect();
+  });
+});
+
+describe('SignalCliBackend + SyncService: startup and catch-up edges', () => {
+  const methodMissing = { error: { code: -32601, message: 'Method not implemented' } };
+  const gate = () => {
+    let open: () => void = () => undefined;
+    const opened = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    return { opened, open };
+  };
+  const sseEvent = (id: string, event: string) =>
+    `id:${id}\nevent:${event}\ndata:${JSON.stringify({ account: SELF_ACI })}\n\n`;
+
+  /** A daemon whose contact listing and history archive each wait to be released. */
+  function slowStart() {
+    const { daemon, contacts } = daemonWithAccount();
+    const contactsGate = gate();
+    const historyGate = gate();
+    daemon.handle('listContacts', async () => {
+      await contactsGate.opened;
+      return { result: contacts };
+    });
+    daemon.handle('getHistoryDirectory', async () => {
+      await historyGate.opened;
+      return methodMissing;
+    });
+    const { backend, scheduler } = setup({ daemon });
+    const stores = createStores();
+    const sync = new SyncService({
+      backend,
+      repository: new MemoryMessageRepository(),
+      stores,
+      clock: scheduler,
+      scheduler,
+    });
+    return { backend, scheduler, stores, sync, contactsGate, historyGate };
+  }
+
+  it('keeps a contact listing that finishes while the history is being read', async () => {
+    const { scheduler, stores, sync, contactsGate, historyGate } = slowStart();
+    const started = sync.start();
+    await flush();
+    scheduler.advance(5_000); // the initial queries stop waiting for contacts
+    await flush();
+    contactsGate.open(); // ... and the listing lands while the history is still being read
+    await flush();
+    historyGate.open();
+    await started;
+    expect(stores.session.getState().self).toMatchObject({ id: SELF_ACI, name: 'Me Myself' });
+    expect(stores.contacts.getState().byId[ALICE]?.name).toBe('Alice Liddell');
+    await sync.stop();
+  });
+
+  it('applies a contact listing that finishes after the initial sync, self included', async () => {
+    const { scheduler, stores, sync, contactsGate, historyGate } = slowStart();
+    const started = sync.start();
+    await flush();
+    scheduler.advance(5_000);
+    await flush();
+    historyGate.open();
+    await started;
+    expect(stores.session.getState().self?.name).not.toBe('Me Myself'); // the placeholder
+    contactsGate.open();
+    await flush();
+    expect(stores.session.getState().self).toMatchObject({ id: SELF_ACI, name: 'Me Myself' });
+    expect(stores.contacts.getState().byId[ALICE]?.name).toBe('Alice Liddell');
+    await sync.stop();
+  });
+
+  it('does not end the quiet period while events wait behind a slow group update', async () => {
+    const { daemon, groups } = daemonWithAccount();
+    const { backend, scheduler } = setup({ daemon });
+    const stores = createStores();
+    const sync = new SyncService({
+      backend,
+      repository: new MemoryMessageRepository(),
+      stores,
+      clock: scheduler,
+      scheduler,
+    });
+    await sync.start();
+    await flush();
+    scheduler.advance(5_000); // the first hold ends on its quiet period
+    expect(stores.session.getState().notificationsHeld).toBe(false);
+    const held = gate();
+    daemon.handle('listGroups', async () => {
+      await held.opened;
+      return { result: groups };
+    });
+    const arrivals: boolean[] = [];
+    sync.on('messageArrived', () => arrivals.push(stores.session.getState().notificationsHeld));
+    daemon.lastStream!.push(sseEvent('run-1', 'receiveCatchingUp'));
+    await flush();
+    expect(stores.session.getState().notificationsHeld).toBe(true);
+    void backend.ingest(fixtures.groupUpdate);
+    void backend.ingest(
+      receive('alice', { dataMessage: dataMessage({ timestamp: T0 + 200, message: 'queued' }) }),
+    );
+    scheduler.advance(10_000); // far past the quiet period; nothing has been processed
+    await flush();
+    expect(stores.session.getState().notificationsHeld).toBe(true);
+    expect(stores.session.getState().catchingUp).toBe(true);
+    held.open();
+    await backend.idle();
+    await flush();
+    await sync.idle();
+    expect(arrivals).toHaveLength(2);
+    expect(arrivals.every(Boolean)).toBe(true);
+    scheduler.advance(2_000);
+    expect(stores.session.getState().notificationsHeld).toBe(false);
+    await sync.stop();
+  });
+
+  it('a caughtUp from an earlier catch-up does not end a newer one', async () => {
+    const { daemon, groups } = daemonWithAccount();
+    daemon.reply('version', { version: '0.14.8-snowdrop-history.21' });
+    const { backend, scheduler } = setup({ daemon });
+    const stores = createStores();
+    const sync = new SyncService({
+      backend,
+      repository: new MemoryMessageRepository(),
+      stores,
+      clock: scheduler,
+      scheduler,
+    });
+    await sync.start();
+    await flush();
+    daemon.lastStream!.push(sseEvent('run-1', 'receiveCaughtUp'));
+    await flush();
+    await sync.idle();
+    expect(stores.session.getState().notificationsHeld).toBe(false);
+    const held = gate();
+    daemon.handle('listGroups', async () => {
+      await held.opened;
+      return { result: groups };
+    });
+    void backend.ingest(fixtures.groupUpdate);
+    const stream = daemon.lastStream!;
+    stream.push(sseEvent('run-2', 'receiveCatchingUp'));
+    stream.push(sseEvent('run-3', 'receiveCaughtUp')); // queued behind the group update
+    stream.push(sseEvent('run-4', 'receiveCatchingUp')); // a newer catch-up begins first
+    await flush();
+    expect(stores.session.getState().notificationsHeld).toBe(true);
+    held.open();
+    await backend.idle();
+    await flush();
+    await sync.idle();
+    // The first catch-up's caughtUp has been emitted; the second is still running.
+    expect(stores.session.getState().notificationsHeld).toBe(true);
+    stream.push(sseEvent('run-5', 'receiveCaughtUp'));
+    await flush();
+    await sync.idle();
+    expect(stores.session.getState().notificationsHeld).toBe(false);
+    await sync.stop();
+  });
+
+  it('keeps a peer-only DM listed when the history archive could not be read', async () => {
+    const { daemon } = daemonWithAccount();
+    daemon.handle('getHistoryDirectory', () => ({
+      error: { code: -3, message: 'broken archive' },
+    }));
+    const { backend, storage, scheduler } = setup({ daemon });
+    storage.setItem(
+      `snowdrop.signal-cli.peers.${SELF_ACI}`,
+      JSON.stringify({ peers: { [BOB]: T0 }, aliases: {} }),
+    );
+    const stores = createStores();
+    const sync = new SyncService({
+      backend,
+      repository: new MemoryMessageRepository(),
+      stores,
+      clock: scheduler,
+      scheduler,
+    });
+    await sync.start();
+    await flush();
+    expect(stores.conversations.getState().byId[directConversationId(BOB)]).toBeDefined();
+    await sync.stop();
   });
 });

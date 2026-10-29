@@ -42,6 +42,7 @@ import {
   stripBidiControls,
   systemClock,
   systemScheduler,
+  type Cancel,
   type Clock,
   type Scheduler,
   type Unsubscribe,
@@ -173,6 +174,11 @@ export interface SignalCliBackendOptions {
 
 /** Allow time to scan the code and transfer history after provisioning. */
 const LINK_TIMEOUT_MS = 15 * 60_000;
+/**
+ * How long the initial queries (self, contacts, conversations) wait for the
+ * contact listing before answering from the cache (see `contactsForListing`).
+ */
+const LISTING_CONTACTS_WAIT_MS = 5_000;
 /** Quotes of messages sent this session, for edits whose caller omits them. */
 const SENT_QUOTES_MAX = 500;
 
@@ -245,6 +251,8 @@ export class SignalCliBackend implements ChatBackend {
   private selfAvatarVersion = 0;
   private readonly directory: Directory;
   private history: Promise<HistoryArchive | null> | null = null;
+  /** The bounded wait on the contact listing in flight (see `contactsForListing`). */
+  private listingWait: Promise<void> | null = null;
   private historyAbort = new AbortController();
   private readonly groupChanges = new GroupChangeTracker();
   private readonly sentQuotes = new Map<string, Quote>();
@@ -256,6 +264,10 @@ export class SignalCliBackend implements ChatBackend {
   private readonly transport: SignalCliTransport;
   private connecting: Promise<void> | null = null;
   private queue: Promise<void> = Promise.resolve();
+  /** `enqueue` calls whose events are not all applied yet. */
+  private queuedBatches = 0;
+  /** How many `catchingUp` signals this backend has emitted (see `CatchUpMark`). */
+  private catchUpSeq = 0;
   /** Bumped on disconnect so queued work from an old session is dropped. */
   private session = 0;
 
@@ -580,6 +592,7 @@ export class SignalCliBackend implements ChatBackend {
     this.session++;
     this.historyAbort.abort();
     this.history = null;
+    this.listingWait = null;
     await this.closeStream();
     this.attachments.clear();
     this.avatars.clear();
@@ -694,6 +707,7 @@ export class SignalCliBackend implements ChatBackend {
     this.historyAbort.abort();
     this.historyAbort = new AbortController();
     this.history = null;
+    this.listingWait = null;
     this.groupChanges.clear();
     if (id !== this.preferredAccount) this.options.onAccountSelected?.(id);
     this.preferredAccount = id;
@@ -764,11 +778,13 @@ export class SignalCliBackend implements ChatBackend {
       // Patched signal-cli only (patches/signal-cli/0025): the receive
       // websocket (re)connected and the server is delivering what queued up.
       // No envelope; the receiveCaughtUp that follows ends it.
-      this.emitter.emit('catchingUp', undefined);
+      this.emitter.emit('catchingUp', { seq: ++this.catchUpSeq });
     } else if (event.type === 'receiveCaughtUp') {
       // Patched signal-cli only (patches/signal-cli/0012): the receive loop
-      // drained the server's queue. No envelope; nothing to normalise.
-      this.emitter.emit('caughtUp', undefined);
+      // drained the server's queue. No envelope; nothing to normalise. Queued
+      // like a message: it must not be emitted before the events that arrived
+      // ahead of it have been applied (see the ordering contract above `queue`).
+      events = [{ kind: 'caughtUp', payload: { seq: this.catchUpSeq } }];
     } else if (event.type === 'receiveConfigurationChanged') {
       // Patched signal-cli only (patches/signal-cli/0022): the privacy settings
       // changed; no values travel with it, the service re-reads them.
@@ -861,6 +877,10 @@ export class SignalCliBackend implements ChatBackend {
     return this.queue;
   }
 
+  hasPendingEvents(): boolean {
+    return this.queuedBatches > 0;
+  }
+
   /** Resolves once every queued incoming event has been applied. */
   idle(): Promise<void> {
     return this.queue;
@@ -878,6 +898,29 @@ export class SignalCliBackend implements ChatBackend {
     this.transport.acknowledge?.(cursor);
   }
 
+  /**
+   * Ordering contract. Events reach the stores through two serial queues in
+   * series, and what each one guarantees is what the layer above relies on:
+   *
+   * 1. This adapter queue applies decoded stream events strictly in arrival
+   *    order and emits them (`message`, `messageEdited`, `reaction`, `receipt`,
+   *    `readSync`, `conversationUpdated` from a group update, `caughtUp`, ...).
+   *    The `checkpoint` for a stream position is emitted after every event of
+   *    that position. `caughtUp` is one of these events: it is emitted only
+   *    after everything that arrived before it.
+   * 2. SyncService's queue then applies what this one emitted, again in order
+   *    (parked in a backlog until the initial sync is done), and acknowledges
+   *    a checkpoint only once everything before it is stored.
+   *
+   * Outside both queues, on purpose: `catchingUp` (it must run before the
+   * backlog it announces), `status`, `typing`, `phonePrivacyChanged`,
+   * `attachmentBackfill`, `contactUpdated` (ephemeral, or a later refresh
+   * replaces them), and anything that waits on the network: the contact
+   * listing (a profile refresh, up to minutes) and, in SyncService, read
+   * receipts. An event is applied inside this queue only when order is the
+   * point: a group update waits on a local `listGroups` so its diff and system
+   * line land between the messages around it.
+   */
   private enqueue(events: AdapterEvent[], cursor: string | undefined): void {
     const session = this.session;
     // Snapshot group state *now*: a directory reload before this update is
@@ -891,17 +934,22 @@ export class SignalCliBackend implements ChatBackend {
         );
       }
     }
+    this.queuedBatches++;
     this.queue = this.queue.then(async () => {
-      for (const event of events) {
-        if (session !== this.session) return;
-        try {
-          await this.apply(event);
-        } catch (error) {
-          // Never log the error object itself: its message can embed payload data.
-          this.debugLog(`failed to apply ${event.kind}`, describeError(error));
+      try {
+        for (const event of events) {
+          if (session !== this.session) return;
+          try {
+            await this.apply(event);
+          } catch (error) {
+            // Never log the error object itself: its message can embed payload data.
+            this.debugLog(`failed to apply ${event.kind}`, describeError(error));
+          }
         }
+        if (cursor && session === this.session) this.emitter.emit('checkpoint', { cursor });
+      } finally {
+        this.queuedBatches--;
       }
-      if (cursor && session === this.session) this.emitter.emit('checkpoint', { cursor });
     });
   }
 
@@ -918,6 +966,9 @@ export class SignalCliBackend implements ChatBackend {
         this.emitter.emit('message', message);
         return;
       }
+      case 'caughtUp':
+        this.emitter.emit('caughtUp', event.payload);
+        return;
       case 'expirationChanged':
         this.applyTimer(event.conversationId, event.seconds);
         return;
@@ -927,8 +978,13 @@ export class SignalCliBackend implements ChatBackend {
       case 'contactsChanged':
         // Contacts and groups syncs often arrive together (and either can
         // land first right after linking), so a sync of either kind
-        // refreshes both, bypassing the cache TTL.
-        await Promise.all([this.directory.loadContacts(true), this.directory.loadGroups(true)]);
+        // refreshes both, bypassing the cache TTL. The contact listing makes
+        // signal-cli refresh profiles from the server (up to minutes), so it
+        // never holds the queue: results arrive as `contactUpdated` /
+        // `conversationUpdated`. The group listing is local to signal-cli and
+        // stays in order, so a later group update's diff sees this state.
+        void this.directory.loadContacts(true);
+        await this.directory.loadGroups(true);
         return;
       case 'directoryHint':
         this.directory.scheduleContactsRefresh();
@@ -1097,9 +1153,48 @@ export class SignalCliBackend implements ChatBackend {
 
   // ─── Queries ───────────────────────────────────────────────────────────
 
+  /**
+   * Waits for the contact listing, but not for long: a profile refresh can
+   * take minutes, and the three initial queries (self, contacts,
+   * conversations) must not all sit behind it. When the bound passes the
+   * answer is built from what is cached; the listing keeps loading and
+   * arrives as `contactUpdated` / `conversationUpdated`. Never rejects.
+   */
+  private contactsForListing(): Promise<void> {
+    // One bound per load: the queries that follow each other (and the history
+    // open inside them) share it instead of each waiting out its own.
+    if (this.listingWait) return this.listingWait;
+    const load = this.directory.loadContacts();
+    let cancel: Cancel | undefined;
+    const bound = new Promise<void>((resolve) => {
+      cancel = this.scheduler.setTimeout(resolve, LISTING_CONTACTS_WAIT_MS);
+    });
+    const wait = Promise.race([load, bound]).then(() => cancel?.());
+    this.listingWait = wait;
+    void load.finally(() => {
+      cancel?.();
+      if (this.listingWait === wait) this.listingWait = null;
+    });
+    return wait;
+  }
+
+  /** The imported history, or null if it can't be read: it only enriches the listing, never fails it. */
+  private async historyForListing(): Promise<{
+    archive: HistoryArchive | null;
+    unreadable: boolean;
+  }> {
+    try {
+      return { archive: await this.loadHistory(), unreadable: false };
+    } catch (error) {
+      // The kind only: nothing from the archive itself.
+      log.warn('history unavailable for the listing', { reason: describeError(error) });
+      return { archive: null, unreadable: true };
+    }
+  }
+
   async getSelf(): Promise<Contact> {
     this.assertAccount();
-    await this.directory.loadContacts();
+    await this.contactsForListing();
     const known = this.directory.contact(this.selfId);
     const self: Contact = known
       ? { ...known, isSelf: true }
@@ -1115,8 +1210,10 @@ export class SignalCliBackend implements ChatBackend {
 
   async listContacts(): Promise<Contact[]> {
     this.assertAccount();
-    const contacts = await this.directory.loadContacts();
-    const history = await this.loadHistory();
+    await this.contactsForListing();
+    const { archive: history } = await this.historyForListing();
+    // After the (slow) history read: a listing that finished meanwhile is included.
+    const contacts = this.directory.allContacts();
     return [
       ...new Map(
         [...(history?.directory.contacts() ?? []), ...contacts].map((contact) => [
@@ -1154,13 +1251,14 @@ export class SignalCliBackend implements ChatBackend {
     this.assertAccount();
     const [groups] = await Promise.all([
       this.directory.loadGroups(),
-      this.directory.loadContacts(), // populates the cache directConversation's names read from.
+      this.contactsForListing(), // populates the cache directConversation's names read from.
     ]);
     const dms = new Map<string, Conversation>();
     for (const [peer, at] of this.peers?.entries() ?? []) {
       dms.set(peer, this.directConversation(peer, at));
     }
-    const history = await this.loadHistory();
+    const { archive: history, unreadable } = await this.historyForListing();
+    const dmIds = new Set([...dms.values()].map((conversation) => conversation.id));
     const live = new Set([...groups, ...dms.values()].map((conversation) => conversation.id));
     // Per-id: the archive's newest real message (for ordering *and*
     // existence) and its archived-on-the-phone hint — looked up for every
@@ -1211,6 +1309,9 @@ export class SignalCliBackend implements ChatBackend {
         lastActivityAt: Math.max(conversation.lastActivityAt, historyAt),
         ...(historyArchivedIds.has(conversation.id) ? { historyArchived: true } : {}),
         ...(historyLatestAt.has(conversation.id) ? { historyHasMessages: true } : {}),
+        // Without the archive a DM known only from peer data can't be told from
+        // a stale one: say so, so it isn't dropped for it.
+        ...(unreadable && dmIds.has(conversation.id) ? { historyUnreadable: true } : {}),
       });
     }
     if (!this.listingLogged) {
@@ -1234,7 +1335,7 @@ export class SignalCliBackend implements ChatBackend {
     if (this.history) return this.history;
     const signal = this.historyAbort.signal;
     const pending = (async () => {
-      await this.directory.loadContacts();
+      await this.contactsForListing();
       if (signal.aborted) throw new SignalCliError('aborted', 'History session ended');
       const identity = this.identity;
       const peers = this.peers;

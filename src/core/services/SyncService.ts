@@ -50,6 +50,7 @@ import {
   type Unsubscribe,
 } from '@/core/lib';
 import { latestRealMessage, type MessageRepository } from '@/core/persistence';
+import { refreshPreviewAfterRemoval } from './sidebarPreview';
 import {
   computeUnread,
   effectivePrivacy,
@@ -173,7 +174,18 @@ export class SyncService {
   private readonly pendingOps: PendingOpsBuffer;
   private readonly onError: ErrorReporter;
   private unsubscribers: Unsubscribe[] = [];
+  /**
+   * The second of two serial queues in series (the first is the backend
+   * adapter's; see the ordering contract at `SignalCliBackend.enqueue`). It
+   * applies what the adapter emitted, in the order emitted, and a `checkpoint`
+   * is acknowledged only after everything before it is stored. Nothing that
+   * waits on the network runs in it: read receipts go out behind it
+   * (`receiptTail`), so a slow call never holds later events. Ephemeral events
+   * (`status`, `typing`, `catchingUp`, `contactUpdated`, ...) skip it.
+   */
   private queue: Promise<void> = Promise.resolve();
+  /** Read receipts in flight, one at a time (see `sendReceiptsInOrder`); not part of `queue`. */
+  private receiptTail: Promise<void> = Promise.resolve();
   /** The connect attempt in flight, if any; callers join it rather than starting a second. */
   private startPromise: Promise<void> | null = null;
   /**
@@ -218,6 +230,8 @@ export class SyncService {
    * and must not end the new one.
    */
   private catchUpEpoch = 0;
+  /** The newest catch-up number the backend has announced (see `CatchUpMark`). */
+  private backendCatchUpSeq = 0;
   /** Read receipts earned while the phone's settings were still unknown; sent or dropped once they're known. */
   private heldReceipts: {
     conversationId: ConversationId;
@@ -248,6 +262,7 @@ export class SyncService {
     this.catchUpTracker = new CatchUpTracker({
       clock: deps.clock,
       scheduler: deps.scheduler,
+      isBusy: () => this.hasPendingEvents(),
       onChange: (catchingUp) => {
         this.deps.stores.session.getState().setCatchingUp(catchingUp);
       },
@@ -255,6 +270,7 @@ export class SyncService {
     this.notificationHold = new CatchUpTracker({
       clock: deps.clock,
       scheduler: deps.scheduler,
+      isBusy: () => this.hasPendingEvents(),
       onChange: (held) => {
         this.deps.stores.session.getState().setNotificationsHeld(held);
       },
@@ -484,9 +500,20 @@ export class SyncService {
 
   private enqueue(event: string, task: () => Promise<void> | void): void {
     const generation = this.generation;
-    this.queue = this.queue.then(() =>
-      generation === this.generation ? this.run(event, task) : undefined,
-    );
+    this.queued++;
+    this.queue = this.queue.then(() => {
+      if (generation === this.generation) return this.run(event, task, true);
+      this.queued--;
+      return undefined;
+    });
+  }
+
+  /** Tasks waiting in (or running in) this queue. */
+  private queued = 0;
+
+  /** Whether events are still waiting in this queue or in the backend's own. */
+  private hasPendingEvents(): boolean {
+    return this.queued > 0 || this.deps.backend.hasPendingEvents?.() === true;
   }
 
   private unsubscribeAll(): void {
@@ -510,6 +537,9 @@ export class SyncService {
     this.deps.postConnect?.reset();
     await this.waitForPostReady();
     await this.idle();
+    // A read receipt still in flight goes out before the connection is closed,
+    // but a hung one is only waited for briefly.
+    await this.waitForReceipts();
     // Disconnect while still subscribed so the final "offline" status reaches the store.
     await this.deps.backend.disconnect();
     this.teardown();
@@ -530,10 +560,20 @@ export class SyncService {
     this.postReady = null;
   }
 
+  private async waitForReceipts(): Promise<void> {
+    let cancel: Cancel | undefined;
+    const gaveUp = new Promise<void>((resolve) => {
+      cancel = this.deps.scheduler.setTimeout(resolve, POST_READY_STOP_WAIT_MS);
+    });
+    await Promise.race([this.receiptTail, gaveUp]);
+    cancel?.();
+  }
+
   private teardown(): void {
     this.generation++;
     this.unsubscribeAll();
     this.queue = Promise.resolve();
+    this.receiptTail = Promise.resolve();
     this.backlog = [];
     this.gated = true;
     this.heldReceipts = [];
@@ -558,7 +598,37 @@ export class SyncService {
 
   // ─── Initial sync ──────────────────────────────────────────────────────
 
+  /**
+   * Stores a contact, and the user's own profile when it is theirs. The initial
+   * sync answers from what it has after a bounded wait on the contact listing,
+   * so the real profile can arrive after `getSelf` gave a placeholder; a photo
+   * set this session is kept.
+   */
+  private applyContact(contact: Contact): void {
+    const { stores } = this.deps;
+    stores.contacts.getState().upsert(contact);
+    const self = stores.session.getState().self;
+    if (self && contact.id === self.id) {
+      const avatarUrl = self.avatarUrl;
+      stores.session
+        .getState()
+        .setSelf({ ...contact, isSelf: true, ...(avatarUrl ? { avatarUrl } : {}) });
+    }
+  }
+
+  /** Contacts announced while the initial sync was loading (see `contactsSeenDuringSync`). */
+  private contactsSeenDuringSync: Map<string, Contact> | null = null;
+
   private async initialSync(): Promise<void> {
+    this.contactsSeenDuringSync = new Map();
+    try {
+      await this.runInitialSync();
+    } finally {
+      this.contactsSeenDuringSync = null;
+    }
+  }
+
+  private async runInitialSync(): Promise<void> {
     const { backend, repository, stores } = this.deps;
     const [self, contacts, listedByBackend] = await Promise.all([
       backend.getSelf(),
@@ -568,6 +638,8 @@ export class SyncService {
     const conversations = this.admit(listedByBackend);
     stores.session.getState().setSelf(self);
     stores.contacts.getState().upsertMany([self, ...contacts]);
+    // Anything announced while those answers were being built is newer.
+    for (const contact of this.contactsSeenDuringSync?.values() ?? []) this.applyContact(contact);
     this.grandfatherRequests(conversations, await repository.getReadCursors());
     stores.conversations.getState().upsertMany(conversations);
     this.seedHistoryLocalState(conversations);
@@ -727,7 +799,18 @@ export class SyncService {
       !isDeletedRequest(stores, conv.id) &&
       (await repository.count(conv.id)) === 0
     ) {
-      const page = await backend.fetchHistory(conv.id, { limit: this.deps.seedPageSize ?? 50 });
+      // Imported history only enriches a chat: when it can't be read, the chat
+      // starts without it instead of failing the whole initial sync.
+      const page = await backend
+        .fetchHistory(conv.id, { limit: this.deps.seedPageSize ?? 50 })
+        .catch((error: unknown) => {
+          log.warn('history unavailable for a chat', { reason: errorKindOf(error) ?? 'unknown' });
+          const none: { messages: Message[]; hasMoreBefore: boolean; readUpTo?: number } = {
+            messages: [],
+            hasMoreBefore: false,
+          };
+          return none;
+        });
       // Checked again after the (slow) fetch: the user may have deleted it meanwhile.
       const stored = isDeletedRequest(stores, conv.id)
         ? []
@@ -811,6 +894,12 @@ export class SyncService {
           stores.messages.getState().remove(message.conversationId, state.id);
           const selfId = this.selfId();
           if (selfId) stores.conversations.getState().applyRemoval(message, selfId);
+          await refreshPreviewAfterRemoval(
+            stores.conversations,
+            repository,
+            message.conversationId,
+            message,
+          );
         } else if (state.expiresAt !== undefined) {
           const expiresAt = state.expiresAt;
           const updated = await repository.update(state.id, (current) => {
@@ -882,6 +971,12 @@ export class SyncService {
           stores.messages.getState().remove(conversationId, state.id);
           const selfId = this.selfId();
           if (selfId) stores.conversations.getState().applyRemoval(current, selfId);
+          await refreshPreviewAfterRemoval(
+            stores.conversations,
+            repository,
+            conversationId,
+            current,
+          );
           continue;
         }
         const expiresAt = state.expiresAt;
@@ -912,6 +1007,20 @@ export class SyncService {
    * badges and (if enabled) sends read receipts for the newly read messages.
    */
   async markConversationRead(conversationId: ConversationId): Promise<void> {
+    const { receipts } = await this.markReadLocally(conversationId);
+    await receipts;
+  }
+
+  /**
+   * The local half of {@link markConversationRead}: cursor, badge and
+   * repository are settled when the returned promise resolves. The read
+   * receipt / read sync (a network call) is started behind it and handed back
+   * as `receipts`: the event queue never waits for it, the UI-facing
+   * `markConversationRead` does.
+   */
+  private async markReadLocally(
+    conversationId: ConversationId,
+  ): Promise<{ receipts?: Promise<void> }> {
     const { repository, stores } = this.deps;
     // A hand-set "unread" flag is local only and always ends here.
     stores.local.getState().setMarkedUnread(conversationId, false);
@@ -922,27 +1031,32 @@ export class SyncService {
     if (latest === undefined) {
       log.info('read sync skipped', { reason: 'no-unread' });
       stores.conversations.getState().setUnread(conversationId, { count: 0, mentions: 0 });
-      return;
+      return {};
     }
-    if (!stores.conversations.getState().markRead(conversationId, latest)) {
+    // Only what was read comes off the badge: a message counted since this
+    // snapshot (seq beyond `latest`) is still unread.
+    const read = selfId ? computeUnread(unread, selfId, cursor) : undefined;
+    if (!stores.conversations.getState().markRead(conversationId, latest, read)) {
       log.info('read sync skipped', { reason: 'already-read' });
-      return;
+      return {};
     }
     await repository.setReadCursor(conversationId, latest);
     const toAck = unread.filter((m) => m.authorId !== selfId && m.kind === 'normal');
     if (toAck.length === 0) {
       log.info('read sync skipped', { reason: 'nothing-from-others' });
-      return;
+      return {};
     }
     // Reading is always synced to the user's own devices (that is what marks
     // it read on their phone). A message request is read without telling the
     // sender anything: its receipts go out only if the user accepts
     // (`sendHeldReadReceipts`).
-    await this.sendReadReceipts(
-      conversationId,
-      toAck.map((m) => ({ authorId: m.authorId, sentAt: m.sentAt })),
-      selectMessageRequestState(stores, conversationId) === 'accepted',
-    );
+    return {
+      receipts: this.sendReceiptsInOrder(
+        conversationId,
+        toAck.map((m) => ({ authorId: m.authorId, sentAt: m.sentAt })),
+        selectMessageRequestState(stores, conversationId) === 'accepted',
+      ),
+    };
   }
 
   /**
@@ -970,12 +1084,35 @@ export class SyncService {
     // only the receipts to the senders are new now. (Where they're not
     // allowed nothing is sent; where they are, signal-cli sends the receipt
     // and, harmlessly, repeats the sync.)
-    await this.sendReadReceipts(
+    await this.sendReceiptsInOrder(
       conversationId,
       read.map((m) => ({ authorId: m.authorId, sentAt: m.sentAt })),
       true,
       false,
     );
+  }
+
+  /**
+   * Runs `sendReadReceipts` one call at a time, in the order asked, outside
+   * the event queue. Order is the only thing receipts need (a later read of
+   * the same chat must not overtake an earlier one); nothing in the queue
+   * depends on their outcome, so a slow or hung `sendReceipt` only delays
+   * later receipts, never an incoming message. Never rejects.
+   */
+  private sendReceiptsInOrder(
+    conversationId: ConversationId,
+    messages: MessageRef[],
+    accepted: boolean,
+    syncWithoutReceipt = true,
+  ): Promise<void> {
+    const generation = this.generation;
+    const run = this.receiptTail.then(() =>
+      generation === this.generation
+        ? this.sendReadReceipts(conversationId, messages, accepted, syncWithoutReceipt)
+        : undefined,
+    );
+    this.receiptTail = run.catch(() => undefined);
+    return run;
   }
 
   /**
@@ -998,6 +1135,7 @@ export class SyncService {
     syncWithoutReceipt = true,
   ): Promise<void> {
     const { backend, stores } = this.deps;
+    const generation = this.generation;
     const privacy = effectivePrivacy(
       stores.settings.getState().behaviour,
       stores.session.getState().phonePrivacy,
@@ -1033,7 +1171,8 @@ export class SyncService {
       if (ok(fields.receipt) && ok(fields.sync)) log.info('read sync sent', fields);
       else log.warn('read sync sent', fields);
     } catch (error) {
-      this.onError(error, 'read receipt failed');
+      // A receipt that fails because the session was torn down under it is not news.
+      if (generation === this.generation) this.onError(error, 'read receipt failed');
     }
   }
 
@@ -1200,13 +1339,6 @@ export class SyncService {
       },
       true,
     );
-    // Any arrival, parked or not, means the backlog is still flowing.
-    this.unsubscribers.push(
-      backend.on('message', () => {
-        this.catchUpTracker.onMessage();
-        this.notificationHold.onMessage();
-      }),
-    );
     // The phone's privacy settings changed (patches/signal-cli 0022). Ephemeral:
     // applied at once, never parked behind the initial sync.
     on(
@@ -1233,7 +1365,8 @@ export class SyncService {
     // ignored there.
     on(
       'catchingUp',
-      () => {
+      (mark) => {
+        if (mark) this.backendCatchUpSeq = mark.seq;
         if (this.gated) return;
         this.startCatchUp(backend.supportsOrderedCatchingUp?.() === true);
         this.armCatchUpQuiet();
@@ -1245,10 +1378,14 @@ export class SyncService {
     // stamped on arrival (see `catchUpEpoch`): one that was already waiting
     // when a newer catch-up began belongs to the one before.
     this.unsubscribers.push(
-      backend.on('caughtUp', () => {
+      backend.on('caughtUp', (mark) => {
         const epoch = this.catchUpEpoch;
+        // Numbered by the backend when the signal arrived there: the backend
+        // emits it behind its own queue, so a newer catch-up may have begun
+        // by now even though the epoch above is current.
+        const stale = mark !== undefined && mark.seq < this.backendCatchUpSeq;
         const end = (): void => {
-          if (epoch !== this.catchUpEpoch) {
+          if (stale || epoch !== this.catchUpEpoch) {
             log.info('ignored a caughtUp that belongs to an earlier catch-up');
             return;
           }
@@ -1272,7 +1409,10 @@ export class SyncService {
     on(
       'contactUpdated',
       (contact) => {
-        this.deps.stores.contacts.getState().upsert(contact);
+        // During the initial sync the answers it is about to store may be
+        // older than this: remember the newest per contact and re-apply after.
+        this.contactsSeenDuringSync?.set(contact.id, contact);
+        this.applyContact(contact);
       },
       true,
     );
@@ -1333,66 +1473,83 @@ export class SyncService {
     });
   }
 
-  private async run(event: string, fn: () => Promise<void> | void): Promise<void> {
+  private async run(
+    event: string,
+    fn: () => Promise<void> | void,
+    /** Came from the queue: counts down `queued` when done. */
+    queued = false,
+  ): Promise<void> {
     try {
       await fn();
     } catch (error) {
       // One bad event must not stall the queue.
       this.onError(error, `sync: ${event} handler failed`);
+    } finally {
+      if (queued) this.queued--;
     }
   }
 
   private async onMessage(incoming: Message, live: boolean): Promise<void> {
-    const { repository, stores } = this.deps;
-    // A re-delivered (replayed) disappearing message must not come back
-    // after it has been purged, nor flash in if it is already due.
-    if (this.purged.has(incoming.id)) return;
-    if (incoming.expiresAt !== undefined && incoming.expiresAt <= this.deps.clock.now()) {
-      this.rememberPurged(incoming.id);
-      return;
+    // A message processed (not merely arrived) means the backlog is still
+    // flowing: the quiet period is measured on the same step that decides
+    // whether it notifies (`messageArrived` is emitted at the end of this
+    // method), so it cannot end while stored-but-unprocessed messages are
+    // still queued behind it.
+    try {
+      const { repository, stores } = this.deps;
+      // A re-delivered (replayed) disappearing message must not come back
+      // after it has been purged, nor flash in if it is already due.
+      if (this.purged.has(incoming.id)) return;
+      if (incoming.expiresAt !== undefined && incoming.expiresAt <= this.deps.clock.now()) {
+        this.rememberPurged(incoming.id);
+        return;
+      }
+      // A delete/reaction/edit/pin that beat this message (out of order, or a
+      // race with our own send) is replayed before the message is ever stored
+      // or emitted, so it never has a window to show up "undone".
+      // Someone the user deleted wrote again: it is a fresh message request.
+      if (incoming.authorId !== this.selfId())
+        stores.local.getState().clearDeleted(incoming.conversationId);
+      // A burst of held-back messages from someone whose key changed brings one
+      // "Safety Number … has changed" line, not one each: skip it while the last
+      // line in the chat is already that one.
+      if (incoming.systemAction?.kind === 'safety-number') {
+        // The key behind a verified badge just changed.
+        stores.identities.getState().setTrust(incoming.systemAction.contactId, 'untrusted');
+        if (this.repeatsLastLine(incoming)) return;
+      }
+      const queued = this.pendingOps.take(incoming.id, this.deps.clock.now());
+      const toStore = queued.reduce((m, op) => op(m), incoming);
+      const { message, created } = await repository.upsert(toStore, mergeDuplicate);
+      const id = message.conversationId;
+      // Our own message, including one sent from the phone, accepts the chat.
+      acceptForOutgoing(stores, [message], this.deps.clock.now());
+      stores.messages.getState().appendLive(message);
+      // System lines (decrypt failures, timer changes) are stored and shown
+      // like any other message, but must never move a chat up or (below)
+      // create one on their own — only a real message does either.
+      if (message.kind === 'normal') {
+        stores.conversations.getState().bumpActivity(id, message.sentAt);
+        this.confirmedReal.add(id);
+      }
+      stores.conversations.getState().noteLatest(message);
+      stores.typing.getState().setTyping(id, message.authorId, false, this.deps.clock.now());
+      if (message.kind === 'normal' && !stores.conversations.getState().byId[id])
+        this.ensureConversation(message);
+      if (message.expiresAt !== undefined)
+        this.schedulePurge(message.expiresAt - this.deps.clock.now());
+      // A re-delivery must not count twice or re-notify plugins.
+      if (!created) return;
+      // New activity brings an archived chat back to the list, like Signal Desktop
+      // (it does so for a muted one too, unless "keep muted chats archived" is on).
+      if (message.kind === 'normal') stores.local.getState().unarchive(id);
+      await this.updateReadState(message);
+      this.events.emit('message', message);
+      this.events.emit('messageArrived', { message, live });
+    } finally {
+      this.catchUpTracker.onMessage();
+      this.notificationHold.onMessage();
     }
-    // A delete/reaction/edit/pin that beat this message (out of order, or a
-    // race with our own send) is replayed before the message is ever stored
-    // or emitted, so it never has a window to show up "undone".
-    // Someone the user deleted wrote again: it is a fresh message request.
-    if (incoming.authorId !== this.selfId())
-      stores.local.getState().clearDeleted(incoming.conversationId);
-    // A burst of held-back messages from someone whose key changed brings one
-    // "Safety Number … has changed" line, not one each: skip it while the last
-    // line in the chat is already that one.
-    if (incoming.systemAction?.kind === 'safety-number') {
-      // The key behind a verified badge just changed.
-      stores.identities.getState().setTrust(incoming.systemAction.contactId, 'untrusted');
-      if (this.repeatsLastLine(incoming)) return;
-    }
-    const queued = this.pendingOps.take(incoming.id, this.deps.clock.now());
-    const toStore = queued.reduce((m, op) => op(m), incoming);
-    const { message, created } = await repository.upsert(toStore, mergeDuplicate);
-    const id = message.conversationId;
-    // Our own message, including one sent from the phone, accepts the chat.
-    acceptForOutgoing(stores, [message], this.deps.clock.now());
-    stores.messages.getState().appendLive(message);
-    // System lines (decrypt failures, timer changes) are stored and shown
-    // like any other message, but must never move a chat up or (below)
-    // create one on their own — only a real message does either.
-    if (message.kind === 'normal') {
-      stores.conversations.getState().bumpActivity(id, message.sentAt);
-      this.confirmedReal.add(id);
-    }
-    stores.conversations.getState().noteLatest(message);
-    stores.typing.getState().setTyping(id, message.authorId, false, this.deps.clock.now());
-    if (message.kind === 'normal' && !stores.conversations.getState().byId[id])
-      this.ensureConversation(message);
-    if (message.expiresAt !== undefined)
-      this.schedulePurge(message.expiresAt - this.deps.clock.now());
-    // A re-delivery must not count twice or re-notify plugins.
-    if (!created) return;
-    // New activity brings an archived chat back to the list, like Signal Desktop
-    // (it does so for a muted one too, unless "keep muted chats archived" is on).
-    if (message.kind === 'normal') stores.local.getState().unarchive(id);
-    await this.updateReadState(message);
-    this.events.emit('message', message);
-    this.events.emit('messageArrived', { message, live });
   }
 
   /** Whether the newest loaded message is a system line with the same button for the same person. */
@@ -1418,7 +1575,8 @@ export class SyncService {
         await repository.setReadCursor(id, message.seq);
       }
     } else if (this.isViewing(id)) {
-      await this.markConversationRead(id);
+      // The receipt is a network call: it runs behind the queue, never in it.
+      await this.markReadLocally(id);
     } else {
       stores.conversations.getState().applyIncoming(message, selfId);
     }
@@ -1677,6 +1835,7 @@ export class SyncService {
       this.rememberPurged(m.id);
       stores.messages.getState().remove(m.conversationId, m.id);
       if (selfId) stores.conversations.getState().applyRemoval(m, selfId);
+      await refreshPreviewAfterRemoval(stores.conversations, repository, m.conversationId, m);
     }
     return expired.length;
   }
@@ -1740,7 +1899,12 @@ export class SyncService {
    * vanish under the user before they've written anything.
    */
   private mayDropAsStale(conv: Conversation): boolean {
-    if (parseConversationId(conv.id)?.kind !== 'direct' || conv.historyHasMessages) return false;
+    if (
+      parseConversationId(conv.id)?.kind !== 'direct' ||
+      conv.historyHasMessages ||
+      conv.historyUnreadable
+    )
+      return false;
     const open = this.deps.stores.ui.getState().selectedConversationBySpace;
     return !Object.values(open).includes(conv.id);
   }
