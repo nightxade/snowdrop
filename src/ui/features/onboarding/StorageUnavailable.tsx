@@ -19,6 +19,7 @@ export interface StorageUnavailableProps {
  */
 export function StorageUnavailable({ reason, onRetry }: StorageUnavailableProps) {
   const [checking, setChecking] = useState(false);
+  const [retryError, setRetryError] = useState<string | null>(null);
   const copy =
     reason === 'alreadyRunning'
       ? {
@@ -42,6 +43,11 @@ export function StorageUnavailable({ reason, onRetry }: StorageUnavailableProps)
           {copy.icon} {copy.title}
         </h2>
         <p className={setupStyles.lede}>{copy.body}</p>
+        {retryError && (
+          <p className={setupStyles.error} role="alert">
+            Couldn&rsquo;t check again: {retryError}
+          </p>
+        )}
         <div className={setupStyles.actions}>
           <Button
             type="button"
@@ -50,9 +56,14 @@ export function StorageUnavailable({ reason, onRetry }: StorageUnavailableProps)
             disabled={checking}
             onClick={() => {
               setChecking(true);
-              void onRetry().finally(() => {
-                setChecking(false);
-              });
+              setRetryError(null);
+              void onRetry()
+                .catch((e: unknown) => {
+                  setRetryError(e instanceof Error ? e.message : String(e));
+                })
+                .finally(() => {
+                  setChecking(false);
+                });
             }}
           >
             Try again

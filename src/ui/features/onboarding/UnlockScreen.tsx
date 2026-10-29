@@ -76,6 +76,10 @@ export function UnlockScreen({ status, admin, onStatusChange }: UnlockScreenProp
     }
   };
 
+  // A passphrase is whatever was typed (spaces included, as setup allows);
+  // only a recovery key is expected to be free of stray whitespace.
+  const canSubmit = method === 'passphrase' ? secret.length > 0 : secret.trim().length > 0;
+
   return (
     <OnboardingShell>
       <section className={setupStyles.card} aria-labelledby="unlock-title" data-snowdrop="unlock">
@@ -132,7 +136,7 @@ export function UnlockScreen({ status, admin, onStatusChange }: UnlockScreenProp
               Remember on this device
             </Checkbox>
             <div className={setupStyles.actions}>
-              <Button type="submit" variant="primary" disabled={busy || !secret.trim()}>
+              <Button type="submit" variant="primary" disabled={busy || !canSubmit}>
                 Unlock
               </Button>
               <Button

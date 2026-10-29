@@ -41,11 +41,15 @@ export function ThemesPage() {
   } | null>(null);
   const [trial, setTrial] = useState<Trial | null>(null);
 
-  const revert = (t: Trial) => {
+  const restore = (t: Trial) => {
     const s = stores.settings.getState();
     s.update('appearance', { themeId: t.previousThemeId });
     if (t.replaced) s.saveCustomTheme(t.replaced);
     else s.removeCustomTheme(t.themeId);
+  };
+
+  const revert = (t: Trial) => {
+    restore(t);
     setTrial(null);
     setStatus({ tone: 'warning', lines: ['Reverted. The imported theme was not kept.'] });
   };
@@ -63,6 +67,22 @@ export function ThemesPage() {
     // revert reads only stable store actions.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trial]);
+
+  // Leaving the page (another settings page, a search, closing Settings)
+  // while a theme is still on probation counts as not keeping it, exactly
+  // like letting the countdown run out.
+  const pending = useRef<Trial | null>(null);
+  useEffect(() => {
+    pending.current = trial;
+  }, [trial]);
+  useEffect(
+    () => () => {
+      if (pending.current) restore(pending.current);
+    },
+    // restore reads only stable store actions.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
 
   const apply = (theme: CustomThemeData, warnings: string[]) => {
     const s = stores.settings.getState();

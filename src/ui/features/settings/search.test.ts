@@ -33,4 +33,16 @@ describe('settings search', () => {
     const ids = SETTINGS_PAGES.flatMap((p) => p.entries.map((e) => e.id));
     expect(new Set(ids).size).toBe(ids.length);
   });
+
+  it.each([
+    ['tray', 'behaviour', 'behaviour.closeToTray'],
+    ['focus message box', 'behaviour', 'behaviour.focusComposerOnOpen'],
+    ['tui', 'appearance', 'appearance.shell'],
+    ['show read receipts', 'privacy', 'privacy.showReceipts'],
+    ['sync contacts', 'connection', 'connection.syncContactsAndGroups'],
+    ['upload image', 'custom-emoji', 'customEmoji.upload'],
+  ])('finds "%s" on %s (%s)', (query, pageId, entryId) => {
+    const match = searchSettings(query, SETTINGS_PAGES)!.find((m) => m.pageId === pageId);
+    expect(match?.entryIds.has(entryId)).toBe(true);
+  });
 });

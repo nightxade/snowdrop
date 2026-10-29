@@ -1,9 +1,19 @@
 import { describe, expect, it, vi } from 'vitest';
-import { disconnectExternalDaemon, leaveDemo, signOutDesktop, signOutFlowFor } from './signOutFlow';
+import { createStores } from '@/core/stores';
+import {
+  disconnectExternalDaemon,
+  leaveDemo,
+  signOutDesktop,
+  SignOutRestartFailed,
+  signOutFlowFor,
+} from './signOutFlow';
 
+/** Real stores, with `update` spied so ordering can be asserted. */
 function fakeSettingsStore() {
-  const update = vi.fn();
-  return { store: { getState: () => ({ update }) }, update };
+  const stores = createStores();
+  stores.settings.getState().update('connection', { backend: 'signal-cli', account: '+15550100' });
+  const update = vi.spyOn(stores.settings.getState(), 'update');
+  return { store: stores.settings, stores, update };
 }
 
 describe('signOutFlowFor', () => {
@@ -26,14 +36,14 @@ describe('signOutFlowFor', () => {
 describe('leaveDemo', () => {
   it('clears the backend choice before awaiting a reload', async () => {
     const order: string[] = [];
-    const { store, update } = fakeSettingsStore();
+    const { stores, update } = fakeSettingsStore();
     const reload = vi.fn(() => {
       order.push('reload');
       return Promise.resolve();
     });
     update.mockImplementation(() => order.push('update'));
 
-    await leaveDemo({ stores: { settings: store } as never, admin: { reload } as never });
+    await leaveDemo({ stores, admin: { reload, persist: vi.fn() } as never });
 
     expect(update).toHaveBeenCalledWith('connection', { backend: null });
     expect(reload).toHaveBeenCalledTimes(1);
@@ -44,7 +54,7 @@ describe('leaveDemo', () => {
 describe('disconnectExternalDaemon', () => {
   it('clears the backend choice before awaiting a reload', async () => {
     const order: string[] = [];
-    const { store, update } = fakeSettingsStore();
+    const { stores, update } = fakeSettingsStore();
     const reload = vi.fn(() => {
       order.push('reload');
       return Promise.resolve();
@@ -52,8 +62,8 @@ describe('disconnectExternalDaemon', () => {
     update.mockImplementation(() => order.push('update'));
 
     await disconnectExternalDaemon({
-      stores: { settings: store } as never,
-      admin: { reload } as never,
+      stores,
+      admin: { reload, persist: vi.fn() } as never,
     });
 
     expect(update).toHaveBeenCalledWith('connection', { backend: null });
@@ -65,7 +75,7 @@ describe('disconnectExternalDaemon', () => {
 describe('signOutDesktop', () => {
   it('clears the backend/account choice, then persists, then signs out, then clears history, then restarts', async () => {
     const order: string[] = [];
-    const { store, update } = fakeSettingsStore();
+    const { stores, update } = fakeSettingsStore();
     update.mockImplementation(() => order.push('update'));
     const clearHistory = vi.fn(() => {
       order.push('clearHistory');
@@ -94,7 +104,7 @@ describe('signOutDesktop', () => {
     });
 
     await signOutDesktop({
-      stores: { settings: store } as never,
+      stores,
       admin: { clearAccountData, clearHistory, disconnect, persist, setPendingHistoryClear },
       storageAdmin: { signOut, restart } as never,
     });
@@ -115,7 +125,7 @@ describe('signOutDesktop', () => {
 
   it('still restarts, and records a pending-clear flag, if clearHistory fails after signOut', async () => {
     const order: string[] = [];
-    const { store } = fakeSettingsStore();
+    const { stores } = fakeSettingsStore();
     const clearHistory = vi.fn(() => {
       order.push('clearHistory');
       return Promise.reject(new Error('IDB is busy'));
@@ -137,7 +147,7 @@ describe('signOutDesktop', () => {
     });
 
     await signOutDesktop({
-      stores: { settings: store } as never,
+      stores,
       admin: { clearAccountData, clearHistory, disconnect, persist, setPendingHistoryClear },
       storageAdmin: { signOut, restart } as never,
     });
@@ -147,10 +157,10 @@ describe('signOutDesktop', () => {
   });
 
   it('refuses without a desktop storage admin', async () => {
-    const { store } = fakeSettingsStore();
+    const { stores } = fakeSettingsStore();
     await expect(
       signOutDesktop({
-        stores: { settings: store } as never,
+        stores,
         admin: {
           clearAccountData: vi.fn(),
           clearHistory: vi.fn(),
@@ -164,14 +174,14 @@ describe('signOutDesktop', () => {
   });
 
   it('still clears history when clearing the account data fails', async () => {
-    const { store } = fakeSettingsStore();
+    const { stores } = fakeSettingsStore();
     const clearHistory = vi.fn(() => Promise.resolve());
     const setPendingHistoryClear = vi.fn(() => Promise.resolve());
     const restart = vi.fn(() => Promise.resolve());
     vi.spyOn(console, 'error').mockImplementation(() => {});
 
     await signOutDesktop({
-      stores: { settings: store } as never,
+      stores,
       admin: {
         clearAccountData: vi.fn(() => Promise.reject(new Error('storage busy'))),
         clearHistory,
@@ -184,6 +194,141 @@ describe('signOutDesktop', () => {
 
     expect(clearHistory).toHaveBeenCalledTimes(1);
     expect(setPendingHistoryClear).not.toHaveBeenCalled();
+    expect(restart).toHaveBeenCalledTimes(1);
+  });
+
+  it('holds the app on the running backend for the whole flow, and keeps it there if restart fails', async () => {
+    const { stores } = fakeSettingsStore();
+    const seen: boolean[] = [];
+    const persist = vi.fn(() => {
+      seen.push(stores.ui.getState().signingOut);
+      return Promise.resolve();
+    });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    await expect(
+      signOutDesktop({
+        stores,
+        admin: {
+          clearAccountData: vi.fn(() => Promise.resolve()),
+          clearHistory: vi.fn(() => Promise.resolve()),
+          disconnect: vi.fn(() => Promise.resolve()),
+          persist,
+          setPendingHistoryClear: vi.fn(() => Promise.resolve()),
+        },
+        storageAdmin: {
+          signOut: vi.fn(() => Promise.resolve()),
+          restart: vi.fn(() => Promise.reject(new Error('no restart'))),
+        } as never,
+      }),
+    ).rejects.toBeInstanceOf(SignOutRestartFailed);
+    expect(seen).toEqual([true]);
+    expect(stores.ui.getState().signingOut).toBe(true);
+    expect(stores.settings.getState().connection.backend).toBeNull();
+  });
+
+  it.each(['persist', 'signOut'] as const)(
+    'restores the saved connection and rejects when %s fails, so the user stays signed in',
+    async (failing) => {
+      const { stores } = fakeSettingsStore();
+      let persists = 0;
+      const persist = vi.fn(() => {
+        persists += 1;
+        return failing === 'persist' && persists === 1
+          ? Promise.reject(new Error('disk full'))
+          : Promise.resolve();
+      });
+      const restart = vi.fn(() => Promise.resolve());
+      const clearHistory = vi.fn(() => Promise.resolve());
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      await expect(
+        signOutDesktop({
+          stores,
+          admin: {
+            clearAccountData: vi.fn(() => Promise.resolve()),
+            clearHistory,
+            disconnect: vi.fn(() => Promise.resolve()),
+            persist,
+            setPendingHistoryClear: vi.fn(() => Promise.resolve()),
+          },
+          storageAdmin: {
+            signOut: vi.fn(() =>
+              failing === 'signOut' ? Promise.reject(new Error('vault busy')) : Promise.resolve(),
+            ),
+            restart,
+          } as never,
+        }),
+      ).rejects.toThrow(failing === 'persist' ? 'disk full' : 'vault busy');
+      const { connection } = stores.settings.getState();
+      expect(connection.backend).toBe('signal-cli');
+      expect(connection.account).toBe('+15550100');
+      expect(stores.ui.getState().signingOut).toBe(false);
+      // The restored choice is written back, and nothing destructive ran.
+      expect(persists).toBe(2);
+      expect(clearHistory).not.toHaveBeenCalled();
+      expect(restart).not.toHaveBeenCalled();
+    },
+  );
+});
+
+describe('sign-out failures', () => {
+  it('restores the choice and rejects when the reload step fails', async () => {
+    const { stores } = fakeSettingsStore();
+    await expect(
+      leaveDemo({
+        stores,
+        admin: {
+          reload: vi.fn(() => Promise.reject(new Error('nope'))),
+          persist: vi.fn(),
+        } as never,
+      }),
+    ).rejects.toThrow('nope');
+    expect(stores.settings.getState().connection.backend).toBe('signal-cli');
+    expect(stores.ui.getState().signingOut).toBe(false);
+  });
+
+  it('tells the user the sign-out may be unrecorded when the restore also fails to save', async () => {
+    const { stores } = fakeSettingsStore();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    let persists = 0;
+    await expect(
+      signOutDesktop({
+        stores,
+        admin: {
+          clearAccountData: vi.fn(),
+          clearHistory: vi.fn(),
+          disconnect: vi.fn(),
+          persist: vi.fn(() => {
+            persists += 1;
+            return persists === 1 ? Promise.resolve() : Promise.reject(new Error('disk full'));
+          }),
+          setPendingHistoryClear: vi.fn(),
+        },
+        storageAdmin: {
+          signOut: vi.fn(() => Promise.reject(new Error('vault busy'))),
+          restart: vi.fn(),
+        } as never,
+      }),
+    ).rejects.toThrow(/vault busy.*still signed in.*Connect/u);
+    expect(stores.settings.getState().connection.backend).toBe('signal-cli');
+  });
+
+  it('goes on to the restart, never a generic failure, if the pending-clear flag cannot be saved', async () => {
+    const { stores } = fakeSettingsStore();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const restart = vi.fn(() => Promise.reject(new Error('no restart')));
+    await expect(
+      signOutDesktop({
+        stores,
+        admin: {
+          clearAccountData: vi.fn(() => Promise.resolve()),
+          clearHistory: vi.fn(() => Promise.reject(new Error('IDB is busy'))),
+          disconnect: vi.fn(() => Promise.resolve()),
+          persist: vi.fn(() => Promise.resolve()),
+          setPendingHistoryClear: vi.fn(() => Promise.reject(new Error('storage refused'))),
+        },
+        storageAdmin: { signOut: vi.fn(() => Promise.resolve()), restart } as never,
+      }),
+    ).rejects.toBeInstanceOf(SignOutRestartFailed);
     expect(restart).toHaveBeenCalledTimes(1);
   });
 });

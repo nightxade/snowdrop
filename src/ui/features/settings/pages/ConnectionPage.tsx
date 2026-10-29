@@ -38,6 +38,8 @@ export function ConnectionPage() {
   const [syncState, setSyncState] = useState<'idle' | 'busy' | 'done'>('idle');
   const [confirm, setConfirm] = useState(false);
   const [signOutOpen, setSignOutOpen] = useState(false);
+  const [applying, setApplying] = useState(false);
+  const [applyError, setApplyError] = useState<string | null>(null);
   // The desktop app runs signal-cli itself: no daemon URL, its own settings.
   const desktopAdmin = app.desktop;
   const [desktop, setDesktop] = useState<DesktopConnection>(saved.desktop);
@@ -68,26 +70,55 @@ export function ConnectionPage() {
     backend !== running ||
     (backend === 'signal-cli' && (desktopAdmin ? desktopChanged : signalCliTargetChanged));
 
-  const apply = () => {
-    set({
-      backend,
-      ...(backend === 'signal-cli'
-        ? desktopAdmin
-          ? { desktop }
-          : { daemonUrl: url.trim(), account: account.trim() || null }
-        : {}),
+  // Set once `disconnect()` has run for an account switch: until the page
+  // reloads, Snowdrop is no longer syncing the old account.
+  const [disconnected, setDisconnected] = useState(false);
+
+  // Leaving the dialog after a failed switch reloads, which reconnects to the
+  // saved (old) account; otherwise Snowdrop would stay silently offline.
+  const cancelApply = () => {
+    setApplyError(null);
+    if (!disconnected) {
+      setConfirm(false);
+      return;
+    }
+    setApplying(true);
+    app.admin.reload().catch((error: unknown) => {
+      setApplyError(error instanceof Error ? error.message : String(error));
+      setApplying(false);
     });
-    void (async () => {
-      // Clear before reloading: never let the next account's first paint
-      // show messages that belonged to the previous one.
+  };
+
+  const apply = async () => {
+    setApplying(true);
+    setApplyError(null);
+    try {
+      // Clear before saving or reloading: never let the next account's first
+      // paint show messages that belonged to the previous one. Nothing is
+      // saved until the clear has succeeded, so a failure leaves the draft
+      // unapplied and a retry runs the clear again (saved first, the retry
+      // would see no change and skip it).
       // Disconnect first so a straggler event from the old account can't be
       // written after the clear.
       if (signalCliTargetChanged) {
         await app.admin.disconnect();
+        setDisconnected(true);
         await app.admin.clearHistory();
       }
+      set({
+        backend,
+        ...(backend === 'signal-cli'
+          ? desktopAdmin
+            ? { desktop }
+            : { daemonUrl: url.trim(), account: account.trim() || null }
+          : {}),
+      });
       await app.admin.reload();
-    })();
+      // A successful reload leaves the page; this stays busy until it does.
+    } catch (error) {
+      setApplyError(error instanceof Error ? error.message : String(error));
+      setApplying(false);
+    }
   };
 
   return (
@@ -330,7 +361,7 @@ export function ConnectionPage() {
           open
           size="sm"
           onOpenChange={(open) => {
-            if (!open) setConfirm(false);
+            if (!open && !applying) cancelApply();
           }}
           title="Reload Snowdrop?"
           description={
@@ -342,21 +373,30 @@ export function ConnectionPage() {
           }
           footer={
             <>
+              <Button variant="ghost" data-autofocus disabled={applying} onClick={cancelApply}>
+                {disconnected ? 'Cancel and reconnect' : 'Cancel'}
+              </Button>
               <Button
-                variant="ghost"
-                data-autofocus
+                variant="primary"
+                disabled={applying}
                 onClick={() => {
-                  setConfirm(false);
+                  void apply();
                 }}
               >
-                Cancel
-              </Button>
-              <Button variant="primary" onClick={apply}>
-                Reload now
+                {applying ? 'Reloading…' : 'Reload now'}
               </Button>
             </>
           }
-        />
+        >
+          {applyError && (
+            <p className={styles.error} role="alert">
+              Couldn&rsquo;t apply the change: {applyError}. Nothing was saved.{' '}
+              {disconnected
+                ? 'Snowdrop has stopped syncing the current account; try again, or cancel to reload and reconnect.'
+                : ''}
+            </p>
+          )}
+        </Modal>
       )}
     </>
   );

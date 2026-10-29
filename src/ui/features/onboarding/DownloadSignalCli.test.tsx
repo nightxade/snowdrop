@@ -197,3 +197,32 @@ describe('DownloadSignalCli: starting', () => {
     expect(onInstalled).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('DownloadSignalCli: install rejects', () => {
+  it('leaves the progress bar for an error with a retry instead of waiting forever', async () => {
+    const install = vi
+      .fn<DesktopAdmin['install']>()
+      .mockRejectedValueOnce(new Error('listener failed'))
+      .mockResolvedValue({
+        ok: true,
+        status: { installed: true, version: '0.14.8', path: '/x' },
+      });
+    const onInstalled = vi.fn();
+    render(<DownloadSignalCli admin={fakeAdmin({ install })} onInstalled={onInstalled} />);
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: /Download and continue/u }));
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.queryByRole('progressbar')).toBeNull();
+    expect(screen.getByRole('alert')).toBeTruthy();
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(onInstalled).toHaveBeenCalledTimes(1);
+  });
+});

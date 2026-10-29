@@ -19,6 +19,8 @@ import type { StorageAdmin, StorageStatus } from '@/core/backend';
 import {
   errorKind,
   friendlyKeyringBackend,
+  passphraseFieldProblem,
+  passphraseProblem,
   PassphraseStrengthHint,
   RecoveryKeyReveal,
 } from '@/ui/features/onboarding';
@@ -139,6 +141,7 @@ function RecoverySection({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reminderDismissed, setReminderDismissed] = useState(false);
+  const [revealNudge, setRevealNudge] = useState(0);
 
   // docs/ENCRYPTION.md, "Key hierarchy": removing a slot that would leave
   // `keys.json` with zero of them (no keyring, recovery or passphrase) is
@@ -289,15 +292,29 @@ function RecoverySection({
         <Modal
           open
           size="md"
-          onOpenChange={(open) => {
-            if (!open) setFlow({ kind: 'idle' });
+          // The old key already stopped working and this one is shown once:
+          // only the explicit confirm below ends the reveal.
+          dismissible={false}
+          onDismissAttempt={() => {
+            setRevealNudge((n) => n + 1);
+          }}
+          onOpenChange={() => {
+            // Not dismissible; see above.
           }}
           title="Your recovery key"
-          description="Save this somewhere safe. Anyone with it — and access to this computer's data — could unlock it, so keep it as carefully as a password."
+          description="Save this somewhere safe. Anyone with it — and access to this computer's data — could unlock it, so keep it as carefully as a password. This is the only time it's shown, so this window stays open until you confirm you've saved it by typing the last group below."
         >
+          {revealNudge > 0 && (
+            // Keyed on the attempt count so each Escape or outside click is announced again.
+            <p key={revealNudge} className={styles.error} role="alert">
+              Type the last group below to confirm you&rsquo;ve saved the key, then this window
+              closes.
+            </p>
+          )}
           <RecoveryKeyReveal
             code={flow.code}
             onConfirmed={() => {
+              setRevealNudge(0);
               setFlow({ kind: 'idle' });
             }}
           />
@@ -363,14 +380,8 @@ function PassphraseSection({
   // the other way around.
   const isLastMethod = !status.hasKeyring && !status.hasRecovery;
 
-  const validation =
-    value.length === 0
-      ? 'Enter a passphrase.'
-      : value.length < 8
-        ? 'Use at least 8 characters.'
-        : confirm !== value
-          ? "That doesn't match."
-          : null;
+  const validation = passphraseProblem(value, confirm);
+  const fieldProblem = passphraseFieldProblem(value);
 
   const openEdit = () => {
     setValue('');
@@ -482,11 +493,7 @@ function PassphraseSection({
               data-autofocus
               autoComplete="new-password"
               value={value}
-              error={
-                touched && value.length > 0 && value.length < 8
-                  ? 'Use at least 8 characters.'
-                  : undefined
-              }
+              error={touched && value.length > 0 ? (fieldProblem ?? undefined) : undefined}
               onChange={(e) => {
                 setValue(e.target.value);
               }}

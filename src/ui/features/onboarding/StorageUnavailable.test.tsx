@@ -23,4 +23,17 @@ describe('StorageUnavailable', () => {
     });
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
+
+  it('shows the error, and re-enables the button, when the retry rejects', async () => {
+    const onRetry = vi.fn().mockRejectedValue(new Error('status check failed'));
+    render(<StorageUnavailable reason="alreadyRunning" onRetry={onRetry} />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+      await Promise.resolve();
+    });
+    expect((await screen.findByRole('alert')).textContent).toContain('status check failed');
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Try again' }).disabled).toBe(
+      false,
+    );
+  });
 });

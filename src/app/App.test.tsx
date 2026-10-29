@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createMemoryStorage } from '@/core/persistence';
 import { spacesSelectors, uiSelectors } from '@/core/stores';
 import { App } from './App';
@@ -47,6 +47,36 @@ function key(init: KeyboardEventInit) {
 }
 
 describe('<App />', () => {
+  it('keeps the sign-out dialog up while the flow runs, and shows its error when it fails', async () => {
+    const snowdrop = await bootDemo();
+    let fail: (e: Error) => void = () => {};
+    vi.spyOn(snowdrop.admin, 'reload').mockImplementation(
+      () =>
+        new Promise<void>((_, reject) => {
+          fail = reject;
+        }),
+    );
+    act(() => {
+      snowdrop.stores.ui.getState().openModal({ type: 'signOut' });
+    });
+    const leave = await screen.findByRole('button', { name: 'Leave demo' });
+    await act(async () => {
+      fireEvent.click(leave);
+      await Promise.resolve();
+    });
+    // The saved choice is cleared, but the app must not swap to Welcome.
+    expect(snowdrop.stores.settings.getState().connection.backend).toBeNull();
+    expect(document.querySelector('[data-snowdrop="rail"]')).not.toBeNull();
+    expect(screen.getByRole('button', { name: /Leaving/u })).toBeTruthy();
+    await act(async () => {
+      fail(new Error('could not save'));
+      await Promise.resolve();
+    });
+    expect((await screen.findByRole('alert')).textContent).toContain('could not save');
+    expect(document.querySelector('[data-snowdrop="rail"]')).not.toBeNull();
+    expect(snowdrop.stores.settings.getState().connection.backend).toBe('mock');
+  });
+
   it('goes from the welcome screen into the demo shell', async () => {
     const snowdrop = await bootDemo();
     expect(snowdrop.stores.settings.getState().connection.backend).toBe('mock');

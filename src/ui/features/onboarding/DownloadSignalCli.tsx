@@ -49,18 +49,26 @@ export function DownloadSignalCli({
         prev.step === 'downloading' ? { ...prev, received: p.received, total: p.total } : prev,
       );
     };
-    void admin.install(onProgress).then((result) => {
-      if (result.ok) {
-        setPhase({ step: 'starting' });
-        onInstalled();
-      } else {
-        setPhase({
-          step: 'error',
-          message: friendlyErrorMessage(result.kind, result.message),
-          detail: result.message,
-        });
-      }
-    });
+    void admin.install(onProgress).then(
+      (result) => {
+        if (result.ok) {
+          setPhase({ step: 'starting' });
+          onInstalled();
+        } else {
+          setPhase({
+            step: 'error',
+            message: friendlyErrorMessage(result.kind, result.message),
+            detail: result.message,
+          });
+        }
+      },
+      (error: unknown) => {
+        // The admin reports failures as `{ ok: false }`; a rejection is
+        // unexpected, but must not leave the progress bar up for good.
+        const message = error instanceof Error ? error.message : String(error);
+        setPhase({ step: 'error', message: friendlyErrorMessage(null, message), detail: message });
+      },
+    );
   };
 
   const cancel = () => {

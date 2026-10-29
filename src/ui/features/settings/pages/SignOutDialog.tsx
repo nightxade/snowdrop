@@ -77,9 +77,9 @@ export function SignOutDialog({ onClose }: SignOutDialogProps) {
       <Modal
         open
         size="sm"
-        onOpenChange={() => {
-          // No dismiss: there's nothing left to go back to.
-        }}
+        // No dismiss: there's nothing left to go back to.
+        dismissible={false}
+        onOpenChange={() => undefined}
         title="Restart Snowdrop to finish"
         description="You're signed out on this computer. Snowdrop needs to restart once before it can be used again."
         footer={

@@ -109,3 +109,24 @@ export function passphraseStrength(value: string): PassphraseStrength {
   if (value.length >= 8) return 'fair';
   return 'weak';
 }
+
+/** The shortest passphrase setup and Settings accept. */
+export const MIN_PASSPHRASE = 8;
+
+/**
+ * What is wrong with a new passphrase on its own, or null. The one rule for
+ * setup and Settings. Unlock accepts anything non-empty, so everything this
+ * accepts can be entered there (spaces-only is refused here as a mistake, not
+ * because unlock couldn't take it).
+ */
+export function passphraseFieldProblem(value: string): string | null {
+  if (value.length === 0) return 'Enter a passphrase.';
+  if (value.trim().length === 0) return 'Use more than spaces.';
+  if (value.length < MIN_PASSPHRASE) return `Use at least ${MIN_PASSPHRASE} characters.`;
+  return null;
+}
+
+/** `passphraseFieldProblem`, plus the confirmation match; null means it can be saved. */
+export function passphraseProblem(value: string, confirm: string): string | null {
+  return passphraseFieldProblem(value) ?? (confirm !== value ? "That doesn't match." : null);
+}

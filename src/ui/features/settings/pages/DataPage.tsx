@@ -221,6 +221,7 @@ export function DataPage() {
   const [exportOpen, setExportOpen] = useState(false);
   const [danger, setDanger] = useState<Danger>(null);
   const [busy, setBusy] = useState(false);
+  const [dangerError, setDangerError] = useState<string | null>(null);
   const demo = app.backend.kind === 'mock';
 
   const runExport = async (choice: ExportChoice) => {
@@ -257,14 +258,21 @@ export function DataPage() {
 
   const confirmDanger = async () => {
     setBusy(true);
-    if (danger === 'clear') await app.admin.clearHistory();
-    if (danger === 'reset') {
-      // Keep the connection so a reset doesn't drop you back on the welcome screen.
-      const connection = app.stores.settings.getState().connection;
-      app.stores.settings.getState().reset();
-      app.stores.settings.getState().update('connection', connection);
+    setDangerError(null);
+    try {
+      if (danger === 'clear') await app.admin.clearHistory();
+      if (danger === 'reset') {
+        // Keep the connection so a reset doesn't drop you back on the welcome screen.
+        const connection = app.stores.settings.getState().connection;
+        app.stores.settings.getState().reset();
+        app.stores.settings.getState().update('connection', connection);
+      }
+      await app.admin.reload();
+      // A successful reload leaves the page; this stays busy until it does.
+    } catch (error) {
+      setDangerError(error instanceof Error ? error.message : String(error));
+      setBusy(false);
     }
-    await app.admin.reload();
   };
 
   const fraction =
@@ -381,7 +389,10 @@ export function DataPage() {
           open
           size="sm"
           onOpenChange={(open) => {
-            if (!open && !busy) setDanger(null);
+            if (!open && !busy) {
+              setDanger(null);
+              setDangerError(null);
+            }
           }}
           title={danger === 'clear' ? 'Clear all message history?' : 'Reset all settings?'}
           description={
@@ -397,6 +408,7 @@ export function DataPage() {
                 disabled={busy}
                 onClick={() => {
                   setDanger(null);
+                  setDangerError(null);
                 }}
               >
                 Cancel
@@ -412,7 +424,13 @@ export function DataPage() {
               </Button>
             </>
           }
-        />
+        >
+          {dangerError && (
+            <p className={styles.error} role="alert">
+              {danger === 'clear' ? 'Couldn’t clear the history' : 'Couldn’t reload'}: {dangerError}
+            </p>
+          )}
+        </Modal>
       )}
     </>
   );

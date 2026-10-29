@@ -227,6 +227,28 @@ describe('StorageSetup: no keyring', () => {
     expect(setup).toHaveBeenCalledWith('passphrase', 'a long enough passphrase');
   });
 
+  it('refuses a passphrase of only spaces, which the unlock screen could not take', async () => {
+    const setup = vi.fn().mockResolvedValue(unlocked);
+    render(
+      <StorageSetup
+        status={needsSetup}
+        admin={fakeAdmin({
+          setup,
+          keyringStatus: () =>
+            Promise.resolve({ available: false, hasSecret: false, backend: 'secret-service' }),
+        })}
+        onDone={() => undefined}
+      />,
+    );
+    await screen.findByText(/No keyring was found/u);
+    const blank = ' '.repeat(10);
+    fireEvent.change(screen.getByLabelText('Passphrase'), { target: { value: blank } });
+    fireEvent.change(screen.getByLabelText('Confirm passphrase'), { target: { value: blank } });
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    expect(screen.getByText('Use more than spaces.')).toBeTruthy();
+    expect(setup).not.toHaveBeenCalled();
+  });
+
   it('links to installing a keyring', async () => {
     render(
       <StorageSetup
@@ -239,5 +261,41 @@ describe('StorageSetup: no keyring', () => {
       />,
     );
     expect(await screen.findByRole('link', { name: /Installing a keyring/u })).toBeTruthy();
+  });
+});
+
+describe('StorageSetup: keyring check that never answers', () => {
+  it('falls back to the passphrase form when the keyring check rejects', async () => {
+    render(
+      <StorageSetup
+        status={needsSetup}
+        admin={fakeAdmin({ keyringStatus: () => Promise.reject(new Error('no bus')) })}
+        onDone={() => undefined}
+      />,
+    );
+    expect(await screen.findByText(/couldn’t check for a keyring/u)).toBeTruthy();
+    expect(screen.queryByText('Checking for a keyring…')).toBeNull();
+    expect(screen.getByLabelText('Passphrase')).toBeTruthy();
+  });
+
+  it('gives up waiting after a while and offers the passphrase form', async () => {
+    vi.useFakeTimers();
+    try {
+      render(
+        <StorageSetup
+          status={needsSetup}
+          admin={fakeAdmin({ keyringStatus: () => new Promise(() => undefined) })}
+          onDone={() => undefined}
+        />,
+      );
+      expect(screen.getByText('Checking for a keyring…')).toBeTruthy();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000);
+      });
+      expect(screen.queryByText('Checking for a keyring…')).toBeNull();
+      expect(screen.getByLabelText('Passphrase')).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

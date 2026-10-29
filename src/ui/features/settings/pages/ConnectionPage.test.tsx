@@ -226,6 +226,108 @@ describe('Settings → Connection, browser build: switching signal-cli accounts'
       vi.unstubAllGlobals();
     }
   });
+
+  it('keeps the draft unsaved, shows the error, and clears again on retry when the clear fails', async () => {
+    snowdrop = await bootSignalCliSnowdrop(SELF_ACI);
+    const { settings } = snowdrop.stores;
+    const clearHistory = vi
+      .spyOn(snowdrop.admin, 'clearHistory')
+      .mockRejectedValueOnce(new Error('IDB is busy'))
+      .mockResolvedValue(undefined);
+    const reload = vi.fn();
+    vi.stubGlobal('location', { reload });
+    try {
+      renderWithSnowdrop(snowdrop, <ConnectionPage />);
+      act(() => {
+        fireEvent.change(screen.getByLabelText('Account'), {
+          target: { value: 'a-different-account' },
+        });
+      });
+      act(() => {
+        fireEvent.click(screen.getByRole('button', { name: 'Apply and reload' }));
+      });
+      await act(async () => {
+        fireEvent.click(await screen.findByRole('button', { name: 'Reload now' }));
+        await Promise.resolve();
+      });
+
+      expect((await screen.findByRole('alert')).textContent).toContain('IDB is busy');
+      expect(reload).not.toHaveBeenCalled();
+      // Nothing was saved, so the retry still sees an account switch.
+      expect(settings.getState().connection.account).toBe(SELF_ACI);
+      expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Reload now' }).disabled).toBe(
+        false,
+      );
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Reload now' }));
+        await Promise.resolve();
+      });
+      await waitFor(() => {
+        expect(reload).toHaveBeenCalledTimes(1);
+      });
+      expect(clearHistory).toHaveBeenCalledTimes(2);
+      expect(settings.getState().connection.account).toBe('a-different-account');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('reloads to reconnect when the user cancels after a failed clear stopped syncing', async () => {
+    snowdrop = await bootSignalCliSnowdrop(SELF_ACI);
+    vi.spyOn(snowdrop.admin, 'clearHistory').mockRejectedValue(new Error('IDB is busy'));
+    const reload = vi.fn();
+    vi.stubGlobal('location', { reload });
+    try {
+      renderWithSnowdrop(snowdrop, <ConnectionPage />);
+      act(() => {
+        fireEvent.change(screen.getByLabelText('Account'), {
+          target: { value: 'a-different-account' },
+        });
+      });
+      act(() => {
+        fireEvent.click(screen.getByRole('button', { name: 'Apply and reload' }));
+      });
+      await act(async () => {
+        fireEvent.click(await screen.findByRole('button', { name: 'Reload now' }));
+        await Promise.resolve();
+      });
+      expect((await screen.findByRole('alert')).textContent).toContain('stopped syncing');
+      expect(reload).not.toHaveBeenCalled();
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Cancel and reconnect' }));
+        await Promise.resolve();
+      });
+      await waitFor(() => {
+        expect(reload).toHaveBeenCalledTimes(1);
+      });
+      // The old account is still the saved one.
+      expect(snowdrop.stores.settings.getState().connection.account).toBe(SELF_ACI);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('shows the error and re-enables the dialog when the reload itself fails', async () => {
+    snowdrop = await bootSignalCliSnowdrop(SELF_ACI);
+    vi.spyOn(snowdrop.admin, 'reload').mockRejectedValue(new Error('disk full'));
+    renderWithSnowdrop(snowdrop, <ConnectionPage />);
+    act(() => {
+      fireEvent.click(screen.getByRole('radio', { name: 'Demo' }));
+    });
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: 'Apply and reload' }));
+    });
+    await act(async () => {
+      fireEvent.click(await screen.findByRole('button', { name: 'Reload now' }));
+      await Promise.resolve();
+    });
+    expect((await screen.findByRole('alert')).textContent).toContain('disk full');
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Reload now' }).disabled).toBe(
+      false,
+    );
+  });
 });
 
 describe('Settings → Connection: sync contacts and groups', () => {

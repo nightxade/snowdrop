@@ -48,6 +48,7 @@ export function CustomEmojiPage() {
   return (
     <>
       <SettingsSection
+        rowIds={['customEmoji.kind', 'customEmoji.name', 'customEmoji.upload', 'customEmoji.text']}
         title="Add an emoji"
         description="Type :name: in the composer, or pick it from the emoji picker's “My emoji” tab."
       >
@@ -150,6 +151,7 @@ export function CustomEmojiPage() {
         )}
       </SettingsSection>
       <SettingsSection
+        rowIds={['customEmoji.collection']}
         title="Your collection"
         description={
           emojis.length > 0

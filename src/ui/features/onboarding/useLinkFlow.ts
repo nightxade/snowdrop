@@ -25,6 +25,16 @@ export function useLinkFlow(
   }, [onLinked]);
 
   const pending = useRef(0);
+  // Set while unmounted: a late result of an abandoned attempt (the user went
+  // back, or the screen was replaced) must not call `onLinked`. Reset on
+  // mount so StrictMode's cleanup-and-rerun doesn't leave it set.
+  const disposed = useRef(false);
+  useEffect(() => {
+    disposed.current = false;
+    return () => {
+      disposed.current = true;
+    };
+  }, []);
   useEffect(() => {
     if (state.step !== 'starting' || !link) return;
     const { attempt, deviceName } = state;
@@ -46,7 +56,9 @@ export function useLinkFlow(
           attempt,
           ...(historyWarning ? { historyWarning } : {}),
         });
-        if (pending.current === attempt && !historyWarning) linked.current(accountId);
+        if (!disposed.current && pending.current === attempt && !historyWarning) {
+          linked.current(accountId);
+        }
       })
       .catch((error: unknown) => {
         dispatch({

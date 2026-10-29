@@ -71,8 +71,15 @@ export function ConnectForm({
       return;
     }
     setChecking(true);
-    const result = await probe(target);
-    setChecking(false);
+    let result: DaemonProbe;
+    try {
+      result = await probe(target);
+    } catch (e) {
+      // Probing reports failures as a result; a rejection must not leave the form checking forever.
+      result = { ok: false, kind: 'network', message: e instanceof Error ? e.message : String(e) };
+    } finally {
+      setChecking(false);
+    }
     // No account yet is fine: Snowdrop walks you through linking next.
     if (result.ok) onConnect(target);
     else setFailure(result.message);

@@ -3,6 +3,9 @@ import {
   errorKind,
   friendlyKeyringBackend,
   groupRecoveryCode,
+  MIN_PASSPHRASE,
+  passphraseFieldProblem,
+  passphraseProblem,
   passphraseStrength,
   tryAgainLabel,
   unlockReasonCopy,
@@ -118,5 +121,21 @@ describe('passphraseStrength', () => {
   it('rates a long or varied passphrase good', () => {
     expect(passphraseStrength('correct horse battery staple')).toBe('good');
     expect(passphraseStrength('Abc123!@#def')).toBe('good');
+  });
+});
+
+describe('passphraseProblem', () => {
+  it('applies one rule: something typed, not blank, long enough, confirmed', () => {
+    expect(passphraseProblem('', '')).toBe('Enter a passphrase.');
+    expect(passphraseProblem(' '.repeat(MIN_PASSPHRASE), ' '.repeat(MIN_PASSPHRASE))).toBe(
+      'Use more than spaces.',
+    );
+    expect(passphraseProblem('short', 'short')).toBe(`Use at least ${MIN_PASSPHRASE} characters.`);
+    expect(passphraseProblem('long enough', 'different')).toBe("That doesn't match.");
+    expect(passphraseProblem('long enough', 'long enough')).toBeNull();
+  });
+
+  it('checks the field alone without the confirmation', () => {
+    expect(passphraseFieldProblem('long enough')).toBeNull();
   });
 });

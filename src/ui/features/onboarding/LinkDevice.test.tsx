@@ -1,4 +1,5 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { StrictMode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { LinkDevice } from './LinkDevice';
 
@@ -41,5 +42,48 @@ describe('LinkDevice', () => {
     const input = screen.getByLabelText('Device name');
     expect(input).toBeInstanceOf(HTMLInputElement);
     expect((input as HTMLInputElement).value).toBe('Snowdrop');
+  });
+
+  it('does not report a link that finishes after the screen was left', async () => {
+    const onLinked = vi.fn();
+    let finish!: (value: { accountId: string }) => void;
+    const link = {
+      start: vi.fn().mockResolvedValue({ uri: 'sgnl://linkdevice?uuid=test' }),
+      finish: vi.fn(
+        () =>
+          new Promise<{ accountId: string }>((resolve) => {
+            finish = resolve;
+          }),
+      ),
+    };
+    const { unmount } = render(<LinkDevice link={link} onLinked={onLinked} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Show code' }));
+    await vi.waitFor(() => {
+      expect(link.finish).toHaveBeenCalledTimes(1);
+    });
+    unmount();
+    await act(async () => {
+      finish({ accountId: 'account' });
+      await Promise.resolve();
+    });
+    expect(onLinked).not.toHaveBeenCalled();
+  });
+
+  it('still reports a link that finishes while the screen is up (StrictMode safe)', async () => {
+    const onLinked = vi.fn();
+    const link = {
+      start: vi.fn().mockResolvedValue({ uri: 'sgnl://linkdevice?uuid=test' }),
+      finish: vi.fn().mockResolvedValue({ accountId: 'account' }),
+    };
+    render(
+      <StrictMode>
+        <LinkDevice link={link} onLinked={onLinked} />
+      </StrictMode>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Show code' }));
+    await vi.waitFor(() => {
+      expect(onLinked).toHaveBeenCalledWith('account');
+    });
+    expect(link.start).toHaveBeenCalledTimes(1);
   });
 });

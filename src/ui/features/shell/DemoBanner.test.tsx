@@ -18,8 +18,11 @@ function fakeApp(
   const reload = options.reload ?? vi.fn(() => Promise.resolve());
   return {
     backend: { kind },
-    stores: { settings: { getState: () => ({ update }) } },
-    admin: { reload },
+    stores: {
+      settings: { getState: () => ({ update, connection: { backend: 'mock', account: null } }) },
+      ui: { getState: () => ({ setSigningOut: vi.fn() }) },
+    },
+    admin: { reload, persist: vi.fn(() => Promise.resolve()) },
   } as unknown as AppServices;
 }
 

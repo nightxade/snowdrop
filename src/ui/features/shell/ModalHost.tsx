@@ -108,8 +108,16 @@ export function ModalHost() {
       void loadSpaces();
       void loadShortcuts();
     };
-    if ('requestIdleCallback' in window) window.requestIdleCallback(prefetch);
-    else setTimeout(prefetch, 1500);
+    if ('requestIdleCallback' in window) {
+      const handle = window.requestIdleCallback(prefetch);
+      return () => {
+        window.cancelIdleCallback(handle);
+      };
+    }
+    const timer = setTimeout(prefetch, 1500);
+    return () => {
+      clearTimeout(timer);
+    };
   }, []);
   if (!modal) return null;
   const close = () => {

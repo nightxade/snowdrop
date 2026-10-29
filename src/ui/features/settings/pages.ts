@@ -118,7 +118,6 @@ export const SETTINGS_PAGES: SettingsPageDef[] = [
       },
       {
         id: 'privacy.eraseAll',
-        section: 'danger-zone',
         label: 'Erase all local data',
         keywords: ['erase', 'wipe', 'delete', 'reset'],
       },
@@ -127,6 +126,13 @@ export const SETTINGS_PAGES: SettingsPageDef[] = [
         section: 'signals',
         label: 'Send read receipts',
         description: 'Tell people when you’ve read their messages.',
+      },
+      {
+        id: 'privacy.showReceipts',
+        section: 'signals',
+        label: 'Show read receipts on your messages',
+        description: 'The delivered/read mark after your own messages.',
+        keywords: ['read receipts', 'delivered', 'seen', 'ticks'],
       },
       {
         id: 'privacy.typing',
@@ -176,6 +182,12 @@ export const SETTINGS_PAGES: SettingsPageDef[] = [
         section: 'theme',
         label: 'Accent colour',
         keywords: ['color', 'highlight'],
+      },
+      {
+        id: 'appearance.shell',
+        section: 'shell',
+        label: 'Layout',
+        keywords: ['tui', 'terminal', 'standard', 'monospace', 'borders'],
       },
       {
         id: 'appearance.density',
@@ -268,11 +280,21 @@ export const SETTINGS_PAGES: SettingsPageDef[] = [
     keywords: ['behavior', 'composer', 'chat'],
     entries: [
       { id: 'behaviour.enter', label: 'Send with', keywords: ['enter', 'shift', 'newline'] },
+      {
+        id: 'behaviour.focusComposerOnOpen',
+        label: 'Focus the message box when opening a conversation',
+        keywords: ['composer', 'cursor', 'focus', 'vim'],
+      },
       { id: 'behaviour.markdown', label: 'Markdown formatting', keywords: ['bold', 'italic'] },
       {
         id: 'behaviour.linkPreviews',
         label: 'Link previews',
         keywords: ['preview', 'url', 'link', 'embed'],
+      },
+      {
+        id: 'behaviour.closeToTray',
+        label: 'Keep running in the tray when the window is closed',
+        keywords: ['tray', 'close', 'quit', 'background', 'minimise', 'minimize'],
       },
     ],
   },
@@ -285,7 +307,18 @@ export const SETTINGS_PAGES: SettingsPageDef[] = [
       'Your own emoji: images, or text like ¯\\_(ツ)_/¯. Type :name: to use one, in any chat.',
     keywords: ['emoji', 'sticker', 'image', 'picker'],
     entries: [
-      { id: 'customEmoji.add', label: 'Add an emoji', keywords: ['name', 'image', 'upload'] },
+      {
+        id: 'customEmoji.kind',
+        label: 'Kind',
+        keywords: ['add', 'new', 'image', 'text'],
+      },
+      { id: 'customEmoji.name', label: 'Name', keywords: ['add', 'new', 'emoji name'] },
+      {
+        id: 'customEmoji.upload',
+        label: 'Image',
+        keywords: ['add', 'new', 'upload', 'png', 'gif', 'file'],
+      },
+      { id: 'customEmoji.text', label: 'Text', keywords: ['add', 'new', 'kaomoji'] },
       { id: 'customEmoji.collection', label: 'Your collection', keywords: ['remove', 'manage'] },
     ],
   },
@@ -347,7 +380,17 @@ export const SETTINGS_PAGES: SettingsPageDef[] = [
       },
       { id: 'connection.url', label: 'Daemon address', keywords: ['url', 'proxy'] },
       { id: 'connection.account', label: 'Account', keywords: ['number', 'phone'] },
+      {
+        id: 'connection.installedSignalCli',
+        label: 'Installed signal-cli',
+        keywords: ['download', 'version', 'github', 'update'],
+      },
       { id: 'connection.test', label: 'Test connection' },
+      {
+        id: 'connection.syncContactsAndGroups',
+        label: 'Sync contacts and groups',
+        keywords: ['resend', 'phone', 'block list', 'linking'],
+      },
       { id: 'connection.liveliness', label: 'Simulated activity', keywords: ['demo'] },
       {
         id: 'connection.signOut',

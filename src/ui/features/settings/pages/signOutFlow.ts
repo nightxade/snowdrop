@@ -27,6 +27,52 @@ export function signOutFlowFor(app: Pick<AppServices, 'backend' | 'storageAdmin'
 
 type ReloadApp = Pick<AppServices, 'stores' | 'admin'>;
 
+type SignOutStores = Pick<AppServices['stores'], 'settings' | 'ui'>;
+
+/**
+ * Clears the saved backend choice (and, optionally, the account) and then
+ * runs `step`, which must get that change to storage. The app root would swap
+ * to the Welcome screen the moment the choice clears, taking the dialog that
+ * reports progress and errors with it, so `ui.signingOut` holds it back for
+ * the length of the flow. If `step` fails the choice is put back and
+ * persisted again, so the user stays signed in (not on Welcome at the next
+ * launch) and the caller can tell them what happened.
+ */
+async function withClearedConnection(
+  app: { stores: SignOutStores; admin: Pick<AppAdmin, 'persist'> },
+  cleared: { backend: null; account?: null },
+  step: () => Promise<void>,
+): Promise<void> {
+  const { settings, ui } = app.stores;
+  const { backend, account } = settings.getState().connection;
+  ui.getState().setSigningOut(true);
+  settings.getState().update('connection', cleared);
+  try {
+    await step();
+  } catch (error) {
+    settings.getState().update('connection', { backend, account });
+    ui.getState().setSigningOut(false);
+    try {
+      await app.admin.persist();
+    } catch (persistError) {
+      // Storage may now hold the cleared choice while the account is intact.
+      // Memory is back to normal, and persistence writes it again on the next
+      // settings change or when the window closes, so this usually heals
+      // itself; if not, the next launch shows Welcome and "Connect" picks the
+      // same account up (nothing was removed).
+      log.error(
+        'restoring the connection after a failed sign-out did not reach storage',
+        persistError,
+      );
+      throw new Error(
+        `${error instanceof Error ? error.message : String(error)}. Snowdrop also couldn’t save that you’re still signed in: if it shows the Welcome screen next time, choose Connect; your account is still on this computer.`,
+        { cause: persistError },
+      );
+    }
+    throw error;
+  }
+}
+
 /**
  * "Leave demo" (no scary dialog, at most a light confirm): back to the
  * Welcome screen, settings kept. The demo's history is never persisted —
@@ -36,9 +82,8 @@ type ReloadApp = Pick<AppServices, 'stores' | 'admin'>;
  * triggers already discards it along with the rest of the JS runtime.
  */
 export async function leaveDemo(app: ReloadApp): Promise<void> {
-  app.stores.settings.getState().update('connection', { backend: null });
   // Awaits the encrypted settings write before reloading (AppAdmin.reload).
-  await app.admin.reload();
+  await withClearedConnection(app, { backend: null }, () => app.admin.reload());
 }
 
 /**
@@ -47,8 +92,7 @@ export async function leaveDemo(app: ReloadApp): Promise<void> {
  * nothing about it changes here — only the dialog's copy says so.
  */
 export async function disconnectExternalDaemon(app: ReloadApp): Promise<void> {
-  app.stores.settings.getState().update('connection', { backend: null });
-  await app.admin.reload();
+  await withClearedConnection(app, { backend: null }, () => app.admin.reload());
 }
 
 /**
@@ -66,7 +110,8 @@ export class SignOutRestartFailed extends Error {
   }
 }
 
-type DesktopSignOutApp = Pick<AppServices, 'stores' | 'storageAdmin'> & {
+type DesktopSignOutApp = Pick<AppServices, 'storageAdmin'> & {
+  stores: SignOutStores;
   admin: Pick<
     AppAdmin,
     'clearAccountData' | 'clearHistory' | 'disconnect' | 'persist' | 'setPendingHistoryClear'
@@ -78,13 +123,14 @@ type DesktopSignOutApp = Pick<AppServices, 'stores' | 'storageAdmin'> & {
  * "Sign out"). Order matters:
  *
  * 1. the backend/account choice is cleared first (Settings → Connection
- *    reads `connection.account` too, and must not show the old one) —
- *    nothing destructive has happened yet, so there's nothing to lose by
- *    doing this before anything else;
- * 2. settings are flushed to encrypted storage and awaited — they must
- *    survive the restart `storageAdmin.signOut()` requires;
+ *    reads `connection.account` too, and must not show the old one), with
+ *    `ui.signingOut` set so the app root keeps the dialog on screen;
+ * 2. settings are flushed to encrypted storage and awaited — storage
+ *    refuses writes once `storageAdmin.signOut()` has run;
  * 3. `storageAdmin.signOut()` removes this computer's signal-cli vault,
- *    keeping `keys.json` and the keyring entry so storage stays set up;
+ *    keeping `keys.json` and the keyring entry so storage stays set up.
+ *    If step 2 or 3 fails, the previous choice is restored and persisted
+ *    and the error reaches the dialog: the user stays signed in;
  * 4. only now is the signed-out account's local data cleared (contact
  *    notes, pins, drafts, message-request decisions, peers list, cursors:
  *    `accountDataKeys`), and then the message cache — after the steps that can
@@ -100,9 +146,10 @@ type DesktopSignOutApp = Pick<AppServices, 'stores' | 'storageAdmin'> & {
 export async function signOutDesktop(app: DesktopSignOutApp): Promise<void> {
   const { storageAdmin } = app;
   if (!storageAdmin) throw new Error('signOutDesktop requires the desktop storage admin.');
-  app.stores.settings.getState().update('connection', { backend: null, account: null });
-  await app.admin.persist();
-  await storageAdmin.signOut();
+  await withClearedConnection(app, { backend: null, account: null }, async () => {
+    await app.admin.persist();
+    await storageAdmin.signOut();
+  });
   try {
     // Stop syncing first so nothing from the old account lands after the clear.
     await app.admin.disconnect();
@@ -115,7 +162,13 @@ export async function signOutDesktop(app: DesktopSignOutApp): Promise<void> {
     await app.admin.clearHistory();
   } catch (error) {
     log.error('clearHistory failed during sign-out; the next boot will retry', error);
-    await app.admin.setPendingHistoryClear(true);
+    try {
+      await app.admin.setPendingHistoryClear(true);
+    } catch (flagError) {
+      // The vault is already gone, so this must not surface as a failed
+      // sign-out: restart (or its fallback) is the only way forward.
+      log.error('could not record the pending history clear', flagError);
+    }
   }
   try {
     await storageAdmin.restart();

@@ -7,6 +7,7 @@
  */
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { axe } from 'vitest-axe';
 import type { Snowdrop } from '@/app/createSnowdrop';
 import type { StorageAdmin } from '@/core/backend';
 import { createLogger, type LogAdmin } from '@/core/lib';
@@ -322,4 +323,44 @@ describe('Settings → Data & storage → Export history', () => {
     expect(screen.queryByRole('dialog', { name: 'Export message history' })).toBeNull();
     expect(downloadText).not.toHaveBeenCalled();
   });
+});
+
+describe('Settings → Data & storage → Danger zone', () => {
+  it.each([
+    ['Clear…', 'Clear history', 'clearHistory'],
+    ['Reset…', 'Reset settings', 'reload'],
+  ] as const)(
+    'shows the error and unlocks the dialog when %s fails',
+    async (open, confirm, failing) => {
+      snowdrop = await bootSnowdrop();
+      vi.spyOn(snowdrop.admin, 'clearHistory').mockImplementation(() =>
+        failing === 'clearHistory' ? Promise.reject(new Error('IDB is busy')) : Promise.resolve(),
+      );
+      vi.spyOn(snowdrop.admin, 'reload').mockImplementation(() =>
+        failing === 'reload' ? Promise.reject(new Error('disk full')) : Promise.resolve(),
+      );
+      renderWithSnowdrop(snowdrop, <DataPage />);
+      act(() => {
+        fireEvent.click(screen.getByRole('button', { name: open }));
+      });
+      await act(async () => {
+        fireEvent.click(await screen.findByRole('button', { name: confirm }));
+        await Promise.resolve();
+      });
+      const alert = await screen.findByRole('alert');
+      expect(alert.textContent).toContain(failing === 'clearHistory' ? 'IDB is busy' : 'disk full');
+      // Not stuck: the buttons work again and Cancel closes the dialog.
+      expect(screen.getByRole<HTMLButtonElement>('button', { name: confirm }).disabled).toBe(false);
+      expect(
+        (await axe(screen.getByRole('dialog'), { rules: { region: { enabled: false } } }))
+          .violations,
+      ).toEqual([]);
+      act(() => {
+        fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+      });
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog')).toBeNull();
+      });
+    },
+  );
 });

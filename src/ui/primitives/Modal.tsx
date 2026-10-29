@@ -27,6 +27,15 @@ export interface ModalProps {
    * opened (if it's still in the document). Return null to use that default.
    */
   returnFocus?: () => HTMLElement | null | undefined;
+  /**
+   * False for a dialog that must be finished on purpose (something shown
+   * once, say): Escape and outside clicks do nothing but call
+   * `onDismissAttempt`, and the header's close button is left out. The dialog
+   * still needs its own clear way forward, and should say why it stays open.
+   */
+  dismissible?: boolean;
+  /** An Escape or outside click was ignored because `dismissible` is false. */
+  onDismissAttempt?: () => void;
 }
 
 /** First element marked `data-autofocus`, else the first field, else the dialog itself. */
@@ -53,6 +62,8 @@ export function Modal({
   className,
   flush,
   returnFocus,
+  dismissible = true,
+  onDismissAttempt,
 }: ModalProps) {
   // Captured on first render, i.e. before Radix moves focus into the dialog.
   const [opener] = useState(() =>
@@ -67,6 +78,18 @@ export function Modal({
           data-size={size}
           data-placement={placement}
           {...(description ? {} : { 'aria-describedby': undefined })}
+          onEscapeKeyDown={(e) => {
+            if (dismissible) return;
+            e.preventDefault();
+            onDismissAttempt?.();
+          }}
+          onInteractOutside={(e) => {
+            // Also covers focus moving out (a dialog swap, say): ignore it.
+            if (!dismissible) e.preventDefault();
+          }}
+          onPointerDownOutside={() => {
+            if (!dismissible) onDismissAttempt?.();
+          }}
           onOpenAutoFocus={(e) => {
             // Radix would focus the first tabbable: the close button. Start
             // where the user will act instead.
@@ -86,9 +109,11 @@ export function Modal({
                 {description}
               </RadixDialog.Description>
             )}
-            <RadixDialog.Close asChild>
-              <IconButton className={styles.close} label="Close" icon={<X />} noTooltip />
-            </RadixDialog.Close>
+            {dismissible && (
+              <RadixDialog.Close asChild>
+                <IconButton className={styles.close} label="Close" icon={<X />} noTooltip />
+              </RadixDialog.Close>
+            )}
           </header>
           {children !== undefined && (
             <div className={styles.body} data-flush={flush ? '' : undefined}>

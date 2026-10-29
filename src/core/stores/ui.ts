@@ -81,6 +81,14 @@ export interface UiState {
    * bottom is visible.
    */
   scrolledUp: Record<ConversationId, true>;
+  /**
+   * A sign-out is under way. The flow clears the saved backend choice
+   * early (it has to reach storage before the vault is removed), and the
+   * app root would otherwise react by swapping to the Welcome screen and
+   * unmounting the dialog that reports the flow's progress and errors. While
+   * this is set the root keeps showing the running backend.
+   */
+  signingOut: boolean;
 
   selectSpace(space: SpaceSelection): void;
   selectConversation(conversationId: ConversationId, space?: SpaceSelection): void;
@@ -98,6 +106,7 @@ export interface UiState {
   setWindowFocused(focused: boolean): void;
   setUnreadMarker(conversationId: ConversationId, seq: number | null): void;
   setScrolledUp(conversationId: ConversationId, scrolledUp: boolean): void;
+  setSigningOut(signingOut: boolean): void;
   pushToast(toast: Omit<Toast, 'id'>): string;
   dismissToast(id: string): void;
 }
@@ -118,6 +127,7 @@ export function createUiStore(newId: () => string = () => createNonce('toast')):
     toasts: [],
     unreadMarkers: {},
     scrolledUp: {},
+    signingOut: false,
 
     selectSpace: (selectedSpace) => {
       set({ selectedSpace });
@@ -194,6 +204,9 @@ export function createUiStore(newId: () => string = () => createNonce('toast')):
         const { [conversationId]: _previous, ...rest } = s.scrolledUp;
         return { scrolledUp: scrolledUp ? { ...rest, [conversationId]: true } : rest };
       });
+    },
+    setSigningOut: (signingOut) => {
+      set({ signingOut });
     },
     pushToast: (toast) => {
       const id = newId();

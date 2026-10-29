@@ -7,7 +7,12 @@ import { OnboardingShell } from './OnboardingShell';
 import { PassphraseStrengthHint } from './PassphraseStrengthHint';
 import { RecoveryKeyReveal } from './RecoveryKeyReveal';
 import setupStyles from './Setup.module.css';
-import { errorKind, friendlyKeyringBackend } from './storageCopy';
+import {
+  errorKind,
+  friendlyKeyringBackend,
+  passphraseFieldProblem,
+  passphraseProblem,
+} from './storageCopy';
 import styles from './Storage.module.css';
 
 export interface StorageSetupProps {
@@ -42,6 +47,9 @@ export function StorageSetup({ status, admin, onDone }: StorageSetupProps) {
   );
 }
 
+/** How long "Checking for a keyring…" waits before offering the passphrase form. */
+const KEYRING_CHECK_TIMEOUT_MS = 10_000;
+
 function ProtectYourData({
   legacyPlaintext,
   admin,
@@ -58,25 +66,42 @@ function ProtectYourData({
   const [settingUp, setSettingUp] = useState<'keyring' | 'passphrase' | null>(null);
   const busy = settingUp !== null;
   const [error, setError] = useState<string | null>(null);
+  const [keyringCheckFailed, setKeyringCheckFailed] = useState(false);
 
   useEffect(() => {
     let live = true;
-    void admin.keyringStatus().then((k) => {
-      if (live) setKeyring(k);
-    });
+    // Can't tell whether a keyring exists (the check failed or is taking
+    // too long): offer the passphrase form rather than waiting forever. A
+    // late answer still replaces this.
+    const giveUp = () => {
+      if (!live) return;
+      setKeyring(
+        (prev) => prev ?? { available: false, hasSecret: false, backend: 'secret-service' },
+      );
+      setKeyringCheckFailed(true);
+    };
+    const timer = setTimeout(giveUp, KEYRING_CHECK_TIMEOUT_MS);
+    void admin.keyringStatus().then(
+      (k) => {
+        clearTimeout(timer);
+        if (live) {
+          setKeyring(k);
+          setKeyringCheckFailed(false);
+        }
+      },
+      () => {
+        clearTimeout(timer);
+        giveUp();
+      },
+    );
     return () => {
       live = false;
+      clearTimeout(timer);
     };
   }, [admin]);
 
-  const passphraseError =
-    passphrase.length === 0
-      ? 'Enter a passphrase.'
-      : passphrase.length < 8
-        ? 'Use at least 8 characters.'
-        : confirm !== passphrase
-          ? "That doesn't match."
-          : null;
+  const passphraseError = passphraseProblem(passphrase, confirm);
+  const passphraseFieldError = passphraseFieldProblem(passphrase);
 
   const runSetup = async (mode: 'keyring' | 'passphrase', secret: string | null) => {
     setSettingUp(mode);
@@ -109,13 +134,7 @@ function ProtectYourData({
         autoComplete="new-password"
         autoFocus={!keyring?.available}
         value={passphrase}
-        error={
-          touched && passphrase.length < 8
-            ? passphrase.length === 0
-              ? 'Enter a passphrase.'
-              : 'Use at least 8 characters.'
-            : undefined
-        }
+        error={touched ? (passphraseFieldError ?? undefined) : undefined}
         onChange={(e) => {
           setPassphrase(e.target.value);
         }}
@@ -130,7 +149,7 @@ function ProtectYourData({
         autoComplete="new-password"
         value={confirm}
         error={
-          touched && passphrase.length >= 8 && confirm !== passphrase
+          touched && passphraseFieldError === null && confirm !== passphrase
             ? confirm.length === 0
               ? 'Confirm your passphrase.'
               : "That doesn't match."
@@ -223,8 +242,9 @@ function ProtectYourData({
       ) : (
         <>
           <p className={setupStyles.muted}>
-            No keyring was found on this system, so Snowdrop can&rsquo;t unlock automatically.
-            Install one, or use a passphrase instead.
+            {keyringCheckFailed
+              ? 'Snowdrop couldn’t check for a keyring on this system, so it can’t unlock automatically. Use a passphrase instead, or restart Snowdrop to try again.'
+              : 'No keyring was found on this system, so Snowdrop can’t unlock automatically. Install one, or use a passphrase instead.'}
           </p>
           {passphraseForm}
         </>

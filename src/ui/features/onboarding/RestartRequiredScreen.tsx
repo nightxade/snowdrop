@@ -20,6 +20,7 @@ export interface RestartRequiredScreenProps {
 
 export function RestartRequiredScreen({ onRestart }: RestartRequiredScreenProps) {
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   return (
     <OnboardingShell>
@@ -34,6 +35,11 @@ export function RestartRequiredScreen({ onRestart }: RestartRequiredScreenProps)
         <p className={setupStyles.lede}>
           Your local data was erased. Snowdrop needs to restart once before it can be set up again.
         </p>
+        {error && (
+          <p className={setupStyles.error} role="alert">
+            Snowdrop couldn&rsquo;t restart itself ({error}). Close it and open it again yourself.
+          </p>
+        )}
         <div className={setupStyles.actions}>
           <Button
             type="button"
@@ -45,7 +51,12 @@ export function RestartRequiredScreen({ onRestart }: RestartRequiredScreenProps)
             disabled={busy}
             onClick={() => {
               setBusy(true);
-              void onRestart();
+              setError(null);
+              // Success replaces this process, so busy only clears on failure.
+              void onRestart().catch((e: unknown) => {
+                setError(e instanceof Error ? e.message : String(e));
+                setBusy(false);
+              });
             }}
           >
             Restart Snowdrop

@@ -337,3 +337,30 @@ describe('UnlockScreen: try again', () => {
     expect(screen.queryByRole('button', { name: 'Check keyring again' })).toBeNull();
   });
 });
+
+describe('UnlockScreen: passphrase', () => {
+  it('lets a passphrase made of spaces be submitted, as setup allows one', async () => {
+    const unlock = vi.fn().mockResolvedValue({ ...baseStatus, state: 'unlocked', reason: null });
+    render(
+      <UnlockScreen
+        status={{
+          ...baseStatus,
+          reason: 'passphraseRequired',
+          hasRecovery: false,
+          hasPassphrase: true,
+        }}
+        admin={fakeAdmin({ unlock })}
+        onStatusChange={() => undefined}
+      />,
+    );
+    const button = screen.getByRole<HTMLButtonElement>('button', { name: 'Unlock' });
+    expect(button.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText('Passphrase'), { target: { value: '        ' } });
+    expect(button.disabled).toBe(false);
+    await act(async () => {
+      fireEvent.click(button);
+      await Promise.resolve();
+    });
+    expect(unlock).toHaveBeenCalledWith('passphrase', '        ', expect.any(Boolean));
+  });
+});

@@ -7,6 +7,7 @@
  */
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { axe } from 'vitest-axe';
 import type { Snowdrop } from '@/app/createSnowdrop';
 import type { EraseResult, StorageAdmin, StorageStatus } from '@/core/backend';
 import { bootSnowdrop, renderWithSnowdrop } from '@/test/renderWithSnowdrop';
@@ -163,6 +164,50 @@ describe('EncryptionSection: recovery key', () => {
       expect(screen.queryByText('Your recovery key')).toBeNull();
     });
     expect(await screen.findByRole('button', { name: 'Replace…' })).toBeTruthy();
+  });
+
+  it('keeps the new key on screen through Escape and outside clicks, and says why', async () => {
+    const { admin } = makeAdmin({
+      status: () => Promise.resolve({ ...baseStatus, hasRecovery: true }),
+    });
+    await mount(admin);
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: 'Replace…' }));
+    });
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: 'Create new key' }));
+    });
+    expect(await screen.findByText('Your recovery key')).toBeTruthy();
+    expect(screen.queryByRole('alert')).toBeNull();
+    // The reason is there from the start, not only after a dismissal attempt.
+    expect(screen.getByText(/stays open until you confirm/u)).toBeTruthy();
+
+    const confirmField = screen.getByLabelText('Type the last group to confirm');
+    act(() => {
+      fireEvent.keyDown(confirmField, { key: 'Escape' });
+    });
+    expect(screen.getByText('Your recovery key')).toBeTruthy();
+    expect((await screen.findByRole('alert')).textContent).toContain('Type the last group');
+    // No dead close button: the way forward is the confirm field.
+    expect(screen.queryByRole('button', { name: 'Close' })).toBeNull();
+
+    act(() => {
+      fireEvent.pointerDown(document.body);
+      fireEvent.mouseDown(document.body);
+      fireEvent.click(document.body);
+    });
+    expect(screen.getByText('Your recovery key')).toBeTruthy();
+    expect(
+      (await axe(screen.getByRole('dialog'), { rules: { region: { enabled: false } } })).violations,
+    ).toEqual([]);
+
+    act(() => {
+      fireEvent.change(confirmField, { target: { value: 'JJJJ' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm' }));
+    });
+    await waitFor(() => {
+      expect(screen.queryByText('Your recovery key')).toBeNull();
+    });
   });
 
   it('shows a clipboard hint after copying the recovery key', async () => {

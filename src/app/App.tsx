@@ -42,7 +42,11 @@ export interface AppProps {
 /** First run shows the welcome screen; afterwards the shell boots straight into the chosen backend. */
 export function App({ onBackendChange }: AppProps) {
   const snowdrop = useSnowdrop();
-  const choice = useStore(snowdrop.stores.settings, (s) => s.connection.backend);
+  const savedChoice = useStore(snowdrop.stores.settings, (s) => s.connection.backend);
+  // A sign-out clears the saved choice before it finishes; keep showing the
+  // running backend until the process restarts so its dialog stays up.
+  const signingOut = useStore(snowdrop.stores.ui, (s) => s.signingOut);
+  const choice = signingOut ? snowdrop.backend.kind : savedChoice;
   const daemonUrl = useStore(snowdrop.stores.settings, (s) => s.connection.daemonUrl);
   const matches = choice !== null && choice === snowdrop.backend.kind;
   const errorKind = useStore(snowdrop.stores.session, (s) => s.errorKind);

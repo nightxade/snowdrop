@@ -6,7 +6,7 @@
  */
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createStore } from 'zustand/vanilla';
+import { createStores } from '@/core/stores';
 import { SnowdropContextProvider, type AppServices } from '@/ui/hooks';
 import { SignOutDialog } from './SignOutDialog';
 
@@ -19,7 +19,8 @@ function fakeApp(overrides: {
   signOut?: ReturnType<typeof vi.fn>;
   restart?: ReturnType<typeof vi.fn>;
 }): AppServices {
-  const update = vi.fn();
+  const stores = createStores();
+  stores.settings.getState().update('connection', { backend: 'signal-cli', account: '+15550100' });
   const clearHistory = overrides.clearHistory ?? vi.fn(() => Promise.resolve());
   const persist = overrides.persist ?? vi.fn(() => Promise.resolve());
   const setPendingHistoryClear = overrides.setPendingHistoryClear ?? vi.fn(() => Promise.resolve());
@@ -27,11 +28,14 @@ function fakeApp(overrides: {
   const restart = overrides.restart ?? vi.fn(() => Promise.resolve());
   return {
     backend: { kind: 'signal-cli' },
-    stores: {
-      settings: { getState: () => ({ update }) },
-      session: createStore(() => ({ self: null })),
+    stores,
+    admin: {
+      clearHistory,
+      persist,
+      setPendingHistoryClear,
+      clearAccountData: vi.fn(() => Promise.resolve()),
+      disconnect: vi.fn(() => Promise.resolve()),
     },
-    admin: { clearHistory, persist, setPendingHistoryClear },
     storageAdmin: { signOut, restart },
   } as unknown as AppServices;
 }
@@ -77,6 +81,8 @@ describe('SignOutDialog: desktop sign-out', () => {
     // run the whole flow again.
     expect(screen.queryByRole('button', { name: 'Sign out' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
+    // No dead X either: nothing to close back to.
+    expect(screen.queryByRole('button', { name: 'Close' })).toBeNull();
     expect(screen.getByText(/close Snowdrop and reopen it yourself/u)).toBeTruthy();
 
     act(() => {
