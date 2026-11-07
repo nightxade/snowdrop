@@ -310,6 +310,13 @@ describe('accountOfScope / accountDataKeys', () => {
     );
   });
 
+  it('includes the record of sends awaiting completion', () => {
+    const withMarkers = [...keys, `snowdrop.sentMarkers:signal-cli:${account}`];
+    expect(accountDataKeys(withMarkers, 'signal-cli', account)).toContain(
+      `snowdrop.sentMarkers:signal-cli:${account}`,
+    );
+  });
+
   it('with no account known yet, only the pending placeholder’s data', () => {
     expect(accountDataKeys(keys, 'signal-cli', null)).toEqual([
       'snowdrop.local:signal-cli:pending',

@@ -10,7 +10,7 @@ import {
   type Message,
 } from '@/core/domain';
 import { ManualScheduler } from '@/core/lib';
-import { MemoryMessageRepository } from '@/core/persistence';
+import { createMemoryStorage, MemoryMessageRepository } from '@/core/persistence';
 import {
   createStores,
   localSelectors,
@@ -23,6 +23,7 @@ import { HistoryService } from './HistoryService';
 import { PostConnect } from './PostConnect';
 import { ReceiptBuffer } from './ReceiptBuffer';
 import { ATTACHMENTS_LOST_ERROR, SendService } from './SendService';
+import { SentMarkers } from './sentMarkers';
 import { SyncService, wasConnectionErrorReported } from './SyncService';
 import type { DraftPipeline, OutgoingDraft } from './types';
 
@@ -37,6 +38,7 @@ interface SetupOptions {
   stores?: Stores;
   noServerHistory?: boolean;
   maxOpenConversations?: number;
+  sentMarkers?: SentMarkers;
 }
 
 async function setup(options: SetupOptions = {}) {
@@ -67,6 +69,7 @@ async function setup(options: SetupOptions = {}) {
     receipts,
     onError,
     newNonce: () => `nonce-${++n}`,
+    ...(options.sentMarkers ? { sentMarkers: options.sentMarkers } : {}),
     ...(options.pipeline ? { pipeline: options.pipeline } : {}),
   });
   const history = new HistoryService({
@@ -1247,6 +1250,180 @@ describe('SendService', () => {
     expect(second.list(id).at(-1)).toMatchObject({
       status: 'sent',
       body: 'written before the crash',
+    });
+  });
+
+  describe('a storage failure after the backend acknowledged a send', () => {
+    it('retries the commit, so a transient failure leaves a normal sent message', async () => {
+      const s = await setup();
+      const id = s.conv('orchard-eng');
+      await s.history.open(id);
+      const backendSend = vi.spyOn(s.backend, 'send');
+      vi.spyOn(s.repository, 'commitOutgoing').mockRejectedValueOnce(new Error('quota'));
+      await s.send.send(draft(id, 'goes through'));
+      expect(backendSend).toHaveBeenCalledTimes(1);
+      expect(s.list(id).at(-1)).toMatchObject({ status: 'sent', body: 'goes through' });
+      expect(await s.repository.listOutbox()).toEqual([]);
+      expect(s.onError).not.toHaveBeenCalled();
+    });
+
+    it('is shown as sent, never offered for resend, and is completed on the next start', async () => {
+      const repository = new MemoryMessageRepository();
+      const first = await setup({ repository });
+      const id = first.conv('orchard-eng');
+      await first.history.open(id);
+      const backendSend = vi.spyOn(first.backend, 'send');
+      const commit = vi
+        .spyOn(repository, 'commitOutgoing')
+        .mockRejectedValue(new Error('disk full'));
+      await expect(first.send.send(draft(id, 'went out'))).resolves.toBe('nonce-1');
+      expect(backendSend).toHaveBeenCalledTimes(1);
+      expect(first.stores.messages.getState().findByNonce(id, 'nonce-1')).toMatchObject({
+        status: 'sent',
+      });
+      expect(first.onError).toHaveBeenCalledOnce();
+      // Not stuck: Retry does nothing (it would send a second copy), and a
+      // later send still works.
+      await first.send.retry(id, 'nonce-1');
+      expect(backendSend).toHaveBeenCalledTimes(1);
+      commit.mockRestore();
+
+      // Next start: the entry is finished, not failed and not resent.
+      const second = await setup({ repository });
+      const resend = vi.spyOn(second.backend, 'send');
+      await second.send.restoreOutbox();
+      expect(resend).not.toHaveBeenCalled();
+      expect(await repository.listOutbox()).toEqual([]);
+      expect(await repository.get(pendingMessageId('nonce-1'))).toBeUndefined();
+      const stored = await repository.page(id, { limit: 50 });
+      expect(stored.filter((m) => m.body === 'went out')).toMatchObject([{ status: 'sent' }]);
+    });
+
+    it('keeps the message’s expiry when completed after a restart', async () => {
+      const repository = new MemoryMessageRepository();
+      const first = await setup({ repository });
+      const id = first.conv('orchard-eng');
+      const conversation = first.stores.conversations.getState().byId[id]!;
+      first.stores.conversations.getState().upsertMany([{ ...conversation, expireTimerSec: 3600 }]);
+      await first.history.open(id);
+      const commit = vi.spyOn(repository, 'commitOutgoing').mockRejectedValue(new Error('full'));
+      await first.send.send(draft(id, 'secret'));
+      const shown = first.stores.messages.getState().findByNonce(id, 'nonce-1')!;
+      expect(shown.expiresAt).toBe(shown.sentAt + 3600_000);
+      commit.mockRestore();
+
+      const second = await setup({ repository });
+      await second.send.restoreOutbox();
+      const stored = (await repository.page(id, { limit: 50 })).find((m) => m.body === 'secret');
+      expect(stored?.expiresAt).toBe(shown.expiresAt);
+      expect(await repository.expired(shown.expiresAt! + 1, 10)).toHaveLength(1);
+    });
+
+    it('is completed after a restart even when the repository could not take the sent state', async () => {
+      const repository = new MemoryMessageRepository();
+      const storage = createMemoryStorage();
+      const markers = () => new SentMarkers(storage, () => 'signal-cli:acct');
+      const first = await setup({ repository, sentMarkers: markers() });
+      const id = first.conv('orchard-eng');
+      await first.history.open(id);
+      const backendSend = vi.spyOn(first.backend, 'send');
+      vi.spyOn(repository, 'commitOutgoing').mockRejectedValue(new Error('closed'));
+      // The repository takes no update either: only the marker survives.
+      vi.spyOn(repository, 'update').mockRejectedValue(new Error('closed'));
+      await first.send.send(draft(id, 'lost row'));
+      expect(backendSend).toHaveBeenCalledTimes(1);
+      vi.restoreAllMocks();
+
+      const second = await setup({ repository, sentMarkers: markers() });
+      const resend = vi.spyOn(second.backend, 'send');
+      await second.send.restoreOutbox();
+      expect(resend).not.toHaveBeenCalled();
+      const stored = (await repository.page(id, { limit: 50 })).filter(
+        (m) => m.body === 'lost row',
+      );
+      expect(stored).toMatchObject([{ status: 'sent' }]);
+      expect(await repository.listOutbox()).toEqual([]);
+      // Cleared once completed.
+      expect(markers().get('nonce-1')).toBeUndefined();
+    });
+
+    it('a sync echo merges into the recorded message, and queued edits are not dropped', async () => {
+      const repository = new MemoryMessageRepository();
+      const s = await setup({ repository });
+      const id = s.conv('orchard-eng');
+      await s.history.open(id);
+      vi.spyOn(repository, 'commitOutgoing').mockRejectedValue(new Error('full'));
+      await s.send.send(draft(id, 'once'));
+      const rows = s.list(id).filter((m) => m.body === 'once');
+      expect(rows).toHaveLength(1);
+      // The row carries its real id, so the phone's copy of it lands on it.
+      expect(rows[0]?.id).toBe(messageId(s.selfId, rows[0]!.sentAt));
+      s.stores.messages
+        .getState()
+        .appendLive({ ...rows[0]!, id: messageId(s.selfId, rows[0]!.sentAt) });
+      expect(s.list(id).filter((m) => m.body === 'once')).toHaveLength(1);
+    });
+
+    it('does not recreate a message in a conversation deleted while its send was in flight', async () => {
+      const s = await setup();
+      const id = s.conv('orchard-eng');
+      await s.history.open(id);
+      let land!: (r: { sentAt: number }) => void;
+      vi.spyOn(s.backend, 'send').mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            land = resolve;
+          }),
+      );
+      const sending = s.send.send(draft(id, 'too late'));
+      await flush();
+      s.send.forgetConversation(id);
+      await s.repository.deleteConversation(id);
+      land({ sentAt: NOW + 5 });
+      await sending;
+      expect((await s.repository.page(id, { limit: 50 })).some((m) => m.body === 'too late')).toBe(
+        false,
+      );
+      expect(await s.repository.listOutbox()).toEqual([]);
+    });
+
+    it('also survives a failure while finishing up (reading the conversation)', async () => {
+      const s = await setup();
+      const id = s.conv('orchard-eng');
+      await s.history.open(id);
+      vi.spyOn(s.sync, 'markConversationRead').mockRejectedValue(new Error('boom'));
+      const send = new SendService({
+        backend: s.backend,
+        repository: s.repository,
+        stores: s.stores,
+        clock: s.scheduler,
+        onError: s.onError,
+        readConversation: (conversationId) => s.sync.markConversationRead(conversationId),
+      });
+      await expect(send.send(draft(id, 'fine'))).resolves.toEqual(expect.any(String));
+      expect(s.list(id).at(-1)).toMatchObject({ status: 'sent', body: 'fine' });
+    });
+  });
+
+  it('one outbox entry failing to restore does not stop the others', async () => {
+    const repository = new MemoryMessageRepository();
+    const first = await setup({ repository });
+    const id = first.conv('orchard-eng');
+    first.backend.failNext();
+    await first.send.send(draft(id, 'one'));
+    first.backend.failNext();
+    await first.send.send(draft(id, 'two'));
+
+    const second = await setup({ repository });
+    vi.spyOn(repository, 'update').mockImplementationOnce(() =>
+      Promise.reject(new Error('unreadable')),
+    );
+    expect(await second.send.restoreOutbox()).toBe(2);
+    expect(second.onError).toHaveBeenCalledOnce();
+    await second.history.open(id);
+    // The other entry was restored.
+    expect(second.stores.messages.getState().findByNonce(id, 'nonce-2')).toMatchObject({
+      status: 'failed',
     });
   });
 

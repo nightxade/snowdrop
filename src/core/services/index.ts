@@ -7,6 +7,7 @@ export * from './GroupService';
 export * from './IdentityService';
 export * from './HistoryService';
 export * from './historyImport';
+export * from './sentMarkers';
 export * from './ReceiptBuffer';
 export * from './PendingOpsBuffer';
 export * from './NotificationService';

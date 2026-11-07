@@ -134,6 +134,13 @@ export class MemoryMessageRepository implements MessageRepository {
     for (const [id, media] of this.sentMedia) {
       if (media.conversationId === conversationId) this.sentMedia.delete(id);
     }
+    for (const [nonce, entry] of this.outbox) {
+      if (entry.input.conversationId === conversationId) this.outbox.delete(nonce);
+    }
+    return Promise.resolve();
+  }
+
+  flush(): Promise<void> {
     return Promise.resolve();
   }
 

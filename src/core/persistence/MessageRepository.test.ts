@@ -460,6 +460,45 @@ describe.each(implementations)('MessageRepository (%s)', (_name, create) => {
     expect(await repo.count(a)).toBe(1);
   });
 
+  it('deleting a conversation also removes its queued sends, and only its own', async () => {
+    const mine = { conversationId: a, body: 'queued in a', ranges: [] };
+    const other = { conversationId: b, body: 'queued in b', ranges: [] };
+    const file = new File([new Uint8Array([1, 2])], 'x.png', { type: 'image/png' });
+    const withFile = {
+      conversationId: a,
+      body: 'with file',
+      ranges: [],
+      attachments: [{ fileName: 'x.png', contentType: 'image/png', data: file }],
+    };
+    const pendingOf = (nonce: string, conversationId: typeof a) =>
+      incoming({
+        conversationId,
+        authorId: 'me',
+        sentAt: 5,
+        id: pendingMessageId(nonce),
+        nonce,
+      });
+    await repo.stageOutgoing(pendingOf('qa', a), { nonce: 'qa', input: mine, createdAt: 1 });
+    await repo.stageOutgoing(pendingOf('qf', a), { nonce: 'qf', input: withFile, createdAt: 2 });
+    await repo.stageOutgoing(pendingOf('qb', b), { nonce: 'qb', input: other, createdAt: 3 });
+
+    await repo.deleteConversation(a);
+
+    expect((await repo.listOutbox()).map((e) => e.nonce)).toEqual(['qb']);
+    expect(await repo.get(pendingMessageId('qa'))).toBeUndefined();
+    expect(await repo.get(pendingMessageId('qb'))).toBeDefined();
+  });
+
+  it('flush resolves once queued writes have landed', async () => {
+    const writing = repo.upsert(
+      incoming({ conversationId: a, authorId: 'x', sentAt: 123456, body: 'last words' }),
+      mergeDuplicate,
+    );
+    await repo.flush();
+    expect((await repo.get(messageId('x', 123456)))?.body).toBe('last words');
+    await writing;
+  });
+
   it('(regression) round-trips outbox attachment bytes across persistence', async () => {
     const bytes = new Uint8Array([1, 2, 3, 4, 5]);
     const file = new File([bytes], 'photo.png', { type: 'image/png' });

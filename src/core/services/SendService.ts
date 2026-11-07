@@ -19,6 +19,7 @@ import type {
   OutgoingLinkPreview,
   OutgoingPoll,
   SendInput,
+  SendResult,
 } from '@/core/backend';
 import {
   expandTextEmoticons,
@@ -60,7 +61,7 @@ import {
   type StickerContent,
 } from '@/core/domain';
 import { createNonce, pollDraftProblem, tidyPollDraft, type Clock } from '@/core/lib';
-import type { MessageRepository } from '@/core/persistence';
+import type { MessageRepository, OutboxEntry, SentMedia } from '@/core/persistence';
 import { effectivePrivacy, selectMessageRequestState, type Stores } from '@/core/stores';
 import { refreshPreviewAfterRemoval } from './sidebarPreview';
 import {
@@ -72,6 +73,7 @@ import {
 } from './localAttachments';
 import { PendingOpsBuffer } from './PendingOpsBuffer';
 import { ReceiptBuffer } from './ReceiptBuffer';
+import type { SentMarkers } from './sentMarkers';
 import {
   consoleReporter,
   PASSTHROUGH_PIPELINE,
@@ -93,6 +95,9 @@ export const TYPING_REFRESH_MS = 10_000;
 
 /** Shown instead of an opaque "send failed" when an outbox entry's attachment bytes are gone. */
 export const ATTACHMENTS_LOST_ERROR = 'attachment lost — re-attach to retry';
+
+/** How many times a sent message's commit is tried before it is only kept in memory. */
+const COMMIT_ATTEMPTS = 3;
 
 export interface SendServiceDeps {
   backend: ChatBackend;
@@ -118,6 +123,8 @@ export interface SendServiceDeps {
     nonce: string;
     contactIds: string[];
   }) => void;
+  /** Survives a repository that can't record a send (see `SentMarkers`); optional. */
+  sentMarkers?: SentMarkers;
   newNonce?: () => string;
   onError?: ErrorReporter;
 }
@@ -140,6 +147,9 @@ function untrustedRecipients(error: unknown): string[] {
   return [...ids];
 }
 
+/** A pending row in any state but these was acknowledged by the backend. */
+const isAcknowledged = (m: Message): boolean => m.status !== 'pending' && m.status !== 'failed';
+
 export class NotSignedInError extends Error {
   override name = 'NotSignedInError';
 }
@@ -157,6 +167,8 @@ interface Outgoing {
   input: SendInput;
   inFlight: boolean;
   queue: QueuedOp[];
+  /** Its conversation was deleted while the send was in flight: nothing is recorded when it lands. */
+  abandoned?: boolean;
 }
 
 export class SendService {
@@ -420,58 +432,116 @@ export class SendService {
     const entries = await repository.listOutbox();
     const selfId = stores.session.getState().self?.id;
     for (const entry of entries) {
-      if (this.outgoing.has(entry.nonce)) continue;
-      const id = pendingMessageId(entry.nonce);
-      const conversationId = entry.input.conversationId;
+      // One entry failing to restore must not stop the others.
+      try {
+        await this.restoreEntry(entry, selfId);
+      } catch (error) {
+        this.onError(error, 'restoring an unsent message failed');
+      }
+    }
+    return entries.length;
+  }
+
+  private async restoreEntry(entry: OutboxEntry, selfId: string | undefined): Promise<void> {
+    const { repository, stores } = this.deps;
+    if (this.outgoing.has(entry.nonce)) return;
+    const id = pendingMessageId(entry.nonce);
+    const conversationId = entry.input.conversationId;
+    const failureReason = entry.attachmentsLost ? ATTACHMENTS_LOST_ERROR : undefined;
+    // A send the backend acknowledged but whose commit never completed
+    // (`recordSentWithoutCommit`) is known from its pending row (no longer
+    // pending or failed) or from the marker kept outside the repository. It is
+    // never failed (Retry would send it twice): its commit is finished instead.
+    const marker = this.deps.sentMarkers?.get(entry.nonce);
+    const markRestored = (m: Message): Message => {
+      if (isAcknowledged(m)) return m;
+      if (marker) {
+        return {
+          ...m,
+          status: 'sent',
+          sentAt: marker.sentAt,
+          ...(marker.expiresAt === undefined ? {} : { expiresAt: marker.expiresAt }),
+        };
+      }
+      return { ...m, status: 'failed', ...(failureReason ? { failureReason } : {}) };
+    };
+    const existing = await repository.update(id, markRestored);
+    if (existing && isAcknowledged(existing)) {
+      if (selfId) await this.completeAcknowledged(entry.nonce, existing, selfId);
+      return;
+    }
+    if (!marker) {
       this.outgoing.set(entry.nonce, {
         conversationId,
         input: entry.input,
         inFlight: false,
         queue: [],
       });
-      const failureReason = entry.attachmentsLost ? ATTACHMENTS_LOST_ERROR : undefined;
-      const markFailed = (m: Message): Message => ({
-        ...m,
-        status: 'failed',
-        ...(failureReason ? { failureReason } : {}),
-      });
-      const existing = await repository.update(id, markFailed);
-      if (existing) {
-        stores.messages.getState().update(conversationId, id, markFailed);
-        continue;
-      }
-      if (!selfId) continue;
-      // Outbox entry without its row (older data, or storage that lost it):
-      // rebuild the row from the input so the message is visible and retryable.
-      const row: Message = {
-        id,
-        conversationId,
-        authorId: selfId,
-        sentAt: entry.createdAt,
-        receivedAt: entry.createdAt,
-        seq: await repository.allocateSeq(),
-        body: entry.input.body,
-        ranges: entry.input.ranges,
-        attachments: (entry.input.attachments ?? []).map((a, i) => ({
-          id: `${entry.nonce}-${i}`,
-          contentType: a.contentType,
-          fileName: a.fileName,
-          size: a.data.size,
-          ...(a.voiceNote ? { voiceNote: true } : {}),
-        })),
-        reactions: [],
-        status: 'failed',
-        kind: 'normal',
-        nonce: entry.nonce,
-        ...(entry.input.quote ? { quote: entry.input.quote } : {}),
-        ...(entry.input.sticker ? { sticker: entry.input.sticker } : {}),
-        ...(entry.input.poll ? { poll: pollOf(entry.input) } : {}),
-        ...(failureReason ? { failureReason } : {}),
-      };
-      await repository.stageOutgoing(row, entry);
-      stores.messages.getState().appendLive(row);
     }
-    return entries.length;
+    if (existing) {
+      stores.messages.getState().update(conversationId, id, markRestored);
+      return;
+    }
+    if (!selfId) return;
+    // Outbox entry without its row (older data, or storage that lost it):
+    // rebuild the row from the input so the message is visible and retryable
+    // (or, for an acknowledged send, so its commit can be finished).
+    const row: Message = {
+      id,
+      conversationId,
+      authorId: selfId,
+      sentAt: marker?.sentAt ?? entry.createdAt,
+      receivedAt: entry.createdAt,
+      seq: await repository.allocateSeq(),
+      body: entry.input.body,
+      ranges: entry.input.ranges,
+      attachments: (entry.input.attachments ?? []).map((a, i) => ({
+        id: `${entry.nonce}-${i}`,
+        contentType: a.contentType,
+        fileName: a.fileName,
+        size: a.data.size,
+        ...(a.voiceNote ? { voiceNote: true } : {}),
+      })),
+      reactions: [],
+      status: marker ? 'sent' : 'failed',
+      kind: 'normal',
+      nonce: entry.nonce,
+      ...(entry.input.quote ? { quote: entry.input.quote } : {}),
+      ...(entry.input.sticker ? { sticker: entry.input.sticker } : {}),
+      ...(entry.input.poll ? { poll: pollOf(entry.input) } : {}),
+      ...(marker?.expiresAt === undefined ? {} : { expiresAt: marker.expiresAt }),
+      ...(failureReason && !marker ? { failureReason } : {}),
+    };
+    await repository.stageOutgoing(row, entry);
+    if (marker) await this.completeAcknowledged(entry.nonce, row, selfId);
+    else stores.messages.getState().appendLive(row);
+  }
+
+  /**
+   * A conversation was deleted: its queued sends are forgotten, and one already
+   * on its way is not recorded (nor shown) when the backend answers.
+   */
+  forgetConversation(conversationId: ConversationId): void {
+    for (const [nonce, out] of this.outgoing) {
+      if (out.conversationId !== conversationId) continue;
+      if (out.inFlight) out.abandoned = true;
+      else this.outgoing.delete(nonce);
+    }
+  }
+
+  /** Completes the commit of a message that was sent but not recorded: no resend, the row becomes the real one. */
+  private async completeAcknowledged(nonce: string, row: Message, selfId: string): Promise<void> {
+    const { repository, stores } = this.deps;
+    const final: Message = { ...row, id: messageId(selfId, row.sentAt), nonce };
+    try {
+      const { message } = await repository.commitOutgoing(nonce, final, mergeOutgoingCommit);
+      stores.messages.getState().reconcile(row.conversationId, nonce, message);
+      this.deps.sentMarkers?.clear(nonce);
+      if (message.expiresAt !== undefined) this.deps.onExpiry?.(message.expiresAt);
+    } catch (error) {
+      // The outbox entry stays, so the next start tries again.
+      this.onError(error, 'completing a sent message failed');
+    }
   }
 
   /** Re-sends a failed message with its original (or since edited) input. */
@@ -540,6 +610,84 @@ export class SendService {
       return;
     }
 
+    if (out.abandoned) {
+      this.outgoing.delete(nonce);
+      return;
+    }
+    let stored: Message;
+    let built: { final: Message; media: readonly SentMedia[] } | undefined;
+    try {
+      built = await this.buildFinal(nonce, out, result, timer);
+      stored = await this.commitWithRetry(nonce, built.final, built.media);
+    } catch (error) {
+      await this.recordSentWithoutCommit(nonce, out, result, error, built?.final);
+      return;
+    }
+    this.outgoing.delete(nonce);
+    try {
+      // A receipt handled while we were committing found no row and was parked; claim it now.
+      const late = this.receipts.take(result.sentAt, clock.now());
+      if (late !== undefined) {
+        stored =
+          (await repository.update(stored.id, (m) => {
+            const receipts = mergeReceipts(m.receipts, late.recipients);
+            return {
+              ...m,
+              status: advanceStatus(m.status, late.status),
+              ...(receipts ? { receipts } : {}),
+            };
+          })) ?? stored;
+      }
+      // A delete/reaction/edit/pin that targeted this message before the send
+      // was acknowledged (it only has an id to target once the backend echoes
+      // or the peer reacts) was parked by SyncService; claim it now.
+      const queuedOps = this.pendingOps.take(stored.id, clock.now());
+      if (queuedOps.length > 0) {
+        stored =
+          (await repository.update(stored.id, (m) => queuedOps.reduce((x, op) => op(x), m))) ??
+          stored;
+      }
+      // Re-read right before showing it: receipts applied to the stored row after
+      // the commit never reached the store (it still held the pending row).
+      stored = (await repository.get(stored.id)) ?? stored;
+    } catch (error) {
+      // The message is stored and shown as sent; only these extras failed.
+      this.onError(error, 'finishing a sent message failed');
+    }
+
+    // Show the queued operations' effects straight away; commit them next.
+    const shown = out.queue.reduce((m, op) => op.apply(m), stored);
+    stores.messages.getState().reconcile(out.conversationId, nonce, shown);
+    stores.conversations.getState().noteLatest(shown);
+    if (stored.expiresAt !== undefined) this.deps.onExpiry?.(stored.expiresAt);
+    // Replying means you've seen everything before it. That is a read like
+    // any other, so it goes through the read path (which tells the senders
+    // and the user's other devices) rather than just moving the cursor.
+    // Best effort: a failure here must not keep the queued operations from being sent.
+    try {
+      if (this.deps.readConversation) {
+        await this.deps.readConversation(out.conversationId);
+      } else if (
+        stored.seq !== undefined &&
+        stores.conversations.getState().markRead(out.conversationId, stored.seq)
+      ) {
+        await repository.setReadCursor(out.conversationId, stored.seq);
+      }
+    } catch (error) {
+      this.onError(error, 'marking the conversation read after sending failed');
+    }
+    for (const op of out.queue) await this.commitQueued(out.conversationId, stored, op);
+  }
+
+  /** The message as it was actually sent (queued edits and reactions are replayed on top). */
+  private async buildFinal(
+    nonce: string,
+    out: Outgoing,
+    result: SendResult,
+    timer: number,
+  ): Promise<{ final: Message; media: readonly SentMedia[] }> {
+    const { repository, stores, clock } = this.deps;
+    const pendingId = pendingMessageId(nonce);
     const selfId = this.selfId();
     const pendingRow =
       stores.messages.getState().findByNonce(out.conversationId, nonce) ??
@@ -580,59 +728,107 @@ export class SendService {
       ...(timer > 0 ? { expiresAt: result.sentAt + timer * 1000 } : {}),
     };
 
-    // Merge (not overwrite): a sync echo or receipts may have landed already.
-    // mergeOutgoingCommit (not plain mergeDuplicate) keeps *our* seq, nonce and
-    // attachment preview even if a sync-transcript echo created the row first.
-    let { message: stored } = await repository.commitOutgoing(
-      nonce,
-      final,
-      mergeOutgoingCommit,
-      kept.media,
-    );
-    this.outgoing.delete(nonce);
-    // A receipt handled while we were committing found no row and was parked; claim it now.
-    const late = this.receipts.take(result.sentAt, clock.now());
-    if (late !== undefined) {
-      stored =
-        (await repository.update(stored.id, (m) => {
-          const receipts = mergeReceipts(m.receipts, late.recipients);
-          return {
-            ...m,
-            status: advanceStatus(m.status, late.status),
-            ...(receipts ? { receipts } : {}),
-          };
-        })) ?? stored;
-    }
-    // A delete/reaction/edit/pin that targeted this message before the send
-    // was acknowledged (it only has an id to target once the backend echoes
-    // or the peer reacts) was parked by SyncService; claim it now.
-    const queuedOps = this.pendingOps.take(stored.id, clock.now());
-    if (queuedOps.length > 0) {
-      stored =
-        (await repository.update(stored.id, (m) => queuedOps.reduce((x, op) => op(x), m))) ??
-        stored;
-    }
-    // Re-read right before showing it: receipts applied to the stored row after
-    // the commit never reached the store (it still held the pending row).
-    stored = (await repository.get(stored.id)) ?? stored;
+    return { final, media: kept.media };
+  }
 
-    // Show the queued operations' effects straight away; commit them next.
-    const shown = out.queue.reduce((m, op) => op.apply(m), stored);
+  /**
+   * Records the acknowledged message in storage, replacing its pending row.
+   * The commit is retried a few times: the message has gone out, so this is
+   * worth more than giving up on the first storage error.
+   */
+  private async commitWithRetry(
+    nonce: string,
+    final: Message,
+    media: readonly SentMedia[],
+  ): Promise<Message> {
+    const { repository } = this.deps;
+    let lastError: unknown;
+    for (let attempt = 0; attempt < COMMIT_ATTEMPTS; attempt++) {
+      try {
+        const { message } = await repository.commitOutgoing(
+          nonce,
+          final,
+          mergeOutgoingCommit,
+          media,
+        );
+        return message;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError;
+  }
+
+  /**
+   * The backend acknowledged the send but it could not be recorded (storage
+   * failed, or the account went away). The message went out, so it is never
+   * sent again: it stops being retryable and shows as sent, under its real id
+   * (so the phone's sync copy merges with it instead of duplicating it).
+   *
+   * For the next start, a marker (nonce to `sentAt`) goes to the local
+   * key-value storage first, then the sent state, with everything the normal
+   * commit keeps (expiry, previews, attachment metadata), onto its pending row
+   * if the repository allows. `restoreOutbox` completes the commit from
+   * whichever survived. Not carried over: the full-quality copies of sent
+   * images (their attachments lose the `original` flag).
+   */
+  private async recordSentWithoutCommit(
+    nonce: string,
+    out: Outgoing,
+    result: SendResult,
+    error: unknown,
+    final: Message | undefined,
+  ): Promise<void> {
+    const { repository, stores, clock } = this.deps;
+    const pendingId = pendingMessageId(nonce);
+    const { sentAt } = result;
+    this.outgoing.delete(nonce);
+    out.inFlight = false;
+    this.onError(error, 'recording a sent message failed; it will not be sent again');
+    try {
+      this.deps.sentMarkers?.set(nonce, {
+        sentAt,
+        ...(final?.expiresAt === undefined ? {} : { expiresAt: final.expiresAt }),
+      });
+    } catch {
+      // Best effort: the pending row below is the other record.
+    }
+    if (!final) {
+      // No account to build the message for: only its state can be shown and kept.
+      const markSent = (m: Message): Message => ({ ...m, status: 'sent', sentAt });
+      stores.messages.getState().update(out.conversationId, pendingId, markSent);
+      for (const op of out.queue) {
+        stores.messages.getState().update(out.conversationId, pendingId, op.revert);
+      }
+      await repository.update(pendingId, markSent).catch(() => undefined);
+      if (out.queue.length > 0) {
+        this.onError(
+          new Error('queued changes were dropped'),
+          'a sent message could not be recorded',
+        );
+      }
+      return;
+    }
+    const { id: _id, ...content } = final;
+    const attachments = final.attachments.map(({ original: _original, ...rest }) => rest);
+    await repository
+      .update(pendingId, (m) => ({ ...m, ...content, attachments }))
+      .catch(() => undefined);
+    // A receipt that arrived for this timestamp while we were sending.
+    const late = this.receipts.take(sentAt, clock.now());
+    const receipts = late ? mergeReceipts(final.receipts, late.recipients) : final.receipts;
+    const settled: Message = {
+      ...final,
+      attachments,
+      ...(late ? { status: advanceStatus(final.status, late.status) } : {}),
+      ...(receipts ? { receipts } : {}),
+    };
+    const shown = out.queue.reduce((m, op) => op.apply(m), settled);
     stores.messages.getState().reconcile(out.conversationId, nonce, shown);
     stores.conversations.getState().noteLatest(shown);
-    if (stored.expiresAt !== undefined) this.deps.onExpiry?.(stored.expiresAt);
-    // Replying means you've seen everything before it. That is a read like
-    // any other, so it goes through the read path (which tells the senders
-    // and the user's other devices) rather than just moving the cursor.
-    if (this.deps.readConversation) {
-      await this.deps.readConversation(out.conversationId);
-    } else if (
-      stored.seq !== undefined &&
-      stores.conversations.getState().markRead(out.conversationId, stored.seq)
-    ) {
-      await repository.setReadCursor(out.conversationId, stored.seq);
-    }
-    for (const op of out.queue) await this.commitQueued(out.conversationId, stored, op);
+    if (final.expiresAt !== undefined) this.deps.onExpiry?.(final.expiresAt);
+    // Queued edits and deletes go out against the real id now.
+    for (const op of out.queue) await this.commitQueued(out.conversationId, settled, op);
   }
 
   private async commitQueued(

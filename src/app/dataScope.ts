@@ -25,7 +25,7 @@ import {
   leftGroupsStorageKey,
   peersStorageKey,
 } from '@/core/backend/signal-cli/storageKeys';
-import { HISTORY_IMPORT_KEY_PREFIX } from '@/core/services';
+import { HISTORY_IMPORT_KEY_PREFIX, SENT_MARKERS_KEY_PREFIX } from '@/core/services';
 import { localSchema } from '@/core/stores';
 import {
   backupKey,
@@ -72,7 +72,7 @@ export function accountOfScope(scope: StorageScope): string | null {
  * "Signing out"): the account's local state (`snowdrop.local:<scope>`:
  * contact notes, pins, mutes, drafts, accepted/deleted message requests,
  * recent stickers, reaction usage, backfill markers), its imported-history
- * record, the signal-cli adapter's peers list and resume cursors, and the
+ * record, its record of sends awaiting completion, the signal-cli adapter's peers list and resume cursors, and the
  * `.backup` copies the loader parks next to any of them. The `pending`
  * placeholder scope of the same backend goes too: it only ever holds what was
  * written before the account was known.
@@ -92,7 +92,7 @@ export function accountDataKeys(
   const present = new Set(storageKeys);
   const wanted = new Set<string>();
   for (const scope of new Set([scopeFor(kind, accountId), scopeFor(kind, null)])) {
-    for (const base of [localSchema.key, HISTORY_IMPORT_KEY_PREFIX]) {
+    for (const base of [localSchema.key, HISTORY_IMPORT_KEY_PREFIX, SENT_MARKERS_KEY_PREFIX]) {
       const key = scopedKey(base, scope);
       wanted.add(key);
       wanted.add(backupKey(key));
@@ -196,4 +196,35 @@ export function rebindScopedStore<FullState extends Data, Data extends { seeded:
   saveVersioned(storage, target, finalData);
   if (isPendingScope(previousScope)) storage.removeItem(scopedKey(schema.key, previousScope));
   return bindPersistence(store, storage, target, select, debounce);
+}
+
+/**
+ * The one owner of the scoped persistence bindings (spaces, local state).
+ * Replacing a binding disposes the previous one first — flushing what it
+ * holds under its own scope and unsubscribing it — so a binding for an old
+ * scope can never keep writing (to its key, or the new account's state under
+ * the old key) after the scope changed. `dispose` ends them all.
+ */
+export class ScopedBindings<K extends string> {
+  private readonly bindings = new Map<K, PersistenceBinding>();
+
+  /** Disposes the binding held under `key`, then installs the one `make` returns. */
+  replace(key: K, make: () => PersistenceBinding): void {
+    this.dispose(key);
+    this.bindings.set(key, make());
+  }
+
+  flush(): void {
+    for (const binding of this.bindings.values()) binding.flush();
+  }
+
+  /** Flushes and stops one binding, or all of them. */
+  dispose(key?: K): void {
+    const keys = key === undefined ? [...this.bindings.keys()] : [key];
+    for (const k of keys) {
+      const binding = this.bindings.get(k);
+      this.bindings.delete(k);
+      binding?.dispose();
+    }
+  }
 }

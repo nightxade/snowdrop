@@ -22,6 +22,8 @@ export interface MessageRequestServiceDeps {
   /** Sends the read receipts that waited for an accept. */
   sync: Pick<SyncService, 'sendHeldReadReceipts'>;
   clock: Clock;
+  /** Called just before a deleted request's stored messages go (its in-flight sends must not come back). */
+  onConversationDeleted?: (id: ConversationId) => void;
   onError?: ErrorReporter;
 }
 
@@ -67,6 +69,7 @@ export class MessageRequestService {
     stores.conversations.getState().removeMany([id]);
     stores.conversations.getState().setUnread(id, NO_UNREAD);
     stores.messages.getState().closeWindow(id);
+    this.deps.onConversationDeleted?.(id);
     try {
       await repository.deleteConversation(id);
     } catch (error) {

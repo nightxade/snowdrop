@@ -51,12 +51,12 @@ export function DesktopBootedApp({
     // waiting for the hydrated storage's queued encrypted writes to actually
     // reach disk — `snowdrop.flush()` only enqueues them (bindPersistence
     // writes through `storage.setItem`, which is async under the hood; see
-    // hydratedKeyValue.ts). The message repository has no debounced queue of
-    // its own to wait on: every write it does is already awaited by its
-    // caller before that caller's promise resolves.
+    // hydratedKeyValue.ts) — and for the message repository's queued writes
+    // (a message still being encrypted when the window closes). The caller's
+    // exit budget bounds the wait.
     registerFlusher?.(async () => {
       snowdrop.flush();
-      await storage.flush();
+      await Promise.all([storage.flush(), snowdrop.repository.flush().catch(() => undefined)]);
     });
   }, [snowdrop, storage, registerFlusher]);
 

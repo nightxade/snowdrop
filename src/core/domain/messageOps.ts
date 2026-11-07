@@ -103,7 +103,16 @@ export function applyEdit(
  * content. `deletedBy` is set for admin deletes (someone other than the author).
  */
 export function applyDelete(message: Message, deletedBy?: string): Message {
-  const { quote: _quote, pinned: _pinned, sticker: _sticker, poll: _poll, ...rest } = message;
+  const {
+    quote: _quote,
+    pinned: _pinned,
+    sticker: _sticker,
+    poll: _poll,
+    previews: _previews,
+    customEmoji: _customEmoji,
+    failedRecipients: _failedRecipients,
+    ...rest
+  } = message;
   const out: Message = {
     ...rest,
     deleted: true,
@@ -165,6 +174,17 @@ export function mergeDuplicate(existing: Message, incoming: Message): Message {
 export function mergeOutgoingCommit(existing: Message, final: Message): Message {
   const merged = mergeDuplicate(existing, final);
   const { nonce: _nonce, previews: _previews, ...rest } = merged;
+  if (existing.deleted) {
+    // Deleted for everyone already (a sync echo, then the delete): nothing of
+    // the content `final` carries may come back; only our place in the timeline does.
+    const { customEmoji: _emoji, failedRecipients: _failed, ...kept } = rest;
+    return {
+      ...kept,
+      attachments: [],
+      ...(final.nonce === undefined ? {} : { nonce: final.nonce }),
+      ...(final.seq === undefined ? {} : { seq: final.seq }),
+    };
+  }
   return {
     ...rest,
     attachments: final.attachments,

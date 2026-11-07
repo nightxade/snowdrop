@@ -137,6 +137,47 @@ describe('createSnowdrop with signal-cli', () => {
     await snowdrop.dispose();
   });
 
+  it('stops the previous scope’s bindings when the account is discovered, and Erase stops all of them', async () => {
+    const storage = createMemoryStorage({
+      'snowdrop.settings': JSON.stringify({
+        v: 2,
+        data: { connection: { backend: 'signal-cli', daemonUrl: '/signal-cli', account: null } },
+      }),
+    });
+    const daemon = new FakeDaemon()
+      .reply('listAccounts', [{ number: SELF_NUMBER, aci: SELF_ACI }])
+      .reply('listContacts', [])
+      .reply('listGroups', []);
+    const snowdrop = createSnowdrop({
+      storage,
+      fetch: daemon.fetch,
+      repository: new MemoryMessageRepository(),
+    });
+    await snowdrop.start();
+    await flush();
+    const pendingLocal = scopedSchema(localSchema, 'signal-cli:pending').key;
+    const pendingSpaces = scopedSchema(spacesSchema, 'signal-cli:pending').key;
+    const accountLocal = scopedSchema(localSchema, `signal-cli:${SELF_ACI}`).key;
+
+    // Changes after the rebind land under the account only; the placeholder
+    // keys stay gone.
+    snowdrop.stores.local.getState().setNote('contact-2', 'after linking');
+    snowdrop.stores.spaces.getState().createSpace({ name: 'After linking' });
+    snowdrop.flush();
+    expect(storage.getItem(pendingLocal)).toBeNull();
+    expect(storage.getItem(pendingSpaces)).toBeNull();
+    expect(storage.getItem(accountLocal)).toContain('after linking');
+
+    // Erase: nothing writes again, through the rebound bindings either.
+    snowdrop.admin.stopPersistence();
+    for (const key of storage.keys?.() ?? [])
+      if (key.includes('signal-cli')) storage.removeItem(key);
+    snowdrop.stores.local.getState().setNote('contact-3', 'after erase');
+    snowdrop.flush();
+    expect(storage.keys?.().filter((k) => k.includes('signal-cli'))).toEqual([]);
+    await snowdrop.dispose();
+  });
+
   it('logs "no account yet" once, at info, not three times (sync, App effect, startOnce)', async () => {
     const storage = createMemoryStorage({
       'snowdrop.settings': JSON.stringify({

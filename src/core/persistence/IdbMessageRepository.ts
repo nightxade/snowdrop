@@ -275,6 +275,11 @@ export class IdbMessageRepository implements MessageRepository {
     this.db.close();
   }
 
+  /** Resolves once every mutation queued so far has settled (it never rejects). */
+  async flush(): Promise<void> {
+    await this.writeQueue;
+  }
+
   async pendingHistoryTimers(): Promise<Message[]> {
     // These fields remain inside the encrypted payload. Reconcile once at
     // startup, without adding a plaintext index exposing which rows were read.
@@ -305,6 +310,22 @@ export class IdbMessageRepository implements MessageRepository {
   private async fromRow(row: MessageRow): Promise<Message> {
     const plain = await this.cipher.decrypt(row.payload, row.id);
     return JSON.parse(utf8Decode(plain)) as Message;
+  }
+
+  /**
+   * The stored message, or undefined when its row can't be read (corrupted,
+   * tampered, or sealed under a different key). Mutations use this for the
+   * row they are about to replace: an unreadable one is treated as absent, so
+   * it can't block writes to its id for good. Logs a count, never the id.
+   */
+  private async tryFromRow(row: MessageRow | undefined): Promise<Message | undefined> {
+    if (!row) return undefined;
+    try {
+      return await this.fromRow(row);
+    } catch {
+      log.warn('replacing 1 unreadable message row');
+      return undefined;
+    }
   }
 
   /**
@@ -356,9 +377,8 @@ export class IdbMessageRepository implements MessageRepository {
   upsert(message: Message, merge: MergeFn): Promise<UpsertResult> {
     return this.mutate(async () => {
       const key = await this.cipher.blindId(message.id);
-      const existingRow = await this.db.get('messages', key);
-      if (existingRow) {
-        const existing = await this.fromRow(existingRow);
+      const existing = await this.tryFromRow(await this.db.get('messages', key));
+      if (existing) {
         const merged = merge(existing, message);
         await this.writeDropping([await this.toRow(merged)], droppedOriginals(existing, merged));
         return { message: merged, created: false };
@@ -387,9 +407,7 @@ export class IdbMessageRepository implements MessageRepository {
     return this.mutate(async () => {
       const keys = await Promise.all(messages.map((m) => this.cipher.blindId(m.id)));
       const existingRows = await Promise.all(keys.map((key) => this.db.get('messages', key)));
-      const existing = await Promise.all(
-        existingRows.map((row) => (row ? this.fromRow(row) : Promise.resolve(undefined))),
-      );
+      const existing = await Promise.all(existingRows.map((row) => this.tryFromRow(row)));
       const freshCount = existing.filter((e) => e === undefined).length;
       const seq = await this.seqStateOnce();
       let next = backfill ? seq.min - freshCount : seq.max + 1;
@@ -423,9 +441,8 @@ export class IdbMessageRepository implements MessageRepository {
   update(id: MessageId, fn: (message: Message) => Message): Promise<Message | undefined> {
     return this.mutate(async () => {
       const key = await this.cipher.blindId(id);
-      const currentRow = await this.db.get('messages', key);
-      if (!currentRow) return undefined;
-      const before = await this.fromRow(currentRow);
+      const before = await this.tryFromRow(await this.db.get('messages', key));
+      if (!before) return undefined;
       // Updates never move a message in the timeline.
       const next: Message =
         before.seq === undefined ? fn(before) : { ...fn(before), seq: before.seq };
@@ -437,8 +454,7 @@ export class IdbMessageRepository implements MessageRepository {
   delete(id: MessageId): Promise<void> {
     return this.mutate(async () => {
       const key = await this.cipher.blindId(id);
-      const row = await this.db.get('messages', key);
-      const before = row ? await this.fromRow(row).catch(() => undefined) : undefined;
+      const before = await this.tryFromRow(await this.db.get('messages', key));
       const dropKeys = await this.mediaKeys(droppedOriginals(before, undefined));
       const tx = this.db.transaction(['messages', 'sentMedia'], 'readwrite');
       await Promise.all([
@@ -743,11 +759,10 @@ export class IdbMessageRepository implements MessageRepository {
         this.cipher.blindId(pendingMessageId(nonce)),
         this.cipher.blindId(final.id),
       ]);
-      const existingRow = await this.db.get('messages', finalKey);
+      const existing = await this.tryFromRow(await this.db.get('messages', finalKey));
       let stored: Message;
       let created: boolean;
-      if (existingRow) {
-        const existing = await this.fromRow(existingRow);
+      if (existing) {
         stored = merge(existing, final);
         created = false;
       } else {
@@ -943,6 +958,12 @@ export class IdbMessageRepository implements MessageRepository {
     });
   }
 
+  /**
+   * The restorable outbox entries. One that can't be decrypted is skipped and
+   * kept on disk, never deleted: the outbox is keyed by plain nonce, so a
+   * wrong key (not just one corrupt row) makes every entry unreadable, and
+   * the entries come back once the right key does. Logs a count only.
+   */
   async listOutbox(): Promise<OutboxEntry[]> {
     const rows = await this.db.getAll('outbox');
     const entries = await this.decodeBatch(rows, (row) => this.fromOutboxRow(row), 'outbox');
@@ -952,7 +973,33 @@ export class IdbMessageRepository implements MessageRepository {
   deleteConversation(conversationId: ConversationId): Promise<void> {
     return this.mutate(async () => {
       const key = await this.cipher.blindId(conversationId);
-      const tx = this.db.transaction(['messages', 'readCursors', 'sentMedia'], 'readwrite');
+      // Queued sends go with the conversation, or they would come back as
+      // failed messages on the next start. The outbox is only readable
+      // decrypted, so the matching entries are found before the transaction.
+      const outboxRows = await this.db.getAll('outbox');
+      const queued = (
+        await Promise.all(
+          outboxRows.map(async (row) => {
+            try {
+              const plain = await this.cipher.decrypt(row.payload, row.nonce);
+              const { input } = JSON.parse(utf8Decode(plain)) as { input: StoredSendInput };
+              return input.conversationId === conversationId ? row : undefined;
+            } catch {
+              return undefined;
+            }
+          }),
+        )
+      ).filter((row): row is OutboxRow => row !== undefined);
+      const tx = this.db.transaction(
+        ['messages', 'readCursors', 'sentMedia', 'outbox', 'outboxAttachments'],
+        'readwrite',
+      );
+      for (const row of queued) {
+        await tx.objectStore('outbox').delete(row.nonce);
+        for (let i = 0; i < (row.attachmentCount ?? 0); i++) {
+          await tx.objectStore('outboxAttachments').delete(outboxAttachmentId(row.nonce, i));
+        }
+      }
       const media = tx.objectStore('sentMedia').index('byConversation');
       let mediaCursor = await media.openKeyCursor(IDBKeyRange.only(key));
       while (mediaCursor) {

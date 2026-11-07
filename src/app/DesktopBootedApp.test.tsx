@@ -34,6 +34,41 @@ describe('DesktopBootedApp: close handshake', () => {
     expect(flushSpy).toHaveBeenCalled();
 
     unmount();
+    await vi.dynamicImportSettled();
+  });
+
+  it('also waits for the message repository’s queued writes', async () => {
+    const storage = await hydrateKeyValue(plaintextCipher());
+    const repository = new MemoryMessageRepository();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.spyOn(repository, 'flush').mockReturnValue(gate);
+    const registerFlusher = vi.fn();
+
+    const { unmount } = render(
+      <DesktopBootedApp
+        storage={storage}
+        repository={repository}
+        registerFlusher={registerFlusher}
+      />,
+    );
+    const [flusher] = registerFlusher.mock.calls[0] as [() => Promise<void>];
+
+    let done = false;
+    const flushing = flusher().then(() => {
+      done = true;
+    });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(done).toBe(false);
+    release();
+    await flushing;
+    expect(done).toBe(true);
+
+    unmount();
+    // The mock backend loads lazily; let it finish before the environment goes away.
+    await vi.dynamicImportSettled();
   });
 
   it('does nothing (and never throws) when no registerFlusher is passed', async () => {

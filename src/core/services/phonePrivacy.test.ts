@@ -231,6 +231,68 @@ describe('phone privacy: nothing goes out before the first read', () => {
     expect(markRead).toHaveBeenCalledOnce();
   });
 
+  it('keeps retrying past the fast retries, with a capped delay, instead of staying pending', async () => {
+    let failing = true;
+    const { stores, scheduler, reads } = await setup({
+      phone: () =>
+        failing
+          ? Promise.reject(new Error('daemon slow'))
+          : Promise.resolve({ ...UNKNOWN, readReceipts: true }),
+    });
+    for (let i = 0; i < 12; i++) {
+      scheduler.advance(60_000);
+      await flush();
+    }
+    expect(phoneState(stores).status).toBe('pending');
+    const before = reads.mock.calls.length;
+    expect(before).toBeGreaterThan(9);
+    failing = false;
+    scheduler.advance(60_000);
+    await flush();
+    expect(reads.mock.calls.length).toBeGreaterThan(before);
+    expect(phoneState(stores).status).toBe('ready');
+  });
+
+  it('reports a failed read once per outage, not on every retry', async () => {
+    let failing = true;
+    const { stores, scheduler, onError } = await setup({
+      phone: () =>
+        failing
+          ? Promise.reject(new Error('daemon slow'))
+          : Promise.resolve({ ...UNKNOWN, readReceipts: true }),
+    });
+    for (let i = 0; i < 12; i++) {
+      scheduler.advance(60_000);
+      await flush();
+    }
+    expect(onError).toHaveBeenCalledTimes(1);
+    failing = false;
+    scheduler.advance(60_000);
+    await flush();
+    expect(phoneState(stores).status).toBe('ready');
+  });
+
+  it('gives a later connect a fresh set of fast retries', async () => {
+    let failing = true;
+    const { stores, scheduler, sync } = await setup({
+      phone: () =>
+        failing
+          ? Promise.reject(new Error('daemon slow'))
+          : Promise.resolve({ ...UNKNOWN, readReceipts: true }),
+    });
+    for (let i = 0; i < 12; i++) {
+      scheduler.advance(60_000);
+      await flush();
+    }
+    // A new connect starts over at the base delay, not at the slowed-down one.
+    await sync.stop();
+    await sync.start();
+    failing = false;
+    scheduler.advance(3_000);
+    await flush();
+    expect(phoneState(stores).status).toBe('ready');
+  });
+
   it('drops held read receipts when the phone turns out to have them off', async () => {
     let attempt = 0;
     const { stores, backend, sync, conv, scheduler } = await setup({

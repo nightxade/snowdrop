@@ -167,10 +167,14 @@ export interface MessageRepository {
   listOutbox(): Promise<OutboxEntry[]>;
 
   /**
-   * Removes a conversation's stored messages and its read position (deleting
-   * a message request). Pending outgoing messages are left to the outbox.
+   * Removes a conversation's stored messages (pending ones included), its
+   * read position, its kept sent images and its queued outbox sends (deleting
+   * a message request), so nothing of it comes back on the next start.
    */
   deleteConversation(conversationId: ConversationId): Promise<void>;
+
+  /** Resolves once every write started before the call has reached storage. */
+  flush(): Promise<void>;
 
   /** Wipes all local history ("Data & Storage → clear"). */
   clear(): Promise<void>;

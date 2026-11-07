@@ -166,7 +166,9 @@ const ACCOUNT_UNAVAILABLE_RETRY_MS = 60_000;
  * a few quick tries cover a daemon that is still starting up.
  */
 const PHONE_PRIVACY_RETRY_MS = 3_000;
-const PHONE_PRIVACY_MAX_RETRIES = 8;
+/** Retries at the base delay before backing off (doubling) up to the cap; it never gives up while connected. */
+const PHONE_PRIVACY_FAST_RETRIES = 8;
+const PHONE_PRIVACY_RETRY_CAP_MS = 60_000;
 
 /**
  * Tags a connect/initial-sync failure once `doStart` has logged and stored
@@ -261,6 +263,8 @@ export class SyncService {
   private privacyReadSeq = 0;
   private privacyRetryCancel: Cancel | null = null;
   private privacyRetries = 0;
+  /** Whether the current run of failed phone-privacy reads has been reported (once per outage). */
+  private privacyFailureReported = false;
   /** A pending steady-state retry after `account-unavailable` (see `doStart`'s catch). */
   private accountRetryCancel: Cancel | null = null;
   /**
@@ -1330,8 +1334,10 @@ export class SyncService {
    * where the backend can), or marks them unsupported. Never throws: a failed
    * read leaves them pending (nothing depending on them is sent) and retries.
    */
-  private async refreshPhonePrivacy(): Promise<void> {
+  private async refreshPhonePrivacy(isRetry = false): Promise<void> {
     const { backend, stores } = this.deps;
+    // A read triggered by a connect or the phone starts over; only its own retries count up.
+    if (!isRetry) this.privacyRetries = 0;
     const session = stores.session.getState();
     if (backend.supportsPhonePrivacy?.() !== true || !backend.readPhonePrivacy) {
       session.setPhonePrivacy({ status: 'unsupported', values: UNKNOWN_PHONE_PRIVACY });
@@ -1346,17 +1352,24 @@ export class SyncService {
       const values = await backend.readPhonePrivacy();
       if (seq !== this.privacyReadSeq) return;
       this.privacyRetries = 0;
+      this.privacyFailureReported = false;
       stores.session.getState().setPhonePrivacy({ status: 'ready', values });
     } catch (error) {
       if (seq !== this.privacyReadSeq) return;
-      this.onError(error, 'reading the phone privacy settings failed');
+      if (!this.privacyFailureReported) {
+        this.privacyFailureReported = true;
+        this.onError(error, 'reading the phone privacy settings failed');
+      }
       this.privacyRetryCancel?.();
-      if (this.privacyRetries >= PHONE_PRIVACY_MAX_RETRIES) return;
+      // Giving up would leave receipts, typing and link previews off (and read
+      // sync held) until the next connect, so keep trying, ever more slowly.
+      const slow = Math.min(Math.max(0, this.privacyRetries - PHONE_PRIVACY_FAST_RETRIES), 10);
+      const delay = Math.min(PHONE_PRIVACY_RETRY_MS * 2 ** slow, PHONE_PRIVACY_RETRY_CAP_MS);
       this.privacyRetries++;
       this.privacyRetryCancel = this.deps.scheduler.setTimeout(() => {
         this.privacyRetryCancel = null;
-        void this.refreshPhonePrivacy();
-      }, PHONE_PRIVACY_RETRY_MS);
+        void this.refreshPhonePrivacy(true);
+      }, delay);
     }
   }
 

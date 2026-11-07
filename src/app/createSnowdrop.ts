@@ -23,7 +23,6 @@ import {
   APPEARANCE_BOOT_KEY,
   bindPersistence,
   defaultStorage,
-  type PersistenceBinding,
   loadVersioned,
   type KeyValueStorage,
   type MessageRepository,
@@ -33,6 +32,7 @@ import {
   browserNotificationApi,
   exportHistory,
   HistoryImportService,
+  SentMarkers,
   HistoryService,
   NotificationService,
   PendingOpsBuffer,
@@ -75,6 +75,7 @@ import {
   accountOfScope,
   migrateLegacyScope,
   rebindScopedStore,
+  ScopedBindings,
   scopedSchema,
   scopeFor,
 } from './dataScope';
@@ -225,29 +226,38 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     settingsSchema,
     selectSettingsData,
   );
-  let spacesBinding = bindPersistence(
-    stores.spaces,
-    storage,
-    scopedSchema(spacesSchema, currentScope),
-    selectSpacesData,
+  // Spaces and local state bindings have one owner: `rebindToAccount` below
+  // replaces them when a signal-cli account becomes known after boot, and the
+  // owner disposes the previous ones first, so flush/persist/stopPersistence
+  // and sign-out always reach every live binding and nothing writes under an
+  // old scope.
+  const scoped = new ScopedBindings<'spaces' | 'local'>();
+  scoped.replace('spaces', () =>
+    bindPersistence(
+      stores.spaces,
+      storage,
+      scopedSchema(spacesSchema, currentScope),
+      selectSpacesData,
+    ),
   );
-  let localBinding = bindPersistence(
-    stores.local,
-    storage,
-    scopedSchema(localSchema, currentScope),
-    selectLocalData,
-    debounce,
+  scoped.replace('local', () =>
+    bindPersistence(
+      stores.local,
+      storage,
+      scopedSchema(localSchema, currentScope),
+      selectLocalData,
+      debounce,
+    ),
   );
-  // Replaced wholesale by `rebindToAccount` below when a signal-cli account
-  // becomes known after boot; `currentBindings()` always reads whichever
-  // binding is current, so admin.flush/persist/stopPersistence need no
-  // special-casing for that.
   let persistenceStopped = false;
-  const currentBindings = (): PersistenceBinding[] => [
-    settingsBinding,
-    spacesBinding,
-    localBinding,
-  ];
+  const flushBindings = (): void => {
+    settingsBinding.flush();
+    scoped.flush();
+  };
+  const disposeBindings = (): void => {
+    settingsBinding.dispose();
+    scoped.dispose();
+  };
 
   /**
    * Runtime account discovery: signal-cli reports the account asynchronously
@@ -265,25 +275,32 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     if (nextScope === currentScope) return;
     const previousScope = currentScope;
     currentScope = nextScope;
-    spacesBinding = rebindScopedStore({
-      store: stores.spaces,
-      storage,
-      schema: spacesSchema,
-      select: selectSpacesData,
-      scope: nextScope,
-      previousScope,
-      merge: mergeSpacesData,
-    });
-    localBinding = rebindScopedStore({
-      store: stores.local,
-      storage,
-      schema: localSchema,
-      select: selectLocalData,
-      scope: nextScope,
-      previousScope,
-      merge: mergeLocalData,
-      debounce,
-    });
+    // Each previous binding is disposed (flushed, unsubscribed) before its
+    // replacement is made, so it can't write again, nor re-create the
+    // placeholder key the rebind removes.
+    scoped.replace('spaces', () =>
+      rebindScopedStore({
+        store: stores.spaces,
+        storage,
+        schema: spacesSchema,
+        select: selectSpacesData,
+        scope: nextScope,
+        previousScope,
+        merge: mergeSpacesData,
+      }),
+    );
+    scoped.replace('local', () =>
+      rebindScopedStore({
+        store: stores.local,
+        storage,
+        schema: localSchema,
+        select: selectLocalData,
+        scope: nextScope,
+        previousScope,
+        merge: mergeLocalData,
+        debounce,
+      }),
+    );
   };
 
   // A plaintext mirror of theme/density (the encrypted-storage bootstrap
@@ -420,7 +437,13 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     plugins?.reportRuntimeError(owner, error, where);
   });
   const commands = registries.commands;
+  // Same scoping as spaces/local: per backend/account.
+  const accountScope = (): string => {
+    const connection = stores.settings.getState().connection;
+    return scopeFor(registration.kind, connection.account ?? (connection.desktop.account || null));
+  };
   const send = new SendService({
+    sentMarkers: new SentMarkers(storage, accountScope),
     backend,
     repository,
     stores,
@@ -470,6 +493,9 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     stores,
     sync,
     clock,
+    onConversationDeleted: (id) => {
+      send.forgetConversation(id);
+    },
     onError: (error, context) => {
       syncLog.error(context, error);
     },
@@ -507,13 +533,7 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     storage,
     // Same scoping as spaces/local (app/dataScope.ts): per backend/account,
     // so switching accounts can never resume a different account's import.
-    scope: () => {
-      const connection = stores.settings.getState().connection;
-      return scopeFor(
-        registration.kind,
-        connection.account ?? (connection.desktop.account || null),
-      );
-    },
+    scope: accountScope,
     clock,
     scheduler,
     onError: (error, context) => {
@@ -638,7 +658,7 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
       // a later account discovery from binding a fresh one. Settings and
       // spaces keep persisting: signing out keeps them (README).
       persistenceStopped = true;
-      localBinding.dispose();
+      scoped.dispose('local');
       for (const key of accountDataKeys(
         storage.keys?.() ?? [],
         registration.kind,
@@ -654,10 +674,10 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
       if (hasPendingWrites(storage)) await storage.flush();
     },
     flush: () => {
-      for (const binding of currentBindings()) binding.flush();
+      flushBindings();
     },
     persist: async () => {
-      for (const binding of currentBindings()) binding.flush();
+      flushBindings();
       // An encrypted (hydrated) store writes through asynchronously; moving
       // on before it finishes would lose exactly the change that needed it.
       if (hasPendingWrites(storage)) await storage.flush();
@@ -674,7 +694,7 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
       // or pagehide flush re-create what was just cleared). Also stops a
       // later `rebindToAccount` from creating a fresh binding.
       persistenceStopped = true;
-      for (const binding of currentBindings()) binding.dispose();
+      disposeBindings();
     },
     syncContactsAndGroups: async () => {
       // Optional capability: backends without an equivalent (the mock) just
@@ -737,13 +757,13 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     },
 
     flush() {
-      for (const binding of currentBindings()) binding.flush();
+      flushBindings();
     },
 
     async dispose() {
       for (const off of cleanups.splice(0)) off();
       persistenceStopped = true;
-      for (const binding of currentBindings()) binding.dispose();
+      disposeBindings();
       notifications.stop();
       await runtime.stopAll();
       await historyImport.stop();

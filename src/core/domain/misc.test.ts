@@ -261,6 +261,21 @@ describe('messageOps', () => {
     expect(applyDelete(m).pinned).toBeUndefined();
   });
 
+  it('a remote delete leaves no link preview, custom emoji or failed-recipient residue', () => {
+    const m = makeMessage({
+      authorId: 'a',
+      previews: [{ url: 'https://example.com', title: 'Example' }],
+      customEmoji: [
+        { name: 'wave', attachment: { id: 'e1', contentType: 'image/png', url: 'blob:e' } },
+      ],
+      failedRecipients: ['x'],
+    });
+    const deleted = applyDelete(m);
+    expect(deleted.previews).toBeUndefined();
+    expect(deleted.customEmoji).toBeUndefined();
+    expect(deleted.failedRecipients).toBeUndefined();
+  });
+
   it('merges duplicates without losing later events', () => {
     const stored = makeMessage({
       body: 'edited',
@@ -345,6 +360,23 @@ describe('messageOps', () => {
     expect(mergeOutgoingCommit(echo, final).previews).toEqual([
       { url: 'https://example.com', title: 'Example' },
     ]);
+  });
+
+  it('commitOutgoing merge does not restore content onto a message already deleted', () => {
+    const echo = applyDelete(makeMessage({ authorId: 'me', sentAt: 102, seq: 44 }));
+    const final = makeMessage({
+      authorId: 'me',
+      sentAt: 102,
+      seq: 9,
+      nonce: 'nonce-2',
+      attachments: [{ id: 'att-2', contentType: 'image/png', url: 'blob:preview' }],
+      previews: [{ url: 'https://example.com', title: 'Example' }],
+      failedRecipients: ['x'],
+    });
+    const merged = mergeOutgoingCommit(echo, final);
+    expect(merged).toMatchObject({ deleted: true, body: '', attachments: [], seq: 9 });
+    expect(merged.previews).toBeUndefined();
+    expect(merged.failedRecipients).toBeUndefined();
   });
 
   it('summarises reactions by emoji', () => {
