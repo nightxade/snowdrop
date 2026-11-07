@@ -776,22 +776,22 @@ export class SignalCliBackend implements ChatBackend {
   private onTransportEvent(event: TransportEvent): void {
     let events: AdapterEvent[] = [];
     if (event.type === 'receiveCatchingUp') {
-      // Patched signal-cli only (patches/signal-cli/0025): the receive
+      // Patched signal-cli only (patches/signal-cli/0020, build 21+): the receive
       // websocket (re)connected and the server is delivering what queued up.
       // No envelope; the receiveCaughtUp that follows ends it.
       this.emitter.emit('catchingUp', { seq: ++this.catchUpSeq });
     } else if (event.type === 'receiveCaughtUp') {
-      // Patched signal-cli only (patches/signal-cli/0012): the receive loop
+      // Patched signal-cli only (patches/signal-cli/0010): the receive loop
       // drained the server's queue. No envelope; nothing to normalise. Queued
       // like a message: it must not be emitted before the events that arrived
       // ahead of it have been applied (see the ordering contract above `queue`).
       events = [{ kind: 'caughtUp', payload: { seq: this.catchUpSeq } }];
     } else if (event.type === 'receiveConfigurationChanged') {
-      // Patched signal-cli only (patches/signal-cli/0022): the privacy settings
+      // Patched signal-cli only (patches/signal-cli/0018): the privacy settings
       // changed; no values travel with it, the service re-reads them.
       this.emitter.emit('phonePrivacyChanged', undefined);
     } else if (event.type === 'attachmentBackfill') {
-      // Patched signal-cli only (patches/signal-cli/0016): our primary
+      // Patched signal-cli only (patches/signal-cli/0014): our primary
       // answered a requestAttachmentBackfill call.
       const payload: unknown = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
       const backfill = parseAttachmentBackfillEvent(payload);
@@ -1480,12 +1480,12 @@ export class SignalCliBackend implements ChatBackend {
    * See `ChatBackend.resolveStickerUrl`. When the pack isn't known locally —
    * typical for a sticker that only ever arrived through an imported
    * history archive — and this build can register one (patches/signal-cli's
-   * "0019"), registers it from the backup's own copy of the key first.
+   * "0016"), registers it from the backup's own copy of the key first.
    * Registration asks signal-cli to resolve `backupAttachment.id` itself
    * (the same opaque history id `getAttachment` already accepts); the key
    * never crosses this RPC boundary.
    *
-   * Then retries `getSticker`, bounded: a daemon without patch 0020
+   * Then retries `getSticker`, bounded: a daemon without patch 0016
    * (< history.16) downloads a not-yet-fetched pack on the first call that
    * needs it and still fails that call, so one more call (two after a fresh
    * registration, whose first `getSticker` was the one that failed) is what
@@ -1545,12 +1545,12 @@ export class SignalCliBackend implements ChatBackend {
   /**
    * See `ChatBackend.listStickerPacks`. `listStickerPacks` lists every pack
    * the account knows — including history-registered ones that aren't
-   * installed (patch 0019), which are left out — and an installed pack whose
+   * installed (patch 0016), which are left out — and an installed pack whose
    * files were never downloaded (it arrived through storage sync) lists with
    * no stickers. `getSticker` downloads a whole pack as a side effect (the
    * same local download `resolveStickerUrl` relies on; no install, no sync
    * to the phone), so one call per such pack and a second listing fill them
-   * in. The result of that call is ignored: a daemon without patch 0020
+   * in. The result of that call is ignored: a daemon without patch 0016
    * downloads the pack and still throws on the first one.
    */
   async listStickerPacks(): Promise<StickerPackInfo[]> {
@@ -1600,7 +1600,7 @@ export class SignalCliBackend implements ChatBackend {
   /**
    * See `ChatBackend.getStickerPack`. First makes sure the account knows the
    * pack and has downloaded it, the same way showing the sticker does
-   * (`resolveStickerUrl`: registers a history sticker's pack via 0019, then
+   * (`resolveStickerUrl`: registers a history sticker's pack via 0016, then
    * `getSticker` downloads the whole pack as a side effect; no install, no
    * sync). That call's outcome is ignored here: the listing below is the
    * judge of whether the pack is usable. Unlike `listStickerPacks`, an
@@ -1629,7 +1629,7 @@ export class SignalCliBackend implements ChatBackend {
 
   /**
    * See `ChatBackend.installStickerPack`. A history sticker's pack is
-   * registered first (0019, from the backup frame's own key) when this
+   * registered first (0016, from the backup frame's own key) when this
    * build can, since `installKnownStickerPack` only knows packs the sticker
    * store already holds. Only the hex pack id crosses the RPC boundary; the
    * key is looked up by signal-cli itself.

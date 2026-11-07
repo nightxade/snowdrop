@@ -110,7 +110,7 @@ describe('supportsStickerPackInstall', () => {
     expect(supportsStickerPackInstall('0.14.8-snowdrop-history.16')).toBe(false);
   });
 
-  it('is true from the 0021 patch level on', () => {
+  it('is true from the 0017 patch level on', () => {
     expect(MIN_STICKER_PACK_INSTALL_PATCH_LEVEL).toBe(17);
     expect(supportsStickerPackInstall('0.14.8-snowdrop-history.17')).toBe(true);
     expect(supportsStickerPackInstall('0.14.8-snowdrop-history.40')).toBe(true);
@@ -126,7 +126,7 @@ describe('supportsPhonePrivacy', () => {
     expect(supportsPhonePrivacy('0.14.8-snowdrop-history.17')).toBe(false);
   });
 
-  it('is true from the 0022 patch level on', () => {
+  it('is true from the 0018 patch level on', () => {
     expect(MIN_PHONE_PRIVACY_PATCH_LEVEL).toBe(18);
     expect(supportsPhonePrivacy('0.14.8-snowdrop-history.18')).toBe(true);
     expect(supportsPhonePrivacy('0.14.8-snowdrop-history.40')).toBe(true);
@@ -141,7 +141,7 @@ describe('supportsReadSync', () => {
     expect(supportsReadSync('0.14.8-snowdrop-history.18')).toBe(false);
   });
 
-  it('is true from the 0023 patch level on', () => {
+  it('is true from the 0019 patch level on', () => {
     expect(MIN_READ_SYNC_PATCH_LEVEL).toBe(19);
     expect(supportsReadSync('0.14.8-snowdrop-history.19')).toBe(true);
     expect(supportsReadSync('0.14.8-snowdrop-history.40')).toBe(true);
@@ -156,7 +156,7 @@ describe('supportsCatchingUpSignal', () => {
     expect(supportsCatchingUpSignal('0.14.8-snowdrop-history.20')).toBe(false);
   });
 
-  it('is true from the 0025 patch level on', () => {
+  it('is true from build 21 on', () => {
     expect(MIN_CATCHING_UP_SIGNAL_PATCH_LEVEL).toBe(21);
     expect(supportsCatchingUpSignal('0.14.8-snowdrop-history.21')).toBe(true);
     expect(supportsCatchingUpSignal('0.14.8-snowdrop-history.40')).toBe(true);
@@ -172,7 +172,7 @@ describe('supportsOrderedCatchingUp', () => {
     expect(supportsOrderedCatchingUp('0.14.8-snowdrop-history.22')).toBe(false);
   });
 
-  it('is true from the 0027 patch level on', () => {
+  it('is true from build 23 on', () => {
     expect(MIN_ORDERED_CATCHING_UP_PATCH_LEVEL).toBe(23);
     expect(supportsOrderedCatchingUp('0.14.8-snowdrop-history.23')).toBe(true);
     expect(supportsOrderedCatchingUp('0.14.8-snowdrop-history.40')).toBe(true);

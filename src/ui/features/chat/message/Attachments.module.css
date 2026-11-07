@@ -98,7 +98,7 @@
   font-size: var(--snowdrop-font-size-sm);
 }
 
-/* "Getting it from your phone…" (attachment backfill, patches/signal-cli 0016) — same layout as
+/* "Getting it from your phone…" (attachment backfill, patches/signal-cli 0014) — same layout as
    .tileError but never implies failure, so it keeps its own class. */
 .tileStatus {
   display: flex;

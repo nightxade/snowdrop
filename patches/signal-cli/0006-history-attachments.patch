@@ -1,14 +1,28 @@
---- a/build.gradle.kts
-+++ b/build.gradle.kts
-@@ -10,7 +10,7 @@
+diff --git a/lib/src/main/java/org/asamk/signal/manager/helper/AttachmentHelper.java b/lib/src/main/java/org/asamk/signal/manager/helper/AttachmentHelper.java
+index 1fefcb2..34e51e1 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/helper/AttachmentHelper.java
++++ b/lib/src/main/java/org/asamk/signal/manager/helper/AttachmentHelper.java
+@@ -50,6 +50,17 @@ public class AttachmentHelper {
+         return attachmentStore.retrieveAttachment(id);
+     }
  
- allprojects {
-     group = "org.asamk"
--    version = "0.14.8-snowdrop-history.3"
-+    version = "0.14.8-snowdrop-history.4"
- }
- 
- java {
++    public byte[] retrieveHistoryAttachment(org.thoughtcrime.securesms.backup.v2.proto.Backups.FilePointer file) throws IOException {
++        return org.asamk.signal.manager.history.HistoryAttachment.download(file, (request, temporary) -> {
++            try {
++                return dependencies.getMessageReceiver().retrieveAttachment(request.pointer(), temporary,
++                        ServiceConfig.MAX_ATTACHMENT_SIZE, request.integrity());
++            } catch (MissingConfigurationException | InvalidMessageException e) {
++                throw new IOException("Could not verify history attachment", e);
++            }
++        });
++    }
++
+     public List<SignalServiceAttachment> uploadAttachments(
+             final List<String> attachments,
+             boolean voiceNote
+diff --git a/lib/src/main/java/org/asamk/signal/manager/history/HistoryAttachment.java b/lib/src/main/java/org/asamk/signal/manager/history/HistoryAttachment.java
+new file mode 100644
+index 0000000..31f984b
 --- /dev/null
 +++ b/lib/src/main/java/org/asamk/signal/manager/history/HistoryAttachment.java
 @@ -0,0 +1,66 @@
@@ -78,14 +92,14 @@
 +        }
 +    }
 +}
+diff --git a/lib/src/main/java/org/asamk/signal/manager/history/HistoryStore.java b/lib/src/main/java/org/asamk/signal/manager/history/HistoryStore.java
+index 8ba09ed..ab1390c 100644
 --- a/lib/src/main/java/org/asamk/signal/manager/history/HistoryStore.java
 +++ b/lib/src/main/java/org/asamk/signal/manager/history/HistoryStore.java
-@@ -43,6 +43,44 @@
- 
-     public String importArchive(Path archive, byte[] aesKey, byte[] macKey, long now) throws IOException {
+@@ -45,6 +45,44 @@ public final class HistoryStore {
          return replace(visitor -> HistoryFrames.read(archive, aesKey, macKey, visitor), now);
-+    }
-+
+     }
+ 
 +    /** Resolve an opaque UI attachment id without accepting caller-supplied keys or URLs. */
 +    public Backups.FilePointer attachment(String id, long now) throws IOException {
 +        var parts = id.split(":", -1);
@@ -122,32 +136,16 @@
 +                return message.getAttachments(index).getPointer();
 +            }
 +        } catch (SQLException e) { throw new IOException("Cannot read history attachment", e); }
-     }
- 
-     String replace(Source source, long now) throws IOException {
---- a/lib/src/main/java/org/asamk/signal/manager/helper/AttachmentHelper.java
-+++ b/lib/src/main/java/org/asamk/signal/manager/helper/AttachmentHelper.java
-@@ -50,6 +50,17 @@
-         return attachmentStore.retrieveAttachment(id);
-     }
- 
-+    public byte[] retrieveHistoryAttachment(org.thoughtcrime.securesms.backup.v2.proto.Backups.FilePointer file) throws IOException {
-+        return org.asamk.signal.manager.history.HistoryAttachment.download(file, (request, temporary) -> {
-+            try {
-+                return dependencies.getMessageReceiver().retrieveAttachment(request.pointer(), temporary,
-+                        ServiceConfig.MAX_ATTACHMENT_SIZE, request.integrity());
-+            } catch (MissingConfigurationException | InvalidMessageException e) {
-+                throw new IOException("Could not verify history attachment", e);
-+            }
-+        });
 +    }
 +
-     public List<SignalServiceAttachment> uploadAttachments(
-             final List<String> attachments,
-             boolean voiceNote
+     String replace(Source source, long now) throws IOException {
+         String id = UUID.randomUUID().toString();
+         try (var connection = connections.open()) {
+diff --git a/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java b/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
+index a06ab57..bde9bad 100644
 --- a/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
 +++ b/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
-@@ -1907,6 +1907,14 @@
+@@ -1907,6 +1907,14 @@ public class ManagerImpl implements Manager {
  
      @Override
      public InputStream retrieveAttachment(final String id) throws IOException {
@@ -162,6 +160,9 @@
          return context.getAttachmentHelper().retrieveAttachment(id).getStream();
      }
  
+diff --git a/lib/src/test/java/org/asamk/signal/manager/history/HistoryAttachmentTest.java b/lib/src/test/java/org/asamk/signal/manager/history/HistoryAttachmentTest.java
+new file mode 100644
+index 0000000..0b20a55
 --- /dev/null
 +++ b/lib/src/test/java/org/asamk/signal/manager/history/HistoryAttachmentTest.java
 @@ -0,0 +1,105 @@

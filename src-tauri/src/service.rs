@@ -661,8 +661,8 @@ impl Service {
     }
 
     /// `receive` carries the envelope; `receiveCaughtUp` (patches/signal-cli
-    /// 0012) tells the UI the receive loop drained the server's queue, and
-    /// `receiveCatchingUp` (0025) that it started to fill, both with no
+    /// 0010) tells the UI the receive loop drained the server's queue, and
+    /// `receiveCatchingUp` (0020) that it started to fill, both with no
     /// envelope. They all wrap their payload in `{ subscription, result }` the
     /// same way (`subscribe_child` subscribes to both at once), so they share
     /// the account lookup and the held-event log; only the forwarded `kind`
@@ -917,7 +917,7 @@ mod tests {
         assert!(sink.events.lock().unwrap().is_empty());
     }
 
-    /// `receiveCaughtUp` (patches/signal-cli 0012) is forwarded just like `receive`,
+    /// `receiveCaughtUp` (patches/signal-cli 0010) is forwarded just like `receive`,
     /// with its own `kind` and no envelope, using the same account lookup.
     #[test]
     fn caught_up_notification_is_forwarded_with_its_own_kind() {
@@ -933,7 +933,7 @@ mod tests {
         assert_eq!(events[0].data, json!({"account": "+15550001"}));
     }
 
-    /// `receiveCatchingUp` (patches/signal-cli 0025) is forwarded the same way:
+    /// `receiveCatchingUp` (patches/signal-cli 0020) is forwarded the same way:
     /// without it in the allow-list the UI would never hear a drain started.
     #[test]
     fn catching_up_notification_is_forwarded_with_its_own_kind() {
@@ -949,7 +949,7 @@ mod tests {
         assert_eq!(events[0].data, json!({"account": "+15550001"}));
     }
 
-    /// `receiveConfigurationChanged` (patches/signal-cli 0022) is forwarded the
+    /// `receiveConfigurationChanged` (patches/signal-cli 0018) is forwarded the
     /// same way: no values, the UI re-reads `getConfiguration`.
     #[test]
     fn configuration_changed_notification_is_forwarded_with_its_own_kind() {
@@ -964,7 +964,7 @@ mod tests {
         assert_eq!(events[0].account, "+15550001");
     }
 
-    /// `attachmentBackfill` (patches/signal-cli 0016) — our primary answered a
+    /// `attachmentBackfill` (patches/signal-cli 0014) — our primary answered a
     /// `requestAttachmentBackfill` — is forwarded with its result as the data,
     /// or "get it from your phone" never hears back.
     #[test]

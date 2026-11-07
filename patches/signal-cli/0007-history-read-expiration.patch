@@ -1,14 +1,20 @@
---- a/build.gradle.kts
-+++ b/build.gradle.kts
-@@ -10,7 +10,7 @@
+diff --git a/lib/src/main/java/org/asamk/signal/manager/Manager.java b/lib/src/main/java/org/asamk/signal/manager/Manager.java
+index b489c23..3575794 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/Manager.java
++++ b/lib/src/main/java/org/asamk/signal/manager/Manager.java
+@@ -70,6 +70,9 @@ import java.util.Optional;
+ import java.util.Set;
  
- allprojects {
-     group = "org.asamk"
--    version = "0.14.8-snowdrop-history.4"
-+    version = "0.14.8-snowdrop-history.5"
- }
+ public interface Manager extends Closeable {
++    default List<org.asamk.signal.manager.history.HistoryStore.ReadState> readHistory(String archiveId, List<Long> cursors) throws IOException {
++        throw new IOException("This manager does not support imported history");
++    }
  
- java {
+     default org.asamk.signal.manager.history.HistoryStore.Page getHistoryDirectory(String archiveId, long after, int limit) throws IOException {
+         throw new IOException("This manager does not support imported history");
+diff --git a/lib/src/main/java/org/asamk/signal/manager/history/HistoryRead.java b/lib/src/main/java/org/asamk/signal/manager/history/HistoryRead.java
+new file mode 100644
+index 0000000..b0cd11a
 --- /dev/null
 +++ b/lib/src/main/java/org/asamk/signal/manager/history/HistoryRead.java
 @@ -0,0 +1,56 @@
@@ -68,9 +74,11 @@
 +        return List.copyOf(states);
 +    }
 +}
+diff --git a/lib/src/main/java/org/asamk/signal/manager/history/HistoryStore.java b/lib/src/main/java/org/asamk/signal/manager/history/HistoryStore.java
+index ab1390c..fc79cb0 100644
 --- a/lib/src/main/java/org/asamk/signal/manager/history/HistoryStore.java
 +++ b/lib/src/main/java/org/asamk/signal/manager/history/HistoryStore.java
-@@ -20,6 +20,7 @@
+@@ -20,6 +20,7 @@ public final class HistoryStore {
      @FunctionalInterface interface Source { void read(HistoryFrames.Visitor visitor) throws IOException; }
      public record Entry(String cursor, Map<String, Object> frame) {}
      public record Page(String archiveId, List<Entry> entries, String nextCursor, boolean hasMore) {}
@@ -78,12 +86,10 @@
      private final Connections connections;
  
      public HistoryStore(Connections connections) throws SQLException {
-@@ -43,6 +44,25 @@
- 
-     public String importArchive(Path archive, byte[] aesKey, byte[] macKey, long now) throws IOException {
+@@ -45,6 +46,25 @@ public final class HistoryStore {
          return replace(visitor -> HistoryFrames.read(archive, aesKey, macKey, visitor), now);
-+    }
-+
+     }
+ 
 +    public List<ReadState> read(String archiveId, List<Long> cursors, long now) throws IOException {
 +        if (archiveId == null || archiveId.isBlank() || cursors == null || cursors.isEmpty()
 +                || cursors.size() > 500 || now <= 0
@@ -101,24 +107,16 @@
 +                throw e;
 +            }
 +        } catch (SQLException e) { throw new IOException("Cannot mark history read", e); }
-     }
- 
-     /** Resolve an opaque UI attachment id without accepting caller-supplied keys or URLs. */
---- a/lib/src/main/java/org/asamk/signal/manager/Manager.java
-+++ b/lib/src/main/java/org/asamk/signal/manager/Manager.java
-@@ -70,6 +70,9 @@
- import java.util.Set;
- 
- public interface Manager extends Closeable {
-+    default List<org.asamk.signal.manager.history.HistoryStore.ReadState> readHistory(String archiveId, List<Long> cursors) throws IOException {
-+        throw new IOException("This manager does not support imported history");
 +    }
- 
-     default org.asamk.signal.manager.history.HistoryStore.Page getHistoryDirectory(String archiveId, long after, int limit) throws IOException {
-         throw new IOException("This manager does not support imported history");
++
+     /** Resolve an opaque UI attachment id without accepting caller-supplied keys or URLs. */
+     public Backups.FilePointer attachment(String id, long now) throws IOException {
+         var parts = id.split(":", -1);
+diff --git a/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java b/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
+index bde9bad..8bb8527 100644
 --- a/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
 +++ b/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
-@@ -191,6 +191,11 @@
+@@ -191,6 +191,11 @@ public class ManagerImpl implements Manager {
          return getHistoryStore().chatPage(archiveId, chatId, before, limit, System.currentTimeMillis());
      }
  
@@ -130,69 +128,9 @@
      public org.asamk.signal.manager.history.LinkHistoryTransfer.Outcome importLinkedHistory(
              byte[] ephemeralKey, java.nio.file.Path directory
      ) throws IOException {
---- a/src/main/java/org/asamk/signal/commands/Commands.java
-+++ b/src/main/java/org/asamk/signal/commands/Commands.java
-@@ -30,6 +30,7 @@
-         addCommand(new ListAccountsCommand());
-         addCommand(new ListContactsCommand());
-         addCommand(new GetHistoryCommand());
-+        addCommand(new ReadHistoryCommand());
-         addCommand(new GetHistoryCommand(GetHistoryCommand.Kind.DIRECTORY));
-         addCommand(new GetHistoryCommand(GetHistoryCommand.Kind.CHAT));
-         addCommand(new ListDevicesCommand());
---- /dev/null
-+++ b/src/main/java/org/asamk/signal/commands/ReadHistoryCommand.java
-@@ -0,0 +1,50 @@
-+// SPDX-License-Identifier: GPL-3.0-or-later
-+package org.asamk.signal.commands;
-+
-+import net.sourceforge.argparse4j.inf.Namespace;
-+import net.sourceforge.argparse4j.inf.Subparser;
-+import org.asamk.signal.commands.exceptions.CommandException;
-+import org.asamk.signal.commands.exceptions.IOErrorException;
-+import org.asamk.signal.commands.exceptions.UserErrorException;
-+import org.asamk.signal.manager.Manager;
-+import org.asamk.signal.output.JsonWriter;
-+import org.asamk.signal.output.OutputWriter;
-+import org.asamk.signal.output.PlainTextWriter;
-+import java.io.IOException;
-+import java.util.ArrayList;
-+import java.util.List;
-+
-+/** Local read state only: no network read receipts are sent by this command. */
-+public class ReadHistoryCommand implements JsonRpcLocalCommand {
-+    @Override public String getName() { return "readHistory"; }
-+    @Override public void attachToSubparser(Subparser parser) {
-+        parser.help("Mark viewed archive messages read and start their disappearing timers.");
-+        parser.addArgument("--archive-id").required(true).help("Snapshot id returned by getHistoryDirectory.");
-+        parser.addArgument("--cursors").required(true).nargs("+").help("1..500 archive message cursors, as decimal strings.");
-+    }
-+    @Override public void handleCommand(Namespace ns, Manager manager, OutputWriter output) throws CommandException {
-+        try {
-+            List<?> values = ns.getList("cursors");
-+            if (values == null || values.isEmpty() || values.size() > 500) throw new IllegalArgumentException("Expected 1..500 cursors");
-+            var cursors = new ArrayList<Long>();
-+            for (var value : values) {
-+                if (!(value instanceof String text) || !text.matches("[1-9][0-9]*")) {
-+                    throw new IllegalArgumentException("Cursors must be positive decimal strings");
-+                }
-+                cursors.add(Long.parseLong(text));
-+            }
-+            var states = manager.readHistory(ns.getString("archive-id"), cursors);
-+            switch (output) {
-+                case JsonWriter writer -> writer.write(states);
-+                case PlainTextWriter writer -> {
-+                    for (var state : states) writer.println("{} Expires: {} Unavailable: {}",
-+                            state.cursor(), state.expiresAt(), state.unavailable());
-+                }
-+            }
-+        } catch (IllegalArgumentException e) {
-+            throw new UserErrorException("Invalid history read: " + e.getMessage(), e);
-+        } catch (IOException e) {
-+            throw new IOErrorException("History read failed: " + e.getMessage(), e);
-+        }
-+    }
-+}
+diff --git a/lib/src/test/java/org/asamk/signal/manager/history/HistoryReadTest.java b/lib/src/test/java/org/asamk/signal/manager/history/HistoryReadTest.java
+new file mode 100644
+index 0000000..80e840b
 --- /dev/null
 +++ b/lib/src/test/java/org/asamk/signal/manager/history/HistoryReadTest.java
 @@ -0,0 +1,55 @@
@@ -251,6 +189,77 @@
 +        assertThrows(IllegalArgumentException.class, () -> store.read(snapshot, List.of(-1L), 1000));
 +    }
 +}
+diff --git a/src/main/java/org/asamk/signal/commands/Commands.java b/src/main/java/org/asamk/signal/commands/Commands.java
+index c1bd5b6..1ce46cc 100644
+--- a/src/main/java/org/asamk/signal/commands/Commands.java
++++ b/src/main/java/org/asamk/signal/commands/Commands.java
+@@ -30,6 +30,7 @@ public class Commands {
+         addCommand(new ListAccountsCommand());
+         addCommand(new ListContactsCommand());
+         addCommand(new GetHistoryCommand());
++        addCommand(new ReadHistoryCommand());
+         addCommand(new GetHistoryCommand(GetHistoryCommand.Kind.DIRECTORY));
+         addCommand(new GetHistoryCommand(GetHistoryCommand.Kind.CHAT));
+         addCommand(new ListDevicesCommand());
+diff --git a/src/main/java/org/asamk/signal/commands/ReadHistoryCommand.java b/src/main/java/org/asamk/signal/commands/ReadHistoryCommand.java
+new file mode 100644
+index 0000000..784cd6e
+--- /dev/null
++++ b/src/main/java/org/asamk/signal/commands/ReadHistoryCommand.java
+@@ -0,0 +1,50 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.commands;
++
++import net.sourceforge.argparse4j.inf.Namespace;
++import net.sourceforge.argparse4j.inf.Subparser;
++import org.asamk.signal.commands.exceptions.CommandException;
++import org.asamk.signal.commands.exceptions.IOErrorException;
++import org.asamk.signal.commands.exceptions.UserErrorException;
++import org.asamk.signal.manager.Manager;
++import org.asamk.signal.output.JsonWriter;
++import org.asamk.signal.output.OutputWriter;
++import org.asamk.signal.output.PlainTextWriter;
++import java.io.IOException;
++import java.util.ArrayList;
++import java.util.List;
++
++/** Local read state only: no network read receipts are sent by this command. */
++public class ReadHistoryCommand implements JsonRpcLocalCommand {
++    @Override public String getName() { return "readHistory"; }
++    @Override public void attachToSubparser(Subparser parser) {
++        parser.help("Mark viewed archive messages read and start their disappearing timers.");
++        parser.addArgument("--archive-id").required(true).help("Snapshot id returned by getHistoryDirectory.");
++        parser.addArgument("--cursors").required(true).nargs("+").help("1..500 archive message cursors, as decimal strings.");
++    }
++    @Override public void handleCommand(Namespace ns, Manager manager, OutputWriter output) throws CommandException {
++        try {
++            List<?> values = ns.getList("cursors");
++            if (values == null || values.isEmpty() || values.size() > 500) throw new IllegalArgumentException("Expected 1..500 cursors");
++            var cursors = new ArrayList<Long>();
++            for (var value : values) {
++                if (!(value instanceof String text) || !text.matches("[1-9][0-9]*")) {
++                    throw new IllegalArgumentException("Cursors must be positive decimal strings");
++                }
++                cursors.add(Long.parseLong(text));
++            }
++            var states = manager.readHistory(ns.getString("archive-id"), cursors);
++            switch (output) {
++                case JsonWriter writer -> writer.write(states);
++                case PlainTextWriter writer -> {
++                    for (var state : states) writer.println("{} Expires: {} Unavailable: {}",
++                            state.cursor(), state.expiresAt(), state.unavailable());
++                }
++            }
++        } catch (IllegalArgumentException e) {
++            throw new UserErrorException("Invalid history read: " + e.getMessage(), e);
++        } catch (IOException e) {
++            throw new IOErrorException("History read failed: " + e.getMessage(), e);
++        }
++    }
++}
+diff --git a/src/test/java/org/asamk/signal/commands/ReadHistoryCommandTest.java b/src/test/java/org/asamk/signal/commands/ReadHistoryCommandTest.java
+new file mode 100644
+index 0000000..2dfbc49
 --- /dev/null
 +++ b/src/test/java/org/asamk/signal/commands/ReadHistoryCommandTest.java
 @@ -0,0 +1,28 @@

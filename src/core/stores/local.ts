@@ -45,7 +45,7 @@ export interface LocalData {
   reactionUsage: Record<string, number>;
   /**
    * `${authorId}\u0000${sentAt}` → when we last asked our primary to
-   * backfill that message's attachments (patches/signal-cli, "0016:
+   * backfill that message's attachments (patches/signal-cli, "0014:
    * attachment backfill"), so a restart doesn't re-ask for something
    * already pending or already answered. Only gates the *automatic*
    * request on first failure; a user-clicked "Try again" always re-asks

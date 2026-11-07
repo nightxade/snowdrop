@@ -492,7 +492,7 @@ export interface BackendEvents {
   checkpoint: { cursor: string };
   /**
    * Our primary answered a `requestAttachmentBackfill` call (patches/
-   * signal-cli, "0016: attachment backfill"). `pending` means the phone is
+   * signal-cli, "0014: attachment backfill"). `pending` means the phone is
    * still looking and a later event for the same message may follow;
    * `ready` means whatever it still had was re-uploaded and any of
    * `attachmentIds` may now resolve; `failed` means it doesn't know the
@@ -571,7 +571,7 @@ export interface ChatBackend {
   ): Promise<ReadSummary | undefined>;
   /**
    * Whether `markRead` can sync read state to the user's own devices without
-   * sending receipts (patches/signal-cli's "0023"). Only meaningful once
+   * sending receipts (patches/signal-cli's "0019"). Only meaningful once
    * connected. Omitted is the same as false.
    */
   supportsReadSync?(): boolean;
@@ -656,13 +656,13 @@ export interface ChatBackend {
 
   /**
    * Whether the connected backend can report the phone's synced privacy
-   * settings (patches/signal-cli's "0022"). Only meaningful once connected.
+   * settings (patches/signal-cli's "0018"). Only meaningful once connected.
    * Omitted is the same as false: Snowdrop then uses its own local settings.
    */
   supportsPhonePrivacy?(): boolean;
   /**
    * Whether the connected backend emits `catchingUp` (patches/signal-cli's
-   * "0025") and so reliably sends `caughtUp` after every drain. Only
+   * "0020", from build 21) and so reliably sends `caughtUp` after every drain. Only
    * meaningful once connected. Omitted is the same as false: a drain is then
    * ended by a quiet period or the ceiling, as before.
    */
@@ -670,7 +670,7 @@ export interface ChatBackend {
   /**
    * Whether `catchingUp` is strictly ordered before every message of the new
    * connection and before the `caughtUp` that ends it (patches/signal-cli's
-   * "0027"). A drain can then be held until `caughtUp`, with no quiet period.
+   * "0020", from build 23). A drain can then be held until `caughtUp`, with no quiet period.
    * Implies `supportsCatchingUpSignal()`. Omitted is the same as false.
    */
   supportsOrderedCatchingUp?(): boolean;
@@ -835,7 +835,7 @@ export interface ChatBackend {
 
   /**
    * Whether `installStickerPack` can work against the connected backend
-   * (patches/signal-cli's "0021"); the dialog disables Install otherwise.
+   * (patches/signal-cli's "0017"); the dialog disables Install otherwise.
    * Omitted is the same as false.
    */
   supportsStickerPackInstall?(): boolean;
@@ -856,7 +856,7 @@ export interface ChatBackend {
 
   /**
    * Whether the connected backend can answer `requestAttachmentBackfill` at
-   * all (patches/signal-cli's "0016: attachment backfill" — an older
+   * all (patches/signal-cli's "0014: attachment backfill" — an older
    * patched build, or upstream signal-cli, advertises none of this).
    * Adapters without the capability (the mock always supports it; a future
    * adapter without an equivalent would omit both this and the method

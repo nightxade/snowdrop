@@ -215,7 +215,7 @@ See the patch README for build instructions and known limitations.
 
 Local verification includes the 1,441 frontend tests and 246 native tests
 (socket-dependent tests rerun outside the sandbox; notification and clipboard
-tests use isolated sessions). The patched CLI passes 44 history tests. Synthetic
+tests use isolated sessions). The patched CLI passes its whole test suite (`scripts/build-signal-cli.sh --test`; 299 tests). Synthetic
 browser checks cover archive paging, media viewing, notification suppression,
 read-time expiration, and continuing after a history-transfer failure. These
 checks do not verify a real phone transfer or real attachment CDN availability.
@@ -241,9 +241,9 @@ Clicking a received sticker (or its "View sticker pack" menu item) opens a dialo
 pack's cover, title, author and every sticker, and an Install button. Installing is the user's own
 explicit action and, like Signal's own "Install", is synced to their phone; nothing is ever
 installed implicitly. The pack key never reaches the TypeScript side: Snowdrop names the pack
-by its hex id (`installKnownStickerPack`, patch 0021) and signal-cli looks the key up in its own
-sticker store, where a live-received sticker or a history sticker (patch 0019, registered first)
-has already put it. On a build without 0021 (`supportsStickerPackInstall` is false, patch level
+by its hex id (`installKnownStickerPack`, patch 0017) and signal-cli looks the key up in its own
+sticker store, where a live-received sticker or a history sticker (patch 0016, registered first)
+has already put it. On a build without 0017 (`supportsStickerPackInstall` is false, patch level
 below 17) the dialog still shows the pack, with Install disabled and a note. After an install the
 composer's sticker picker lists the pack without a restart.
 
@@ -252,7 +252,7 @@ composer's sticker picker lists the pack without a restart.
 Signal keeps these three as account settings that the phone owns and linked devices follow. Signal
 Desktop reads them from the phone's configuration sync and storage-service account record, and a
 change made on Desktop is written back through the storage service (`ts/services/storageRecordOps`,
-`ts/state/smart/Preferences`). Snowdrop does the same through patch 0022 (`getConfiguration`,
+`ts/state/smart/Preferences`). Snowdrop does the same through patch 0018 (`getConfiguration`,
 `receiveConfigurationChanged`): the phone's values decide whether Snowdrop sends read receipts and
 typing indicators and whether it fetches link previews, Settings → Privacy and Behaviour show them
 and say they're synced, and changing one there is written to signal-cli (`updateConfiguration`) and
@@ -262,7 +262,7 @@ does.
 Until the first read after connecting has finished, none of the three is acted on: no receipt or
 typing indicator is sent and no link is fetched (receipts earned in that moment are held, then sent
 or dropped once the answer is in). A value the phone hasn't sent yet falls back to Snowdrop's own
-setting for that one value. A signal-cli without patch 0022 (patch level below 18) can't be asked, so
+setting for that one value. A signal-cli without patch 0018 (patch level below 18) can't be asked, so
 Snowdrop's own settings apply and the Privacy page says so.
 
 ## Custom emoji from other people
@@ -283,7 +283,7 @@ Snowdrop renders a resolvable `:name:` inline as the emoji's image, at emoji siz
 the whole message is emoji, matching the rule for standard emoji — see `isJumbo` in
 `src/ui/features/chat/message/MessageBody.tsx`).
 
-Against a signal-cli built from this repo's patches (`patches/signal-cli`, patch 0013, and
+Against a signal-cli built from this repo's patches (`patches/signal-cli`, patch 0011, and
 its enabling `patches/signal-service-java` hook), the emoji's image is delivered too: when the
 outgoing text contains `:name:` tokens matching the sender's own collection, Snowdrop uploads
 each one's image as a normal encrypted attachment and the message carries `{name, attachment}`
@@ -301,7 +301,7 @@ connected daemon's own version string (fetched once at connect, via the `version
 method) for a `snowdrop-history.N` patch level of at least 11. Against upstream signal-cli, an
 older patched build, or the demo backend, this is false, and Snowdrop sends (and received
 messages can only ever carry) plain `:name:` text — the exact behaviour this feature had before
-patch 0013 existed, with no change in UI or data shape.
+patch 0011 existed, with no change in UI or data shape.
 
 See `patches/signal-cli/README.md`'s "Custom emoji" section for the wire shape, the JSON-RPC
 `send`/`sendEditMessage` `customEmoji` param, and the `MessageEnvelope.Data.customEmoji`

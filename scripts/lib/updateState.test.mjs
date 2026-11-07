@@ -1,12 +1,14 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import {
+  APPIMAGE_STAMP_PATHS,
   computeStampDigest,
   diffSignalCliSources,
   isSnowdropProcessRunning,
   nativeInstallAction,
   parseEnvFile,
   parseProvenance,
+  parseStamp,
   planNativeBuild,
   provenanceTextsMatch,
   sha256Hex,
@@ -374,5 +376,78 @@ describe('nativeInstallAction', () => {
 
   it('does nothing when there is no native build anywhere', () => {
     expect(nativeInstallAction(null, null)).toBe('none');
+  });
+});
+
+describe('publish script tracking', () => {
+  const withScript = `${SAMPLE_PROVENANCE.replace(
+    'signal-service-java patches applied',
+    'signal-service-java publish script sha256: ' +
+      'c'.repeat(64) +
+      '\nsignal-service-java patches applied',
+  )}`;
+  const current = {
+    signalCliPatches: parseProvenance(SAMPLE_PROVENANCE).patches,
+    ssjPatches: parseProvenance(SAMPLE_PROVENANCE).ssjPatches,
+    buildScriptHash: 'aaaa000000000000000000000000000000000000000000000000000000000001',
+    ssjPublishScriptHash: 'c'.repeat(64),
+  };
+
+  it('parses the recorded hash', () => {
+    expect(parseProvenance(withScript).ssjPublishScriptHash).toBe('c'.repeat(64));
+    expect(parseProvenance(SAMPLE_PROVENANCE).ssjPublishScriptHash).toBeNull();
+  });
+
+  it('is current when the hashes match', () => {
+    expect(diffSignalCliSources(parseProvenance(withScript), current).needsRebuild).toBe(false);
+  });
+
+  it('flags a changed publish script', () => {
+    const result = diffSignalCliSources(parseProvenance(withScript), {
+      ...current,
+      ssjPublishScriptHash: 'd'.repeat(64),
+    });
+    expect(result.needsRebuild).toBe(true);
+    expect(result.reasons).toContain(
+      'patches/signal-service-java/publish-local.init.gradle.kts changed since the last build',
+    );
+  });
+
+  it('flags provenance written before the script was tracked', () => {
+    const result = diffSignalCliSources(parseProvenance(SAMPLE_PROVENANCE), current);
+    expect(result.needsRebuild).toBe(true);
+    expect(result.reasons).toContain('recorded provenance predates publish-script hash tracking');
+  });
+});
+
+describe('APPIMAGE_STAMP_PATHS', () => {
+  it('covers what the production build reads beyond src', () => {
+    for (const p of [
+      'devserver',
+      'scripts/tauri-build.mjs',
+      'tsconfig.app.json',
+      'eslint.config.js',
+    ]) {
+      expect(APPIMAGE_STAMP_PATHS).toContain(p);
+    }
+    expect(new Set(APPIMAGE_STAMP_PATHS).size).toBe(APPIMAGE_STAMP_PATHS.length);
+  });
+});
+
+describe('parseStamp', () => {
+  it('reads a valid stamp', () => {
+    expect(parseStamp('{"digest":"abc","treeHashes":{}}')).toEqual({
+      digest: 'abc',
+      treeHashes: {},
+    });
+  });
+
+  it('treats a missing, empty, truncated or mis-shaped stamp as no stamp', () => {
+    expect(parseStamp(null)).toBeNull();
+    expect(parseStamp('')).toBeNull();
+    expect(parseStamp('{"digest":"ab')).toBeNull();
+    expect(parseStamp('null')).toBeNull();
+    expect(parseStamp('[]')).toBeNull();
+    expect(parseStamp('{"digest":5}')).toBeNull();
   });
 });

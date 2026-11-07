@@ -1,16 +1,3 @@
-diff --git a/build.gradle.kts b/build.gradle.kts
-index cd48bb3..3b8b84e 100644
---- a/build.gradle.kts
-+++ b/build.gradle.kts
-@@ -10,7 +10,7 @@ plugins {
- 
- allprojects {
-     group = "org.asamk"
--    version = "0.14.8-snowdrop-history.8"
-+    version = "0.14.8-snowdrop-history.9"
- }
- 
- java {
 diff --git a/lib/src/main/java/org/asamk/signal/manager/Manager.java b/lib/src/main/java/org/asamk/signal/manager/Manager.java
 index 421fd57..2f60804 100644
 --- a/lib/src/main/java/org/asamk/signal/manager/Manager.java
@@ -32,10 +19,29 @@ index 421fd57..2f60804 100644
  
      /**
 diff --git a/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java b/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
-index bc67bf1..4d42df7 100644
+index bc67bf1..5af72a7 100644
 --- a/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
 +++ b/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
-@@ -252,6 +252,7 @@ public class ManagerImpl implements Manager {
+@@ -240,6 +240,18 @@ public class ManagerImpl implements Manager {
+ 
+     private static final Logger logger = LoggerFactory.getLogger(ManagerImpl.class);
+ 
++    /**
++     * Runs a snapshot of {@code listeners}: a listener may unsubscribe itself (or another) while
++     * it runs, which would otherwise modify the set under the iteration.
++     */
++    static void runAll(final Set<Runnable> listeners) {
++        final List<Runnable> snapshot;
++        synchronized (listeners) {
++            snapshot = List.copyOf(listeners);
++        }
++        snapshot.forEach(Runnable::run);
++    }
++
+     private SignalAccount account;
+     private final SignalDependencies dependencies;
+     private final Context context;
+@@ -252,6 +264,7 @@ public class ManagerImpl implements Manager {
      private final Set<ReceiveMessageHandler> messageHandlers = new HashSet<>();
      private final List<Runnable> closedListeners = new ArrayList<>();
      private final List<Runnable> addressChangedListeners = new ArrayList<>();
@@ -43,17 +49,15 @@ index bc67bf1..4d42df7 100644
      private final CompositeDisposable disposable = new CompositeDisposable();
      private final AtomicLong lastMessageTimestamp = new AtomicLong();
  
-@@ -296,6 +297,9 @@ public class ManagerImpl implements Manager {
+@@ -296,6 +309,7 @@ public class ManagerImpl implements Manager {
              synchronized (this) {
                  this.notifyAll();
              }
-+            synchronized (caughtUpWithOldMessagesListeners) {
-+                caughtUpWithOldMessagesListeners.forEach(Runnable::run);
-+            }
++            runAll(caughtUpWithOldMessagesListeners);
          });
          disposable.add(account.getIdentityKeyStore()
                  .getIdentityChanges()
-@@ -1905,6 +1909,20 @@ public class ManagerImpl implements Manager {
+@@ -1905,6 +1919,20 @@ public class ManagerImpl implements Manager {
          }
      }
  
@@ -74,6 +78,46 @@ index bc67bf1..4d42df7 100644
      @Override
      public void addCallEventListener(final CallEventListener listener) {
          context.getCallManager().addCallEventListener(listener);
+diff --git a/lib/src/test/java/org/asamk/signal/manager/internal/ManagerImplListenersTest.java b/lib/src/test/java/org/asamk/signal/manager/internal/ManagerImplListenersTest.java
+new file mode 100644
+index 0000000..8bab3f2
+--- /dev/null
++++ b/lib/src/test/java/org/asamk/signal/manager/internal/ManagerImplListenersTest.java
+@@ -0,0 +1,34 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.manager.internal;
++
++import org.junit.jupiter.api.Test;
++
++import java.util.ArrayList;
++import java.util.LinkedHashSet;
++import java.util.List;
++
++import static org.junit.jupiter.api.Assertions.assertEquals;
++
++class ManagerImplListenersTest {
++
++    @Test
++    void aListenerMayUnsubscribeWhileTheListenersRun() {
++        // Insertion order, so the listener that unsubscribes runs first and another follows it.
++        final var listeners = new LinkedHashSet<Runnable>();
++        final var calls = new ArrayList<String>();
++        final var removesItself = new Runnable() {
++            @Override
++            public void run() {
++                calls.add("first");
++                listeners.remove(this);
++            }
++        };
++        listeners.add(removesItself);
++        listeners.add(() -> calls.add("second"));
++
++        ManagerImpl.runAll(listeners);
++
++        assertEquals(List.of("first", "second"), calls);
++        assertEquals(1, listeners.size());
++    }
++}
 diff --git a/src/main/java/org/asamk/signal/dbus/DbusManagerImpl.java b/src/main/java/org/asamk/signal/dbus/DbusManagerImpl.java
 index 74dc12a..5e49b1b 100644
 --- a/src/main/java/org/asamk/signal/dbus/DbusManagerImpl.java

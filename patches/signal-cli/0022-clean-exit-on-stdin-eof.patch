@@ -61,7 +61,7 @@ index c51c12e..9d0204c 100644
      private static void handleSignal(Signal signal) {
 diff --git a/src/test/java/org/asamk/signal/ShutdownTest.java b/src/test/java/org/asamk/signal/ShutdownTest.java
 new file mode 100644
-index 0000000..7fa730a
+index 0000000..4ea7495
 --- /dev/null
 +++ b/src/test/java/org/asamk/signal/ShutdownTest.java
 @@ -0,0 +1,39 @@
@@ -75,7 +75,7 @@ index 0000000..7fa730a
 +import static org.junit.jupiter.api.Assertions.assertFalse;
 +
 +/**
-+ * What happens on the way out of the process after stdin closes (snowdrop-history patch 0028).
++ * What happens on the way out of the process after stdin closes (snowdrop-history patch 0022).
 + * Snowdrop stops signal-cli by closing its stdin; the command then returns, its managers are closed,
 + * and Main exits. A GraalVM native image aborts that exit when the exiting thread is interrupted.
 + */

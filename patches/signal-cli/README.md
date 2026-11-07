@@ -13,9 +13,12 @@ Apply to a clean checkout of the pinned upstream commit:
 
 ```sh
 git apply /path/to/snowdrop/patches/signal-cli/*.patch
-./gradlew test --tests '*HistoryCommandTest' --tests '*GetConfigurationCommandTest' --tests '*SendReceiptCommandTest' --tests '*ReceiveConfigurationChangedNotificationTest' --tests '*ReceiveCatchingUpNotificationTest' --tests '*ShutdownTest' :libsignal-cli:test --tests '*History*Test' --tests '*StickerHelperTest' --tests '*ConfigurationStoreTest' --tests '*ReceiptSyncOutcomeTest' --tests '*ReceiveHelperCatchingUpTest' --tests '*AccountRecordProfileWinsTest' --tests '*ProfileStorageUploadTest' --tests '*ProfileStoragePendingTest'
 ./gradlew installDist
 ```
+
+The tests are run by `scripts/build-signal-cli.sh --test`, which runs signal-service-java's tests and
+then signal-cli's whole suite (`./gradlew :libsignal-cli:test :test`, unfiltered) in one place, so
+there is no test list to keep up to date.
 
 `scripts/build-signal-cli.sh` (repo root) automates exactly that — clone,
 checkout, patch, `installDist` — and then goes one step further: it jlinks a
@@ -28,8 +31,8 @@ directory's own gitignored `.work/` (the clone + Gradle build tree) and
 
 ```sh
 npm run signal-cli:build            # patches/signal-cli/dist/signal-cli/{bin,lib,runtime}
-npm run signal-cli:build -- --test  # same, running the history test suite first
-npm run signal-cli:install          # build (if dist/ isn't already there) and install it
+npm run signal-cli:build -- --test  # same, running the whole test suite first
+npm run signal-cli:install          # build (unless dist/ is current for these sources) and install it
 npm run signal-cli:build -- --native # also compile the GraalVM native build (see "The native build")
 ```
 
@@ -47,9 +50,11 @@ config.rs`, `BinarySource::Patched`; see docs/DESKTOP.md's "Resolution
 order"). The script requires `SNOWDROP_JDK` to point at a JDK 25 home
 (`java -version` must report 25 under it) and reads `SIGNAL_CLI_SRC` for
 the clone source (default: upstream's GitHub repo; a local path works too).
-`dist/signal-cli/PROVENANCE.txt` records the upstream commit, each applied
-patch's SHA-256 (both this repo's and signal-service-java's), this build
-script's own SHA-256, the JDK version, and the build date.
+`dist/signal-cli/PROVENANCE.txt` records the upstream commit, the build version, each applied
+patch's SHA-256 (both this repo's and signal-service-java's), the SHA-256 of
+signal-service-java's publish script and of this build script, the JDK version, and the build
+date. `--install` reuses an existing `dist/` only if its provenance matches all of those as they
+are on disk now; a new build is smoke-tested before it replaces `dist/`.
 `npm run desktop:update` (repo root; see docs/DESKTOP.md) reads that file to
 decide whether a rebuild/install is actually needed and drives this script
 for you — use it instead of calling `signal-cli:build`/`signal-cli:install`
@@ -59,8 +64,12 @@ Requires JDK 25. The first patch adds the authenticated archive decoder and its
 regression tests. The second patch adds protobuf decoding and JSON conversion
 that preserve expiration fields and exact 64-bit IDs, plus an official Signal
 fixture test. The third patch adds transactional storage in the account database
-and a `getHistory` CLI/JSON-RPC command. It builds as
-`0.14.8-snowdrop-history.8`. The fourth patch advertises history-transfer
+and a `getHistory` CLI/JSON-RPC command. The build version
+(`0.14.8-snowdrop-history.N`, currently `.24`, the first build with the backfill, link-import,
+listener, custom-emoji and multi-account fixes described below) is set in this one place, a single
+`build.gradle.kts` hunk, and recorded in PROVENANCE; raise `N` there whenever the patch set
+changes in a way installs must pick up (Snowdrop gates features on it, see the "First shipped"
+notes below). The fourth patch advertises history-transfer
 support during linking, respects the phone’s transfer choice, polls the
 authenticated transfer endpoint, and imports the encrypted download. Temporary
 archives and working key arrays are cleared after import. Transfer failures are
@@ -68,7 +77,8 @@ reported through the link result while keeping the linked account usable;
 retrying requires a fresh link.
 Existing linked accounts do not gain older history automatically.
 
-The distribution builds locally and all 44 history tests pass, including an
+The distribution builds locally and `scripts/build-signal-cli.sh --test` passes (signal-cli: 299 tests, 237 in `:libsignal-cli` and 62 in the root project;
+signal-service-java: 637 tests, 7 skipped), including an
 encrypted-download-to-retrieval fixture. A real-phone transfer has not been
 verified. Upstream bundles only a Linux x86-64 JNI library. The local build at
 `dist/signal-cli/bin/signal-cli` also includes a Linux ARM64 JNI library built
@@ -151,7 +161,7 @@ Both return the existing `{archiveId, entries, nextCursor, hasMore}` shape.
 These cursors preserve the phone's archive order, including equal or skewed
 sender timestamps. They are not timestamps or Snowdrop's local sequence numbers.
 
-The sixth patch adds `signalGroupId` alongside group recipient frames returned
+The fifth patch also adds `signalGroupId` alongside group recipient frames returned
 by `getHistoryDirectory`. It derives the canonical group ID from the archived
 master key using the matching libsignal version. Snowdrop can therefore join
 archived messages to the same group used by live messages. Raw `getHistory`
@@ -161,7 +171,7 @@ native library on `java.library.path` as described above.
 
 ## History attachments
 
-The seventh patch extends the existing `getAttachment` RPC to recognize
+The sixth patch extends the existing `getAttachment` RPC to recognize
 `history:<archiveId>:<frameCursor>:attachment:<zeroBasedIndex>` IDs. It resolves
 the pointer from the selected account's current snapshot and downloads it from
 Signal's transit CDN using the existing Signal library. Keys are not accepted
@@ -182,7 +192,7 @@ A real phone/CDN transfer remains unverified.
 
 ## Starting disappearing timers on read
 
-The eighth patch adds `readHistory` with `{archiveId, cursors: ["3", "4"]}`.
+The seventh patch adds `readHistory` with `{archiveId, cursors: ["3", "4"]}`.
 It accepts 1–500 positive decimal-string message cursors and returns
 `[{cursor, expiresAt, unavailable}]`. Expiration timestamps are decimal strings;
 `expiresAt` is null for messages without an active timer. Missing or expired
@@ -197,7 +207,7 @@ an expired message. A changed snapshot or invalid batch fails without partial
 updates. Snowdrop's archive client validates the response and connects this
 operation to visible-message read tracking.
 
-The ninth patch adds `getHistoryReadState` with the same request and response
+The eighth patch adds `getHistoryReadState` with the same request and response
 shape. It inspects deadlines without marking messages read or starting timers.
 Snowdrop uses it before completing initial sync to recover a deadline committed
 by signal-cli just before the app exited. Already-expired cached messages are
@@ -208,7 +218,7 @@ plaintext read-state index is stored, but large caches may take longer to open.
 
 ## Stickers and long text
 
-The tenth patch adds `sticker:0` and `longText:0` selectors to the same history
+The ninth patch adds `sticker:0` and `longText:0` selectors to the same history
 attachment ID format. Sticker files come from the current sticker message's
 pointer, without exposing its pack key in Snowdrop's message model. Long-text
 files can come from standard messages or story replies. Snowdrop retains the
@@ -218,16 +228,17 @@ cannot retrieve a different message kind or any deleted/view-once revision.
 
 ## Link outcome reporting
 
-The eleventh patch adds `historyTransfer` to the successful `finishLink` result:
-`IMPORTED`, `DECLINED`, `UNAVAILABLE`, or `FAILED`. Failure does not turn an
-already-linked account into a failed link. Snowdrop keeps a history-import
+The fourth patch also adds `historyTransfer` to the successful `finishLink` result:
+`IMPORTED`, `DECLINED`, `UNAVAILABLE`, or `FAILED`. Failure (an `IOException` or any runtime
+exception from the import) does not turn an already-linked account into a failed link: the
+account stays linked and the rest of `finishLink` still runs. Snowdrop keeps a history-import
 warning visible until the user continues to conversations and explains that
 retrying transfer requires unlinking and linking again. Older signal-cli
 builds without this optional field retain the existing link flow.
 
 ## Catch-up notification
 
-The twelfth patch adds a `receiveCaughtUp` JSON-RPC notification. signal-cli's
+The tenth patch adds a `receiveCaughtUp` JSON-RPC notification. signal-cli's
 receive loop already tracks `hasCaughtUpWithOldMessages` internally
 (`ReceiveHelper`/`ManagerImpl`) but never surfaced it past the process; this
 patch adds `Manager.addCaughtUpWithOldMessagesListener`/
@@ -242,12 +253,15 @@ and after every reconnect, since `hasCaughtUpWithOldMessages` resets then
 fires again. Explicit (non-default) `subscribeReceive` subscriptions get the
 same `{"subscription":…,"result":{"account":"…"}}` wrapper as their `receive`
 notifications. It carries no envelope payload; clients still read messages
-from ordinary `receive` notifications. Builds as
-`0.14.8-snowdrop-history.9`.
+from ordinary `receive` notifications. A listener's exception, or a listener unsubscribing itself
+while the listeners run, cannot disturb the receive loop or the other listeners (they run from a
+snapshot). In multi-account mode an account added while the connection is open gets one listener per
+subscription, not two (every notification used to reach the default subscription twice for it).
+First shipped as build `0.14.8-snowdrop-history.9`.
 
 ## Custom emoji
 
-The thirteenth patch adds Snowdrop-to-Snowdrop custom emoji delivery: when a message's text
+The eleventh patch adds Snowdrop-to-Snowdrop custom emoji delivery: when a message's text
 contains a sender's own `:name:` custom emoji, the patched signal-cli uploads each one's image
 as a normal encrypted attachment and carries `{name, attachment}` pairs on the message as an
 _unknown_ DataMessage field. Official Signal clients (and unpatched signal-cli) silently ignore
@@ -317,7 +331,10 @@ collection. This is threaded through for both a plain `DataMessage` and an `Edit
 position in the raw proto) is not covered by this patch.
 
 Custom emoji attachments are downloaded eagerly to signal-cli's local cache on receipt, exactly
-like ordinary message attachments: `IncomingMessageHandler` converts each entry's `AttachmentPointer`
+like ordinary message attachments, except that an entry whose pointer declares no size or more than
+256 KiB (the same cap the send side enforces) is not downloaded, and a message makes us download at
+most 4 MiB of declared emoji size in total (`SnowdropCustomEmojiCodec.downloadable`); the rest stay
+in `customEmoji` but have nothing to fetch. Otherwise it works like ordinary attachments: `IncomingMessageHandler` converts each entry's `AttachmentPointer`
 back to a `SignalServiceAttachmentPointer` (`AttachmentPointerUtil.createSignalAttachmentPointer`)
 and calls the same `AttachmentHelper.downloadAttachment` ordinary attachments use, under the same
 `ReceiveConfig.ignoreAttachments()` condition, for both a plain `DataMessage` and an `EditMessage`'s
@@ -352,7 +369,7 @@ deliver received emoji.
 - Java unit tests: `SignalServiceDataMessageUnknownFieldsTest` (signal-service-java, the generic
   hook) and `SnowdropCustomEmojiCodecTest` (signal-cli, encode/decode round trips through real
   Wire proto encoding — including through a nested `EditMessage`, multiple entries preserving
-  order, and tolerance of malformed/oversized/missing-field input). `JsonDataMessageTest` now also
+  order, tolerance of malformed/oversized/missing-field input, and the download limits). `JsonDataMessageTest` now also
   asserts the serialized JSON itself carries `customEmoji` as `{name, attachment: {id, ...}}`, not
   just a codec round trip, and that it's omitted when empty.
 - `scripts/build-signal-cli.sh --test` builds and smoke-tests the complete runtime with this
@@ -362,9 +379,9 @@ deliver received emoji.
   account available in this environment), and the real-phone check that official Signal shows
   only the `:name:` text — both are the user's to do.
 
-Builds as `0.14.8-snowdrop-history.11`.
+First shipped as build `0.14.8-snowdrop-history.11`.
 
-## 0014: recoverable attachments
+## 0012: recoverable attachments
 
 signal-cli only ever held an attachment's `SignalServiceAttachmentPointer` — the CDN number, key,
 digest and size needed to download it — for the few seconds `IncomingMessageHandler` took to
@@ -410,9 +427,9 @@ Verification: `scripts/build-signal-cli.sh --test` (Java unit tests:
 through Wire proto encoding). The Snowdrop-side failure classification, retry UX and logging this
 motivated are covered by `npx vitest` in the main repo, not here.
 
-Builds as `0.14.8-snowdrop-history.12`.
+First shipped as build `0.14.8-snowdrop-history.12`.
 
-## 0015: linked-device account record integrity
+## 0013: linked-device account record integrity
 
 Right after linking, Signal's own apps could show "There's a problem with your username" on the
 phone. The cause was in `StorageSyncModels.localToRemoteRecord` (used for every AccountRecord
@@ -468,15 +485,15 @@ unset (e.g. `givenName`) without username/usernameLink or unknown fields being a
 
 No signal-service-java change was needed or made; this is a signal-cli-only fix.
 
-Builds as `0.14.8-snowdrop-history.13`.
+First shipped as build `0.14.8-snowdrop-history.13`.
 
-## 0016: attachment backfill
+## 0014: attachment backfill
 
-0014 lets a failed download retry from its own persisted pointer, but that pointer only ever
+0012 lets a failed download retry from its own persisted pointer, but that pointer only ever
 existed if signal-cli itself received the attachment in the first place. Two cases have nothing
-to retry from at all: a file the old vault-sync bug deleted from disk before 0014 started
+to retry from at all: a file the old vault-sync bug deleted from disk before 0012 started
 persisting pointers (`missing-on-disk`), and a transit CDN object that has since expired
-(`expired`) — including a history attachment's (0007) archived transit pointer, which 0007 never
+(`expired`) — including a history attachment's (0006) archived transit pointer, which 0006 never
 persists anywhere past the single download attempt. Signal has a protocol for exactly this: a
 linked device asks its primary to re-upload a message's attachments.
 
@@ -490,22 +507,26 @@ requestAttachmentBackfill { recipient | groupId, targetAuthor, targetTimestamp, 
 
 `recipient`/`groupId` (mutually exclusive) is the conversation the message belongs to;
 `targetAuthor` its sender; `targetTimestamp` its `sentTimestamp`; `attachmentIds` the message's
-attachment ids in order, exactly as Snowdrop already has them (including 0007's `history:…` ids).
+attachment ids in order, exactly as Snowdrop already has them (including 0006's `history:…` ids).
 These become the wire protocol's `AddressableMessage` (author + sentTimestamp) and
 `ConversationIdentifier` (thread ACI/e164 or group id). A pending request is persisted in a
-lazily created `snowdrop_attachment_backfill` table (`CREATE TABLE IF NOT EXISTS`, like 0014's
+lazily created `snowdrop_attachment_backfill` table (`CREATE TABLE IF NOT EXISTS`, like 0012's
 `snowdrop_attachment_pointer` — never a `DATABASE_VERSION` bump), keyed by (author,
-sentTimestamp) with a created-at time; requests older than a day are pruned opportunistically.
-A repeated request for a message already pending is coalesced — the phone isn't asked twice.
+sentTimestamp) with a created-at time. A request is recorded atomically before it is sent (so two
+concurrent calls cannot both send), and removed again if the send fails: `requestAttachmentBackfill`
+then fails with an error and nothing stays pending, so the user can ask again. A request nobody
+answered within 3 minutes (a little longer than Snowdrop's 2 minute wait) counts as abandoned: it no
+longer blocks a new one, so a Retry after the UI gave up really sends again, and it is pruned. A repeated
+request for a message that is still pending is coalesced — the phone isn't asked twice.
 
 When a `SyncMessage.attachmentBackfillResponse` comes back, only one from device id
 `DEFAULT_DEVICE_ID` (our primary) is trusted; a sync message's fanout can reach our other linked
 devices too, but only the primary can actually answer, so a response from anywhere else is
 ignored. The response's attachments list is matched positionally against the pending request's
-`attachmentIds`: each resolved `AttachmentPointer` is stored in `AttachmentPointerStore` — 0014's
+`attachmentIds`: each resolved `AttachmentPointer` is stored in `AttachmentPointerStore` — 0012's
 store — under that original id, deleting any stale partial file first, so the existing
 `getAttachment` → on-demand re-download path just works unmodified for ordinary attachments.
-History attachment ids have no such existing fallback (0007 never persists a pointer for them at
+History attachment ids have no such existing fallback (0006 never persists a pointer for them at
 all), so `AttachmentHelper.retrieveBackfilledHistoryAttachment` and `ManagerImpl.retrieveAttachment`
 gained one: a `history:…` id whose archived transit download fails now falls back to a backfilled
 pointer, when one was actually stored, before giving up with the original error.
@@ -513,7 +534,7 @@ pointer, when one was actually stored, before giving up with the original error.
 Each item in the response is `PENDING` (no pointer yet, another response will follow),
 `TERMINAL_ERROR` (that one attachment specifically is gone for good), or carries a pointer. Any
 item count mismatch against the request, or a `MESSAGE_NOT_FOUND` error, fails the whole request.
-Resolving emits a JSON-RPC notification, following how 0012's `receiveCaughtUp` is emitted
+Resolving emits a JSON-RPC notification, following how 0010's `receiveCaughtUp` is emitted
 (one listener per manager, subscribed wherever `receive`/`receiveCaughtUp` already are):
 
 ```
@@ -527,8 +548,9 @@ count mismatch. No attachment key, digest or message content is ever logged.
 
 Verification: `scripts/build-signal-cli.sh --test` (Java unit tests —
 `AttachmentBackfillStoreTest`: pending-request round trip, removal, per-(author, timestamp)
-isolation, reopened-database survival, age-based pruning; `AttachmentBackfillHelperTest`: a new
-request is sent and tracked pending, a repeated one is coalesced, a response maps pointers back
+isolation, reopened-database survival, age-based pruning, an atomic claim and stale rows;
+`AttachmentBackfillHelperTest`: a new request is sent and tracked pending, a repeated one is
+coalesced, a failed send leaves nothing pending and a retry sends again, a stale row does not block, a response maps pointers back
 onto attachment ids by index, a `PENDING` response is followed by a `READY` one, a
 `TERMINAL_ERROR` item resolves without a pointer for just that one, `MESSAGE_NOT_FOUND` and a
 mismatched count both fail, and a response from a non-primary device id is ignored outright).
@@ -536,9 +558,11 @@ The Snowdrop-side auto-request/retry UX this motivated is covered by `npx vitest
 repo, not here. Not verified here: an actual phone answering a real `attachmentBackfillRequest`
 over Signal's servers — that's the user's to do.
 
-Builds as `0.14.8-snowdrop-history.14`.
+First shipped as build `0.14.8-snowdrop-history.14`.
 
-The seventeenth patch (`0017-sun-misc-unsafe-memory-access.patch`) adds
+## 0015: JVM options and footprint
+
+The first part of this patch adds
 `--sun-misc-unsafe-memory-access=allow` to `build.gradle.kts`'s
 `applicationDefaultJvmArgs`, alongside the existing
 `--enable-native-access=ALL-UNNAMED`. Without it, every launch logs four
@@ -548,8 +572,7 @@ in Snowdrop's own startup log via `protobuf-java-4.31.1.jar`): "A terminally
 deprecated method in sun.misc.Unsafe has been called" and three follow-up
 lines. JDK 25 still defaults memory-access `Unsafe` to allowed, so this flag
 changes nothing about behaviour — it only opts out of the warning ahead of a
-future release where the default flips to `warn` or `deny`. Purely cosmetic;
-no version bump (nothing Snowdrop's capability checks care about changed).
+future release where the default flips to `warn` or `deny`. Purely cosmetic.
 
 An AOT cache (JDK 25 `-XX:AOTCache=`, JEP 483/514/515) was investigated for
 faster `jsonRpc` startup but is **not** shipped. Measured against the built
@@ -575,7 +598,7 @@ checking the process still started and exited 0. That path does still log
 an `[error][aot]` line to stderr on every launch, though, so shipping it
 would also need `-Xlog:aot=off` to keep it from spamming the log.
 
-The eighteenth patch (`0018-jvm-footprint.patch`) adds `-Xmx1024m`,
+The second part adds `-Xmx1024m`,
 `-XX:+UseCompactObjectHeaders`, `-XX:G1PeriodicGCInterval=120000`,
 `-XX:MinHeapFreeRatio=10` and `-XX:MaxHeapFreeRatio=30` to the same
 `applicationDefaultJvmArgs`.
@@ -635,14 +658,14 @@ policy at GC pause boundaries, not its collection algorithm or the JIT
 tiers the AES-GCM throughput benchmark above depends on, and every pause
 logged during and after the burst stayed in the 1-13 ms range, well short
 of the kind of throughput cost `-XX:TieredStopAtLevel=1` had.
-No version bump for any of this: flags only, same jar, same behaviour
-Snowdrop's capability checks see. What a throwaway, no-account dist can't
+Nothing Snowdrop's capability checks see changes with any of this: flags
+only, same jar, same behaviour. What a throwaway, no-account dist can't
 show: real account traffic's actual allocation pattern and burst timing,
 and whether 120 s is the right trade-off for how the user's own session
 idles — only their own running app, left alone afterward, can confirm the
 committed-heap number this was aimed at actually comes back down.
 
-## 0019: history sticker pack
+## 0016: history sticker pack
 
 `getSticker --pack-id --sticker-id` already retrieves a sticker from signal-cli's own
 sticker store, downloading the pack on demand — but only when that store already knows the
@@ -650,7 +673,7 @@ pack's decryption key, which happens today only when this device received the st
 (`IncomingMessageHandler` registers the key and enqueues `RetrieveStickerPackJob` on receipt). A
 sticker that arrived solely through an imported phone-history archive (0004) has no such live
 receipt, so `getSticker` fails for it even though the archive itself carries the pack's key —
-`Backups.Sticker.packKey`, alongside `data`, the backup's own copy of the image 0010 already
+`Backups.Sticker.packKey`, alongside `data`, the backup's own copy of the image 0009 already
 exposes as a `history:…:sticker:0` attachment.
 
 Registering that key the way `addStickerPack` does would also install the pack and sync that
@@ -680,50 +703,50 @@ history id, and the caller falls back to the backup image, then to showing the s
 Verification: `scripts/build-signal-cli.sh --test` (Java unit test —
 `HistoryAttachmentTest.resolvesAStickersPackKeyWithoutExposingItThroughTheAttachmentPath`: the
 pack id/key round-trip through `stickerPack()`, a non-sticker id and a message with no sticker
-are both refused). Builds as `0.14.8-snowdrop-history.15`.
+are both refused). First shipped as build `0.14.8-snowdrop-history.15`.
 
-## 0020: re-read a sticker after downloading its pack
+### Re-read a sticker after downloading its pack
 
 Upstream's `ManagerImpl.retrieveSticker` reads the sticker from the pack store; when that
 returns nothing but the sticker store already knows the pack and its key, it calls
 `retrieveStickerPack` to download the pack — and then throws `FileNotFoundException` anyway,
 because it never re-reads the sticker it just downloaded. Only a _second_ call succeeds. For a
 pack this device learned of but never fetched (a live sticker whose pack job hasn't run, or a
-history sticker just registered by 0019) the first `getSticker` therefore always failed.
+history sticker just registered by the pack registration above) the first `getSticker` therefore always failed.
 
-0020 re-reads the sticker once after a successful pack download. A failed download still logs
+This part re-reads the sticker once after a successful pack download. A failed download still logs
 the same warning and ends in `FileNotFoundException`. No new RPC, no storage change (no
 `DATABASE_VERSION` bump), nothing is added to the phone's sticker list and nothing syncs.
 
-Snowdrop needs no capability gate for it: against `history.15` (no 0020) the first `getSticker`
+Snowdrop needs no capability gate for it: against `history.15` (before the re-read) the first `getSticker`
 after the pack download still fails, so Snowdrop retries `getSticker` once more after
 registration, which is exactly the call that works there (see `resolveStickerUrl`); against
 `history.16` that retry just succeeds one call earlier. Nothing changes for the user's phone.
 
 Verification: `scripts/build-signal-cli.sh --test` (the patch only touches a code path that
 needs a live server, so there is no new Java unit test; the build and existing suite must still
-pass). Builds as `0.14.8-snowdrop-history.16`.
+pass). First shipped as build `0.14.8-snowdrop-history.16`.
 
-## 0021: install a known sticker pack
+## 0017: install a known sticker pack
 
 Snowdrop's sticker pack dialog ("Install" on a sticker someone sent) needs signal-cli's own
 `installStickerPack`, but upstream's `addStickerPack --uri` wants the pack's share URL, which
 embeds the pack **key** — and Snowdrop deliberately never holds keys (`StickerContent` and its
 `listStickerPacks` decoder drop them). The key is already in signal-cli's sticker store for any
 pack this account has learned of: from a live-received sticker (`IncomingMessageHandler`
-registers it) or from a history archive (0019).
+registers it) or from a history archive (0016).
 
 New RPC `installKnownStickerPack { packId }` (hex) looks the pack up in that store by id alone,
 fails with an I/O error if the account has never learned of it, returns at once for a pack that
 is already installed, and otherwise does exactly what `ManagerImpl.installStickerPack` does with
 a URL: download the pack (`StickerHelper.retrieveStickerPack`), mark it installed
 (`addOrUpdateStickerPack`, which gives it a storage id), and send the install sync message to
-the primary device (`sendStickerOperationsMessage`). So — unlike 0019/0020, which never touch
+the primary device (`sendStickerOperationsMessage`). So — unlike 0016, which never touch
 the phone's list — this one **does** sync to the phone, like Signal's own "Install"; it is only
 ever sent for an explicit click in Snowdrop's dialog. The key never leaves the process: it is
 neither a request parameter nor a response field (the reply is `{ "installed": true }`).
 Uninstalling is not covered. A history sticker's pack must be registered first
-(`registerHistoryStickerPack`, 0019); Snowdrop does that before calling this.
+(`registerHistoryStickerPack`, 0016); Snowdrop does that before calling this.
 
 No storage change and no `DATABASE_VERSION` bump (the `sticker` table is untouched).
 
@@ -734,9 +757,9 @@ build the dialog still shows the pack but Install is disabled with an explanatio
 Verification: `scripts/build-signal-cli.sh --test` (Java unit test —
 `StickerHelperTest`: an unknown pack is refused, a registered-but-uninstalled pack is found with
 its key and no storage id, and installing it is what gives it one, i.e. what makes it sync).
-Builds as `0.14.8-snowdrop-history.17`.
+First shipped as build `0.14.8-snowdrop-history.17`.
 
-## 0022: privacy configuration
+## 0018: privacy configuration
 
 Signal's read receipts, typing indicators, link previews and unidentified-delivery indicators are
 account settings the phone owns. signal-cli already stores them as a linked device: a configuration
@@ -769,9 +792,9 @@ notifies once, an identical write notifies nobody; `GetConfigurationCommandTest`
 explicit nulls for unknown ones, nothing else exposed; `ReceiveConfigurationChangedNotificationTest`:
 the notification, bare params on the default subscription, listener cleanup). Not verified against a
 real phone: that a change made from this linked device reaches the phone's storage service record.
-Builds as `0.14.8-snowdrop-history.18`.
+First shipped as build `0.14.8-snowdrop-history.18`.
 
-## 0023: sync-only read receipts
+## 0019: sync-only read receipts
 
 `sendReceipt type=read` does two things: it sends a receipt to the message's sender (skipped when
 the account's read-receipts setting is off) and it always sends a read sync message to the
@@ -795,9 +818,9 @@ would take it for a plain receipt).
 Verification: `scripts/build-signal-cli.sh --test` (Java test `SendReceiptCommandTest`: `syncOnly`
 syncs and sends no receipt, keeps the viewed type, rejects an unknown type; without it the normal
 receipt is sent). Not verified against a real phone: that the sync marks the messages read there.
-Builds as `0.14.8-snowdrop-history.19`.
+First shipped as build `0.14.8-snowdrop-history.19`.
 
-## 0024: receipt sync outcome
+### Receipt sync outcome
 
 `sendReceipt` used to ignore how the own-device read sync went: `SyncHelper.sendSyncReceiptMessage`
 returned nothing and `SendHelper.sendSyncMessage` turns a send exception into a result nobody read,
@@ -820,11 +843,11 @@ so a sync that never reached the phone looked exactly like one that did.
 Verification: `scripts/build-signal-cli.sh --test` (`ReceiptSyncOutcomeTest`: every result type maps
 to its value, only `success` is a success; `SendReceiptCommandTest`: `sync` on the syncOnly and
 normal replies for every outcome, `results` unchanged). Not verified against a real phone.
-Builds as `0.14.8-snowdrop-history.20`.
+First shipped as build `0.14.8-snowdrop-history.20`.
 
-## 0025: receive catching up notification
+## 0020: receive catching up notification
 
-`receiveCaughtUp` (0012) says the server's queue is empty, but nothing said it had started to fill.
+`receiveCaughtUp` (0010) says the server's queue is empty, but nothing said it had started to fill.
 signal-cli reconnects to Signal's server by itself (after a sleep, a network change), and
 everything queued meanwhile then arrives as ordinary `receive` notifications. A client that only
 treats its own start as a catch-up cannot tell those from new messages.
@@ -834,7 +857,7 @@ treats its own start as a catch-up cannot tell those from new messages.
   `result` on an explicit `subscribeReceive`). No other fields.
 - It first fired from `ReceiveHelper.onWebSocketStateChange` when the authenticated websocket
   reached `CONNECTED`. That runs on a scheduler thread, so it could arrive after messages the receive
-  thread had already read; 0027 below replaces it with an ordered signal.
+  thread had already read; the ordered signal below replaces it.
 - `Manager` gains `addCatchingUpWithOldMessagesListener` / `remove...`; DBus does not support it.
 - No storage change and no `DATABASE_VERSION` bump. A notification needs no new method, so the
   native shell's allow-list (`rpc_guard.rs`) is unchanged; its notification forwarding gains the
@@ -845,9 +868,47 @@ Snowdrop gates it on `snowdrop-history.N` with N at least 21 (`supportsCatchingU
 
 Verification: `scripts/build-signal-cli.sh --test` (`ReceiveCatchingUpNotificationTest`: shape on
 both subscription kinds, once per connect, cleanup, not subscribed without `subscribeReceive`;
-`ReceiveHelperCatchingUpTest`, rewritten by 0027). Not verified against a real wake from sleep. Builds as `0.14.8-snowdrop-history.21`.
+`ReceiveHelperCatchingUpTest`, rewritten for the ordered signal). Not verified against a real wake from sleep. First shipped as build `0.14.8-snowdrop-history.21`.
 
-## 0026: a profile edit also updates the storage-service account record
+### Catching up is ordered before the connection's first envelope
+
+The first version of `receiveCatchingUp` came from a state observer on a scheduler thread. After a wake the receive
+loop can read and forward the first queued envelopes before it runs, so those messages arrived as
+ordinary live ones and notified. Looking for a synchronous observer to fix that, the state stream
+turned out not to be usable at all: `SignalWebSocket.getOrCreateWebSocketLocked` republishes each
+connection's state through `subscribeOn(Schedulers.io()).observeOn(Schedulers.io())`, so even a
+subscriber with no hop of its own sees `CONNECTED` after the read side already could. (The connection
+itself is fine: `LibSignalChatConnection.handleConnectionSuccess` holds its lock across `start()` and
+the state change, and `readRequest` needs that lock. It is the republishing that is late.)
+
+- `ReceiveHelper.readMessageBatch` wraps `AuthenticatedWebSocket.readMessageBatch`. When the read
+  returns, it compares `getConnectionName()` (the identity of the connection the websocket holds now)
+  with the last one it announced, and fires the catching-up listener on a change, before returning.
+  The connection is replaced inside `getWebSocket()`, which the read goes through, so after a read has
+  returned the name is that of the connection the read was served from, or of a newer one (which only
+  announces early). The receive loop handles the batch's envelopes, and the queue-empty indicator that
+  becomes `receiveCaughtUp`, after that call returns, on the same thread. So for each connection
+  `receiveCatchingUp` is sent strictly before its first envelope and before its `receiveCaughtUp`, and
+  it is sent once. The name is reset at the start of each receive session, so the first connection counts.
+- `onWebSocketStateChange` no longer fires it (it would have announced a second time, out of order).
+- The catching-up and caught-up listeners are called through a guard that logs and drops an exception
+  (a JSON-RPC listener can throw; an `AssertionError` still propagates, as the loop expects), so one cannot end the receive iteration and leave the envelope that
+  was just read waiting until the next receive session.
+- The JSON-RPC shape, `Manager` API and DBus behaviour are unchanged from that first version. No storage change and
+  no `DATABASE_VERSION` bump.
+
+Snowdrop gates the stricter behaviour on `snowdrop-history.N` with N at least 23
+(`supportsOrderedCatchingUp`). With it, a notification hold started by `catchingUp` ends only on
+`caughtUp` or its 2 minute ceiling. Builds 21 and 22 behave as before (quiet period as well).
+
+Verification: `scripts/build-signal-cli.sh --test` (`ReceiveHelperCatchingUpTest`, a real
+`AuthenticatedWebSocket` over fake connections read the way the receive loop does: catching-up before
+the first envelope, before caught-up on an empty queue, once per connection and again on a reconnect
+whose backlog is already queued, nothing for a read that times out, and a throwing listener that
+still lets the envelope through). Not verified against a real wake
+from sleep. First shipped as build `0.14.8-snowdrop-history.23`.
+
+## 0021: a profile edit also updates the storage-service account record
 
 `updateProfile` stored the new values and uploaded the profile, but never touched the storage-service
 account record, which also holds the given name, family name and avatar path. Signal Desktop
@@ -884,43 +945,9 @@ that gets uploaded; `ProfileStorageUploadTest`, against the real recipient store
 carries the new name and avatar and every other field as stored, an avatar removal uploads an empty
 path, an about-only change leaves the record unchanged, the rotated id makes the sync see a local-only
 record; `ProfileStoragePendingTest`: which edits count, when the flag clears). Not verified against a
-real phone. Builds as `0.14.8-snowdrop-history.22`.
+real phone. First shipped as build `0.14.8-snowdrop-history.22`.
 
-## 0027: catching up is ordered before the connection's first envelope
-
-0025's `receiveCatchingUp` came from a state observer on a scheduler thread. After a wake the receive
-loop can read and forward the first queued envelopes before it runs, so those messages arrived as
-ordinary live ones and notified. Looking for a synchronous observer to fix that, the state stream
-turned out not to be usable at all: `SignalWebSocket.getOrCreateWebSocketLocked` republishes each
-connection's state through `subscribeOn(Schedulers.io()).observeOn(Schedulers.io())`, so even a
-subscriber with no hop of its own sees `CONNECTED` after the read side already could. (The connection
-itself is fine: `LibSignalChatConnection.handleConnectionSuccess` holds its lock across `start()` and
-the state change, and `readRequest` needs that lock. It is the republishing that is late.)
-
-- `ReceiveHelper.readMessageBatch` wraps `AuthenticatedWebSocket.readMessageBatch`. When the read
-  returns, it compares `getConnectionName()` (the identity of the connection the websocket holds now)
-  with the last one it announced, and fires the catching-up listener on a change, before returning.
-  The connection is replaced inside `getWebSocket()`, which the read goes through, so after a read has
-  returned the name is that of the connection the read was served from, or of a newer one (which only
-  announces early). The receive loop handles the batch's envelopes, and the queue-empty indicator that
-  becomes `receiveCaughtUp`, after that call returns, on the same thread. So for each connection
-  `receiveCatchingUp` is sent strictly before its first envelope and before its `receiveCaughtUp`, and
-  it is sent once. The name is reset at the start of each receive session, so the first connection counts.
-- `onWebSocketStateChange` no longer fires it (it would have announced a second time, out of order).
-- The JSON-RPC shape, `Manager` API and DBus behaviour are unchanged from 0025. No storage change and
-  no `DATABASE_VERSION` bump.
-
-Snowdrop gates the stricter behaviour on `snowdrop-history.N` with N at least 23
-(`supportsOrderedCatchingUp`). With it, a notification hold started by `catchingUp` ends only on
-`caughtUp` or its 2 minute ceiling. Builds 21 and 22 behave as before (quiet period as well).
-
-Verification: `scripts/build-signal-cli.sh --test` (`ReceiveHelperCatchingUpTest`, a real
-`AuthenticatedWebSocket` over fake connections read the way the receive loop does: catching-up before
-the first envelope, before caught-up on an empty queue, once per connection and again on a reconnect
-whose backlog is already queued, nothing for a read that times out). Not verified against a real wake
-from sleep. Builds as `0.14.8-snowdrop-history.23`.
-
-## 0028: a clean exit when stdin closes
+## 0022: a clean exit when stdin closes
 
 Snowdrop stops signal-cli by closing its stdin. The command then returns, the managers are closed
 (`ManagerImpl.close`: the receive thread stops, the websockets disconnect, the account database
@@ -945,7 +972,7 @@ crash lost no data; it only turned a normal stop into an abort (and a crash dump
 - What is saved on stdin EOF is unchanged and still happens before the exit: the subscriptions are
   removed, then the managers are closed (and the databases with them). A signal (INT/TERM) still goes
   through `triggerShutdown`, which is what stops a blocking read.
-- No JSON-RPC, storage or `Manager` change, no `DATABASE_VERSION` bump, and no version bump: nothing
+- No JSON-RPC, storage or `Manager` change, no `DATABASE_VERSION` bump: nothing
   Snowdrop gates on changed, and the Java and native builds report the same version.
 
 Verification: `ShutdownTest` (the flag is cleared; the hook does not run listeners after completion).

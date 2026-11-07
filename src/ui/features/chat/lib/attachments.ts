@@ -80,13 +80,15 @@ export type AttachmentFailureKind =
   | `rpc-error:${number}`
   /**
    * `missing-on-disk`/`expired` escalated to asking our primary for a
-   * backfill (patches/signal-cli, "0016: attachment backfill"), and the
+   * backfill (patches/signal-cli, "0014: attachment backfill"), and the
    * primary answered that it doesn't have the file either (or the request
    * itself failed outright).
    */
   | 'backfill-failed'
   /** Same escalation, but ~2 minutes passed with no answer at all. */
-  | 'backfill-timeout';
+  | 'backfill-timeout'
+  /** The backfill request itself couldn't be sent to the phone (signal-cli rejected it). */
+  | 'backfill-send-failed';
 
 interface ErrorLike {
   kind?: unknown;
@@ -188,6 +190,12 @@ export function attachmentFailureCopy(kind: AttachmentFailureKind): AttachmentFa
       return {
         label: 'No longer available',
         detail: "Your phone didn't answer — open Signal on your phone and try again.",
+        retryable: true,
+      };
+    case 'backfill-send-failed':
+      return {
+        label: "Couldn't reach your phone",
+        detail: "The request didn't go through. Try again.",
         retryable: true,
       };
     default:

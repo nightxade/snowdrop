@@ -133,7 +133,7 @@ describe('useAttachmentUrl: no URL cache that can outlive the backend resolver',
   });
 });
 
-describe('useAttachmentUrl: attachment backfill (patches/signal-cli, "0016")', () => {
+describe('useAttachmentUrl: attachment backfill (patches/signal-cli, "0014")', () => {
   const backfillKey = `${message.authorId}\u0000${message.sentAt}`;
   /** `classifyAttachmentFailure` reads `kind`/`message`, duck-typed — not a real SignalCliError. */
   const missingOnDisk = { kind: 'user', message: 'Could not find attachment with ID: att-1' };
@@ -358,6 +358,52 @@ describe('useAttachmentUrl: attachment backfill (patches/signal-cli, "0016")', (
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('useAttachmentUrl: a failed backfill request', () => {
+  const missingOnDisk = { kind: 'user', message: 'Could not find attachment with ID: att-1' };
+  const click = (name: string) => {
+    act(() => {
+      screen.getByRole('button', { name }).click();
+    });
+  };
+
+  it('leaves the spinner at once and Retry asks the phone again', async () => {
+    const resolveAttachmentUrl = vi
+      .fn<(conversationId: ConversationId, attachment: Attachment) => Promise<string>>()
+      .mockRejectedValue(missingOnDisk);
+    const requestAttachmentBackfill = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('could not send'))
+      .mockResolvedValue(undefined);
+    const app = fakeApp({
+      resolveAttachmentUrl,
+      requestAttachmentBackfill,
+      supportsAttachmentBackfill: () => true,
+    });
+
+    render(
+      <SnowdropContextProvider value={app}>
+        <Probe />
+      </SnowdropContextProvider>,
+    );
+    await vi.waitFor(() => {
+      expect(screen.getByTestId('state')).toHaveProperty('textContent', 'error:missing-on-disk');
+    });
+    click('from phone');
+    await vi.waitFor(() => {
+      expect(screen.getByTestId('state')).toHaveProperty(
+        'textContent',
+        'error:backfill-send-failed',
+      );
+    });
+    expect(requestAttachmentBackfill).toHaveBeenCalledTimes(1);
+
+    click('retry');
+    await vi.waitFor(() => {
+      expect(requestAttachmentBackfill).toHaveBeenCalledTimes(2);
+    });
   });
 });
 

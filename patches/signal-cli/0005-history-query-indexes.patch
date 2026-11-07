@@ -1,17 +1,8 @@
---- a/build.gradle.kts
-+++ b/build.gradle.kts
-@@ -10,7 +10,7 @@
- 
- allprojects {
-     group = "org.asamk"
--    version = "0.14.8-snowdrop-history.1"
-+    version = "0.14.8-snowdrop-history.2"
- }
- 
- java {
+diff --git a/lib/src/main/java/org/asamk/signal/manager/Manager.java b/lib/src/main/java/org/asamk/signal/manager/Manager.java
+index 5dcedd5..b489c23 100644
 --- a/lib/src/main/java/org/asamk/signal/manager/Manager.java
 +++ b/lib/src/main/java/org/asamk/signal/manager/Manager.java
-@@ -71,6 +71,14 @@
+@@ -71,6 +71,14 @@ import java.util.Set;
  
  public interface Manager extends Closeable {
  
@@ -26,87 +17,12 @@
      default org.asamk.signal.manager.history.HistoryStore.Page getHistory(
              String archiveId, long after, int limit
      ) throws IOException {
---- a/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
-+++ b/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
-@@ -181,6 +181,16 @@
-     }
- 
- 
-+    @Override
-+    public org.asamk.signal.manager.history.HistoryStore.Page getHistoryDirectory(String archiveId, long after, int limit) throws IOException {
-+        return getHistoryStore().directoryPage(archiveId, after, limit, System.currentTimeMillis());
-+    }
-+
-+    @Override
-+    public org.asamk.signal.manager.history.HistoryStore.Page getHistoryChat(String archiveId, String chatId, Long before, int limit) throws IOException {
-+        return getHistoryStore().chatPage(archiveId, chatId, before, limit, System.currentTimeMillis());
-+    }
-+
-     public org.asamk.signal.manager.history.LinkHistoryTransfer.Outcome importLinkedHistory(
-             byte[] ephemeralKey, java.nio.file.Path directory
-     ) throws IOException {
---- a/lib/src/main/java/org/asamk/signal/manager/history/HistoryStore.java
-+++ b/lib/src/main/java/org/asamk/signal/manager/history/HistoryStore.java
-@@ -37,6 +37,7 @@
-                 )
-                 """);
-             statement.executeUpdate("CREATE INDEX IF NOT EXISTS snowdrop_history_expiry ON snowdrop_history_frame(expires_at)");
-+            HistoryIndex.initialize(statement);
-         }
-     }
- 
-@@ -117,10 +118,7 @@
-         }
-         try (var connection = connections.open()) {
-             connection.setAutoCommit(false);
--            try (var purge = connection.prepareStatement("DELETE FROM snowdrop_history_frame WHERE expires_at <= ?")) {
--                purge.setLong(1, now);
--                purge.executeUpdate();
--            }
-+            HistoryIndex.purge(connection, now);
-             String current = null;
-             try (var query = connection.createStatement(); var rows = query.executeQuery(
-                     "SELECT archive_id FROM snowdrop_history_meta WHERE singleton = 1")) {
-@@ -146,4 +144,36 @@
-             return new Page(current, List.copyOf(entries), cursor, more);
-         } catch (SQLException e) { throw new IOException("Cannot read history", e); }
-     }
-+
-+    public Page directoryPage(String archiveId, long after, int limit, long now) throws IOException {
-+        if (after < 0 || (after > 0 && archiveId == null)) {
-+            throw new IllegalArgumentException("Directory pagination requires an archiveId and a nonnegative cursor");
-+        }
-+        return indexedPage(archiveId, after, null, limit, now);
-+    }
-+
-+    public Page chatPage(String archiveId, String chatId, Long before, int limit, long now) throws IOException {
-+        if (chatId == null || !chatId.matches("[0-9]{1,20}")
-+                || (before != null && (before < 0 || archiveId == null))) {
-+            throw new IllegalArgumentException("Chat pagination requires a chat id, archiveId and a nonnegative cursor");
-+        }
-+        chatId = Long.toUnsignedString(Long.parseUnsignedLong(chatId));
-+        return indexedPage(archiveId, before == null ? Long.MAX_VALUE : before, chatId, limit, now);
-+    }
-+
-+    private Page indexedPage(String archiveId, long boundary, String chatId, int limit, long now) throws IOException {
-+        if (limit < 1 || limit > 500) throw new IllegalArgumentException("History limit must be 1..500");
-+        try (var connection = connections.open()) {
-+            connection.setAutoCommit(false);
-+            try {
-+                var page = HistoryIndex.page(connection, archiveId, boundary, chatId, limit, now);
-+                connection.commit();
-+                return page;
-+            } catch (IOException | SQLException | RuntimeException e) {
-+                connection.rollback();
-+                throw e;
-+            }
-+        } catch (SQLException e) { throw new IOException("Cannot query history", e); }
-+    }
-+
- }
+diff --git a/lib/src/main/java/org/asamk/signal/manager/history/HistoryIndex.java b/lib/src/main/java/org/asamk/signal/manager/history/HistoryIndex.java
+new file mode 100644
+index 0000000..e95746d
 --- /dev/null
 +++ b/lib/src/main/java/org/asamk/signal/manager/history/HistoryIndex.java
-@@ -0,0 +1,112 @@
+@@ -0,0 +1,114 @@
 +// SPDX-License-Identifier: GPL-3.0-or-later
 +package org.asamk.signal.manager.history;
 +
@@ -210,7 +126,9 @@
 +                while (rows.next()) {
 +                    if (entries.size() == limit) { more = true; break; }
 +                    cursor = Long.toString(rows.getLong(1));
-+                    entries.add(new HistoryStore.Entry(cursor, HistoryJson.fields(Backups.Frame.parseFrom(rows.getBytes(2)))));
++                    var frame = Backups.Frame.parseFrom(rows.getBytes(2));
++                    entries.add(new HistoryStore.Entry(cursor,
++                            chat ? HistoryJson.fields(frame) : HistoryJson.directoryFields(frame)));
 +                }
 +            }
 +        }
@@ -219,6 +137,134 @@
 +        return new HistoryStore.Page(current, List.copyOf(entries), cursor, more);
 +    }
 +}
+diff --git a/lib/src/main/java/org/asamk/signal/manager/history/HistoryJson.java b/lib/src/main/java/org/asamk/signal/manager/history/HistoryJson.java
+index 8bfbb0c..2b66808 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/history/HistoryJson.java
++++ b/lib/src/main/java/org/asamk/signal/manager/history/HistoryJson.java
+@@ -4,10 +4,15 @@ package org.asamk.signal.manager.history;
+ import com.google.protobuf.ByteString;
+ import com.google.protobuf.Descriptors;
+ import com.google.protobuf.Message;
++import java.io.IOException;
+ import java.util.Base64;
+ import java.util.LinkedHashMap;
+ import java.util.List;
+ import java.util.Map;
++import org.signal.libsignal.zkgroup.InvalidInputException;
++import org.signal.libsignal.zkgroup.groups.GroupMasterKey;
++import org.signal.libsignal.zkgroup.groups.GroupSecretParams;
++import org.thoughtcrime.securesms.backup.v2.proto.Backups;
+ 
+ /** JSON-compatible backup fields for the history RPC. Preserve 64-bit integers
+  * as strings, so JavaScript cannot round timestamps/ids during import.
+@@ -15,6 +20,22 @@ import java.util.Map;
+ public final class HistoryJson {
+     private HistoryJson() {}
+ 
++    /** Resolve archive-local groups to the same identity used by live messages. */
++    static Map<String, Object> directoryFields(Backups.Frame frame) throws IOException {
++        var result = fields(frame);
++        if (frame.hasRecipient() && frame.getRecipient().hasGroup()) {
++            try {
++                var masterKey = new GroupMasterKey(frame.getRecipient().getGroup().getMasterKey().toByteArray());
++                var id = GroupSecretParams.deriveFromMasterKey(masterKey)
++                        .getPublicParams().getGroupIdentifier().serialize();
++                result.put("signalGroupId", Base64.getEncoder().encodeToString(id));
++            } catch (InvalidInputException e) {
++                throw new IOException("Invalid history group master key", e);
++            }
++        }
++        return result;
++    }
++
+     public static Map<String, Object> fields(Message message) {
+         Map<String, Object> result = new LinkedHashMap<>();
+         for (var entry : message.getAllFields().entrySet()) {
+diff --git a/lib/src/main/java/org/asamk/signal/manager/history/HistoryStore.java b/lib/src/main/java/org/asamk/signal/manager/history/HistoryStore.java
+index 27abcc0..8ba09ed 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/history/HistoryStore.java
++++ b/lib/src/main/java/org/asamk/signal/manager/history/HistoryStore.java
+@@ -37,6 +37,7 @@ public final class HistoryStore {
+                 )
+                 """);
+             statement.executeUpdate("CREATE INDEX IF NOT EXISTS snowdrop_history_expiry ON snowdrop_history_frame(expires_at)");
++            HistoryIndex.initialize(statement);
+         }
+     }
+ 
+@@ -117,10 +118,7 @@ public final class HistoryStore {
+         }
+         try (var connection = connections.open()) {
+             connection.setAutoCommit(false);
+-            try (var purge = connection.prepareStatement("DELETE FROM snowdrop_history_frame WHERE expires_at <= ?")) {
+-                purge.setLong(1, now);
+-                purge.executeUpdate();
+-            }
++            HistoryIndex.purge(connection, now);
+             String current = null;
+             try (var query = connection.createStatement(); var rows = query.executeQuery(
+                     "SELECT archive_id FROM snowdrop_history_meta WHERE singleton = 1")) {
+@@ -146,4 +144,36 @@ public final class HistoryStore {
+             return new Page(current, List.copyOf(entries), cursor, more);
+         } catch (SQLException e) { throw new IOException("Cannot read history", e); }
+     }
++
++    public Page directoryPage(String archiveId, long after, int limit, long now) throws IOException {
++        if (after < 0 || (after > 0 && archiveId == null)) {
++            throw new IllegalArgumentException("Directory pagination requires an archiveId and a nonnegative cursor");
++        }
++        return indexedPage(archiveId, after, null, limit, now);
++    }
++
++    public Page chatPage(String archiveId, String chatId, Long before, int limit, long now) throws IOException {
++        if (chatId == null || !chatId.matches("[0-9]{1,20}")
++                || (before != null && (before < 0 || archiveId == null))) {
++            throw new IllegalArgumentException("Chat pagination requires a chat id, archiveId and a nonnegative cursor");
++        }
++        chatId = Long.toUnsignedString(Long.parseUnsignedLong(chatId));
++        return indexedPage(archiveId, before == null ? Long.MAX_VALUE : before, chatId, limit, now);
++    }
++
++    private Page indexedPage(String archiveId, long boundary, String chatId, int limit, long now) throws IOException {
++        if (limit < 1 || limit > 500) throw new IllegalArgumentException("History limit must be 1..500");
++        try (var connection = connections.open()) {
++            connection.setAutoCommit(false);
++            try {
++                var page = HistoryIndex.page(connection, archiveId, boundary, chatId, limit, now);
++                connection.commit();
++                return page;
++            } catch (IOException | SQLException | RuntimeException e) {
++                connection.rollback();
++                throw e;
++            }
++        } catch (SQLException e) { throw new IOException("Cannot query history", e); }
++    }
++
+ }
+diff --git a/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java b/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
+index 2bdb7d1..a06ab57 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
++++ b/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
+@@ -181,6 +181,16 @@ public class ManagerImpl implements Manager {
+     }
+ 
+ 
++    @Override
++    public org.asamk.signal.manager.history.HistoryStore.Page getHistoryDirectory(String archiveId, long after, int limit) throws IOException {
++        return getHistoryStore().directoryPage(archiveId, after, limit, System.currentTimeMillis());
++    }
++
++    @Override
++    public org.asamk.signal.manager.history.HistoryStore.Page getHistoryChat(String archiveId, String chatId, Long before, int limit) throws IOException {
++        return getHistoryStore().chatPage(archiveId, chatId, before, limit, System.currentTimeMillis());
++    }
++
+     public org.asamk.signal.manager.history.LinkHistoryTransfer.Outcome importLinkedHistory(
+             byte[] ephemeralKey, java.nio.file.Path directory
+     ) throws IOException {
+diff --git a/lib/src/test/java/org/asamk/signal/manager/history/HistoryIndexTest.java b/lib/src/test/java/org/asamk/signal/manager/history/HistoryIndexTest.java
+new file mode 100644
+index 0000000..d0bcac0
 --- /dev/null
 +++ b/lib/src/test/java/org/asamk/signal/manager/history/HistoryIndexTest.java
 @@ -0,0 +1,91 @@
@@ -313,9 +359,50 @@
 +    }
 +
 +}
+diff --git a/lib/src/test/java/org/asamk/signal/manager/history/HistoryJsonTest.java b/lib/src/test/java/org/asamk/signal/manager/history/HistoryJsonTest.java
+index e5610bb..ea94fea 100644
+--- a/lib/src/test/java/org/asamk/signal/manager/history/HistoryJsonTest.java
++++ b/lib/src/test/java/org/asamk/signal/manager/history/HistoryJsonTest.java
+@@ -9,6 +9,21 @@ import java.util.Map;
+ import static org.junit.jupiter.api.Assertions.*;
+ 
+ class HistoryJsonTest {
++    @Test void derivesGroupIdentityForDirectoryWithoutChangingRawArchive() throws Exception {
++        var key = new byte[32];
++        var frame = Backups.Frame.newBuilder().setRecipient(Backups.Recipient.newBuilder()
++                .setId(42).setGroup(Backups.Group.newBuilder().setMasterKey(ByteString.copyFrom(key)))).build();
++        var expected = org.signal.libsignal.zkgroup.groups.GroupSecretParams.deriveFromMasterKey(
++                new org.signal.libsignal.zkgroup.groups.GroupMasterKey(key))
++                .getPublicParams().getGroupIdentifier().serialize();
++        assertEquals(java.util.Base64.getEncoder().encodeToString(expected),
++                HistoryJson.directoryFields(frame).get("signalGroupId"));
++        assertFalse(HistoryJson.fields(frame).containsKey("signalGroupId"));
++        var invalid = Backups.Frame.newBuilder().setRecipient(Backups.Recipient.newBuilder()
++                .setId(42).setGroup(Backups.Group.getDefaultInstance())).build();
++        assertThrows(java.io.IOException.class, () -> HistoryJson.directoryFields(invalid));
++    }
++
+     @Test void keepsUnsignedIdsExactAndRecursivelyConvertsMessages() {
+         var revision = Backups.ChatItem.newBuilder().setDateSent(42).build();
+         var message = Backups.ChatItem.newBuilder().setChatId(-1L).setExpiresInMs(5000)
+diff --git a/src/main/java/org/asamk/signal/commands/Commands.java b/src/main/java/org/asamk/signal/commands/Commands.java
+index 60926f3..c1bd5b6 100644
+--- a/src/main/java/org/asamk/signal/commands/Commands.java
++++ b/src/main/java/org/asamk/signal/commands/Commands.java
+@@ -30,6 +30,8 @@ public class Commands {
+         addCommand(new ListAccountsCommand());
+         addCommand(new ListContactsCommand());
+         addCommand(new GetHistoryCommand());
++        addCommand(new GetHistoryCommand(GetHistoryCommand.Kind.DIRECTORY));
++        addCommand(new GetHistoryCommand(GetHistoryCommand.Kind.CHAT));
+         addCommand(new ListDevicesCommand());
+         addCommand(new ListGroupsCommand());
+         addCommand(new ListIdentitiesCommand());
+diff --git a/src/main/java/org/asamk/signal/commands/GetHistoryCommand.java b/src/main/java/org/asamk/signal/commands/GetHistoryCommand.java
+index 29599f3..f52746d 100644
 --- a/src/main/java/org/asamk/signal/commands/GetHistoryCommand.java
 +++ b/src/main/java/org/asamk/signal/commands/GetHistoryCommand.java
-@@ -13,12 +13,27 @@
+@@ -13,12 +13,27 @@ import org.asamk.signal.output.PlainTextWriter;
  import java.io.IOException;
  
  public class GetHistoryCommand implements JsonRpcLocalCommand {
@@ -345,7 +432,7 @@
          parser.addArgument("--limit").setDefault("100").help("Maximum frames to return (1..500).");
      }
  
-@@ -27,9 +42,16 @@
+@@ -27,9 +42,16 @@ public class GetHistoryCommand implements JsonRpcLocalCommand {
          try {
              Object after = ns.get("after");
              Object limit = ns.get("limit");
@@ -365,20 +452,11 @@
              switch (output) {
                  case JsonWriter writer -> writer.write(page);
                  case PlainTextWriter writer -> {
---- a/src/main/java/org/asamk/signal/commands/Commands.java
-+++ b/src/main/java/org/asamk/signal/commands/Commands.java
-@@ -30,6 +30,8 @@
-         addCommand(new ListAccountsCommand());
-         addCommand(new ListContactsCommand());
-         addCommand(new GetHistoryCommand());
-+        addCommand(new GetHistoryCommand(GetHistoryCommand.Kind.DIRECTORY));
-+        addCommand(new GetHistoryCommand(GetHistoryCommand.Kind.CHAT));
-         addCommand(new ListDevicesCommand());
-         addCommand(new ListGroupsCommand());
-         addCommand(new ListIdentitiesCommand());
+diff --git a/src/test/java/org/asamk/signal/commands/GetHistoryCommandTest.java b/src/test/java/org/asamk/signal/commands/GetHistoryCommandTest.java
+index 1765c2e..90adbf5 100644
 --- a/src/test/java/org/asamk/signal/commands/GetHistoryCommandTest.java
 +++ b/src/test/java/org/asamk/signal/commands/GetHistoryCommandTest.java
-@@ -47,4 +47,25 @@
+@@ -47,4 +47,25 @@ class GetHistoryCommandTest {
                  Map.of(), manager, output::set));
          assertNull(output.get());
      }

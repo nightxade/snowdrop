@@ -7,7 +7,7 @@ import type { BehaviourSettings } from './settings';
  * Signal keeps read receipts, typing indicators and link previews as account
  * settings the primary device owns and linked devices follow (Signal Desktop
  * stores them from the phone's configuration sync and storage-service account
- * record, and pushes its own changes back). patches/signal-cli's "0022"
+ * record, and pushes its own changes back). patches/signal-cli's "0018"
  * exposes the same stored values:
  *
  * - `unsupported`: this backend can't say (the demo, upstream or an older

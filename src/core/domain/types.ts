@@ -258,7 +258,7 @@ export interface LinkPreview {
  * clients do: the image alone, no bubble (see StickerBubble).
  *
  * Deliberately has no pack decryption key: that stays entirely inside
- * signal-cli (see patches/signal-cli's "0019"), never crossing into this
+ * signal-cli (see patches/signal-cli's "0016"), never crossing into this
  * persisted domain model. `packId`/`stickerId` are plain identifiers, not
  * secrets.
  */

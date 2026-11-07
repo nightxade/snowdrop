@@ -63,7 +63,7 @@ export function additionalContent(item: BackupRecord): Content | null {
     const packId = hexBytes(sticker.packId);
     // Only the pack *id* crosses into Content — never packKey (see
     // StickerContent's doc comment); registering it for retrieval is a
-    // signal-cli-side concern (patches/signal-cli's "0019"), keyed off this
+    // signal-cli-side concern (patches/signal-cli's "0016"), keyed off this
     // message's own opaque backup-attachment id instead.
     const stickerId = uint32(sticker.stickerId, 0);
     const emoji = clean(sticker.emoji) || undefined;

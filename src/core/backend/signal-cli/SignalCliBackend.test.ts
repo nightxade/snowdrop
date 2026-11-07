@@ -427,7 +427,7 @@ describe('SignalCliBackend: connection', () => {
     await backend.disconnect();
   });
 
-  it('reports the catching-up signal only on a build with patch 0025', async () => {
+  it('reports the catching-up signal only on build 21 or later', async () => {
     for (const [version, expected] of [
       ['0.14.8-snowdrop-history.20', false],
       ['0.14.8-snowdrop-history.21', true],
@@ -442,7 +442,7 @@ describe('SignalCliBackend: connection', () => {
     }
   });
 
-  it('reports the ordered catching-up signal only on a build with patch 0027', async () => {
+  it('reports the ordered catching-up signal only on build 23 or later', async () => {
     for (const [version, expected] of [
       ['0.14.8-snowdrop-history.22', false],
       ['0.14.8-snowdrop-history.23', true],
@@ -495,7 +495,7 @@ describe('SignalCliBackend: connection', () => {
     await backend.disconnect();
   });
 
-  it('detects attachment-backfill support from the connected daemon version string (patches/signal-cli 0016)', async () => {
+  it('detects attachment-backfill support from the connected daemon version string (patches/signal-cli 0014)', async () => {
     const { daemon } = daemonWithAccount();
     daemon.reply('version', { version: '0.14.8-snowdrop-history.14' });
     const { backend } = await connected({ daemon });
@@ -514,7 +514,7 @@ describe('SignalCliBackend: connection', () => {
   });
 });
 
-describe('SignalCliBackend: attachment backfill (patches/signal-cli 0016)', () => {
+describe('SignalCliBackend: attachment backfill (patches/signal-cli 0014)', () => {
   it('sends requestAttachmentBackfill with the DM recipient, author, timestamp and attachment ids', async () => {
     const { daemon } = daemonWithAccount();
     daemon.reply('version', { version: '0.14.8-snowdrop-history.14' });
@@ -1209,7 +1209,7 @@ describe('SignalCliBackend sticker retry', () => {
     await backend.disconnect();
   });
 
-  it('registers a history sticker pack, then gives a pre-0020 daemon its second call', async () => {
+  it('registers a history sticker pack, then gives a pre-0016 daemon its second call', async () => {
     let calls = 0;
     // history.15: unknown pack fails, then the pack download call still fails, then it works.
     const { backend, daemon } = await stickerBackend('0.14.8-snowdrop-history.15', () =>
@@ -1337,7 +1337,7 @@ describe('SignalCliBackend sticker packs', () => {
     await backend.disconnect();
   });
 
-  it('still downloads when the daemon throws after storing the pack (pre-0020)', async () => {
+  it('still downloads when the daemon throws after storing the pack (pre-0016)', async () => {
     const { daemon } = daemonWithAccount();
     let downloaded = false;
     daemon.handle('listStickerPacks', () => ({
@@ -1411,7 +1411,7 @@ describe('SignalCliBackend sync-only read receipts', () => {
     return { ...s, daemon };
   }
 
-  it('asks signal-cli for syncOnly on a build with patch 0023', async () => {
+  it('asks signal-cli for syncOnly on a build with patch 0019', async () => {
     const { backend, daemon } = await backendAt('0.14.8-snowdrop-history.19');
     expect(backend.supportsReadSync()).toBe(true);
     await backend.markRead(GROUP, [{ authorId: ALICE, sentAt: 1 }], { syncOnly: true });
@@ -1506,7 +1506,7 @@ describe('SignalCliBackend phone privacy settings', () => {
     return { ...s, daemon };
   }
 
-  it('is only offered on a build with patch 0022, and never after disconnecting', async () => {
+  it('is only offered on a build with patch 0018, and never after disconnecting', async () => {
     expect((await backendAt('0.14.8-snowdrop-history.17')).backend.supportsPhonePrivacy()).toBe(
       false,
     );
@@ -1682,7 +1682,7 @@ describe('SignalCliBackend installing a sticker pack from a sticker', () => {
     return { ...s, daemon };
   }
 
-  it('only offers installing on a build with patch 0021', async () => {
+  it('only offers installing on a build with patch 0017', async () => {
     expect(
       (await backendAt('0.14.8-snowdrop-history.16')).backend.supportsStickerPackInstall(),
     ).toBe(false);

@@ -1,21 +1,8 @@
-diff --git a/build.gradle.kts b/build.gradle.kts
-index a2a1178..3c40675 100644
---- a/build.gradle.kts
-+++ b/build.gradle.kts
-@@ -10,7 +10,7 @@ plugins {
- 
- allprojects {
-     group = "org.asamk"
--    version = "0.14.8-snowdrop-history.16"
-+    version = "0.14.8-snowdrop-history.17"
- 
-     // Snowdrop: substitute a locally-built, patched signal-service-java
-     // (snowdrop/patches/signal-service-java) for the stock turasa jar, when
 diff --git a/lib/src/main/java/org/asamk/signal/manager/Manager.java b/lib/src/main/java/org/asamk/signal/manager/Manager.java
-index ed0157c..33ca56b 100644
+index f306bda..8ffe3d2 100644
 --- a/lib/src/main/java/org/asamk/signal/manager/Manager.java
 +++ b/lib/src/main/java/org/asamk/signal/manager/Manager.java
-@@ -507,6 +507,16 @@ public interface Manager extends Closeable {
+@@ -509,6 +509,16 @@ public interface Manager extends Closeable {
       */
      void registerHistoryStickerPack(final String id) throws IOException;
  
@@ -93,10 +80,10 @@ index 3adf1c9..0deedf0 100644
              StickerPackId packId,
              byte[] packKey
 diff --git a/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java b/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
-index bdda22e..9cddfe6 100644
+index f3b60ce..e4d7776 100644
 --- a/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
 +++ b/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
-@@ -2085,6 +2085,11 @@ public class ManagerImpl implements Manager {
+@@ -2095,6 +2095,11 @@ public class ManagerImpl implements Manager {
          }
      }
  
@@ -194,7 +181,7 @@ index b171d76..20fa54d 100644
          addCommand(new ListCallsCommand());
 diff --git a/src/main/java/org/asamk/signal/commands/InstallKnownStickerPackCommand.java b/src/main/java/org/asamk/signal/commands/InstallKnownStickerPackCommand.java
 new file mode 100644
-index 0000000..fc4ffce
+index 0000000..7c55cbe
 --- /dev/null
 +++ b/src/main/java/org/asamk/signal/commands/InstallKnownStickerPackCommand.java
 @@ -0,0 +1,60 @@
@@ -222,7 +209,7 @@ index 0000000..fc4ffce
 + * key never leaves signal-cli's own sticker store. The install is synced to
 + * the primary device, like {@code addStickerPack}. See
 + * {@link Manager#installKnownStickerPack} and patches/signal-cli/README.md
-+ * "0021: install a known sticker pack".
++ * "0017: install a known sticker pack".
 + */
 +public class InstallKnownStickerPackCommand implements JsonRpcLocalCommand {
 +

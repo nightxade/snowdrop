@@ -33,12 +33,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  APPIMAGE_STAMP_PATHS,
   computeStampDigest,
   diffSignalCliSources,
   isSnowdropProcessRunning,
   nativeInstallAction,
   parseEnvFile,
   parseProvenance,
+  parseStamp,
   planNativeBuild,
   provenanceTextsMatch,
   sha256Hex,
@@ -47,21 +49,12 @@ import {
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-// Paths whose content decides whether the AppImage needs rebuilding.
-const APPIMAGE_STAMP_PATHS = [
-  'src',
-  'src-tauri',
-  'index.html',
-  'package.json',
-  'package-lock.json',
-  'vite.config.ts',
-  'public',
-];
 const APPIMAGE_STAMP_FILE = path.join(ROOT, '.snowdrop-appimage-stamp.json');
 const LOCAL_ENV_FILE = path.join(ROOT, '.snowdrop.local.env');
 
 const SIGNAL_CLI_PATCHES_DIR = path.join(ROOT, 'patches/signal-cli');
 const SSJ_PATCHES_DIR = path.join(ROOT, 'patches/signal-service-java');
+const SSJ_PUBLISH_SCRIPT = path.join(SSJ_PATCHES_DIR, 'publish-local.init.gradle.kts');
 const BUILD_SCRIPT = path.join(ROOT, 'scripts/build-signal-cli.sh');
 const DIST_PROVENANCE = path.join(SIGNAL_CLI_PATCHES_DIR, 'dist/signal-cli/PROVENANCE.txt');
 const DIST_BINARY = path.join(SIGNAL_CLI_PATCHES_DIR, 'dist/signal-cli/bin/signal-cli');
@@ -125,6 +118,7 @@ function currentSignalCliSources() {
     signalCliPatches: hashPatchFiles(SIGNAL_CLI_PATCHES_DIR),
     ssjPatches: hashPatchFiles(SSJ_PATCHES_DIR),
     buildScriptHash: sha256Hex(readFileSync(BUILD_SCRIPT)),
+    ssjPublishScriptHash: sha256Hex(readFileSync(SSJ_PUBLISH_SCRIPT)),
     nativeFiles: hashNativeFiles(),
   };
 }
@@ -255,19 +249,34 @@ function runSignalCliStep(flags, plan) {
       }
       const env = { ...process.env, SNOWDROP_JDK: jdk };
       if (plan.graalvm != null) env.SNOWDROP_GRAALVM = plan.graalvm;
-      // The script reuses a Java build that is already current, so asking for --native when only
-      // the native build is out of date compiles only that.
-      const buildResult = spawnSync(BUILD_SCRIPT, plan.graalvm != null ? ['--native'] : [], {
-        cwd: ROOT,
-        stdio: 'inherit',
-        env,
-      });
-      if (buildResult.status !== 0) die('scripts/build-signal-cli.sh failed (see output above).');
-      summary.built = plan.needsBuild;
-      summary.nativeBuilt = plan.native.needsBuild;
+      // The Java build comes first, on its own: it is the one that gets installed, so a failure of
+      // the native step after it must not stop the install.
+      if (plan.needsBuild) {
+        const javaResult = spawnSync(BUILD_SCRIPT, [], { cwd: ROOT, stdio: 'inherit', env });
+        if (javaResult.status !== 0) die('scripts/build-signal-cli.sh failed (see output above).');
+        summary.built = true;
+      }
       distText = readFileIfExists(DIST_PROVENANCE);
       if (distText == null) {
         die('build succeeded but patches/signal-cli/dist/signal-cli/PROVENANCE.txt is missing.');
+      }
+      if (plan.native.needsBuild) {
+        // The script reuses the Java build that is current, so this compiles only the native one.
+        const nativeResult = spawnSync(BUILD_SCRIPT, ['--native'], {
+          cwd: ROOT,
+          stdio: 'inherit',
+          env,
+        });
+        if (nativeResult.status === 0) {
+          summary.nativeBuilt = true;
+        } else {
+          summary.nativeFailed = true;
+          const bar = '!'.repeat(72);
+          console.warn(bar);
+          log('WARNING: the native signal-cli build FAILED (see output above).');
+          log('Continuing with the Java build only; the exit status stays 0.');
+          console.warn(bar);
+        }
       }
       nativeDistText = readFileIfExists(NATIVE_DIST_PROVENANCE);
     }
@@ -408,10 +417,7 @@ function findAppImage() {
 
 function planAppImage(flags) {
   const current = computeAppImageStamp();
-  const stored = (() => {
-    const text = readFileIfExists(APPIMAGE_STAMP_FILE);
-    return text ? JSON.parse(text) : null;
-  })();
+  const stored = parseStamp(readFileIfExists(APPIMAGE_STAMP_FILE));
   const existingAppImage = findAppImage();
 
   const reasons = [];
@@ -496,6 +502,7 @@ function main() {
         (signalCli.nativeVersion
           ? `; native: built=${signalCli.nativeBuilt} installed=${signalCli.nativeInstalled} version=${signalCli.nativeVersion}`
           : '') +
+        (signalCli.nativeFailed ? '; WARNING: native build FAILED, the Java build is used' : '') +
         (signalCli.blockedReason ? ` (install refused: ${signalCli.blockedReason})` : ''),
     );
   }

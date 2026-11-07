@@ -26,6 +26,7 @@ export function parseProvenance(text) {
     patches: [],
     ssjUpstreamCommit: null,
     ssjPatchedVersion: null,
+    ssjPublishScriptHash: null,
     ssjPatches: [],
     nativeFiles: [],
   };
@@ -65,6 +66,8 @@ export function parseProvenance(text) {
       result.ssjUpstreamCommit = m[1];
     } else if ((m = /^signal-service-java patched version:\s*(\S+)/.exec(line))) {
       result.ssjPatchedVersion = m[1];
+    } else if ((m = /^signal-service-java publish script sha256:\s*([0-9a-f]+)/.exec(line))) {
+      result.ssjPublishScriptHash = m[1];
     } else if (line === 'signal-service-java patches applied (sha256, in order):') {
       section = 'ssjPatches';
     } else if (line === 'Native build files (sha256):') {
@@ -84,8 +87,10 @@ function sameHashList(a, b) {
 
 /**
  * Compares a parsed PROVENANCE.txt against the sources on disk right now.
- * `current` is `{ signalCliPatches, ssjPatches, buildScriptHash }`, each
- * patch list `{name, hash}[]`. Returns `{needsRebuild, reasons}`; `reasons`
+ * `current` is `{ signalCliPatches, ssjPatches, buildScriptHash,
+ * ssjPublishScriptHash }`, each patch list `{name, hash}[]`
+ * (`ssjPublishScriptHash`, the hash of patches/signal-service-java's
+ * publish-local.init.gradle.kts, is only compared when given). Returns `{needsRebuild, reasons}`; `reasons`
  * is empty iff `needsRebuild` is false.
  */
 export function diffSignalCliSources(provenance, current) {
@@ -100,6 +105,15 @@ export function diffSignalCliSources(provenance, current) {
     reasons.push('recorded provenance predates build-script hash tracking');
   } else if (provenance.buildScriptHash !== current.buildScriptHash) {
     reasons.push('scripts/build-signal-cli.sh changed since the last build');
+  }
+  if (current.ssjPublishScriptHash != null) {
+    if (provenance.ssjPublishScriptHash == null) {
+      reasons.push('recorded provenance predates publish-script hash tracking');
+    } else if (provenance.ssjPublishScriptHash !== current.ssjPublishScriptHash) {
+      reasons.push(
+        'patches/signal-service-java/publish-local.init.gradle.kts changed since the last build',
+      );
+    }
   }
   return { needsRebuild: reasons.length > 0, reasons };
 }
@@ -168,6 +182,46 @@ export function computeStampDigest({ treeHashes, dirtyHash }) {
     dirtyHash,
   });
   return sha256Hex(canonical);
+}
+
+/**
+ * Paths (relative to the repo root) whose content decides whether the AppImage needs rebuilding:
+ * the app sources and everything the production build reads, including the files
+ * vite.config.ts pulls in (devserver/: the production CSP, notices, emoji assets), the build
+ * wrapper scripts, and the TypeScript and lint configuration.
+ */
+export const APPIMAGE_STAMP_PATHS = [
+  'src',
+  'src-tauri',
+  'index.html',
+  'package.json',
+  'package-lock.json',
+  'vite.config.ts',
+  'public',
+  'devserver',
+  'scripts/tauri-build.mjs',
+  'scripts/gen-rust-notices.mjs',
+  'tsconfig.json',
+  'tsconfig.app.json',
+  'tsconfig.node.json',
+  'eslint.config.js',
+];
+
+/**
+ * Parses the stored AppImage stamp file's text. Anything that is not a stamp (a missing file, an
+ * empty or truncated one, JSON of the wrong shape) is "no stamp": the AppImage is then simply
+ * rebuilt, instead of the update failing on the parse.
+ */
+export function parseStamp(text) {
+  if (text == null) return null;
+  try {
+    const stamp = JSON.parse(text);
+    return stamp !== null && typeof stamp === 'object' && typeof stamp.digest === 'string'
+      ? stamp
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Compares two stamps (as returned by computeStampDigest, wrapped in `{digest}`). */

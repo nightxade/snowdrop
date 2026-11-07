@@ -26,7 +26,7 @@ export function supportsCustomEmojiDelivery(version: string | undefined): boolea
 
 /**
  * Whether a running signal-cli build implements `requestAttachmentBackfill`
- * and the `attachmentBackfill` notification (patches/signal-cli, "0016:
+ * and the `attachmentBackfill` notification (patches/signal-cli, "0014:
  * attachment backfill"). Signal-cli's own capability advertisement
  * (`attachmentBackfill = !isPrimaryDevice`) predates this patch and is
  * unconditional on *any* build, patched or not, so it can't be used to
@@ -44,7 +44,7 @@ export function supportsAttachmentBackfill(version: string | undefined): boolean
 
 /**
  * Whether a running signal-cli build implements `registerHistoryStickerPack`
- * (patches/signal-cli, "0019: history sticker pack"). Without it, a sticker
+ * (patches/signal-cli, "0016: history sticker pack"). Without it, a sticker
  * that only ever arrived through an imported history archive can't be
  * fetched unless this device also received it live; Snowdrop falls back to
  * the archive's own backup copy, then the emoji. Same `snowdrop-history.N`
@@ -61,7 +61,7 @@ export function supportsHistoryStickerPack(version: string | undefined): boolean
 
 /**
  * Whether a running signal-cli build implements `installKnownStickerPack`
- * (patches/signal-cli, "0021: install a known sticker pack"): the explicit,
+ * (patches/signal-cli, "0017: install a known sticker pack"): the explicit,
  * user-asked "Install" for a pack seen in a received sticker, by pack id
  * alone (the key never leaves signal-cli). Without it the pack dialog can
  * still show the pack but its Install button stays disabled. Same
@@ -78,7 +78,7 @@ export function supportsStickerPackInstall(version: string | undefined): boolean
 
 /**
  * Whether a running signal-cli build implements `getConfiguration` and the
- * `receiveConfigurationChanged` notification (patches/signal-cli, "0022:
+ * `receiveConfigurationChanged` notification (patches/signal-cli, "0018:
  * privacy configuration"): the read receipts / typing indicators / link
  * previews the user's phone syncs to this device. Without it Snowdrop can't
  * follow the phone and keeps using its own local settings. Same
@@ -95,7 +95,7 @@ export function supportsPhonePrivacy(version: string | undefined): boolean {
 
 /**
  * Whether a running signal-cli build can send only the own-device read sync
- * for `sendReceipt` (`syncOnly`; patches/signal-cli, "0023: sync-only read
+ * for `sendReceipt` (`syncOnly`; patches/signal-cli, "0019: sync-only read
  * receipts"), so reading marks messages read on the user's phone even when
  * no receipt may go to the sender. Without it Snowdrop keeps the older
  * behaviour: nothing at all is sent when a receipt isn't allowed. Same
@@ -112,7 +112,7 @@ export function supportsReadSync(version: string | undefined): boolean {
 
 /**
  * Whether a running signal-cli build sends `receiveCatchingUp` each time its
- * receive websocket (re)connects (patches/signal-cli, "0025: receive catching
+ * receive websocket (re)connects (patches/signal-cli, "0020: receive catching
  * up notification"), so the `receiveCaughtUp` that follows is a reliable end
  * of a drain and not just a hint. Without it Snowdrop can only guess, from a
  * quiet period, that a reconnect is over. Same `snowdrop-history.N` scheme as
@@ -124,7 +124,7 @@ export const MIN_CATCHING_UP_SIGNAL_PATCH_LEVEL = 21;
  * Whether `receiveCatchingUp` is also strictly ordered: sent on the receive
  * thread, after the first read from a new connection returns and before any
  * envelope from it or the `receiveCaughtUp` that follows (patches/signal-cli,
- * "0027"). The 0025 build fired it from an asynchronous state observer, so
+ * "0020", from build 23). The build 21 and 22 signal fired it from an asynchronous state observer, so
  * after a wake it could arrive after the first queued messages. With the
  * ordering, no quiet period is needed to cover that race: a notification hold
  * can wait for `caughtUp` alone.

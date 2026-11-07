@@ -347,18 +347,18 @@ npm run desktop:update -- --skip-signal-cli
 ```
 
 **Patched signal-cli.** It rebuilds (`scripts/build-signal-cli.sh`) only if
-`patches/signal-cli/*.patch`, `patches/signal-service-java/*`, or the build
-script itself changed since the last build, by comparing their current
-SHA-256s against the ones recorded in
-`patches/signal-cli/dist/signal-cli/PROVENANCE.txt` (which now also records
-the build script's own hash, alongside the signal-service-java patch hashes
-it already tracked). It then installs (`--install`) only if the installed
+`patches/signal-cli/*.patch`, `patches/signal-service-java/*` (the patches and
+its publish script), or the build script itself changed since the last build,
+by comparing their current SHA-256s against the ones recorded in
+`patches/signal-cli/dist/signal-cli/PROVENANCE.txt`. It then installs (`--install`) only if the installed
 copy's `PROVENANCE.txt` (under `<app data dir>/bin/signal-cli-history/`)
 differs from dist's — an exact text match means nothing changed since the
 last install. With a GraalVM configured it does the same for the native build
 (`dist-native/signal-cli/PROVENANCE.txt` and the installed
 `signal-cli-history-native/PROVENANCE.txt`), which is rebuilt whenever the Java
-build is. If Snowdrop looks like it's running (an exact process-name
+build is. The Java build is built and installed first and on its own: if the
+native build fails, `desktop:update` prints a warning and still installs the
+Java build. If Snowdrop looks like it's running (an exact process-name
 match, e.g. the `snowdrop` binary inside the AppImage — nothing is ever
 killed), it refuses to install and tells you to close it first; rerunning
 `npm run desktop:update` afterwards finishes the install.
@@ -368,8 +368,12 @@ sources changed since the last successful build. "Changed" is a stamp
 (`.snowdrop-appimage-stamp.json`, gitignored, written next to the repo root)
 covering a git tree hash of `src/`, `src-tauri/` (its gitignored `target/`
 is naturally excluded), `index.html`, `package.json`, `package-lock.json`,
-`vite.config.ts`, and `public/`, plus a hash of whatever's uncommitted under
-those paths — so local edits count even before a commit.
+`vite.config.ts`, `public/`, `devserver/` (what `vite.config.ts` imports: the
+production CSP, notices, emoji assets), `scripts/tauri-build.mjs`,
+`scripts/gen-rust-notices.mjs`, the `tsconfig*.json` files and
+`eslint.config.js`, plus a hash of whatever's uncommitted under
+those paths — so local edits count even before a commit. A stamp file that
+can't be read (empty, truncated) counts as no stamp, so the AppImage is rebuilt.
 
 **JDK.** Same `SNOWDROP_JDK` requirement as `scripts/build-signal-cli.sh`
 (a JDK 25 home), read from the `SNOWDROP_JDK` environment variable, else
@@ -439,7 +443,7 @@ malloc arena (up to 8x the core count) to cut lock contention, and each one
 reserves address space up front whether or not it's ever filled — libsignal's
 JNI bridge and the rest of the JVM's native (non-heap) allocations go through
 glibc malloc, so this is separate from, and not fixed by, any `-Xmx`/G1 tuning
-(see patches/signal-cli/README.md's "0018"). Capped at 2 rather than 1 (which
+(see patches/signal-cli/README.md's "0015"). Capped at 2 rather than 1 (which
 would serialize every malloc onto a single arena) to avoid trading memory for
 contention under concurrent native calls.
 

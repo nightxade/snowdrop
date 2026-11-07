@@ -1,18 +1,5 @@
-diff --git a/build.gradle.kts b/build.gradle.kts
-index 3c40675..90cb4a7 100644
---- a/build.gradle.kts
-+++ b/build.gradle.kts
-@@ -10,7 +10,7 @@ plugins {
- 
- allprojects {
-     group = "org.asamk"
--    version = "0.14.8-snowdrop-history.17"
-+    version = "0.14.8-snowdrop-history.18"
- 
-     // Snowdrop: substitute a locally-built, patched signal-service-java
-     // (snowdrop/patches/signal-service-java) for the stock turasa jar, when
 diff --git a/lib/src/main/java/org/asamk/signal/manager/Manager.java b/lib/src/main/java/org/asamk/signal/manager/Manager.java
-index 33ca56b..6002fba 100644
+index 8ffe3d2..3338992 100644
 --- a/lib/src/main/java/org/asamk/signal/manager/Manager.java
 +++ b/lib/src/main/java/org/asamk/signal/manager/Manager.java
 @@ -407,6 +407,15 @@ public interface Manager extends Closeable {
@@ -32,7 +19,7 @@ index 33ca56b..6002fba 100644
       * Asks our own primary device to re-upload a message's attachments, for when the file
       * behind an id is gone or its CDN copy has expired and nothing local is left to retry from
 diff --git a/lib/src/main/java/org/asamk/signal/manager/helper/IncomingMessageHandler.java b/lib/src/main/java/org/asamk/signal/manager/helper/IncomingMessageHandler.java
-index e4953bd..cdd2283 100644
+index cba66f0..b21b557 100644
 --- a/lib/src/main/java/org/asamk/signal/manager/helper/IncomingMessageHandler.java
 +++ b/lib/src/main/java/org/asamk/signal/manager/helper/IncomingMessageHandler.java
 @@ -733,6 +733,7 @@ public final class IncomingMessageHandler {
@@ -75,10 +62,10 @@ index 168f71f..5b883ab 100644
          if (storageKey == null) {
              if (!account.isPrimaryDevice()) {
 diff --git a/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java b/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
-index 9cddfe6..50c5e07 100644
+index e4d7776..0f08243 100644
 --- a/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
 +++ b/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
-@@ -259,6 +259,7 @@ public class ManagerImpl implements Manager {
+@@ -271,6 +271,7 @@ public class ManagerImpl implements Manager {
      private final List<Runnable> closedListeners = new ArrayList<>();
      private final List<Runnable> addressChangedListeners = new ArrayList<>();
      private final Set<Runnable> caughtUpWithOldMessagesListeners = new HashSet<>();
@@ -86,7 +73,7 @@ index 9cddfe6..50c5e07 100644
      private final CompositeDisposable disposable = new CompositeDisposable();
      private final AtomicLong lastMessageTimestamp = new AtomicLong();
  
-@@ -297,6 +298,13 @@ public class ManagerImpl implements Manager {
+@@ -309,6 +310,13 @@ public class ManagerImpl implements Manager {
                  accountFileUpdater.removeAccount();
              }
          }, dependencies, avatarStore, attachmentStore, stickerPackStore);
@@ -100,7 +87,7 @@ index 9cddfe6..50c5e07 100644
          this.context.getAccountHelper().setUnregisteredListener(this::close);
          this.context.getReceiveHelper().setAuthenticationFailureListener(this::close);
          this.context.getReceiveHelper().setCaughtUpWithOldMessagesListener(() -> {
-@@ -453,6 +461,7 @@ public class ManagerImpl implements Manager {
+@@ -463,6 +471,7 @@ public class ManagerImpl implements Manager {
      @Override
      public void updateConfiguration(Configuration configuration) {
          final var configurationStore = account.getConfigurationStore();
@@ -108,7 +95,7 @@ index 9cddfe6..50c5e07 100644
          if (configuration.readReceipts().isPresent()) {
              configurationStore.setReadReceipts(configuration.readReceipts().get());
          }
-@@ -465,6 +474,7 @@ public class ManagerImpl implements Manager {
+@@ -475,6 +484,7 @@ public class ManagerImpl implements Manager {
          if (configuration.linkPreviews().isPresent()) {
              configurationStore.setLinkPreviews(configuration.linkPreviews().get());
          }
@@ -116,7 +103,7 @@ index 9cddfe6..50c5e07 100644
          context.getSyncHelper().sendConfigurationMessage();
          syncRemoteStorage();
      }
-@@ -1963,6 +1973,20 @@ public class ManagerImpl implements Manager {
+@@ -1973,6 +1983,20 @@ public class ManagerImpl implements Manager {
          }
      }
  
@@ -295,7 +282,7 @@ index 20fa54d..959fd78 100644
          addCommand(new AddStickerPackCommand());
 diff --git a/src/main/java/org/asamk/signal/commands/GetConfigurationCommand.java b/src/main/java/org/asamk/signal/commands/GetConfigurationCommand.java
 new file mode 100644
-index 0000000..0be5649
+index 0000000..61e50c9
 --- /dev/null
 +++ b/src/main/java/org/asamk/signal/commands/GetConfigurationCommand.java
 @@ -0,0 +1,65 @@
@@ -321,7 +308,7 @@ index 0000000..0be5649
 + * linked device (configuration sync message and storage-service account record).
 + * Each value is {@code true}, {@code false}, or {@code null} when the phone has
 + * not told this device yet. See patches/signal-cli/README.md
-+ * "0022: privacy configuration".
++ * "0018: privacy configuration".
 + */
 +public class GetConfigurationCommand implements JsonRpcLocalCommand {
 +
@@ -386,7 +373,7 @@ index 81b0b49..04c2d03 100644
      public boolean requestAttachmentBackfill(
              final RecipientIdentifier targetConversation,
 diff --git a/src/main/java/org/asamk/signal/jsonrpc/SignalJsonRpcDispatcherHandler.java b/src/main/java/org/asamk/signal/jsonrpc/SignalJsonRpcDispatcherHandler.java
-index e88b923..2e6fcbc 100644
+index 790e9f9..79b7ad9 100644
 --- a/src/main/java/org/asamk/signal/jsonrpc/SignalJsonRpcDispatcherHandler.java
 +++ b/src/main/java/org/asamk/signal/jsonrpc/SignalJsonRpcDispatcherHandler.java
 @@ -45,6 +45,7 @@ public class SignalJsonRpcDispatcherHandler {
@@ -425,7 +412,7 @@ index e88b923..2e6fcbc 100644
 +     * Notifies subscribers after the privacy settings returned by {@code getConfiguration}
 +     * changed (a sync from the phone, or a local {@code updateConfiguration}), mirroring
 +     * {@link #createCaughtUpHandler}: no values, the client re-reads. See
-+     * patches/signal-cli/README.md "0022: privacy configuration".
++     * patches/signal-cli/README.md "0018: privacy configuration".
 +     */
 +    private Pair<Manager, Runnable> createConfigurationHandler(
 +            final Manager m,
@@ -545,7 +532,7 @@ index 0000000..0c1fd92
 +}
 diff --git a/src/test/java/org/asamk/signal/jsonrpc/ReceiveConfigurationChangedNotificationTest.java b/src/test/java/org/asamk/signal/jsonrpc/ReceiveConfigurationChangedNotificationTest.java
 new file mode 100644
-index 0000000..2361b18
+index 0000000..e4b2ef6
 --- /dev/null
 +++ b/src/test/java/org/asamk/signal/jsonrpc/ReceiveConfigurationChangedNotificationTest.java
 @@ -0,0 +1,69 @@
@@ -566,7 +553,7 @@ index 0000000..2361b18
 +
 +/**
 + * The {@code receiveConfigurationChanged} JSON-RPC notification: sent when the privacy settings
-+ * returned by {@code getConfiguration} changed (snowdrop-history patch 0022).
++ * returned by {@code getConfiguration} changed (snowdrop-history patch 0018).
 + */
 +class ReceiveConfigurationChangedNotificationTest {
 +

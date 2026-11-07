@@ -29,7 +29,7 @@ builds the outgoing `DataMessage` proto
 (`SignalServiceMessageSender.createDataMessage`), it merges those bytes in via Wire's own public
 `Message.Builder#addUnknownFields(ByteString)` — the same mechanism Wire itself uses internally
 to round-trip any field a consumer's `.proto` doesn't declare. This library doesn't parse or
-otherwise care what's in those bytes; callers (signal-cli's own patch 0013) are responsible for
+otherwise care what's in those bytes; callers (signal-cli's own patch 0011) are responsible for
 encoding valid proto field-tag-prefixed bytes.
 
 This alone is enough for a downstream caller to attach an arbitrary extra proto field — by field

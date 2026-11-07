@@ -229,7 +229,7 @@ Adapters translate protocol quirks into the domain-level `BackendEvents`
   same, except that with a backend that sends `catchingUp` (so `caughtUp` is
   reliable) its ceiling is 2 minutes, so a long backlog after waking from sleep
   never notifies. With a backend that also orders `catchingUp` before every
-  message of the new connection (patch 0027), a hold started by it has no
+  message of the new connection (patch 0020, from build 23), a hold started by it has no
   quiet period at all: it ends only on `caughtUp` or that ceiling (logged at
   warn), because silence right after a wake is not an end. A `caughtUp` that
   was already queued when a newer catch-up began is ignored. If our own stream

@@ -1,16 +1,3 @@
-diff --git a/build.gradle.kts b/build.gradle.kts
-index c867712..af0650a 100644
---- a/build.gradle.kts
-+++ b/build.gradle.kts
-@@ -10,7 +10,7 @@ plugins {
- 
- allprojects {
-     group = "org.asamk"
--    version = "0.14.8-snowdrop-history.12"
-+    version = "0.14.8-snowdrop-history.13"
- 
-     // Snowdrop: substitute a locally-built, patched signal-service-java
-     // (snowdrop/patches/signal-service-java) for the stock turasa jar, when
 diff --git a/lib/src/main/java/org/asamk/signal/manager/helper/StorageHelper.java b/lib/src/main/java/org/asamk/signal/manager/helper/StorageHelper.java
 index 8438cdb..168f71f 100644
 --- a/lib/src/main/java/org/asamk/signal/manager/helper/StorageHelper.java

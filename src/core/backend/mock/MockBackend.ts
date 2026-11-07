@@ -146,7 +146,7 @@ export class MockBackend implements ChatBackend {
   readSyncSupported = true;
   /** Whether this mock claims to send `catchingUp` (a test turns it on to act like a patched signal-cli). */
   catchingUpSignalSupported = false;
-  /** Whether this mock also claims that `catchingUp` is ordered before every message (patch 0027). */
+  /** Whether this mock also claims that `catchingUp` is ordered before every message (build 23+). */
   orderedCatchingUpSupported = false;
   /** Every message-request answer, for the same reason. */
   /** Trust per person's key; absent is `default`. Seeded from `world.untrustedIds`. */
@@ -655,7 +655,7 @@ export class MockBackend implements ChatBackend {
   }
 
   /**
-   * Simulates the phone's two-step answer (patches/signal-cli, "0016:
+   * Simulates the phone's two-step answer (patches/signal-cli, "0014:
    * attachment backfill"): a `pending` event right away, then `ready` after
    * a short delay, through the same scheduler as everything else here — so
    * a test with a fake scheduler can advance straight through it, and a

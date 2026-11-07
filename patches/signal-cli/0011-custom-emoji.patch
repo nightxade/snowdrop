@@ -1,13 +1,11 @@
 diff --git a/build.gradle.kts b/build.gradle.kts
-index 3b8b84e..4f900a7 100644
+index 0085c59..db77917 100644
 --- a/build.gradle.kts
 +++ b/build.gradle.kts
-@@ -10,7 +10,27 @@ plugins {
- 
+@@ -11,6 +11,26 @@ plugins {
  allprojects {
      group = "org.asamk"
--    version = "0.14.8-snowdrop-history.9"
-+    version = "0.14.8-snowdrop-history.11"
+     version = "0.14.8-snowdrop-history.24"
 +
 +    // Snowdrop: substitute a locally-built, patched signal-service-java
 +    // (snowdrop/patches/signal-service-java) for the stock turasa jar, when
@@ -202,7 +200,7 @@ index d7da621..130c1fd 100644
                      .map(s -> Sync.from(s, longTexts, recipientResolver, addressResolver, fileProvider));
              call = content.getCallMessage().map(Call::from);
 diff --git a/lib/src/main/java/org/asamk/signal/manager/helper/IncomingMessageHandler.java b/lib/src/main/java/org/asamk/signal/manager/helper/IncomingMessageHandler.java
-index 6aa9c5a..267e021 100644
+index 6aa9c5a..18a5f20 100644
 --- a/lib/src/main/java/org/asamk/signal/manager/helper/IncomingMessageHandler.java
 +++ b/lib/src/main/java/org/asamk/signal/manager/helper/IncomingMessageHandler.java
 @@ -107,6 +107,8 @@ public final class IncomingMessageHandler {
@@ -362,7 +360,7 @@ index 6aa9c5a..267e021 100644
          } else {
              if (message.getAttachments().isPresent()) {
                  for (var attachment : message.getAttachments().get()) {
-@@ -1032,6 +1066,22 @@ public final class IncomingMessageHandler {
+@@ -1032,6 +1066,24 @@ public final class IncomingMessageHandler {
          return new Pair<>(actions, longTexts);
      }
  
@@ -372,9 +370,11 @@ index 6aa9c5a..267e021 100644
 +     * its id succeeds. An entry whose pointer doesn't parse is skipped (logged at debug level,
 +     * without message content) without affecting the rest of the message, same as
 +     * {@code AttachmentHelper#downloadAttachment} already tolerates a failed download per entry.
++     * Entries with no declared size or one above the emoji cap are not downloaded at all, and the
++     * total per message is capped (see {@link SnowdropCustomEmojiCodec#downloadable}).
 +     */
 +    private void downloadCustomEmojiAttachments(final List<SnowdropCustomEmojiCodec.Entry> customEmoji) {
-+        for (final var entry : customEmoji) {
++        for (final var entry : SnowdropCustomEmojiCodec.downloadable(customEmoji)) {
 +            final var pointer = SnowdropCustomEmojiCodec.toSignalAttachmentPointer(entry);
 +            if (pointer != null) {
 +                context.getAttachmentHelper().downloadAttachment(pointer);
@@ -387,10 +387,10 @@ index 6aa9c5a..267e021 100644
      }
 diff --git a/lib/src/main/java/org/asamk/signal/manager/helper/SnowdropCustomEmojiCodec.java b/lib/src/main/java/org/asamk/signal/manager/helper/SnowdropCustomEmojiCodec.java
 new file mode 100644
-index 0000000..acf97e9
+index 0000000..73d5a68
 --- /dev/null
 +++ b/lib/src/main/java/org/asamk/signal/manager/helper/SnowdropCustomEmojiCodec.java
-@@ -0,0 +1,201 @@
+@@ -0,0 +1,234 @@
 +// SPDX-License-Identifier: GPL-3.0-or-later
 +package org.asamk.signal.manager.helper;
 +
@@ -447,6 +447,12 @@ index 0000000..acf97e9
 +    /** Defensive cap on how many custom emoji a single message may carry, regardless of sender. */
 +    public static final int MAX_ENTRIES = 50;
 +
++    /** The largest custom emoji image, in bytes, that is sent or downloaded. Matches Snowdrop's own client-side cap. */
++    public static final int MAX_ATTACHMENT_SIZE_BYTES = 256 * 1024;
++
++    /** The most custom emoji image bytes a single received message may make us download, by declared size. */
++    public static final long MAX_TOTAL_ATTACHMENT_BYTES = 16L * MAX_ATTACHMENT_SIZE_BYTES;
++
 +    private static final int EXTENSION_EMOJI_TAG = 1;
 +    private static final int ENTRY_NAME_TAG = 1;
 +    private static final int ENTRY_ATTACHMENT_TAG = 2;
@@ -472,6 +478,33 @@ index 0000000..acf97e9
 +            logger.debug("Ignoring Snowdrop custom emoji with an invalid attachment pointer", e);
 +            return null;
 +        }
++    }
++
++    /**
++     * The entries of a received message worth downloading. An entry is skipped when its pointer
++     * declares no size or a size above {@link #MAX_ATTACHMENT_SIZE_BYTES}, so a sender cannot make
++     * us fetch large files through a field meant for small emoji images; once the declared sizes
++     * of the entries already picked reach {@link #MAX_TOTAL_ATTACHMENT_BYTES}, further entries are
++     * skipped too. The sizes are the sender's claim: this bounds what we ask for, and the download
++     * path's own limits still apply to what arrives.
++     */
++    public static List<Entry> downloadable(final List<Entry> entries) {
++        final var selected = new ArrayList<Entry>();
++        long total = 0;
++        for (final var entry : entries) {
++            final var size = entry.attachmentPointer().size;
++            if (size == null || size <= 0 || size > MAX_ATTACHMENT_SIZE_BYTES) {
++                logger.debug("Not downloading a Snowdrop custom emoji whose declared size is missing or too large");
++                continue;
++            }
++            if (total + size > MAX_TOTAL_ATTACHMENT_BYTES) {
++                logger.debug("Not downloading a Snowdrop custom emoji: the message's total size limit is reached");
++                continue;
++            }
++            total += size;
++            selected.add(entry);
++        }
++        return selected;
 +    }
 +
 +    /**
@@ -593,7 +626,7 @@ index 0000000..acf97e9
 +    }
 +}
 diff --git a/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java b/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
-index 4d42df7..8413672 100644
+index 5af72a7..2302a02 100644
 --- a/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
 +++ b/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
 @@ -77,6 +77,7 @@ import org.asamk.signal.manager.config.ServiceEnvironmentConfig;
@@ -620,17 +653,17 @@ index 4d42df7..8413672 100644
  import okio.Utf8;
  
  import static org.asamk.signal.manager.config.ServiceConfig.MAX_MESSAGE_SIZE_BYTES;
-@@ -240,6 +243,9 @@ public class ManagerImpl implements Manager {
+@@ -252,6 +255,9 @@ public class ManagerImpl implements Manager {
+         snapshot.forEach(Runnable::run);
+     }
  
-     private static final Logger logger = LoggerFactory.getLogger(ManagerImpl.class);
- 
-+    /** Matches Snowdrop's own client-side cap on custom emoji images; enforced again here. */
-+    private static final int MAX_CUSTOM_EMOJI_ATTACHMENT_SIZE_BYTES = 256 * 1024;
++    /** Matches Snowdrop's own client-side cap on custom emoji images; the receive path applies the same cap. */
++    private static final int MAX_CUSTOM_EMOJI_ATTACHMENT_SIZE_BYTES = SnowdropCustomEmojiCodec.MAX_ATTACHMENT_SIZE_BYTES;
 +
      private SignalAccount account;
      private final SignalDependencies dependencies;
      private final Context context;
-@@ -1132,6 +1138,40 @@ public class ManagerImpl implements Manager {
+@@ -1142,6 +1148,40 @@ public class ManagerImpl implements Manager {
              messageBuilder.withStoryContext(new SignalServiceDataMessage.StoryContext(authorServiceId,
                      storyReply.timestamp()));
          }
@@ -673,10 +706,10 @@ index 4d42df7..8413672 100644
      private ArrayList<SignalServiceDataMessage.Mention> resolveMentions(final List<Message.Mention> mentionList) throws UnregisteredRecipientException {
 diff --git a/lib/src/test/java/org/asamk/signal/manager/helper/SnowdropCustomEmojiCodecTest.java b/lib/src/test/java/org/asamk/signal/manager/helper/SnowdropCustomEmojiCodecTest.java
 new file mode 100644
-index 0000000..a9e0694
+index 0000000..34f14f4
 --- /dev/null
 +++ b/lib/src/test/java/org/asamk/signal/manager/helper/SnowdropCustomEmojiCodecTest.java
-@@ -0,0 +1,223 @@
+@@ -0,0 +1,256 @@
 +// SPDX-License-Identifier: GPL-3.0-or-later
 +package org.asamk.signal.manager.helper;
 +
@@ -898,6 +931,39 @@ index 0000000..a9e0694
 +        final var entry = new SnowdropCustomEmojiCodec.Entry("party", incomplete);
 +
 +        assertNull(SnowdropCustomEmojiCodec.toSignalAttachmentPointer(entry));
++    }
++
++    private static SnowdropCustomEmojiCodec.Entry entryOfSize(final String name, final Integer size) {
++        return new SnowdropCustomEmojiCodec.Entry(name,
++                new AttachmentPointer.Builder().cdnId(1L).size(size).build());
++    }
++
++    @Test
++    public void downloadable_skipsEntriesWithNoSizeOrAnOversizedOne() {
++        final var kept = entryOfSize("ok", 1000);
++        final var atCap = entryOfSize("cap", SnowdropCustomEmojiCodec.MAX_ATTACHMENT_SIZE_BYTES);
++
++        final var selected = SnowdropCustomEmojiCodec.downloadable(List.of(entryOfSize("none", null),
++                entryOfSize("zero", 0),
++                entryOfSize("huge", SnowdropCustomEmojiCodec.MAX_ATTACHMENT_SIZE_BYTES + 1),
++                kept,
++                atCap));
++
++        assertEquals(List.of(kept, atCap), selected);
++    }
++
++    @Test
++    public void downloadable_capsTheTotalDeclaredSizePerMessage() {
++        final var entries = new java.util.ArrayList<SnowdropCustomEmojiCodec.Entry>();
++        for (int i = 0; i < SnowdropCustomEmojiCodec.MAX_ENTRIES; i++) {
++            entries.add(entryOfSize("e" + i, SnowdropCustomEmojiCodec.MAX_ATTACHMENT_SIZE_BYTES));
++        }
++
++        final var selected = SnowdropCustomEmojiCodec.downloadable(entries);
++
++        assertEquals(SnowdropCustomEmojiCodec.MAX_TOTAL_ATTACHMENT_BYTES / SnowdropCustomEmojiCodec.MAX_ATTACHMENT_SIZE_BYTES,
++                selected.size());
++        assertEquals(entries.subList(0, selected.size()), selected);
 +    }
 +}
 diff --git a/settings.gradle.kts b/settings.gradle.kts

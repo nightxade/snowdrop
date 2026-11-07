@@ -23,7 +23,7 @@ export type AttachmentUrlState =
    * (`download`). See useMediaHold.
    */
   | { status: 'held' }
-  /** A backfill request is outstanding (patches/signal-cli, "0016"): "Getting it from your phone…". */
+  /** A backfill request is outstanding (patches/signal-cli, "0014"): "Getting it from your phone…". */
   | { status: 'backfilling' }
   | { status: 'error'; kind: AttachmentFailureKind }
   /** No URL and the transport can't fetch one (e.g. an optimistic upload). */
@@ -45,9 +45,9 @@ export type AttachmentUrlState =
  * flicker), and an evicted entry is correctly re-downloaded.
  *
  * A `missing-on-disk`/`expired` failure — nothing local left to retry from
- * (patches/signal-cli's 0014 recovery path has no pointer, or never did) —
+ * (patches/signal-cli's 0012 recovery path has no pointer, or never did) —
  * is only ever escalated to asking our primary device to re-upload the
- * attachment (`requestAttachmentBackfill`, patch 0016) when the user asks:
+ * attachment (`requestAttachmentBackfill`, patch 0014) when the user asks:
  * `fromPhone` is then defined, and calling it sends the request. Nothing is
  * requested on mount or scroll — each request makes the phone re-upload and
  * notify, and a gallery mounts dozens of old, expired tiles at once. Requests
@@ -76,7 +76,7 @@ export function useAttachmentUrl(
    * just this one. A backfill response's items aren't individually selected;
    * our primary answers for the entire message, so a request naming fewer
    * ids than it actually has attachments would mismatch the count it
-   * answers with and fail outright (see patches/signal-cli's "0016"
+   * answers with and fail outright (see patches/signal-cli's "0014"
    * README). Defaults to this attachment alone for callers (link previews,
    * custom emoji) whose attachment isn't part of a sibling list.
    */
@@ -106,9 +106,11 @@ export function useAttachmentUrl(
   // Set while a backfill request made for *this* attempt hasn't yet resolved
   // (via a session event) or timed out. `null` once it has settled one way
   // or the other, or was never asked for this attempt.
-  const [backfillWait, setBackfillWait] = useState<{ attempt: number; timedOut: boolean } | null>(
-    null,
-  );
+  const [backfillWait, setBackfillWait] = useState<{
+    attempt: number;
+    timedOut: boolean;
+    sendFailed?: boolean;
+  } | null>(null);
   const direct = attachment.url;
   const canResolve = backend.resolveAttachmentUrl !== undefined;
   const requestBackfill = backend.requestAttachmentBackfill;
@@ -150,6 +152,11 @@ export function useAttachmentUrl(
           log.warn('attachment backfill request failed', {
             kind: classifyAttachmentFailure(backfillError),
           });
+          // The request never reached the phone: leave the spinner now, not
+          // after the ceiling, and offer Retry (which asks again).
+          setBackfillWait((current) =>
+            current && current.attempt === attempt ? { ...current, sendFailed: true } : current,
+          );
           if (slot.current === mine) freeSlot();
         },
       );
@@ -211,7 +218,7 @@ export function useAttachmentUrl(
   // The ~2 minute ceiling on an outstanding backfill request: no answer by
   // then reads the same as an explicit `failed` response.
   useEffect(() => {
-    if (!backfillWait || backfillWait.timedOut) return;
+    if (!backfillWait || backfillWait.timedOut || backfillWait.sendFailed) return;
     const { attempt: waitingAttempt } = backfillWait;
     const timer = setTimeout(() => {
       setBackfillWait((current) =>
@@ -236,7 +243,13 @@ export function useAttachmentUrl(
   useEffect(() => {
     return stores.session.subscribe((state) => {
       const { attempt: currentAttempt, backfillWait: currentWait } = latest.current;
-      if (!currentWait || currentWait.attempt !== currentAttempt || currentWait.timedOut) return;
+      if (
+        !currentWait ||
+        currentWait.attempt !== currentAttempt ||
+        currentWait.timedOut ||
+        currentWait.sendFailed
+      )
+        return;
       const answer = state.attachmentBackfills[backfillKey]?.status;
       if (answer === 'ready' || answer === 'failed') freeSlot();
       if (answer === 'ready') {
@@ -267,7 +280,9 @@ export function useAttachmentUrl(
     state = { status: 'error', kind: 'media-decode' };
   } else if (direct !== undefined) state = { status: 'ready', url: direct };
   else if (!canResolve) state = { status: 'unavailable' };
-  else if (backfillWait?.attempt === attempt && !backfillWait.timedOut) {
+  else if (backfillWait?.attempt === attempt && backfillWait.sendFailed) {
+    state = { status: 'error', kind: 'backfill-send-failed' };
+  } else if (backfillWait?.attempt === attempt && !backfillWait.timedOut) {
     state =
       backfill?.status === 'failed'
         ? { status: 'error', kind: 'backfill-failed' }
@@ -281,7 +296,11 @@ export function useAttachmentUrl(
   if (state.status === 'error' && canBackfill) {
     if (state.kind === 'expired' || state.kind === 'missing-on-disk') fromPhone = askPhone;
     // Retrying a phone answer that was "no" or never came asks the phone again.
-    else if (state.kind === 'backfill-failed' || state.kind === 'backfill-timeout')
+    else if (
+      state.kind === 'backfill-failed' ||
+      state.kind === 'backfill-timeout' ||
+      state.kind === 'backfill-send-failed'
+    )
       retryAction = askPhone;
   }
   return { ...state, retry: retryAction, onMediaError, download, fromPhone };

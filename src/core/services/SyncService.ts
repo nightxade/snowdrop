@@ -1478,7 +1478,7 @@ export class SyncService {
       },
       true,
     );
-    // The phone's privacy settings changed (patches/signal-cli 0022). Ephemeral:
+    // The phone's privacy settings changed (patches/signal-cli 0018). Ephemeral:
     // applied at once, never parked behind the initial sync.
     on(
       'phonePrivacyChanged',
@@ -1497,7 +1497,7 @@ export class SyncService {
     );
     // signal-cli reconnected to the server by itself (after a sleep or a network
     // change; our own stream never dropped) and is draining what queued up
-    // (patches/signal-cli 0025): catch up again, like after an offline period.
+    // (patches/signal-cli 0020, build 21+): catch up again, like after an offline period.
     // Applied at once, not queued: behind a message backlog it would come too
     // late to cover those messages. During the initial sync the trackers are
     // already catching up and the quiet period must not start yet, so it is

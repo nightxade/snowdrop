@@ -56,7 +56,7 @@ export interface SessionState {
   historyImport: HistoryImportProgress;
   /**
    * Latest `attachmentBackfill` event per message (patches/signal-cli,
-   * "0016: attachment backfill"), keyed by `${authorId}\u0000${sentAt}` —
+   * "0014: attachment backfill"), keyed by `${authorId}\u0000${sentAt}` —
    * read by `useAttachmentUrl` to drive the "Getting it from your
    * phone…" / retry UI. Ephemeral (session-only): a restart shows the
    * attachment's plain failure state instead, with a manual retry.
