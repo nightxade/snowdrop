@@ -8,6 +8,98 @@ function setup() {
   return { audio, playback };
 }
 
+describe('VoicePlayback mini-player support', () => {
+  const source = { conversationId: 'c', messageId: 'm', authorId: 'ana' };
+
+  it('says where the playing note comes from, also for one started by autoplay', async () => {
+    const { audio, playback } = setup();
+    playback.play({
+      key: 'a',
+      url: 'blob:a',
+      source,
+      next: () => ({
+        key: 'b',
+        source: { ...source, messageId: 'm2' },
+        resolveUrl: () => Promise.resolve('blob:b'),
+      }),
+    });
+    await Promise.resolve();
+    expect(playback.active?.source).toEqual(source);
+    audio.emit('ended');
+    await vi.waitFor(() => {
+      expect(playback.active).toMatchObject({ key: 'b', playing: true });
+    });
+    expect(playback.active?.source?.messageId).toBe('m2');
+  });
+
+  it('resumes a paused note from where it stopped', async () => {
+    const { audio, playback } = setup();
+    playback.play({ key: 'a', url: 'blob:a', source });
+    await Promise.resolve();
+    audio.currentTime = 12;
+    playback.pause();
+    expect(playback.active).toMatchObject({ playing: false, pending: false });
+    const plays = audio.plays;
+    playback.resume();
+    expect(playback.active).toMatchObject({ pending: true });
+    await Promise.resolve();
+    expect(playback.active).toMatchObject({ playing: true, pending: false });
+    expect(audio.plays).toBe(plays + 1);
+    expect(audio.currentTime).toBe(12);
+    // Nothing to resume when idle or already playing.
+    playback.resume();
+    expect(audio.plays).toBe(plays + 1);
+    playback.stop();
+    playback.resume();
+    expect(audio.plays).toBe(plays + 1);
+  });
+
+  it('says so when a resume is refused', async () => {
+    const { audio, playback } = setup();
+    playback.play({ key: 'a', url: 'blob:a' });
+    await Promise.resolve();
+    playback.pause();
+    audio.nextPlay = () => Promise.reject(new Error('no'));
+    playback.resume();
+    await vi.waitFor(() => {
+      expect(playback.failedKey).toBe('a');
+    });
+  });
+
+  it('starts the next note when its lookup has to read storage', async () => {
+    const { audio, playback } = setup();
+    playback.play({
+      key: 'a',
+      url: 'blob:a',
+      next: () => Promise.resolve({ key: 'b', resolveUrl: () => Promise.resolve('blob:b') }),
+    });
+    await Promise.resolve();
+    audio.emit('ended');
+    await vi.waitFor(() => {
+      expect(audio.src).toBe('blob:b');
+    });
+  });
+
+  it('does not start a looked-up next note after the player was closed meanwhile', async () => {
+    const { audio, playback } = setup();
+    let found: (t: { key: string; resolveUrl: () => Promise<string> }) => void = () => undefined;
+    playback.play({
+      key: 'a',
+      url: 'blob:a',
+      next: () =>
+        new Promise((resolve) => {
+          found = resolve;
+        }),
+    });
+    await Promise.resolve();
+    audio.emit('ended');
+    playback.play({ key: 'x', url: 'blob:x' });
+    found({ key: 'b', resolveUrl: () => Promise.resolve('blob:b') });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(audio.src).toBe('blob:x');
+  });
+});
+
 describe('VoicePlayback', () => {
   it('plays a note, reports it as playing, and tells the player when it started', async () => {
     const { audio, playback } = setup();
@@ -86,24 +178,50 @@ describe('VoicePlayback', () => {
     expect(audio.playbackRate).toBe(2);
   });
 
-  it('starts the next voice note when one ends, if its player is on screen', async () => {
+  it('starts the next voice note when one ends, with no player on screen for it', async () => {
     const { audio, playback } = setup();
-    const startB = vi.fn(() => {
-      playback.play({ key: 'b', url: 'blob:b' });
+    const onStart = vi.fn();
+    playback.play({
+      key: 'a',
+      url: 'blob:a',
+      next: () => ({
+        key: 'b',
+        resolveUrl: () => Promise.resolve('blob:b'),
+        onStart,
+      }),
     });
-    playback.registerStarter('b', startB);
-    playback.play({ key: 'a', url: 'blob:a', nextKey: () => 'b' });
     await Promise.resolve();
     audio.emit('ended');
-    expect(startB).toHaveBeenCalledOnce();
-    await Promise.resolve();
-    expect(playback.snapshot('b')).toMatchObject({ playing: true });
+    // Looking for the file: the note is already shown as starting.
+    expect(playback.snapshot('b')).toMatchObject({ pending: true });
+    await vi.waitFor(() => {
+      expect(playback.snapshot('b')).toMatchObject({ playing: true });
+    });
+    expect(audio.src).toBe('blob:b');
+    expect(onStart).toHaveBeenCalledOnce();
     expect(playback.snapshot('a')).toBeNull();
   });
 
-  it('stops at the end when there is no next note, or its player is gone', async () => {
+  it('chains through several notes', async () => {
     const { audio, playback } = setup();
-    playback.play({ key: 'a', url: 'blob:a', nextKey: () => 'gone' });
+    const c = { key: 'c', resolveUrl: () => Promise.resolve('blob:c') };
+    const b = { key: 'b', resolveUrl: () => Promise.resolve('blob:b'), next: () => c };
+    playback.play({ key: 'a', url: 'blob:a', next: () => b });
+    await Promise.resolve();
+    audio.emit('ended');
+    await vi.waitFor(() => {
+      expect(audio.src).toBe('blob:b');
+    });
+    await Promise.resolve();
+    audio.emit('ended');
+    await vi.waitFor(() => {
+      expect(audio.src).toBe('blob:c');
+    });
+  });
+
+  it('stops at the end when there is no next note', async () => {
+    const { audio, playback } = setup();
+    playback.play({ key: 'a', url: 'blob:a', next: () => undefined });
     await Promise.resolve();
     audio.emit('ended');
     expect(playback.active).toBeNull();
@@ -114,14 +232,58 @@ describe('VoicePlayback', () => {
     expect(playback.active).toBeNull();
   });
 
-  it('does not autoplay from a note that has no next (a draft)', async () => {
+  it('does not start the next note if something else was started while it was being found', async () => {
     const { audio, playback } = setup();
-    const start = vi.fn();
-    playback.registerStarter('b', start);
-    playback.play({ key: 'draft', url: 'blob:d' });
+    let found: (url: string) => void = () => undefined;
+    playback.play({
+      key: 'a',
+      url: 'blob:a',
+      next: () => ({
+        key: 'b',
+        resolveUrl: () =>
+          new Promise<string>((resolve) => {
+            found = resolve;
+          }),
+      }),
+    });
     await Promise.resolve();
     audio.emit('ended');
-    expect(start).not.toHaveBeenCalled();
+    playback.play({ key: 'x', url: 'blob:x' });
+    found('blob:b');
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(audio.src).toBe('blob:x');
+  });
+
+  it('says so when the next note cannot be found', async () => {
+    const { audio, playback } = setup();
+    playback.play({
+      key: 'a',
+      url: 'blob:a',
+      next: () => ({ key: 'b', resolveUrl: () => Promise.reject(new Error('gone')) }),
+    });
+    await Promise.resolve();
+    audio.emit('ended');
+    await vi.waitFor(() => {
+      expect(playback.failedKey).toBe('b');
+    });
+    expect(playback.active).toBeNull();
+  });
+
+  it('keeps the audio held while it plays, and lets go when it stops or changes', async () => {
+    const { playback } = setup();
+    const release = vi.fn();
+    const retain = vi.fn(() => release);
+    playback.play({ key: 'a', url: 'blob:a', retain });
+    await Promise.resolve();
+    expect(retain).toHaveBeenCalledOnce();
+    expect(release).not.toHaveBeenCalled();
+    playback.stop();
+    expect(release).toHaveBeenCalledOnce();
+    const release2 = vi.fn();
+    playback.play({ key: 'a', url: 'blob:a', retain: () => release2 });
+    playback.play({ key: 'b', url: 'blob:b' });
+    expect(release2).toHaveBeenCalledOnce();
   });
 
   it('stops with the player that went away, but not for another note', async () => {

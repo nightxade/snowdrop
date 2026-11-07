@@ -9,7 +9,7 @@ import {
   FROM_PHONE_STATUS,
   safeHref,
 } from '../lib/attachments';
-import { useAttachmentUrl } from '../message/useAttachmentUrl';
+import { useViewerAttachment } from '../message/useViewerAttachment';
 import type { ItemMeta } from './useItemMeta';
 
 type AttachmentItem = Extract<GalleryItem, { type: 'attachment' }>;
@@ -39,11 +39,12 @@ export function GalleryViewer({
   const selected = items[Math.min(index, items.length - 1)];
   if (!selected) throw new Error('Gallery viewer index is out of range');
   const ref: MessageRef = { authorId: selected.message.authorId, sentAt: selected.message.sentAt };
-  const state = useAttachmentUrl(
+  const state = useViewerAttachment(
     conversationId,
     ref,
     selected.attachment,
     selected.message.attachments.map((a) => a.id),
+    open,
   );
   const failure = state.status === 'error' ? attachmentFailureCopy(state.kind) : undefined;
   const at = Math.min(index, items.length - 1);

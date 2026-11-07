@@ -63,7 +63,13 @@ import { createNonce, pollDraftProblem, tidyPollDraft, type Clock } from '@/core
 import type { MessageRepository } from '@/core/persistence';
 import { effectivePrivacy, selectMessageRequestState, type Stores } from '@/core/stores';
 import { refreshPreviewAfterRemoval } from './sidebarPreview';
-import { finalPreview, localAttachment, localPreview, withLocalUrls } from './localAttachments';
+import {
+  finalPreview,
+  keepOriginals,
+  localAttachment,
+  localPreview,
+  withLocalUrls,
+} from './localAttachments';
 import { PendingOpsBuffer } from './PendingOpsBuffer';
 import { ReceiptBuffer } from './ReceiptBuffer';
 import {
@@ -540,6 +546,11 @@ export class SendService {
       (await repository.get(pendingId));
     // A receipt (and who it was from) may already have arrived for this timestamp.
     const early = this.receipts.take(result.sentAt, clock.now());
+    const kept = keepOriginals(
+      withLocalUrls(result.attachments, pendingRow?.attachments),
+      out.input.attachments ?? [],
+      result.attachments !== undefined,
+    );
     // What was actually sent — queued edits/reactions are replayed below.
     const final: Message = {
       id: messageId(selfId, result.sentAt),
@@ -549,7 +560,7 @@ export class SendService {
       receivedAt: pendingRow?.receivedAt ?? clock.now(),
       body: out.input.body,
       ranges: out.input.ranges,
-      attachments: withLocalUrls(result.attachments, pendingRow?.attachments),
+      attachments: kept.attachments,
       reactions: [],
       status: advanceStatus('sent', early?.status ?? 'sent'),
       kind: 'normal',
@@ -572,7 +583,12 @@ export class SendService {
     // Merge (not overwrite): a sync echo or receipts may have landed already.
     // mergeOutgoingCommit (not plain mergeDuplicate) keeps *our* seq, nonce and
     // attachment preview even if a sync-transcript echo created the row first.
-    let { message: stored } = await repository.commitOutgoing(nonce, final, mergeOutgoingCommit);
+    let { message: stored } = await repository.commitOutgoing(
+      nonce,
+      final,
+      mergeOutgoingCommit,
+      kept.media,
+    );
     this.outgoing.delete(nonce);
     // A receipt handled while we were committing found no row and was parked; claim it now.
     const late = this.receipts.take(result.sentAt, clock.now());

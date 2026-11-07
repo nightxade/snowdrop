@@ -1,5 +1,5 @@
 import { Clock } from 'lucide-react';
-import type { CSSProperties, ReactElement } from 'react';
+import { useCallback, useMemo, type CSSProperties, type ReactElement, type ReactNode } from 'react';
 import { useStore } from 'zustand';
 import { initialsFor, type ConversationId, type Message } from '@/core/domain';
 import { contactsSelectors } from '@/core/stores';
@@ -75,6 +75,43 @@ export function MessageContent({
   // Emoji someone else delivered can be added to your own collection.
   const delivered = m.authorId === selfId ? undefined : m.customEmoji;
 
+  // Stable between renders that change nothing about the body (hover, focus), so the
+  // memoised `MessageBody` isn't re-segmented every time the row re-renders.
+  const renderMention = useCallback(
+    (contactId: string, pill: ReactElement): ReactNode => (
+      <AuthorPopover contactId={contactId} conversationId={conversationId} side="top">
+        {pill}
+      </AuthorPopover>
+    ),
+    [conversationId],
+  );
+  const renderCustomEmoji = useMemo(
+    () =>
+      delivered?.length
+        ? (emojiName: string, image: ReactElement): ReactNode => {
+            const delivery = delivered.find((d) => d.name === emojiName);
+            return delivery ? (
+              <CustomEmojiPopover conversationId={conversationId} delivery={delivery}>
+                {image}
+              </CustomEmojiPopover>
+            ) : (
+              image
+            );
+          }
+        : undefined,
+    [delivered, conversationId],
+  );
+  const editedAt = m.editedAt;
+  const trailing = useMemo(
+    () => (
+      <>
+        {editedAt !== undefined && <EditedTag editedAt={editedAt} />}
+        {pending && <PendingMark />}
+      </>
+    ),
+    [editedAt, pending],
+  );
+
   const avatar = (
     <PersonAvatar
       size={compact ? 16 : 40}
@@ -142,31 +179,9 @@ export function MessageContent({
               nameFor={nameFor}
               linksEnabled={linksEnabled}
               {...(resolveCustomEmoji ? { resolveCustomEmoji } : {})}
-              {...(delivered?.length
-                ? {
-                    renderCustomEmoji: (emojiName: string, image: ReactElement) => {
-                      const delivery = delivered.find((d) => d.name === emojiName);
-                      return delivery ? (
-                        <CustomEmojiPopover conversationId={conversationId} delivery={delivery}>
-                          {image}
-                        </CustomEmojiPopover>
-                      ) : (
-                        image
-                      );
-                    },
-                  }
-                : {})}
-              trailing={
-                <>
-                  {m.editedAt !== undefined && <EditedTag editedAt={m.editedAt} />}
-                  {pending && <PendingMark />}
-                </>
-              }
-              renderMention={(contactId, pill) => (
-                <AuthorPopover contactId={contactId} conversationId={conversationId} side="top">
-                  {pill}
-                </AuthorPopover>
-              )}
+              {...(renderCustomEmoji ? { renderCustomEmoji } : {})}
+              trailing={trailing}
+              renderMention={renderMention}
             />
           )
         )}

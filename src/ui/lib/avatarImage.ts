@@ -35,7 +35,8 @@ export function coverCrop(
 /**
  * Turns a picked image into a profile photo the way Signal Desktop does:
  * the largest centred square, shrunk to at most 512 pixels a side, saved as a
- * JPEG. Rejects when the file isn't an image the browser can read, or is
+ * JPEG, with any transparency flattened onto white (a JPEG has none, and left
+ * alone transparent pixels would come out black). Rejects when the file isn't an image the browser can read, or is
  * smaller than two pixels.
  */
 export async function prepareAvatar(file: Blob): Promise<PreparedAvatar> {
@@ -46,6 +47,8 @@ export async function prepareAvatar(file: Blob): Promise<PreparedAvatar> {
     const canvas = new OffscreenCanvas(out, out);
     const context = canvas.getContext('2d');
     if (!context) throw new Error('no canvas');
+    context.fillStyle = '#fff';
+    context.fillRect(0, 0, out, out);
     context.imageSmoothingQuality = 'medium';
     context.drawImage(bitmap, sx, sy, side, side, 0, 0, out, out);
     const blob = await canvas.convertToBlob({ type: 'image/jpeg' });

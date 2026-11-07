@@ -117,8 +117,25 @@ export function sniffStickerMediaType(bytes: Uint8Array): string {
 
 /** Largest file we send or download through the daemon's JSON API. */
 export const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
-/** Longest edge of the preview we keep for our own sent images. */
+/** Shortest edge limit of the preview we keep for our own sent images, in pixels. */
 export const THUMBNAIL_MAX_EDGE = 512;
+/**
+ * The longest edge, in CSS pixels, a photo is shown at in the timeline (what
+ * `fitMedia` in the chat UI fits it into). The preview has to have this many
+ * device pixels per CSS pixel to look sharp on a high-density screen.
+ */
+const SHOWN_MAX_EDGE_CSS = 400;
+/** Past this the preview stops being a preview (it is persisted with the message). */
+const THUMBNAIL_CEILING = 1600;
+
+/** The preview's longest edge for a screen of this pixel density: sharp, but never huge. */
+export function thumbnailEdge(pixelRatio: number): number {
+  const ratio = Number.isFinite(pixelRatio) && pixelRatio > 0 ? pixelRatio : 1;
+  return Math.min(
+    THUMBNAIL_CEILING,
+    Math.max(THUMBNAIL_MAX_EDGE, Math.ceil(SHOWN_MAX_EDGE_CSS * ratio)),
+  );
+}
 
 export interface Thumbnail {
   /** `data:` URL of a small re-encoded preview. */
@@ -132,7 +149,9 @@ export type Thumbnailer = (image: Blob) => Promise<Thumbnail | undefined>;
 
 /**
  * Default thumbnailer: decodes with `createImageBitmap` and re-encodes a
- * ≤512 px WebP (JPEG where WebP encoding is unavailable). Returns undefined
+ * WebP preview sized for this screen's pixel density (`thumbnailEdge`; JPEG
+ * where WebP encoding is unavailable). The full-size original is kept apart
+ * (see `Attachment.original`). Returns undefined
  * where the APIs don't exist (tests, old browsers) — the attachment is then
  * shown as a file card.
  */
@@ -142,7 +161,8 @@ export const canvasThumbnailer: Thumbnailer = async (image) => {
   }
   const bitmap = await createImageBitmap(image);
   try {
-    const scale = Math.min(1, THUMBNAIL_MAX_EDGE / Math.max(bitmap.width, bitmap.height));
+    const edge = thumbnailEdge(globalThis.devicePixelRatio);
+    const scale = Math.min(1, edge / Math.max(bitmap.width, bitmap.height));
     const w = Math.max(1, Math.round(bitmap.width * scale));
     const h = Math.max(1, Math.round(bitmap.height * scale));
     const canvas = new OffscreenCanvas(w, h);
@@ -168,9 +188,10 @@ export interface EncodedAttachment {
 }
 
 /**
- * Encodes a picked file for `send`. The local record keeps only a small
- * thumbnail for images (persisted with the message), never the whole file:
- * full `data:` URLs would bloat IndexedDB and memory.
+ * Encodes a picked file for `send`. The local record keeps only a preview
+ * for images (persisted with the message): full `data:` URLs would bloat the
+ * message rows and memory. The original is stored apart, by the send service,
+ * once the send is acknowledged.
  */
 export async function encodeOutgoing(
   file: OutgoingAttachment,

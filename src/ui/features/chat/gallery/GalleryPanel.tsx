@@ -130,22 +130,17 @@ export function GalleryPanel({
   );
 
   // The Lightbox, mounted on first open and then kept (unmounting an open Radix dialog can leave the page inert).
-  const [viewer, setViewer] = useState<number | null>(null);
+  // The open item is tracked by what it is, not by its position: items arriving or going
+  // while it is open must not change which one it shows, and a deleted one closes it.
+  const [viewerKey, setViewerKey] = useState<string | null>(null);
   const [viewerMounted, setViewerMounted] = useState(false);
-  if (viewer !== null && !viewerMounted) setViewerMounted(true);
-  const openViewer = useCallback(
-    (item: AttachmentItem) => {
-      setViewer(
-        Math.max(
-          0,
-          mediaItems.findIndex((i) => i.key === item.key),
-        ),
-      );
-    },
-    [mediaItems],
-  );
+  const viewer = viewerKey === null ? -1 : mediaItems.findIndex((i) => i.key === viewerKey);
+  if (viewer >= 0 && !viewerMounted) setViewerMounted(true);
+  const openViewer = useCallback((item: AttachmentItem) => {
+    setViewerKey(item.key);
+  }, []);
   const stepViewer = (index: number) => {
-    setViewer(index);
+    setViewerKey(mediaItems[index]?.key ?? null);
     // Near the end of what is loaded: fetch the next page so stepping carries on.
     if (index >= mediaItems.length - 3) loadMore('media');
   };
@@ -266,12 +261,12 @@ export function GalleryPanel({
           <GalleryViewer
             conversationId={conversation.id}
             items={mediaItems}
-            index={Math.min(viewer ?? 0, mediaItems.length - 1)}
-            open={viewer !== null}
+            index={Math.max(0, viewer)}
+            open={viewer >= 0}
             describe={describeItem}
             onIndexChange={stepViewer}
             onOpenChange={(o) => {
-              if (!o) setViewer(null);
+              if (!o) setViewerKey(null);
             }}
           />
         </Suspense>

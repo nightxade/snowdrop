@@ -1474,6 +1474,29 @@ describe('SendService', () => {
     });
   });
 
+  it('keeps the original of a sent image, and nothing for other files', async () => {
+    const { send, repository, conv, list, history } = await setup();
+    const id = conv('dm-ines');
+    await history.open(id);
+    const photo = new Blob([new Uint8Array([1, 2, 3, 4])], { type: 'image/png' });
+    const doc = new Blob(['hello'], { type: 'text/plain' });
+    await send.send({
+      ...draft(id, ''),
+      attachments: [
+        { fileName: 'a.png', contentType: 'image/png', data: photo },
+        { fileName: 'a.txt', contentType: 'text/plain', data: doc },
+      ],
+    });
+    const [image, file] = list(id).at(-1)?.attachments ?? [];
+    expect(image).toMatchObject({ original: true });
+    expect(file?.original).toBeUndefined();
+    const kept = await repository.readSentMedia(image?.id ?? '', 'image/png');
+    expect([...new Uint8Array((await kept?.arrayBuffer()) ?? new ArrayBuffer(0))]).toEqual([
+      1, 2, 3, 4,
+    ]);
+    expect(await repository.readSentMedia(file?.id ?? '', 'text/plain')).toBeUndefined();
+  });
+
   it('keeps own small attachments as data URLs in the demo backend', async () => {
     const { send, conv, list, history } = await setup();
     const id = conv('dm-ines');

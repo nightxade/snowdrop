@@ -69,6 +69,13 @@ export interface OutboxEntry {
   attachmentsLost?: boolean;
 }
 
+/** The full-quality bytes of one of your own sent images (see `Attachment.original`). */
+export interface SentMedia {
+  /** The attachment's id. */
+  id: string;
+  data: Blob;
+}
+
 export interface MessageRepository {
   get(id: MessageId): Promise<Message | undefined>;
   /**
@@ -140,7 +147,19 @@ export interface MessageRepository {
    * `pending:<nonce>` and the outbox entry, and upserts `final` (merging with
    * anything already stored under its real id, e.g. a sync echo).
    */
-  commitOutgoing(nonce: string, final: Message, merge: MergeFn): Promise<UpsertResult>;
+  commitOutgoing(
+    nonce: string,
+    final: Message,
+    merge: MergeFn,
+    /**
+     * Full-quality copies of `final`'s images, stored in the same transaction.
+     * They are removed with the message: deleted (for me or everyone),
+     * expired, its conversation deleted, or all history cleared.
+     */
+    media?: readonly SentMedia[],
+  ): Promise<UpsertResult>;
+  /** A kept original (see `Attachment.original`), labelled `type`; undefined if there is none. */
+  readSentMedia(id: string, type: string): Promise<Blob | undefined>;
   /** Atomically drops an unsent message's pending row and outbox entry. */
   discardOutgoing(nonce: string): Promise<void>;
   putOutbox(entry: OutboxEntry): Promise<void>;
@@ -155,6 +174,22 @@ export interface MessageRepository {
 
   /** Wipes all local history ("Data & Storage → clear"). */
   clear(): Promise<void>;
+}
+
+/**
+ * The ids of the kept originals `before` had that `after` no longer has: the
+ * attachment went away (delete for everyone, the message deleted), so its
+ * stored copy has to go too. `after` undefined means the message is gone.
+ */
+export function droppedOriginals(
+  before: Message | undefined,
+  after: Message | undefined,
+): string[] {
+  if (!before) return [];
+  const kept = new Set(
+    (after?.attachments ?? []).filter((a) => a.original === true).map((a) => a.id),
+  );
+  return before.attachments.filter((a) => a.original === true && !kept.has(a.id)).map((a) => a.id);
 }
 
 /** The text a search matches: the body, or a poll's question (a poll has no body). */

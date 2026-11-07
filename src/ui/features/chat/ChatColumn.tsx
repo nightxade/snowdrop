@@ -17,6 +17,7 @@ import { ConversationArea } from './ConversationArea';
 import { GallerySlot } from './GallerySlot';
 import { SearchSlot } from './SearchSlot';
 import { ConnectionBanner } from './ConnectionBanner';
+import { MiniPlayer } from './voice/MiniPlayer';
 import { useChatCommands } from './useChatCommands';
 import styles from './ChatColumn.module.css';
 
@@ -78,6 +79,7 @@ function ChatColumnInner() {
       </span>
       {/* With nothing open the header would be an empty bar; keep it only for the drawer button. */}
       {(kind ?? drawer) && <ChatHeader conversationId={kind ? selected : null} />}
+      <MiniPlayer />
       <ConnectionBanner />
       {/* data-tui-flatten (tui.css): in the TUI shell these wrappers collapse
           (display: contents) so the message pane, composer and members panel

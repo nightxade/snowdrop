@@ -11,6 +11,8 @@ import {
   nextPlaybackRate,
   voicePlayback as sharedPlayback,
   type VoicePlayback,
+  type VoiceSource,
+  type VoiceTrack,
 } from './voicePlayback';
 import { barsOf } from './waveform';
 import { useWaveform, type WaveformSource } from './useWaveform';
@@ -46,8 +48,12 @@ export interface VoicePlayerProps {
   /** Someone else's note you haven't played yet. */
   unplayed?: boolean | undefined;
   onPlayed?: (() => void) | undefined;
-  /** The key of the voice note after this one, for autoplay. */
-  nextKey?: (() => string | undefined) | undefined;
+  /** The voice note after this one, for autoplay (it needs no row of its own on screen). */
+  next?: (() => VoiceTrack | undefined | Promise<VoiceTrack | undefined>) | undefined;
+  /** Where the note comes from: what the mini player shows while it plays. */
+  source?: VoiceSource | undefined;
+  /** Keeps the audio from being freed while it plays; returns the release. */
+  retain?: (() => () => void) | undefined;
   variant?: 'message' | 'draft';
   barCount?: number;
   /** The player that owns the sound; the app's shared one unless a test supplies its own. */
@@ -62,7 +68,9 @@ export function VoicePlayer({
   sizeText,
   unplayed = false,
   onPlayed,
-  nextKey,
+  next,
+  source,
+  retain,
   variant = 'message',
   barCount = 47,
   playback: voicePlayback = sharedPlayback,
@@ -90,28 +98,19 @@ export function VoicePlayer({
       key: playKey,
       url,
       ...(startRatio !== undefined ? { startRatio } : {}),
-      ...(nextKey ? { nextKey } : {}),
+      ...(source ? { source } : {}),
+      ...(next ? { next } : {}),
+      ...(retain ? { retain } : {}),
       ...(onPlayed ? { onStart: onPlayed } : {}),
     });
   };
-  // Autoplay starts this note from the shared player: always with the latest props.
-  const latest = useRef(start);
-  useEffect(() => {
-    latest.current = start;
-  });
-  useEffect(
-    () =>
-      voicePlayback.registerStarter(playKey, () => {
-        latest.current(0);
-      }),
-    [playKey, voicePlayback],
-  );
-  // Gone from the list (scrolled away, conversation closed): its sound goes with it.
+  // A note in the timeline plays on when its row is scrolled away (and is stopped when the
+  // conversation closes); a recording draft is this player's own and goes with it.
   useEffect(
     () => () => {
-      voicePlayback.release(playKey);
+      if (variant === 'draft') voicePlayback.release(playKey);
     },
-    [playKey, voicePlayback],
+    [playKey, voicePlayback, variant],
   );
 
   const toggle = () => {

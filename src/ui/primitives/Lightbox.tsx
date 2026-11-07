@@ -36,6 +36,14 @@ export interface LightboxProps {
   retryLabel?: string | undefined;
 }
 
+/** Whether this element uses Left and Right itself (seeking, caret movement). */
+function ownsArrowKeys(target: EventTarget): boolean {
+  return (
+    target instanceof HTMLElement &&
+    (target.closest('video, audio, input, textarea, select') !== null || target.isContentEditable)
+  );
+}
+
 /** Full-screen media viewer on the dialog primitive: ←/→ between items, Esc closes. */
 export function Lightbox({
   items,
@@ -58,6 +66,8 @@ export function Lightbox({
     onIndexChange((index + delta + items.length) % items.length);
   };
   const onKeyDown = (event: KeyboardEvent) => {
+    // A focused video seeks with Left and Right; text fields move their caret.
+    if (ownsArrowKeys(event.target)) return;
     if (event.key === 'ArrowRight') {
       event.preventDefault();
       step(1);

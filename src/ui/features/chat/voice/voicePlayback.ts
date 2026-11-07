@@ -3,7 +3,9 @@
  * note stops the previous one). When a note ends the next voice note in the
  * conversation starts by itself, at the same speed, as Signal Desktop does.
  * Players subscribe by key and only the one that owns the audio re-renders on
- * every tick.
+ * every tick. Playback belongs to this object, not to a player on screen: a
+ * note keeps playing when its row is scrolled away, and the next note is
+ * started from what the request carries, whether or not its row is mounted.
  */
 
 /** The speeds, in the order the button cycles through them: Signal Desktop's. */
@@ -27,8 +29,16 @@ export interface AudioLike {
   addEventListener(type: string, listener: () => void): void;
 }
 
+/** Where a voice note comes from, for whatever shows what is playing. */
+export interface VoiceSource {
+  conversationId: string;
+  messageId: string;
+  authorId: string;
+}
+
 export interface ActiveVoice {
   key: string;
+  source?: VoiceSource | undefined;
   playing: boolean;
   /** Asked to play but not sounding yet (a webview can take a moment to open the file). */
   pending: boolean;
@@ -38,20 +48,36 @@ export interface ActiveVoice {
   duration: number | undefined;
 }
 
+/** A voice note that can start without its row on screen. */
+export interface VoiceTrack {
+  key: string;
+  /** Finds the audio (it may have to be fetched). */
+  resolveUrl: () => Promise<string>;
+  source?: VoiceSource;
+  /** The note after this one, looked up when this one ends (it may have to be read from storage). */
+  next?: () => VoiceTrack | undefined | Promise<VoiceTrack | undefined>;
+  onStart?: () => void;
+  /** Keeps the audio from being freed while it plays; returns the release. */
+  retain?: () => () => void;
+}
+
 export interface PlayRequest {
   key: string;
   url: string;
   /** Where to start, 0..1 of the length (it is applied once the length is known). */
   startRatio?: number;
-  /** The key of the voice note to play when this one ends; none stops. */
-  nextKey?: () => string | undefined;
+  source?: VoiceSource;
+  /** The voice note to play when this one ends; none stops. */
+  next?: () => VoiceTrack | undefined | Promise<VoiceTrack | undefined>;
   /** Runs when playback of this note really starts (the "played" mark). */
   onStart?: () => void;
+  /** Keeps the audio from being freed while it plays; returns the release. */
+  retain?: () => () => void;
 }
 
 interface Loaded {
   key: string;
-  nextKey: (() => string | undefined) | undefined;
+  next: PlayRequest['next'];
 }
 
 export class VoicePlayback {
@@ -63,7 +89,7 @@ export class VoicePlayback {
   private speed = 1;
   /** Bumped on every play/stop, so a late `play()` rejection can't touch a newer note. */
   private token = 0;
-  private readonly starters = new Map<string, () => void>();
+  private hold: (() => void) | null = null;
   private readonly listeners = new Set<() => void>();
 
   constructor(private readonly makeAudio: () => AudioLike = () => new Audio()) {}
@@ -92,14 +118,6 @@ export class VoicePlayback {
   /** What a player with `key` shows: its own state, or nothing. */
   snapshot = (key: string): ActiveVoice | null => (this.state?.key === key ? this.state : null);
 
-  /** Lets the note with `key` be started by autoplay while it is on screen. */
-  registerStarter(key: string, start: () => void): () => void {
-    this.starters.set(key, start);
-    return () => {
-      if (this.starters.get(key) === start) this.starters.delete(key);
-    };
-  }
-
   play(request: PlayRequest): void {
     const audio = this.element();
     const token = ++this.token;
@@ -107,9 +125,12 @@ export class VoicePlayback {
     if (this.loaded?.key !== request.key || audio.src !== request.url) {
       audio.pause();
       audio.src = request.url;
-      this.loaded = { key: request.key, nextKey: request.nextKey };
+      this.loaded = { key: request.key, next: request.next };
+      this.releaseHold();
+      this.hold = request.retain?.() ?? null;
       this.state = {
         key: request.key,
+        source: request.source,
         playing: false,
         pending: true,
         currentTime: 0,
@@ -141,6 +162,34 @@ export class VoicePlayback {
         this.fail(request.key, token);
       },
     );
+  }
+
+  /** Carries on with the paused note, from where it stopped. */
+  resume(): void {
+    const audio = this.audio;
+    const state = this.state;
+    if (!audio || !state || state.playing || state.pending) return;
+    const token = ++this.token;
+    const key = state.key;
+    this.state = { ...state, pending: true };
+    this.emit();
+    const done = () => {
+      if (token !== this.token || this.state?.key !== key) return;
+      this.state = { ...this.state, playing: true, pending: false };
+      this.emit();
+    };
+    let started: Promise<void> | undefined;
+    try {
+      started = audio.play();
+    } catch {
+      this.fail(key, token);
+      return;
+    }
+    if (started === undefined) done();
+    else
+      started.then(done, () => {
+        this.fail(key, token);
+      });
   }
 
   pause(): void {
@@ -177,15 +226,53 @@ export class VoicePlayback {
     }
     this.loaded = null;
     this.pendingRatio = null;
+    this.releaseHold();
     if (this.state !== null) {
       this.state = null;
       this.emit();
     }
   }
 
-  /** A player went away: its note stops with it (nothing else is left to show or stop it). */
+  /** A player that owns its note (a recording draft) went away: the note stops with it. */
   release(key: string): void {
     if (this.state?.key === key) this.stop();
+  }
+
+  private releaseHold(): void {
+    const release = this.hold;
+    this.hold = null;
+    release?.();
+  }
+
+  /** Starts a note from its description alone: its row may not be mounted. */
+  private playTrack(track: VoiceTrack): void {
+    const token = ++this.token;
+    this.failure = null;
+    this.state = {
+      key: track.key,
+      source: track.source,
+      playing: false,
+      pending: true,
+      currentTime: 0,
+      duration: undefined,
+    };
+    this.emit();
+    track.resolveUrl().then(
+      (url) => {
+        if (token !== this.token) return;
+        this.play({
+          key: track.key,
+          url,
+          ...(track.source ? { source: track.source } : {}),
+          ...(track.next ? { next: track.next } : {}),
+          ...(track.onStart ? { onStart: track.onStart } : {}),
+          ...(track.retain ? { retain: track.retain } : {}),
+        });
+      },
+      () => {
+        this.fail(track.key, token);
+      },
+    );
   }
 
   private markPlaying(request: PlayRequest, token: number): void {
@@ -257,10 +344,27 @@ export class VoicePlayback {
   }
 
   private onEnded(): void {
-    const nextKey = this.loaded?.nextKey?.();
-    const start = nextKey !== undefined ? this.starters.get(nextKey) : undefined;
+    const lookUp = this.loaded?.next;
     this.stop();
-    start?.();
+    if (!lookUp) return;
+    let found: ReturnType<NonNullable<typeof lookUp>>;
+    try {
+      found = lookUp();
+    } catch {
+      return;
+    }
+    if (found instanceof Promise) {
+      // Reading it from storage: anything started meanwhile (or a stop) wins.
+      const token = this.token;
+      found.then(
+        (track) => {
+          if (track && token === this.token) this.playTrack(track);
+        },
+        () => undefined,
+      );
+    } else if (found) {
+      this.playTrack(found);
+    }
   }
 
   private emit(): void {

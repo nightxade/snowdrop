@@ -159,7 +159,10 @@ export interface AppServices {
   /** Started in safe mode: imported themes and Custom CSS are not applied. */
   readonly safeMode: boolean;
   /** Read-only history queries (search, media gallery, mentions inbox, pins). */
-  repository: Pick<MessageRepository, 'search' | 'media' | 'mentions' | 'pinned'>;
+  repository: Pick<
+    MessageRepository,
+    'search' | 'media' | 'mentions' | 'pinned' | 'readSentMedia' | 'get' | 'page'
+  >;
   /** Connects and syncs; the app calls it once a backend has been chosen. */
   start(): Promise<void>;
 }

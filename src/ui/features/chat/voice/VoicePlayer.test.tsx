@@ -138,32 +138,33 @@ describe('<VoicePlayer />', () => {
     expect(screen.queryByText('Not played yet')).toBeNull();
   });
 
-  it('autoplays the next voice note when this one ends', async () => {
-    const next = render(
-      <TooltipProvider>
-        <VoicePlayer
-          playKey="m2"
-          url="blob:m2"
-          playback={playback}
-          waveform={{ keys: ['url:blob:m2'], known: { levels: LEVELS, duration: 10 } }}
-        />
-      </TooltipProvider>,
-    );
-    renderPlayer({ nextKey: () => 'm2' });
-    fireEvent.click(
-      screen.getAllByRole('button', { name: 'Play voice message' })[1] as HTMLElement,
-    );
+  it('autoplays the next voice note when this one ends, even with no row for it', async () => {
+    renderPlayer({
+      next: () => ({ key: 'm2', resolveUrl: () => Promise.resolve('blob:m2') }),
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Play voice message' }));
     await settle();
     act(() => {
       audio.emit('ended');
     });
     await settle();
+    await settle();
     expect(audio.src).toBe('blob:m2');
-    expect(next.getByRole('button', { name: 'Pause voice message' })).toBeTruthy();
+    expect(playback.active?.key).toBe('m2');
   });
 
-  it('stops its sound when it leaves the page', async () => {
+  it('keeps playing when its row goes away, and shows the state again when it comes back', async () => {
     const { unmount } = renderPlayer();
+    fireEvent.click(screen.getByRole('button', { name: 'Play voice message' }));
+    await settle();
+    unmount();
+    expect(playback.active).not.toBeNull();
+    renderPlayer();
+    expect(screen.getByRole('button', { name: 'Pause voice message' })).toBeTruthy();
+  });
+
+  it('stops a recording draft when it leaves the page', async () => {
+    const { unmount } = renderPlayer({ variant: 'draft' });
     fireEvent.click(screen.getByRole('button', { name: 'Play voice message' }));
     await settle();
     expect(playback.active).not.toBeNull();

@@ -52,6 +52,7 @@ function MessageStatusMark({
         data-snowdrop="message-status"
         data-status={status}
         tabIndex={0}
+        role="img"
         aria-label={label}
       >
         {status === 'pending' && <Clock size={12} aria-hidden />}
@@ -61,6 +62,83 @@ function MessageStatusMark({
     </Tooltip>
   );
 }
+/**
+ * One time label. Only the header's depends on "now" and subscribes to the
+ * shared minute clock (`HeaderTime`), so a minute ticking over re-renders one
+ * label per visible message, not every mark of every row.
+ */
+function Timestamp({
+  sentAt,
+  label,
+  variant,
+  quiet,
+  clock24h,
+}: {
+  sentAt: number;
+  label: string;
+  variant: 'header' | 'gutter' | 'compact';
+  quiet: boolean;
+  clock24h: boolean;
+}) {
+  const full = formatFullTimestamp(sentAt, { clock24h });
+  return (
+    <Tooltip label={full} delayMs={500} disabled={quiet}>
+      <time
+        className={styles.time}
+        data-variant={variant}
+        data-snowdrop="message-time"
+        dateTime={new Date(sentAt).toISOString()}
+      >
+        {label}
+      </time>
+    </Tooltip>
+  );
+}
+
+function HeaderTime({
+  sentAt,
+  quiet,
+  clock24h,
+}: {
+  sentAt: number;
+  quiet: boolean;
+  clock24h: boolean;
+}) {
+  const now = useMinuteClock();
+  return (
+    <Timestamp
+      sentAt={sentAt}
+      label={formatMessageTimestamp(sentAt, now, { clock24h })}
+      variant="header"
+      quiet={quiet}
+      clock24h={clock24h}
+    />
+  );
+}
+
+/** The delivery mark of an own message, which alone needs the read-receipts setting. */
+function OwnStatusMark({ status, quiet }: { status: MessageStatus; quiet: boolean }) {
+  const showStatus = useEffectivePrivacy().showReadReceipts;
+  if (!showStatus || status === 'failed') return null;
+  return <MessageStatusMark status={status} quiet={quiet} />;
+}
+
+function DisappearsTooltip({ label }: { label: string }) {
+  return (
+    <Tooltip label={label}>
+      <span className={styles.mark} tabIndex={0} role="img" aria-label="Disappearing message">
+        <Timer size={12} aria-hidden />
+      </span>
+    </Tooltip>
+  );
+}
+
+/** A countdown to a fixed time: the only mark that follows the clock. */
+function DisappearsMark({ expiresAt }: { expiresAt: number }) {
+  const now = useMinuteClock();
+  return <DisappearsTooltip label={`Disappears in ${countdown(expiresAt - now)}`} />;
+}
+
 /**
  * Timestamp (with full-date tooltip) plus small state marks. `header` sits
  * after the author name; `gutter` is the hover time of a continuation row;
@@ -78,36 +156,24 @@ export function MessageMeta({
 }) {
   const { stores } = useSnowdrop();
   const clock24h = useStore(stores.settings, (s) => s.appearance.clock24h);
-  const showStatus = useEffectivePrivacy().showReadReceipts;
   const selfId = useStore(stores.session, sessionSelectors.selfId);
-  const now = useMinuteClock();
-  const opts = { clock24h };
-  const full = formatFullTimestamp(m.sentAt, opts);
-  const label =
-    variant === 'header'
-      ? formatMessageTimestamp(m.sentAt, now, opts)
-      : formatClock(m.sentAt, opts);
-
-  const time = (
-    <Tooltip label={full} delayMs={500} disabled={quiet}>
-      <time
-        className={styles.time}
-        data-variant={variant}
-        data-snowdrop="message-time"
-        dateTime={new Date(m.sentAt).toISOString()}
-      >
-        {label}
-      </time>
-    </Tooltip>
-  );
+  const time =
+    variant === 'header' ? (
+      <HeaderTime sentAt={m.sentAt} quiet={quiet} clock24h={clock24h} />
+    ) : (
+      <Timestamp
+        sentAt={m.sentAt}
+        label={formatClock(m.sentAt, { clock24h })}
+        variant={variant}
+        quiet={quiet}
+        clock24h={clock24h}
+      />
+    );
   // Own, normal messages only: incoming messages carry no delivery status of
   // their own (see Message.status), and a failed send shows in MessageNotes
   // instead, not here.
-  const status =
-    showStatus && m.authorId === selfId && m.kind === 'normal' && m.status !== 'failed'
-      ? m.status
-      : null;
-  const mark = status && <MessageStatusMark status={status} quiet={quiet} />;
+  const own = m.authorId === selfId && m.kind === 'normal' && m.status !== 'failed';
+  const mark = own && <OwnStatusMark status={m.status} quiet={quiet} />;
   if (variant !== 'header')
     return (
       <>
@@ -119,22 +185,18 @@ export function MessageMeta({
     <>
       {time}
       {mark}
-      {(m.expiresAt !== undefined || m.expiresAfterReadMs !== undefined) && (
-        <Tooltip
-          label={
-            m.expiresAt !== undefined
-              ? `Disappears in ${countdown(m.expiresAt - now)}`
-              : `Disappears ${countdown(m.expiresAfterReadMs ?? 0)} after you read it`
-          }
-        >
-          <span className={styles.mark} tabIndex={0} aria-label="Disappearing message">
-            <Timer size={12} aria-hidden />
-          </span>
-        </Tooltip>
+      {m.expiresAt !== undefined ? (
+        <DisappearsMark expiresAt={m.expiresAt} />
+      ) : (
+        m.expiresAfterReadMs !== undefined && (
+          <DisappearsTooltip
+            label={`Disappears ${countdown(m.expiresAfterReadMs)} after you read it`}
+          />
+        )
       )}
       {m.pinned && (
         <Tooltip label="Pinned">
-          <span className={styles.mark} data-pinned="" tabIndex={0} aria-label="Pinned">
+          <span className={styles.mark} data-pinned="" tabIndex={0} role="img" aria-label="Pinned">
             <Pin size={12} aria-hidden />
           </span>
         </Tooltip>

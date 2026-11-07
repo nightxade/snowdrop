@@ -42,6 +42,37 @@ export function withLocalUrls(
   });
 }
 
+/** The image types a webview shows as sent, so a kept original can be opened in the viewer. */
+const KEPT_IMAGE_TYPES = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/webp',
+  'image/bmp',
+]);
+
+/**
+ * Marks the sent images whose full-quality original is kept (and returns the
+ * bytes to keep), so the viewer can show them as sent instead of the preview.
+ * Only for what the transport acknowledged (its attachments carry the ids the
+ * copies are stored under), and only types a webview can display.
+ */
+export function keepOriginals(
+  attachments: readonly Attachment[],
+  sent: readonly OutgoingAttachment[],
+  acknowledged: boolean,
+): { attachments: Attachment[]; media: { id: string; data: Blob }[] } {
+  const media: { id: string; data: Blob }[] = [];
+  const out = attachments.map((a, i) => {
+    const file = sent[i];
+    const type = file?.contentType.split(';', 1)[0]?.trim().toLowerCase() ?? '';
+    if (!acknowledged || !file || file.data.size === 0 || !KEPT_IMAGE_TYPES.has(type)) return a;
+    media.push({ id: a.id, data: file.data });
+    return { ...a, original: true };
+  });
+  return { attachments: out, media };
+}
+
 /** The optimistic copy of an outgoing link preview: shows the local image preview, if any. */
 export function localPreview(p: OutgoingLinkPreview, nonce: string): LinkPreview {
   const preview: LinkPreview = { url: p.url };

@@ -24,6 +24,46 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+describe('readForwardFile: your own sent image', () => {
+  const own = { attachment: { id: 'local:1', contentType: 'image/png', original: true } };
+
+  it('sends the original when it is kept', async () => {
+    const original = new Blob(['full']);
+    const readAttachmentBlob = vi.fn();
+    const d = {
+      ...deps({ readAttachmentBlob }),
+      repository: { readSentMedia: vi.fn().mockResolvedValue(original) },
+    };
+    await expect(readForwardFile(d, conversationId, draft, own)).resolves.toBe(original);
+    expect(d.repository.readSentMedia).toHaveBeenCalledWith('local:1', 'image/png');
+    expect(readAttachmentBlob).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the backend when the original is missing or unreadable', async () => {
+    const preview = new Blob(['small']);
+    for (const readSentMedia of [
+      vi.fn().mockResolvedValue(undefined),
+      vi.fn().mockRejectedValue(new Error('gone')),
+    ]) {
+      const d = {
+        ...deps({ readAttachmentBlob: vi.fn().mockResolvedValue(preview) }),
+        repository: { readSentMedia },
+      };
+      await expect(readForwardFile(d, conversationId, draft, own)).resolves.toBe(preview);
+    }
+  });
+
+  it('does not look for an original of an image that has none', async () => {
+    const readSentMedia = vi.fn();
+    const d = {
+      ...deps({ readAttachmentBlob: vi.fn().mockResolvedValue(new Blob(['x'])) }),
+      repository: { readSentMedia },
+    };
+    await readForwardFile(d, conversationId, draft, file);
+    expect(readSentMedia).not.toHaveBeenCalled();
+  });
+});
+
 describe('readForwardFile', () => {
   it('reads the bytes through the backend (never a URL)', async () => {
     const blob = new Blob(['x']);

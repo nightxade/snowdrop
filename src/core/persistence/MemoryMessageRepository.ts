@@ -11,6 +11,7 @@ import {
   type MessageId,
 } from '@/core/domain';
 import {
+  droppedOriginals,
   matchesSearch,
   searchTerms,
   type MergeFn,
@@ -19,6 +20,7 @@ import {
   type OutboxEntry,
   type PageQuery,
   type SearchQuery,
+  type SentMedia,
   type UpsertResult,
 } from './MessageRepository';
 
@@ -31,6 +33,7 @@ export class MemoryMessageRepository implements MessageRepository {
   private readonly timelines = new Map<ConversationId, Message[]>();
   private readonly cursors = new Map<ConversationId, number>();
   private readonly outbox = new Map<string, OutboxEntry>();
+  private readonly sentMedia = new Map<string, { conversationId: ConversationId; data: Blob }>();
   private maxSeq = 0;
   private minSeq = 1;
 
@@ -52,6 +55,7 @@ export class MemoryMessageRepository implements MessageRepository {
 
   private store(message: Message): void {
     const previous = this.messages.get(message.id);
+    for (const id of droppedOriginals(previous, message)) this.sentMedia.delete(id);
     const timeline = this.timelines.get(message.conversationId) ?? [];
     if (previous) timeline.splice(timeline.indexOf(previous), 1);
     // Binary insertion keeps the timeline sorted by seq.
@@ -115,6 +119,7 @@ export class MemoryMessageRepository implements MessageRepository {
   delete(id: MessageId): Promise<void> {
     const m = this.messages.get(id);
     if (m) {
+      for (const id of droppedOriginals(m, undefined)) this.sentMedia.delete(id);
       const timeline = this.timelines.get(m.conversationId);
       timeline?.splice(timeline.indexOf(m), 1);
       this.messages.delete(id);
@@ -126,6 +131,9 @@ export class MemoryMessageRepository implements MessageRepository {
     for (const m of this.timelines.get(conversationId) ?? []) this.messages.delete(m.id);
     this.timelines.delete(conversationId);
     this.cursors.delete(conversationId);
+    for (const [id, media] of this.sentMedia) {
+      if (media.conversationId === conversationId) this.sentMedia.delete(id);
+    }
     return Promise.resolve();
   }
 
@@ -243,9 +251,32 @@ export class MemoryMessageRepository implements MessageRepository {
     await this.putOutbox(entry);
   }
 
-  async commitOutgoing(nonce: string, final: Message, merge: MergeFn): Promise<UpsertResult> {
+  async commitOutgoing(
+    nonce: string,
+    final: Message,
+    merge: MergeFn,
+    media: readonly SentMedia[] = [],
+  ): Promise<UpsertResult> {
     await this.discardOutgoing(nonce);
-    return this.upsert(final, merge);
+    const result = await this.upsert(final, merge);
+    if (result.message.deleted === true) {
+      // Deleted for everyone: no attachments, so no copy to keep.
+      const stripped = {
+        ...result.message,
+        attachments: result.message.attachments.map(({ original: _o, ...rest }) => rest),
+      };
+      this.store(clone(stripped));
+      return { ...result, message: stripped };
+    }
+    for (const item of media) {
+      this.sentMedia.set(item.id, { conversationId: final.conversationId, data: item.data });
+    }
+    return result;
+  }
+
+  readSentMedia(id: string, type: string): Promise<Blob | undefined> {
+    const media = this.sentMedia.get(id);
+    return Promise.resolve(media ? new Blob([media.data], { type }) : undefined);
   }
 
   async discardOutgoing(nonce: string): Promise<void> {
@@ -273,6 +304,7 @@ export class MemoryMessageRepository implements MessageRepository {
     this.timelines.clear();
     this.cursors.clear();
     this.outbox.clear();
+    this.sentMedia.clear();
     this.maxSeq = 0;
     this.minSeq = 1;
     return Promise.resolve();

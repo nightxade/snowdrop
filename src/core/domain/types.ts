@@ -215,6 +215,13 @@ export interface Attachment {
   blurhash?: string;
   /** The sender marked this as a voice note (Signal's `VOICE_MESSAGE` flag); see `isVoiceNote`. */
   voiceNote?: boolean;
+  /**
+   * A full-quality copy of this image, as sent, is kept encrypted in the local
+   * message store (read with `MessageRepository.readSentMedia`); `url` is then
+   * only the preview. Set on your own sent images; it lives and dies with the
+   * message.
+   */
+  original?: boolean;
 }
 
 /**

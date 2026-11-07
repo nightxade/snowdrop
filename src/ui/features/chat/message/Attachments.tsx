@@ -25,6 +25,7 @@ import {
 } from '../lib/attachments';
 import { VoiceNoteCard } from '../voice/VoiceNoteCard';
 import { useAttachmentUrl } from './useAttachmentUrl';
+import { useViewerAttachment } from './useViewerAttachment';
 import styles from './Attachments.module.css';
 
 export interface AttachmentsProps {
@@ -161,7 +162,7 @@ function AttachmentViewer({
 }) {
   const selected = media[index];
   if (!selected) throw new Error('Attachment viewer index is out of range');
-  const state = useAttachmentUrl(conversationId, message, selected, attachmentIds);
+  const state = useViewerAttachment(conversationId, message, selected, attachmentIds, props.open);
   const failure = state.status === 'error' ? attachmentFailureCopy(state.kind) : undefined;
   const items: LightboxItem[] = media.map((a, i) => {
     const src = i === index && state.status === 'ready' ? state.url : '';
@@ -339,6 +340,18 @@ function DownloadButton({ url, fileName }: { url: string; fileName: string | und
 
 function FileCard({ conversationId, message, attachmentIds, attachment, pending }: CardProps) {
   const state = useAttachmentUrl(conversationId, message, attachment, attachmentIds);
+  return <FileCardView attachment={attachment} pending={pending} state={state} />;
+}
+
+function FileCardView({
+  attachment,
+  pending,
+  state,
+}: {
+  attachment: Attachment;
+  pending: boolean;
+  state: ReturnType<typeof useAttachmentUrl>;
+}) {
   const name = attachment.fileName ?? 'Untitled file';
   const size = formatBytes(attachment.size);
   const failure = state.status === 'error' ? attachmentFailureCopy(state.kind) : undefined;
@@ -418,15 +431,7 @@ function AudioCard({
 }: CardProps & { messageId: MessageId | undefined }) {
   const state = useAttachmentUrl(conversationId, message, attachment, attachmentIds);
   if (state.status !== 'ready')
-    return (
-      <FileCard
-        conversationId={conversationId}
-        message={message}
-        attachmentIds={attachmentIds}
-        attachment={attachment}
-        pending={pending}
-      />
-    );
+    return <FileCardView attachment={attachment} pending={pending} state={state} />;
   if (messageId !== undefined && isVoiceNote(attachment)) {
     return (
       <div className={styles.voice}>

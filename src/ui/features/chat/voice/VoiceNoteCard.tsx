@@ -3,7 +3,8 @@ import type { Attachment, ConversationId, MessageId } from '@/core/domain';
 import { localSelectors, sessionSelectors } from '@/core/stores';
 import { useSnowdrop } from '@/ui/hooks';
 import { formatBytes } from '../lib/attachments';
-import { nextVoiceKey, voicePlayKey } from './nextVoice';
+import { voicePlayKey } from './nextVoice';
+import { playedKeyOf, voiceTrackOf } from './voiceTrack';
 import { VoicePlayer } from './VoicePlayer';
 
 /** Largest voice note whose waveform is worked out (about the longest Signal Desktop will decode). */
@@ -32,19 +33,22 @@ export function VoiceNoteCard({
   attachment,
   url,
 }: VoiceNoteCardProps) {
-  const { stores, backend } = useSnowdrop();
+  const { stores, backend, repository } = useSnowdrop();
   const selfId = useStore(stores.session, sessionSelectors.selfId);
-  const playedKey = `${authorId}\u0000${sentAt}`;
+  const playedKey = playedKeyOf(authorId, sentAt);
   const played = useStore(stores.local, localSelectors.voiceNotePlayed(playedKey));
   const incoming = authorId !== selfId;
   const read = backend.readAttachmentBlob;
   const canRead = read !== undefined && (attachment.size ?? 0) <= MAX_WAVEFORM_BYTES;
 
-  /** The next voice note in this conversation, if its message is loaded. */
-  const nextKey = (): string | undefined => {
-    const window = stores.messages.getState().windows[conversationId];
-    return window ? nextVoiceKey(window.ids, window.byId, messageId) : undefined;
-  };
+  const track = voiceTrackOf(
+    { stores, backend, selfId, repository },
+    conversationId,
+    messageId,
+    authorId,
+    sentAt,
+    attachment,
+  );
 
   return (
     <VoicePlayer
@@ -59,9 +63,11 @@ export function VoiceNoteCard({
       sizeText={formatBytes(attachment.size)}
       unplayed={incoming && !played}
       onPlayed={() => {
-        if (incoming) stores.local.getState().markVoiceNotePlayed(playedKey);
+        track.onStart?.();
       }}
-      nextKey={nextKey}
+      source={track.source}
+      next={track.next}
+      {...(track.retain ? { retain: track.retain } : {})}
     />
   );
 }

@@ -27,7 +27,10 @@ export type MediaLoad =
   | { status: 'ready'; blob: Blob }
   | { status: 'error'; kind: AttachmentFailureKind };
 
-export type MediaDeps = Pick<AppServices, 'backend' | 'stores'>;
+export type MediaDeps = Pick<AppServices, 'backend' | 'stores'> & {
+  /** Where the original of an image you sent is kept, if it is (see `Attachment.original`). */
+  repository?: Pick<AppServices['repository'], 'readSentMedia'>;
+};
 
 export class MediaError extends Error {
   override name = 'MediaError';
@@ -79,6 +82,13 @@ export async function readForwardFile(
   onBackfilling: () => void = () => undefined,
 ): Promise<Blob> {
   const { backend, stores } = deps;
+  // Your own sent image: the original as sent, not the preview; any trouble falls through to the backend.
+  const original = file.attachment.original
+    ? await deps.repository
+        ?.readSentMedia(file.attachment.id, file.attachment.contentType)
+        .catch(() => undefined)
+    : undefined;
+  if (original) return original;
   const read = async (): Promise<Blob> => {
     if (!backend.readAttachmentBlob) throw new MediaError('download-failed');
     try {

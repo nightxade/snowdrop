@@ -37,6 +37,7 @@ import {
 import { createLogger, yieldToEventLoop } from '@/core/lib';
 import { plaintextCipher, utf8Decode, utf8Encode, type RecordCipher } from './crypto';
 import {
+  droppedOriginals,
   matchesSearch,
   searchTerms,
   type MergeFn,
@@ -45,10 +46,11 @@ import {
   type OutboxEntry,
   type PageQuery,
   type SearchQuery,
+  type SentMedia,
   type UpsertResult,
 } from './MessageRepository';
 
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 /** Rows read per slice of a search: decrypted together, then the event loop gets a turn. */
 const SEARCH_SLICE = 500;
 const SEQ_KEY = 'seq';
@@ -113,6 +115,20 @@ interface OutboxAttachmentRow {
   payload: Uint8Array;
 }
 
+/**
+ * The full-quality bytes of one of your own sent images, apart from the
+ * message row (a Blob can't ride in its JSON payload, and the bytes would
+ * make every message read heavy). Removed with the message.
+ */
+interface SentMediaRow {
+  /** `cipher.blindId(attachment.id)` — the primary key, and the AAD for `payload`. */
+  id: string;
+  /** `cipher.blindId(message.conversationId)`: deleting a conversation removes its media. */
+  conversationKey: string;
+  /** AES-GCM of the image bytes, AAD = `id`. */
+  payload: Uint8Array;
+}
+
 /** `SendInput` as actually stored: each attachment's Blob replaced by its metadata. */
 type StoredSendInput = Omit<SendInput, 'attachments'> & {
   attachments?: { fileName: string; contentType: string; voiceNote?: boolean }[];
@@ -133,6 +149,19 @@ interface SnowdropDB extends DBSchema {
   meta: { key: string; value: SeqState };
   outbox: { key: string; value: OutboxRow };
   outboxAttachments: { key: string; value: OutboxAttachmentRow };
+  sentMedia: { key: string; value: SentMediaRow; indexes: { byConversation: string } };
+}
+
+/** The message with `original` cleared on the attachments `drop` picks (their copy is not kept). */
+function withoutOriginals(message: Message, drop: (attachmentId: string) => boolean): Message {
+  return {
+    ...message,
+    attachments: message.attachments.map((a) => {
+      if (a.original !== true || !drop(a.id)) return a;
+      const { original: _original, ...rest } = a;
+      return rest;
+    }),
+  };
 }
 
 const encodeJson = (value: unknown): Uint8Array => utf8Encode(JSON.stringify(value));
@@ -206,6 +235,11 @@ export class IdbMessageRepository implements MessageRepository {
           // `attachmentCount` and are handled as "attachments lost" on
           // read — see fromOutboxRow); nothing here needs re-encrypting.
           database.createObjectStore('outboxAttachments', { keyPath: 'id' });
+        }
+        if (oldVersion < 6) {
+          // Additive: kept originals of sent images (see `Attachment.original`).
+          const media = database.createObjectStore('sentMedia', { keyPath: 'id' });
+          media.createIndex('byConversation', 'conversationKey');
         }
         if (oldVersion < 5) {
           // Search across every conversation walks newest first and stops
@@ -326,7 +360,7 @@ export class IdbMessageRepository implements MessageRepository {
       if (existingRow) {
         const existing = await this.fromRow(existingRow);
         const merged = merge(existing, message);
-        await this.db.put('messages', await this.toRow(merged));
+        await this.writeDropping([await this.toRow(merged)], droppedOriginals(existing, merged));
         return { message: merged, created: false };
       }
       const seq = await this.seqStateOnce();
@@ -372,10 +406,14 @@ export class IdbMessageRepository implements MessageRepository {
         out.push(stored);
       }
       const rows = await Promise.all(out.map((m) => this.toRow(m)));
-      const tx = this.db.transaction(['messages', 'meta'], 'readwrite');
+      const dropKeys = await this.mediaKeys(
+        out.flatMap((m, i) => droppedOriginals(existing[i], m)),
+      );
+      const tx = this.db.transaction(['messages', 'meta', 'sentMedia'], 'readwrite');
       await Promise.all([
         ...rows.map((row) => tx.objectStore('messages').put(row)),
         tx.objectStore('meta').put({ key: SEQ_KEY, min, max }),
+        ...dropKeys.map((key) => tx.objectStore('sentMedia').delete(key)),
         tx.done,
       ]);
       return out;
@@ -391,7 +429,7 @@ export class IdbMessageRepository implements MessageRepository {
       // Updates never move a message in the timeline.
       const next: Message =
         before.seq === undefined ? fn(before) : { ...fn(before), seq: before.seq };
-      await this.db.put('messages', await this.toRow(next));
+      await this.writeDropping([await this.toRow(next)], droppedOriginals(before, next));
       return next;
     });
   }
@@ -399,8 +437,45 @@ export class IdbMessageRepository implements MessageRepository {
   delete(id: MessageId): Promise<void> {
     return this.mutate(async () => {
       const key = await this.cipher.blindId(id);
-      await this.db.delete('messages', key);
+      const row = await this.db.get('messages', key);
+      const before = row ? await this.fromRow(row).catch(() => undefined) : undefined;
+      const dropKeys = await this.mediaKeys(droppedOriginals(before, undefined));
+      const tx = this.db.transaction(['messages', 'sentMedia'], 'readwrite');
+      await Promise.all([
+        tx.objectStore('messages').delete(key),
+        ...dropKeys.map((k) => tx.objectStore('sentMedia').delete(k)),
+        tx.done,
+      ]);
     });
+  }
+
+  private mediaKeys(attachmentIds: readonly string[]): Promise<string[]> {
+    return Promise.all(attachmentIds.map((id) => this.cipher.blindId(id)));
+  }
+
+  /**
+   * Writes message rows and removes the kept originals of attachments they no
+   * longer have in one transaction, so an original can't outlive its message.
+   */
+  private async writeDropping(
+    rows: readonly MessageRow[],
+    droppedAttachmentIds: readonly string[],
+  ): Promise<void> {
+    const dropKeys = await this.mediaKeys(droppedAttachmentIds);
+    const tx = this.db.transaction(['messages', 'sentMedia'], 'readwrite');
+    await Promise.all([
+      ...rows.map((row) => tx.objectStore('messages').put(row)),
+      ...dropKeys.map((key) => tx.objectStore('sentMedia').delete(key)),
+      tx.done,
+    ]);
+  }
+
+  async readSentMedia(id: string, type: string): Promise<Blob | undefined> {
+    const key = await this.cipher.blindId(id);
+    const row = await this.db.get('sentMedia', key);
+    if (!row) return undefined;
+    const bytes = await this.cipher.decrypt(row.payload, row.id);
+    return new Blob([bytes as Uint8Array<ArrayBuffer>], { type });
   }
 
   allocateSeq(): Promise<number> {
@@ -657,7 +732,12 @@ export class IdbMessageRepository implements MessageRepository {
     });
   }
 
-  commitOutgoing(nonce: string, final: Message, merge: MergeFn): Promise<UpsertResult> {
+  commitOutgoing(
+    nonce: string,
+    final: Message,
+    merge: MergeFn,
+    media: readonly SentMedia[] = [],
+  ): Promise<UpsertResult> {
     return this.mutate(async () => {
       const [pendingId, finalKey] = await Promise.all([
         this.cipher.blindId(pendingMessageId(nonce)),
@@ -675,6 +755,9 @@ export class IdbMessageRepository implements MessageRepository {
         stored = { ...final, seq: final.seq ?? seq.max + 1 };
         created = true;
       }
+      // A message already deleted for everyone has no attachments to keep a copy of.
+      const keep = stored.deleted === true ? [] : media;
+      if (stored.deleted === true) stored = withoutOriginals(stored, () => true);
       const finalRow = await this.toRow(stored);
       const tx = this.db.transaction(
         ['messages', 'meta', 'outbox', 'outboxAttachments'],
@@ -699,8 +782,37 @@ export class IdbMessageRepository implements MessageRepository {
         });
       }
       await tx.done;
+      // The originals come after, one at a time and outside that transaction: a full disk
+      // or a refused write must never undo recording a message that was already sent.
+      const failed = await this.keepMedia(finalRow.conversationKey, keep);
+      if (failed.size > 0) {
+        stored = withoutOriginals(stored, (id) => failed.has(id));
+        await this.db.put('messages', await this.toRow(stored));
+      }
       return { message: stored, created };
     });
+  }
+
+  /** Stores kept originals, one at a time; returns the ids that could not be stored. */
+  private async keepMedia(
+    conversationKey: string,
+    media: readonly SentMedia[],
+  ): Promise<Set<string>> {
+    const failed = new Set<string>();
+    for (const item of media) {
+      try {
+        const id = await this.cipher.blindId(item.id);
+        const payload = await this.cipher.encrypt(
+          new Uint8Array(await item.data.arrayBuffer()),
+          id,
+        );
+        await this.db.put('sentMedia', { id, conversationKey, payload });
+      } catch {
+        // The preview stands in; nothing about the file is logged.
+        failed.add(item.id);
+      }
+    }
+    return failed;
   }
 
   discardOutgoing(nonce: string): Promise<void> {
@@ -840,7 +952,13 @@ export class IdbMessageRepository implements MessageRepository {
   deleteConversation(conversationId: ConversationId): Promise<void> {
     return this.mutate(async () => {
       const key = await this.cipher.blindId(conversationId);
-      const tx = this.db.transaction(['messages', 'readCursors'], 'readwrite');
+      const tx = this.db.transaction(['messages', 'readCursors', 'sentMedia'], 'readwrite');
+      const media = tx.objectStore('sentMedia').index('byConversation');
+      let mediaCursor = await media.openKeyCursor(IDBKeyRange.only(key));
+      while (mediaCursor) {
+        await tx.objectStore('sentMedia').delete(mediaCursor.primaryKey);
+        mediaCursor = await mediaCursor.continue();
+      }
       const index = tx.objectStore('messages').index('byConversationSeq');
       let cursor = await index.openCursor(this.range(key, -Infinity, Infinity, false, false));
       while (cursor) {
@@ -854,10 +972,11 @@ export class IdbMessageRepository implements MessageRepository {
   clear(): Promise<void> {
     return this.mutate(async () => {
       const tx = this.db.transaction(
-        ['messages', 'readCursors', 'meta', 'outbox', 'outboxAttachments'],
+        ['messages', 'readCursors', 'meta', 'outbox', 'outboxAttachments', 'sentMedia'],
         'readwrite',
       );
       await Promise.all([
+        tx.objectStore('sentMedia').clear(),
         tx.objectStore('messages').clear(),
         tx.objectStore('readCursors').clear(),
         tx.objectStore('meta').clear(),

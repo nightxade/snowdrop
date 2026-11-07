@@ -234,6 +234,31 @@ describe('voice notes', () => {
     expect(screen.queryByText('Not played yet')).toBeNull();
   });
 
+  it('brings the voice player back when Retry succeeds after a failed download', async () => {
+    const resolve = vi
+      .fn<(conversationId: ConversationId, attachment: Attachment) => Promise<string>>()
+      .mockRejectedValueOnce(new Error('Download failed'))
+      .mockResolvedValue('blob:voice');
+    render(
+      <SnowdropContextProvider value={fakeApp(resolve)}>
+        <TooltipProvider>
+          <Attachments
+            conversationId={conversationId}
+            message={{ authorId: 'author-1', sentAt: 1_000 }}
+            messageId={voiceMessageId}
+            attachments={[{ id: 'v9', contentType: 'audio/mpeg', voiceNote: true }]}
+            pending={false}
+          />
+        </TooltipProvider>
+      </SnowdropContextProvider>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Retry' }));
+    expect(await screen.findByRole('group', { name: 'Voice message' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+    // One resolve per attempt: the card no longer asks twice.
+    expect(resolve).toHaveBeenCalledTimes(2);
+  });
+
   it('keeps an ordinary named audio file as the plain audio card', async () => {
     renderVoice({ id: 'a1', contentType: 'audio/mpeg', fileName: 'song.mp3' });
     await vi.waitFor(() => {

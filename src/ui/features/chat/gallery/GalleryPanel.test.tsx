@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { axe } from 'vitest-axe';
 import type { Snowdrop } from '@/app/createSnowdrop';
 import {
+  applyDelete,
   mergeDuplicate,
   type Attachment,
   type ConversationId,
@@ -162,6 +163,94 @@ describe('Media, files & links', () => {
       .map((h) => h.textContent);
     expect(headings[0]).toBe('Today');
     expect(headings.at(-1)).toMatch(/^[A-Z][a-z]+ \d{4}$/u);
+  });
+
+  describe('while it is open', () => {
+    /** The seeded files shown as tiles (the demo's own media is not counted). */
+    const shown = (panel: HTMLElement): string[] =>
+      tiles(panel)
+        .map((t) => /^Open ([\w-]+\.png)/u.exec(t.getAttribute('aria-label') ?? '')?.[1])
+        .filter((n): n is string => n !== undefined);
+
+    it('shows media that arrives, and drops media that is deleted or expires', async () => {
+      const snowdrop = await boot();
+      const conversationId = selected(snowdrop);
+      const [keep, doomed, expiring] = await seed(snowdrop, [
+        { attachments: [img('keep', 'keep.png')] },
+        { attachments: [img('doomed', 'doomed.png')] },
+        { attachments: [img('expiring', 'expiring.png')] },
+      ]);
+      act(() => {
+        for (const m of [keep, doomed, expiring])
+          snowdrop.stores.messages.getState().appendLive(m!);
+      });
+      const panel = await openGallery();
+      expect(shown(panel)).toEqual(['expiring.png', 'doomed.png', 'keep.png']);
+
+      // Someone deletes a message for everyone.
+      act(() => {
+        snowdrop.stores.messages
+          .getState()
+          .update(conversationId, doomed!.id, (m) => applyDelete(m));
+      });
+      await settle();
+      expect(shown(panel)).toEqual(['expiring.png', 'keep.png']);
+
+      // One expires (removed from the conversation).
+      act(() => {
+        snowdrop.stores.messages.getState().remove(conversationId, expiring!.id);
+      });
+      await settle();
+      expect(shown(panel)).toEqual(['keep.png']);
+
+      // New media arrives in the conversation.
+      const [fresh] = await seed(snowdrop, [{ attachments: [img('fresh', 'fresh.png')] }]);
+      act(() => {
+        snowdrop.stores.messages.getState().appendLive(fresh!);
+      });
+      await settle();
+      expect(shown(panel)).toEqual(['fresh.png', 'keep.png']);
+    });
+
+    it('keeps the viewer on the same item as others come and go, and closes it when that item is deleted', async () => {
+      const snowdrop = await boot();
+      const conversationId = selected(snowdrop);
+      const [first, second] = await seed(snowdrop, [
+        { attachments: [img('one', 'one.png')] },
+        { attachments: [img('two', 'two.png')] },
+      ]);
+      act(() => {
+        for (const m of [first, second]) snowdrop.stores.messages.getState().appendLive(m!);
+      });
+      const panel = await openGallery();
+      const total = tiles(panel).length;
+      act(() => {
+        fireEvent.click(
+          tiles(panel).find((t) => t.getAttribute('aria-label')?.startsWith('Open one.png'))!,
+        );
+      });
+      let dialog = await screen.findByRole('dialog');
+      expect(within(dialog).getByText(new RegExp(`2 of ${total}`, 'u'))).toBeTruthy();
+
+      // Newer media arrives: the viewer still shows one.png, now one place further down.
+      const [fresh] = await seed(snowdrop, [{ attachments: [img('three', 'three.png')] }]);
+      act(() => {
+        snowdrop.stores.messages.getState().appendLive(fresh!);
+      });
+      await settle();
+      dialog = screen.getByRole('dialog');
+      expect(within(dialog).getByText(new RegExp(`3 of ${total + 1}`, 'u'))).toBeTruthy();
+      expect(within(dialog).getByRole('img', { name: 'one.png' })).toBeTruthy();
+
+      // It is deleted while open: the viewer closes.
+      act(() => {
+        snowdrop.stores.messages
+          .getState()
+          .update(conversationId, first!.id, (m) => applyDelete(m));
+      });
+      await settle();
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
   });
 
   it('lists audio, files and links with what each needs', async () => {
