@@ -1,5 +1,5 @@
 import { ShieldCheck } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import { directConversationId, initialsFor, type ConversationId } from '@/core/domain';
 import { stripBidiControls } from '@/core/lib';
@@ -41,6 +41,18 @@ export function SafetyNumberChangeDialog({
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
 
+  const firstViewRef = useRef<HTMLButtonElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  // The button that moved on to the next step is gone: carry the keyboard to the new step.
+  const entered = useRef(false);
+  useEffect(() => {
+    if (!entered.current) {
+      entered.current = true;
+      return;
+    }
+    (step === 'review' ? firstViewRef : cancelRef).current?.focus();
+  }, [step]);
+
   const allVerified = contactIds.every((id) => trust[id] === 'verified');
   const sendNow = async () => {
     if (busy) return;
@@ -59,12 +71,23 @@ export function SafetyNumberChangeDialog({
   if (viewing !== null)
     return (
       <Modal
+        key="viewer"
         open
         size="sm"
         onOpenChange={(open) => {
           if (!open) setViewing(null);
         }}
         title="Verify Safety Number"
+        footer={
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setViewing(null);
+            }}
+          >
+            Back
+          </Button>
+        }
       >
         <SafetyNumberView
           contactId={viewing}
@@ -72,14 +95,6 @@ export function SafetyNumberChangeDialog({
             setViewing(null);
           }}
         />
-        <Button
-          variant="ghost"
-          onClick={() => {
-            setViewing(null);
-          }}
-        >
-          Back
-        </Button>
       </Modal>
     );
 
@@ -95,6 +110,7 @@ export function SafetyNumberChangeDialog({
 
   return (
     <Modal
+      key="main"
       open
       size="sm"
       onOpenChange={(open) => {
@@ -104,7 +120,13 @@ export function SafetyNumberChangeDialog({
       description={description}
       footer={
         <>
-          <Button variant="ghost" disabled={busy} data-autofocus="" onClick={onClose}>
+          <Button
+            ref={cancelRef}
+            variant="ghost"
+            disabled={busy}
+            data-autofocus=""
+            onClick={onClose}
+          >
             Cancel
           </Button>
           {many && (
@@ -146,7 +168,7 @@ export function SafetyNumberChangeDialog({
         </span>
         {listing && (
           <ul className={styles.people} aria-label="People whose safety number changed">
-            {contactIds.map((id) => {
+            {contactIds.map((id, index) => {
               const contact = contacts[id];
               const name = stripBidiControls(contact?.name ?? 'Unknown contact');
               return (
@@ -169,6 +191,7 @@ export function SafetyNumberChangeDialog({
                     )}
                   </span>
                   <Button
+                    ref={index === 0 ? firstViewRef : undefined}
                     size="sm"
                     variant="ghost"
                     aria-label={`View safety number with ${name}`}

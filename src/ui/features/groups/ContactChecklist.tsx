@@ -1,5 +1,5 @@
 import { X } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type Ref } from 'react';
 import { fuzzyMatch, initialsFor, type Contact } from '@/core/domain';
 import { formatPhone, PersonAvatar } from '@/ui/features/conversation';
 import { Checkbox, SearchInput } from '@/ui/primitives';
@@ -17,6 +17,8 @@ export interface ContactChecklistProps {
   disabled?: boolean;
   /** The sentence for an empty list. */
   empty: string;
+  /** The search field, for a caller that moves focus to it. */
+  searchRef?: Ref<HTMLInputElement> | undefined;
 }
 
 /** The contacts that match `query` by name or number, best first (all of them for no query). */
@@ -54,6 +56,7 @@ export function ContactChecklist({
   searchLabel,
   disabled,
   empty,
+  searchRef,
 }: ContactChecklistProps) {
   const [query, setQuery] = useState('');
   const shown = useMemo(() => filterContacts(contacts, query), [contacts, query]);
@@ -75,6 +78,7 @@ export function ContactChecklist({
         </span>
       </div>
       <SearchInput
+        ref={searchRef}
         size="sm"
         value={query}
         onValueChange={setQuery}

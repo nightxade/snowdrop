@@ -1,6 +1,7 @@
 import * as RadixDialog from '@radix-ui/react-dialog';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { focusQuietly } from './focusQuietly';
+import { useOpenerFocus } from './openerFocus';
 import styles from './Drawer.module.css';
 
 export interface DrawerProps {
@@ -61,13 +62,7 @@ export function Drawer({
     fallback.current = returnFocus;
   });
 
-  // Record the opener on each closed → open transition (state adjusted during render).
-  const [opener, setOpener] = useState(() => (open ? focusedElement() : null));
-  const [wasOpen, setWasOpen] = useState(open);
-  if (open !== wasOpen) {
-    setWasOpen(open);
-    if (open) setOpener(focusedElement());
-  }
+  const focus = useOpenerFocus(open);
 
   useEffect(() => {
     if (!open) return;
@@ -90,12 +85,13 @@ export function Drawer({
         setTimeout(() => {
           const now = focusedElement();
           if (now?.isConnected && !panel.current?.contains(now)) return;
+          const opener = focus.opener();
           const target = opener?.isConnected ? opener : fallback.current?.();
           focusQuietly(target);
         }, 0);
       });
     };
-  }, [open, opener]);
+  }, [open, focus]);
 
   return (
     <RadixDialog.Root open={open} onOpenChange={onOpenChange}>

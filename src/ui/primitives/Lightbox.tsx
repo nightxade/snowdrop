@@ -1,8 +1,9 @@
 import * as RadixDialog from '@radix-ui/react-dialog';
 import { ChevronLeft, ChevronRight, Download, X } from 'lucide-react';
-import { useRef, type KeyboardEvent } from 'react';
+import type { KeyboardEvent } from 'react';
 import { Button } from './Button';
 import { IconButton } from './IconButton';
+import { useOpenerFocus } from './openerFocus';
 import styles from './Lightbox.module.css';
 
 export interface LightboxItem {
@@ -59,7 +60,7 @@ export function Lightbox({
   retryLabel = 'Retry',
 }: LightboxProps) {
   const item = items[index];
-  const opener = useRef<HTMLElement | null>(null);
+  const focus = useOpenerFocus(open);
   const many = items.length > 1;
   const step = (delta: number) => {
     if (!many) return;
@@ -88,16 +89,11 @@ export function Lightbox({
             // Focus the viewer itself: a focused Close button would open its tooltip,
             // which then swallows the first Escape.
             e.preventDefault();
-            opener.current =
-              document.activeElement instanceof HTMLElement ? document.activeElement : null;
             (e.currentTarget as HTMLElement | null)?.focus();
           }}
           onCloseAutoFocus={(e) => {
             // Back to the thumbnail that opened it (the dialog had no Radix trigger).
-            if (opener.current?.isConnected) {
-              e.preventDefault();
-              opener.current.focus();
-            }
+            focus.closeFocus(e);
           }}
         >
           <RadixDialog.Title className={styles.title}>

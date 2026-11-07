@@ -36,11 +36,13 @@ export function AppShell() {
   useConversationLifecycle();
   useMemberSheetPreference(narrow);
 
-  // Picking a conversation from the drawer closes it (adjusting state during
-  // render, React's recommended alternative to a syncing effect).
-  const [lastSelected, setLastSelected] = useState(selected);
-  if (selected !== lastSelected) {
-    setLastSelected(selected);
+  // Picking a conversation from the drawer closes it, including the one that is
+  // already open: every pick replaces the map (adjusting state during render,
+  // React's recommended alternative to a syncing effect).
+  const picks = useStore(stores.ui, (s) => s.selectedConversationBySpace);
+  const [lastSeen, setLastSeen] = useState({ selected, picks });
+  if (selected !== lastSeen.selected || picks !== lastSeen.picks) {
+    setLastSeen({ selected, picks });
     if (selected) setNavOpen(false);
   }
 

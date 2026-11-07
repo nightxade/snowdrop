@@ -1,8 +1,8 @@
 import * as RadixDialog from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
-import { useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { IconButton } from './IconButton';
-import { focusQuietly } from './focusQuietly';
+import { OpenerReset, useOpenerFocus } from './openerFocus';
 import styles from './Modal.module.css';
 
 export interface ModalProps {
@@ -65,10 +65,7 @@ export function Modal({
   dismissible = true,
   onDismissAttempt,
 }: ModalProps) {
-  // Captured on first render, i.e. before Radix moves focus into the dialog.
-  const [opener] = useState(() =>
-    typeof document === 'undefined' ? null : (document.activeElement as HTMLElement | null),
-  );
+  const focus = useOpenerFocus(open);
   return (
     <RadixDialog.Root open={open} onOpenChange={onOpenChange}>
       <RadixDialog.Portal>
@@ -97,9 +94,7 @@ export function Modal({
             initialFocus(e.currentTarget as HTMLElement).focus();
           }}
           onCloseAutoFocus={(e) => {
-            e.preventDefault();
-            const target = returnFocus?.() ?? (opener && document.contains(opener) ? opener : null);
-            focusQuietly(target);
+            focus.closeFocus(e, returnFocus);
           }}
         >
           <header className={styles.header} data-hidden={hideHeader ? '' : undefined}>
@@ -109,18 +104,22 @@ export function Modal({
                 {description}
               </RadixDialog.Description>
             )}
-            {dismissible && (
+            {/* A hidden header must not leave an invisible Close in the Tab order:
+                Escape and a click outside close the dialog. */}
+            {dismissible && !hideHeader && (
               <RadixDialog.Close asChild>
                 <IconButton className={styles.close} label="Close" icon={<X />} noTooltip />
               </RadixDialog.Close>
             )}
           </header>
-          {children !== undefined && (
-            <div className={styles.body} data-flush={flush ? '' : undefined}>
-              {children}
-            </div>
-          )}
-          {footer && <footer className={styles.footer}>{footer}</footer>}
+          <OpenerReset>
+            {children !== undefined && (
+              <div className={styles.body} data-flush={flush ? '' : undefined}>
+                {children}
+              </div>
+            )}
+            {footer && <footer className={styles.footer}>{footer}</footer>}
+          </OpenerReset>
         </RadixDialog.Content>
       </RadixDialog.Portal>
     </RadixDialog.Root>

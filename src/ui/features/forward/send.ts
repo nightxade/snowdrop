@@ -31,12 +31,24 @@ export interface ForwardLinkPreview {
 }
 
 /** One message to forward, as it will be sent. */
-export type ForwardItem =
+export type ForwardItem = {
+  /** Names the message across tries (a retry skips what already went); the position stands in if absent. */
+  id?: string;
+} & (
   | { kind: 'sticker'; sticker: StickerContent }
-  | { kind: 'message'; text: string; files: ForwardFile[]; preview?: ForwardLinkPreview };
+  | { kind: 'message'; text: string; files: ForwardFile[]; preview?: ForwardLinkPreview }
+);
 
+/** What identifies an item across tries. */
+export const itemKey = (item: ForwardItem, index: number): string => item.id ?? `#${index}`;
+
+/**
+ * How one chat went. `delivered` names the items that are in it by now (all
+ * of them when `ok`), so a retry can send just the rest; `sent` counts them.
+ */
 export type TargetResult =
-  { id: ConversationId; ok: true } | { id: ConversationId; ok: false; reason: string };
+  | { id: ConversationId; ok: true; sent: number; delivered: string[] }
+  | { id: ConversationId; ok: false; reason: string; sent: number; delivered: string[] };
 
 /** A raster image or a voice note shows its own picture on the unsent message, as the composer's do. */
 const showsLocalPreview = (file: ForwardFile): boolean =>
@@ -82,32 +94,50 @@ function outgoingPreview(preview: ForwardLinkPreview): OutgoingLinkPreview {
   };
 }
 
-const fail = (id: ConversationId, reason: string): TargetResult => ({ id, ok: false, reason });
+const fail = (
+  id: ConversationId,
+  reason: string,
+  delivered: ReadonlySet<string>,
+): TargetResult => ({
+  id,
+  ok: false,
+  reason,
+  sent: delivered.size,
+  delivered: [...delivered],
+});
 
 /**
  * Sends `items`, in order, to one chat. A contact with no chat yet gets one
  * (nothing is opened); a message request is accepted first, which is what
  * writing to it does. Never rejects: a send that can't start says why.
+ * `alreadySent` names items to skip (a retry after some went through); the
+ * result counts them with the rest.
  */
 export async function forwardToTarget(
   app: AppServices,
   target: ForwardTarget,
   items: readonly ForwardItem[],
+  alreadySent: ReadonlySet<string> = new Set(),
 ): Promise<TargetResult> {
+  const keys = items.map(itemKey);
+  const delivered = new Set(keys.filter((k) => alreadySent.has(k)));
   try {
     let id = target.id;
     if (!target.view && !app.stores.conversations.getState().byId[id]) {
-      if (!target.contact) return fail(id, "This chat isn't available.");
+      if (!target.contact) return fail(id, "This chat isn't available.", delivered);
       id = ensureDirectConversation(app, target.contact);
     }
     if (selectMessageRequestState(app.stores, id) === 'request' && !(await app.requests.accept(id)))
-      return fail(id, "Couldn't accept the message request.");
-    for (const item of items) {
+      return fail(id, "Couldn't accept the message request.", delivered);
+    for (const [index, item] of items.entries()) {
+      const key = itemKey(item, index);
+      if (delivered.has(key)) continue;
       // Sent messages only appear in a window anchored to the present.
       const window = app.stores.messages.getState().windows[id];
       if (window && !window.anchoredToPresent) await app.history.jumpToPresent(id);
       if (item.kind === 'sticker') {
         await app.send.sendSticker({ conversationId: id, sticker: item.sticker });
+        delivered.add(key);
         continue;
       }
       const nonce = await app.send.send({
@@ -119,21 +149,30 @@ export async function forwardToTarget(
         format: 'markdown',
         ...(item.preview ? { preview: outgoingPreview(item.preview) } : {}),
       });
-      if (nonce === null) return fail(id, 'There was nothing to send.');
+      if (nonce === null) return fail(id, 'There was nothing to send.', delivered);
+      delivered.add(key);
     }
-    return { id, ok: true };
+    return { id, ok: true, sent: delivered.size, delivered: [...delivered] };
   } catch {
     // Never what was in the message: only that it failed.
     log.warn('forwarding to a chat failed');
-    return fail(target.id, "Couldn't send.");
+    return fail(target.id, "Couldn't send.", delivered);
   }
 }
 
-/** Sends to every target at once; each chat keeps the messages' order. */
+/**
+ * Sends to every target at once; each chat keeps the messages' order.
+ * `progress` names the items each chat already has from an earlier try.
+ */
 export function forwardToTargets(
   app: AppServices,
   targets: readonly ForwardTarget[],
   items: readonly ForwardItem[],
+  progress: ReadonlyMap<ConversationId, ReadonlySet<string>> = new Map(),
 ): Promise<TargetResult[]> {
-  return Promise.all(targets.map((target) => forwardToTarget(app, target, items)));
+  return Promise.all(
+    targets.map((target) =>
+      forwardToTarget(app, target, items, progress.get(target.id) ?? new Set<string>()),
+    ),
+  );
 }

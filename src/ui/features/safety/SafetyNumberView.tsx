@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import { stripBidiControls } from '@/core/lib';
 import { identitiesSelectors } from '@/core/stores';
@@ -29,6 +29,16 @@ export function SafetyNumberView({
   const { state, reload } = useSafetyNumber(contactId);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<'changed' | 'failed' | null>(null);
+  // The number loads after the dialog opened, so its autofocus found nothing to focus:
+  // once the button is there, take focus from the dialog itself (never from a control).
+  const primary = useRef<HTMLButtonElement>(null);
+  const ready = state.status === 'ready' || state.status === 'none';
+  useEffect(() => {
+    const active = document.activeElement;
+    if (ready && (active === document.body || active?.getAttribute('role') === 'dialog')) {
+      primary.current?.focus();
+    }
+  }, [ready]);
 
   if (state.status === 'loading')
     return (
@@ -46,7 +56,7 @@ export function SafetyNumberView({
     return (
       <div className={styles.none}>
         <p>This user can’t be verified until you’ve exchanged messages with them.</p>
-        <Button variant="primary" onClick={onClose} data-autofocus="">
+        <Button ref={primary} variant="primary" onClick={onClose} data-autofocus="">
           OK
         </Button>
       </div>
@@ -95,6 +105,7 @@ export function SafetyNumberView({
               : 'Not verified'}
         </p>
         <Button
+          ref={primary}
           variant={verified ? 'secondary' : 'primary'}
           aria-busy={busy}
           disabled={busy}

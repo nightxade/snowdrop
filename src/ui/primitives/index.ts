@@ -17,6 +17,7 @@ export {
 } from './EmojiPicker';
 export { EmptyState, type EmptyStateProps } from './EmptyState';
 export { focusQuietly } from './focusQuietly';
+export { OpenerHostProvider, type OpenerHost } from './openerFocus';
 export { FullScreenDialog, type FullScreenDialogProps } from './FullScreenDialog';
 export { IconButton, type IconButtonProps } from './IconButton';
 export { Kbd, splitCombo } from './Kbd';

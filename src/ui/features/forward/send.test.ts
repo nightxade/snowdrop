@@ -50,7 +50,7 @@ describe('forwardToTarget', () => {
       text('first **bold**'),
       text('second'),
     ]);
-    expect(result).toEqual({ id: kit.chat('dm-ines'), ok: true });
+    expect(result).toEqual({ id: kit.chat('dm-ines'), ok: true, sent: 2, delivered: ['#0', '#1'] });
     const sent = inputs();
     expect(sent.map((s) => s.body)).toEqual(['first bold', 'second']);
     expect(sent[0]?.ranges).toEqual([{ start: 6, length: 4, style: 'bold' }]);
@@ -156,12 +156,94 @@ describe('forwardToTarget', () => {
       [text('hi')],
     );
     expect(results).toEqual([
-      { id: kit.chat('dm-ines'), ok: false, reason: "Couldn't send." },
-      { id: kit.chat('dm-lucia'), ok: true },
+      {
+        id: kit.chat('dm-ines'),
+        ok: false,
+        reason: "Couldn't send.",
+        sent: 0,
+        delivered: [],
+      },
+      { id: kit.chat('dm-lucia'), ok: true, sent: 1, delivered: ['#0'] },
     ]);
     // The reason names no one and says nothing of the content.
     expect(JSON.stringify(log.mock.calls)).not.toContain('disk full');
     expect(JSON.stringify(log.mock.calls)).not.toContain('hi');
+  });
+
+  it('counts what went through when a later message fails, and a retry sends only the rest', async () => {
+    const id = kit.chat('dm-ines');
+    await openChat(kit.snowdrop, id);
+    const real = kit.snowdrop.send.send.bind(kit.snowdrop.send);
+    let calls = 0;
+    vi.spyOn(kit.snowdrop.send, 'send').mockImplementation((draft) => {
+      calls += 1;
+      return calls === 2 ? Promise.reject(new Error('offline')) : real(draft);
+    });
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const items = [text('one'), text('two'), text('three')];
+    const first = await forwardToTarget(kit.snowdrop, target('dm-ines'), items);
+    expect(first).toEqual({
+      id,
+      ok: false,
+      reason: "Couldn't send.",
+      sent: 1,
+      delivered: ['#0'],
+    });
+    const retry = await forwardToTarget(
+      kit.snowdrop,
+      target('dm-ines'),
+      items,
+      new Set(first.delivered),
+    );
+    expect(retry).toMatchObject({ id, ok: true, sent: 3 });
+    expect(
+      ownMessages(kit.snowdrop, id)
+        .map((m) => m.body)
+        .slice(-3),
+    ).toEqual(['one', 'two', 'three']);
+  });
+
+  it('skips by item identity, so a retry after the list shrank sends the right ones', async () => {
+    const id = kit.chat('dm-ines');
+    await openChat(kit.snowdrop, id);
+    const real = kit.snowdrop.send.send.bind(kit.snowdrop.send);
+    vi.spyOn(kit.snowdrop.send, 'send').mockImplementationOnce(real);
+    vi.spyOn(kit.snowdrop.send, 'send').mockImplementationOnce(() =>
+      Promise.reject(new Error('x')),
+    );
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const item = (key: string): ForwardItem => ({ ...text(key), id: key });
+    const first = await forwardToTarget(kit.snowdrop, target('dm-ines'), [
+      item('a'),
+      item('b'),
+      item('c'),
+    ]);
+    expect(first.delivered).toEqual(['a']);
+    vi.restoreAllMocks();
+    const inputs = sentInputs();
+    // "a" was taken out of the list: "b" and "c" are still owed.
+    const retry = await forwardToTarget(
+      kit.snowdrop,
+      target('dm-ines'),
+      [item('b'), item('c')],
+      new Set(first.delivered),
+    );
+    expect(retry).toMatchObject({ ok: true, sent: 2 });
+    expect(inputs().map((i) => i.body)).toEqual(['b', 'c']);
+  });
+
+  it('takes per-chat progress for a retry of several chats', async () => {
+    const id = kit.chat('dm-ines');
+    await openChat(kit.snowdrop, id);
+    const inputs = sentInputs();
+    const results = await forwardToTargets(
+      kit.snowdrop,
+      [target('dm-ines')],
+      [text('one'), text('two')],
+      new Map([[id, new Set(['#0'])]]),
+    );
+    expect(results).toMatchObject([{ id, ok: true, sent: 2 }]);
+    expect(inputs().map((i) => i.body)).toEqual(['two']);
   });
 
   it('reports a send that turned into nothing', async () => {
@@ -170,6 +252,8 @@ describe('forwardToTarget', () => {
       id: kit.chat('dm-ines'),
       ok: false,
       reason: 'There was nothing to send.',
+      sent: 0,
+      delivered: [],
     });
   });
 
@@ -194,7 +278,7 @@ describe('forwardToTarget', () => {
       },
       [text('welcome')],
     );
-    expect(result).toEqual({ id, ok: true });
+    expect(result).toEqual({ id, ok: true, sent: 1, delivered: ['#0'] });
     expect(stores.conversations.getState().byId[id]?.title).toBe('New Friend');
     expect(stores.ui.getState().selectedConversationBySpace).toEqual(before);
     expect(inputs()[0]).toMatchObject({ conversationId: id, body: 'welcome' });
@@ -206,7 +290,7 @@ describe('forwardToTarget', () => {
     const sendSpy = vi.spyOn(kit.mock, 'send');
     const inputs = () => sendSpy.mock.calls.map(([input]) => input);
     const result = await forwardToTarget(kit.snowdrop, target('request-dm'), [text('hello')]);
-    expect(result).toEqual({ id, ok: true });
+    expect(result).toEqual({ id, ok: true, sent: 1, delivered: ['#0'] });
     expect(respond).toHaveBeenCalledWith(id, 'accept');
     expect(respond.mock.invocationCallOrder[0]).toBeLessThan(sendSpy.mock.invocationCallOrder[0]!);
     expect(kit.snowdrop.stores.local.getState().acceptedChats[id]).toBeDefined();
@@ -218,7 +302,13 @@ describe('forwardToTarget', () => {
     vi.spyOn(kit.snowdrop.requests, 'accept').mockResolvedValue(false);
     const inputs = sentInputs();
     const result = await forwardToTarget(kit.snowdrop, target('request-dm'), [text('hello')]);
-    expect(result).toEqual({ id, ok: false, reason: "Couldn't accept the message request." });
+    expect(result).toEqual({
+      id,
+      ok: false,
+      reason: "Couldn't accept the message request.",
+      sent: 0,
+      delivered: [],
+    });
     expect(inputs()).toEqual([]);
     expect(kit.snowdrop.stores.local.getState().acceptedChats[id]).toBeUndefined();
   });

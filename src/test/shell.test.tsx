@@ -270,6 +270,29 @@ describe('drawer focus and Escape', () => {
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Show member list' }));
   });
 
+  it('navigation drawer: tapping the conversation that is already open closes it', async () => {
+    setViewport(390);
+    await bootDemo();
+    const drawer = await screen.findByRole('dialog', { name: 'Navigation' });
+    const rowOf = (root: HTMLElement) => root.querySelector<HTMLElement>('[data-conversation-id]')!;
+    const id = rowOf(drawer).getAttribute('data-conversation-id');
+    act(() => {
+      fireEvent.click(rowOf(drawer));
+    });
+    await frames();
+    expect(screen.queryByRole('dialog', { name: 'Navigation' })).toBeNull();
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: /Open navigation/u }));
+    });
+    const reopened = await screen.findByRole('dialog', { name: 'Navigation' });
+    expect(rowOf(reopened).getAttribute('data-conversation-id')).toBe(id);
+    act(() => {
+      fireEvent.click(rowOf(reopened));
+    });
+    await frames();
+    expect(screen.queryByRole('dialog', { name: 'Navigation' })).toBeNull();
+  });
+
   it('navigation drawer: Esc from a row closes it; focus returns to the hamburger', async () => {
     setViewport(390);
     await bootDemo();

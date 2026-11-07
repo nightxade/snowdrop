@@ -1,6 +1,6 @@
 import * as RadixDialog from '@radix-ui/react-dialog';
-import { useState, type ReactNode } from 'react';
-import { focusQuietly } from './focusQuietly';
+import type { ReactNode } from 'react';
+import { OpenerReset, useOpenerFocus } from './openerFocus';
 import styles from './FullScreenDialog.module.css';
 
 export interface FullScreenDialogProps {
@@ -29,9 +29,7 @@ export function FullScreenDialog({
   initialFocus,
   className,
 }: FullScreenDialogProps) {
-  const [opener] = useState(() =>
-    typeof document === 'undefined' ? null : (document.activeElement as HTMLElement | null),
-  );
+  const focus = useOpenerFocus(open);
   return (
     <RadixDialog.Root open={open} onOpenChange={onOpenChange}>
       <RadixDialog.Portal>
@@ -51,12 +49,11 @@ export function FullScreenDialog({
             if (document.activeElement?.closest(OWNS_ESCAPE)) e.preventDefault();
           }}
           onCloseAutoFocus={(e) => {
-            e.preventDefault();
-            if (opener && document.contains(opener)) focusQuietly(opener);
+            focus.closeFocus(e);
           }}
         >
           <RadixDialog.Title className={styles.title}>{title}</RadixDialog.Title>
-          {children}
+          <OpenerReset>{children}</OpenerReset>
         </RadixDialog.Content>
       </RadixDialog.Portal>
     </RadixDialog.Root>

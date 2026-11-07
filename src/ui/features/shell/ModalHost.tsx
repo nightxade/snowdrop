@@ -1,9 +1,20 @@
-import { lazy, Suspense, useEffect } from 'react';
+import {
+  Fragment,
+  lazy,
+  Suspense,
+  useEffect,
+  useCallback,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  type ReactNode,
+} from 'react';
 import { useStore } from 'zustand';
 import type { ConversationId, MessageId } from '@/core/domain';
 import { BlockDialog, type GroupMemberAction } from '@/ui/features/conversation';
 import { uiSelectors } from '@/core/stores';
 import { useStores } from '@/ui/hooks';
+import { OpenerHostProvider, type OpenerHost } from '@/ui/primitives';
 import { SettingsFallback } from './SettingsFallback';
 
 // The switcher (with cmdk) is its own chunk, prefetched once the app is idle so
@@ -93,10 +104,129 @@ function pageProp(props: Record<string, unknown> | undefined): { initialPage?: s
   return page ? { initialPage: page } : {};
 }
 
-/** Renders the one open modal from `uiStore.modal` (commands and plugins open them by type). */
+/** The Suspense fallback: marks the host as waiting, so hidden layers aren't taken for gone ones. */
+function Pending({
+  onChange,
+  children,
+}: {
+  onChange: (pending: boolean) => void;
+  children: ReactNode;
+}) {
+  useLayoutEffect(() => {
+    onChange(true);
+    return () => {
+      onChange(false);
+    };
+  }, [onChange]);
+  return children;
+}
+
+/** Renders nothing; its effect runs once the dialog beside it has mounted (see `ModalHost`). */
+function Mounted({ onMounted }: { onMounted: () => void }) {
+  useEffect(() => {
+    onMounted();
+  }, [onMounted]);
+  return null;
+}
+
+/**
+ * Renders the one open modal from `uiStore.modal` (commands and plugins open them by type).
+ *
+ * It also owns what every dialog needs from the chain of dialogs it shows:
+ * - the opener: whatever had focus when the first one was requested. A dialog that
+ *   replaces another (or swaps its own view) leaves it alone, and focus goes back
+ *   there only when the last one closes;
+ * - closing a dialog whose subject is gone: one that renders nothing (the group was
+ *   removed, a bad id) would otherwise leave `ui.modal` set with nothing on screen,
+ *   which switches the global shortcuts off.
+ */
 export function ModalHost() {
   const stores = useStores();
   const modal = useStore(stores.ui, uiSelectors.modal);
+  const opener = useRef<HTMLElement | null>(null);
+  /** Recently focused elements, oldest first: where focus was before a menu or palette took it. */
+  const history = useRef<HTMLElement[]>([]);
+  const layers = useRef(0);
+  /** A Suspense fallback is showing (the dialog's layers are hidden, not gone). */
+  const suspended = useRef(false);
+  const setSuspended = useCallback((pending: boolean) => {
+    suspended.current = pending;
+  }, []);
+  /** The key of the modal whose dialog has rendered at least once. */
+  const resolvedKey = useRef<string | null>(null);
+  const timers = useRef(new Set<ReturnType<typeof setTimeout>>());
+  useEffect(() => {
+    const onFocusIn = (event: FocusEvent) => {
+      const el = event.target;
+      if (!(el instanceof HTMLElement) || el === document.body) return;
+      history.current = [...history.current.filter((x) => x !== el), el].slice(-12);
+    };
+    document.addEventListener('focusin', onFocusIn, true);
+    const pending = timers.current;
+    return () => {
+      document.removeEventListener('focusin', onFocusIn, true);
+      for (const t of pending) clearTimeout(t);
+      pending.clear();
+    };
+  }, []);
+  useEffect(
+    () =>
+      // Synchronously with the request, while the opener still has focus.
+      stores.ui.subscribe((state, previous) => {
+        if (state.modal && !previous.modal) {
+          const el = document.activeElement;
+          opener.current = el instanceof HTMLElement && el !== document.body ? el : null;
+        }
+      }),
+    [stores],
+  );
+  const host = useMemo<OpenerHost>(() => {
+    const closeIfEmpty = () => {
+      const current = stores.ui.getState().modal;
+      if (
+        current &&
+        !suspended.current &&
+        resolvedKey.current === modalKey(current) &&
+        layers.current === 0
+      ) {
+        stores.ui.getState().closeModal();
+      }
+    };
+    return {
+      // The recorded opener, unless it is gone (a palette or menu item that opened the dialog
+      // closes with it): then what had focus before that, which is never the page body.
+      opener: () => {
+        if (opener.current?.isConnected) return opener.current;
+        for (const el of [...history.current].reverse()) {
+          if (el.isConnected && !el.closest('[role="dialog"], [role="menu"]')) return el;
+        }
+        return document.querySelector<HTMLElement>(
+          '[data-snowdrop="composer-input"], [data-snowdrop="message-log"]',
+        );
+      },
+      settled: () => stores.ui.getState().modal === null,
+      register: () => {
+        layers.current += 1;
+        return () => {
+          layers.current -= 1;
+          // After the commit: a dialog swapping for another has mounted its layer by then.
+          const timer = setTimeout(() => {
+            timers.current.delete(timer);
+            closeIfEmpty();
+          }, 0);
+          timers.current.add(timer);
+        };
+      },
+    };
+  }, [stores]);
+  const onMounted = useMemo(
+    () => () => {
+      const current = stores.ui.getState().modal;
+      resolvedKey.current = current ? modalKey(current) : null;
+      if (layers.current === 0) stores.ui.getState().closeModal();
+    },
+    [stores],
+  );
   useEffect(() => {
     const prefetch = () => {
       void loadSwitcher();
@@ -124,15 +254,33 @@ export function ModalHost() {
     stores.ui.getState().closeModal();
   };
   return (
-    <Suspense
-      fallback={modal.type === 'settings' || modal.type === 'signOut' ? <SettingsFallback /> : null}
-    >
-      {modalElement(modal, close)}
-    </Suspense>
+    <OpenerHostProvider value={host}>
+      <Suspense
+        fallback={
+          <Pending onChange={setSuspended}>
+            {modal.type === 'settings' || modal.type === 'signOut' ? <SettingsFallback /> : null}
+          </Pending>
+        }
+      >
+        {/* The same type with other props is another dialog, not an update of this one. */}
+        <Fragment key={modalKey(modal)}>
+          {modalElement(modal, close)}
+          <Mounted onMounted={onMounted} />
+        </Fragment>
+      </Suspense>
+    </OpenerHostProvider>
   );
 }
 
 type Modal = NonNullable<ReturnType<typeof uiSelectors.modal>>;
+
+function modalKey(modal: Modal): string {
+  try {
+    return `${modal.type}:${JSON.stringify(modal.props ?? null)}`;
+  } catch {
+    return modal.type;
+  }
+}
 
 function modalElement(modal: Modal, close: () => void) {
   switch (modal.type) {

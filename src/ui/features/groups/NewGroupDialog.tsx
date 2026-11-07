@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type SubmitEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type SubmitEvent } from 'react';
 import { useStore } from 'zustand';
 import {
   colorForId,
@@ -31,6 +31,18 @@ export function NewGroupDialog({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState<string | null>(null);
   /** Focus goes to the new group's composer once the dialog has closed. */
   const target = useRef<ConversationId | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const nameRef = useRef<HTMLInputElement>(null);
+  // Moving between the steps takes the keyboard to the new step's own field: the
+  // button that was pressed turns into another one (or a disabled one).
+  const entered = useRef(false);
+  useEffect(() => {
+    if (!entered.current) {
+      entered.current = true;
+      return;
+    }
+    (step === 'details' ? nameRef : searchRef).current?.focus();
+  }, [step]);
   const contacts = useMemo(() => composableContacts(contactsById, selfId), [contactsById, selfId]);
 
   const name = normalizeGroupTitle(title);
@@ -115,6 +127,7 @@ export function NewGroupDialog({ onClose }: { onClose: () => void }) {
           onChange={setPicked}
           label="Contacts"
           searchLabel="Search contacts for the new group"
+          searchRef={searchRef}
           empty="No contacts yet."
         />
       ) : (
@@ -136,6 +149,7 @@ export function NewGroupDialog({ onClose }: { onClose: () => void }) {
             disabled={busy}
           />
           <TextInput
+            ref={nameRef}
             label="Group name (required)"
             value={title}
             autoComplete="off"

@@ -47,9 +47,11 @@ export interface ForwardDialogProps {
 }
 
 interface Failure {
-  /** How many chats it did go to. */
-  sent: number;
-  failed: { id: ConversationId; title: string; reason: string }[];
+  /** The chats it did go to. */
+  sent: string[];
+  /** How many messages there were, for a chat that got only some of them. */
+  total: number;
+  failed: { id: ConversationId; title: string; reason: string; got: number }[];
 }
 
 const plural = (n: number, one: string, other: string) => `${n} ${n === 1 ? one : other}`;
@@ -101,6 +103,8 @@ export function ForwardDialog({ conversationId, messageIds, onClose }: ForwardDi
   const [sending, setSending] = useState(false);
   const [failure, setFailure] = useState<Failure | null>(null);
   const alive = useRef(true);
+  /** How many of the messages each chat already has, so a retry sends only the rest. */
+  const delivered = useRef(new Map<ConversationId, ReadonlySet<string>>());
   const searchRef = useRef<HTMLInputElement>(null);
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const editorId = useId();
@@ -193,7 +197,7 @@ export function ForwardDialog({ conversationId, messageIds, onClose }: ForwardDi
     const items: ForwardItem[] = [];
     for (const draft of drafts) {
       if (draft.sticker) {
-        items.push({ kind: 'sticker', sticker: draft.sticker });
+        items.push({ id: draft.messageId, kind: 'sticker', sticker: draft.sticker });
         continue;
       }
       const files = draft.files.flatMap((file) => {
@@ -215,6 +219,7 @@ export function ForwardDialog({ conversationId, messageIds, onClose }: ForwardDi
       const picture = link?.image;
       const bytes = picture ? await readPreviewImage(app, conversationId, picture) : null;
       items.push({
+        id: draft.messageId,
         kind: 'message',
         text: draft.text,
         files,
@@ -246,11 +251,16 @@ export function ForwardDialog({ conversationId, messageIds, onClose }: ForwardDi
     if (sending || selected.length === 0 || !ready) return;
     setSending(true);
     setFailure(null);
-    const results = await forwardToTargets(app, picked, await itemsToSend());
+    const items = await itemsToSend();
+    const results = await forwardToTargets(app, picked, items, delivered.current);
+    for (const r of results) {
+      if (r.ok) delivered.current.delete(r.id);
+      else delivered.current.set(r.id, new Set(r.delivered));
+    }
+    // The names the chat list shows, taken from the chats picked (they stay known if a chat goes).
+    const titleOf = (id: ConversationId) => picked.find((t) => t.id === id)?.title || 'this chat';
     const failed = results.flatMap((r) =>
-      r.ok
-        ? []
-        : [{ id: r.id, title: targets.find((t) => t.id === r.id)?.title ?? '', reason: r.reason }],
+      r.ok ? [] : [{ id: r.id, title: titleOf(r.id), reason: r.reason, got: r.sent }],
     );
     const ui = stores.ui.getState();
     if (failed.length === 0) {
@@ -266,7 +276,11 @@ export function ForwardDialog({ conversationId, messageIds, onClose }: ForwardDi
     } else if (alive.current) {
       // What went through stays sent; the rest stays picked, ready to try again.
       setSelected(selected.filter((id) => failed.some((f) => f.id === id)));
-      setFailure({ sent: results.length - failed.length, failed });
+      setFailure({
+        sent: results.flatMap((r) => (r.ok ? [titleOf(r.id)] : [])),
+        total: items.length,
+        failed,
+      });
       setSending(false);
     } else {
       // The dialog was closed while this ran: say so where the user is looking now.
@@ -343,7 +357,17 @@ export function ForwardDialog({ conversationId, messageIds, onClose }: ForwardDi
   const failureAlert = (
     <div className={styles.notice} role="alert" data-error="">
       {failure &&
-        `${failure.sent > 0 ? `Sent to ${plural(failure.sent, 'chat', 'chats')}. ` : ''}Couldn't send to ${nameList(failure.failed.map((f) => f.title))}: ${failure.failed[0]?.reason ?? ''}`}
+        [
+          failure.sent.length > 0 ? `Sent to ${nameList(failure.sent)}.` : '',
+          `Couldn't send to ${nameList(failure.failed.map((f) => f.title))}: ${failure.failed[0]?.reason ?? ''}`,
+          ...failure.failed.flatMap((f) =>
+            f.got > 0
+              ? [`${f.title} has ${f.got} of ${failure.total}; Send will add only the rest.`]
+              : [],
+          ),
+        ]
+          .filter(Boolean)
+          .join(' ')}
     </div>
   );
 

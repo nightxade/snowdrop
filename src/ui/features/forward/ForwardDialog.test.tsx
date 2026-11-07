@@ -393,7 +393,7 @@ describe('Forward dialog: sending', () => {
     await flush(snowdrop);
     expect(onClose).not.toHaveBeenCalled();
     const alert = screen.getAllByRole('alert').find((a) => a.textContent)!;
-    expect(alert.textContent).toMatch(/^Sent to 1 chat\. Couldn't send to .+: Couldn't send\.$/u);
+    expect(alert.textContent).toMatch(/^Sent to .+\. Couldn't send to .+: Couldn't send\.$/u);
     expect(sent().map((s) => s.conversationId)).toEqual([chat('dm-ines')]);
     broken = false;
     fireEvent.click(primary());
@@ -401,6 +401,105 @@ describe('Forward dialog: sending', () => {
     // Only the chat that missed out is tried again.
     expect(sent().map((s) => s.conversationId)).toEqual([chat('dm-ines'), chat('dm-lucia')]);
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('after a partial failure, a retry sends only the messages that did not go, and says what went', async () => {
+    const kit = await bootForward();
+    live.push(kit.snowdrop);
+    const { snowdrop, message, conversationId, chat } = kit;
+    const second: Message = {
+      ...message,
+      id: `${message.id}-b` as Message['id'],
+      sentAt: message.sentAt + 1,
+      receivedAt: message.sentAt + 1,
+      seq: (message.seq ?? 0) + 1,
+      body: 'and this too',
+    };
+    act(() => {
+      snowdrop.stores.messages.getState().appendLive(second);
+    });
+    renderWithSnowdrop(
+      snowdrop,
+      <ForwardDialog
+        conversationId={conversationId}
+        messageIds={[message.id, second.id]}
+        onClose={vi.fn()}
+      />,
+    );
+    await settle(snowdrop);
+    const sends = vi.spyOn(kit.mock, 'send');
+    const real = snowdrop.send.send.bind(snowdrop.send);
+    let calls = 0;
+    vi.spyOn(snowdrop.send, 'send').mockImplementation((draft) => {
+      calls += 1;
+      return calls === 2 ? Promise.reject(new Error('offline')) : real(draft);
+    });
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    pick('Ines');
+    fireEvent.click(primary());
+    await flush(snowdrop);
+    const alert = screen.getAllByRole('alert').find((a) => a.textContent)!;
+    expect(alert.textContent).toMatch(/has 1 of 2; Send will add only the rest\.$/u);
+    fireEvent.click(primary());
+    await flush(snowdrop);
+    const bodies = sends.mock.calls.map(([input]) => [input.conversationId, input.body]);
+    expect(bodies).toEqual([
+      [chat('dm-ines'), 'worth keeping'],
+      [chat('dm-ines'), 'and this too'],
+    ]);
+  });
+
+  it('names a chat that failed even if it has left the list meanwhile, and axe is clean', async () => {
+    const { snowdrop, conversationId } = await open();
+    const group = Object.values(snowdrop.stores.conversations.getState().byId).find(
+      (c) => c.kind === 'group' && c.id !== conversationId,
+    )!;
+    const id = group.id;
+    const title = group.title;
+    vi.spyOn(snowdrop.send, 'send').mockImplementation(() => {
+      const { [id]: _gone, ...rest } = snowdrop.stores.conversations.getState().byId;
+      snowdrop.stores.conversations.setState({ byId: rest });
+      return Promise.reject(new Error('offline'));
+    });
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    pick(title);
+    expect(screen.getAllByRole('option', { checked: true })).toHaveLength(1);
+    fireEvent.click(primary());
+    fireEvent.click(primary());
+    await flush(snowdrop);
+    const alert = screen.getAllByRole('alert').find((a) => a.textContent)!;
+    expect(alert.textContent).toBe(`Couldn't send to ${title}: Couldn't send.`);
+    expect((await axe(screen.getByRole('dialog'), { rules })).violations).toEqual([]);
+  });
+
+  it('does not read "Couldn\'t send to ." for a chat with no title', async () => {
+    let id = '';
+    const { snowdrop, conversationId } = await open({}, (kit) => {
+      const group = Object.values(kit.snowdrop.stores.conversations.getState().byId).find(
+        (c) => c.kind === 'group' && c.id !== kit.conversationId,
+      )!;
+      id = group.id;
+      kit.snowdrop.stores.conversations.setState({
+        byId: {
+          ...kit.snowdrop.stores.conversations.getState().byId,
+          [id]: { ...group, title: '' },
+        },
+      });
+    });
+    expect(conversationId).not.toBe(id);
+    vi.spyOn(snowdrop.send, 'send').mockRejectedValue(new Error('offline'));
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const row = screen
+      .getAllByRole('option')
+      .find((o) => o.getAttribute('data-value')?.toLowerCase() === id.toLowerCase())!;
+    act(() => {
+      fireEvent.click(row);
+    });
+    fireEvent.click(primary());
+    fireEvent.click(primary());
+    await flush(snowdrop);
+    const alert = screen.getAllByRole('alert').find((a) => a.textContent)!;
+    expect(alert.textContent).toBe("Couldn't send to this chat: Couldn't send.");
   });
 
   it('lets the user close while it sends, and still reports a failure', async () => {
