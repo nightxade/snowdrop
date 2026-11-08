@@ -39,6 +39,7 @@ import { plaintextCipher, utf8Decode, utf8Encode, type RecordCipher } from './cr
 import {
   droppedOriginals,
   matchesSearch,
+  originalIds,
   searchTerms,
   type MergeFn,
   type MediaQuery,
@@ -47,6 +48,9 @@ import {
   type PageQuery,
   type SearchQuery,
   type SentMedia,
+  type SentOriginalsDropped,
+  type SentOriginalsScope,
+  type SentOriginalsUsage,
   type UpsertResult,
 } from './MessageRepository';
 
@@ -492,6 +496,113 @@ export class IdbMessageRepository implements MessageRepository {
     if (!row) return undefined;
     const bytes = await this.cipher.decrypt(row.payload, row.id);
     return new Blob([bytes as Uint8Array<ArrayBuffer>], { type });
+  }
+
+  async sentOriginalsUsage(scope?: SentOriginalsScope): Promise<SentOriginalsUsage> {
+    if (scope === undefined) {
+      // Stored sizes only: nothing is decrypted, and no message is read.
+      let photos = 0;
+      let bytes = 0;
+      let cursor = await this.db.transaction('sentMedia').store.openCursor();
+      while (cursor) {
+        photos++;
+        bytes += cursor.value.payload.byteLength;
+        cursor = await cursor.continue();
+      }
+      return { photos, bytes };
+    }
+    const messages = await this.messagesWithOriginals(scope);
+    return this.originalsSize(messages.flatMap(originalIds), scope.signal);
+  }
+
+  async dropSentOriginals(scope: SentOriginalsScope): Promise<SentOriginalsDropped> {
+    const dropped: SentOriginalsDropped = { photos: 0, bytes: 0, attachmentIds: [] };
+    for (const { id } of await this.messagesWithOriginals(scope)) {
+      scope.signal?.throwIfAborted();
+      // One message per queued write, so a send can slip in between two of them.
+      await this.mutate(async () => {
+        const key = await this.cipher.blindId(id);
+        // Read again under the queue: it may have changed since the scan.
+        const row = await this.db.get('messages', key);
+        if (!row) return;
+        let message: Message;
+        try {
+          message = await this.fromRow(row);
+        } catch {
+          return; // Unreadable: left exactly as it is.
+        }
+        if (message.sentAt >= scope.olderThan) return;
+        const ids = originalIds(message);
+        if (ids.length === 0) return;
+        const size = await this.originalsSize(ids);
+        // The copies and the flags go in one transaction: no flag outlives its copy.
+        const next = withoutOriginals(message, () => true);
+        await this.writeDropping([await this.toRow(next)], ids);
+        dropped.photos += size.photos;
+        dropped.bytes += size.bytes;
+        dropped.attachmentIds.push(...ids);
+      });
+    }
+    return dropped;
+  }
+
+  /**
+   * The messages sent before `scope.olderThan` that carry kept originals.
+   * Their bodies are only readable decrypted, so this is the same sliced walk
+   * as `search`: a bounded read, a decrypt, then a turn for the event loop.
+   * Rows that can't be read are skipped (and counted in one log line).
+   */
+  private async messagesWithOriginals({
+    olderThan,
+    signal,
+    onProgress,
+  }: SentOriginalsScope): Promise<Message[]> {
+    signal?.throwIfAborted();
+    const total = await this.db.count('messages');
+    const found: Message[] = [];
+    let done = 0;
+    let upper = Infinity;
+    let tail = new Set<string>();
+    for (;;) {
+      const slice = await this.readSearchSlice(undefined, upper, tail);
+      if (slice.length === 0) break;
+      const last = slice[slice.length - 1] as MessageRow;
+      tail = new Set([
+        ...(last.seq === upper ? tail : []),
+        ...slice.filter((row) => row.seq === last.seq).map((row) => row.id),
+      ]);
+      upper = last.seq;
+      for (const message of await this.fromRows(slice)) {
+        if (message.sentAt < olderThan && originalIds(message).length > 0) found.push(message);
+      }
+      done += slice.length;
+      onProgress?.(Math.min(done, total), total);
+      if (slice.length < SEARCH_SLICE) break;
+      await yieldToEventLoop();
+      signal?.throwIfAborted();
+    }
+    return found;
+  }
+
+  /** The stored size of the originals under these attachment ids; ids with no copy count nothing. */
+  private async originalsSize(
+    attachmentIds: readonly string[],
+    signal?: AbortSignal,
+  ): Promise<SentOriginalsUsage> {
+    let photos = 0;
+    let bytes = 0;
+    for (const [i, key] of (await this.mediaKeys(attachmentIds)).entries()) {
+      const row = await this.db.get('sentMedia', key);
+      if (row) {
+        photos++;
+        bytes += row.payload.byteLength;
+      }
+      if (i % 20 === 19) {
+        await yieldToEventLoop();
+        signal?.throwIfAborted();
+      }
+    }
+    return { photos, bytes };
   }
 
   allocateSeq(): Promise<number> {

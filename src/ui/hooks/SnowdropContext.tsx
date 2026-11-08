@@ -13,7 +13,12 @@ import type {
 } from '@/core/backend';
 import type { CommandRegistry, KeybindDispatcher } from '@/core/commands';
 import type { LogAdmin } from '@/core/lib';
-import type { MessageRepository } from '@/core/persistence';
+import type {
+  MessageRepository,
+  SentOriginalsDropped,
+  SentOriginalsScope,
+  SentOriginalsUsage,
+} from '@/core/persistence';
 import type { PluginRuntime, Registries } from '@/core/plugins';
 import type {
   HistoryExport,
@@ -40,6 +45,18 @@ export interface AppAdmin {
   exportHistory(onProgress?: (done: number, total: number) => void): Promise<HistoryExport>;
   /** Deletes all stored messages and outbox entries (settings are kept). */
   clearHistory(): Promise<void>;
+  /**
+   * The space the full-quality copies of your sent photos take (see
+   * `MessageRepository.sentOriginalsUsage`): everything without a scope, or
+   * only messages sent before `scope.olderThan`.
+   */
+  sentOriginalsUsage(scope?: SentOriginalsScope): Promise<SentOriginalsUsage>;
+  /**
+   * Removes the full-quality copies of photos sent before `scope.olderThan`.
+   * Their messages show at preview quality from then on, including the ones
+   * already on screen.
+   */
+  dropSentOriginals(scope: SentOriginalsScope): Promise<SentOriginalsDropped>;
   /**
    * Stops syncing and disconnects the backend, so nothing from the current
    * account can land in storage after a following `clearHistory()`. Only

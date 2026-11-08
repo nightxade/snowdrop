@@ -18,20 +18,10 @@ import { downloadBytes, downloadText } from '../download';
 import { SettingRow } from '../rows/SettingRow';
 import { SettingsSection } from '../rows/SettingsSection';
 import { useSettingsSection } from '../useSettingsSection';
+import { formatBytes } from './formatBytes';
+import { SentPhotosRows } from './SentPhotosRows';
 import { ExportHistoryDialog, type ExportChoice } from './ExportHistoryDialog';
 import styles from './pages.module.css';
-
-export function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  const units = ['KB', 'MB', 'GB', 'TB'];
-  let value = bytes / 1024;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit++;
-  }
-  return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[unit] ?? 'TB'}`;
-}
 
 function storageManager(): StorageManager | undefined {
   // Missing on insecure origins and old browsers, whatever the DOM types say.
@@ -308,6 +298,7 @@ export function DataPage() {
             </div>
           )}
         </SettingRow>
+        <SentPhotosRows />
         <SettingRow
           id="data.export"
           label="Export history"

@@ -76,6 +76,30 @@ export interface SentMedia {
   data: Blob;
 }
 
+/** What the kept originals of sent images take up (see `Attachment.original`). */
+export interface SentOriginalsUsage {
+  /** How many images. */
+  photos: number;
+  /** Their stored size in bytes. */
+  bytes: number;
+}
+
+/** Which kept originals a measure or a drop covers: those of messages sent before `olderThan`. */
+export interface SentOriginalsScope {
+  /** Epoch ms: only messages with `sentAt` below this. `Infinity` covers every message. */
+  olderThan: number;
+  /** Abandons the scan; the promise then rejects with the signal's reason. */
+  signal?: AbortSignal;
+  /** Messages looked at so far, out of all stored. Called between slices of the scan. */
+  onProgress?: (done: number, total: number) => void;
+}
+
+/** What `dropSentOriginals` removed. */
+export interface SentOriginalsDropped extends SentOriginalsUsage {
+  /** The attachment ids whose `original` flag was cleared (for in-memory copies of the messages). */
+  attachmentIds: string[];
+}
+
 export interface MessageRepository {
   get(id: MessageId): Promise<Message | undefined>;
   /**
@@ -160,6 +184,21 @@ export interface MessageRepository {
   ): Promise<UpsertResult>;
   /** A kept original (see `Attachment.original`), labelled `type`; undefined if there is none. */
   readSentMedia(id: string, type: string): Promise<Blob | undefined>;
+  /**
+   * The space the kept originals take. Without a scope it sums the stored
+   * sizes without decrypting anything. With one it covers only the messages
+   * sent before `olderThan`, which means decrypting messages (sliced, yielding
+   * between slices; see SentOriginalsScope).
+   */
+  sentOriginalsUsage(scope?: SentOriginalsScope): Promise<SentOriginalsUsage>;
+  /**
+   * Removes the kept originals of messages sent before `olderThan` and clears
+   * `original` on their attachments, so every surface falls back to the
+   * preview. Each message is handled in its own transaction (copy removed and
+   * flag cleared together), queued with the other writes. A message that
+   * can't be read is skipped, never deleted.
+   */
+  dropSentOriginals(scope: SentOriginalsScope): Promise<SentOriginalsDropped>;
   /** Atomically drops an unsent message's pending row and outbox entry. */
   discardOutgoing(nonce: string): Promise<void>;
   putOutbox(entry: OutboxEntry): Promise<void>;
@@ -194,6 +233,11 @@ export function droppedOriginals(
     (after?.attachments ?? []).filter((a) => a.original === true).map((a) => a.id),
   );
   return before.attachments.filter((a) => a.original === true && !kept.has(a.id)).map((a) => a.id);
+}
+
+/** The attachment ids of the kept originals `message` carries. */
+export function originalIds(message: Message): string[] {
+  return message.attachments.filter((a) => a.original === true).map((a) => a.id);
 }
 
 /** The text a search matches: the body, or a poll's question (a poll has no body). */

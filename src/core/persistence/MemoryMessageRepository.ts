@@ -13,6 +13,7 @@ import {
 import {
   droppedOriginals,
   matchesSearch,
+  originalIds,
   searchTerms,
   type MergeFn,
   type MediaQuery,
@@ -21,11 +22,20 @@ import {
   type PageQuery,
   type SearchQuery,
   type SentMedia,
+  type SentOriginalsDropped,
+  type SentOriginalsScope,
+  type SentOriginalsUsage,
   type UpsertResult,
 } from './MessageRepository';
 
 const bySeq = (a: Message, b: Message): number => (a.seq ?? 0) - (b.seq ?? 0);
 const clone = (m: Message): Message => structuredClone(m);
+
+/** A rejection for an aborted signal, so the memory repository fails like the others (undefined if not aborted). */
+function abortion(signal: AbortSignal | undefined): Promise<never> | undefined {
+  if (!signal?.aborted) return undefined;
+  return Promise.reject(signal.reason instanceof Error ? signal.reason : new Error('Aborted'));
+}
 
 export class MemoryMessageRepository implements MessageRepository {
   private readonly messages = new Map<MessageId, Message>();
@@ -284,6 +294,54 @@ export class MemoryMessageRepository implements MessageRepository {
   readSentMedia(id: string, type: string): Promise<Blob | undefined> {
     const media = this.sentMedia.get(id);
     return Promise.resolve(media ? new Blob([media.data], { type }) : undefined);
+  }
+
+  sentOriginalsUsage(scope?: SentOriginalsScope): Promise<SentOriginalsUsage> {
+    const stopped = abortion(scope?.signal);
+    if (stopped) return stopped;
+    const ids =
+      scope === undefined
+        ? [...this.sentMedia.keys()]
+        : this.originalMessages(scope.olderThan).flatMap(originalIds);
+    let photos = 0;
+    let bytes = 0;
+    for (const id of ids) {
+      const media = this.sentMedia.get(id);
+      if (!media) continue;
+      photos++;
+      bytes += media.data.size;
+    }
+    return Promise.resolve({ photos, bytes });
+  }
+
+  dropSentOriginals(scope: SentOriginalsScope): Promise<SentOriginalsDropped> {
+    const stopped = abortion(scope.signal);
+    if (stopped) return stopped;
+    const dropped: SentOriginalsDropped = { photos: 0, bytes: 0, attachmentIds: [] };
+    for (const message of this.originalMessages(scope.olderThan)) {
+      const ids = originalIds(message);
+      for (const id of ids) {
+        const media = this.sentMedia.get(id);
+        if (!media) continue;
+        dropped.photos++;
+        dropped.bytes += media.data.size;
+      }
+      dropped.attachmentIds.push(...ids);
+      // `store` removes the copies the new version no longer flags.
+      this.store(
+        clone({
+          ...message,
+          attachments: message.attachments.map(({ original: _o, ...rest }) => rest),
+        }),
+      );
+    }
+    return Promise.resolve(dropped);
+  }
+
+  private originalMessages(olderThan: number): Message[] {
+    return [...this.messages.values()].filter(
+      (m) => m.sentAt < olderThan && originalIds(m).length > 0,
+    );
   }
 
   async discardOutgoing(nonce: string): Promise<void> {

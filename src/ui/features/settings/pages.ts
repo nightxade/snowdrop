@@ -412,6 +412,16 @@ export const SETTINGS_PAGES: SettingsPageDef[] = [
     keywords: ['history', 'backup', 'storage'],
     entries: [
       { id: 'data.usage', label: 'Storage used', keywords: ['quota', 'size'] },
+      {
+        id: 'data.sentPhotos',
+        label: 'Full-quality sent photos',
+        keywords: ['originals', 'images', 'pictures', 'size', 'space', 'storage'],
+      },
+      {
+        id: 'data.freeUp',
+        label: 'Free up space',
+        keywords: ['originals', 'photos', 'images', 'remove', 'delete', 'clean', 'quality', 'disk'],
+      },
       { id: 'data.export', label: 'Export history', keywords: ['download', 'json', 'backup'] },
       {
         id: 'data.historyImport',

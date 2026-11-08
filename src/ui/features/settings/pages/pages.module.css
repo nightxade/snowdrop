@@ -378,3 +378,12 @@
   font-size: var(--snowdrop-font-size-sm);
   line-height: 1.5;
 }
+
+/* A choice and the button that acts on it, side by side (wrapping on a narrow window) */
+.inlineControls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--snowdrop-space-3);
+}

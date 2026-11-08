@@ -658,6 +658,28 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
       // repository.
       historyImport.reset();
     },
+    sentOriginalsUsage: (scope) => repository.sentOriginalsUsage(scope),
+    dropSentOriginals: async (scope) => {
+      const dropped = await repository.dropSentOriginals(scope);
+      if (dropped.attachmentIds.length === 0) return dropped;
+      // Messages already loaded still carry the flag: clear it there too.
+      const gone = new Set(dropped.attachmentIds);
+      const messages = stores.messages.getState();
+      for (const window of Object.values(messages.windows)) {
+        for (const message of Object.values(window.byId)) {
+          if (!message.attachments.some((a) => a.original === true && gone.has(a.id))) continue;
+          messages.update(message.conversationId, message.id, (m) => ({
+            ...m,
+            attachments: m.attachments.map((a) => {
+              if (a.original !== true || !gone.has(a.id)) return a;
+              const { original: _original, ...rest } = a;
+              return rest;
+            }),
+          }));
+        }
+      }
+      return dropped;
+    },
     disconnect: () => sync.stop(),
     clearAccountData: async () => {
       // Stops the local-state binding first (flushing what it holds, which
