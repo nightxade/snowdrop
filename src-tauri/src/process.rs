@@ -464,6 +464,27 @@ async fn join_bounded(mut task: JoinHandle<()>) {
     }
 }
 
+/// The next line of a child's output, decoded lossily: bytes that aren't
+/// UTF-8 (a different locale, a native crash dump) become U+FFFD instead of
+/// ending the reader, which would leave stdout unanswered or let the stderr
+/// pipe fill and block the child. `None` at end of stream or a real read
+/// error. A trailing `\n` or `\r\n` is removed.
+async fn next_line_lossy(reader: &mut (impl AsyncBufReadExt + Unpin)) -> Option<String> {
+    let mut bytes = Vec::new();
+    match reader.read_until(b'\n', &mut bytes).await {
+        Ok(0) | Err(_) => None,
+        Ok(_) => {
+            if bytes.last() == Some(&b'\n') {
+                bytes.pop();
+                if bytes.last() == Some(&b'\r') {
+                    bytes.pop();
+                }
+            }
+            Some(String::from_utf8_lossy(&bytes).into_owned())
+        }
+    }
+}
+
 async fn write_loop(mut stdin: tokio::process::ChildStdin, mut rx: mpsc::UnboundedReceiver<String>) {
     while let Some(line) = rx.recv().await {
         if stdin.write_all(line.as_bytes()).await.is_err() || stdin.flush().await.is_err() {
@@ -479,8 +500,8 @@ async fn read_loop(
     answered: Arc<AtomicBool>,
     mut confirm: Option<(FailureReason, FailureSink)>,
 ) {
-    let mut lines = BufReader::new(stdout).lines();
-    while let Ok(Some(line)) = lines.next_line().await {
+    let mut reader = BufReader::new(stdout);
+    while let Some(line) = next_line_lossy(&mut reader).await {
         if line.trim().is_empty() {
             continue;
         }
@@ -538,14 +559,14 @@ fn is_known_benign_signal_cli_warning(line: &str) -> bool {
 /// - A handful of known-benign WARN lines are logged at Info instead (see
 ///   [`KNOWN_BENIGN_SIGNAL_CLI_WARNINGS`]).
 async fn drain_stderr(stderr: impl AsyncRead + Unpin, shutting_down: watch::Receiver<bool>, native_fault: Arc<AtomicBool>) {
-    let mut lines = BufReader::new(stderr).lines();
+    let mut reader = BufReader::new(stderr);
     let mut crash_dump_run: u32 = 0;
     // The line right before a crash-dump run started, if any: usually the
     // JVM's own one-line description of the crash (e.g. "Fatal error:
     // java.lang.…"), included in the summary so it isn't left to scroll
     // past unexplained register/stack dump lines to find.
     let mut line_before_dump: Option<String> = None;
-    while let Ok(Some(line)) = lines.next_line().await {
+    while let Some(line) = next_line_lossy(&mut reader).await {
         if line.starts_with("  |0x") {
             crash_dump_run += 1;
             continue;
@@ -606,17 +627,37 @@ fn flush_crash_dump_run(run: &mut u32, context_line: Option<String>, shutting_do
 /// or `21:03:45.123 [main] WARN  Foo - …`. Only the first few
 /// whitespace-separated tokens are checked (not the whole line, which may
 /// go on to contain the word "error" as ordinary text): WARN/ERROR there
-/// are kept at Warn; anything else, including no recognisable level word at
-/// all, is Info.
+/// are kept at Warn. So are the lines a crash prints without any level word:
+/// the native-build fault markers and the head of an uncaught exception
+/// (`Exception in thread …`, `Caused by: …`, `java.lang.X: …`). Anything
+/// else, including no recognisable level word at all, is Info.
 fn stderr_level(line: &str) -> log::Level {
     let is_level_word = |token: &str| {
         matches!(token.trim_matches(|c: char| !c.is_ascii_alphabetic()), "ERROR" | "WARN" | "WARNING")
     };
-    if line.split_whitespace().take(4).any(is_level_word) {
+    if line.split_whitespace().take(4).any(is_level_word)
+        || native_build::is_native_fault_line(line)
+        || is_exception_line(line)
+    {
         log::Level::Warn
     } else {
         log::Level::Info
     }
+}
+
+/// The first line of an uncaught exception or one of its causes. Stack
+/// frames (`\tat …`) are left at Info; the head line says what happened.
+fn is_exception_line(line: &str) -> bool {
+    let line = line.trim_start();
+    if line.starts_with("Exception in thread") || line.starts_with("Caused by:") {
+        return true;
+    }
+    // `java.lang.IllegalStateException: message`, or with no message at all.
+    let first = line.split_whitespace().next().unwrap_or("");
+    let name = first.strip_suffix(':').unwrap_or(first);
+    name.contains('.')
+        && (name.ends_with("Exception") || name.ends_with("Error"))
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '$' | '_'))
 }
 
 fn truncate(text: &str, max: usize) -> &str {
@@ -658,6 +699,29 @@ mod tests {
         assert_eq!(stderr_level("just some plain output"), log::Level::Info);
         // The word appearing later in the line, as ordinary text, doesn't count.
         assert_eq!(stderr_level("connection reset: no error code available"), log::Level::Info);
+    }
+
+    #[test]
+    fn stderr_level_promotes_exception_heads_and_native_faults_to_warn() {
+        for line in [
+            "Exception in thread \"main\" java.lang.IllegalStateException: boom",
+            "Caused by: java.io.IOException: closed",
+            "java.lang.NullPointerException",
+            "java.lang.IllegalStateException: boom",
+            "Fatal error: java.lang.NullPointerException",
+            "org.graalvm.nativeimage.MissingReflectionRegistrationError: x",
+            "java.lang.UnsatisfiedLinkError: no signal_jni",
+        ] {
+            assert_eq!(stderr_level(line), log::Level::Warn, "{line}");
+        }
+        for line in [
+            "\tat org.asamk.signal.Main.main(Main.java:1)",
+            "INFO  no exception here",
+            "Exception handling is fine today",
+            "an Error: appears mid-sentence",
+        ] {
+            assert_eq!(stderr_level(line), log::Level::Info, "{line}");
+        }
     }
 
     #[test]
@@ -738,12 +802,60 @@ mod tests {
     /// Runs `drain_stderr` over `input` to completion and returns every
     /// `target: "signal-cli"` record logged while doing so, in order.
     async fn drain(input: &str, shutting_down: bool) -> Vec<(log::Level, String)> {
+        drain_bytes(input.as_bytes(), shutting_down).await
+    }
+
+    async fn drain_bytes(input: &[u8], shutting_down: bool) -> Vec<(log::Level, String)> {
         let logger = capturing_logger();
         let before = logger.0.lock().unwrap().len();
         let (tx, rx) = watch::channel(shutting_down);
         let _ = &tx; // kept alive for the duration of the call
-        drain_stderr(input.as_bytes(), rx, Arc::new(AtomicBool::new(false))).await;
+        drain_stderr(input, rx, Arc::new(AtomicBool::new(false))).await;
         logger.0.lock().unwrap()[before..].to_vec()
+    }
+
+    #[tokio::test]
+    async fn a_non_utf8_line_does_not_end_the_stderr_reader() {
+        let marker = "drain-marker-non-utf8";
+        let mut input = b"WARN  before \xff\xfe bytes\r\n".to_vec();
+        input.extend_from_slice(format!("WARN  after {marker}\n").as_bytes());
+        let got = drain_bytes(&input, false).await;
+        let matching: Vec<_> = got.into_iter().filter(|(_, m)| m.contains("before") || m.contains(marker)).collect();
+        assert_eq!(
+            matching,
+            vec![
+                (log::Level::Warn, "WARN  before \u{fffd}\u{fffd} bytes".to_string()),
+                (log::Level::Warn, format!("WARN  after {marker}")),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn the_stdout_reader_answers_requests_after_a_non_utf8_line() {
+        let (state, _) = watch::channel(ProcessState::Stopped);
+        let shared = Arc::new(Shared {
+            next_id: AtomicU64::new(1),
+            pending: Mutex::new(HashMap::new()),
+            writer: Mutex::new(None),
+            state,
+            on_notification: Arc::new(|_, _| {}),
+            on_state: Arc::new(|_| {}),
+            generation: AtomicU64::new(0),
+            program: Mutex::new(PathBuf::from("x")),
+            has_fallback: false,
+            can_fall_back: AtomicBool::new(false),
+            abandon: Notify::new(),
+        });
+        let (tx, rx) = oneshot::channel();
+        shared.pending.lock().unwrap().insert(7, tx);
+        let mut input = b"\xff\xfe not json\n".to_vec();
+        input.extend_from_slice(b"{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"ok\":true}}\n");
+        read_loop(&input[..], shared.clone(), Arc::new(AtomicBool::new(false)), None).await;
+        let reply = tokio::time::timeout(Duration::from_secs(5), rx)
+            .await
+            .expect("the reply after the bad line was never delivered")
+            .expect("the request was dropped unanswered");
+        assert_eq!(reply["result"]["ok"], true);
     }
 
     #[tokio::test]
@@ -763,12 +875,12 @@ mod tests {
         let input = format!("Fatal error: {marker}\n  |0x1\n  |0x2\n  |0x3\n");
         let got = drain(&input, false).await;
         let matching: Vec<_> = got.into_iter().filter(|(_, m)| m.contains(marker)).collect();
-        // The "Fatal error: …" line itself is logged normally (Info: it has
-        // no WARN/ERROR level word), *and* the crash summary quotes it.
+        // The "Fatal error: …" line itself is logged normally (Warn: it is a
+        // native-fault marker), *and* the crash summary quotes it.
         assert_eq!(
             matching,
             vec![
-                (log::Level::Info, format!("Fatal error: {marker}")),
+                (log::Level::Warn, format!("Fatal error: {marker}")),
                 (log::Level::Error, format!("signal-cli crashed (3 crash-dump lines collapsed): Fatal error: {marker}")),
             ]
         );

@@ -4,9 +4,10 @@
 //! fetches previews directly (its `contentproxy.signal.org` relay only
 //! tunnels to Giphy). Like Signal Desktop, an `HTTPS_PROXY` / `https_proxy`
 //! environment variable routes every fetch through that proxy instead
-//! (which then resolves the names itself — no local DNS lookup); no other
-//! proxy variable is honoured. Without one, the fetch is direct, hardened
-//! against being pointed somewhere it shouldn't:
+//! (which then resolves the names itself — no local DNS lookup, so only
+//! literal addresses and `localhost` names can be refused up front); no other
+//! proxy variable is honoured. The fetch is hardened against being pointed
+//! somewhere it shouldn't:
 //!
 //! - https only, both for the page and its image.
 //! - Every hostname is resolved to a concrete address *before* connecting,
@@ -14,8 +15,8 @@
 //!   multicast/unspecified ranges, and the connection is pinned to exactly
 //!   that address (no second DNS lookup for the TLS handshake to race).
 //!   Every redirect hop repeats the same check from scratch.
-//! - At most [`MAX_REDIRECTS`] redirects, an [`FETCH_TIMEOUT`] total
-//!   deadline, and a byte cap on both the page (stopping early once
+//! - At most [`MAX_REDIRECTS`] redirects, an [`FETCH_TIMEOUT`] deadline
+//!   covering the whole redirect chain and body read, and a byte cap on both the page (stopping early once
 //!   `</head>` is seen — everything we want lives there) and the image.
 //! - The page is parsed with a real HTML5 tokenizer ([`html5gum`]), not
 //!   regex, which also means character references (`&amp;`, …) are decoded
@@ -96,6 +97,7 @@ enum FetchError {
     BadContentType,
     NoTitle,
     BadProxy,
+    Timeout,
 }
 
 impl fmt::Display for FetchError {
@@ -111,6 +113,7 @@ impl fmt::Display for FetchError {
             FetchError::Status(s) => write!(f, "http status {s}"),
             FetchError::BadContentType => write!(f, "unexpected content type"),
             FetchError::NoTitle => write!(f, "no usable title"),
+            FetchError::Timeout => write!(f, "timed out"),
         }
     }
 }
@@ -177,8 +180,17 @@ async fn fetch_capped_https(
     early_stop: Option<&[u8]>,
 ) -> Result<CappedFetch, FetchError> {
     let proxy = configured_proxy()?;
-    fetch_capped(start, max_bytes, accept, early_stop, "https", proxy.as_ref(), |ip| !is_disallowed_ip(ip))
-        .await
+    fetch_capped(
+        start,
+        max_bytes,
+        accept,
+        early_stop,
+        "https",
+        proxy.as_ref(),
+        |ip| !is_disallowed_ip(ip),
+        FETCH_TIMEOUT,
+    )
+    .await
 }
 
 /// Signal Desktop's rule: `HTTPS_PROXY`, else `https_proxy`, else none. A
@@ -197,13 +209,33 @@ fn proxy_from(upper: Option<String>, lower: Option<String>) -> Result<Option<req
 
 /// Follows redirects (re-validating scheme and address on every hop),
 /// reads the body capped at `max_bytes` (stopping early at `early_stop` if
-/// given), and rejects a final content type `accept` doesn't allow.
+/// given), and rejects a final content type `accept` doesn't allow. The
+/// whole chain, body included, must finish within `deadline`.
 ///
 /// `required_scheme` and `ip_allowed` are parameters (not hardcoded to
 /// `https`/the real address filter) purely so tests can run this exact
 /// redirect/cap/early-stop logic against a plain local test server; see
 /// [`fetch_capped_https`] for what production actually uses.
+#[allow(clippy::too_many_arguments)]
 async fn fetch_capped(
+    start: Url,
+    max_bytes: usize,
+    accept: impl Fn(&str) -> bool,
+    early_stop: Option<&[u8]>,
+    required_scheme: &str,
+    proxy: Option<&reqwest::Proxy>,
+    ip_allowed: impl Fn(&IpAddr) -> bool,
+    deadline: Duration,
+) -> Result<CappedFetch, FetchError> {
+    tokio::time::timeout(
+        deadline,
+        fetch_chain(start, max_bytes, accept, early_stop, required_scheme, proxy, ip_allowed),
+    )
+    .await
+    .map_err(|_| FetchError::Timeout)?
+}
+
+async fn fetch_chain(
     start: Url,
     max_bytes: usize,
     accept: impl Fn(&str) -> bool,
@@ -217,8 +249,15 @@ async fn fetch_capped(
     loop {
         let client = match proxy {
             // The proxy resolves the name; resolving it here too would
-            // leak the lookup outside the proxy.
-            Some(proxy) => proxied_client(proxy.clone())?,
+            // leak the lookup outside the proxy. What can still be refused
+            // without a lookup is refused, so the proxy isn't a way to
+            // probe localhost or the local network by address.
+            Some(proxy) => {
+                if !proxy_target_allowed(&current, &ip_allowed) {
+                    return Err(FetchError::DisallowedAddress);
+                }
+                proxied_client(proxy.clone())?
+            }
             None => {
                 let host = current.host_str().ok_or(FetchError::InvalidUrl)?.to_string();
                 let port = current.port_or_known_default().ok_or(FetchError::InvalidUrl)?;
@@ -265,23 +304,46 @@ async fn read_capped(
     early_stop: Option<&[u8]>,
 ) -> Result<Vec<u8>, FetchError> {
     let mut buf: Vec<u8> = Vec::new();
+    let mut scanned = 0usize;
     while let Some(chunk) = resp.chunk().await.map_err(|_| FetchError::Request)? {
         buf.extend_from_slice(&chunk);
         if buf.len() >= max_bytes {
             buf.truncate(max_bytes);
             break;
         }
-        if early_stop.is_some_and(|needle| contains_case_insensitive(&buf, needle)) {
+        if early_stop.is_some_and(|needle| contains_case_insensitive_from(&buf, scanned, needle)) {
             break;
         }
+        scanned = buf.len();
     }
     Ok(buf)
 }
 
-fn contains_case_insensitive(haystack: &[u8], needle: &[u8]) -> bool {
-    !needle.is_empty()
-        && haystack.len() >= needle.len()
-        && haystack.windows(needle.len()).any(|w| w.eq_ignore_ascii_case(needle))
+/// Whether `needle` occurs in `haystack` at a position that ends past
+/// `scanned`: only the new bytes plus the `needle.len() - 1` before them
+/// (a match can straddle the boundary) are searched, so reading a body
+/// chunk by chunk stays linear.
+fn contains_case_insensitive_from(haystack: &[u8], scanned: usize, needle: &[u8]) -> bool {
+    if needle.is_empty() || haystack.len() < needle.len() {
+        return false;
+    }
+    let from = scanned.saturating_sub(needle.len() - 1);
+    haystack[from..].windows(needle.len()).any(|w| w.eq_ignore_ascii_case(needle))
+}
+
+/// What can be checked about a destination without resolving its name:
+/// an IP literal must pass the address filter, and `localhost` names are
+/// never a legitimate preview target.
+fn proxy_target_allowed(url: &Url, ip_allowed: &impl Fn(&IpAddr) -> bool) -> bool {
+    match url.host() {
+        Some(url::Host::Ipv4(v4)) => ip_allowed(&IpAddr::V4(v4)),
+        Some(url::Host::Ipv6(v6)) => ip_allowed(&IpAddr::V6(v6)),
+        Some(url::Host::Domain(name)) => {
+            let name = name.trim_end_matches('.').to_ascii_lowercase();
+            name != "localhost" && !name.ends_with(".localhost")
+        }
+        None => false,
+    }
 }
 
 fn validate_url(input: &str, required_scheme: &str) -> Result<Url, FetchError> {
@@ -314,7 +376,6 @@ fn pinned_client(host: &str, addr: SocketAddr) -> Result<reqwest::Client, FetchE
         .no_proxy()
         .resolve(host, addr)
         .redirect(reqwest::redirect::Policy::none())
-        .timeout(FETCH_TIMEOUT)
         .connect_timeout(CONNECT_TIMEOUT)
         .user_agent(USER_AGENT)
         .build()
@@ -327,7 +388,6 @@ fn proxied_client(proxy: reqwest::Proxy) -> Result<reqwest::Client, FetchError> 
         .no_proxy()
         .proxy(proxy)
         .redirect(reqwest::redirect::Policy::none())
-        .timeout(FETCH_TIMEOUT)
         .connect_timeout(CONNECT_TIMEOUT)
         .user_agent(USER_AGENT)
         .build()
@@ -675,6 +735,8 @@ mod tests {
         /// test can force the client to see the body as two separate reads
         /// instead of whatever lands in the kernel's socket buffer at once.
         split_at: Option<usize>,
+        /// Wait this long before answering at all.
+        delay: Option<Duration>,
     }
 
     struct TestServer {
@@ -706,6 +768,9 @@ mod tests {
                             let _ = socket.write_all(b"HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n").await;
                             return;
                         };
+                        if let Some(delay) = route.delay {
+                            tokio::time::sleep(delay).await;
+                        }
                         let mut head =
                             format!("HTTP/1.1 {}\r\nContent-Length: {}\r\nConnection: close\r\n", route.status, route.body.len());
                         for (name, value) in &route.headers {
@@ -736,7 +801,7 @@ mod tests {
     }
 
     fn route(status: &'static str, headers: Vec<(&'static str, String)>, body: &str) -> Route {
-        Route { status, headers, body: body.as_bytes().to_vec(), split_at: None }
+        Route { status, headers, body: body.as_bytes().to_vec(), split_at: None, delay: None }
     }
 
     fn html_route(body: &str) -> Route {
@@ -764,7 +829,17 @@ mod tests {
         accept: impl Fn(&str) -> bool,
         early_stop: Option<&[u8]>,
     ) -> Result<CappedFetch, FetchError> {
-        fetch_capped(server.url(path), max_bytes, accept, early_stop, "http", None, |_| true).await
+        fetch_capped(
+            server.url(path),
+            max_bytes,
+            accept,
+            early_stop,
+            "http",
+            None,
+            |_| true,
+            Duration::from_secs(8),
+        )
+        .await
     }
 
     const ACCEPT_HTML: fn(&str) -> bool = |ct| ct.to_ascii_lowercase().contains("html");
@@ -787,10 +862,88 @@ mod tests {
             "http",
             Some(&proxy),
             |_| false,
+            Duration::from_secs(8),
         )
         .await
         .unwrap();
         assert!(String::from_utf8_lossy(&fetched.body).contains("Via proxy"));
+    }
+
+    /// The proxy resolves names itself, but a literal address or a
+    /// `localhost` name needs no lookup to refuse: the proxy must never be
+    /// asked for them, so the server here must see no request at all.
+    #[tokio::test]
+    async fn a_configured_proxy_is_never_asked_for_local_or_private_targets() {
+        let urls = [
+            "http://127.0.0.1/",
+            "http://10.0.0.5/",
+            "http://[::1]/",
+            "http://[fe80::1]/",
+            "http://169.254.169.254/",
+            "http://localhost/",
+            "http://LOCALHOST./",
+            "http://printer.localhost/",
+        ];
+        let mut routes = HashMap::new();
+        for url in urls {
+            routes.insert(url, html_route("<head><title>Leaked</title></head>"));
+        }
+        let proxy_server = TestServer::start(routes).await;
+        let proxy = reqwest::Proxy::http(format!("http://{}", proxy_server.addr)).unwrap();
+        for url in urls {
+            let err = fetch_capped(
+                Url::parse(url).unwrap(),
+                MAX_HTML_BYTES,
+                ACCEPT_HTML,
+                None,
+                "http",
+                Some(&proxy),
+                |ip| !is_disallowed_ip(ip),
+                Duration::from_secs(8),
+            )
+            .await;
+            assert!(matches!(err, Err(FetchError::DisallowedAddress)), "{url} should be refused");
+        }
+    }
+
+    /// Each hop answers within the deadline, but the chain as a whole does
+    /// not, so the whole fetch must fail rather than run hop by hop.
+    #[tokio::test]
+    async fn the_deadline_covers_the_whole_redirect_chain() {
+        let mut routes = HashMap::new();
+        let slow = |r: Route| Route { delay: Some(Duration::from_millis(300)), ..r };
+        routes.insert("/start", slow(redirect_route("/hop1")));
+        routes.insert("/hop1", slow(redirect_route("/hop2")));
+        routes.insert("/hop2", slow(redirect_route("/final")));
+        routes.insert("/final", slow(html_route("<head><title>Landed</title></head>")));
+        let server = TestServer::start(routes).await;
+
+        let err = fetch_capped(
+            server.url("/start"),
+            MAX_HTML_BYTES,
+            ACCEPT_HTML,
+            None,
+            "http",
+            None,
+            |_| true,
+            Duration::from_millis(700),
+        )
+        .await;
+        assert!(matches!(err, Err(FetchError::Timeout)));
+    }
+
+    #[test]
+    fn the_early_stop_scan_looks_only_at_new_bytes_and_the_seam() {
+        let needle = b"</head";
+        // Nothing scanned yet: a match anywhere counts.
+        assert!(contains_case_insensitive_from(b"abc</HEAD>", 0, needle));
+        // The match straddles the previous chunk boundary.
+        assert!(contains_case_insensitive_from(b"abc</he", 0, b"</he"));
+        assert!(!contains_case_insensitive_from(b"x</hea", 4, needle));
+        assert!(contains_case_insensitive_from(b"x</headz", 4, needle));
+        // A match wholly inside the already-scanned part is not rescanned.
+        assert!(!contains_case_insensitive_from(b"</head>zzzzzzzzzzzz", 13, needle));
+        assert!(!contains_case_insensitive_from(b"", 0, needle));
     }
 
     #[test]

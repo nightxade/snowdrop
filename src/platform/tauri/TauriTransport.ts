@@ -169,6 +169,9 @@ export class TauriTransport implements SignalCliTransport {
   }
 }
 
+/** Longest `stop()` waits for signal-cli to confirm an unsubscribe. */
+const UNSUBSCRIBE_WAIT_MS = 1_000;
+
 const DEFAULT_RETRY_MS = [1_000, 2_000, 5_000, 10_000, 30_000];
 
 class TauriSubscription implements EventSubscription {
@@ -176,6 +179,8 @@ class TauriSubscription implements EventSubscription {
   private unlisten: (() => void)[] = [];
   private wake: (() => void) | null = null;
   private loop: Promise<void> | null = null;
+  /** What `signal_cli_subscribe` answered with: the token that ends it. */
+  private token: number | null = null;
 
   constructor(
     private readonly ipc: TauriIpc,
@@ -195,7 +200,36 @@ class TauriSubscription implements EventSubscription {
     this.wake?.();
     await this.loop;
     for (const off of this.unlisten.splice(0)) off();
+    await this.endSubscription();
     this.options.onState({ kind: 'closed' });
+  }
+
+  /**
+   * Ends the subscription in signal-cli too, so it neither receives nor holds
+   * events for a listener that is gone. Hands back the token `subscribe`
+   * returned, so Rust ignores this stop if a newer subscription for the
+   * account has taken over meanwhile. Best effort and short: it waits at most
+   * `UNSUBSCRIBE_WAIT_MS`, so a slow signal-cli can't hold up `disconnect()`
+   * (Rust finishes the request on its own).
+   */
+  private async endSubscription(): Promise<void> {
+    const token = this.token;
+    this.token = null;
+    if (token === null) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const gaveUp = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, UNSUBSCRIBE_WAIT_MS);
+    });
+    try {
+      await Promise.race([
+        this.ipc.invoke('signal_cli_unsubscribe', { account: this.options.account, token }),
+        gaveUp,
+      ]);
+    } catch {
+      // Nothing to do about it.
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   reconnectNow(): void {
@@ -233,10 +267,13 @@ class TauriSubscription implements EventSubscription {
     for (let attempt = 0; this.isRunning(); attempt++) {
       this.options.onState({ kind: 'connecting', attempt });
       try {
-        await this.ipc.invoke('signal_cli_subscribe', {
+        const subscribed = await this.ipc.invoke<unknown>('signal_cli_subscribe', {
           account: this.options.account,
           resumeFrom: this.options.resumeFrom,
         });
+        if (isRecord(subscribed) && typeof subscribed.token === 'number') {
+          this.token = subscribed.token;
+        }
         // `stop()` may have run while the invoke above was in flight: it
         // already emitted `closed`, so don't flicker back to `open`.
         if (this.isRunning()) this.options.onState({ kind: 'open' });

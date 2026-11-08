@@ -16,7 +16,9 @@
 //!
 //! Errors never include the offending value.
 
+use regex::Regex;
 use serde_json::{Map, Value};
+use std::sync::OnceLock;
 
 use crate::error::{Error, ErrorKind};
 
@@ -24,15 +26,22 @@ fn canonical(key: &str) -> String {
     key.chars().filter(|c| *c != '-' && *c != '_').flat_map(char::to_lowercase).collect()
 }
 
+/// signal-cli's own data-URI pattern (`DataURI.DATA_URI_PATTERN`), with Java's
+/// `.` spelled out (it refuses every line terminator, `\n`, `\r`, U+0085,
+/// U+2028 and U+2029, where Rust's refuses only `\n`) and the literal parts
+/// lowercase only, which is stricter than signal-cli's case-insensitive match.
+/// A string that fails it isn't decoded as inline data: signal-cli opens it
+/// as a file path.
+const DATA_URI_PATTERN: &str = r"\Adata:([^\n\r\u{85}\u{2028}\u{2029}]+?/[^\n\r\u{85}\u{2028}\u{2029}]+?)?(;[^\n\r\u{85}\u{2028}\u{2029}]+?=[^\n\r\u{85}\u{2028}\u{2029}]+?)?(;base64)?,[^\n\r\u{85}\u{2028}\u{2029}]+\z";
+
 /// True for a string signal-cli will decode as an inline attachment rather
-/// than open as a file: `data:` (lowercase, as its pattern requires), a
-/// comma, at least one data character, and no line breaks or NULs in the
-/// header (a line break makes signal-cli's pattern fail and fall back to
-/// treating the whole string as a path).
+/// than open as a file: a full match of [`DATA_URI_PATTERN`], and no control
+/// character or line separator anywhere (stricter than signal-cli needs, but
+/// nothing the UI sends has one).
 pub fn is_data_uri(s: &str) -> bool {
-    let Some(rest) = s.strip_prefix("data:") else { return false };
-    let Some((header, data)) = rest.split_once(',') else { return false };
-    !data.is_empty() && !header.contains(['\n', '\r', '\0'])
+    static PATTERN: OnceLock<Regex> = OnceLock::new();
+    let pattern = PATTERN.get_or_init(|| Regex::new(DATA_URI_PATTERN).expect("the data URI pattern compiles"));
+    !s.chars().any(|c| c.is_control() || matches!(c, '\u{2028}' | '\u{2029}')) && pattern.is_match(s)
 }
 
 fn reject(what: &str) -> Error {
@@ -314,6 +323,28 @@ mod tests {
             assert!(check(json!({ "attachment": [URI, bad] })).is_err(), "{bad}");
         }
         assert!(check(json!({ "attachment": "data:text/plain\n;base64,../../etc/passwd" })).is_err());
+        // Not what signal-cli's own pattern takes as inline data (it would open
+        // these as files): no comma straight after the optional header parts,
+        // or a line separator Java's `.` refuses, or a line break in the data.
+        for bad in [
+            "data:x,y",
+            "data:image/png\u{2028};base64,AAAA",
+            "data:image/png\u{85};base64,AAAA",
+            "data:image/png;base64,AA\nAA",
+            "data:image/png;base64,AA\u{2029}AA",
+            "data:image/png;base64,AA\0AA",
+        ] {
+            assert!(!is_data_uri(bad), "{bad:?}");
+            assert!(check(json!({ "attachment": bad })).is_err(), "{bad:?}");
+        }
+        for good in [
+            "data:image/png;base64,AAAA",
+            "data:image/jpeg;filename=a.jpg;base64,AAAA",
+            "data:,hello",
+            "data:text/plain,hello%20world",
+        ] {
+            assert!(is_data_uri(good), "{good:?}");
+        }
         assert!(check(json!({ "attachment": 5 })).is_err());
         assert!(check(json!({ "attachment": [URI, 5] })).is_err());
         assert!(check(json!({ "attachment": { "a": URI } })).is_err());

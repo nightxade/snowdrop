@@ -56,10 +56,13 @@ const PERIODIC: Duration = Duration::from_secs(60);
 const SHUTDOWN_BUDGET: Duration = Duration::from_secs(10);
 
 /// The methods a successful `signal_cli_request` should mark the vault dirty
-/// for (docs/ENCRYPTION.md, "When to sync"): any `send*`, plus
-/// `updateGroup`/`updateContact`/`finishLink`.
+/// for (docs/ENCRYPTION.md, "When to sync"): any `send*` except `sendTyping`,
+/// plus `updateGroup`/`updateContact`/`finishLink`. Receipts and the
+/// contacts-sync request advance session state like any other send, so they
+/// count; typing indicators are frequent and the one send that is worth
+/// skipping, since each sync is a pass over every changed database.
 pub fn triggers_sync(method: &str) -> bool {
-    method.starts_with("send") || matches!(method, "updateGroup" | "updateContact" | "finishLink")
+    (method.starts_with("send") && method != "sendTyping") || matches!(method, "updateGroup" | "updateContact" | "finishLink")
 }
 
 /// Maps a `getAttachment` request's `id` param to the manifest relpath
@@ -240,9 +243,18 @@ impl VaultBridge {
     /// signal-cli writing to the same files. Bounded to about
     /// [`SHUTDOWN_BUDGET`]: past that, the runtime dir is left exactly as it
     /// is, for the next launch's crash recovery (docs/ENCRYPTION.md).
-    pub async fn shutdown(&self) {
-        let Some(session) = self.inner.session.lock().expect("vault session lock").take() else { return };
-        let result = tokio::time::timeout(SHUTDOWN_BUDGET, tokio::task::spawn_blocking(move || session.shutdown())).await;
+    pub async fn shutdown(self: &Arc<Self>) {
+        // Taking the session waits behind a sync that is mid-pass (it holds
+        // the same mutex), so that wait is inside the budget too.
+        let bridge = self.clone();
+        let result = tokio::time::timeout(
+            SHUTDOWN_BUDGET,
+            tokio::task::spawn_blocking(move || {
+                let session = bridge.inner.session.lock().expect("vault session lock").take();
+                session.map(VaultSession::shutdown).unwrap_or(Ok(()))
+            }),
+        )
+        .await;
         match result {
             Ok(Ok(Ok(()))) => {}
             Ok(Ok(Err(e))) => log::warn!("vault: the final sync on shutdown failed ({e}); the runtime dir is left for crash recovery."),
@@ -376,6 +388,28 @@ mod tests {
     }
 
     #[test]
+    fn only_calls_that_store_something_trigger_a_sync() {
+        for method in [
+            "send",
+            "sendReaction",
+            "sendAdminDelete",
+            "sendPinMessage",
+            "sendPollVote",
+            "sendMessageRequestResponse",
+            "sendReceipt",
+            "sendSyncRequest",
+            "updateGroup",
+            "updateContact",
+            "finishLink",
+        ] {
+            assert!(triggers_sync(method), "{method}");
+        }
+        for method in ["sendTyping", "listContacts", "version", "getAttachment"] {
+            assert!(!triggers_sync(method), "{method}");
+        }
+    }
+
+    #[test]
     fn attachment_id_is_sanitized_like_signal_clis_own_store() {
         assert_eq!(attachment_relpath("abc123.jpg"), "attachments/abc123.jpg");
         assert_eq!(attachment_relpath("weird id!@#"), "attachments/weird_id___");
@@ -493,6 +527,43 @@ mod tests {
 
         bridge.shutdown().await;
         assert!(!dir.exists(), "the runtime dir must be wiped after a clean shutdown");
+    }
+
+    /// Shutdown waits for a sync that is mid-pass (it holds the session
+    /// mutex), and that wait belongs on the blocking pool, inside the
+    /// budget: on a single-threaded runtime a heartbeat keeps ticking.
+    #[tokio::test(flavor = "current_thread")]
+    async fn shutdown_waits_for_a_running_sync_without_blocking_the_runtime() {
+        use std::sync::atomic::AtomicUsize;
+        let (_guard, take_parts) = once(fixture("shutdown-behind-sync"));
+        let (bridge, _rx) = VaultBridge::new(false, always_unlocked(), take_parts);
+        bridge.spawn_config_dir(Path::new("/fallback")).unwrap();
+
+        let ticks = Arc::new(AtomicUsize::new(0));
+        let beat = {
+            let ticks = ticks.clone();
+            tokio::spawn(async move {
+                loop {
+                    sleep(Duration::from_millis(10)).await;
+                    ticks.fetch_add(1, Ordering::SeqCst);
+                }
+            })
+        };
+        sleep(Duration::from_millis(30)).await;
+        let holder = {
+            let bridge = bridge.clone();
+            std::thread::spawn(move || {
+                let _held = bridge.inner.session.lock().unwrap();
+                std::thread::sleep(Duration::from_millis(500));
+            })
+        };
+        sleep(Duration::from_millis(50)).await; // the holder has the mutex now
+        let before = ticks.load(Ordering::SeqCst);
+        bridge.shutdown().await;
+        let during = ticks.load(Ordering::SeqCst) - before;
+        beat.abort();
+        holder.join().unwrap();
+        assert!(during >= 10, "the runtime was blocked while shutdown waited for the session ({during} ticks)");
     }
 
     #[tokio::test]

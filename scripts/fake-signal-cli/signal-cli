@@ -16,7 +16,8 @@
 // `failFirstSubscribeFromStart: n` makes the first `subscribeReceive` of the
 // n-th and later starts fail. The
 // fake also writes its pid to `<--config dir>/fake.pid` and appends it to
-// `<--config dir>/fake.starts` (one line per start).
+// `<--config dir>/fake.starts` (one line per start), and each
+// `unsubscribeReceive` subscription id to `<--config dir>/fake.unsubscribed`.
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
@@ -123,7 +124,11 @@ const methods = {
     }, 20);
     return subscription;
   },
-  unsubscribeReceive: () => true,
+  unsubscribeReceive: (params) => {
+    if (configDir && existsSync(configDir))
+      appendFileSync(path.join(configDir, 'fake.unsubscribed'), `${params?.subscription}\n`);
+    return true;
+  },
 };
 
 readline

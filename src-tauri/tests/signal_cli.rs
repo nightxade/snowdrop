@@ -1195,3 +1195,119 @@ async fn real_native_build_falls_back_to_the_real_java_build_when_it_cannot_load
     assert_eq!(third.locate(None).unwrap().source, BinarySource::Patched);
     let _ = std::fs::remove_dir_all(&app);
 }
+
+// ── Blocking storage work stays off the async workers ──
+
+/// Longest silence a runtime's heartbeat task shows while `work` runs on it:
+/// a gap near the length of a blocking call means that call ran on the
+/// runtime's own thread instead of a blocking-pool thread.
+async fn longest_stall<F: std::future::Future>(work: F) -> (F::Output, Duration) {
+    let worst = Arc::new(Mutex::new(Duration::ZERO));
+    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let beat = {
+        let (worst, stop) = (worst.clone(), stop.clone());
+        tokio::spawn(async move {
+            let mut last = Instant::now();
+            while !stop.load(std::sync::atomic::Ordering::SeqCst) {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+                let gap = last.elapsed();
+                let mut w = worst.lock().unwrap();
+                *w = (*w).max(gap);
+                last = Instant::now();
+            }
+        })
+    };
+    // Let the heartbeat get going before the work can block anything.
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let out = work.await;
+    stop.store(true, std::sync::atomic::Ordering::SeqCst);
+    let _ = beat.await;
+    let gap = *worst.lock().unwrap();
+    (out, gap)
+}
+
+/// The vault bridge's closures reach storage (and, behind it, the keyring),
+/// so a connect and a pre-spawn must run them on the blocking pool: here a
+/// single-threaded runtime, where any blocking call on it freezes the
+/// heartbeat for as long as the call takes.
+#[tokio::test(flavor = "current_thread")]
+async fn connect_and_prespawn_reach_storage_off_the_async_worker() {
+    require_node!();
+    let dir = temp_dir("blocking-off-worker");
+    let parts = Mutex::new(Some(vault_fixture(&dir)));
+    let (vault, _rx) = VaultBridge::new(
+        false,
+        Box::new(|| {
+            std::thread::sleep(Duration::from_millis(400));
+            true
+        }),
+        Box::new(move || parts.lock().unwrap().take().ok_or_else(|| Error::new(ErrorKind::StorageLocked, "taken"))),
+    );
+    let svc = Service::with_timeouts(
+        Paths { app_data_dir: dir.clone(), data_dir: dir.join("plaintext-unused"), bundled: None },
+        Arc::new(Recorder::default()),
+        Timeouts { backoff: fast_backoff(), grace: Duration::from_secs(2), ..Timeouts::default() },
+        vault,
+    );
+    LastConnectFile::new(&dir).save(&record(true));
+
+    // `prespawn` asks `ready_to_spawn` (one slow `is_unlocked`), then the start asks again.
+    let (outcome, stall) = longest_stall(svc.prespawn()).await;
+    assert_eq!(outcome, Prespawn::Started);
+    assert!(stall < Duration::from_millis(250), "storage was reached on the async worker (stalled {stall:?})");
+    svc.shutdown().await;
+}
+
+/// A stopped subscription ends in signal-cli too (so nothing more is received
+/// for nobody), and a later subscribe for the account starts a fresh one.
+#[tokio::test(flavor = "multi_thread")]
+async fn unsubscribing_ends_the_subscription_and_a_later_subscribe_starts_a_new_one() {
+    require_node!();
+    let dir = temp_dir("unsubscribe");
+    let recorder = Arc::new(Recorder::default());
+    let svc = service(&dir, recorder.clone());
+    svc.connect(spawn_config()).await.unwrap();
+    let first = svc.subscribe_with_token(Some("+15550001".into()), String::new()).await.unwrap();
+    eventually("two events", || recorder.events.lock().unwrap().len() == 2).await;
+    let last = recorder.events.lock().unwrap()[1].cursor.clone();
+
+    svc.unsubscribe(Some("+15550001".into()), first.token).await;
+    let ended = std::fs::read_to_string(dir.join("fake.unsubscribed")).expect("signal-cli was told to unsubscribe");
+    assert_eq!(ended.lines().collect::<Vec<_>>(), ["0"]);
+
+    // Subscribing again is a real new subscription (the old one is gone), so
+    // the fake delivers its two messages again.
+    recorder.events.lock().unwrap().clear();
+    let second = svc.subscribe_with_token(Some("+15550001".into()), last).await.unwrap();
+    eventually("two more events", || recorder.events.lock().unwrap().len() == 2).await;
+    svc.unsubscribe(Some("+15550001".into()), second.token).await;
+    let ended = std::fs::read_to_string(dir.join("fake.unsubscribed")).unwrap();
+    assert_eq!(ended.lines().collect::<Vec<_>>(), ["0", "1"]);
+    svc.shutdown().await;
+}
+
+/// Subscribe (A), subscribe again (B, which reuses the live subscription),
+/// then A's stop arrives late: B stays subscribed, signal-cli is never told to
+/// unsubscribe, and only B's own stop ends it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_late_stop_of_an_older_subscription_does_not_end_the_newer_one() {
+    require_node!();
+    let dir = temp_dir("unsubscribe-stale");
+    let recorder = Arc::new(Recorder::default());
+    let svc = service(&dir, recorder.clone());
+    svc.connect(spawn_config()).await.unwrap();
+    let a = svc.subscribe_with_token(Some("+15550001".into()), String::new()).await.unwrap();
+    eventually("two events", || recorder.events.lock().unwrap().len() == 2).await;
+    let last = recorder.events.lock().unwrap()[1].cursor.clone();
+    let b = svc.subscribe_with_token(Some("+15550001".into()), last).await.unwrap();
+    assert_ne!(a.token, b.token);
+
+    svc.unsubscribe(Some("+15550001".into()), a.token).await;
+    assert!(!dir.join("fake.unsubscribed").exists(), "the stale stop reached signal-cli");
+
+    // B's subscription is still the live one, so its own stop ends exactly it.
+    svc.unsubscribe(Some("+15550001".into()), b.token).await;
+    let ended = std::fs::read_to_string(dir.join("fake.unsubscribed")).unwrap();
+    assert_eq!(ended.lines().collect::<Vec<_>>(), ["0"]);
+    svc.shutdown().await;
+}

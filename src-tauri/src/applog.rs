@@ -117,6 +117,13 @@ fn format_line(level: Level, target: &str, message: &str) -> String {
     format!("{now} {:<5} {target}  {message}", level_str(level))
 }
 
+/// Copies a log line to the terminal. A closed or full stderr (`2>&1 | head`)
+/// is no reason to fail: `eprintln!` would panic on it, and with
+/// `panic = "abort"` that ends the app over a log line.
+fn echo_line(out: &mut impl std::io::Write, line: &str) {
+    let _ = writeln!(out, "{line}");
+}
+
 pub struct Logger {
     file: LogFile,
     path: PathBuf,
@@ -133,7 +140,7 @@ impl Logger {
     /// logger singleton.
     fn record(&self, level: Level, target: &str, message: &str) {
         let line = format_line(level, target, &redact(message));
-        eprintln!("{line}");
+        echo_line(&mut std::io::stderr(), &line);
         self.file.append(&line);
     }
 
@@ -233,6 +240,23 @@ mod tests {
         assert!(written.contains("rust:vault"), "{written}");
         assert!(written.contains("<phone>"), "{written}");
         assert!(!written.contains("15551234567"), "{written}");
+    }
+
+    #[test]
+    fn echoing_to_a_closed_stderr_does_not_panic() {
+        struct Closed;
+        impl std::io::Write for Closed {
+            fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+                Err(std::io::ErrorKind::BrokenPipe.into())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Err(std::io::ErrorKind::BrokenPipe.into())
+            }
+        }
+        echo_line(&mut Closed, "a log line");
+        let mut open = Vec::new();
+        echo_line(&mut open, "a log line");
+        assert_eq!(open, b"a log line\n");
     }
 
     #[test]

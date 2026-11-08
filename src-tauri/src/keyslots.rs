@@ -334,10 +334,16 @@ impl Locked {
     }
 
     pub fn unlock_keyring<S: SecretStore>(&self, slot: &KeyringSlot<S>) -> Result<Unlocked, Error> {
+        let entry = self.keyring_entry().ok_or_else(|| Error::new(ErrorKind::SlotMissing, "keys.json has no keyring slot."))?;
+        self.unlock_with_keyring_secret(slot.get(&entry))
+    }
+
+    /// [`unlock_keyring`](Self::unlock_keyring) with the keyring read already
+    /// done (`KeyringSlot::get` for [`keyring_entry`](Self::keyring_entry)), so
+    /// the slow, blocking read can happen without holding whatever owns this.
+    pub fn unlock_with_keyring_secret(&self, secret: Result<Option<Key32>, Error>) -> Result<Unlocked, Error> {
         let keyring_slot = self.file.slot(SlotKind::Keyring).ok_or_else(|| Error::new(ErrorKind::SlotMissing, "keys.json has no keyring slot."))?;
-        let entry = keyring_slot.keyring_entry().expect("a keyring slot always carries an entry id");
-        let kek = slot
-            .get(entry)?
+        let kek = secret?
             .ok_or_else(|| Error::new(ErrorKind::KeyringSecretMissing, "The OS keyring has no Snowdrop secret."))?;
         self.unwrap_with(keyring_slot, &kek)
     }

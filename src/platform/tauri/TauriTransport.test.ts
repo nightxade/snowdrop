@@ -247,6 +247,75 @@ describe('TauriTransport', () => {
     expect(ipc.invoke).toHaveBeenCalledTimes(3);
   });
 
+  it('ends the subscription with the token it was given, even if that fails', async () => {
+    ipc.invoke.mockResolvedValueOnce({ run: 'r1', token: 7 });
+    const states: { kind: string }[] = [];
+    const sub = new TauriTransport({ desktop: spawn }).subscribe({
+      account: '+15550001',
+      resumeFrom: '',
+      onEvent: () => undefined,
+      onState: (s) => states.push(s),
+    });
+    sub.start();
+    await vi.waitFor(() => {
+      expect(states.at(-1)).toEqual({ kind: 'open' });
+    });
+    ipc.invoke.mockRejectedValueOnce(new Error('window closing'));
+    await sub.stop();
+    expect(ipc.invoke).toHaveBeenLastCalledWith('signal_cli_unsubscribe', {
+      account: '+15550001',
+      token: 7,
+    });
+    expect(states.at(-1)).toEqual({ kind: 'closed' });
+  });
+
+  it('sends no unsubscribe for a subscription that never got a token', async () => {
+    ipc.invoke.mockResolvedValueOnce('r1');
+    const states: { kind: string }[] = [];
+    const sub = new TauriTransport({ desktop: spawn }).subscribe({
+      account: null,
+      resumeFrom: '',
+      onEvent: () => undefined,
+      onState: (s) => states.push(s),
+    });
+    sub.start();
+    await vi.waitFor(() => {
+      expect(states.at(-1)).toEqual({ kind: 'open' });
+    });
+    await sub.stop();
+    expect(ipc.invoke).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not let a slow unsubscribe hold up stop()', async () => {
+    vi.useFakeTimers();
+    try {
+      ipc.invoke.mockResolvedValueOnce({ run: 'r1', token: 3 });
+      const states: { kind: string }[] = [];
+      const sub = new TauriTransport({ desktop: spawn }).subscribe({
+        account: null,
+        resumeFrom: '',
+        onEvent: () => undefined,
+        onState: (s) => states.push(s),
+      });
+      sub.start();
+      await vi.waitFor(() => {
+        expect(states.at(-1)).toEqual({ kind: 'open' });
+      });
+      ipc.invoke.mockReturnValueOnce(new Promise(() => undefined)); // never answers
+      let done = false;
+      const stopped = sub.stop().then(() => {
+        done = true;
+      });
+      await vi.advanceTimersByTimeAsync(500);
+      expect(done).toBe(false);
+      await vi.advanceTimersByTimeAsync(600);
+      await stopped;
+      expect(states.at(-1)).toEqual({ kind: 'closed' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('acknowledges cursors without failing the caller', async () => {
     ipc.invoke.mockRejectedValue(new Error('window closing'));
     new TauriTransport({ desktop: spawn }).acknowledge('r1:9');

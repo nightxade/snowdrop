@@ -471,7 +471,8 @@ and however bytes actually move:
   through the dev/preview proxy.
 - **Desktop:** `src/platform/tauri/TauriTransport.ts`'s `TauriTransport` —
   requests become Tauri command invocations (`signal_cli_connect`,
-  `signal_cli_request`, `signal_cli_subscribe`, `signal_cli_ack`); incoming
+  `signal_cli_request`, `signal_cli_subscribe`, `signal_cli_unsubscribe`,
+  `signal_cli_ack`); incoming
   messages and stream state arrive as the Tauri events `signal-cli://event`
   and `signal-cli://state`, emitted by `src-tauri/src/lib.rs`.
 
@@ -490,6 +491,13 @@ stored it. So in spawn mode the Rust side (`src-tauri/src/events.rs`,
 `EventLog`) holds every event it forwards, numbered `"<run>:<seq>"` per
 process run, until the UI acknowledges it:
 
+- Acknowledging a cursor releases only the events of the account that cursor's
+  event belongs to, up to it. Stopping a subscription (`signal_cli_unsubscribe`)
+  ends it in signal-cli, so nothing more is received for a listener that is
+  gone. What is held stays for a later subscribe, and so does a message already
+  in flight when it was stopped (signal-cli has acknowledged it to the server).
+  `signal_cli_subscribe` returns a token that the stop passes back; a stop for
+  an older subscription than the account's current one is ignored.
 - `SyncService` acknowledges a cursor only after the event's repository write
   completes (`signal_cli_ack`, the same checkpoint → acknowledge pattern the
   HTTP transport uses) — see ["Checkpoints and
@@ -515,7 +523,7 @@ unknown (replay everything currently held/available).
   model: the key hierarchy (OS keyring, recovery key, passphrase), the
   signal-cli vault, web cache encryption, and Settings → Privacy & security
   (create/replace/remove a recovery key, add/change/remove a passphrase,
-  re-enrol a keyring, erase all local data). `app_restart` (`AppHandle::restart`)
+  re-enrol a keyring, erase all local data). `app_restart` (`AppHandle::request_restart`)
   is the one command there beyond the `storage_*` ones: erasing needs a fresh
   process, since the vault bridge and `snowdrop.lock` are one-shot per
   process.

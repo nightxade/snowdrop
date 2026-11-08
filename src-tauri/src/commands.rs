@@ -13,7 +13,7 @@ use crate::config::{ConnectConfig, ResolvedBinary};
 use crate::error::{Error, ErrorKind};
 use crate::perf::CommandTimer;
 use crate::secrets::{self, KeyringStatus, KeyringStore};
-use crate::service::{ConnectInfo, ProbeResult, Service};
+use crate::service::{ConnectInfo, ProbeResult, Service, Subscribed};
 use crate::signal_cli_install::{self, InstallState, InstallStatus, PinnedAsset};
 use crate::storage::{SetupMode, StorageService, StorageStatus, UnlockMethod};
 use crate::tray;
@@ -185,9 +185,17 @@ pub async fn signal_cli_request(
 }
 
 #[tauri::command]
-pub async fn signal_cli_subscribe(service: Svc<'_>, account: Option<String>, resume_from: Option<String>) -> Result<String, Error> {
+pub async fn signal_cli_subscribe(service: Svc<'_>, account: Option<String>, resume_from: Option<String>) -> Result<Subscribed, Error> {
     let _t = CommandTimer::start("signal_cli_subscribe");
-    service.subscribe(account, resume_from.unwrap_or_default()).await
+    service.subscribe_with_token(account, resume_from.unwrap_or_default()).await
+}
+
+/// The UI stopped its event subscription for `account`: see `Service::unsubscribe`.
+#[tauri::command]
+pub async fn signal_cli_unsubscribe(service: Svc<'_>, account: Option<String>, token: u64) -> Result<(), Error> {
+    let _t = CommandTimer::start("signal_cli_unsubscribe");
+    service.unsubscribe(account, token).await;
+    Ok(())
 }
 
 // Kept sync and trivial: an in-memory cursor bump, no lock contention or IO.
@@ -393,9 +401,9 @@ pub async fn storage_status(app: AppHandle) -> StorageStatus {
     tauri::async_runtime::spawn_blocking(move || {
         let storage = app.state::<Mutex<StorageService>>();
         let service = app.state::<Arc<Service>>();
-        let mut storage = storage.lock().expect("storage lock");
-        let status = storage.status();
-        drop(storage);
+        // The keyring read happens with no lock on storage held.
+        crate::storage::silent_unlock(storage.inner());
+        let status = storage.lock().expect("storage lock").current_status();
         kick_prespawn(&app, &status);
         with_live_vault_disabled(status, &service)
     })
@@ -410,11 +418,12 @@ pub async fn storage_setup(
     passphrase: Option<String>,
 ) -> Result<StorageStatus, Error> {
     let _t = CommandTimer::start("storage_setup");
+    let passphrase = passphrase.map(zeroize::Zeroizing::new);
     tauri::async_runtime::spawn_blocking(move || {
         let storage = app.state::<Mutex<StorageService>>();
         let service = app.state::<Arc<Service>>();
         let mut storage = storage.lock().expect("storage lock");
-        let status = storage.setup_new(mode, passphrase.as_deref())?;
+        let status = storage.setup_new(mode, passphrase.as_ref().map(|p| p.as_str()))?;
         Ok(with_live_vault_disabled(status, &service))
     })
     .await
@@ -429,6 +438,7 @@ pub async fn storage_unlock(
     remember: bool,
 ) -> Result<StorageStatus, Error> {
     let _t = CommandTimer::start("storage_unlock");
+    let secret = zeroize::Zeroizing::new(secret);
     tauri::async_runtime::spawn_blocking(move || {
         let storage = app.state::<Mutex<StorageService>>();
         let service = app.state::<Arc<Service>>();
@@ -481,11 +491,12 @@ pub async fn storage_remove_recovery(app: AppHandle) -> Result<StorageStatus, Er
 #[tauri::command]
 pub async fn storage_set_passphrase(app: AppHandle, passphrase: Option<String>) -> Result<StorageStatus, Error> {
     let _t = CommandTimer::start("storage_set_passphrase");
+    let passphrase = passphrase.map(zeroize::Zeroizing::new);
     tauri::async_runtime::spawn_blocking(move || {
         let storage = app.state::<Mutex<StorageService>>();
         let service = app.state::<Arc<Service>>();
         let mut storage = storage.lock().expect("storage lock");
-        let status = storage.set_passphrase(passphrase.as_deref())?;
+        let status = storage.set_passphrase(passphrase.as_ref().map(|p| p.as_str()))?;
         Ok(with_live_vault_disabled(status, &service))
     })
     .await
@@ -621,9 +632,14 @@ pub async fn storage_sign_out(app: AppHandle) -> Result<StorageStatus, Error> {
 /// one-shot per process, so the only way back to a clean `needsSetup` boot
 /// is a fresh process, not just a webview reload
 /// (docs/ENCRYPTION.md, "Erase").
+///
+/// Goes through the normal exit (`request_restart`: `ExitRequested`, then the
+/// `Exit` handler in `lib.rs`, which stops signal-cli and runs the vault's
+/// final sync) and relaunches after it. `restart()` called on the main thread,
+/// where a sync command runs, would skip all of that and exec at once.
 #[tauri::command]
 pub fn app_restart(app: AppHandle) {
-    app.restart();
+    app.request_restart();
 }
 
 /// Answers `snowdrop://flush-before-close` (docs/ENCRYPTION.md, "signal-cli
@@ -676,7 +692,7 @@ pub fn is_external_url(url: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_allowed_method, is_external_url, valid_log_scope};
+    use super::{bound_frontend_message, is_allowed_method, is_external_url, valid_log_scope, MAX_FRONTEND_LOG_CHARS};
 
     #[test]
     fn opens_only_web_and_mail_links() {
@@ -685,6 +701,15 @@ mod tests {
         for bad in ["file:///etc/passwd", "javascript:alert(1)", "tauri://localhost", "smb://x", "https://a\nb"] {
             assert!(!is_external_url(bad), "{bad}");
         }
+    }
+
+    #[test]
+    fn a_webview_log_message_is_bounded_before_it_is_processed() {
+        assert_eq!(bound_frontend_message("short"), "short");
+        let huge = "é".repeat(MAX_FRONTEND_LOG_CHARS * 50);
+        let bounded = bound_frontend_message(&huge);
+        assert_eq!(bounded.chars().count(), MAX_FRONTEND_LOG_CHARS);
+        assert!(huge.starts_with(bounded));
     }
 
     /// Every `.call('method', …)` in the signal-cli backend's non-test sources
@@ -950,7 +975,19 @@ pub fn frontend_log(level: String, scope: String, message: String) {
     let _t = CommandTimer::start("frontend_log");
     let scope = if valid_log_scope(&scope) { scope } else { "ui".to_string() };
     let target = format!("ui:{scope}");
-    log::log!(target: target.as_str(), parse_frontend_level(&level), "{message}");
+    log::log!(target: target.as_str(), parse_frontend_level(&level), "{}", bound_frontend_message(&message));
+}
+
+/// Most of a webview log message that is looked at: redaction makes several
+/// passes over it and the logger caps the result far lower, so the rest of an
+/// oversized message is never worth the work.
+const MAX_FRONTEND_LOG_CHARS: usize = 8_000;
+
+fn bound_frontend_message(message: &str) -> &str {
+    match message.char_indices().nth(MAX_FRONTEND_LOG_CHARS) {
+        Some((at, _)) => &message[..at],
+        None => message,
+    }
 }
 
 /// Raises the running app's log floor to Debug, or back down, from a

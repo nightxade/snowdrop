@@ -89,8 +89,24 @@ struct Subscriptions {
     accounts: Vec<String>,
     /// signal-cli subscription id → account, for the current child.
     by_id: HashMap<u64, String>,
+    /// Ids ended by [`Service::unsubscribe`] on the current child, with their
+    /// account: a notification still in flight for one is held for that
+    /// account (signal-cli has already acknowledged it to the server), never
+    /// dropped and never guessed onto whichever account is left.
+    ended: HashMap<u64, String>,
+    /// The token the latest [`Service::subscribe_with_token`] for each account
+    /// handed out; an unsubscribe carrying any other token is stale.
+    tokens: HashMap<String, u64>,
     /// External mode: a stop flag per account's SSE thread.
     streams: HashMap<String, Arc<AtomicBool>>,
+}
+
+/// What a subscribe hands back: the run id (cursors start with it) and the
+/// token the matching [`Service::unsubscribe`] must present.
+#[derive(Debug, Clone, Serialize)]
+pub struct Subscribed {
+    pub run: String,
+    pub token: u64,
 }
 
 pub struct Service {
@@ -121,6 +137,8 @@ pub struct Service {
     /// Bumped by every [`stop_backend`](Self::stop_backend): a `start` that
     /// began before one gives up rather than finishing a connect nobody wants.
     stop_epoch: AtomicU64,
+    /// Numbers subscribes, for [`Subscriptions::tokens`].
+    next_token: AtomicU64,
 }
 
 /// What [`Service::prespawn`] did.
@@ -181,6 +199,7 @@ impl Service {
             retired: AtomicBool::new(false),
             starting: Mutex::new(None),
             stop_epoch: AtomicU64::new(0),
+            next_token: AtomicU64::new(1),
         })
     }
 
@@ -332,7 +351,10 @@ impl Service {
         let Some(config) = self.last.load().and_then(|last| last.prespawn_config()) else {
             return Prespawn::Skipped;
         };
-        if !self.vault.ready_to_spawn() || self.prespawn_tried.swap(true, Ordering::SeqCst) {
+        let vault = self.vault.clone();
+        // Takes storage's lock; keep it off the async workers.
+        let ready = tokio::task::spawn_blocking(move || vault.ready_to_spawn()).await.unwrap_or(false);
+        if !ready || self.prespawn_tried.swap(true, Ordering::SeqCst) {
             return Prespawn::Skipped;
         }
         let mut active = self.active.lock().await;
@@ -383,7 +405,11 @@ impl Service {
                 // The vault's RAM-backed runtime dir once storage is unlocked
                 // and the vault applies, or `paths.data_dir` unchanged when
                 // it's disabled (docs/ENCRYPTION.md, "signal-cli vault").
-                let config_dir = self.vault.spawn_config_dir(&self.paths.data_dir)?;
+                // Off the async workers: the first start restores the whole
+                // non-media vault (decrypt, write, fsync) and takes storage's lock.
+                let vault = self.vault.clone();
+                let data_dir = self.paths.data_dir.clone();
+                let config_dir = blocking(move || vault.spawn_config_dir(&data_dir)).await?;
                 startup::mark_once("storage restored");
                 std::fs::create_dir_all(&config_dir)
                     .map_err(|e| Error::new(ErrorKind::Internal, format!("Couldn't create {}: {e}", config_dir.display())))?;
@@ -473,6 +499,7 @@ impl Service {
         {
             let mut subs = self.subs.lock().expect("subs lock");
             subs.by_id.clear();
+            subs.ended.clear();
             for (_, stop) in subs.streams.drain() {
                 stop.store(true, std::sync::atomic::Ordering::Relaxed);
             }
@@ -576,7 +603,17 @@ impl Service {
     /// Starts receiving for `account` (None: single-account signal-cli),
     /// replaying held events after `resume_from` first.
     pub async fn subscribe(&self, account: Option<String>, resume_from: String) -> Result<String, Error> {
+        self.subscribe_with_token(account, resume_from).await.map(|s| s.run)
+    }
+
+    /// [`subscribe`](Self::subscribe), also returning the token that ends this
+    /// subscription: the latest subscribe for an account owns it, so the stop
+    /// of an older subscription that is still on its way can't end the newer.
+    pub async fn subscribe_with_token(&self, account: Option<String>, resume_from: String) -> Result<Subscribed, Error> {
         let key = account.clone().unwrap_or_default();
+        // Numbered in call order, before anything is awaited.
+        let token = self.next_token.fetch_add(1, Ordering::SeqCst);
+        self.subs.lock().expect("subs lock").tokens.insert(key.clone(), token);
         let active = self.active.lock().await;
         match active.as_ref() {
             None => Err(Error::new(ErrorKind::Unreachable, "signal-cli isn't connected yet.")),
@@ -603,7 +640,7 @@ impl Service {
                     self.subscribe_child(&process, &key).await?;
                 }
                 self.sink.state(&StreamState::Open);
-                Ok(self.run_id())
+                Ok(Subscribed { run: self.run_id(), token })
             }
             Some(Active::External { daemon, .. }) => {
                 let daemon = daemon.clone();
@@ -633,7 +670,7 @@ impl Service {
                         sink.state(&StreamState::Failed { error_kind: ErrorKind::Unreachable, message })
                     }
                 });
-                Ok(self.run_id())
+                Ok(Subscribed { run: self.run_id(), token })
             }
         }
     }
@@ -650,6 +687,53 @@ impl Service {
         })?;
         self.subs.lock().expect("subs lock").by_id.insert(id, key.to_owned());
         Ok(())
+    }
+
+    /// The UI stopped listening for `account` (its subscription was stopped):
+    /// signal-cli stops receiving for it, and a restarted child doesn't renew
+    /// it. What is held stays, and so does anything already in flight (see
+    /// [`on_notification`](Self::on_notification)): both replay on the next
+    /// subscribe. signal-cli keeps the account's unreceived messages on the
+    /// server until then.
+    ///
+    /// `token` is the one the subscribe being stopped was given. A stop that
+    /// arrives after a newer subscribe for the account (`token` is no longer
+    /// the account's current one) ends nothing: it would end the newer.
+    pub async fn unsubscribe(&self, account: Option<String>, token: u64) {
+        let key = account.unwrap_or_default();
+        let (ids, stream) = {
+            let mut subs = self.subs.lock().expect("subs lock");
+            if subs.tokens.get(&key) != Some(&token) {
+                log::debug!("ignored an unsubscribe for a superseded subscription");
+                return;
+            }
+            subs.tokens.remove(&key);
+            subs.accounts.retain(|a| *a != key);
+            let ids: Vec<u64> = subs.by_id.iter().filter(|(_, a)| **a == key).map(|(id, _)| *id).collect();
+            for id in &ids {
+                subs.by_id.remove(id);
+                subs.ended.insert(*id, key.clone());
+            }
+            (ids, subs.streams.remove(&key))
+        };
+        if let Some(stop) = stream {
+            stop.store(true, Ordering::Relaxed);
+        }
+        if ids.is_empty() {
+            return;
+        }
+        let process = match self.active.lock().await.as_ref() {
+            Some(Active::Child { process, .. }) => process.clone(),
+            _ => return,
+        };
+        for id in ids {
+            let mut params = Map::new();
+            params.insert("subscription".into(), json!(id));
+            // Best effort: a child that is stopping or restarting has no subscription left to end.
+            if let Err(error) = process.request("unsubscribeReceive", Some(&params), Duration::from_secs(5)).await {
+                log::debug!("unsubscribeReceive didn't complete ({:?})", error.kind);
+            }
+        }
     }
 
     /// The UI stored everything up to `cursor`.
@@ -673,25 +757,41 @@ impl Service {
             return;
         }
         let subscription = params.get("subscription").and_then(Value::as_u64);
-        let account = {
+        // `deliver` is false for a notification of a subscription the UI has
+        // ended: signal-cli had already received it (and acknowledged it to
+        // Signal's server) before it heard of the unsubscribe, so it is
+        // numbered and held for the account's next subscribe to replay, but
+        // there is no listener to send it to now.
+        let (account, deliver) = {
             let subs = self.subs.lock().expect("subs lock");
-            match subscription.and_then(|id| subs.by_id.get(&id)) {
-                Some(account) => account.clone(),
-                // An unwrapped notification (automatic receiving) or a subscription we
-                // lost track of: only safe to guess the account when there's just one.
-                None if subs.accounts.len() == 1 => subs.accounts[0].clone(),
-                None => {
-                    log::warn!(
-                        "dropped a {method} notification with an unrecognised subscription id ({} account(s) subscribed)",
-                        subs.accounts.len()
-                    );
-                    return;
+            if let Some(account) = subscription.and_then(|id| subs.ended.get(&id)) {
+                (account.clone(), false)
+            } else {
+                match subscription.and_then(|id| subs.by_id.get(&id)) {
+                    Some(account) => (account.clone(), true),
+                    // An unwrapped notification (automatic receiving) or a subscription we
+                    // lost track of: only safe to guess the account when there's just one.
+                    None if subs.accounts.len() == 1 => (subs.accounts[0].clone(), true),
+                    None => {
+                        log::warn!(
+                            "dropped a {method} notification with an unrecognised subscription id ({} account(s) subscribed)",
+                            subs.accounts.len()
+                        );
+                        return;
+                    }
                 }
             }
         };
         let payload = receive_payload(params);
-        let event = self.log.lock().expect("log lock").push(&account, method, payload);
-        self.sink.event(&event);
+        // Numbered and forwarded under one hold of the log lock, so a
+        // concurrent subscribe's replay (which emits under it too) can't slip
+        // the same event out first, or reorder it against a later one.
+        let mut log = self.log.lock().expect("log lock");
+        let event = log.push(&account, method, payload);
+        if deliver {
+            self.sink.event(&event);
+        }
+        drop(log);
     }
 
     fn on_process_state(&self, state: &ProcessState) {
@@ -705,7 +805,12 @@ impl Service {
                 return;
             }
             ProcessState::Restarting { attempt, delay_ms, reason } => {
-                self.subs.lock().expect("subs lock").by_id.clear();
+                {
+                    let mut subs = self.subs.lock().expect("subs lock");
+                    subs.by_id.clear();
+                    // A new child numbers its subscriptions afresh.
+                    subs.ended.clear();
+                }
                 StreamState::Waiting { attempt: *attempt, delay_ms: *delay_ms, reason: reason.clone() }
             }
             ProcessState::Failed { kind, message } => StreamState::Failed { error_kind: *kind, message: message.clone() },
@@ -980,6 +1085,124 @@ mod tests {
         assert_eq!(events[0].kind, "attachmentBackfill");
         assert_eq!(events[0].account, "+15550001");
         assert_eq!(events[0].data, result);
+    }
+
+    /// A notification still in flight for a subscription the UI ended was
+    /// already acknowledged to Signal's server by signal-cli: it is held for
+    /// its account (to replay on the next subscribe), not dropped and not
+    /// guessed onto the account that is left, and nothing is sent to the
+    /// listener that is gone.
+    #[test]
+    fn a_late_notification_for_an_unsubscribed_id_is_held_for_its_account() {
+        let (svc, sink) = service_with_sink();
+        {
+            let mut subs = svc.subs.lock().unwrap();
+            subs.accounts.push("+15550002".into());
+            subs.by_id.insert(1, "+15550002".into());
+            subs.ended.insert(0, "+15550001".into());
+        }
+
+        svc.on_notification("receive", json!({"subscription": 0, "envelope": {"dataMessage": {"message": "late"}}}));
+        assert!(sink.events.lock().unwrap().is_empty(), "no listener is left to send it to");
+        {
+            let log = svc.log.lock().unwrap();
+            assert_eq!(log.held_for("+15550001").len(), 1, "held for the account that ended");
+            assert!(log.held_for("+15550002").is_empty(), "never attributed to the other account");
+        }
+        // A live subscription is unaffected.
+        svc.on_notification("receive", json!({"subscription": 1, "envelope": {"dataMessage": {"message": "live"}}}));
+        let events = sink.events.lock().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].account, "+15550002");
+    }
+
+    /// An unsubscribe from an older subscription that arrives after a newer
+    /// subscribe for the same account must end nothing: the newer stays
+    /// subscribed and its events keep flowing.
+    #[tokio::test]
+    async fn a_stale_unsubscribe_leaves_the_newer_subscription_alone() {
+        let (svc, sink) = service_with_sink();
+        {
+            let mut subs = svc.subs.lock().unwrap();
+            subs.accounts.push("+15550001".into());
+            subs.by_id.insert(0, "+15550001".into());
+            subs.tokens.insert("+15550001".into(), 2); // the newer subscribe's
+            subs.streams.insert("+15550001".into(), Arc::new(AtomicBool::new(false)));
+        }
+
+        svc.unsubscribe(Some("+15550001".into()), 1).await; // the older one's stop, late
+
+        {
+            let subs = svc.subs.lock().unwrap();
+            assert_eq!(subs.accounts, ["+15550001"]);
+            assert_eq!(subs.by_id.get(&0).map(String::as_str), Some("+15550001"));
+            assert!(subs.ended.is_empty());
+            assert!(!subs.streams["+15550001"].load(Ordering::Relaxed), "an external stream is not stopped either");
+        }
+        svc.on_notification("receive", json!({"subscription": 0, "envelope": {"dataMessage": {"message": "still flowing"}}}));
+        assert_eq!(sink.events.lock().unwrap().len(), 1);
+
+        // The newer subscription's own stop does end it.
+        svc.unsubscribe(Some("+15550001".into()), 2).await;
+        let subs = svc.subs.lock().unwrap();
+        assert!(subs.accounts.is_empty() && subs.by_id.is_empty());
+        assert!(!subs.streams.contains_key("+15550001"), "its external stream was stopped and forgotten");
+    }
+
+    /// An event is numbered and forwarded in one step: while one is still
+    /// being handed to the sink, another can't be numbered and slip out
+    /// ahead of it.
+    #[test]
+    fn events_reach_the_sink_in_the_order_they_were_numbered() {
+        struct SlowFirst {
+            calls: std::sync::atomic::AtomicUsize,
+            seen: Mutex<Vec<String>>,
+            entered: std::sync::mpsc::Sender<()>,
+            release: Mutex<std::sync::mpsc::Receiver<()>>,
+        }
+        impl EventSink for SlowFirst {
+            fn event(&self, event: &HeldEvent) {
+                if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                    // The first one is held up inside the sink.
+                    let _ = self.entered.send(());
+                    let _ = self.release.lock().unwrap().recv_timeout(Duration::from_millis(500));
+                }
+                self.seen.lock().unwrap().push(event.cursor.clone());
+            }
+            fn state(&self, _: &StreamState) {}
+        }
+        let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let sink = Arc::new(SlowFirst {
+            calls: std::sync::atomic::AtomicUsize::new(0),
+            seen: Mutex::new(Vec::new()),
+            entered: entered_tx,
+            release: Mutex::new(release_rx),
+        });
+        let svc = Service::new(
+            Paths { app_data_dir: PathBuf::new(), data_dir: PathBuf::new(), bundled: None },
+            sink.clone(),
+            VaultBridge::disabled(),
+        );
+        svc.subs.lock().unwrap().accounts.push("+15550001".into());
+
+        let first = {
+            let svc = svc.clone();
+            std::thread::spawn(move || svc.on_notification("receive", json!({"envelope": {}})))
+        };
+        entered_rx.recv_timeout(Duration::from_secs(5)).expect("the first event reached the sink");
+        let second = {
+            let svc = svc.clone();
+            std::thread::spawn(move || svc.on_notification("receive", json!({"envelope": {}})))
+        };
+        // Give the second every chance to overtake, then let the first finish.
+        std::thread::sleep(Duration::from_millis(100));
+        let _ = release_tx.send(());
+        first.join().unwrap();
+        second.join().unwrap();
+
+        let run = svc.run_id();
+        assert_eq!(*sink.seen.lock().unwrap(), vec![format!("{run}:1"), format!("{run}:2")]);
     }
 
     /// A notification method Snowdrop doesn't understand is dropped, not forwarded

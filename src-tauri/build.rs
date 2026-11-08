@@ -10,6 +10,7 @@ fn main() {
             "signal_cli_restart",
             "signal_cli_request",
             "signal_cli_subscribe",
+            "signal_cli_unsubscribe",
             "signal_cli_ack",
             "signal_cli_probe",
             "signal_cli_locate",

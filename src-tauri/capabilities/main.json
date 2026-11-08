@@ -16,6 +16,7 @@
     "allow-signal-cli-restart",
     "allow-signal-cli-request",
     "allow-signal-cli-subscribe",
+    "allow-signal-cli-unsubscribe",
     "allow-signal-cli-ack",
     "allow-signal-cli-probe",
     "allow-signal-cli-locate",

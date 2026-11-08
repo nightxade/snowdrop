@@ -298,8 +298,9 @@ pub fn run() {
                 let handle = handle_for_prespawn.clone();
                 let opened = tauri::async_runtime::spawn_blocking(move || {
                     let storage = handle.state::<std::sync::Mutex<storage::StorageService>>();
-                    let mut storage = storage.lock().expect("storage lock");
-                    storage.status().state == "unlocked"
+                    storage::silent_unlock(storage.inner());
+                    let state = storage.lock().expect("storage lock").current_status().state;
+                    state == "unlocked"
                 })
                 .await
                 .unwrap_or(false);
@@ -349,6 +350,7 @@ pub fn run() {
             commands::signal_cli_restart,
             commands::signal_cli_request,
             commands::signal_cli_subscribe,
+            commands::signal_cli_unsubscribe,
             commands::signal_cli_ack,
             commands::signal_cli_probe,
             commands::signal_cli_locate,

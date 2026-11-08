@@ -154,7 +154,8 @@ export async function storageSignOut(ipc: TauriIpc = tauriIpc): Promise<StorageS
 }
 
 /**
- * Restarts the whole app process (`AppHandle::restart`, src-tauri/src/commands.rs).
+ * Restarts the whole app process (`AppHandle::request_restart`,
+ * src-tauri/src/commands.rs), through the normal exit.
  * Only needed after `storageEraseAll`: the vault bridge and the
  * single-instance lock are one-shot per process (docs/ENCRYPTION.md, "Erase").
  */

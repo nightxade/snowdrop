@@ -94,13 +94,18 @@ impl EventLog {
         self.held.iter().filter(|(_, e)| e.account == account).map(|(_, e)| e.clone()).collect()
     }
 
-    /// The UI stored everything up to `cursor`: stop holding it.
+    /// The UI stored everything up to `cursor`: stop holding it, for the
+    /// account `cursor`'s event belongs to. Another account's events with
+    /// lower numbers stay held until that account's own cursor is acknowledged.
+    /// A cursor whose event is no longer held changes nothing: it was released
+    /// already (an acknowledgement of a later one, or this one) or dropped at
+    /// the cap together with everything older.
     pub fn acknowledge(&mut self, cursor: &str) {
-        if let Some(upto) = self.seq_of(cursor) {
-            while self.held.front().is_some_and(|(seq, _)| *seq <= upto) {
-                self.held.pop_front();
-            }
-        }
+        let Some(upto) = self.seq_of(cursor) else { return };
+        let Some(account) = self.held.iter().find(|(seq, _)| *seq == upto).map(|(_, e)| e.account.clone()) else {
+            return;
+        };
+        self.held.retain(|(seq, e)| *seq > upto || e.account != account);
     }
 
     pub fn held_count(&self) -> usize {
@@ -156,6 +161,26 @@ mod tests {
         assert_eq!(log.held_for("")[0].cursor, "r1:3");
         // Acknowledging again (or out of order) is harmless.
         log.acknowledge("r1:1");
+        assert_eq!(log.held_count(), 1);
+    }
+
+    #[test]
+    fn an_acknowledgement_releases_only_its_own_accounts_events() {
+        let mut log = EventLog::new("r1");
+        log.push("+1", "receive", json!("a1")); // r1:1
+        log.push("+2", "receive", json!("b1")); // r1:2
+        log.push("+1", "receive", json!("a2")); // r1:3
+        log.push("+2", "receive", json!("b2")); // r1:4
+        // Account +2 stored up to its second event; +1 stored nothing yet.
+        log.acknowledge("r1:4");
+        assert_eq!(log.held_for("+2").len(), 0);
+        assert_eq!(log.held_for("+1").iter().map(|e| e.cursor.clone()).collect::<Vec<_>>(), vec!["r1:1", "r1:3"]);
+        // +1 then stores its first event only.
+        log.acknowledge("r1:1");
+        assert_eq!(log.held_for("+1").iter().map(|e| e.cursor.clone()).collect::<Vec<_>>(), vec!["r1:3"]);
+        // A cursor that is no longer held releases nothing.
+        log.acknowledge("r1:4");
+        log.acknowledge("r1:2");
         assert_eq!(log.held_count(), 1);
     }
 

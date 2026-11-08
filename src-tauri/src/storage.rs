@@ -239,9 +239,42 @@ pub struct ErasePrep {
     keyring_entry: Option<String>,
 }
 
+/// A pending silent keyring read: the keyring itself and the entry to read,
+/// detached from the service so the (possibly long, prompt-bound) read runs
+/// with no lock on the service held.
+pub struct KeyringProbe<S: SecretStore> {
+    slot: Arc<KeyringSlot<S>>,
+    entry: String,
+}
+
+impl<S: SecretStore> KeyringProbe<S> {
+    /// Blocks on the keyring (up to its own timeout).
+    pub fn read(&self) -> Result<Option<Key32>, Error> {
+        self.slot.get(&self.entry)
+    }
+}
+
+/// Tries the silent keyring unlock of a shared service (what a first
+/// `storage_status` does) without holding its mutex across the keyring read:
+/// the lock is taken to decide and again to commit, never while waiting on
+/// the OS keyring, so the vault bridge's `is_unlocked`/session-parts closures
+/// and every other storage command stay responsive behind a locked-wallet
+/// prompt. Concurrent callers queue on a separate gate, so the second finds
+/// the first's result instead of prompting again.
+pub fn silent_unlock<S: SecretStore>(storage: &std::sync::Mutex<StorageService<S>>) {
+    let gate = storage.lock().expect("storage lock").silent_gate.clone();
+    let _gate = gate.lock().expect("silent unlock gate");
+    let Some(probe) = storage.lock().expect("storage lock").silent_probe() else { return };
+    let secret = probe.read();
+    storage.lock().expect("storage lock").apply_silent_unlock(&probe, secret);
+}
+
 pub struct StorageService<S: SecretStore = KeyringStore> {
     paths: StoragePaths,
-    keyring_slot: KeyringSlot<S>,
+    keyring_slot: Arc<KeyringSlot<S>>,
+    /// Held (not the service's own lock) while a silent unlock waits on the
+    /// keyring, so two of them don't both prompt; see [`silent_unlock`].
+    silent_gate: Arc<std::sync::Mutex<()>>,
     resolve_runtime_dir: RuntimeDirResolver,
     lock: Option<InstanceLock>,
     state: StorageState,
@@ -252,7 +285,8 @@ impl<S: SecretStore> StorageService<S> {
     pub fn new(paths: StoragePaths, keyring_store: S, resolve_runtime_dir: RuntimeDirResolver) -> Self {
         Self {
             paths,
-            keyring_slot: KeyringSlot::new(keyring_store),
+            keyring_slot: Arc::new(KeyringSlot::new(keyring_store)),
+            silent_gate: Arc::new(std::sync::Mutex::new(())),
             resolve_runtime_dir,
             lock: None,
             state: StorageState::NeedsSetup,
@@ -293,7 +327,8 @@ impl<S: SecretStore> StorageService<S> {
                 StorageState::Locked { locked, reason }
             }
         };
-        self.try_unlock_silently();
+        // The silent keyring unlock is left to [`silent_unlock`] (the first
+        // `status`), so a locked keyring's prompt never holds up app start.
         Ok(())
     }
 
@@ -307,15 +342,37 @@ impl<S: SecretStore> StorageService<S> {
         self.build_status()
     }
 
+    /// The inline form of [`silent_unlock`], for callers that own the service
+    /// outright (no lock around it to keep free): holds `&mut self` through
+    /// the keyring read.
     fn try_unlock_silently(&mut self) {
-        let has_keyring = matches!(&self.state, StorageState::Locked { locked, .. } if locked.has_keyring());
-        if !has_keyring {
+        if let Some(probe) = self.silent_probe() {
+            let secret = probe.read();
+            self.apply_silent_unlock(&probe, secret);
+        }
+    }
+
+    /// What a silent keyring unlock needs to read the keyring without the
+    /// service: `None` unless storage is `Locked` with a keyring slot.
+    fn silent_probe(&self) -> Option<KeyringProbe<S>> {
+        let StorageState::Locked { locked, .. } = &self.state else { return None };
+        let entry = locked.keyring_entry()?;
+        Some(KeyringProbe { slot: self.keyring_slot.clone(), entry })
+    }
+
+    /// Commits what a [`KeyringProbe::read`] found, if storage is still
+    /// `Locked` on the entry that was read (anything else moved on meanwhile
+    /// and the result is dropped).
+    fn apply_silent_unlock(&mut self, probe: &KeyringProbe<S>, secret: Result<Option<Key32>, Error>) {
+        let still_ours =
+            matches!(&self.state, StorageState::Locked { locked, .. } if locked.keyring_entry().as_deref() == Some(probe.entry.as_str()));
+        if !still_ours {
             return;
         }
         let StorageState::Locked { locked, .. } = std::mem::replace(&mut self.state, StorageState::NeedsSetup) else {
             unreachable!("just matched Locked above")
         };
-        match locked.unlock_keyring(&self.keyring_slot) {
+        match locked.unlock_with_keyring_secret(secret) {
             Ok(unlocked) => {
                 if let Err(e) = self.finish_unlock(unlocked) {
                     log::warn!("storage: migration after a silent keyring unlock failed: {e}");
@@ -323,6 +380,13 @@ impl<S: SecretStore> StorageService<S> {
             }
             Err(e) => self.state = StorageState::Locked { locked, reason: classify_keyring_error(e.kind) },
         }
+    }
+
+    /// The status as it is now, with no unlock attempt: for a caller that has
+    /// just run [`silent_unlock`] and must not make [`status`](Self::status)
+    /// read the keyring again under its lock.
+    pub fn current_status(&self) -> StorageStatus {
+        self.build_status()
     }
 
     fn build_status(&self) -> StorageStatus {
@@ -1138,6 +1202,87 @@ mod tests {
         assert_eq!(fs::read(restored.join("data/account")).unwrap(), b"the account file");
         assert_eq!(fs::read(restored.join("attachments/one.jpg")).unwrap(), b"fake jpeg bytes");
         let _ = runtime_dir; // just proving it resolved
+    }
+
+    /// A keyring whose `get` can be held open, to look at the service while
+    /// a (simulated) locked-wallet prompt is pending.
+    struct GatedStore {
+        inner: Arc<FakeStore>,
+        gets: std::sync::atomic::AtomicUsize,
+        entered: std::sync::Mutex<std::sync::mpsc::Sender<()>>,
+        release: std::sync::Mutex<std::sync::mpsc::Receiver<()>>,
+    }
+
+    impl SecretStore for GatedStore {
+        fn get(&self, account: &str) -> Result<Option<String>, Error> {
+            self.gets.fetch_add(1, Ordering::SeqCst);
+            let _ = self.entered.lock().unwrap().send(());
+            let _ = self.release.lock().unwrap().recv_timeout(std::time::Duration::from_secs(10));
+            self.inner.get(account)
+        }
+        fn set(&self, account: &str, value: &str) -> Result<(), Error> {
+            self.inner.set(account, value)
+        }
+        fn delete(&self, account: &str) -> Result<(), Error> {
+            self.inner.delete(account)
+        }
+    }
+
+    #[test]
+    fn a_silent_unlock_waits_on_the_keyring_without_holding_the_service_lock() {
+        let fx = Fixture::new("silent-unlock-lock");
+        let store = Arc::new(FakeStore::new());
+        let mut first = fx.service_with(store.clone());
+        first.setup().unwrap();
+        first.setup_new(SetupMode::Keyring, None).unwrap();
+        drop(first);
+
+        let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let gated = Arc::new(GatedStore {
+            inner: store,
+            gets: std::sync::atomic::AtomicUsize::new(0),
+            entered: std::sync::Mutex::new(entered_tx),
+            release: std::sync::Mutex::new(release_rx),
+        });
+        let runtime = fx.base.path().join("runtime");
+        let mut second = StorageService::new(fx.paths(), gated.clone(), fake_runtime_resolver(runtime));
+        second.setup().unwrap();
+        // Starting up never waits on the keyring.
+        assert_eq!(gated.gets.load(Ordering::SeqCst), 0, "setup must leave the silent unlock to silent_unlock");
+        let shared = Arc::new(std::sync::Mutex::new(second));
+
+        let worker = {
+            let shared = shared.clone();
+            std::thread::spawn(move || silent_unlock(&*shared))
+        };
+        entered_rx.recv_timeout(std::time::Duration::from_secs(5)).expect("the keyring read started");
+        {
+            // The prompt is still pending, and the service is free for everyone else.
+            let guard = shared.try_lock().expect("the service lock must not be held across the keyring read");
+            assert!(guard.webcache_key().is_none());
+            assert_eq!(guard.current_status().state, "locked");
+        }
+        release_tx.send(()).unwrap();
+        worker.join().unwrap();
+        assert_eq!(shared.lock().unwrap().current_status().state, "unlocked");
+        assert_eq!(gated.gets.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn a_silent_unlock_that_finds_the_keyring_empty_stays_locked_with_its_reason() {
+        let fx = Fixture::new("silent-unlock-empty");
+        let mut first = fx.service_with(Arc::new(FakeStore::new()));
+        first.setup().unwrap();
+        first.setup_new(SetupMode::Keyring, None).unwrap();
+        drop(first);
+
+        let shared = std::sync::Mutex::new(fx.service_with(Arc::new(FakeStore::new())));
+        shared.lock().unwrap().setup().unwrap();
+        silent_unlock(&shared);
+        let status = shared.lock().unwrap().current_status();
+        assert_eq!(status.state, "locked");
+        assert_eq!(status.reason, Some("keyringSecretMissing"));
     }
 
     #[test]
