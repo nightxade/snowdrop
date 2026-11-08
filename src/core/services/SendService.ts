@@ -72,6 +72,7 @@ import {
   withLocalUrls,
 } from './localAttachments';
 import { PendingOpsBuffer } from './PendingOpsBuffer';
+import { ReactionWatch } from './ReactionWatch';
 import { ReceiptBuffer } from './ReceiptBuffer';
 import type { SentMarkers } from './sentMarkers';
 import {
@@ -109,6 +110,8 @@ export interface SendServiceDeps {
   receipts?: ReceiptBuffer;
   /** Shared with SyncService so ops that beat our send's ack aren't lost. */
   pendingOps?: PendingOpsBuffer;
+  /** Shared with SyncService so a delete that fails knows which reactions were taken back meanwhile. */
+  reactionWatch?: ReactionWatch;
   /** Marks a conversation read the way reading it does (receipts and read sync included); sending a reply reads what came before it. */
   readConversation?: (conversationId: ConversationId) => Promise<void>;
   /** A message just sent will disappear at this time (epoch ms): the sync engine purges it on schedule. */
@@ -147,6 +150,20 @@ function untrustedRecipients(error: unknown): string[] {
   return [...ids];
 }
 
+/**
+ * Whether a send's outcome is unknown: it timed out with no answer, or the
+ * request was written and the reply then failed (`requestSent`). The daemon
+ * may have sent it, so this is not a plain failure (read structurally, like
+ * `recipientFailures`). A connection that never opened is a plain failure.
+ */
+function isUnconfirmedSend(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  return (
+    ('kind' in error && error.kind === 'timeout') ||
+    ('requestSent' in error && error.requestSent === true)
+  );
+}
+
 /** A pending row in any state but these was acknowledged by the backend. */
 const isAcknowledged = (m: Message): boolean => m.status !== 'pending' && m.status !== 'failed';
 
@@ -160,6 +177,8 @@ interface QueuedOp {
   apply: (m: Message) => Message;
   revert: (m: Message) => Message;
   commit: (target: Message) => Promise<void>;
+  /** Note reactions taken back while it is in flight (see `ReactionWatch`). */
+  watchReactions?: boolean;
 }
 
 interface Outgoing {
@@ -177,6 +196,7 @@ export class SendService {
   private readonly pipeline: DraftPipeline;
   private readonly receipts: ReceiptBuffer;
   private readonly pendingOps: PendingOpsBuffer;
+  private readonly reactionWatch: ReactionWatch;
   private readonly newNonce: () => string;
   private readonly onError: ErrorReporter;
 
@@ -184,6 +204,7 @@ export class SendService {
     this.pipeline = deps.pipeline ?? PASSTHROUGH_PIPELINE;
     this.receipts = deps.receipts ?? new ReceiptBuffer();
     this.pendingOps = deps.pendingOps ?? new PendingOpsBuffer();
+    this.reactionWatch = deps.reactionWatch ?? new ReactionWatch();
     this.newNonce = deps.newNonce ?? (() => createNonce('msg'));
     this.onError = deps.onError ?? consoleReporter;
   }
@@ -554,7 +575,7 @@ export class SendService {
     out.inFlight = true;
     try {
       const setPending = (m: Message): Message => {
-        const { blockedByIdentity: _blocked, ...rest } = m;
+        const { blockedByIdentity: _blocked, sendUnconfirmed: _unconfirmed, ...rest } = m;
         return { ...rest, status: 'pending' };
       };
       this.deps.stores.messages
@@ -593,9 +614,11 @@ export class SendService {
     } catch (error) {
       out.inFlight = false;
       const blocked = untrustedRecipients(error);
+      const unconfirmed = isUnconfirmedSend(error);
       const markFailed = (m: Message): Message => ({
         ...m,
         status: 'failed',
+        ...(unconfirmed ? { sendUnconfirmed: true as const } : {}),
         ...(blocked.length > 0 ? { blockedByIdentity: blocked } : {}),
       });
       stores.messages.getState().update(out.conversationId, pendingId, markFailed);
@@ -1038,7 +1061,8 @@ export class SendService {
     return this.operate(conversationId, target.id, {
       context: 'delete failed',
       apply: (m) => applyDelete(m),
-      revert: () => target,
+      revert: (m) => restoreDeleted(m, target, this.reactionWatch.removed(target.id)),
+      watchReactions: true,
       commit: (real) => this.deps.backend.deleteForEveryone(conversationId, real.sentAt),
     });
   }
@@ -1203,7 +1227,8 @@ export class SendService {
     return this.optimistic(conversationId, target.id, {
       context: 'delete failed',
       apply: (m) => applyDelete(m, selfId),
-      revert: () => target,
+      revert: (m) => restoreDeleted(m, target, this.reactionWatch.removed(target.id)),
+      watchReactions: true,
       commit: (real) =>
         adminDelete(conversationId, { authorId: real.authorId, sentAt: real.sentAt }),
     });
@@ -1299,13 +1324,16 @@ export class SendService {
     const target = this.findLoaded(conversationId, id) ?? (await this.deps.repository.get(id));
     if (!target) return false;
     this.deps.stores.messages.getState().update(conversationId, id, op.apply);
+    if (op.watchReactions) this.reactionWatch.begin(id);
     try {
       await op.commit(target);
     } catch (error) {
       this.deps.stores.messages.getState().update(conversationId, id, op.revert);
+      this.reactionWatch.end(id);
       this.onError(error, op.context);
       return false;
     }
+    this.reactionWatch.end(id);
     await this.deps.repository.update(id, op.apply);
     return true;
   }
@@ -1333,6 +1361,30 @@ function restoreContent(m: Message, original: Message): Message {
     ...(original.edits === undefined ? {} : { edits: original.edits }),
     ...(original.editedAt === undefined ? {} : { editedAt: original.editedAt }),
     ...(original.previews ? { previews: original.previews } : {}),
+  };
+}
+
+/**
+ * Undoes `applyDelete` on the message as it is now: the content the delete
+ * took away comes back, and everything that changed meanwhile (receipts,
+ * status, reactions that arrived) stays.
+ */
+function restoreDeleted(m: Message, original: Message, takenBack: ReadonlySet<string>): Message {
+  const { deleted: _d, deletedBy: _by, ...rest } = m;
+  const arrived = new Set([...m.reactions.map((r) => r.authorId), ...takenBack]);
+  return {
+    ...rest,
+    body: original.body,
+    ranges: original.ranges,
+    attachments: original.attachments,
+    reactions: [...original.reactions.filter((r) => !arrived.has(r.authorId)), ...m.reactions],
+    ...(original.quote ? { quote: original.quote } : {}),
+    ...(original.pinned === undefined ? {} : { pinned: original.pinned }),
+    ...(original.sticker ? { sticker: original.sticker } : {}),
+    ...(original.poll ? { poll: original.poll } : {}),
+    ...(original.previews ? { previews: original.previews } : {}),
+    ...(original.customEmoji ? { customEmoji: original.customEmoji } : {}),
+    ...(original.failedRecipients ? { failedRecipients: original.failedRecipients } : {}),
   };
 }
 

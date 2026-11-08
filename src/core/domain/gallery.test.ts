@@ -103,6 +103,14 @@ describe('groupGalleryByDate', () => {
     expect(labels([item('a', midnight - 1)])).toEqual(['Yesterday']);
   });
 
+  it('puts an item stamped exactly at a boundary midnight in the later bucket', () => {
+    const midnight = (m: number, d: number) => new Date(2026, m, d, 0, 0, 0, 0).getTime();
+    expect(labels([item('a', midnight(9, 14))])).toEqual(['Today']);
+    expect(labels([item('a', midnight(9, 13))])).toEqual(['Yesterday']);
+    expect(labels([item('a', midnight(9, 7))])).toEqual(['This Week']);
+    expect(labels([item('a', midnight(9, 1))])).toEqual(['This Month']);
+  });
+
   it('gives sections distinct keys', () => {
     const sections = groupGalleryByDate(
       [item('a', at(2026, 7, 3)), item('b', at(2026, 6, 3)), item('c', now)],

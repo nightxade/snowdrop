@@ -25,13 +25,18 @@ import {
   type MessageId,
 } from '@/core/domain';
 import type { MessageRepository } from '@/core/persistence';
+import { systemClock, type Clock } from '@/core/lib';
 import { acceptForOutgoing, isDeletedRequest, type Stores } from '@/core/stores';
+import type { PendingOpsBuffer } from './PendingOpsBuffer';
 import { consoleReporter, type ErrorReporter } from './types';
 
 export interface HistoryServiceDeps {
   backend: ChatBackend;
   repository: MessageRepository;
   stores: Stores;
+  /** Shared with SyncService: reactions, edits and deletes held for a message that backfill now brings in. */
+  pendingOps?: PendingOpsBuffer;
+  clock?: Clock;
   pageSize?: number;
   /** See `MAX_OPEN_CONVERSATIONS`. */
   maxOpenConversations?: number;
@@ -329,11 +334,19 @@ export class HistoryService {
     // Checked again after the (slow) fetch: the user may have deleted it meanwhile.
     if (isDeletedRequest(this.deps.stores, conversationId))
       return { messages: local, hasMoreBefore: false };
-    const stored = await repository.upsertMany(remote.messages, {
-      backfill: true,
-      merge: mergeDuplicate,
-    });
-    acceptForOutgoing(this.deps.stores, stored, Date.now());
+    const now = (this.deps.clock ?? systemClock).now();
+    const held = this.deps.pendingOps?.applyTo(remote.messages, now);
+    let stored: Message[];
+    try {
+      stored = await repository.upsertMany(held?.messages ?? remote.messages, {
+        backfill: true,
+        merge: mergeDuplicate,
+      });
+    } catch (error) {
+      held?.restore();
+      throw error;
+    }
+    acceptForOutgoing(this.deps.stores, stored, now);
     return { messages: [...stored, ...local], hasMoreBefore: remote.hasMoreBefore };
   }
 

@@ -37,6 +37,8 @@ interface Destination {
 export class BackupDirectory {
   private readonly recipients = new Map<string, Destination>();
   private readonly chats = new Map<string, BackupRecord>();
+  /** Conversation id to chat id, built on first use and dropped when the directory changes. */
+  private chatIds: Map<string, string> | null = null;
 
   constructor(
     readonly selfId: string,
@@ -44,6 +46,7 @@ export class BackupDirectory {
   ) {}
 
   add(frame: BackupRecord): void {
+    this.chatIds = null;
     if (isRecord(frame.recipient)) {
       const recipient = frame.recipient;
       const id = decimal(recipient.id);
@@ -149,6 +152,15 @@ export class BackupDirectory {
   }
 
   chatId(conversationId: string): string | undefined {
-    return [...this.chats.keys()].find((id) => this.conversation(id)?.id === conversationId);
+    if (!this.chatIds) {
+      const ids = new Map<string, string>();
+      for (const id of this.chats.keys()) {
+        const conversation = this.conversation(id);
+        // The first chat for a conversation wins, as a linear search would.
+        if (conversation && !ids.has(conversation.id)) ids.set(conversation.id, id);
+      }
+      this.chatIds = ids;
+    }
+    return this.chatIds.get(conversationId);
   }
 }

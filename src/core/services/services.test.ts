@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { MockBackend } from '@/core/backend/mock';
 import {
   MENTION_PLACEHOLDER,
+  applyDelete,
+  applyReaction,
   canEditMessage,
   directConversationId,
   messageId,
@@ -20,7 +22,9 @@ import {
   type Stores,
 } from '@/core/stores';
 import { HistoryService } from './HistoryService';
+import { PendingOpsBuffer } from './PendingOpsBuffer';
 import { PostConnect } from './PostConnect';
+import { ReactionWatch } from './ReactionWatch';
 import { ReceiptBuffer } from './ReceiptBuffer';
 import { ATTACHMENTS_LOST_ERROR, SendService } from './SendService';
 import { SentMarkers } from './sentMarkers';
@@ -39,6 +43,7 @@ interface SetupOptions {
   noServerHistory?: boolean;
   maxOpenConversations?: number;
   sentMarkers?: SentMarkers;
+  reactionWatch?: ReactionWatch;
 }
 
 async function setup(options: SetupOptions = {}) {
@@ -56,6 +61,7 @@ async function setup(options: SetupOptions = {}) {
     clock: scheduler,
     scheduler,
     receipts,
+    ...(options.reactionWatch ? { reactionWatch: options.reactionWatch } : {}),
     onError,
   });
   if (options.start !== false) await sync.start();
@@ -67,6 +73,7 @@ async function setup(options: SetupOptions = {}) {
     stores,
     clock: scheduler,
     receipts,
+    ...(options.reactionWatch ? { reactionWatch: options.reactionWatch } : {}),
     onError,
     newNonce: () => `nonce-${++n}`,
     ...(options.sentMarkers ? { sentMarkers: options.sentMarkers } : {}),
@@ -792,6 +799,11 @@ describe('SyncService: events', () => {
       error: 'boom',
       ready: false,
     });
+    // Nothing is catching up once the start has failed.
+    expect(stores.session.getState()).toMatchObject({
+      catchingUp: false,
+      notificationsHeld: false,
+    });
   });
 
   it('logs an expected setup state once, at info, instead of as an error', async () => {
@@ -1142,6 +1154,35 @@ describe('SendService', () => {
     expect(stores.messages.getState().findByNonce(id, 'nonce-2')).toBeUndefined();
     expect(await repository.get(pendingMessageId('nonce-2'))).toBeUndefined();
     expect(await repository.listOutbox()).toEqual([]);
+  });
+
+  it('a send that timed out is marked unconfirmed, and a retry clears that', async () => {
+    const { stores, send, backend, conv, repository, history } = await setup();
+    const id = conv('orchard-eng');
+    await history.open(id);
+    backend.failNext(Object.assign(new Error('no answer'), { kind: 'timeout' }));
+    await send.send(draft(id, 'slow'));
+    expect(stores.messages.getState().findByNonce(id, 'nonce-1')).toMatchObject({
+      status: 'failed',
+      sendUnconfirmed: true,
+    });
+    expect((await repository.get(pendingMessageId('nonce-1')))?.sendUnconfirmed).toBe(true);
+
+    // A request written whose reply then failed is just as unknown.
+    backend.failNext(Object.assign(new Error('garbled'), { requestSent: true }));
+    await send.send(draft(id, 'garbled'));
+    expect(stores.messages.getState().findByNonce(id, 'nonce-2')?.sendUnconfirmed).toBe(true);
+    await send.discard(id, 'nonce-2');
+
+    // An ordinary failure (connection never opened) is not unconfirmed.
+    backend.failNext();
+    await send.send(draft(id, 'plain'));
+    expect(stores.messages.getState().findByNonce(id, 'nonce-3')?.sendUnconfirmed).toBeUndefined();
+
+    await send.retry(id, 'nonce-1');
+    const sent = stores.messages.getState().findByNonce(id, 'nonce-1');
+    expect(sent?.status).toBe('sent');
+    expect(sent?.sendUnconfirmed).toBeUndefined();
   });
 
   describe('stickers', () => {
@@ -1792,6 +1833,88 @@ describe('SendService', () => {
     expect(list(id).at(-1)).toMatchObject({ deleted: true, body: '' });
   });
 
+  it('a failed delete for everyone brings the content back and keeps what changed meanwhile', async () => {
+    const { send, backend, stores, conv, list, history } = await setup();
+    const id = conv('dm-ines');
+    await history.open(id);
+    await send.send(draft(id, 'keep me'));
+    const mine = list(id).at(-1)!;
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.spyOn(backend, 'deleteForEveryone').mockImplementation(() => {
+      // While the delete is in flight a receipt and a reaction land.
+      stores.messages.getState().update(id, mine.id, (m) => ({
+        ...m,
+        status: 'read',
+        reactions: [{ emoji: '👍', authorId: 'peer', at: NOW }],
+      }));
+      return Promise.reject(new Error('offline'));
+    });
+    expect(await send.deleteForEveryone(id, mine)).toBe(false);
+    const after = list(id).find((m) => m.id === mine.id)!;
+    expect(after.deleted).toBeUndefined();
+    expect(after.body).toBe('keep me');
+    expect(after.status).toBe('read');
+    expect(after.reactions.map((r) => r.emoji)).toEqual(['👍']);
+  });
+
+  it('a failed delete does not bring back a reaction someone took back meanwhile', async () => {
+    const watch = new ReactionWatch();
+    const { send, backend, stores, conv, list, history, selfId } = await setup({
+      reactionWatch: watch,
+    });
+    const id = conv('dm-ines');
+    await history.open(id);
+    await send.send(draft(id, 'keep me'));
+    const sent = list(id).at(-1)!;
+    const reacted = { ...sent, reactions: [{ emoji: '👍', authorId: 'peer', at: NOW }] };
+    stores.messages.getState().update(id, sent.id, () => reacted);
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.spyOn(backend, 'deleteForEveryone').mockImplementation(async () => {
+      // While the delete is in flight the peer takes their reaction back.
+      backend.emit('reaction', {
+        conversationId: id,
+        targetAuthorId: selfId,
+        targetSentAt: sent.sentAt,
+        reaction: { emoji: '👍', authorId: 'peer', at: NOW + 1 },
+        remove: true,
+      });
+      await flush();
+      return Promise.reject(new Error('offline'));
+    });
+    expect(await send.deleteForEveryone(id, reacted)).toBe(false);
+    const after = list(id).find((m) => m.id === sent.id)!;
+    expect(after.deleted).toBeUndefined();
+    expect(after.reactions).toEqual([]);
+  });
+
+  it('keeps held operations when the page they were applied to fails to store', async () => {
+    const { backend, repository, stores, scheduler, conv, memberOf, onError } = await setup({
+      noServerHistory: true,
+    });
+    const id = conv('crux');
+    const old = incoming(id, memberOf(id), 500, { historyCursor: 'snapshot:1' });
+    const pendingOps = new PendingOpsBuffer();
+    pendingOps.hold(old.id, (m) => applyDelete(m), scheduler.now());
+    Object.assign(backend, {
+      fetchHistory: vi.fn().mockResolvedValue({ messages: [old], hasMoreBefore: false }),
+    });
+    const history = new HistoryService({
+      backend,
+      repository,
+      stores,
+      pendingOps,
+      clock: scheduler,
+      pageSize: 20,
+      onError,
+    });
+    vi.spyOn(repository, 'upsertMany').mockRejectedValueOnce(new Error('disk full'));
+    await history.open(id).catch(() => undefined);
+    expect(pendingOps.size).toBe(1);
+    await history.open(id);
+    expect((await repository.get(old.id))?.deleted).toBe(true);
+    expect(pendingOps.size).toBe(0);
+  });
+
   it('throttles typing and honours the setting and guards', async () => {
     let allow = true;
     const pipeline: DraftPipeline = {
@@ -1839,6 +1962,46 @@ describe('HistoryService', () => {
       });
     },
   );
+
+  it('applies a delete and a reaction held for a message that backfill brings in much later', async () => {
+    const { backend, repository, stores, scheduler, conv, memberOf, list, onError } = await setup({
+      noServerHistory: true,
+    });
+    const id = conv('crux');
+    const author = memberOf(id);
+    const old = incoming(id, author, 500, { historyCursor: 'snapshot:1' });
+    const reacted = incoming(id, author, 600, { historyCursor: 'snapshot:2' });
+    const pendingOps = new PendingOpsBuffer();
+    pendingOps.hold(old.id, (m) => applyDelete(m), scheduler.now());
+    pendingOps.hold(
+      reacted.id,
+      (m) => ({
+        ...m,
+        reactions: applyReaction(m.reactions, { emoji: '👍', authorId: author, at: 5 }, false),
+      }),
+      scheduler.now(),
+    );
+    // Hours later (the old limit was five minutes).
+    scheduler.advance(6 * 60 * 60_000);
+    const fetchHistory = vi
+      .fn()
+      .mockResolvedValue({ messages: [old, reacted], hasMoreBefore: false });
+    Object.assign(backend, { fetchHistory });
+    const history = new HistoryService({
+      backend,
+      repository,
+      stores,
+      pendingOps,
+      clock: scheduler,
+      pageSize: 20,
+      onError,
+    });
+    await history.open(id);
+    expect((await repository.get(old.id))?.deleted).toBe(true);
+    expect((await repository.get(reacted.id))?.reactions).toHaveLength(1);
+    expect(list(id).find((m) => m.id === old.id)?.deleted).toBe(true);
+    expect(pendingOps.size).toBe(0);
+  });
 
   describe('legacy history stickers', () => {
     const legacy = (id: ConversationId, authorId: string, sentAt: number): Message =>

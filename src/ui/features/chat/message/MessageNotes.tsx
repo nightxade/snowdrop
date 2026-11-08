@@ -1,5 +1,5 @@
 import { AlertCircle } from 'lucide-react';
-import type { Message } from '@/core/domain';
+import { retryCopy, type Message } from '@/core/domain';
 import { useSnowdrop } from '@/ui/hooks';
 import { openSafetyReview } from '@/ui/features/safety';
 import { Tooltip } from '@/ui/primitives';
@@ -17,6 +17,7 @@ export function MessageNotes({
 }) {
   const app = useSnowdrop();
   const failed = m.status === 'failed';
+  const retry = retryCopy(m);
   const failedTo = m.failedRecipients ?? [];
   if ((m.editedAt === undefined || m.body !== '') && !failed && failedTo.length === 0) return null;
   return (
@@ -25,7 +26,13 @@ export function MessageNotes({
       {failed && (
         <span className={styles.failed} role="status">
           <AlertCircle size={14} aria-hidden />
-          Failed to send
+          {retry.warning ? (
+            <Tooltip label={retry.warning}>
+              <span tabIndex={0}>{retry.status}</span>
+            </Tooltip>
+          ) : (
+            retry.status
+          )}
           {m.blockedByIdentity && m.nonce && (
             <>
               <span aria-hidden>·</span>
@@ -49,7 +56,7 @@ export function MessageNotes({
               act.retry(app, m);
             }}
           >
-            Retry
+            {retry.button}
           </button>
           <span aria-hidden>·</span>
           <button

@@ -69,4 +69,103 @@ describe('DirectPeers aliasing', () => {
     // ...and the older fork is folded away, so replies can't land in a dead thread.
     expect(peers.entries()).toEqual([['+15550001', 100]]);
   });
+
+  describe('a recycled phone number', () => {
+    const A = '11111111-1111-4111-8111-111111111111';
+    const B = '22222222-2222-4222-8222-222222222222';
+    const N = '+15550009';
+
+    it('never folds a second ACI into the first holder of the number', () => {
+      const peers = new DirectPeers(createMemoryStorage(), ACCOUNT);
+      peers.learnPair(A, N);
+      peers.touch(A, 10);
+      expect(peers.resolve(N)).toBe(A);
+
+      peers.learnPair(B, N);
+      expect(peers.resolve(B)).toBe(B);
+      expect(peers.resolve(A)).toBe(A);
+      // The number follows its new holder.
+      expect(peers.resolve(N)).toBe(B);
+      peers.touch(B, 20);
+      expect(new Map(peers.entries())).toEqual(
+        new Map([
+          [A, 10],
+          [B, 20],
+        ]),
+      );
+    });
+
+    it('keeps the first holder separate when their conversation is keyed by the number', () => {
+      const peers = new DirectPeers(createMemoryStorage(), ACCOUNT);
+      peers.touch(N, 5);
+      peers.learnPair(A, N);
+      expect(peers.resolve(A)).toBe(N);
+
+      peers.learnPair(B, N);
+      expect(peers.resolve(B)).toBe(B);
+      expect(peers.resolve(A)).toBe(N);
+      peers.touch(B, 9);
+      expect(new Map(peers.entries())).toEqual(
+        new Map([
+          [N, 5],
+          [B, 9],
+        ]),
+      );
+    });
+
+    it('is stable when the same pair is seen again, and survives a reload', () => {
+      const storage = createMemoryStorage();
+      const peers = new DirectPeers(storage, ACCOUNT);
+      peers.learnPair(A, N);
+      peers.learnPair(B, N);
+      peers.learnPair(A, N);
+      peers.learnPair(B, N);
+      const reloaded = new DirectPeers(storage, ACCOUNT);
+      expect(reloaded.resolve(B)).toBe(B);
+      expect(reloaded.resolve(A)).toBe(A);
+    });
+
+    it('addresses a chat keyed by the moved number through its old holder, and persists that', () => {
+      const storage = createMemoryStorage();
+      const peers = new DirectPeers(storage, ACCOUNT);
+      peers.touch(N, 5);
+      peers.learnPair(A, N);
+      expect(peers.addressFor(N)).toBe(N); // nothing has moved yet
+      peers.learnPair(B, N);
+      expect(peers.addressFor(N)).toBe(A);
+      expect(peers.addressFor(B)).toBe(B);
+      expect(new DirectPeers(storage, ACCOUNT).addressFor(N)).toBe(A);
+      // The number coming back to its first holder lifts the redirect.
+      peers.learnPair(A, N);
+      expect(peers.addressFor(N)).toBe(N);
+    });
+
+    it('alternating stale pairs never merge two ACIs; the newest pair decides the holder', () => {
+      const peers = new DirectPeers(createMemoryStorage(), ACCOUNT);
+      peers.learnPair(A, N);
+      for (let i = 0; i < 3; i += 1) {
+        peers.learnPair(B, N);
+        expect(peers.resolve(N)).toBe(B);
+        peers.learnPair(A, N);
+        expect(peers.resolve(N)).toBe(A);
+      }
+      peers.learnPair(B, N);
+      expect(peers.resolve(N)).toBe(B);
+      expect(peers.resolve(A)).toBe(A);
+      expect(peers.resolve(B)).toBe(B);
+    });
+
+    it('alternating pairs on a number-keyed chat keep the redirect consistent with the newest pair', () => {
+      const peers = new DirectPeers(createMemoryStorage(), ACCOUNT);
+      peers.touch(N, 5);
+      peers.learnPair(A, N);
+      peers.learnPair(B, N);
+      peers.learnPair(A, N);
+      expect(peers.addressFor(N)).toBe(N);
+      peers.learnPair(B, N);
+      expect(peers.addressFor(N)).toBe(A);
+      expect(peers.resolve(A)).toBe(N);
+      expect(peers.resolve(B)).toBe(B);
+    });
+  });
 });

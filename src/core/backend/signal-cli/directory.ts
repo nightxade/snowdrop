@@ -229,10 +229,16 @@ export class Directory {
   async loadContacts(force = false): Promise<Contact[]> {
     const fresh = this.deps.now() - this.contactsLoadedAt <= DIRECTORY_TTL_MS;
     if (force || !fresh) {
-      this.contactsLoading ??= this.fetchContacts().finally(() => {
-        this.contactsLoading = null;
-      });
-      await this.contactsLoading;
+      // Cleared only by the request that set it: after reset() a late finish
+      // must not null the new account's in-flight load.
+      let loading = this.contactsLoading;
+      if (!loading) {
+        const own: Promise<void> = this.fetchContacts().finally(() => {
+          if (this.contactsLoading === own) this.contactsLoading = null;
+        });
+        this.contactsLoading = loading = own;
+      }
+      await loading;
     }
     return this.allContacts();
   }
@@ -240,10 +246,14 @@ export class Directory {
   async loadGroups(force = false): Promise<Conversation[]> {
     const fresh = this.deps.now() - this.groupsLoadedAt <= DIRECTORY_TTL_MS;
     if (force || !fresh) {
-      this.groupsLoading ??= this.fetchGroups().finally(() => {
-        this.groupsLoading = null;
-      });
-      await this.groupsLoading;
+      let loading = this.groupsLoading;
+      if (!loading) {
+        const own: Promise<void> = this.fetchGroups().finally(() => {
+          if (this.groupsLoading === own) this.groupsLoading = null;
+        });
+        this.groupsLoading = loading = own;
+      }
+      await loading;
     }
     return this.allGroups();
   }

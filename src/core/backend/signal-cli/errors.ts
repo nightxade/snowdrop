@@ -57,6 +57,8 @@ export interface SignalCliErrorInit {
   recipientFailures?: RecipientFailure[];
   retryAfterSec?: number;
   cause?: unknown;
+  /** The request reached the daemon and was answered, so what it asked for may have happened. */
+  requestSent?: boolean;
 }
 
 export class SignalCliError extends Error {
@@ -66,6 +68,12 @@ export class SignalCliError extends Error {
   readonly data: unknown;
   readonly recipientFailures: RecipientFailure[] | undefined;
   readonly retryAfterSec: number | undefined;
+  /**
+   * Set only where the code can tell the request was written and answered
+   * (the reply's body then failed). A failed `fetch` can't say whether the
+   * request left, so `unreachable` never sets it.
+   */
+  readonly requestSent: boolean;
 
   constructor(
     readonly kind: SignalCliErrorKind,
@@ -78,6 +86,7 @@ export class SignalCliError extends Error {
     this.data = init.data;
     this.recipientFailures = init.recipientFailures;
     this.retryAfterSec = init.retryAfterSec;
+    this.requestSent = init.requestSent === true;
   }
 
   /** Worth retrying automatically (transient transport trouble). */

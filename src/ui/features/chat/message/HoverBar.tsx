@@ -1,6 +1,6 @@
 import { Ellipsis, Pencil, Puzzle, Reply, RotateCw, SmilePlus, Trash2 } from 'lucide-react';
 import { useStore } from 'zustand';
-import type { Message } from '@/core/domain';
+import { retryCopy, type Message } from '@/core/domain';
 import { localSelectors } from '@/core/stores';
 import { useSnowdrop, useObservableList } from '@/ui/hooks';
 import {
@@ -50,7 +50,7 @@ export function HoverBar(props: HoverBarProps) {
       data-snowdrop="hover-bar"
     >
       {p.failed ? (
-        <IconButton label="Retry sending" icon={<RotateCw />} onClick={props.onRetry} />
+        <IconButton label={retryCopy(m).menuLabel} icon={<RotateCw />} onClick={props.onRetry} />
       ) : (
         p.canReact && (
           <>

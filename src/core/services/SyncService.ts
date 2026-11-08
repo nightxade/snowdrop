@@ -65,6 +65,7 @@ import {
 } from '@/core/stores';
 import { CatchUpTracker, NOTIFICATION_HOLD_CEILING_MS } from './CatchUpTracker';
 import { PendingOpsBuffer, PENDING_OPS_MAX, PENDING_OPS_TTL_MS } from './PendingOpsBuffer';
+import { ReactionWatch } from './ReactionWatch';
 import { ReceiptBuffer } from './ReceiptBuffer';
 import type { PostConnectRunner } from './PostConnect';
 import { consoleReporter, type ErrorReporter } from './types';
@@ -79,6 +80,8 @@ export interface SyncServiceDeps {
   receipts?: ReceiptBuffer;
   /** Shared with SendService so ops that beat their target message aren't lost. */
   pendingOps?: PendingOpsBuffer;
+  /** Shared with SendService: told when a reaction is taken back. */
+  reactionWatch?: ReactionWatch;
   onError?: ErrorReporter;
   /** The app's steps for after a successful connect (see PostConnect); run after every one. */
   postConnect?: PostConnectRunner;
@@ -192,6 +195,7 @@ export class SyncService {
   private readonly events = new Emitter<SyncEvents>();
   private readonly receipts: ReceiptBuffer;
   private readonly pendingOps: PendingOpsBuffer;
+  private readonly reactionWatch: ReactionWatch;
   private readonly onError: ErrorReporter;
   private unsubscribers: Unsubscribe[] = [];
   /**
@@ -280,6 +284,7 @@ export class SyncService {
   constructor(private readonly deps: SyncServiceDeps) {
     this.receipts = deps.receipts ?? new ReceiptBuffer();
     this.pendingOps = deps.pendingOps ?? new PendingOpsBuffer();
+    this.reactionWatch = deps.reactionWatch ?? new ReactionWatch();
     this.onError = deps.onError ?? consoleReporter;
     this.catchUpTracker = new CatchUpTracker({
       clock: deps.clock,
@@ -510,6 +515,11 @@ export class SyncService {
   private disposeCatchUp(): void {
     this.catchUpTracker.dispose();
     this.notificationHold.dispose();
+    // The trackers stop without notifying, so the flags they last set would
+    // otherwise stay on (a sidebar stuck on "Loading…" after a failed start).
+    const session = this.deps.stores.session.getState();
+    session.setCatchingUp(false);
+    session.setNotificationsHeld(false);
   }
 
   /** Releases events parked during initial sync, in arrival order. */
@@ -1828,6 +1838,7 @@ export class SyncService {
    */
   private async onReaction(e: BackendEvents['reaction'], live: boolean): Promise<void> {
     const id = messageId(e.targetAuthorId, e.targetSentAt);
+    if (e.remove) this.reactionWatch.noteRemoved(id, e.reaction.authorId);
     const before = await this.deps.repository.get(id);
     await this.updateMessage(e.conversationId, id, (m) => ({
       ...m,

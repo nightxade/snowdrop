@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { BackupDirectory, backupUuid } from './directory';
 
 const SELF = '00000000-0000-0000-0000-000000000001';
@@ -102,5 +102,33 @@ describe('phone-history directory', () => {
     expect(() => {
       directory.add({ recipient: { id: 9007199254740992, self: {} } });
     }).toThrow();
+  });
+
+  it('finds a chat from its conversation without rebuilding every conversation per lookup', () => {
+    const directory = new BackupDirectory(SELF);
+    const count = 40;
+    for (let i = 1; i <= count; i += 1) {
+      directory.add({
+        recipient: {
+          id: String(i),
+          contact: {
+            aci: Buffer.from(`${'0'.repeat(30)}${(i + 16).toString(16)}`, 'hex').toString('base64'),
+          },
+        },
+      });
+      directory.add({ chat: { id: String(100 + i), recipientId: String(i) } });
+    }
+    const spy = vi.spyOn(directory, 'conversation');
+    const ids = directory.conversations().map((conversation) => conversation.id);
+    expect(ids).toHaveLength(count);
+    spy.mockClear();
+    const found = ids.map((id) => directory.chatId(id));
+    expect(found).toEqual(ids.map((_, i) => String(101 + i)));
+    expect(spy.mock.calls.length).toBeLessThanOrEqual(count);
+    expect(directory.chatId('dm:unknown')).toBeUndefined();
+    // A later frame is visible.
+    directory.add({ recipient: { id: '900', self: {} } });
+    directory.add({ chat: { id: '901', recipientId: '900' } });
+    expect(directory.chatId(`dm:${SELF}`)).toBe('901');
   });
 });

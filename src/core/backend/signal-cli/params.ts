@@ -32,6 +32,8 @@ import { addressId, wireReceiptReply, wireSendResult, type WireSendResult } from
 export function targetParams(
   conversationId: ConversationId,
   selfAliases: ReadonlySet<string>,
+  /** Where a DM keyed by this id is really addressed (see `DirectPeers.addressFor`). */
+  addressFor: (id: string) => string | undefined = (id) => id,
 ): RpcParams {
   const parsed = parseConversationId(conversationId);
   if (!parsed) {
@@ -41,7 +43,14 @@ export function targetParams(
   // Sending to our own address must be a note-to-self, or signal-cli sends a
   // regular message to our other devices only.
   if (selfAliases.has(parsed.target)) return { noteToSelf: true };
-  return { recipient: [parsed.target] };
+  const address = addressFor(parsed.target);
+  if (!address) {
+    throw new SignalCliError(
+      'user',
+      "This number now belongs to someone else, so you can't message it from this chat.",
+    );
+  }
+  return { recipient: [address] };
 }
 
 /**

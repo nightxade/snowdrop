@@ -36,6 +36,7 @@ import {
   HistoryService,
   NotificationService,
   PendingOpsBuffer,
+  ReactionWatch,
   ReceiptBuffer,
   GroupService,
   IdentityService,
@@ -419,6 +420,7 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
   // acknowledgement isn't lost.
   const receipts = new ReceiptBuffer();
   const pendingOps = new PendingOpsBuffer();
+  const reactionWatch = new ReactionWatch();
 
   // Per-concern scopes (Settings → Diagnostics): send/sync/history errors
   // land under their own `ui:<scope>`, separate from the generic `app` one
@@ -451,6 +453,7 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     pipeline: registries,
     receipts,
     pendingOps,
+    reactionWatch,
     readConversation: (id) => sync.markConversationRead(id),
     onExpiry: (at) => {
       sync.noteExpiry(at);
@@ -482,6 +485,7 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     scheduler,
     receipts,
     pendingOps,
+    reactionWatch,
     postConnect,
     onError: (error, context) => {
       syncLog.error(context, error);
@@ -522,6 +526,8 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     backend,
     repository,
     stores,
+    pendingOps,
+    clock,
     onError: (error, context) => {
       historyLog.error(context, error);
     },
@@ -530,6 +536,7 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     backend,
     repository,
     stores,
+    pendingOps,
     storage,
     // Same scoping as spaces/local (app/dataScope.ts): per backend/account,
     // so switching accounts can never resume a different account's import.

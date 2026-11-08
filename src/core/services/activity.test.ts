@@ -13,6 +13,7 @@ import { ManualScheduler } from '@/core/lib';
 import { MemoryMessageRepository } from '@/core/persistence';
 import { createStores } from '@/core/stores';
 import { NotificationService, type NotificationApi } from './NotificationService';
+import { PENDING_OPS_TTL_MS } from './PendingOpsBuffer';
 import { SendService } from './SendService';
 import { SyncService, type SyncEvents } from './SyncService';
 
@@ -768,7 +769,7 @@ describe('reactions that arrive before their message', () => {
     react(NOW + 7, peerOf(conv), '👍', true);
     react(NOW + 9, peerOf(conv), '👍');
     await sync.idle();
-    scheduler.advance(6 * 60_000);
+    scheduler.advance(PENDING_OPS_TTL_MS + 60_000);
     react(NOW + 8, peerOf(conv), '👍');
     react(NOW + 8, peerOf(conv), '❤️');
     await sync.idle();

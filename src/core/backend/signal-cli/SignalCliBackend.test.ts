@@ -30,6 +30,7 @@ import {
 import { DIRECTORY_TTL_MS } from './directory';
 import { HttpTransport } from './httpTransport';
 import { SignalCliBackend } from './SignalCliBackend';
+import { peersStorageKey } from './storageKeys';
 import { FakeDaemon, flush } from './testing';
 import type {
   EventSubscription,
@@ -597,6 +598,46 @@ describe('SignalCliBackend: attachment backfill (patches/signal-cli 0014)', () =
     expect(events).toEqual([]);
     await backend.disconnect();
   });
+
+  it('survives an attachmentBackfill event whose data is not JSON, and reads the next one', async () => {
+    const { backend, daemon } = await connected();
+    const events = collect(backend, 'attachmentBackfill');
+    const statuses: string[] = [];
+    backend.on('status', (s) => statuses.push(s));
+    const opened = daemon.streams.length;
+    daemon.lastStream!.push('id:run-12\nevent:attachmentBackfill\ndata:{not json\n\n');
+    daemon.lastStream!.push(
+      `id:run-13\nevent:attachmentBackfill\ndata:${JSON.stringify({
+        targetAuthor: ALICE,
+        targetTimestamp: 5,
+        status: 'ready',
+        attachmentIds: ['a'],
+      })}\n\n`,
+    );
+    await flush();
+    await backend.idle();
+    expect(events).toHaveLength(1);
+    expect(daemon.streams.length).toBe(opened);
+    expect(statuses).toEqual([]);
+    await backend.disconnect();
+  });
+});
+
+describe('SignalCliBackend: group re-checks', () => {
+  it('a daemon failure on a scheduled group re-check is not an unhandled rejection', async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on('unhandledRejection', onUnhandled);
+    const { backend, daemon, scheduler } = await connected();
+    daemon.handle('listGroups', () => ({ error: { code: -32603, message: 'boom' } }));
+    scheduler.advance(5_000);
+    await flush();
+    await flush();
+    process.off('unhandledRejection', onUnhandled);
+    expect(unhandled).toEqual([]);
+    expect(daemon.callsTo('listGroups').length).toBeGreaterThan(1);
+    await backend.disconnect();
+  });
 });
 
 describe('SignalCliBackend: directory', () => {
@@ -1037,6 +1078,47 @@ describe('SignalCliBackend: commands', () => {
     expect((await backend.listConversations()).map((c) => c.id)).toContain(
       directConversationId(BOB),
     );
+    await backend.disconnect();
+  });
+
+  it("never sends from a chat keyed by a recycled number to the number's new owner", async () => {
+    const { backend, daemon, storage } = setup();
+    // ALICE was first known as +N (the chat is keyed by it); the number has since moved to BOB.
+    storage.setItem(
+      peersStorageKey(SELF_ACI),
+      JSON.stringify({
+        peers: { [BOB_NUMBER]: 5, [BOB]: 9 },
+        aliases: { [ALICE]: BOB_NUMBER, [BOB_NUMBER]: BOB_NUMBER, [BOB]: BOB },
+        moved: [BOB_NUMBER],
+      }),
+    );
+    await backend.connect();
+    await flush();
+    daemon.reply('send', { timestamp: 9, results: [] });
+    await backend.send({ conversationId: directConversationId(BOB_NUMBER), body: 'x', ranges: [] });
+    expect(daemon.callsTo('send').at(-1)).toMatchObject({ recipient: [ALICE] });
+    await backend.send({ conversationId: directConversationId(BOB), body: 'y', ranges: [] });
+    expect(daemon.callsTo('send').at(-1)).toMatchObject({ recipient: [BOB] });
+    await backend.disconnect();
+  });
+
+  it('refuses to send from a moved-number chat whose holder is unknown', async () => {
+    const { backend, daemon, storage } = setup();
+    storage.setItem(
+      peersStorageKey(SELF_ACI),
+      JSON.stringify({
+        peers: { ['+15550009999']: 5 },
+        aliases: { ['+15550009999']: '+15550009999' },
+        moved: ['+15550009999'],
+      }),
+    );
+    await backend.connect();
+    await flush();
+    const before = daemon.callsTo('send').length;
+    await expect(
+      backend.send({ conversationId: directConversationId('+15550009999'), body: 'x', ranges: [] }),
+    ).rejects.toMatchObject({ kind: 'user' });
+    expect(daemon.callsTo('send')).toHaveLength(before);
     await backend.disconnect();
   });
 
@@ -2253,6 +2335,28 @@ describe('imported phone history', () => {
     expect(
       await backend.readHistory([{ id: messageId(ALICE, 1000), cursor: 'snapshot:4' }]),
     ).toEqual([{ id: messageId(ALICE, 1000), expiresAt: 6000, unavailable: false }]);
+    await backend.disconnect();
+  });
+
+  it('lists contacts and conversations without history when the directory is unreadable, and says so once', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const { backend, daemon } = setup();
+    daemon.reply('getHistoryDirectory', {
+      archiveId: 'snapshot',
+      entries: [{ cursor: '5', frame: { recipient: { id: '1', self: {} } } }],
+      nextCursor: '3', // does not match the last entry
+      hasMore: false,
+    });
+    await backend.connect();
+    await expect(backend.listContacts()).resolves.toEqual(expect.any(Array));
+    await expect(backend.listConversations()).resolves.toEqual(expect.any(Array));
+    await expect(backend.listConversations()).resolves.toEqual(expect.any(Array));
+    const lines = warn.mock.calls
+      .map((c) => c.map((part) => JSON.stringify(part)).join(' '))
+      .filter((l) => l.includes('history unavailable'));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).not.toContain('snapshot');
+    warn.mockRestore();
     await backend.disconnect();
   });
 

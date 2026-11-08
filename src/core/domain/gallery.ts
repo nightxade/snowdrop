@@ -119,16 +119,21 @@ export function groupGalleryByDate(items: readonly GalleryItem[], now: number): 
   for (const item of sorted) {
     const at = item.message.receivedAt;
     let bucket: keyof typeof STATIC_LABEL | undefined;
-    if (at > today) bucket = 'today';
-    else if (at > yesterday) bucket = 'yesterday';
-    else if (at > weekStart) bucket = 'thisWeek';
-    else if (at > month) bucket = 'thisMonth';
+    // A day starts at its midnight, which belongs to it.
+    if (at >= today) bucket = 'today';
+    else if (at >= yesterday) bucket = 'yesterday';
+    else if (at >= weekStart) bucket = 'thisWeek';
+    else if (at >= month) bucket = 'thisMonth';
     if (bucket) {
-      statics.set(bucket, [...(statics.get(bucket) ?? []), item]);
+      const list = statics.get(bucket);
+      if (list) list.push(item);
+      else statics.set(bucket, [item]);
     } else {
       const d = new Date(at);
       const order = d.getFullYear() * 100 + d.getMonth();
-      months.set(order, [...(months.get(order) ?? []), item]);
+      const list = months.get(order);
+      if (list) list.push(item);
+      else months.set(order, [item]);
     }
   }
 

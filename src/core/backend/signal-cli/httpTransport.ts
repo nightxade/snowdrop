@@ -96,7 +96,11 @@ export class HttpTransport implements SignalCliTransport {
     try {
       payload = await response.json();
     } catch (cause) {
-      throw new SignalCliError('invalid-response', `${method}: response is not JSON`, { cause });
+      // The daemon answered (headers arrived), so the request was written.
+      throw new SignalCliError('invalid-response', `${method}: response is not JSON`, {
+        cause,
+        requestSent: true,
+      });
     }
     return toReply(method, payload);
   }

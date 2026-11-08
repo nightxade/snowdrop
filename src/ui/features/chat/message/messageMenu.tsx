@@ -15,7 +15,7 @@ import {
   Trash2,
   FileCode,
 } from 'lucide-react';
-import type { Message } from '@/core/domain';
+import { retryCopy, type Message } from '@/core/domain';
 import { localSelectors } from '@/core/stores';
 import type { AppServices } from '@/ui/hooks';
 import { isRenderableComponent, type MenuEntry } from '@/ui/primitives';
@@ -60,7 +60,7 @@ export function buildMessageMenu(
       {
         kind: 'item',
         id: 'retry',
-        label: 'Retry sending',
+        label: retryCopy(m).menuLabel,
         icon: <RotateCw size={ICON} />,
         onSelect: () => {
           act.retry(app, m);

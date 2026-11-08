@@ -166,3 +166,16 @@ describe('JsonRpcClient', () => {
     expect((await failure(pending)).kind).toBe('aborted');
   });
 });
+
+describe('whether a failed request was written', () => {
+  it('marks a reply whose body is not JSON as requestSent, and a refused connection as not', async () => {
+    const daemon = new FakeDaemon();
+    const garbled: FetchLike = () => Promise.resolve(new Response('<html>', { status: 200 }));
+    const sent = await failure(client(daemon, garbled).call('send', {}, unknownValue));
+    expect(sent).toMatchObject({ kind: 'invalid-response', requestSent: true });
+
+    const refused: FetchLike = () => Promise.reject(new TypeError('Failed to fetch'));
+    const never = await failure(client(daemon, refused).call('send', {}, unknownValue));
+    expect(never).toMatchObject({ kind: 'unreachable', requestSent: false });
+  });
+});

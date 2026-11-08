@@ -10,6 +10,7 @@ export * from './historyImport';
 export * from './sentMarkers';
 export * from './ReceiptBuffer';
 export * from './PendingOpsBuffer';
+export * from './ReactionWatch';
 export * from './NotificationService';
 export * from './historyExport';
 export * from './PostConnect';

@@ -425,6 +425,11 @@ export interface Message {
   /** Why a `failed` status happened, when it's more specific than "send failed". */
   failureReason?: string;
   /**
+   * A `failed` send that timed out waiting for the daemon: it may still have
+   * gone out, so sending it again could deliver it twice. Cleared on retry.
+   */
+  sendUnconfirmed?: true;
+  /**
    * People whose safety number changed and stopped this send (the message is
    * `failed`): the review dialog lists them. Cleared when the send is retried.
    */

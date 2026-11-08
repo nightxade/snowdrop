@@ -10,6 +10,7 @@ import {
 } from '@/core/persistence';
 import { createStores, type Stores } from '@/core/stores';
 import { HistoryImportService } from './historyImport';
+import { PendingOpsBuffer } from './PendingOpsBuffer';
 
 const NOW = Date.UTC(2026, 8, 30, 15, 30);
 const SCOPE = 'signal-cli:+15551234567';
@@ -114,8 +115,12 @@ function harness(
   return { backend, repository, stores, storage, onErrors: [] };
 }
 
-function service(h: Harness, options: { pageSize?: number } = {}): HistoryImportService {
+function service(
+  h: Harness,
+  options: { pageSize?: number; pendingOps?: PendingOpsBuffer } = {},
+): HistoryImportService {
   return new HistoryImportService({
+    ...(options.pendingOps ? { pendingOps: options.pendingOps } : {}),
     backend: h.backend,
     repository: h.repository,
     stores: h.stores,
@@ -150,6 +155,48 @@ describe('HistoryImportService', () => {
       imported: 8,
       error: null,
     });
+  });
+
+  it('applies a delete held for a message the import brings in', async () => {
+    const chat = archive(CONV_A, 'alice', 3);
+    const h = harness({ chats: new Map([[CONV_A, chat]]) });
+    seedConversations(h.stores, [CONV_A]);
+    const pendingOps = new PendingOpsBuffer();
+    pendingOps.hold(chat[1]!.id, (m) => ({ ...m, deleted: true, body: '' }), NOW);
+
+    await service(h, { pendingOps }).start();
+
+    expect((await h.repository.get(chat[1]!.id))?.deleted).toBe(true);
+    expect((await h.repository.get(chat[0]!.id))?.deleted).toBeUndefined();
+    expect(pendingOps.size).toBe(0);
+  });
+
+  it('waiting for the session to be ready leaves no subscription behind, even after stop', async () => {
+    const h = harness({ chats: new Map([[CONV_A, archive(CONV_A, 'alice', 2)]]) });
+    h.stores.session.getState().setReady(false);
+    let live = 0;
+    const subscribe = h.stores.session.subscribe.bind(h.stores.session);
+    h.stores.session.subscribe = (listener) => {
+      live += 1;
+      const off = subscribe(listener);
+      let released = false;
+      return () => {
+        if (!released) live -= 1;
+        released = true;
+        off();
+      };
+    };
+    const svc = service(h);
+    const running = svc.start();
+    // Each session change ends one wait and starts the next.
+    for (let i = 0; i < 3; i += 1) {
+      h.stores.session.getState().setCatchingUp(i % 2 === 0);
+      await Promise.resolve();
+    }
+    expect(live).toBe(1);
+    await svc.stop();
+    await running;
+    expect(live).toBe(0);
   });
 
   it('nothing to import when the backend has no archive', async () => {

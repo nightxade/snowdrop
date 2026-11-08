@@ -53,7 +53,7 @@
  * does, and it resumes on its own once the condition clears.
  */
 import type { ChatBackend } from '@/core/backend';
-import { mergeDuplicate, type ConversationId } from '@/core/domain';
+import { mergeDuplicate, type ConversationId, type Message } from '@/core/domain';
 import type { Clock, Logger, Scheduler } from '@/core/lib';
 import { createLogger } from '@/core/lib';
 import {
@@ -65,6 +65,7 @@ import {
   type VersionedSchema,
 } from '@/core/persistence';
 import { isDeletedRequest, type Stores } from '@/core/stores';
+import type { PendingOpsBuffer } from './PendingOpsBuffer';
 import { consoleReporter, type ErrorReporter } from './types';
 
 const log = createLogger('history-import');
@@ -130,6 +131,8 @@ export interface HistoryImportServiceDeps {
   backend: Pick<ChatBackend, 'getHistoryArchiveId' | 'fetchHistory'>;
   repository: MessageRepository;
   stores: Stores;
+  /** Shared with SyncService: operations held for a message this import now brings in. */
+  pendingOps?: PendingOpsBuffer;
   storage: KeyValueStorage;
   /**
    * The persisted record's scope (backend kind + account): callers already
@@ -228,11 +231,16 @@ export class HistoryImportService {
       const session = this.deps.stores.session.getState();
       if (session.ready && !session.catchingUp) return true;
       await new Promise<void>((resolve) => {
-        this.wake.push(resolve);
-        const unsubscribe = this.deps.stores.session.subscribe(() => {
+        // One way out, whichever fires first (a session change, or stop/reset):
+        // it drops both the subscription and the wake entry.
+        const done = (): void => {
           unsubscribe();
+          const at = this.wake.indexOf(done);
+          if (at !== -1) this.wake.splice(at, 1);
           resolve();
-        });
+        };
+        const unsubscribe = this.deps.stores.session.subscribe(done);
+        this.wake.push(done);
       });
     }
   }
@@ -346,10 +354,17 @@ export class HistoryImportService {
       this.saveState(state);
       return;
     }
-    const stored = await this.deps.repository.upsertMany(page.messages, {
-      backfill: true,
-      merge: mergeDuplicate,
-    });
+    const held = this.deps.pendingOps?.applyTo(page.messages, this.deps.clock.now());
+    let stored: Message[];
+    try {
+      stored = await this.deps.repository.upsertMany(held?.messages ?? page.messages, {
+        backfill: true,
+        merge: mergeDuplicate,
+      });
+    } catch (error) {
+      held?.restore();
+      throw error;
+    }
     state.imported += stored.length;
     const oldest = page.messages[0];
     if (oldest && page.hasMoreBefore && !oldest.historyCursor)

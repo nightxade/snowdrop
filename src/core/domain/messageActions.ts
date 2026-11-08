@@ -51,6 +51,35 @@ export interface MessageActionFacts {
   now: number;
 }
 
+/** How a failed send's retry is worded, everywhere it is offered. */
+export interface RetryCopy {
+  /** What the failed row says. */
+  status: string;
+  /** The short button beside the status. */
+  button: string;
+  /** The menu / toolbar label (it carries the warning when there is one). */
+  menuLabel: string;
+  /** Said when sending again could deliver the message twice. */
+  warning?: string;
+}
+
+/**
+ * A send that timed out may have gone out, so its retry is "Send again" with a
+ * warning (`Message.sendUnconfirmed`); any other failure is a plain retry.
+ */
+export function retryCopy(m: Pick<Message, 'sendUnconfirmed'>): RetryCopy {
+  if (m.sendUnconfirmed) {
+    return {
+      status: 'May have sent',
+      button: 'Send again',
+      menuLabel: 'Send again (may have sent)',
+      warning:
+        'No answer came back, so it may have been sent. Sending again could deliver it twice.',
+    };
+  }
+  return { status: 'Failed to send', button: 'Retry', menuLabel: 'Retry sending' };
+}
+
 export function messagePermissions(m: Message, facts: MessageActionFacts): MessagePermissions {
   const { selfId, conversation, accepted, capabilities: caps } = facts;
   const own = selfId !== null && m.authorId === selfId;

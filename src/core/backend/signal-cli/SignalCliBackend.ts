@@ -255,6 +255,8 @@ export class SignalCliBackend implements ChatBackend {
   /** The bounded wait on the contact listing in flight (see `contactsForListing`). */
   private listingWait: Promise<void> | null = null;
   private historyAbort = new AbortController();
+  /** Whether this session already reported an unreadable history. */
+  private historyWarned = false;
   private readonly groupChanges = new GroupChangeTracker();
   private readonly sentQuotes = new Map<string, Quote>();
   private readonly debugLog: (message: string, detail?: unknown) => void;
@@ -573,17 +575,21 @@ export class SignalCliBackend implements ChatBackend {
     for (const delayMs of GROUP_BACKOFF_DELAYS_MS) {
       this.scheduler.setTimeout(() => {
         if (stopped || session !== this.session) return;
-        void this.directory.loadGroups(true).then(() => {
-          if (stopped || session !== this.session) return;
-          const count = this.directory.allGroups().length;
-          // Still none: the phone's sync usually hasn't landed yet, so keep
-          // checking. Once groups exist and the count settles, stop early.
-          if (count > 0 && count === lastCount) {
-            stopped = true;
-            return;
-          }
-          lastCount = count;
-        });
+        void this.directory
+          .loadGroups(true)
+          .then(() => {
+            if (stopped || session !== this.session) return;
+            const count = this.directory.allGroups().length;
+            // Still none: the phone's sync usually hasn't landed yet, so keep
+            // checking. Once groups exist and the count settles, stop early.
+            if (count > 0 && count === lastCount) {
+              stopped = true;
+              return;
+            }
+            lastCount = count;
+          })
+          // A daemon blip on one of these checks is not worth an unhandled rejection.
+          .catch(() => undefined);
       }, delayMs);
     }
   }
@@ -707,6 +713,7 @@ export class SignalCliBackend implements ChatBackend {
     this.avatars.clear();
     this.historyAbort.abort();
     this.historyAbort = new AbortController();
+    this.historyWarned = false;
     this.history = null;
     this.listingWait = null;
     this.groupChanges.clear();
@@ -793,7 +800,12 @@ export class SignalCliBackend implements ChatBackend {
     } else if (event.type === 'attachmentBackfill') {
       // Patched signal-cli only (patches/signal-cli/0014): our primary
       // answered a requestAttachmentBackfill call.
-      const payload: unknown = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+      let payload: unknown;
+      try {
+        payload = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+      } catch {
+        payload = undefined; // advisory: a malformed event is dropped below
+      }
       const backfill = parseAttachmentBackfillEvent(payload);
       if (backfill) this.emitter.emit('attachmentBackfill', backfill);
       else this.debugLog('ignored malformed attachmentBackfill event');
@@ -1187,8 +1199,11 @@ export class SignalCliBackend implements ChatBackend {
     try {
       return { archive: await this.loadHistory(), unreadable: false };
     } catch (error) {
-      // The kind only: nothing from the archive itself.
-      log.warn('history unavailable for the listing', { reason: describeError(error) });
+      // Once per session, the kind only: nothing from the archive itself.
+      if (!this.historyWarned) {
+        this.historyWarned = true;
+        log.warn('history unavailable for the listing', { reason: describeError(error) });
+      }
       return { archive: null, unreadable: true };
     }
   }
@@ -1749,9 +1764,16 @@ export class SignalCliBackend implements ChatBackend {
 
   // ─── Commands ──────────────────────────────────────────────────────────
 
+  /** `send` target for a conversation, never addressing a recycled number's new owner. */
+  private targetOf(conversationId: ConversationId): RpcParams {
+    return targetParams(conversationId, this.identity.aliases, (id) =>
+      this.peers ? this.peers.addressFor(id) : id,
+    );
+  }
+
   async send(input: SendInput): Promise<SendResult> {
     this.assertAccount();
-    const target = targetParams(input.conversationId, this.identity.aliases);
+    const target = this.targetOf(input.conversationId);
     if (input.poll) return this.sendPoll(input.conversationId, input.poll, target);
     const stamp = this.clock.now().toString(36);
     let sticker: string | undefined;
@@ -1853,7 +1875,7 @@ export class SignalCliBackend implements ChatBackend {
       ? await encodeOutgoingPreview(input.preview, `local:${input.targetSentAt}:preview`)
       : undefined;
     const params = {
-      ...targetParams(input.conversationId, this.identity.aliases),
+      ...this.targetOf(input.conversationId),
       ...messageParams({
         body: input.body,
         ranges: input.ranges,
@@ -1922,7 +1944,7 @@ export class SignalCliBackend implements ChatBackend {
 
   async setTyping(conversationId: ConversationId, typing: boolean): Promise<void> {
     this.assertAccount();
-    const target = targetParams(conversationId, this.identity.aliases);
+    const target = this.targetOf(conversationId);
     if ('noteToSelf' in target) return;
     await this.rpc.call('sendTyping', { ...target, stop: !typing }, ignoreResult);
   }
@@ -2121,7 +2143,7 @@ export class SignalCliBackend implements ChatBackend {
     this.assertAccount();
     const parsed = parseConversationId(conversationId);
     if (!parsed) throw new SignalCliError('user', `Not a conversation id: ${conversationId}`);
-    const target = targetParams(conversationId, this.identity.aliases);
+    const target = this.targetOf(conversationId);
     if ('noteToSelf' in target) return;
     try {
       await this.rpc.call(
@@ -2224,11 +2246,7 @@ export class SignalCliBackend implements ChatBackend {
   ): Promise<void> {
     this.assertAccount();
     try {
-      await this.rpc.call(
-        method,
-        { ...targetParams(conversationId, this.identity.aliases), ...params },
-        ignoreResult,
-      );
+      await this.rpc.call(method, { ...this.targetOf(conversationId), ...params }, ignoreResult);
     } catch (error) {
       throw enrichSendError(error);
     }
