@@ -1,8 +1,9 @@
 import { act, cleanup, fireEvent, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi, type MockInstance } from 'vitest';
+import { VirtuosoMockContext } from 'react-virtuoso';
 import { axe } from 'vitest-axe';
 import type { Snowdrop } from '@/app/createSnowdrop';
-import type { Message } from '@/core/domain';
+import { colorForId, type Message } from '@/core/domain';
 import { bootForward, openChat, ownMessages, type ForwardKit } from '@/test/forwardKit';
 import { renderWithSnowdrop, settle } from '@/test/renderWithSnowdrop';
 import { ForwardDialog } from './ForwardDialog';
@@ -627,5 +628,48 @@ describe('Forward dialog: accessibility', () => {
       buttons[buttons.length - 1]!.focus();
       expect(dialog.contains(document.activeElement)).toBe(true);
     }
+  });
+});
+
+describe('Forward dialog: a large address book', () => {
+  it('mounts only the rows near the viewport, and picking still toggles', async () => {
+    const kit = await bootForward();
+    live.push(kit.snowdrop);
+    act(() => {
+      kit.snowdrop.stores.contacts.getState().upsertMany(
+        Array.from({ length: 3000 }, (_, i) => ({
+          id: `book-${i}`,
+          name: `Person ${String(i).padStart(4, '0')}`,
+          color: colorForId(`book-${i}`),
+        })),
+      );
+    });
+    renderWithSnowdrop(
+      kit.snowdrop,
+      <VirtuosoMockContext.Provider value={{ viewportHeight: 400, itemHeight: 40 }}>
+        <ForwardDialog
+          conversationId={kit.conversationId}
+          messageIds={[kit.message.id]}
+          onClose={vi.fn()}
+        />
+      </VirtuosoMockContext.Provider>,
+    );
+    await settle(kit.snowdrop);
+    await vi.waitFor(() => {
+      act(() => {
+        document.querySelectorAll('[data-virtuoso-scroller]').forEach((el) => {
+          el.dispatchEvent(new Event('scroll'));
+        });
+      });
+      expect(screen.getAllByRole('option').length).toBeGreaterThan(0);
+    });
+    const options = screen.getAllByRole('option');
+    expect(options.length).toBeLessThan(120);
+    expect(Number(options[0]?.getAttribute('aria-setsize'))).toBeGreaterThanOrEqual(3000);
+    act(() => {
+      fireEvent.click(options[0]!);
+    });
+    expect(options[0]?.getAttribute('aria-checked')).toBe('true');
+    expect((await axe(screen.getByRole('dialog'), { rules })).violations).toEqual([]);
   });
 });

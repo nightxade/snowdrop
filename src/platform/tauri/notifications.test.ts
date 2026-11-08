@@ -100,4 +100,19 @@ describe('native notifications', () => {
     await flush();
     expect(sendNotification).toHaveBeenCalledWith({ title: content.title, body: content.body });
   });
+
+  it('reports a hand-over the system refused, and not one that worked or was replaced', async () => {
+    const { invoke, ipc } = setup();
+    const api = await tauriNotificationApi(ipc);
+    const worked = api.show(content, clicked)!;
+    await expect(worked.delivered).resolves.toBe(true);
+
+    invoke.mockRejectedValueOnce(new Error('no notification service'));
+    const failed = api.show({ ...content, tag: 'snowdrop:bo' }, clicked)!;
+    await expect(failed.delivered).resolves.toBe(false);
+
+    const old = api.show({ ...content, tag: 'snowdrop:cy' }, clicked)!;
+    api.show({ ...content, tag: 'snowdrop:cy', body: 'newer' }, clicked);
+    await expect(old.delivered).resolves.toBe(true);
+  });
 });

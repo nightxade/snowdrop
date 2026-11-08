@@ -20,6 +20,7 @@ import {
 } from '@/ui/features/conversation';
 import { canViewSafetyNumber, openSafetyNumber, VerifiedBadge } from '@/ui/features/safety';
 import { Button } from '@/ui/primitives';
+import { MenuEntryButtons } from './MenuEntryButtons';
 import styles from './ProfilePopout.module.css';
 
 /**
@@ -36,16 +37,15 @@ export function ProfilePopout({
 }: {
   contact: Contact;
   conversationId?: ConversationId | undefined;
-  onClose: () => void;
+  /** `opened`: the chat the card opened, so focus can follow to it. */
+  onClose: (opened?: ConversationId) => void;
   /** `sheet`: full width inside a bottom drawer (phones). */
   variant?: 'popout' | 'sheet';
 }) {
   const app = useSnowdrop();
   const pluginItems = useObservableList(app.registries.menus.member);
   const plugin = conversationId
-    ? pluginMenuEntries(pluginItems, { contact, conversationId }, app.registries).flatMap((e) =>
-        e.kind === 'item' ? [e] : [],
-      )
+    ? pluginMenuEntries(pluginItems, { contact, conversationId }, app.registries)
     : [];
   const { stores } = app;
   const note = useStore(stores.local, localSelectors.note(contact.id));
@@ -102,8 +102,7 @@ export function ProfilePopout({
               fullWidth
               icon={<MessageSquare size={16} />}
               onClick={() => {
-                openDirectConversation(app, contact);
-                onClose();
+                onClose(openDirectConversation(app, contact));
               }}
             >
               Message
@@ -141,21 +140,7 @@ export function ProfilePopout({
         )}
         {plugin.length > 0 && (
           <div className={styles.pluginActions} role="group" aria-label="More actions">
-            {plugin.map((item) => (
-              <Button
-                key={item.id}
-                variant="ghost"
-                size="sm"
-                icon={item.icon}
-                className={item.danger ? styles.dangerAction : undefined}
-                onClick={() => {
-                  item.onSelect();
-                  onClose();
-                }}
-              >
-                {item.label}
-              </Button>
-            ))}
+            <MenuEntryButtons entries={plugin} onDone={onClose} />
           </div>
         )}
         <div className={styles.note}>

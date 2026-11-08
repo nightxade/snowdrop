@@ -239,7 +239,11 @@ export const SETTINGS_PAGES: SettingsPageDef[] = [
     description: 'Desktop notifications for new messages.',
     keywords: ['alerts', 'desktop'],
     entries: [
-      { id: 'notifications.permission', label: 'Browser permission', keywords: ['allow', 'test'] },
+      {
+        id: 'notifications.permission',
+        label: 'Notification permission',
+        keywords: ['allow', 'test', 'browser', 'system'],
+      },
       { id: 'notifications.enabled', section: 'when', label: 'Desktop notifications' },
       {
         id: 'notifications.mode',

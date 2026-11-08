@@ -263,3 +263,25 @@ describe('<PollVotesDialog />', () => {
     expect((await axe(dialog, { rules })).violations.map((x) => x.id)).toEqual([]);
   });
 });
+
+describe('PollCard when a vote throws', () => {
+  it('frees the options again instead of leaving them stuck', async () => {
+    const onVote = vi
+      .fn<(indexes: number[]) => Promise<void>>()
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValue(undefined);
+    const unhandled = vi.fn();
+    process.on('unhandledRejection', unhandled);
+    try {
+      renderCard(poll(), { onVote });
+      const user = userEvent.setup();
+      await user.click(screen.getByRole('checkbox', { name: /Pizza/u }));
+      await user.click(screen.getByRole('checkbox', { name: /Ramen/u }));
+      await new Promise((r) => setTimeout(r, 20));
+      expect(onVote).toHaveBeenCalledTimes(2);
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      process.off('unhandledRejection', unhandled);
+    }
+  });
+});

@@ -39,6 +39,37 @@ export function selectConversationView(
     : undefined;
 }
 
+/** What one conversation contributes to the badges (see `attentionOf`). */
+export interface Attention extends UnreadState {
+  /** Something unread that isn't muted: the unread dot. */
+  hasUnread: boolean;
+}
+
+/**
+ * The one rule for "does this conversation want attention", used by every
+ * badge, dot and "next unread" stop. Mentions always count, muted or not. A
+ * muted conversation adds no unread count and no dot. One the user marked
+ * unread that has nothing unread counts as one (unless a mention already
+ * says so).
+ */
+export function attentionOf(
+  unread: UnreadState | undefined,
+  muted: boolean,
+  markedUnread: boolean,
+): Attention {
+  const mentions = unread?.mentions ?? 0;
+  if (muted) return { count: 0, mentions, hasUnread: false };
+  const count = unread?.count ?? 0;
+  if (count > 0) return { count, mentions, hasUnread: true };
+  if (markedUnread && mentions === 0) return { count: 1, mentions, hasUnread: true };
+  return { count: 0, mentions, hasUnread: false };
+}
+
+/** Whether the conversation shows any indicator at all (a dot, a count or a mention). */
+export function needsAttention(attention: Attention): boolean {
+  return attention.hasUnread || attention.mentions > 0;
+}
+
 /**
  * Sum of unread across conversations; muted ones don't add to the count
  * (mentions always do). A conversation the user marked unread that has
@@ -50,24 +81,36 @@ export function totalUnread(
   local: LocalById,
   ids: readonly ConversationId[],
   now: number,
-): UnreadState & { hasUnread: boolean } {
+): Attention {
   let count = 0;
   let mentions = 0;
   let hasUnread = false;
   for (const id of ids) {
-    const u = unread[id];
     const state = local[id] ?? DEFAULT_LOCAL_CONVERSATION;
     if (state.archived) continue;
-    mentions += u?.mentions ?? 0;
-    if (isMuted(state.muted, now)) continue;
-    const unreadCount = u?.count ?? 0;
-    if (unreadCount > 0) {
-      count += unreadCount;
-      hasUnread = true;
-    } else if (state.markedUnread && !(u && u.mentions > 0)) {
-      count += 1;
-      hasUnread = true;
-    }
+    const one = attentionOf(unread[id], isMuted(state.muted, now), state.markedUnread === true);
+    count += one.count;
+    mentions += one.mentions;
+    if (one.hasUnread) hasUnread = true;
   }
   return { count, mentions, hasUnread };
+}
+
+/**
+ * The conversations among `ids` with something unread (or marked unread),
+ * muted or not. Archived ones are included only when asked: Signal Desktop's
+ * "mark all as read" for a chat folder clears them too, but offers the action
+ * only when a chat that can be counted (not archived) is unread.
+ */
+export function unreadConversationIds(
+  unread: ConversationsState['unread'],
+  local: LocalById,
+  ids: readonly ConversationId[],
+  { includeArchived = false }: { includeArchived?: boolean } = {},
+): ConversationId[] {
+  return ids.filter((id) => {
+    const state = local[id] ?? DEFAULT_LOCAL_CONVERSATION;
+    if (state.archived && !includeArchived) return false;
+    return (unread[id]?.count ?? 0) > 0 || state.markedUnread === true;
+  });
 }

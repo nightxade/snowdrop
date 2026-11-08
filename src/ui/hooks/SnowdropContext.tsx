@@ -140,7 +140,10 @@ export interface AppServices {
   /** The registered transports (Settings → Connection lists them). */
   backends: { options(): readonly BackendOption[] };
   /** Desktop notification permission + a test notification. */
-  notifications: Pick<NotificationService, 'permission' | 'requestPermission' | 'test'>;
+  notifications: Pick<
+    NotificationService,
+    'permission' | 'requestPermission' | 'test' | 'onPermissionChange'
+  >;
   /** Native file/image clipboard fallback, available only in the desktop shell. */
   readClipboardFiles: (() => Promise<File[]>) | null;
   /**

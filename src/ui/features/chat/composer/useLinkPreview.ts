@@ -63,6 +63,9 @@ export function useLinkPreview(
 
   const [loaded, setLoaded] = useState<Loaded>(NONE);
   const [ownDismissedUrl, setOwnDismissedUrl] = useState<string | null>(null);
+  // Once the link is gone from the text (sent, or deleted), a later paste of
+  // the same link is a new one and may show its preview again.
+  if (!textUrl && ownDismissedUrl !== null) setOwnDismissedUrl(null);
   const dismissedUrl = dismissal ? (dismissal.url ?? null) : ownDismissedUrl;
   // Mirrors `loaded` for the debounce effect below, so it can read the
   // latest fetch without re-running every time `loaded` itself changes

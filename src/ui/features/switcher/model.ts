@@ -6,7 +6,7 @@
  * below places, since most switcher use is navigation.
  */
 import { fuzzyMatch, type ConversationId, type ConversationView } from '@/core/domain';
-import type { UnreadState } from '@/core/stores';
+import { attentionOf, type UnreadState } from '@/core/stores';
 
 export type SwitcherScope = 'all' | 'commands' | 'direct' | 'groups' | 'spaces';
 
@@ -145,13 +145,17 @@ function spaceItem(
   input: SwitcherInput,
   indices: readonly number[] = [],
 ): Extract<SwitcherItem, { kind: 'space' }> {
+  // The same rule as the rail's dot and the sidebar's badges (`attentionOf`):
+  // archived chats count for nothing, and `isMuted` already folds in a muted space.
+  const viewOf = new Map(input.views.map((v) => [v.id, v]));
   let mentions = 0;
   let unread = false;
   for (const id of space.conversationIds) {
-    const u = input.unread[id];
-    if (!u) continue;
-    mentions += u.mentions;
-    if (u.count > 0) unread = true;
+    const view = viewOf.get(id);
+    if (!view || view.archived) continue;
+    const one = attentionOf(input.unread[id], input.isMuted(view), view.markedUnread === true);
+    mentions += one.mentions;
+    if (one.hasUnread) unread = true;
   }
   return {
     kind: 'space',
@@ -180,6 +184,58 @@ function commandItem(
   };
 }
 
+interface Scored {
+  item: SwitcherItem;
+  score: number;
+  order: number;
+}
+
+/** The conversations whose title matches `text`, each with its score (unread nudges included). */
+function scoreConversations(
+  text: string,
+  views: readonly ConversationView[],
+  input: SwitcherInput,
+  spaceOf: Map<string, SwitcherSpace>,
+): { item: Extract<SwitcherItem, { kind: 'conversation' }>; score: number }[] {
+  const out: { item: Extract<SwitcherItem, { kind: 'conversation' }>; score: number }[] = [];
+  for (const view of views) {
+    const m = fuzzyMatch(text, view.title);
+    if (!m) continue;
+    const u = input.unread[view.id];
+    // Small nudges only: a better text match always wins over unread state.
+    const bonus = Math.min(MAX_UNREAD_BONUS, (u?.mentions ? 2 : 0) + (u?.count ? 1 : 0));
+    out.push({ item: conversationItem(view, input, spaceOf, m.indices), score: m.score + bonus });
+  }
+  return out;
+}
+
+/**
+ * Chats of one kind whose title matches `text`, best first: what the `#`
+ * (groups) and `@` (people) scopes show, without going through the query
+ * syntax. Nothing is returned for empty text.
+ */
+export function searchConversations(
+  text: string,
+  kind: 'direct' | 'group',
+  input: SwitcherInput,
+): Extract<SwitcherItem, { kind: 'conversation' }>[] {
+  const needle = text.trim();
+  if (!needle) return [];
+  const spaceOf = new Map<string, SwitcherSpace>();
+  for (const space of input.spaces) for (const id of space.conversationIds) spaceOf.set(id, space);
+  const views = input.views.filter((v) => !v.archived && v.kind === kind);
+  const scored = scoreConversations(needle, views, input, spaceOf).map((entry, order) => ({
+    ...entry,
+    order,
+  }));
+  scored.sort((a, b) => b.score - a.score || a.order - b.order);
+  const best = scored[0]?.score ?? 0;
+  return scored
+    .filter((s) => best <= 0 || s.score >= best * RELATIVE_FLOOR)
+    .slice(0, input.limit ?? DEFAULT_LIMIT)
+    .map((s) => s.item);
+}
+
 /** Results for a raw query, already grouped for display. */
 export function searchSwitcher(raw: string, input: SwitcherInput): SwitcherSection[] {
   const { scope, text } = parseQuery(raw);
@@ -199,20 +255,11 @@ export function searchSwitcher(raw: string, input: SwitcherInput): SwitcherSecti
 
   if (!text) return emptyQuery(scope, views, input, spaceOf, limit);
 
-  const scored: { item: SwitcherItem; score: number; order: number }[] = [];
+  const scored: Scored[] = [];
   let order = 0;
   if (wantsConversations) {
-    for (const view of views) {
-      const m = fuzzyMatch(text, view.title);
-      if (!m) continue;
-      const u = input.unread[view.id];
-      // Small nudges only: a better text match always wins over unread state.
-      const bonus = Math.min(MAX_UNREAD_BONUS, (u?.mentions ? 2 : 0) + (u?.count ? 1 : 0));
-      scored.push({
-        item: conversationItem(view, input, spaceOf, m.indices),
-        score: m.score + bonus,
-        order: order++,
-      });
+    for (const entry of scoreConversations(text, views, input, spaceOf)) {
+      scored.push({ ...entry, order: order++ });
     }
   }
   if (wantsSpaces) {

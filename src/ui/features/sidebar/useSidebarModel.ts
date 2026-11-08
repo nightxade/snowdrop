@@ -1,8 +1,11 @@
-import { useMemo } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import { useStore } from 'zustand';
 import type { ConversationId, ConversationView } from '@/core/domain';
 import {
+  attentionOf,
   HOME,
+  isMuted,
+  needsAttention,
   selectConversationViews,
   sessionSelectors,
   uiSelectors,
@@ -10,7 +13,7 @@ import {
   type SpacesData,
   type Stores,
 } from '@/core/stores';
-import { useFrozenWhile, useStores } from '@/ui/hooks';
+import { useFrozenWhile, useNow, useStores } from '@/ui/hooks';
 import {
   archivedIds,
   buildHomeSections,
@@ -29,6 +32,12 @@ export interface SidebarModel {
   selected: ConversationId | null;
   /** While catching up (PLAN): order and badges hold still; see `useFrozenOrder`. */
   catchingUp: boolean;
+  /**
+   * Whether a row shows an indicator (a dot, a count or a mention): the same
+   * rule as the row's own badge, held still during catch-up like it. A
+   * collapsed section keeps exactly these rows visible.
+   */
+  attention: (id: ConversationId) => boolean;
 }
 
 function indexViews(views: readonly ConversationView[]): Record<string, ConversationView> {
@@ -72,6 +81,51 @@ function sectionsFor(
     : buildSpaceSections(space, spaces, indexViews(views));
 }
 
+/** Which conversations have anything unread or mentioned, as `\tflags` (count, mentions) per id. */
+function unreadFlags(
+  unread: Readonly<Record<string, { count: number; mentions: number }>>,
+): string {
+  return Object.entries(unread)
+    .filter(([, u]) => u.count > 0 || u.mentions > 0)
+    .map(([id, u]) => `${id}\t${u.count > 0 ? 1 : 0}${u.mentions > 0 ? 1 : 0}`)
+    .sort()
+    .join('\n');
+}
+
+/**
+ * `SidebarModel.attention`. The list re-renders when *which* conversations
+ * are unread changes, not on every message (a joined key of flags), and the
+ * flags freeze while catching up, as each row's badge does.
+ */
+function useAttention(catchingUp: boolean): (id: ConversationId) => boolean {
+  const stores = useStores();
+  const now = useNow(60_000);
+  const local = useStore(stores.local, (s) => s.conversations);
+  const live = useStore(stores.conversations, (s) => unreadFlags(s.unread));
+  const flags = useFrozenWhile(live, catchingUp);
+  const byId = useMemo(() => {
+    const map = new Map<string, { count: number; mentions: number }>();
+    for (const line of flags ? flags.split('\n') : []) {
+      const [id = '', bits = ''] = line.split('\t');
+      map.set(id, { count: bits.startsWith('1') ? 1 : 0, mentions: bits.endsWith('1') ? 1 : 0 });
+    }
+    return map;
+  }, [flags]);
+  return useCallback(
+    (id) => {
+      const state = local[id];
+      return needsAttention(
+        attentionOf(
+          byId.get(id),
+          isMuted(state?.muted ?? false, now),
+          state?.markedUnread === true,
+        ),
+      );
+    },
+    [byId, local, now],
+  );
+}
+
 /** Sections for the selected space, recomputed only when their inputs change. */
 export function useSidebarModel(): SidebarModel {
   const stores = useStores();
@@ -85,6 +139,7 @@ export function useSidebarModel(): SidebarModel {
   const catchingUp = useStore(stores.session, sessionSelectors.catchingUp);
   const liveViews = useMemo(() => selectConversationViews(byId, local), [byId, local]);
   const views = useFrozenOrder(liveViews, catchingUp);
+  const attention = useAttention(catchingUp);
   return useMemo(() => {
     const sections =
       space === HOME
@@ -96,13 +151,36 @@ export function useSidebarModel(): SidebarModel {
       archived: archivedIds(views, space, { spaces }),
       selected,
       catchingUp,
+      attention,
     };
-  }, [views, spaces, homeCollapsed, splitByType, space, selected, catchingUp]);
+  }, [views, spaces, homeCollapsed, splitByType, space, selected, catchingUp, attention]);
+}
+
+/**
+ * The order the sidebar has on screen (frozen views and attention included),
+ * published by the list while it is mounted so keyboard stepping walks the
+ * same rows the user sees, not a fresh computation that can differ during
+ * catch-up.
+ */
+let rendered: { space: SpaceSelection; order: readonly ConversationId[] } | null = null;
+
+/** The list calls this with what it renders; the returned function withdraws it. */
+export function useRenderedOrder(space: SpaceSelection, order: readonly ConversationId[]): void {
+  const key = order.join('\n');
+  useEffect(() => {
+    const mine = { space, order: key ? (key.split('\n') as ConversationId[]) : [] };
+    rendered = mine;
+    return () => {
+      if (rendered === mine) rendered = null;
+    };
+  }, [space, key]);
 }
 
 /** Non-React access for keyboard commands: the rendered order of the current sidebar. */
 export function currentNavigationOrder(stores: Stores): ConversationId[] {
   const ui = stores.ui.getState();
+  // What the list shows right now, when it is mounted (see `useRenderedOrder`).
+  if (rendered && rendered.space === ui.selectedSpace) return [...rendered.order];
   const views = selectConversationViews(
     stores.conversations.getState().byId,
     stores.local.getState().conversations,
@@ -113,11 +191,15 @@ export function currentNavigationOrder(stores: Stores): ConversationId[] {
     stores.spaces.getState(),
     homeLayout(stores),
   );
-  return navigationOrder(
-    sections,
-    uiSelectors.selectedConversation(ui),
-    stores.conversations.getState().unread,
-  );
+  const unread = stores.conversations.getState().unread;
+  const local = stores.local.getState().conversations;
+  const now = Date.now();
+  return navigationOrder(sections, uiSelectors.selectedConversation(ui), (id) => {
+    const state = local[id];
+    return needsAttention(
+      attentionOf(unread[id], isMuted(state?.muted ?? false, now), state?.markedUnread === true),
+    );
+  });
 }
 
 /** Every conversation in Home and the spaces, in rail order. */

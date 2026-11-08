@@ -74,9 +74,12 @@ export function PollCard({ poll, mode, selfId, onVote, onViewVotes, id }: PollCa
     if (checked) next.add(index);
     else next.delete(index);
     setBusy(true);
-    void onVote([...next].sort((a, b) => a - b)).finally(() => {
-      setBusy(false);
-    });
+    // A vote that throws must still free the options (the caller reports failures).
+    void onVote([...next].sort((a, b) => a - b))
+      .catch(() => undefined)
+      .finally(() => {
+        setBusy(false);
+      });
   };
 
   return (

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ConversationId, ConversationView } from '@/core/domain';
 
 const asConversationId = (id: string) => id as ConversationId;
-import { parseQuery, searchSwitcher, type SwitcherInput } from './model';
+import { parseQuery, searchConversations, searchSwitcher, type SwitcherInput } from './model';
 
 const view = (
   id: string,
@@ -46,6 +46,87 @@ const input = (over: Partial<SwitcherInput> = {}): SwitcherInput => ({
 
 const keys = (sections: ReturnType<typeof searchSwitcher>) =>
   sections.flatMap((s) => s.items.map((i) => i.key));
+
+describe('a space in the switcher shows what the rail shows', () => {
+  const space = (ids: string[]) => ({
+    id: 'space-x',
+    name: 'Crux',
+    hue: 3,
+    conversationIds: ids.map(asConversationId),
+  });
+  const dot = (data: SwitcherInput) => {
+    const item = searchSwitcher('*crux', data)
+      .flatMap((s) => s.items)
+      .find((i) => i.kind === 'space');
+    return item?.kind === 'space' ? { unread: item.unread, mentions: item.mentions } : null;
+  };
+
+  it('ignores muted and archived chats, and counts one marked unread', () => {
+    const views = [
+      view('g1', 'One', 'group', 1, { muted: true }),
+      view('g2', 'Two', 'group', 1, { archived: true }),
+      view('g3', 'Three', 'group', 1),
+    ];
+    const quiet = input({
+      views,
+      spaces: [space(['g1', 'g2', 'g3'])],
+      unread: { g1: { count: 4, mentions: 0 }, g2: { count: 9, mentions: 5 } },
+      isMuted: (v) => v.muted === true,
+    });
+    expect(dot(quiet)).toEqual({ unread: false, mentions: 0 });
+    const marked = input({
+      views: [...views.slice(0, 2), view('g3', 'Three', 'group', 1, { markedUnread: true })],
+      spaces: [space(['g1', 'g2', 'g3'])],
+      unread: quiet.unread,
+      isMuted: quiet.isMuted,
+    });
+    expect(dot(marked)).toEqual({ unread: true, mentions: 0 });
+  });
+
+  it('shows only mentions for a muted space, as the rail does', () => {
+    const data = input({
+      views: [view('g1', 'One', 'group', 1)],
+      spaces: [space(['g1'])],
+      unread: { g1: { count: 4, mentions: 2 } },
+      isMuted: () => true,
+    });
+    expect(dot(data)).toEqual({ unread: false, mentions: 2 });
+  });
+});
+
+describe('searchConversations', () => {
+  it('finds the same chats as the @ and # scopes, without the query syntax', () => {
+    const data = input();
+    for (const [kind, prefix] of [
+      ['direct', '@'],
+      ['group', '#'],
+    ] as const) {
+      for (const text of ['c', 'cl', 'li']) {
+        const viaQuery = searchSwitcher(`${prefix}${text}`, data).flatMap((s) => s.items);
+        expect(searchConversations(text, kind, data)).toEqual(viaQuery);
+      }
+    }
+    expect(searchConversations('c', 'direct', data).map((i) => i.key)).toEqual([
+      'conversation:dm:cleo',
+    ]);
+  });
+
+  it('returns nothing for empty text, hides archived chats and honours the limit', () => {
+    const data = input();
+    expect(searchConversations('  ', 'group', data)).toEqual([]);
+    expect(searchConversations('club', 'group', data).map((i) => i.id)).toEqual([
+      asConversationId('group:climb'),
+    ]);
+    expect(searchConversations('c', 'group', { ...data, limit: 1 })).toHaveLength(1);
+  });
+
+  it('treats a leading prefix character as part of the text', () => {
+    const data = input({ views: [view('group:a', '#general', 'group', 1)] });
+    expect(searchConversations('#gen', 'group', data).map((i) => i.title)).toEqual(['#general']);
+    // As a query, ">" would pick the commands scope; here it is just a character.
+    expect(searchConversations('>gen', 'group', data)).toEqual([]);
+  });
+});
 
 describe('switcher model', () => {
   it('parses prefixes', () => {

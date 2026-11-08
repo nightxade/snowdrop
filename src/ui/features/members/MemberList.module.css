@@ -13,3 +13,20 @@
 .add {
   margin: var(--snowdrop-space-3) 0 0;
 }
+
+/* A long list: the rows scroll, the button above stays put. */
+.windowed {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  padding: var(--snowdrop-space-2) var(--snowdrop-space-3) 0;
+  /* Focus parks here when the row that had it scrolls out of the window. */
+  outline: none;
+}
+
+.virtual {
+  flex: 0 1 auto;
+  margin: 0;
+  padding-bottom: var(--snowdrop-space-5);
+}

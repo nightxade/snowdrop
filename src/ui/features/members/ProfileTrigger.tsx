@@ -1,6 +1,6 @@
-import { cloneElement, useState, type MouseEvent, type ReactElement } from 'react';
+import { cloneElement, useRef, useState, type MouseEvent, type ReactElement } from 'react';
 import type { Contact, ConversationId } from '@/core/domain';
-import { BREAKPOINTS, useMediaQuery } from '@/ui/hooks';
+import { BREAKPOINTS, focusConversation, useMediaQuery, useSnowdrop } from '@/ui/hooks';
 import { Drawer, Popover } from '@/ui/primitives';
 import { ProfilePopout } from './ProfilePopout';
 
@@ -30,16 +30,31 @@ export function ProfileTrigger({
   side?: 'top' | 'right' | 'bottom' | 'left';
   sideOffset?: number;
 }) {
+  const app = useSnowdrop();
   const sheet = useMediaQuery(BREAKPOINTS.drawer);
   const [open, setOpen] = useState(false);
+  /** The chat the card opened (its "Message" button): focus goes there when the card has closed. */
+  const opened = useRef<ConversationId | null>(null);
+  const focusOpened = (): boolean => {
+    const id = opened.current;
+    opened.current = null;
+    if (!id) return false;
+    focusConversation(id, app.stores.settings.getState().behaviour.focusComposerOnOpen);
+    return true;
+  };
   const label = `${contact.name}'s profile`;
   const card = (
     <ProfilePopout
       contact={contact}
       conversationId={conversationId}
       variant={sheet ? 'sheet' : 'popout'}
-      onClose={() => {
+      onClose={(openedChat) => {
+        opened.current = openedChat ?? null;
         setOpen(false);
+        // The sheet gives focus back to its opener a frame and a tick after it
+        // closes, but only if focus is still inside it then (see `Drawer`): moving
+        // focus to the opened chat now makes it leave focus where it is.
+        if (sheet) focusOpened();
       }}
     />
   );
@@ -72,6 +87,9 @@ export function ProfileTrigger({
       flush
       label={label}
       trigger={trigger}
+      onCloseAutoFocus={(e) => {
+        if (focusOpened()) e.preventDefault();
+      }}
     >
       {card}
     </Popover>

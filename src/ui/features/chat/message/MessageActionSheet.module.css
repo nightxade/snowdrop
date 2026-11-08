@@ -88,3 +88,12 @@
   color: var(--snowdrop-text-faint);
   font-size: var(--snowdrop-font-size-sm);
 }
+
+.chip:disabled {
+  opacity: 0.5;
+}
+
+.checked {
+  margin-left: auto;
+  color: var(--snowdrop-accent-text);
+}

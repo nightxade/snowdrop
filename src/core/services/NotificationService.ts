@@ -45,11 +45,26 @@ export type NotificationPermissionState = 'default' | 'granted' | 'denied' | 'un
 
 export interface ShownNotification {
   close(): void;
+  /**
+   * For a platform that hands the notification over asynchronously: resolves
+   * `false` if that hand-over failed (no notification service answered).
+   * Absent where showing cannot fail after `show` returned.
+   */
+  delivered?: Promise<boolean>;
 }
+
+/** How a test notification went (Settings → Notifications → Send a test). */
+export type NotificationTestResult = 'shown' | 'refused' | 'undelivered';
 
 export interface NotificationApi {
   permission(): NotificationPermissionState;
   request(): Promise<NotificationPermissionState>;
+  /**
+   * Calls `listener` when `permission()` may have a new answer (the platform
+   * finished loading, the user changed it outside the app). Optional: an API
+   * that never changes its mind need not have it.
+   */
+  subscribe?(listener: () => void): Unsubscribe;
   /** Shows a notification; returns null when the platform refused. */
   show(
     content: { title: string; body: string; tag: string },
@@ -468,19 +483,24 @@ export class NotificationService {
     return this.deps.api.request();
   }
 
+  /** Runs `listener` whenever `permission()` may have changed; returns the way to stop. */
+  onPermissionChange(listener: () => void): Unsubscribe {
+    return this.deps.api.subscribe?.(listener) ?? (() => undefined);
+  }
+
   /** A sample notification (Settings → Notifications → Send a test). */
-  test(): boolean {
-    if (this.permission() !== 'granted') return false;
-    return (
-      this.deps.api.show(
-        {
-          title: 'Snowdrop',
-          body: 'Notifications are working. This is how new messages will appear.',
-          tag: 'snowdrop-test',
-        },
-        () => this.deps.focusWindow?.(),
-      ) !== null
+  async test(): Promise<NotificationTestResult> {
+    if (this.permission() !== 'granted') return 'refused';
+    const shown = this.deps.api.show(
+      {
+        title: 'Snowdrop',
+        body: 'Notifications are working. This is how new messages will appear.',
+        tag: 'snowdrop-test',
+      },
+      () => this.deps.focusWindow?.(),
     );
+    if (shown === null) return 'refused';
+    return (await (shown.delivered ?? Promise.resolve(true))) ? 'shown' : 'undelivered';
   }
 
   /** Returns the decision taken (for tests and debugging). */
@@ -548,6 +568,24 @@ export function browserNotificationApi(): NotificationApi {
   const N = typeof Notification === 'undefined' ? null : Notification;
   return {
     permission: () => (N ? N.permission : 'unsupported'),
+    subscribe: (listener) => {
+      // The site setting can change under us (the address bar's lock menu).
+      let status: PermissionStatus | null = null;
+      let live = true;
+      if (!('permissions' in navigator)) return () => undefined;
+      navigator.permissions
+        .query({ name: 'notifications' })
+        .then((result) => {
+          if (!live) return;
+          status = result;
+          status.addEventListener('change', listener);
+        })
+        .catch(() => undefined);
+      return () => {
+        live = false;
+        status?.removeEventListener('change', listener);
+      };
+    },
     request: async () => (N ? await N.requestPermission() : 'unsupported'),
     show: ({ title, body, tag }, onClick) => {
       if (N?.permission !== 'granted') return null;

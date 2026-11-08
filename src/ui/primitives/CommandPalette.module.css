@@ -67,6 +67,13 @@
   font-weight: var(--snowdrop-font-weight-semibold);
 }
 
+.windowHeading {
+  padding: var(--snowdrop-space-3) var(--snowdrop-space-3) var(--snowdrop-space-2);
+  color: var(--snowdrop-text-faint);
+  font-size: var(--snowdrop-font-size-sm);
+  font-weight: var(--snowdrop-font-weight-semibold);
+}
+
 .item {
   display: flex;
   align-items: center;

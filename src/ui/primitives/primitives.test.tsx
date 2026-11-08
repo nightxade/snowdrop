@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Avatar } from './Avatar';
 import { Badge, formatBadgeCount } from './Badge';
 import { splitCombo } from './Kbd';
+import { ignoresReselect } from './CommandPalette';
 import { DropdownMenu } from './Menu';
 import { tidyMenu, type MenuEntry } from './menuModel';
 import { Slot } from './Slot';
@@ -111,6 +112,39 @@ describe('DropdownMenu', () => {
     expect(screen.queryByRole('menu')).toBeNull();
   });
 
+  it("shows a check entry's icon and disables a submenu that is disabled", async () => {
+    const user = userEvent.setup();
+    const entries = (): MenuEntry[] => [
+      {
+        kind: 'check',
+        id: 'pin',
+        label: 'Pinned',
+        checked: true,
+        icon: <svg data-testid="pin-icon" />,
+        onSelect: vi.fn(),
+      },
+      {
+        kind: 'submenu',
+        id: 'more',
+        label: 'More',
+        disabled: true,
+        items: [{ kind: 'item', id: 'inner', label: 'Inner', onSelect: vi.fn() }],
+      },
+    ];
+    render(
+      <DropdownMenu entries={entries} label="Options">
+        <button type="button">Open</button>
+      </DropdownMenu>,
+    );
+    await user.click(screen.getByRole('button', { name: 'Open' }));
+    const menu = await screen.findByRole('menu');
+    expect(menu.querySelector('[data-testid="pin-icon"]')).not.toBeNull();
+    const more = screen.getByRole('menuitem', { name: 'More' });
+    expect(more.getAttribute('aria-disabled')).toBe('true');
+    await user.click(more);
+    expect(screen.queryByRole('menuitem', { name: 'Inner' })).toBeNull();
+  });
+
   it('builds entries only when opened', () => {
     const entries = vi.fn((): MenuEntry[] => []);
     render(
@@ -119,6 +153,19 @@ describe('DropdownMenu', () => {
       </DropdownMenu>,
     );
     expect(entries).not.toHaveBeenCalled();
+  });
+});
+
+describe('windowed palette selection', () => {
+  const values = ['a', 'b', 'c'];
+  it('keeps the highlight when cmdk re-selects because the row unmounted', () => {
+    expect(ignoresReselect(values, 'c', 'a', false)).toBe(true);
+  });
+  it('lets the pointer, a short list and a vanished row change it', () => {
+    expect(ignoresReselect(values, 'c', 'a', true)).toBe(false);
+    expect(ignoresReselect(undefined, 'c', 'a', false)).toBe(false);
+    expect(ignoresReselect(values, 'gone', 'a', false)).toBe(false);
+    expect(ignoresReselect(values, undefined, 'a', false)).toBe(false);
   });
 });
 

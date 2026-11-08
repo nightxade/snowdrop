@@ -17,11 +17,11 @@ import { ConversationAvatar, formatPhone, PersonAvatar } from '@/ui/features/con
 import { Button, Kbd, Modal, VisuallyHidden } from '@/ui/primitives';
 import {
   CommandPalette,
-  CommandPaletteGroup,
   CommandPaletteInput,
-  CommandPaletteItem,
   CommandPaletteList,
+  CommandPaletteRows,
   highlight,
+  type PaletteRow,
 } from '@/ui/primitives/CommandPalette';
 import { ForwardPreview } from './ForwardPreview';
 import { readPreviewImage, useForwardMedia } from './media';
@@ -307,46 +307,58 @@ export function ForwardDialog({ conversationId, messageIds, onClose }: ForwardDi
 
   if (empty) return null;
 
-  const row = ({ target, indices }: TargetMatch) => (
-    <CommandPaletteItem
-      key={target.id}
-      value={target.id}
-      checked={selected.includes(target.id)}
-      onSelect={() => {
-        toggle(target);
-      }}
-      icon={
-        target.view ? (
-          <ConversationAvatar conversation={target.view} size={24} />
-        ) : (
-          <PersonAvatar
-            size={24}
-            contactId={target.contact?.id ?? target.id}
-            fallback={initialsFor(target.title).slice(0, 2)}
-            color={target.contact?.color ?? 'var(--snowdrop-avatar-1)'}
-          />
-        )
-      }
-      meta={
-        <span data-unavailable={target.unavailable ? '' : undefined}>
-          {[
-            target.unavailable ?? target.meta,
-            target.number && !target.unavailable && target.kind === 'direct'
-              ? formatPhone(target.number)
-              : null,
-            target.request ? 'Message request' : null,
-          ]
-            .filter(Boolean)
-            .join(' · ')}
-        </span>
-      }
-    >
-      {highlight(target.title, indices)}
-    </CommandPaletteItem>
-  );
+  const row = ({ target, indices }: TargetMatch): PaletteRow => ({
+    type: 'item',
+    key: target.id,
+    value: target.id,
+    checked: selected.includes(target.id),
+    onSelect: () => {
+      toggle(target);
+    },
+    icon: target.view ? (
+      <ConversationAvatar conversation={target.view} size={24} />
+    ) : (
+      <PersonAvatar
+        size={24}
+        contactId={target.contact?.id ?? target.id}
+        fallback={initialsFor(target.title).slice(0, 2)}
+        color={target.contact?.color ?? 'var(--snowdrop-avatar-1)'}
+      />
+    ),
+    meta: (
+      <span data-unavailable={target.unavailable ? '' : undefined}>
+        {[
+          target.unavailable ?? target.meta,
+          target.number && !target.unavailable && target.kind === 'direct'
+            ? formatPhone(target.number)
+            : null,
+          target.request ? 'Message request' : null,
+        ]
+          .filter(Boolean)
+          .join(' · ')}
+      </span>
+    ),
+    children: highlight(target.title, indices),
+  });
 
   const recent = matches.filter((m) => m.target.view !== undefined);
   const contacts = matches.filter((m) => m.target.view === undefined);
+  const rows: PaletteRow[] = searching
+    ? matches.map(row)
+    : [
+        ...(recent.length > 0
+          ? [
+              { type: 'heading' as const, key: 'h:recent', text: 'Recent chats' },
+              ...recent.map(row),
+            ]
+          : []),
+        ...(contacts.length > 0
+          ? [
+              { type: 'heading' as const, key: 'h:contacts', text: 'Contacts' },
+              ...contacts.map(row),
+            ]
+          : []),
+      ];
   const emptyText =
     matches.length > 0
       ? undefined
@@ -487,22 +499,7 @@ export function ForwardDialog({ conversationId, messageIds, onClose }: ForwardDi
               </div>
               {failureAlert}
               <CommandPaletteList label="Chats" empty={emptyText} multiselectable>
-                {searching ? (
-                  <CommandPaletteGroup>{matches.map(row)}</CommandPaletteGroup>
-                ) : (
-                  <>
-                    {recent.length > 0 && (
-                      <CommandPaletteGroup heading="Recent chats">
-                        {recent.map(row)}
-                      </CommandPaletteGroup>
-                    )}
-                    {contacts.length > 0 && (
-                      <CommandPaletteGroup heading="Contacts">
-                        {contacts.map(row)}
-                      </CommandPaletteGroup>
-                    )}
-                  </>
-                )}
+                <CommandPaletteRows rows={rows} />
               </CommandPaletteList>
             </CommandPalette>
           </>

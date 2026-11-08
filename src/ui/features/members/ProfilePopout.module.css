@@ -156,3 +156,16 @@
 .dangerAction {
   color: var(--snowdrop-danger);
 }
+
+.pluginLabel {
+  flex-basis: 100%;
+  color: var(--snowdrop-text-faint);
+  font-size: var(--snowdrop-font-size-sm);
+  font-weight: var(--snowdrop-font-weight-semibold);
+}
+
+.pluginSeparator {
+  flex-basis: 100%;
+  height: 1px;
+  background: var(--snowdrop-border);
+}

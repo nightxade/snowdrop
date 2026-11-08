@@ -38,12 +38,28 @@ export async function tauriNotificationApi(ipc: TauriIpc = tauriIpc): Promise<No
       if (permission !== 'granted') return null;
       const token = {};
       current.set(tag, token);
+      let settle: (delivered: boolean) => void = () => undefined;
+      const delivered = new Promise<boolean>((resolve) => {
+        settle = resolve;
+      });
       enqueue(async () => {
-        if (current.get(tag) !== token) return;
-        const handled = await ipc.invoke<boolean>('notification_show', { tag, title, body });
-        if (!handled) sendNotification({ title, body });
+        // Replaced by a newer one before its turn: nothing failed.
+        if (current.get(tag) !== token) {
+          settle(true);
+          return;
+        }
+        try {
+          const handled = await ipc.invoke<boolean>('notification_show', { tag, title, body });
+          if (!handled) sendNotification({ title, body });
+          settle(true);
+        } catch (error) {
+          // The system's notification service did not take it (on Linux: nothing answered on D-Bus).
+          settle(false);
+          throw error;
+        }
       });
       return {
+        delivered,
         close: () => {
           // NotificationService closes the old handle just before showing its
           // replacement. Defer so that replacement can reuse the native id.

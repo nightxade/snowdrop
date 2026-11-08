@@ -273,6 +273,40 @@ describe('Permissions', () => {
     for (const s of within(d).getAllByRole<HTMLSelectElement>('combobox'))
       expect(s.disabled).toBe(true);
   });
+
+  it('says why the rules are locked, and ties that to each control', async () => {
+    const { snowdrop, member } = await boot();
+    await openModal(snowdrop, 'groupPermissions', { conversationId: member.id });
+    const d = await dialog();
+    const why = within(d).getByText('Only admins can change these.');
+    for (const s of within(d).getAllByRole<HTMLSelectElement>('combobox'))
+      expect(s.getAttribute('aria-describedby')).toContain(why.id);
+    await noAxe(d);
+  });
+
+  it('says so when signal-cli has not reported the permissions, even for an admin', async () => {
+    const { snowdrop, admin } = await boot();
+    const { permissions: _permissions, ...bare } = current(snowdrop, admin);
+    act(() => {
+      snowdrop.stores.conversations.getState().upsert(bare);
+    });
+    await openModal(snowdrop, 'groupPermissions', { conversationId: admin.id });
+    const d = await dialog();
+    const why = within(d).getByText(/hasn’t shared this group’s permissions yet/u);
+    for (const s of within(d).getAllByRole<HTMLSelectElement>('combobox')) {
+      expect(s.disabled).toBe(true);
+      expect(s.getAttribute('aria-describedby')).toContain(why.id);
+    }
+    await noAxe(d);
+  });
+
+  it('shows no explanation while the rules can be changed', async () => {
+    const { snowdrop, admin } = await boot();
+    await openModal(snowdrop, 'groupPermissions', { conversationId: admin.id });
+    const d = await dialog();
+    expect(within(d).queryByText('Only admins can change these.')).toBeNull();
+    expect(within(d).queryByText(/hasn’t shared/u)).toBeNull();
+  });
 });
 
 describe('Members panel', () => {

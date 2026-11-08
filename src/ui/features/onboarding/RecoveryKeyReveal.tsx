@@ -36,7 +36,7 @@ export function downloadRecoveryKey(code: string): void {
 export function RecoveryKeyReveal({ code, onConfirmed }: RecoveryKeyRevealProps) {
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<boolean | null>(null);
   const groups = groupRecoveryCode(code);
   const lastGroup = groups[groups.length - 1] ?? '';
   const grouped = groups.join('-');
@@ -59,9 +59,18 @@ export function RecoveryKeyReveal({ code, onConfirmed }: RecoveryKeyRevealProps)
           type="button"
           icon={<Copy size={16} />}
           onClick={() => {
-            void navigator.clipboard.writeText(grouped).then(() => {
-              setCopied(true);
-            });
+            // The clipboard can refuse (no permission, no secure context): say so,
+            // because the user is relying on this copy to keep the key.
+            void Promise.resolve()
+              .then(() => navigator.clipboard.writeText(grouped))
+              .then(
+                () => {
+                  setCopied(true);
+                },
+                () => {
+                  setCopied(false);
+                },
+              );
           }}
         >
           Copy
@@ -76,9 +85,14 @@ export function RecoveryKeyReveal({ code, onConfirmed }: RecoveryKeyRevealProps)
           Save as file…
         </Button>
       </div>
-      {copied && (
+      {copied === true && (
         <p className={styles.hint} role="status">
           Copied. Paste it somewhere safe, then clear your clipboard.
+        </p>
+      )}
+      {copied === false && (
+        <p className={styles.error} role="alert">
+          Couldn’t copy. Select the key and copy it yourself, or save it as a file.
         </p>
       )}
       <form

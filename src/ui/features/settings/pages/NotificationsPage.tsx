@@ -1,5 +1,5 @@
 import { BellRing, CircleCheck, CircleSlash, Send } from 'lucide-react';
-import { useState } from 'react';
+import { useCallback, useReducer, useState, useSyncExternalStore } from 'react';
 import { useSnowdrop } from '@/ui/hooks';
 import { Button, Segmented, Switch } from '@/ui/primitives';
 import { SettingRow } from '../rows/SettingRow';
@@ -11,11 +11,27 @@ import styles from './pages.module.css';
 type Permission = ReturnType<ReturnType<typeof useSnowdrop>['notifications']['permission']>;
 
 export function NotificationsPage({ onNavigate }: PageProps) {
-  const { notifications } = useSnowdrop();
+  const { notifications, desktop } = useSnowdrop();
+  const isDesktop = desktop !== null;
+  const copy = isDesktop ? DESKTOP_COPY : BROWSER_COPY;
   const [n, set] = useSettingsSection('notifications');
-  // Permission changes come from a browser prompt, not a store: re-read after acting.
-  const [permission, setPermission] = useState<Permission>(() => notifications.permission());
-  const [tested, setTested] = useState<boolean | null>(null);
+  // The permission lives outside the stores (a system prompt, the platform
+  // still loading, the user changing it in system settings): follow the
+  // service's word on it, and look again when the window is focused.
+  const subscribe = useCallback(
+    (listener: () => void) => {
+      const stop = notifications.onPermissionChange(listener);
+      window.addEventListener('focus', listener);
+      return () => {
+        stop();
+        window.removeEventListener('focus', listener);
+      };
+    },
+    [notifications],
+  );
+  const permission: Permission = useSyncExternalStore(subscribe, () => notifications.permission());
+  const [, reread] = useReducer((n: number) => n + 1, 0);
+  const [tested, setTested] = useState<'shown' | 'refused' | 'undelivered' | null>(null);
   const off = !n.enabled;
 
   return (
@@ -23,15 +39,15 @@ export function NotificationsPage({ onNavigate }: PageProps) {
       <SettingsSection>
         <SettingRow
           id="notifications.permission"
-          label="Browser permission"
-          description={PERMISSION_TEXT[permission]}
+          label="Notification permission"
+          description={copy.permission[permission]}
           control={
             permission === 'default' ? (
               <Button
                 variant="primary"
                 icon={<BellRing size={16} />}
                 onClick={() => {
-                  void notifications.requestPermission().then(setPermission);
+                  void notifications.requestPermission().then(reread);
                 }}
               >
                 Allow notifications
@@ -40,7 +56,8 @@ export function NotificationsPage({ onNavigate }: PageProps) {
               <Button
                 icon={<Send size={16} />}
                 onClick={() => {
-                  setTested(notifications.test());
+                  setTested(null);
+                  void notifications.test().then(setTested);
                 }}
               >
                 Send a test
@@ -51,19 +68,26 @@ export function NotificationsPage({ onNavigate }: PageProps) {
             permission === 'denied' ? (
               <>
                 <CircleSlash size={14} aria-hidden />
-                Notifications are blocked for this site. Allow them in your browser’s site settings
-                (the icon left of the address bar), then reload Snowdrop.
+                {copy.blocked}
               </>
-            ) : tested === false ? (
-              'Your browser didn’t show the test notification. Check your system’s notification settings.'
-            ) : tested ? (
+            ) : tested === 'refused' ? (
+              copy.testFailed
+            ) : tested === 'undelivered' ? (
+              copy.undelivered
+            ) : tested === 'shown' ? (
               <>
                 <CircleCheck size={14} aria-hidden />
                 Sent. If nothing appeared, check your system’s do-not-disturb setting.
               </>
             ) : undefined
           }
-          noteTone={permission === 'denied' ? 'danger' : tested === false ? 'warning' : 'success'}
+          noteTone={
+            permission === 'denied'
+              ? 'danger'
+              : tested === 'refused' || tested === 'undelivered'
+                ? 'warning'
+                : 'success'
+          }
         />
       </SettingsSection>
       <SettingsSection id="when" title="When to notify">
@@ -148,16 +172,47 @@ export function NotificationsPage({ onNavigate }: PageProps) {
           disabled
         />
       </SettingsSection>
-      <p className={styles.muted}>
-        Notifications are shown by your browser while Snowdrop is open in a tab.
-      </p>
+      <p className={styles.muted}>{copy.footer}</p>
     </>
   );
 }
 
-const PERMISSION_TEXT: Record<Permission, string> = {
-  default: 'Snowdrop needs your browser’s permission before it can show desktop notifications.',
-  granted: 'Allowed. Snowdrop can show desktop notifications.',
-  denied: 'Blocked by your browser.',
-  unsupported: 'This browser doesn’t support desktop notifications.',
+interface Copy {
+  permission: Record<Permission, string>;
+  blocked: string;
+  testFailed: string;
+  /** The platform call itself failed (the note shows only then). */
+  undelivered: string;
+  footer: string;
+}
+
+const BROWSER_COPY: Copy = {
+  permission: {
+    default: 'Snowdrop needs your browser’s permission before it can show desktop notifications.',
+    granted: 'Allowed. Snowdrop can show desktop notifications.',
+    denied: 'Blocked by your browser.',
+    unsupported: 'This browser doesn’t support desktop notifications.',
+  },
+  blocked:
+    'Notifications are blocked for this site. Allow them in your browser’s site settings (the icon left of the address bar), then reload Snowdrop.',
+  testFailed:
+    'Your browser didn’t show the test notification. Check your system’s notification settings.',
+  undelivered:
+    'Your browser didn’t show the test notification. Check your system’s notification settings.',
+  footer: 'Notifications are shown by your browser while Snowdrop is open in a tab.',
+};
+
+const DESKTOP_COPY: Copy = {
+  permission: {
+    default: 'Snowdrop needs your system’s permission before it can show desktop notifications.',
+    granted: 'Allowed. Snowdrop can show desktop notifications.',
+    denied: 'Blocked by your system.',
+    unsupported: 'Desktop notifications aren’t available on this system.',
+  },
+  blocked:
+    'Notifications are blocked for Snowdrop. Allow them in your system’s notification settings, then come back here.',
+  testFailed:
+    'Your system didn’t show the test notification. Check your system’s notification settings.',
+  undelivered: 'No notification service answered. Check that one is running, then try again.',
+  footer: 'Notifications are shown by your system while Snowdrop is running.',
 };

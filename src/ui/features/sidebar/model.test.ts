@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ConversationId, ConversationView } from '@/core/domain';
 import { conversationIdFor, makeConversation } from '@/core/domain/testing';
-import { HOME, type SpacesData } from '@/core/stores';
+import { attentionOf, HOME, needsAttention, type SpacesData } from '@/core/stores';
 import {
   buildHomeSections,
   archivedIds,
@@ -112,10 +112,41 @@ describe('visibility and navigation order', () => {
     { id: 'b', title: 'B', collapsed: true, ids: [id('g1'), id('g2'), id('g3')] },
   ];
   const unread = { [id('g2')]: { count: 1, mentions: 0 } };
+  /** The sidebar's rule: what a row shows an indicator for. */
+  const attention =
+    (
+      counts: Record<string, { count: number; mentions: number }>,
+      { muted = [], marked = [] }: { muted?: string[]; marked?: string[] } = {},
+    ) =>
+    (conversation: string) =>
+      needsAttention(
+        attentionOf(
+          counts[conversation],
+          muted.includes(conversation),
+          marked.includes(conversation),
+        ),
+      );
+  const shows = attention(unread);
 
   it('shows the open and unread rows of a collapsed section only', () => {
-    expect(visibleIds(sections[1]!, null, unread)).toEqual([id('g2')]);
-    expect(visibleIds(sections[1]!, id('g3'), unread)).toEqual([id('g2'), id('g3')]);
+    expect(visibleIds(sections[1]!, null, shows)).toEqual([id('g2')]);
+    expect(visibleIds(sections[1]!, id('g3'), shows)).toEqual([id('g2'), id('g3')]);
+  });
+
+  it('keeps in step with the row: a muted unread row hides, a marked-unread one and a muted mention show', () => {
+    const counts = {
+      [id('g1')]: { count: 4, mentions: 0 },
+      [id('g2')]: { count: 2, mentions: 1 },
+    };
+    // g1 is muted with unread messages: no dot, so it hides. g2 is muted but mentions you: its badge shows.
+    // g3 was marked unread by hand: its dot shows.
+    expect(
+      visibleIds(
+        sections[1]!,
+        null,
+        attention(counts, { muted: [id('g1'), id('g2')], marked: [id('g3')] }),
+      ),
+    ).toEqual([id('g2'), id('g3')]);
   });
 
   it('also shows the pinned rows of a collapsed section, even unselected and read', () => {
@@ -126,12 +157,12 @@ describe('visibility and navigation order', () => {
       ids: [id('g1'), id('g2'), id('g3')],
       pinnedCount: 1,
     };
-    expect(visibleIds(withPinned, null, {})).toEqual([id('g1')]);
-    expect(visibleIds(withPinned, id('g3'), {})).toEqual([id('g1'), id('g3')]);
+    expect(visibleIds(withPinned, null, attention({}))).toEqual([id('g1')]);
+    expect(visibleIds(withPinned, id('g3'), attention({}))).toEqual([id('g1'), id('g3')]);
   });
 
   it('walks exactly the rendered rows and clamps at the ends', () => {
-    const order = navigationOrder(sections, null, unread);
+    const order = navigationOrder(sections, null, shows);
     expect(order).toEqual([id('d1'), id('d2'), id('g2')]);
     expect(stepConversation(order, id('d2'), 1)).toBe(id('g2'));
     expect(stepConversation(order, id('g2'), 1)).toBe(id('g2'));

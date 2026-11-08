@@ -22,6 +22,16 @@ const STATUS_TEXT = {
   error: 'Can’t connect',
 } as const;
 
+/** The desktop fields as they will be used: stray spaces around a path, account or address mean nothing. */
+function trimmedDesktop(desktop: DesktopConnection): DesktopConnection {
+  return {
+    ...desktop,
+    binaryPath: desktop.binaryPath.trim(),
+    account: desktop.account.trim(),
+    externalUrl: desktop.externalUrl.trim(),
+  };
+}
+
 export function ConnectionPage() {
   const app = useSnowdrop();
   const [saved, set] = useSettingsSection('connection');
@@ -52,8 +62,9 @@ export function ConnectionPage() {
         : 'Sign out…';
 
   const urlError = backend === 'signal-cli' && !desktopAdmin ? validateDaemonUrl(url) : null;
-  const desktopChanged = (Object.keys(desktop) as (keyof DesktopConnection)[]).some(
-    (key) => desktop[key] !== saved.desktop[key],
+  const draft = trimmedDesktop(desktop);
+  const desktopChanged = (Object.keys(draft) as (keyof DesktopConnection)[]).some(
+    (key) => draft[key] !== saved.desktop[key],
   );
   // Specifically the account or daemon address, not e.g. a binary path edit:
   // this computer's cached history (the shared IDB name in app/backends.ts)
@@ -63,8 +74,7 @@ export function ConnectionPage() {
   const signalCliTargetChanged =
     backend === 'signal-cli' &&
     (desktopAdmin
-      ? desktop.account !== saved.desktop.account ||
-        desktop.externalUrl !== saved.desktop.externalUrl
+      ? draft.account !== saved.desktop.account || draft.externalUrl !== saved.desktop.externalUrl
       : url.trim() !== saved.daemonUrl || (account.trim() || null) !== saved.account);
   const changed =
     backend !== running ||
@@ -109,7 +119,7 @@ export function ConnectionPage() {
         backend,
         ...(backend === 'signal-cli'
           ? desktopAdmin
-            ? { desktop }
+            ? { desktop: draft }
             : { daemonUrl: url.trim(), account: account.trim() || null }
           : {}),
       });

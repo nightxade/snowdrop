@@ -27,9 +27,13 @@ export function KeybindRecorder({ value, onRecord, label, id, ...rest }: Keybind
 
   const onKeyDown = (e: KeyboardEvent<HTMLButtonElement>) => {
     if (!recording) return;
-    e.preventDefault();
-    e.stopPropagation();
     const outcome = recordKey(e, mac);
+    // Tab ends the recording but still moves focus (it must never trap keyboard users).
+    const tab = e.key === 'Tab' && outcome?.type === 'cancel';
+    if (!tab) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
     if (!outcome) return;
     setRecording(false);
     if (outcome.type === 'unbind') onRecord('');

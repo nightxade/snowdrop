@@ -15,7 +15,9 @@ export class FakeIO {
     this.disconnected = true;
     this.observed.clear();
   }
-  unobserve() {}
+  unobserve(el: Element) {
+    this.observed.delete(el);
+  }
   takeRecords() {
     return [];
   }

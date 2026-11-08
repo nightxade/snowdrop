@@ -3,6 +3,7 @@ import { useMemo, useState, type Ref } from 'react';
 import { fuzzyMatch, initialsFor, type Contact } from '@/core/domain';
 import { formatPhone, PersonAvatar } from '@/ui/features/conversation';
 import { Checkbox, SearchInput } from '@/ui/primitives';
+import { VirtualList } from '@/ui/primitives/VirtualList';
 import styles from './groups.module.css';
 
 export interface ContactChecklistProps {
@@ -108,11 +109,20 @@ export function ContactChecklist({
           ))}
         </ul>
       )}
-      <ul className={styles.contactList} aria-label={label}>
-        {shown.map((c) => {
-          const reason = unavailable[c.id];
-          return (
-            <li key={c.id}>
+      {shown.length > 0 ? (
+        <VirtualList
+          tag="ul"
+          className={styles.contactList}
+          aria-label={label}
+          count={shown.length}
+          rowHeight={44}
+          maxHeight="min(320px, 40vh)"
+          itemKey={(index) => shown[index]?.id ?? String(index)}
+          itemContent={(index) => {
+            const c = shown[index];
+            if (!c) return null;
+            const reason = unavailable[c.id];
+            return (
               <Checkbox
                 className={styles.contactRow}
                 checked={selected.has(c.id) || reason !== undefined}
@@ -136,15 +146,16 @@ export function ContactChecklist({
                   )}
                 </span>
               </Checkbox>
-            </li>
-          );
-        })}
-        {shown.length === 0 && (
+            );
+          }}
+        />
+      ) : (
+        <ul className={styles.contactList} aria-label={label}>
           <li className={styles.none}>
             {query.trim() ? `Nothing matches “${query.trim()}”.` : empty}
           </li>
-        )}
-      </ul>
+        </ul>
+      )}
     </div>
   );
 }

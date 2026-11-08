@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { AvatarRef, ConversationId } from '@/core/domain';
+import { whenNearViewport } from './nearViewport';
 import { useSnowdrop } from './SnowdropContext';
 
 export interface AvatarSrcOptions {
@@ -44,19 +45,9 @@ export function useAvatarSrc(
   // One-shot: once it has been on screen, it stays eligible (no refetch churn while scrolling).
   useEffect(() => {
     if (seen || !node || !enabled) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((e) => e.isIntersecting)) {
-          setSeen(true);
-          observer.disconnect();
-        }
-      },
-      { rootMargin: '120px' },
-    );
-    observer.observe(node);
-    return () => {
-      observer.disconnect();
-    };
+    return whenNearViewport(node, () => {
+      setSeen(true);
+    });
   }, [node, seen, enabled]);
 
   const peeked = enabled ? peek?.(refFor(kind, id)) : undefined;

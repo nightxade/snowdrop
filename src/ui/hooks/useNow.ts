@@ -9,6 +9,8 @@ interface Ticker {
   now: number;
   listeners: Set<() => void>;
   timer: ReturnType<typeof setInterval> | null;
+  /** Runs when the window comes back (see `subscribe`). */
+  wake: (() => void) | null;
 }
 
 const tickers = new Map<number, Ticker>();
@@ -16,7 +18,7 @@ const tickers = new Map<number, Ticker>();
 function tickerFor(intervalMs: number): Ticker {
   let ticker = tickers.get(intervalMs);
   if (!ticker) {
-    ticker = { now: Date.now(), listeners: new Set(), timer: null };
+    ticker = { now: Date.now(), listeners: new Set(), timer: null, wake: null };
     tickers.set(intervalMs, ticker);
   }
   return ticker;
@@ -28,16 +30,30 @@ function subscribe(intervalMs: number, listener: () => void): () => void {
   if (ticker.timer === null) {
     // Don't touch `now` here: changing the snapshot during subscribe would
     // force a re-render of every reader.
-    ticker.timer = setInterval(() => {
+    const refresh = () => {
       ticker.now = Date.now();
       for (const fn of [...ticker.listeners]) fn();
-    }, intervalMs);
+    };
+    ticker.timer = setInterval(refresh, intervalMs);
+    // A hidden or sleeping window may not have run its timer for a long while:
+    // when it is shown or focused again, catch up at once rather than up to a
+    // whole interval later (a mute that ended meanwhile, a stale "5 min ago").
+    ticker.wake = () => {
+      if (document.visibilityState !== 'hidden') refresh();
+    };
+    document.addEventListener('visibilitychange', ticker.wake);
+    window.addEventListener('focus', ticker.wake);
   }
   return () => {
     ticker.listeners.delete(listener);
     if (ticker.listeners.size === 0 && ticker.timer !== null) {
       clearInterval(ticker.timer);
       ticker.timer = null;
+      if (ticker.wake) {
+        document.removeEventListener('visibilitychange', ticker.wake);
+        window.removeEventListener('focus', ticker.wake);
+        ticker.wake = null;
+      }
     }
   };
 }

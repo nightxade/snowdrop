@@ -5,8 +5,10 @@
  */
 import type { ConversationId, ConversationView } from '@/core/domain';
 import {
+  attentionOf,
   flattenRail,
   HOME,
+  needsAttention,
   type HomeSection,
   type SpaceSelection,
   type SpacesData,
@@ -131,28 +133,27 @@ export function buildSpaceSections(
 
 /**
  * Rows actually rendered for a section. A collapsed section still shows its
- * pinned rows, the open conversation, and anything unread, so collapsing
+ * pinned rows, the open conversation, and whatever shows an indicator on its
+ * row (`attention`: the same rule as the row's dot and badge), so collapsing
  * never hides what's pinned, where you are, or what needs attention.
  */
 export function visibleIds(
   section: SidebarSection,
   selected: ConversationId | null,
-  unread: Readonly<Record<string, UnreadState | undefined>>,
+  attention: (id: ConversationId) => boolean,
 ): ConversationId[] {
   if (!section.collapsed) return section.ids;
   const pinnedCount = section.pinnedCount ?? 0;
-  return section.ids.filter(
-    (id, i) => i < pinnedCount || id === selected || (unread[id]?.count ?? 0) > 0,
-  );
+  return section.ids.filter((id, i) => i < pinnedCount || id === selected || attention(id));
 }
 
 /** The flat, rendered order of rows (what Alt+↑/↓ walks). */
 export function navigationOrder(
   sections: readonly SidebarSection[],
   selected: ConversationId | null,
-  unread: Readonly<Record<string, UnreadState | undefined>>,
+  attention: (id: ConversationId) => boolean,
 ): ConversationId[] {
-  return sections.flatMap((s) => visibleIds(s, selected, unread));
+  return sections.flatMap((s) => visibleIds(s, selected, attention));
 }
 
 /** Previous/next conversation relative to `current`; clamps at the ends. */
@@ -197,9 +198,7 @@ export function wantsAttention(
   muted: boolean,
   markedUnread = false,
 ): boolean {
-  if (markedUnread && !muted) return true;
-  if (!unread) return false;
-  return unread.mentions > 0 || (unread.count > 0 && !muted);
+  return needsAttention(attentionOf(unread, muted, markedUnread));
 }
 
 export function stepUnread(

@@ -1,2 +1,8 @@
 export { QuickSwitcher } from './QuickSwitcher';
-export { searchSwitcher, parseQuery, type SwitcherItem, type SwitcherSection } from './model';
+export {
+  searchConversations,
+  searchSwitcher,
+  parseQuery,
+  type SwitcherItem,
+  type SwitcherSection,
+} from './model';

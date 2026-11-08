@@ -5,7 +5,16 @@ import type { Snowdrop } from '@/app/createSnowdrop';
 import { mergeDuplicate, type Message } from '@/core/domain';
 import { makeMessage } from '@/core/domain/testing';
 import { sessionSelectors, uiSelectors } from '@/core/stores';
+import { followConversationOpenFocus } from '@/ui/hooks';
 import { bootDemo, disposeAll, key, settle, setViewport } from '@/test/bootDemo';
+
+vi.mock('@/ui/hooks', async (importOriginal) => {
+  const hooks = await importOriginal<Record<string, unknown>>();
+  return {
+    ...hooks,
+    followConversationOpenFocus: vi.fn(hooks['followConversationOpenFocus'] as () => void),
+  };
+});
 
 beforeEach(() => {
   setViewport(1440);
@@ -117,6 +126,19 @@ describe('Search all chats', () => {
     await settle();
     expect(selected(snowdrop)).not.toBeNull();
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('opens a chat found by name the way every other opener does, so the focus policy is told', async () => {
+    const snowdrop = await bootDemo();
+    const { input, dialog } = await open();
+    type(input, 'orchard');
+    await within(dialog).findAllByRole('option');
+    vi.mocked(followConversationOpenFocus).mockClear();
+    key({ key: 'Enter' }, input);
+    await settle();
+    const opened = selected(snowdrop);
+    expect(opened).not.toBeNull();
+    expect(followConversationOpenFocus).toHaveBeenCalledWith(opened);
   });
 
   it('says so when nothing matches, and that only this device is searched', async () => {

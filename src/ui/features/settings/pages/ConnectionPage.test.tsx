@@ -103,6 +103,33 @@ describe('Settings → Connection, desktop build', () => {
   });
 });
 
+describe('Settings → Connection, desktop build: stray spaces', () => {
+  it('does not count spaces around the account as a change, and saves the trimmed value', async () => {
+    snowdrop = await bootDesktopSnowdrop();
+    snowdrop.stores.settings.getState().update('connection', {
+      backend: 'signal-cli',
+      desktop: { ...snowdrop.stores.settings.getState().connection.desktop, account: '+15550100' },
+    });
+    renderWithSnowdrop(snowdrop, <ConnectionPage />);
+    const field = await screen.findByLabelText('One account only');
+    act(() => {
+      fireEvent.change(field, { target: { value: '  +15550100  ' } });
+    });
+    // Switching to signal-cli shows the apply bar anyway; the dialog says whether history would be cleared.
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: 'Apply and reload' }));
+    });
+    expect(screen.getByText(/Unsent drafts are kept\./u)).toBeTruthy();
+    expect(screen.queryByText(/Switching accounts clears/u)).toBeNull();
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+      fireEvent.change(field, { target: { value: ' +15550199 ' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Apply and reload' }));
+    });
+    expect(screen.getByText(/Switching accounts clears/u)).toBeTruthy();
+  });
+});
+
 describe('Settings → Connection, browser build', () => {
   it('has no desktop rows and asks for a daemon address instead', async () => {
     snowdrop = await bootSnowdrop();

@@ -10,7 +10,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useCallback } from 'react';
-import { HOME, type SpaceId } from '@/core/stores';
+import { HOME, unreadConversationIds, type SpaceId } from '@/core/stores';
 import { useSnowdrop, type AppServices } from '@/ui/hooks';
 import { pluginMenuEntries } from '@/ui/features/conversation';
 import type { MenuEntry } from '@/ui/primitives';
@@ -22,13 +22,22 @@ export function spaceConversationIds(app: AppServices, spaceId: SpaceId) {
   return space ? space.categories.flatMap((c) => c.conversationIds) : [];
 }
 
+/**
+ * The chats of a space with something unread. `counted` leaves out archived
+ * ones, which is what decides whether "Mark all as read" is offered (as in
+ * Signal Desktop); marking itself also clears archived chats, as there.
+ */
+export function unreadInSpace(app: AppServices, spaceId: SpaceId, counted = true) {
+  return unreadConversationIds(
+    app.stores.conversations.getState().unread,
+    app.stores.local.getState().conversations,
+    spaceConversationIds(app, spaceId),
+    { includeArchived: !counted },
+  );
+}
+
 export function markSpaceRead(app: AppServices, spaceId: SpaceId): void {
-  const unread = app.stores.conversations.getState().unread;
-  const local = app.stores.local.getState().conversations;
-  for (const id of spaceConversationIds(app, spaceId)) {
-    if ((unread[id]?.count ?? 0) > 0 || local[id]?.markedUnread === true)
-      void app.sync.markConversationRead(id);
-  }
+  for (const id of unreadInSpace(app, spaceId, false)) void app.sync.markConversationRead(id);
 }
 
 /** Space context/dropdown menu (PLAN §4.2): mark read, mute, edit, delete + plugin items. */
@@ -38,13 +47,7 @@ export function useSpaceMenu(spaceId: SpaceId): () => MenuEntry[] {
     const { stores, registries } = app;
     const space = stores.spaces.getState().spaces[spaceId];
     if (!space) return [];
-    const unread = stores.conversations.getState().unread;
-    const local = stores.local.getState().conversations;
-    const hasUnread = space.categories.some((c) =>
-      c.conversationIds.some(
-        (id) => (unread[id]?.count ?? 0) > 0 || local[id]?.markedUnread === true,
-      ),
-    );
+    const hasUnread = unreadInSpace(app, spaceId).length > 0;
     const plugin = pluginMenuEntries(registries.menus.space.list(), { spaceId }, registries);
     // Keyboard-accessible reordering (drag & drop is pointer-only).
     const rail = stores.spaces.getState().rail;

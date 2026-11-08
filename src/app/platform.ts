@@ -35,22 +35,41 @@ export function desktopStorageAdmin(): StorageAdmin {
   );
 }
 
-/** Native notifications; `permission()` reads "default" until the plugin has answered. */
+/**
+ * Native notifications. `permission()` reads "default" until the plugin has
+ * answered and "unsupported" if it never will; `subscribe` says when that
+ * changes, so a page showing it can correct itself.
+ */
 export function desktopNotificationApi(): NotificationApi {
   let api: NotificationApi | null = null;
+  let failed = false;
+  const listeners = new Set<() => void>();
+  const changed = () => {
+    for (const listener of [...listeners]) listener();
+  };
   const loading = platform()
     .then((m) => m.tauriNotificationApi())
     .then((loaded) => {
       api = loaded;
     })
     .catch((error: unknown) => {
+      failed = true;
       createLogger('app').error('native notifications unavailable', error);
-    });
+    })
+    .then(changed);
   return {
-    permission: () => api?.permission() ?? 'default',
+    permission: () => (api ? api.permission() : failed ? 'unsupported' : 'default'),
     request: async () => {
       await loading;
-      return api ? api.request() : 'unsupported';
+      const result = api ? await api.request() : 'unsupported';
+      changed();
+      return result;
+    },
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
     },
     show: (content, onClick) => api?.show(content, onClick) ?? null,
   };

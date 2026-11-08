@@ -57,9 +57,16 @@ export function SettingRow({
       data-setting={id}
     >
       <div className={styles.text}>
-        <label id={ids.labelId} htmlFor={ids.id} className={styles.label}>
-          {label}
-        </label>
+        {typeof control === 'function' ? (
+          <label id={ids.labelId} htmlFor={ids.id} className={styles.label}>
+            {label}
+          </label>
+        ) : (
+          // No control carries the id (a button, a note): a label would point at nothing.
+          <span id={ids.labelId} className={styles.label}>
+            {label}
+          </span>
+        )}
         {description && (
           <p id={ids.descriptionId} className={styles.description}>
             {description}

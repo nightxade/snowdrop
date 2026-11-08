@@ -303,6 +303,7 @@ export function useComposer(conversation: ConversationView): ComposerState {
     if ((sent === FAILED || sent === null) && !staged) restore(draft);
   };
 
+  const executing = useRef(false);
   const submit = async () => {
     const raw = text;
     if (raw.trim() === '' && attachments.length === 0) return;
@@ -312,6 +313,9 @@ export function useComposer(conversation: ConversationView): ComposerState {
       await deliver(raw);
       return;
     }
+    // A held Enter must not run the command again while it is still running.
+    if (executing.current) return;
+    executing.current = true;
     try {
       const result = await command.execute(slash.args, { conversationId });
       switch (result.type) {
@@ -330,6 +334,8 @@ export function useComposer(conversation: ConversationView): ComposerState {
       }
     } catch (e) {
       setError(`/${slash.name} failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      executing.current = false;
     }
   };
 

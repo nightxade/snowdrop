@@ -17,12 +17,15 @@ export const MemberRow = memo(function MemberRow({
   conversationId,
   tabStop,
   label,
+  bare = false,
 }: {
   contact: Contact;
   conversationId: ConversationId;
   tabStop: boolean;
   /** The member's label in this group (Signal's "member label"), if they set one. */
   label?: GroupMemberLabel | undefined;
+  /** Rendered inside a list item that already exists (a windowed list), so no `li` of its own. */
+  bare?: boolean;
 }) {
   const app = useSnowdrop();
   const button = useRef<HTMLButtonElement | null>(null);
@@ -34,8 +37,9 @@ export const MemberRow = memo(function MemberRow({
       }),
     [app, contact, conversationId],
   );
+  const Item = bare ? 'div' : 'li';
   return (
-    <li className={styles.item}>
+    <Item className={styles.item}>
       <ProfileTrigger
         contact={contact}
         conversationId={conversationId}
@@ -50,6 +54,7 @@ export const MemberRow = memo(function MemberRow({
               data-roving-item
               tabIndex={tabStop ? 0 : -1}
               data-snowdrop="member-row"
+              data-member-id={contact.id}
             >
               <PersonAvatar
                 contactId={contact.id}
@@ -80,6 +85,6 @@ export const MemberRow = memo(function MemberRow({
           </ContextMenu>
         }
       />
-    </li>
+    </Item>
   );
 });

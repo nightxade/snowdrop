@@ -10,23 +10,13 @@ import { ConversationRow } from './ConversationRow';
 import { useCategoryDrop } from './useCategoryDrop';
 import { visibleIds } from './model';
 import { SectionHeader } from './SectionHeader';
-import { useSidebarModel } from './useSidebarModel';
+import { useRenderedOrder, useSidebarModel } from './useSidebarModel';
 import styles from './ConversationList.module.css';
 
 export function ConversationList() {
   const stores = useStores();
   const ready = useStore(stores.session, sessionSelectors.ready);
-  // Collapsed sections only need *which* conversations are unread, not the
-  // counts; a joined key keeps the list from re-rendering on every message.
-  const unreadKey = useStore(stores.conversations, (s) =>
-    Object.keys(s.unread)
-      .filter((id) => (s.unread[id as keyof typeof s.unread]?.count ?? 0) > 0)
-      .sort()
-      .join('\n'),
-  );
-  const unread: Record<string, { count: number; mentions: number }> = {};
-  for (const id of unreadKey ? unreadKey.split('\n') : []) unread[id] = { count: 1, mentions: 0 };
-  const { space, sections, archived, selected, catchingUp } = useSidebarModel();
+  const { space, sections, archived, selected, catchingUp, attention } = useSidebarModel();
   const onKeyDown = useRovingFocus('vertical');
   // The archive is a view of its own, entered from the entry under the list; each space has its own.
   const [archiveOpenIn, setArchiveOpenIn] = useState<string | null>(null);
@@ -48,15 +38,19 @@ export function ConversationList() {
     else if (target === 'entry') entryRef.current?.focus();
   }, [archiveOpen]);
 
-  if (!ready) return <ListSkeleton />;
-
   const variant = space === HOME ? 'home' : 'channel';
   const rows = sections.map((section) => ({
     section,
-    ids: visibleIds(section, selected, unread),
+    ids: visibleIds(section, selected, attention),
   }));
-  // Exactly one row is reachable by Tab: the open conversation, else the first row.
   const allIds = rows.flatMap((r) => r.ids);
+  // Alt+↑/↓ walks what is shown here (see `useRenderedOrder`).
+  useRenderedOrder(space, allIds);
+
+  if (!ready) return <ListSkeleton />;
+
+  // Exactly one row is reachable by Tab: the open conversation, else the first row.
+
   const tabStop = selected && allIds.includes(selected) ? selected : allIds[0];
 
   const toggle = (sectionId: string) => {

@@ -2,7 +2,7 @@ import { Check, ChevronsDownUp, ChevronsUpDown, FolderMinus, Pencil } from 'luci
 import { useCallback } from 'react';
 import { useSnowdrop } from '@/ui/hooks';
 import type { MenuEntry } from '@/ui/primitives';
-import { markSpaceRead } from './useSpaceMenu';
+import { markSpaceRead, unreadInSpace } from './useSpaceMenu';
 
 const ICON = 16;
 
@@ -15,16 +15,7 @@ export function useFolderMenu(folderId: string): () => MenuEntry[] {
       .getState()
       .rail.find((e) => e.type === 'folder' && e.id === folderId);
     if (folder?.type !== 'folder') return [];
-    const unread = stores.conversations.getState().unread;
-    const local = stores.local.getState().conversations;
-    const spaces = stores.spaces.getState().spaces;
-    const hasUnread = folder.spaceIds.some((sid) =>
-      spaces[sid]?.categories.some((c) =>
-        c.conversationIds.some(
-          (id) => (unread[id]?.count ?? 0) > 0 || local[id]?.markedUnread === true,
-        ),
-      ),
-    );
+    const hasUnread = folder.spaceIds.some((sid) => unreadInSpace(app, sid).length > 0);
     return [
       {
         kind: 'item',

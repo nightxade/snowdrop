@@ -1,6 +1,7 @@
 import { ArchiveRestore, BellOff, Ellipsis, Hash, AtSign, Pin, X } from 'lucide-react';
 import { memo, useState } from 'react';
 import type { ConversationId } from '@/core/domain';
+import { attentionOf } from '@/core/stores';
 import { startConversationDrag, useSnowdrop } from '@/ui/hooks';
 import {
   archive,
@@ -38,7 +39,7 @@ export const ConversationRow = memo(function ConversationRow({
   const requestState = useMessageRequestState(id);
   if (!view) return null;
 
-  const hasUnread = (unread.count > 0 || view.markedUnread === true) && !muted;
+  const { hasUnread } = attentionOf(unread, muted, view.markedUnread === true);
   const mentions = unread.mentions;
   const Glyph = view.kind === 'group' ? Hash : AtSign;
   // A message request says so instead of showing what the stranger wrote.

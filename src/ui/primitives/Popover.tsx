@@ -18,7 +18,10 @@ export interface PopoverProps {
   flush?: boolean;
   /** Where focus goes on open, instead of the first focusable element. */
   onOpenAutoFocus?: (event: Event) => void;
-  /** Where focus goes on close, instead of the trigger (call `preventDefault` first). */
+  /**
+   * Where focus goes on close, instead of the trigger: call `preventDefault`
+   * and focus it yourself. Leave the event alone to get the trigger back.
+   */
   onCloseAutoFocus?: (event: Event) => void;
 }
 
@@ -57,10 +60,8 @@ export function Popover({
           aria-label={label}
           {...(onOpenAutoFocus ? { onOpenAutoFocus } : {})}
           onCloseAutoFocus={(e) => {
-            if (onCloseAutoFocus) {
-              onCloseAutoFocus(e);
-              return;
-            }
+            onCloseAutoFocus?.(e);
+            if (e.defaultPrevented && onCloseAutoFocus) return;
             // Back on the trigger without popping its tooltip.
             e.preventDefault();
             if (anchor.current?.isConnected) focusQuietly(anchor.current);

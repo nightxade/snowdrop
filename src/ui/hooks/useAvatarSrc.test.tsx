@@ -81,6 +81,30 @@ describe('useAvatarSrc', () => {
   });
 
   describe('only for avatars on screen', () => {
+    it('watches every avatar through one shared observer', async () => {
+      const { backend, resolve } = fakeBackend({ ana: URL_A, ben: URL_A });
+      renderProbe(
+        backend,
+        <>
+          <Probe id="ana" />
+          <Probe id="ben" />
+          <Probe id="cy" />
+        </>,
+      );
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(FakeIO.instances).toHaveLength(1);
+      expect(FakeIO.instances[0]?.observed.size).toBe(3);
+      await act(async () => {
+        FakeIO.instances[0]?.emit(true);
+        await Promise.resolve();
+      });
+      expect(resolve).toHaveBeenCalledTimes(3);
+      // Everyone has been seen: nothing is watched any more.
+      expect(FakeIO.instances[0]?.disconnected).toBe(true);
+    });
+
     it('waits until the avatar scrolls into view, and then asks once', async () => {
       const { backend, resolve } = fakeBackend({ ana: URL_A });
       renderProbe(backend, <Probe id="ana" />);

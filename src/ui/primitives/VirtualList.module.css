@@ -1,0 +1,7 @@
+/* Virtuoso's scroller: the same themed bar as every other scroller. */
+.list {
+  min-height: 0;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}

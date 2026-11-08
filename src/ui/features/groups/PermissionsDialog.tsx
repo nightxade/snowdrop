@@ -50,6 +50,12 @@ export function PermissionsDialog({
   const [error, setError] = useState<string | null>(null);
   if (!group) return null;
   const rules = group.permissions;
+  /** Why every control is disabled, when it is for a lasting reason (not just while a change is saving). */
+  const locked = !canManage
+    ? 'Only admins can change these.'
+    : rules === undefined
+      ? 'Signal hasn’t shared this group’s permissions yet, so they can’t be changed from here.'
+      : null;
 
   const change = async (key: keyof GroupPermissions, value: GroupPermission) => {
     if (pending) return;
@@ -88,7 +94,9 @@ export function PermissionsDialog({
             </div>
             <Select<GroupPermission>
               id={`rule-${row.key}`}
-              aria-describedby={`rule-${row.key}-hint`}
+              aria-describedby={
+                locked ? `rule-${row.key}-hint permissions-locked` : `rule-${row.key}-hint`
+              }
               value={rules?.[row.key] ?? 'every-member'}
               options={OPTIONS}
               disabled={!canManage || pending !== null || rules === undefined}
@@ -98,6 +106,11 @@ export function PermissionsDialog({
           </li>
         ))}
       </ul>
+      {locked && (
+        <p id="permissions-locked" className={styles.note}>
+          {locked}
+        </p>
+      )}
       <p className={styles.status} role="status">
         {pending ? 'Saving…' : ''}
       </p>

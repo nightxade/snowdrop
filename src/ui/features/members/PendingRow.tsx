@@ -17,12 +17,15 @@ export function PendingRow({
   kind,
   conversationId,
   canAct,
+  bare = false,
 }: {
   id: string;
   contact: Contact | undefined;
   kind: 'request' | 'invite';
   conversationId: ConversationId;
   canAct: boolean;
+  /** Rendered inside a list item that already exists (a windowed list). */
+  bare?: boolean;
 }) {
   const app = useSnowdrop();
   const name = contact?.name ?? 'Unknown contact';
@@ -30,8 +33,9 @@ export function PendingRow({
   const act = (action: GroupMemberAction) => () => {
     openGroupModal(app, 'groupMemberAction', { conversationId, memberId: id, action });
   };
+  const Row = bare ? 'div' : 'li';
   return (
-    <li className={styles.row} data-snowdrop="pending-row">
+    <Row className={styles.row} data-snowdrop="pending-row">
       <PersonAvatar
         contactId={id}
         conversationId={conversationId}
@@ -64,6 +68,6 @@ export function PendingRow({
           onClick={act('revoke')}
         />
       )}
-    </li>
+    </Row>
   );
 }

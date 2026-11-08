@@ -16,7 +16,7 @@ import {
   UNKNOWN_CONTACT_NAME,
 } from '@/core/stores';
 import { conversationFocusTarget, useNow, useSnowdrop } from '@/ui/hooks';
-import { ConversationAvatarById, PersonAvatar } from '@/ui/features/conversation';
+import { ConversationAvatarById, openConversation, PersonAvatar } from '@/ui/features/conversation';
 import { Kbd, Modal, Skeleton, VisuallyHidden } from '@/ui/primitives';
 import {
   CommandPalette,
@@ -26,7 +26,7 @@ import {
   CommandPaletteList,
   highlight,
 } from '@/ui/primitives/CommandPalette';
-import { searchSwitcher, type SwitcherItem } from '@/ui/features/switcher';
+import { searchConversations, type SwitcherItem } from '@/ui/features/switcher';
 import { queryTerms, resultText, snippetParts } from './model';
 import styles from './GlobalSearch.module.css';
 
@@ -45,7 +45,8 @@ type MessageSearch =
  * Choosing a message opens its conversation and scrolls to it.
  */
 export function GlobalSearch({ onClose }: { onClose: () => void }) {
-  const { repository, stores } = useSnowdrop();
+  const app = useSnowdrop();
+  const { repository, stores } = app;
   const byId = useStore(stores.conversations, (s) => s.byId);
   const local = useStore(stores.local, (s) => s.conversations);
   const unread = useStore(stores.conversations, (s) => s.unread);
@@ -113,7 +114,7 @@ export function GlobalSearch({ onClose }: { onClose: () => void }) {
           ]
         : [];
     });
-    const base = {
+    const input = {
       views: selectConversationViews(byId, local),
       unread,
       spaces: spaceList,
@@ -121,9 +122,10 @@ export function GlobalSearch({ onClose }: { onClose: () => void }) {
       isMuted: () => false,
       limit: NAME_LIMIT,
     };
-    const pick = (prefix: string) =>
-      searchSwitcher(`${prefix}${trimmed}`, base).flatMap((section) => section.items);
-    return { groups: pick('#'), people: pick('@') };
+    return {
+      groups: searchConversations(trimmed, 'group', input),
+      people: searchConversations(trimmed, 'direct', input),
+    };
   }, [trimmed, byId, local, unread, spaces, spaceOrder]);
 
   const spaceOf = useMemo(() => {
@@ -138,8 +140,8 @@ export function GlobalSearch({ onClose }: { onClose: () => void }) {
 
   const nameFor = (id: string): string => contacts[id]?.name ?? UNKNOWN_CONTACT_NAME;
 
-  const openConversation = (item: Extract<SwitcherItem, { kind: 'conversation' }>) => {
-    stores.ui.getState().selectConversation(item.id, spaceFor(item.id));
+  const openChat = (item: Extract<SwitcherItem, { kind: 'conversation' }>) => {
+    openConversation(app, item.id, { space: spaceFor(item.id) });
     const preferComposer = stores.settings.getState().behaviour.focusComposerOnOpen;
     focusAfterClose.current = () => conversationFocusTarget(item.id, preferComposer);
     onClose();
@@ -231,14 +233,14 @@ export function GlobalSearch({ onClose }: { onClose: () => void }) {
           {names.groups.length > 0 && (
             <CommandPaletteGroup heading="Groups">
               {names.groups.map((item) => (
-                <NameItem key={item.key} item={item} onChoose={openConversation} />
+                <NameItem key={item.key} item={item} onChoose={openChat} />
               ))}
             </CommandPaletteGroup>
           )}
           {names.people.length > 0 && (
             <CommandPaletteGroup heading="People">
               {names.people.map((item) => (
-                <NameItem key={item.key} item={item} onChoose={openConversation} />
+                <NameItem key={item.key} item={item} onChoose={openChat} />
               ))}
             </CommandPaletteGroup>
           )}

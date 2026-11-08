@@ -38,6 +38,11 @@ function Entries({ parts: P, entries }: { parts: Parts; entries: readonly MenuEn
             onSelect={entry.onSelect}
           >
             <span className={styles.text}>{entry.label}</span>
+            {entry.icon && (
+              <span className={styles.icon} aria-hidden>
+                {entry.icon}
+              </span>
+            )}
             <span className={styles.check} aria-hidden>
               <P.ItemIndicator>
                 <Check size={16} strokeWidth={2.5} />
@@ -48,7 +53,7 @@ function Entries({ parts: P, entries }: { parts: Parts; entries: readonly MenuEn
       case 'submenu':
         return (
           <P.Sub key={entry.id}>
-            <P.SubTrigger className={styles.item}>
+            <P.SubTrigger className={styles.item} disabled={entry.disabled ?? false}>
               <span className={styles.text}>{entry.label}</span>
               {entry.icon && (
                 <span className={styles.icon} aria-hidden>

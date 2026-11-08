@@ -26,7 +26,14 @@ export type MenuEntry =
     }
   | { kind: 'separator'; id: string }
   | { kind: 'label'; id: string; label: string }
-  | { kind: 'submenu'; id: string; label: string; icon?: ReactNode; items: MenuEntry[] };
+  | {
+      kind: 'submenu';
+      id: string;
+      label: string;
+      icon?: ReactNode;
+      disabled?: boolean;
+      items: MenuEntry[];
+    };
 
 /** Drops leading/trailing/doubled separators left behind by conditional items. */
 export function tidyMenu(entries: readonly MenuEntry[]): MenuEntry[] {

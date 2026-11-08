@@ -14,11 +14,11 @@ import { formatPhone, openDirectConversation, PersonAvatar } from '@/ui/features
 import { Kbd, Modal } from '@/ui/primitives';
 import {
   CommandPalette,
-  CommandPaletteGroup,
   CommandPaletteInput,
-  CommandPaletteItem,
   CommandPaletteList,
+  CommandPaletteRows,
   highlight,
+  type PaletteRow,
 } from '@/ui/primitives/CommandPalette';
 import { composableContacts, searchNewMessage } from './model';
 import styles from './NewMessageDialog.module.css';
@@ -48,6 +48,85 @@ export function failureMessage(kind: FailureKind, query: RecipientQuery): string
       : `${labelFor(query)} is not a Signal user. Make sure you’ve entered the complete username.`;
   }
   return `Failed to fetch ${query.kind === 'phone' ? 'phone number' : 'username'}. Check your connection and try again.`;
+}
+
+/** The dialog's rows: the new-group entry, a lookup by number or username, then the contacts. */
+function NewMessageRows({
+  offerGroup,
+  find,
+  pending,
+  contacts,
+  onNewGroup,
+  onLookup,
+  onOpen,
+}: {
+  offerGroup: boolean;
+  find: RecipientQuery | null;
+  pending: boolean;
+  contacts: readonly { contact: Contact; indices: readonly number[] }[];
+  onNewGroup: () => void;
+  onLookup: (query: RecipientQuery) => Promise<void>;
+  onOpen: (contact: Contact) => void;
+}) {
+  const rows: PaletteRow[] = [];
+  if (offerGroup) {
+    rows.push(
+      { type: 'heading', key: 'h:group', text: 'Group' },
+      {
+        type: 'item',
+        key: 'new-group',
+        value: 'new-group',
+        onSelect: onNewGroup,
+        icon: <UsersRound size={18} />,
+        children: 'New group',
+      },
+    );
+  }
+  if (find) {
+    rows.push(
+      {
+        type: 'heading',
+        key: 'h:find',
+        text: find.kind === 'phone' ? 'Find by phone number' : 'Find by username',
+      },
+      {
+        type: 'item',
+        key: `find:${find.kind}`,
+        value: `find:${find.kind}`,
+        disabled: pending,
+        onSelect: () => {
+          void onLookup(find);
+        },
+        icon: find.kind === 'phone' ? <Phone size={18} /> : <AtSign size={18} />,
+        meta: pending ? <LoaderCircle size={16} className={styles.spin} aria-hidden /> : null,
+        children: labelFor(find),
+      },
+    );
+  }
+  if (contacts.length > 0) {
+    rows.push({ type: 'heading', key: 'h:contacts', text: 'Contacts' });
+    for (const { contact, indices } of contacts) {
+      rows.push({
+        type: 'item',
+        key: contact.id,
+        value: `contact:${contact.id}`,
+        onSelect: () => {
+          onOpen(contact);
+        },
+        icon: (
+          <PersonAvatar
+            size={24}
+            contactId={contact.id}
+            fallback={initialsFor(contact.name).slice(0, 2)}
+            color={contact.color}
+          />
+        ),
+        meta: contact.number ? formatPhone(contact.number) : null,
+        children: highlight(contact.name, indices),
+      });
+    }
+  }
+  return <CommandPaletteRows rows={rows} />;
 }
 
 /**
@@ -198,65 +277,18 @@ export function NewMessageDialog({ onClose }: { onClose: () => void }) {
           {failure && failureMessage(failure.kind, failure.query)}
         </div>
         <CommandPaletteList label="People" empty={empty}>
-          {offerGroup && (
-            <CommandPaletteGroup heading="Group">
-              <CommandPaletteItem
-                key="new-group"
-                value="new-group"
-                onSelect={() => {
-                  // Replaces this dialog: the group dialog takes over the same layer.
-                  stores.ui.getState().openModal({ type: 'newGroup' });
-                }}
-                icon={<UsersRound size={18} />}
-              >
-                New group
-              </CommandPaletteItem>
-            </CommandPaletteGroup>
-          )}
-          {find && (
-            <CommandPaletteGroup
-              heading={find.kind === 'phone' ? 'Find by phone number' : 'Find by username'}
-            >
-              <CommandPaletteItem
-                key={`find:${find.kind}`}
-                value={`find:${find.kind}`}
-                disabled={pending !== null}
-                onSelect={() => {
-                  void runLookup(find);
-                }}
-                icon={find.kind === 'phone' ? <Phone size={18} /> : <AtSign size={18} />}
-                meta={
-                  pending ? <LoaderCircle size={16} className={styles.spin} aria-hidden /> : null
-                }
-              >
-                {labelFor(find)}
-              </CommandPaletteItem>
-            </CommandPaletteGroup>
-          )}
-          {search.contacts.length > 0 && (
-            <CommandPaletteGroup heading="Contacts">
-              {search.contacts.map(({ contact, indices }) => (
-                <CommandPaletteItem
-                  key={contact.id}
-                  value={`contact:${contact.id}`}
-                  onSelect={() => {
-                    openContact(contact);
-                  }}
-                  icon={
-                    <PersonAvatar
-                      size={24}
-                      contactId={contact.id}
-                      fallback={initialsFor(contact.name).slice(0, 2)}
-                      color={contact.color}
-                    />
-                  }
-                  meta={contact.number ? formatPhone(contact.number) : null}
-                >
-                  {highlight(contact.name, indices)}
-                </CommandPaletteItem>
-              ))}
-            </CommandPaletteGroup>
-          )}
+          <NewMessageRows
+            offerGroup={offerGroup}
+            find={find}
+            pending={pending !== null}
+            contacts={search.contacts}
+            onNewGroup={() => {
+              // Replaces this dialog: the group dialog takes over the same layer.
+              stores.ui.getState().openModal({ type: 'newGroup' });
+            }}
+            onLookup={runLookup}
+            onOpen={openContact}
+          />
         </CommandPaletteList>
       </CommandPalette>
     </Modal>

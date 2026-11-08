@@ -1,3 +1,4 @@
+import { Check } from 'lucide-react';
 import { Drawer, type MenuEntry } from '@/ui/primitives';
 import styles from './MessageActionSheet.module.css';
 
@@ -48,6 +49,7 @@ export function MessageActionSheet({
                               key={item.id}
                               type="button"
                               className={styles.chip}
+                              disabled={item.disabled ?? false}
                               onClick={() => {
                                 close();
                                 item.onSelect();
@@ -69,6 +71,7 @@ export function MessageActionSheet({
                     className={styles.item}
                     data-danger={entry.kind === 'item' && entry.danger ? '' : undefined}
                     disabled={entry.kind === 'item' ? (entry.disabled ?? false) : false}
+                    {...(entry.kind === 'check' ? { 'aria-pressed': entry.checked } : {})}
                     onClick={() => {
                       close();
                       entry.onSelect();
@@ -80,6 +83,9 @@ export function MessageActionSheet({
                       </span>
                     )}
                     {entry.label}
+                    {entry.kind === 'check' && entry.checked && (
+                      <Check size={16} className={styles.checked} aria-hidden />
+                    )}
                   </button>
                 );
             }
