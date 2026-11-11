@@ -42,7 +42,6 @@ import {
   isEditableContent,
   isWithinDeleteWindow,
   isPendingMessageId,
-  mergeDuplicate,
   mergeOutgoingCommit,
   mergeReceipts,
   messageId,
@@ -53,7 +52,6 @@ import {
   pollVoteOf,
   reopenPoll,
   restorePollVote,
-  systemMessageId,
   type BodyRange,
   type ConversationId,
   type LinkPreview,
@@ -83,6 +81,7 @@ import {
   localPreview,
   withLocalUrls,
 } from './localAttachments';
+import { appendLocalSystemLine } from './localSystemLine';
 import { PendingOpsBuffer } from './PendingOpsBuffer';
 import { ReactionWatch } from './ReactionWatch';
 import { ReceiptBuffer } from './ReceiptBuffer';
@@ -1214,31 +1213,12 @@ export class SendService {
 
   /** The "You ended the poll" line, after the end went out. */
   private async noteEnded(poll: Message, question: string, selfId: string): Promise<void> {
-    const { repository, stores, clock } = this.deps;
-    const now = clock.now();
-    const line: Message = {
-      id: systemMessageId(selfId, now, 'poll-end'),
+    await appendLocalSystemLine(this.deps, {
       conversationId: poll.conversationId,
       authorId: selfId,
-      sentAt: now,
-      receivedAt: now,
-      body: '',
-      ranges: [],
-      attachments: [],
-      reactions: [],
-      status: 'sent',
-      kind: 'system',
-      systemText: pollEndedText('You', question),
-    };
-    const { message } = await repository.upsert(line, mergeDuplicate);
-    stores.messages.getState().appendLive(message);
-    stores.conversations.getState().noteLatest(message);
-    // Our own action: the chat is read up to it, like a message we send.
-    if (
-      message.seq !== undefined &&
-      stores.conversations.getState().markRead(poll.conversationId, message.seq)
-    )
-      await repository.setReadCursor(poll.conversationId, message.seq);
+      text: pollEndedText('You', question),
+      tag: 'poll-end',
+    });
   }
 
   /** Pins or unpins a message for everyone, when the transport supports pins. */

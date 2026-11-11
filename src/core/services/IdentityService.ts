@@ -9,16 +9,11 @@
  * levels only, and failures are logged by context alone.
  */
 import type { ChatBackend, SafetyNumber } from '@/core/backend';
-import {
-  directConversationId,
-  mergeDuplicate,
-  systemMessageId,
-  type ConversationId,
-  type Message,
-} from '@/core/domain';
+import { directConversationId, type ConversationId } from '@/core/domain';
 import { stripBidiControls, toAppError } from '@/core/lib';
 import type { MessageRepository } from '@/core/persistence';
 import type { Stores } from '@/core/stores';
+import { appendLocalSystemLine } from './localSystemLine';
 import { consoleReporter, type ErrorReporter } from './types';
 
 export interface IdentityServiceDeps {
@@ -159,37 +154,20 @@ export class IdentityService {
 
   /** Desktop's local timeline line for a verification change (only in a chat that exists). */
   private async noteLine(contactId: string, change: 'verified' | 'not-verified'): Promise<void> {
-    const { repository, stores, clock } = this.deps;
+    const { stores } = this.deps;
     const selfId = stores.session.getState().self?.id;
     const conversationId: ConversationId = directConversationId(contactId);
     if (!selfId || !stores.conversations.getState().byId[conversationId]) return;
     const name = stripBidiControls(
       stores.contacts.getState().byId[contactId]?.name ?? 'this person',
     );
-    const now = clock.now();
-    const line: Message = {
-      id: systemMessageId(selfId, now, `identity-${change}`),
-      conversationId,
-      authorId: selfId,
-      sentAt: now,
-      receivedAt: now,
-      body: '',
-      ranges: [],
-      attachments: [],
-      reactions: [],
-      status: 'sent',
-      kind: 'system',
-      systemText: `You marked your Safety Number with ${name} as ${change === 'verified' ? 'verified' : 'not verified'}`,
-    };
     try {
-      const { message } = await repository.upsert(line, mergeDuplicate);
-      stores.messages.getState().appendLive(message);
-      stores.conversations.getState().noteLatest(message);
-      if (
-        message.seq !== undefined &&
-        stores.conversations.getState().markRead(conversationId, message.seq)
-      )
-        await repository.setReadCursor(conversationId, message.seq);
+      await appendLocalSystemLine(this.deps, {
+        conversationId,
+        authorId: selfId,
+        text: `You marked your Safety Number with ${name} as ${change === 'verified' ? 'verified' : 'not verified'}`,
+        tag: `identity-${change}`,
+      });
     } catch (error) {
       this.report(error, 'noting a safety number change failed');
     }

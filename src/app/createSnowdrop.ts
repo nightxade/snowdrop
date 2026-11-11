@@ -41,6 +41,7 @@ import {
   ReceiptBuffer,
   GroupService,
   IdentityService,
+  ReadStateService,
   MessageRequestService,
   SendService,
   PostConnect,
@@ -146,6 +147,8 @@ export interface Snowdrop {
   keybinds: KeybindDispatcher;
   plugins: PluginRuntime;
   sync: SyncService;
+  /** Marking read, read receipts and read syncs, the unread recount. */
+  readState: ReadStateService;
   send: SendService;
   /** Accept, delete, block and unblock a message request. */
   requests: MessageRequestService;
@@ -459,6 +462,21 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     const connection = stores.settings.getState().connection;
     return scopeFor(registration.kind, connection.account ?? (connection.desktop.account || null));
   };
+  // Declared before `send` and `sync`, which both use it; the purge it asks for
+  // is SyncService's (a countdown just started), reached through `sync` once built.
+  const readState = new ReadStateService({
+    backend,
+    repository,
+    stores,
+    clock,
+    scheduler,
+    schedulePurge: (delayMs) => {
+      sync.noteExpiry(clock.now() + delayMs);
+    },
+    onError: (error, context) => {
+      syncLog.error(context, error);
+    },
+  });
   const send = new SendService({
     sentMarkers: new SentMarkers(storage, accountScope),
     backend,
@@ -469,7 +487,7 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     receipts,
     pendingOps,
     reactionWatch,
-    readConversation: (id) => sync.markConversationRead(id),
+    readConversation: (id) => readState.markConversationRead(id),
     onExpiry: (at) => {
       sync.noteExpiry(at);
     },
@@ -501,6 +519,7 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     receipts,
     pendingOps,
     reactionWatch,
+    readState,
     postConnect,
     onError: (error, context) => {
       syncLog.error(context, error);
@@ -760,6 +779,7 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     keybinds,
     plugins: runtime,
     sync,
+    readState,
     send,
     requests,
     groups,
