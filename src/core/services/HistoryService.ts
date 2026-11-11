@@ -156,7 +156,8 @@ export class HistoryService {
       this.deps.stores.messages
         .getState()
         .replaceWindow(conversationId, [...before, target, ...after], {
-          hasMoreBefore: before.length === half || this.deps.backend.fetchHistory !== undefined,
+          hasMoreBefore:
+            before.length === half || this.deps.backend.capabilities.features.has('history'),
           hasMoreAfter,
         });
       applied = true;
@@ -313,7 +314,8 @@ export class HistoryService {
       ),
     );
     if (local.length === limit) return { messages: local, hasMoreBefore: true };
-    if (!backend.fetchHistory) return { messages: local, hasMoreBefore: false };
+    if (!backend.capabilities.features.has('history'))
+      return { messages: local, hasMoreBefore: false };
     // A deleted request stays deleted: no backfill brings it back.
     if (isDeletedRequest(this.deps.stores, conversationId))
       return { messages: local, hasMoreBefore: false };
@@ -363,7 +365,7 @@ export class HistoryService {
    */
   private async upgradeLegacyStickers(messages: Message[]): Promise<Message[]> {
     const { backend, repository } = this.deps;
-    if (!backend.remapHistoryMessages) return messages;
+    if (!backend.capabilities.features.has('historyArchive')) return messages;
     const candidates = messages.filter(
       (m) => hasLegacyHistorySticker(m) && !this.upgradeTried.has(m.id),
     );

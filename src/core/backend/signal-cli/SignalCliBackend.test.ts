@@ -1503,10 +1503,13 @@ describe('SignalCliBackend sync-only read receipts', () => {
     await backend.connect();
     await flush();
     expect(seen).toHaveLength(1);
-    expect(seen[0]).toEqual(expect.arrayContaining(['readSync', 'phonePrivacy']));
+    expect(seen[0]).toEqual(
+      expect.arrayContaining(['readSync', 'phonePrivacy', ...SignalCliBackend.FEATURES]),
+    );
     await backend.disconnect();
     expect(seen).toHaveLength(2);
-    expect(seen[1]).toEqual([]);
+    // The version-dependent ones go; the static ones stay.
+    expect(seen[1]).toEqual([...SignalCliBackend.FEATURES].sort());
   });
 
   it('asks signal-cli for syncOnly on a build with patch 0019', async () => {

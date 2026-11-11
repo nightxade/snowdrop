@@ -14,6 +14,7 @@
  */
 import type {
   ChatBackend,
+  Feature,
   ConversationPatch,
   OutgoingCustomEmoji,
   OutgoingLinkPreview,
@@ -383,7 +384,7 @@ export class SendService {
     conversationId: ConversationId;
     poll: OutgoingPoll;
   }): Promise<string | null> {
-    if (this.deps.backend.votePoll === undefined) return null;
+    if (!this.has('polls')) return null;
     const selfId = this.selfId();
     const poll = tidyPollDraft(request.poll);
     if (pollDraftProblem(poll) !== null) throw new Error("This poll can't be sent.");
@@ -999,7 +1000,7 @@ export class SendService {
     };
     // The picture rides along when it can be read; without it the card still goes.
     const { image } = old;
-    if (image && this.deps.backend.readAttachmentBlob) {
+    if (image && this.has('attachmentBlob')) {
       try {
         const data = await this.deps.backend.readAttachmentBlob(conversationId, image);
         send.image = {
@@ -1081,11 +1082,15 @@ export class SendService {
     polls: boolean;
   } {
     return {
-      pin: this.deps.backend.pinMessage !== undefined,
-      adminDelete: this.deps.backend.adminDelete !== undefined,
-      updateConversation: this.deps.backend.updateConversation !== undefined,
-      polls: this.deps.backend.votePoll !== undefined,
+      pin: this.has('pins'),
+      adminDelete: this.has('adminDelete'),
+      updateConversation: this.has('conversationSettings'),
+      polls: this.has('polls'),
     };
+  }
+
+  private has(feature: Feature): boolean {
+    return this.deps.backend.capabilities.features.has(feature);
   }
 
   // ─── Polls ─────────────────────────────────────────────────────────────
@@ -1103,8 +1108,7 @@ export class SendService {
     target: Message,
     optionIndexes: readonly number[],
   ): Promise<PollActionResult> {
-    const votePoll = this.deps.backend.votePoll?.bind(this.deps.backend);
-    if (!votePoll || isPendingMessageId(target.id) || this.votingOn.has(target.id))
+    if (!this.has('polls') || isPendingMessageId(target.id) || this.votingOn.has(target.id))
       return 'ignored';
     const selfId = this.selfId();
     // The newest copy: a vote or the end may have landed since `target` was read.
@@ -1132,7 +1136,7 @@ export class SendService {
         apply: (m) => applyPollVote(m, vote),
         revert: (m) => restorePollVote(m, selfId, previous, vote),
         commit: (real) =>
-          votePoll({
+          this.deps.backend.votePoll({
             conversationId,
             pollAuthorId: real.authorId,
             pollSentAt: real.sentAt,
@@ -1153,8 +1157,7 @@ export class SendService {
    * end a poll.
    */
   async endPoll(conversationId: ConversationId, target: Message): Promise<PollActionResult> {
-    const terminatePoll = this.deps.backend.terminatePoll?.bind(this.deps.backend);
-    if (!terminatePoll || isPendingMessageId(target.id)) return 'ignored';
+    if (!this.has('polls') || isPendingMessageId(target.id)) return 'ignored';
     const selfId = this.selfId();
     const latest = this.findLoaded(conversationId, target.id) ?? target;
     const poll = latest.poll;
@@ -1164,7 +1167,7 @@ export class SendService {
       context: 'ending the poll failed',
       apply: applyPollTerminate,
       revert: reopenPoll,
-      commit: (real) => terminatePoll(conversationId, real.sentAt),
+      commit: (real) => this.deps.backend.terminatePoll(conversationId, real.sentAt),
     });
     if (!ended) return 'failed';
     await this.noteEnded(latest, poll.question, selfId);
@@ -1202,8 +1205,7 @@ export class SendService {
 
   /** Pins or unpins a message for everyone, when the transport supports pins. */
   async pin(conversationId: ConversationId, target: Message, pin: boolean): Promise<boolean> {
-    const pinMessage = this.deps.backend.pinMessage?.bind(this.deps.backend);
-    if (!pinMessage || target.deleted || target.kind !== 'normal') return false;
+    if (!this.has('pins') || target.deleted || target.kind !== 'normal') return false;
     const set =
       (value: boolean) =>
       (m: Message): Message => {
@@ -1215,7 +1217,7 @@ export class SendService {
       apply: set(pin),
       revert: set(target.pinned === true),
       commit: (real) =>
-        pinMessage({
+        this.deps.backend.pinMessage({
           conversationId,
           targetAuthorId: real.authorId,
           targetSentAt: real.sentAt,
@@ -1226,8 +1228,7 @@ export class SendService {
 
   /** A group admin deleting someone else's message, when the transport supports it. */
   async adminDelete(conversationId: ConversationId, target: Message): Promise<boolean> {
-    const adminDelete = this.deps.backend.adminDelete?.bind(this.deps.backend);
-    if (!adminDelete || target.deleted || isPendingMessageId(target.id)) return false;
+    if (!this.has('adminDelete') || target.deleted || isPendingMessageId(target.id)) return false;
     const selfId = this.selfId();
     if (!isWithinDeleteWindow(target, this.deps.clock.now(), selfId)) return false;
     return this.optimistic(conversationId, target.id, {
@@ -1236,7 +1237,10 @@ export class SendService {
       revert: (m) => restoreDeleted(m, target, this.reactionWatch.removed(target.id)),
       watchReactions: true,
       commit: (real) =>
-        adminDelete(conversationId, { authorId: real.authorId, sentAt: real.sentAt }),
+        this.deps.backend.adminDelete(conversationId, {
+          authorId: real.authorId,
+          sentAt: real.sentAt,
+        }),
     });
   }
 
@@ -1272,10 +1276,9 @@ export class SendService {
     conversationId: ConversationId,
     patch: ConversationPatch,
   ): Promise<boolean> {
-    const update = this.deps.backend.updateConversation?.bind(this.deps.backend);
-    if (!update) return false;
+    if (!this.has('conversationSettings')) return false;
     try {
-      await update(conversationId, patch);
+      await this.deps.backend.updateConversation(conversationId, patch);
       return true;
     } catch (error) {
       this.onError(error, 'conversation update failed');

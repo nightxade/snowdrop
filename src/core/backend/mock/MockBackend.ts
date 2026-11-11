@@ -36,6 +36,7 @@ import {
 import {
   AppError,
   Emitter,
+  UnsupportedError,
   systemClock,
   systemScheduler,
   type Clock,
@@ -46,6 +47,7 @@ import {
 import type {
   BackendEvents,
   ChatBackend,
+  Feature,
   ConversationPatch,
   EditInput,
   EditResult,
@@ -69,6 +71,9 @@ import type {
   SendInput,
   StickerPackDetails,
   StickerPackInfo,
+  HistoryReadState,
+  PhonePrivacySettings,
+  LinkFlow,
 } from '../types';
 import { describeGroupChange } from '../groupLines';
 import { MOCK_STICKER_PACKS, type MockStickerPack } from './content/stickers';
@@ -128,6 +133,30 @@ function demoSafetyDigits(selfId: string, contactId: string, generation: number)
 }
 
 export class MockBackend implements ChatBackend {
+  /**
+   * What the demo supports. `readSync`, `stickerPackInstall` and
+   * `attachmentBackfill` are the demo's stand-ins for the version-dependent
+   * ones, on from the start.
+   */
+  static readonly FEATURES: ReadonlySet<Feature> = new Set<Feature>([
+    'history',
+    'pins',
+    'polls',
+    'adminDelete',
+    'conversationSettings',
+    'groups',
+    'lookup',
+    'messageRequests',
+    'blocking',
+    'safetyNumbers',
+    'attachmentBlob',
+    'stickers',
+    'profile',
+    'readSync',
+    'stickerPackInstall',
+    'attachmentBackfill',
+  ]);
+
   readonly kind = 'mock' as const;
   readonly world: MockWorld;
   readonly liveliness: Liveliness;
@@ -154,11 +183,7 @@ export class MockBackend implements ChatBackend {
    * (`readSync`) or on to act like a patched one (`catchingUpSignal`,
    * `orderedCatchingUp`).
    */
-  readonly capabilities = new FeatureStore([
-    'readSync',
-    'stickerPackInstall',
-    'attachmentBackfill',
-  ]);
+  readonly capabilities = new FeatureStore(MockBackend.FEATURES);
   /** Every message-request answer, for the same reason. */
   /** Trust per person's key; absent is `default`. Seeded from `world.untrustedIds`. */
   private readonly identityTrust = new Map<string, IdentityTrust>();
@@ -246,6 +271,57 @@ export class MockBackend implements ChatBackend {
     await this.delay();
     return [...this.world.conversations.values()].map((c) => structuredClone(c));
   }
+
+  // The demo's attachments, stickers and avatars carry their own `url`, it has
+  // no phone archive, privacy settings or linking, and nothing to resume.
+  resolveAttachmentUrl(): Promise<string> {
+    return Promise.reject(new UnsupportedError('resolveAttachmentUrl'));
+  }
+  resolveStickerUrl(): Promise<string> {
+    return Promise.reject(new UnsupportedError('resolveStickerUrl'));
+  }
+  resolveAvatarUrl(): Promise<string | null> {
+    return Promise.reject(new UnsupportedError('resolveAvatarUrl'));
+  }
+  historyHasOutgoing(): Promise<boolean> {
+    return Promise.reject(new UnsupportedError('historyHasOutgoing'));
+  }
+  remapHistoryMessages(): Promise<Message[]> {
+    return Promise.reject(new UnsupportedError('remapHistoryMessages'));
+  }
+  getHistoryArchiveId(): Promise<string | null> {
+    return Promise.reject(new UnsupportedError('getHistoryArchiveId'));
+  }
+  readHistory(): Promise<HistoryReadState[]> {
+    return Promise.reject(new UnsupportedError('readHistory'));
+  }
+  getHistoryReadState(): Promise<HistoryReadState[]> {
+    return Promise.reject(new UnsupportedError('getHistoryReadState'));
+  }
+  readPhonePrivacy(): Promise<PhonePrivacySettings> {
+    return Promise.reject(new UnsupportedError('readPhonePrivacy'));
+  }
+  updatePhonePrivacy(): Promise<void> {
+    return Promise.reject(new UnsupportedError('updatePhonePrivacy'));
+  }
+  syncContactsAndGroups(): Promise<void> {
+    return Promise.reject(new UnsupportedError('syncContactsAndGroups'));
+  }
+  readonly link: LinkFlow = {
+    start: () => Promise.reject(new UnsupportedError('link.start')),
+    finish: () => Promise.reject(new UnsupportedError('link.finish')),
+  };
+  retainAttachmentUrl(): void {}
+  releaseAttachmentUrl(): void {}
+  retainStickerUrl(): void {}
+  releaseStickerUrl(): void {}
+  peekAvatarUrl(): undefined {
+    return undefined;
+  }
+  hasPendingEvents(): boolean {
+    return false;
+  }
+  acknowledge(): void {}
 
   async fetchHistory(conversationId: ConversationId, query: HistoryQuery): Promise<HistoryPage> {
     await this.delay();

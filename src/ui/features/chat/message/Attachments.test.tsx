@@ -28,7 +28,13 @@ function fakeApp(
   resolveAttachmentUrl: (conversationId: ConversationId, attachment: Attachment) => Promise<string>,
 ): AppServices {
   return {
-    backend: { kind: 'signal-cli', resolveAttachmentUrl, capabilities: new FeatureStore() },
+    backend: {
+      kind: 'signal-cli',
+      resolveAttachmentUrl,
+      retainAttachmentUrl: () => undefined,
+      releaseAttachmentUrl: () => undefined,
+      capabilities: new FeatureStore(['attachmentUrls']),
+    },
     stores: createStores(),
   } as unknown as AppServices;
 }
@@ -278,8 +284,10 @@ describe('expired attachments in the message list: the phone is only asked on a 
       backend: {
         kind: 'signal-cli',
         resolveAttachmentUrl: vi.fn().mockRejectedValue(gone),
+        retainAttachmentUrl: () => undefined,
+        releaseAttachmentUrl: () => undefined,
         requestAttachmentBackfill,
-        capabilities: new FeatureStore(['attachmentBackfill']),
+        capabilities: new FeatureStore(['attachmentUrls', 'attachmentBackfill']),
       },
       stores: createStores(),
     } as unknown as AppServices;

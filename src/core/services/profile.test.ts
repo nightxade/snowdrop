@@ -80,8 +80,7 @@ describe('SyncService.updateProfile', () => {
 
   it('says so when the backend cannot change a profile', async () => {
     const { backend, sync } = await setup();
-    // @ts-expect-error: simulating a backend without the capability
-    backend.updateProfile = undefined;
+    backend.capabilities.setFeature('profile', false);
     await expect(sync.updateProfile(text)).resolves.toMatch(/can't change/iu);
   });
 });

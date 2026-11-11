@@ -90,7 +90,8 @@ export async function readForwardFile(
     : undefined;
   if (original) return original;
   const read = async (): Promise<Blob> => {
-    if (!backend.readAttachmentBlob) throw new MediaError('download-failed');
+    if (!backend.capabilities.features.has('attachmentBlob'))
+      throw new MediaError('download-failed');
     try {
       return await backend.readAttachmentBlob(conversationId, file.attachment);
     } catch (error) {
@@ -104,26 +105,20 @@ export async function readForwardFile(
   } catch (error) {
     const kind = error instanceof MediaError ? error.kind : 'download-failed';
     const recoverable = kind === 'missing-on-disk' || kind === 'expired';
-    const canAsk =
-      backend.requestAttachmentBackfill !== undefined &&
-      backend.capabilities.features.has('attachmentBackfill');
+    const canAsk = backend.capabilities.features.has('attachmentBackfill');
     if (!recoverable || !canAsk) throw error instanceof MediaError ? error : new MediaError(kind);
     const key = `${draft.authorId}\u0000${draft.sentAt}`;
     stores.local.getState().markBackfillRequested(key);
     // A stale answer to an earlier request for this message mustn't end this wait at once.
     stores.session.getState().clearAttachmentBackfill(key);
     onBackfilling();
-    const outcome = await waitForBackfill(
-      stores,
-      key,
-      ATTACHMENT_BACKFILL_TIMEOUT_MS,
-      () =>
-        backend.requestAttachmentBackfill?.(
-          conversationId,
-          draft.authorId,
-          draft.sentAt,
-          draft.attachmentIds,
-        ) ?? Promise.resolve(),
+    const outcome = await waitForBackfill(stores, key, ATTACHMENT_BACKFILL_TIMEOUT_MS, () =>
+      backend.requestAttachmentBackfill(
+        conversationId,
+        draft.authorId,
+        draft.sentAt,
+        draft.attachmentIds,
+      ),
     );
     if (outcome === 'failed') throw new MediaError('backfill-failed');
     if (outcome === 'timeout') throw new MediaError('backfill-timeout');
@@ -137,8 +132,9 @@ export async function readPreviewImage(
   conversationId: ConversationId,
   image: Attachment,
 ): Promise<Blob | null> {
+  if (!deps.backend.capabilities.features.has('attachmentBlob')) return null;
   try {
-    return (await deps.backend.readAttachmentBlob?.(conversationId, image)) ?? null;
+    return await deps.backend.readAttachmentBlob(conversationId, image);
   } catch {
     return null;
   }

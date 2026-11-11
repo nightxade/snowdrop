@@ -530,9 +530,40 @@ export interface ReadSummary {
 }
 
 /**
- * What a backend can do beyond the required contract, decided by the running
- * transport (some only once connected, from the signal-cli version). Absent
- * is the same as unsupported.
+ * What a backend can do beyond the common core. Every `ChatBackend` method
+ * exists on every adapter; one that can't do something rejects with
+ * `UnsupportedError` (the synchronous peeks and fire-and-forget calls do
+ * nothing instead). Whether a call is worth making is read from here, one
+ * feature per thing a menu or service decides on. Absent is unsupported.
+ *
+ * Fixed per adapter (its static `FEATURES`):
+ * - `history`: `fetchHistory` serves older messages.
+ * - `historyArchive`: an imported phone archive is behind the history
+ *   (`getHistoryArchiveId`, `historyHasOutgoing`, `remapHistoryMessages`,
+ *   `readHistory`, `getHistoryReadState`).
+ * - `pins`: `pinMessage`.
+ * - `polls`: `votePoll` and `terminatePoll` (creating one is `send` with
+ *   `SendInput.poll`, so this is also what says polls are available).
+ * - `adminDelete`: group admins can delete someone else's message.
+ * - `conversationSettings`: `updateConversation` (disappearing timer, mute...).
+ * - `groups`: `updateGroup`, `createGroup` and `leaveGroup` go together.
+ * - `lookup`: `lookupRecipient`.
+ * - `messageRequests`: `respondToMessageRequest`.
+ * - `blocking`: `setBlocked`.
+ * - `safetyNumbers`: `getSafetyNumber`, `verifyIdentity` and `approveIdentity`.
+ * - `attachmentUrls`: attachments arrive without a `url`; `resolveAttachmentUrl`
+ *   (and the retain/release pair) make them renderable.
+ * - `attachmentBlob`: `readAttachmentBlob`.
+ * - `avatarUrls`: pictures are fetched on demand (`resolveAvatarUrl`).
+ * - `stickers`: `listStickerPacks`, `getStickerPack`, `installStickerPack`.
+ * - `stickerUrls`: `resolveStickerUrl` (and the retain/release pair).
+ * - `profile`: `updateProfile`.
+ * - `phonePrivacyUpdate`: `updatePhonePrivacy` (reading needs `phonePrivacy`).
+ * - `contactSync`: `syncContactsAndGroups`.
+ * - `deviceLinking`: `link` can link this device.
+ *
+ * Decided by the running transport (signal-cli's version, known only once
+ * connected, and cleared on disconnect):
  * - `readSync`: `markRead` can sync read state to the user's own devices
  *   without sending receipts (patches/signal-cli "0019").
  * - `customEmojiDelivery`: custom emoji images can be sent alongside `:name:`
@@ -551,6 +582,26 @@ export interface ReadSummary {
  *   ("0014"; an older patched build or upstream signal-cli advertises none).
  */
 export type Feature =
+  | 'history'
+  | 'historyArchive'
+  | 'pins'
+  | 'polls'
+  | 'adminDelete'
+  | 'conversationSettings'
+  | 'groups'
+  | 'lookup'
+  | 'messageRequests'
+  | 'blocking'
+  | 'safetyNumbers'
+  | 'attachmentUrls'
+  | 'attachmentBlob'
+  | 'avatarUrls'
+  | 'stickers'
+  | 'stickerUrls'
+  | 'profile'
+  | 'phonePrivacyUpdate'
+  | 'contactSync'
+  | 'deviceLinking'
   | 'readSync'
   | 'customEmojiDelivery'
   | 'phonePrivacy'
@@ -584,16 +635,16 @@ export interface ChatBackend {
   react(input: ReactInput): Promise<void>;
   deleteForEveryone(conversationId: ConversationId, sentAt: number): Promise<void>;
   /** Group admins deleting someone else's message, when the protocol supports it. */
-  adminDelete?(conversationId: ConversationId, target: MessageRef): Promise<void>;
-  pinMessage?(input: PinInput): Promise<void>;
+  adminDelete(conversationId: ConversationId, target: MessageRef): Promise<void>;
+  pinMessage(input: PinInput): Promise<void>;
   /**
    * Changes our answer on a poll (and tells the other members). Present
    * only on backends that can take part in polls; creating one is `send`
    * with `SendInput.poll`, so this is also what says polls are available.
    */
-  votePoll?(input: PollVoteInput): Promise<void>;
+  votePoll(input: PollVoteInput): Promise<void>;
   /** Ends a poll we created (the poll's `sentAt` identifies it). Same availability as `votePoll`. */
-  terminatePoll?(conversationId: ConversationId, pollSentAt: number): Promise<void>;
+  terminatePoll(conversationId: ConversationId, pollSentAt: number): Promise<void>;
   setTyping(conversationId: ConversationId, typing: boolean): Promise<void>;
   /**
    * Marks messages read: tells their senders (a read receipt) and the user's
@@ -607,7 +658,7 @@ export interface ChatBackend {
     messages: MessageRef[],
     options?: MarkReadOptions,
   ): Promise<ReadSummary | undefined>;
-  updateConversation?(conversationId: ConversationId, patch: ConversationPatch): Promise<void>;
+  updateConversation(conversationId: ConversationId, patch: ConversationPatch): Promise<void>;
 
   /**
    * Edits a group: its details, members, admins, permissions and link. The
@@ -616,14 +667,14 @@ export interface ChatBackend {
    * nothing changed. The three group methods below go together: a backend
    * that can edit groups can make and leave them.
    */
-  updateGroup?(conversationId: ConversationId, change: GroupChange): Promise<void>;
+  updateGroup(conversationId: ConversationId, change: GroupChange): Promise<void>;
   /** Makes a group, announces it, and resolves with it as it now stands. */
-  createGroup?(input: NewGroupInput): Promise<Conversation>;
+  createGroup(input: NewGroupInput): Promise<Conversation>;
   /**
    * Leaves a group. The last admin must name `newAdminIds`, who are made
    * admins on the way out. The group is deleted from this device too.
    */
-  leaveGroup?(conversationId: ConversationId, newAdminIds?: readonly string[]): Promise<void>;
+  leaveGroup(conversationId: ConversationId, newAdminIds?: readonly string[]): Promise<void>;
 
   /**
    * Asks the server whether a phone number or username belongs to a Signal
@@ -632,16 +683,16 @@ export interface ChatBackend {
    * until the user's first message. A transport failure rejects; a server
    * rate limit resolves as `rate-limited`.
    */
-  lookupRecipient?(query: RecipientQuery): Promise<RecipientLookup>;
+  lookupRecipient(query: RecipientQuery): Promise<RecipientLookup>;
 
   /**
    * Answers a message request the way Signal's own clients do, and tells the
    * user's other devices. `accept` shares the user's profile with the
    * sender (or the group) from then on; `delete` withdraws it, and for a
-   * group also leaves it. Adapters without message requests (the protocol
-   * has none) omit this and the app just records the answer locally.
+   * group also leaves it. Needs the `messageRequests` feature; without it the
+   * app just records the answer locally.
    */
-  respondToMessageRequest?(
+  respondToMessageRequest(
     conversationId: ConversationId,
     response: MessageRequestResponse,
   ): Promise<void>;
@@ -652,58 +703,58 @@ export interface ChatBackend {
    * Read-only; rejects when the backend can't be reached. The three safety
    * number methods go together.
    */
-  getSafetyNumber?(contactId: string): Promise<SafetyNumber | null>;
+  getSafetyNumber(contactId: string): Promise<SafetyNumber | null>;
   /**
    * "Mark as verified": trusts the person's key as verified, but only if
    * `digits` (the safety number the user compared) is still the number for the
    * key held. Rejects with `kind: 'user'` when it no longer is (their key
    * changed in between), changing nothing.
    */
-  verifyIdentity?(contactId: string, digits: string): Promise<void>;
+  verifyIdentity(contactId: string, digits: string): Promise<void>;
   /**
    * Accepts the person's current key without verifying it, which is both
    * Desktop's "Send anyway" after a safety number change and "Clear
    * verification". Their held-back messages, and ours, can then go through.
    */
-  approveIdentity?(contactId: string): Promise<void>;
-  /** Blocks or unblocks a contact or group (synced to the phone). Optional like the above. */
-  setBlocked?(conversationId: ConversationId, blocked: boolean): Promise<void>;
+  approveIdentity(contactId: string): Promise<void>;
+  /** Blocks or unblocks a contact or group (synced to the phone). Needs `blocking`. */
+  setBlocked(conversationId: ConversationId, blocked: boolean): Promise<void>;
 
   /**
    * Asks the primary device to resend contacts, groups and the block list,
    * when the protocol supports it (signal-cli: `sendSyncRequest`). Settings
-   * → Connection's "Sync contacts and groups" is the only caller; adapters
-   * without an equivalent (the mock) omit it.
+   * → Connection's "Sync contacts and groups" is the only caller; needs
+   * `contactSync`.
    */
-  syncContactsAndGroups?(): Promise<void>;
+  syncContactsAndGroups(): Promise<void>;
 
   /** The phone's synced privacy settings; rejects if the backend can't tell. */
-  readPhonePrivacy?(): Promise<PhonePrivacySettings>;
+  readPhonePrivacy(): Promise<PhonePrivacySettings>;
   /**
    * Changes read receipts / typing indicators / link previews the way
    * Signal Desktop does: stored here and synced to the phone. Only the keys
    * in `patch` change.
    */
-  updatePhonePrivacy?(patch: PhonePrivacyPatch): Promise<void>;
+  updatePhonePrivacy(patch: PhonePrivacyPatch): Promise<void>;
   /**
    * Saves the user's own profile (name, about, photo) the way Signal Desktop
    * does: uploaded to Signal and announced to the linked phone. Resolves to the
    * profile as the backend now holds it; rejects, changing nothing, on failure.
    */
-  updateProfile?(update: ProfileUpdate): Promise<Contact>;
+  updateProfile(update: ProfileUpdate): Promise<Contact>;
 
   /**
    * Backend history, when available (mock seed data or an imported phone
-   * archive in patched signal-cli). Callers must treat it as optional.
+   * archive in patched signal-cli). Needs `history`.
    */
-  fetchHistory?(conversationId: ConversationId, query: HistoryQuery): Promise<HistoryPage>;
+  fetchHistory(conversationId: ConversationId, query: HistoryQuery): Promise<HistoryPage>;
   /**
    * Whether the history archive holds a real message the user sent in this
    * conversation (a chat started from their phone). Possibly several heavy
    * lookups, so callers ask only about the few chats that need it and never
    * on a startup path; answers are cached by the adapter.
    */
-  historyHasOutgoing?(conversationId: ConversationId): Promise<boolean>;
+  historyHasOutgoing(conversationId: ConversationId): Promise<boolean>;
   /**
    * Re-reads already-stored history messages from the archive by their own
    * `historyCursor` and returns the fresh mapping of each one the archive can
@@ -712,11 +763,11 @@ export interface ChatBackend {
    * archive — are simply absent from the result; never throws for those.
    * Used to bring rows stored by an older mapper up to the current shape.
    */
-  remapHistoryMessages?(messages: readonly Message[]): Promise<Message[]>;
+  remapHistoryMessages(messages: readonly Message[]): Promise<Message[]>;
   /** Persist read-time expiration for viewed imported messages; no network receipts. */
-  readHistory?(messages: readonly HistoryReadRef[]): Promise<HistoryReadState[]>;
+  readHistory(messages: readonly HistoryReadRef[]): Promise<HistoryReadState[]>;
   /** Read-only deadline recovery: must not start timers or mark messages read. */
-  getHistoryReadState?(messages: readonly HistoryReadRef[]): Promise<HistoryReadState[]>;
+  getHistoryReadState(messages: readonly HistoryReadRef[]): Promise<HistoryReadState[]>;
 
   /**
    * The id of the whole-account archive behind `fetchHistory`, or null if
@@ -726,14 +777,15 @@ export interface ChatBackend {
    * archive apart from the next (a relink produces a new one, whose cursors
    * supersede the old archive's rather than extending it).
    */
-  getHistoryArchiveId?(): Promise<string | null>;
+  getHistoryArchiveId(): Promise<string | null>;
 
   /**
    * Turns an attachment that arrived without a `url` into a renderable one.
    * signal-cli only hands out attachment bytes on request, so its adapter
    * leaves `url` unset and downloads lazily (cached `blob:` URL) when the UI
-   * shows the attachment. Adapters whose attachments always carry a `url`
-   * (the mock) omit this. The returned URL may be revoked after disconnect.
+   * shows the attachment. Needs `attachmentUrls`; adapters whose attachments
+   * always carry a `url` (the mock) reject. The returned URL may be
+   * revoked after disconnect.
    *
    * Security: the content type is sender-controlled. Adapters only label the
    * bytes with it when it is an allow-listed raster image / audio / video
@@ -746,7 +798,7 @@ export interface ChatBackend {
    * handing back a cached URL that's already known not to work would make
    * the retry a no-op.
    */
-  resolveAttachmentUrl?(
+  resolveAttachmentUrl(
     conversationId: ConversationId,
     attachment: Attachment,
     options?: { forceRefresh?: boolean },
@@ -758,13 +810,13 @@ export interface ChatBackend {
    * Pairs with `releaseAttachmentUrl`. Adapters that cache and evict
    * `resolveAttachmentUrl`'s URLs (signal-cli) use this to keep a byte/entry
    * budget from revoking one still on screen; adapters whose attachments
-   * always carry a `url` (the mock) omit both this and `releaseAttachmentUrl`
-   * since there's nothing of theirs to protect.
+   * always carry a `url` (the mock) do nothing, since there's nothing of
+   * theirs to protect.
    */
-  retainAttachmentUrl?(attachment: Attachment): void;
+  retainAttachmentUrl(attachment: Attachment): void;
 
   /** Releases a previous `retainAttachmentUrl`. */
-  releaseAttachmentUrl?(attachment: Attachment): void;
+  releaseAttachmentUrl(attachment: Attachment): void;
 
   /**
    * An attachment's bytes (uncached, no URL), for features that must inspect
@@ -772,7 +824,7 @@ export interface ChatBackend {
    * user's collection — and so can't use `resolveAttachmentUrl`'s `blob:` URL
    * (the app's CSP forbids fetching one). `maxBytes` rejects bigger files.
    */
-  readAttachmentBlob?(
+  readAttachmentBlob(
     conversationId: ConversationId,
     attachment: Attachment,
     options?: { maxBytes?: number },
@@ -782,15 +834,12 @@ export interface ChatBackend {
    * Turns a sticker into a renderable URL — `resolveAttachmentUrl`'s
    * counterpart, but keyed by `packId`/`stickerId` and fetched through
    * `getSticker` rather than `getAttachment` (the mock, whose stickers
-   * always carry their own `url`, omits this). Throws when the sticker's
+   * always carry their own `url`, doesn't support this; `stickerUrls`). Throws when the sticker's
    * pack isn't (yet) known to the connected signal-cli — the caller decides
    * what to try next (a history archive's own backup copy, then the emoji;
    * see `useStickerUrl`).
    */
-  resolveStickerUrl?(
-    sticker: StickerContent,
-    options?: { forceRefresh?: boolean },
-  ): Promise<string>;
+  resolveStickerUrl(sticker: StickerContent, options?: { forceRefresh?: boolean }): Promise<string>;
 
   /**
    * The picture of a person (a contact or the user) or a group, as a URL the
@@ -799,34 +848,34 @@ export interface ChatBackend {
    * answer (concurrent asks share one fetch, and only a few run at once) and
    * forgets it when it learns the picture changed (`Contact.avatarVersion`,
    * `Conversation.avatarVersion`). The picture lives in the daemon's own
-   * store; nothing is written anywhere else. Omitted by backends whose
-   * contacts carry their picture (`Contact.avatarUrl`) themselves. Rejects
+   * store; nothing is written anywhere else. Needs `avatarUrls`; backends whose
+   * contacts carry their picture (`Contact.avatarUrl`) themselves reject. Rejects
    * when the daemon can't be reached (try again later).
    */
-  resolveAvatarUrl?(ref: AvatarRef): Promise<string | null>;
+  resolveAvatarUrl(ref: AvatarRef): Promise<string | null>;
 
   /**
    * What `resolveAvatarUrl` would answer without asking anyone: a URL, `null`
    * for "has none", `undefined` for "not known yet". Lets a row that
-   * remounts show its picture on the first frame.
+   * remounts show its picture on the first frame. `undefined` where
+   * `avatarUrls` is absent.
    */
-  peekAvatarUrl?(ref: AvatarRef): string | null | undefined;
+  peekAvatarUrl(ref: AvatarRef): string | null | undefined;
   /**
    * Whether decoded events are still waiting to be emitted (the adapter's own
    * ordered queue). The sync engine's catch-up quiet period never ends while
-   * this is true. Omitted is the same as false.
+   * this is true. Always false for an adapter with no such queue.
    */
-  hasPendingEvents?(): boolean;
+  hasPendingEvents(): boolean;
 
   /**
    * The user's *installed* sticker packs with their stickers, for the sticker
-   * picker; omitted by backends that can't send stickers (the picker button
-   * is hidden then). Read-only: never installs, uninstalls or syncs a pack,
+   * picker; needs `stickers` (the picker button is hidden without it). Read-only: never installs, uninstalls or syncs a pack,
    * and never exposes a pack key. Packs whose files haven't been fetched yet
    * are fetched here (that is a local download, not an install). Packs that
    * can't be read are left out rather than failing the whole list.
    */
-  listStickerPacks?(): Promise<StickerPackInfo[]>;
+  listStickerPacks(): Promise<StickerPackInfo[]>;
 
   /**
    * The pack a sticker belongs to, with its stickers and whether it is
@@ -834,7 +883,7 @@ export interface ChatBackend {
    * locally if it isn't yet (no install, no sync). Rejects when the pack
    * can't be found or fetched. Never exposes a pack key.
    */
-  getStickerPack?(sticker: StickerContent): Promise<StickerPackDetails>;
+  getStickerPack(sticker: StickerContent): Promise<StickerPackDetails>;
 
   /**
    * Installs a sticker's pack, the way Signal's own "Install" does — and
@@ -842,13 +891,13 @@ export interface ChatBackend {
    * for a user's explicit click; never done implicitly. The pack key is
    * looked up by the transport, not passed in. Rejects on failure.
    */
-  installStickerPack?(sticker: StickerContent): Promise<void>;
+  installStickerPack(sticker: StickerContent): Promise<void>;
 
   /** Marks a sticker's resolved URL as in use by a mounted component; pairs with `releaseStickerUrl`. */
-  retainStickerUrl?(sticker: StickerContent): void;
+  retainStickerUrl(sticker: StickerContent): void;
 
   /** Releases a previous `retainStickerUrl`. */
-  releaseStickerUrl?(sticker: StickerContent): void;
+  releaseStickerUrl(sticker: StickerContent): void;
 
   /**
    * Asks our primary device to re-upload a message's attachments, for when
@@ -857,7 +906,7 @@ export interface ChatBackend {
    * outcome arrives later as an `attachmentBackfill` event; this call only
    * starts the request (and may resolve before any answer does).
    */
-  requestAttachmentBackfill?(
+  requestAttachmentBackfill(
     conversationId: ConversationId,
     targetAuthorId: string,
     targetSentAt: number,
@@ -867,11 +916,13 @@ export interface ChatBackend {
   /**
    * Marks transport position `cursor` (from a `checkpoint` event) as durably
    * processed, so a restart resumes after it. Losing an acknowledgement only
-   * causes re-delivery, which the sync engine deduplicates.
+   * causes re-delivery, which the sync engine deduplicates. Does nothing for
+   * an adapter that can't resume.
    */
-  acknowledge?(cursor: string): void;
+  acknowledge(cursor: string): void;
 
-  link?: LinkFlow;
+  /** Device linking; needs `deviceLinking`, otherwise both steps reject. */
+  link: LinkFlow;
 
   on<E extends keyof BackendEvents>(event: E, fn: (payload: BackendEvents[E]) => void): Unsubscribe;
 }

@@ -128,7 +128,7 @@ function schemaFor(key: string): VersionedSchema<HistoryImportState | null> {
 
 export interface HistoryImportServiceDeps {
   /** Only the capability check and the paging call this service actually needs. */
-  backend: Pick<ChatBackend, 'getHistoryArchiveId' | 'fetchHistory'>;
+  backend: Pick<ChatBackend, 'capabilities' | 'getHistoryArchiveId' | 'fetchHistory'>;
   repository: MessageRepository;
   stores: Stores;
   /** Shared with SyncService: operations held for a message this import now brings in. */
@@ -256,21 +256,25 @@ export class HistoryImportService {
   private async doRun(): Promise<void> {
     if (!(await this.waitUntilRunnable())) return;
 
+    const { features } = this.deps.backend.capabilities;
+    if (!features.has('historyArchive') || !features.has('history')) {
+      this.publish(null);
+      return;
+    }
     let archiveId: string | null;
     try {
-      archiveId = (await this.deps.backend.getHistoryArchiveId?.()) ?? null;
+      archiveId = (await this.deps.backend.getHistoryArchiveId()) ?? null;
     } catch (error) {
       this.onError(error, 'checking for an importable history archive failed');
       return;
     }
-    const rawFetchHistory = this.deps.backend.fetchHistory;
-    if (!archiveId || !rawFetchHistory) {
+    if (!archiveId) {
       this.publish(null);
       return;
     }
     // Bound explicitly: callers below invoke this as a bare function, which
     // would otherwise lose the adapter's `this` (it reads its own fields).
-    const fetchHistory = rawFetchHistory.bind(this.deps.backend);
+    const fetchHistory = this.deps.backend.fetchHistory.bind(this.deps.backend);
 
     let state = this.loadState();
     // A relink produced a brand new archive; the old record's cursors
@@ -334,7 +338,7 @@ export class HistoryImportService {
   private async importConversation(
     id: ConversationId,
     state: HistoryImportState,
-    fetchHistory: NonNullable<HistoryImportServiceDeps['backend']['fetchHistory']>,
+    fetchHistory: HistoryImportServiceDeps['backend']['fetchHistory'],
   ): Promise<void> {
     // A request deleted since this conversation was picked (or mid-page) must
     // stay deleted: nothing from the archive goes back into the repository,

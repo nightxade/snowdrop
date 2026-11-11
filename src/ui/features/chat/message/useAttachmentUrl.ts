@@ -89,7 +89,7 @@ export function useAttachmentUrl(
   fromPhone: (() => void) | undefined;
 } {
   const { backend, stores } = useSnowdrop();
-  const hasBackfillFeature = useBackendFeature('attachmentBackfill');
+  const canBackfill = useBackendFeature('attachmentBackfill');
   const { held, release: download } = useMediaHold(conversationId, message.authorId, attachment.id);
   const key = `${conversationId}\u0000${attachment.id}`;
   const backfillKey = `${message.authorId}\u0000${message.sentAt}`;
@@ -113,9 +113,7 @@ export function useAttachmentUrl(
     sendFailed?: boolean;
   } | null>(null);
   const direct = attachment.url;
-  const canResolve = backend.resolveAttachmentUrl !== undefined;
-  const requestBackfill = backend.requestAttachmentBackfill;
-  const canBackfill = requestBackfill !== undefined && hasBackfillFeature;
+  const canResolve = useBackendFeature('attachmentUrls');
   const backfill = useStore(
     stores.session,
     sessionSelectors.attachmentBackfill(message.authorId, message.sentAt),
@@ -136,7 +134,7 @@ export function useAttachmentUrl(
 
   // The one place a backfill request is sent, and only ever from a click.
   const askPhone = useCallback(() => {
-    if (!requestBackfill || !canBackfill) return;
+    if (!canBackfill) return;
     freeSlot();
     const mine = backfillGate.acquire();
     slot.current = mine;
@@ -147,8 +145,9 @@ export function useAttachmentUrl(
     setBackfillWait({ attempt, timedOut: false });
     void mine.granted.then((go) => {
       if (!go) return;
-      requestBackfill(conversationId, message.authorId, message.sentAt, attachmentIds).catch(
-        (backfillError: unknown) => {
+      backend
+        .requestAttachmentBackfill(conversationId, message.authorId, message.sentAt, attachmentIds)
+        .catch((backfillError: unknown) => {
           log.warn('attachment backfill request failed', {
             kind: classifyAttachmentFailure(backfillError),
           });
@@ -158,12 +157,11 @@ export function useAttachmentUrl(
             current && current.attempt === attempt ? { ...current, sendFailed: true } : current,
           );
           if (slot.current === mine) freeSlot();
-        },
-      );
+        });
     });
     // The ids are the identity; the arrays/objects are re-created by unrelated updates.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [requestBackfill, canBackfill, freeSlot, stores, backfillKey, attempt, conversationId]);
+  }, [backend, canBackfill, freeSlot, stores, backfillKey, attempt, conversationId]);
 
   // Claims this attachment's cached URL for as long as this hook instance
   // stays mounted, so the backend's own cache (signal-cli's
@@ -172,26 +170,20 @@ export function useAttachmentUrl(
   // an open lightbox. Keyed on identity alone, not `attempt`: a retry's
   // cleanup-then-rerun must not let the ref count touch zero in between,
   // which could let an unrelated eviction elsewhere revoke the very URL
-  // about to be swapped in. Backends without the pair (the mock; its
+  // about to be swapped in. Backends without `attachmentUrls` (the mock; its
   // attachments always carry a `url`, so there's nothing to protect) simply
   // skip this.
   useEffect(() => {
-    if (
-      held ||
-      direct !== undefined ||
-      !backend.retainAttachmentUrl ||
-      !backend.releaseAttachmentUrl
-    )
-      return;
+    if (held || direct !== undefined || !canResolve) return;
     backend.retainAttachmentUrl(attachment);
     return () => {
-      backend.releaseAttachmentUrl?.(attachment);
+      backend.releaseAttachmentUrl(attachment);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, direct, backend, held]);
+  }, [key, direct, backend, held, canResolve]);
 
   useEffect(() => {
-    if (held || direct !== undefined || !backend.resolveAttachmentUrl) return;
+    if (held || direct !== undefined || !canResolve) return;
     let cancelled = false;
     // Every retry (attempt > 0, whether clicked or the one automatic retry
     // after a media error) bypasses the resolver's cache: handing back a URL
@@ -213,7 +205,7 @@ export function useAttachmentUrl(
     };
     // The attachment/message objects may be re-created by unrelated updates; their ids are the identity.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, backfillKey, attempt, direct, backend, held]);
+  }, [key, backfillKey, attempt, direct, backend, held, canResolve]);
 
   // The ~2 minute ceiling on an outstanding backfill request: no answer by
   // then reads the same as an explicit `failed` response.

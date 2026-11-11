@@ -551,7 +551,7 @@ export class SyncService {
 
   /** Whether events are still waiting in this queue or in the backend's own. */
   private hasPendingEvents(): boolean {
-    return this.queued > 0 || this.deps.backend.hasPendingEvents?.() === true;
+    return this.queued > 0 || this.deps.backend.hasPendingEvents();
   }
 
   private unsubscribeAll(): void {
@@ -751,8 +751,7 @@ export class SyncService {
 
   private checkHistoryOutgoing(): void {
     const { backend, stores } = this.deps;
-    const ask = backend.historyHasOutgoing?.bind(backend);
-    if (!ask) return;
+    if (!backend.capabilities.features.has('historyArchive')) return;
     if (this.outgoingChecking) {
       this.outgoingAgain = true;
       return;
@@ -768,7 +767,7 @@ export class SyncService {
             if (!c.historyHasMessages || this.outgoingChecked.has(c.id)) continue;
             if (selectMessageRequestState(stores, c.id) !== 'request') continue;
             try {
-              const wrote = await ask(c.id);
+              const wrote = await backend.historyHasOutgoing(c.id);
               this.outgoingChecked.add(c.id);
               if (wrote && generation === this.generation)
                 stores.local.getState().markAccepted(c.id, this.deps.clock.now());
@@ -839,7 +838,7 @@ export class SyncService {
     const { backend, repository, stores } = this.deps;
     let cursor = storedCursor;
     if (
-      backend.fetchHistory &&
+      backend.capabilities.features.has('history') &&
       !isDeletedRequest(stores, conv.id) &&
       (await repository.count(conv.id)) === 0
     ) {
@@ -903,7 +902,7 @@ export class SyncService {
   /** Recover a server-committed read whose local write was interrupted. */
   private async recoverHistoryTimers(): Promise<void> {
     const { backend, repository, stores, clock } = this.deps;
-    if (!backend.getHistoryReadState) return;
+    if (!backend.capabilities.features.has('historyArchive')) return;
     const generation = this.generation;
     const pending = await repository.pendingHistoryTimers();
     for (let start = 0; start < pending.length; start += 500) {
@@ -970,7 +969,7 @@ export class SyncService {
     ids: readonly MessageId[],
   ): Promise<void> {
     const { backend, repository, stores, clock } = this.deps;
-    if (!backend.readHistory) return;
+    if (!backend.capabilities.features.has('historyArchive')) return;
     const generation = this.generation;
     const claimed = [...new Set(ids)].filter((id) => !this.readingHistory.has(id));
     for (const id of claimed) this.readingHistory.add(id);
@@ -1360,7 +1359,7 @@ export class SyncService {
     // A read triggered by a connect or the phone starts over; only its own retries count up.
     if (!isRetry) this.privacyRetries = 0;
     const session = stores.session.getState();
-    if (!backend.capabilities.features.has('phonePrivacy') || !backend.readPhonePrivacy) {
+    if (!backend.capabilities.features.has('phonePrivacy')) {
       session.setPhonePrivacy({ status: 'unsupported', values: UNKNOWN_PHONE_PRIVACY });
       return;
     }
@@ -1404,7 +1403,8 @@ export class SyncService {
   async updatePhonePrivacy(patch: PhonePrivacyPatch): Promise<boolean> {
     const { backend, stores } = this.deps;
     const current = stores.session.getState().phonePrivacy;
-    if (current.status !== 'ready' || !backend.updatePhonePrivacy) return false;
+    if (current.status !== 'ready' || !backend.capabilities.features.has('phonePrivacyUpdate'))
+      return false;
     const previous = current.values;
     stores.session.getState().setPhonePrivacy({
       status: 'ready',
@@ -1437,7 +1437,8 @@ export class SyncService {
    */
   async updateProfile(update: ProfileUpdate): Promise<string | null> {
     const { backend, stores } = this.deps;
-    if (!backend.updateProfile) return "This connection can't change your profile.";
+    if (!backend.capabilities.features.has('profile'))
+      return "This connection can't change your profile.";
     const before = stores.session.getState().self;
     try {
       const fresh = await backend.updateProfile(update);
@@ -1641,7 +1642,7 @@ export class SyncService {
     // so the transport only learns a position once everything before it has
     // been written to the repository. A lost ack just means re-delivery.
     on('checkpoint', (e) => {
-      this.deps.backend.acknowledge?.(e.cursor);
+      this.deps.backend.acknowledge(e.cursor);
     });
   }
 

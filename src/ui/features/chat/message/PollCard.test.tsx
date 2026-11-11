@@ -1,3 +1,4 @@
+import { FeatureStore } from '@/core/backend/features';
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -205,7 +206,9 @@ function renderDetails(p: PollContent, onEnd?: () => void) {
   ]);
   const onOpenChange = vi.fn();
   render(
-    <SnowdropContextProvider value={{ stores, backend: {} } as unknown as AppServices}>
+    <SnowdropContextProvider
+      value={{ stores, backend: { capabilities: new FeatureStore() } } as unknown as AppServices}
+    >
       <PollVotesDialog poll={p} onEnd={onEnd} onOpenChange={onOpenChange} />
     </SnowdropContextProvider>,
   );

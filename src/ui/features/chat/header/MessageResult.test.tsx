@@ -1,3 +1,4 @@
+import { FeatureStore } from '@/core/backend/features';
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { makeMessage } from '@/core/domain/testing';
@@ -11,7 +12,9 @@ function renderResult(message = makeMessage({ authorId: 'ana', body: 'hello' }))
   const stores = createStores();
   stores.contacts.getState().upsert({ id: 'ana', name: 'Ana Lima', color: 'x' });
   render(
-    <SnowdropContextProvider value={{ stores, backend: {} } as unknown as AppServices}>
+    <SnowdropContextProvider
+      value={{ stores, backend: { capabilities: new FeatureStore() } } as unknown as AppServices}
+    >
       <MessageResult message={message} onOpen={vi.fn()} />
     </SnowdropContextProvider>,
   );

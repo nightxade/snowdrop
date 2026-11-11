@@ -1,5 +1,6 @@
 import { act, cleanup, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { FeatureStore } from '@/core/backend/features';
 import { conversationIdFor } from '@/core/domain/testing';
 import { FakeIO, installFakeIO } from '@/test/fakeIntersectionObserver';
 import { SnowdropContextProvider, type AppServices } from '@/ui/hooks';
@@ -17,7 +18,11 @@ afterEach(() => {
 function renderField(props: Partial<React.ComponentProps<typeof GroupPhotoField>> = {}) {
   const resolve = vi.fn(() => Promise.resolve(STORED));
   const value = {
-    backend: { resolveAvatarUrl: resolve, peekAvatarUrl: () => undefined },
+    backend: {
+      capabilities: new FeatureStore(['avatarUrls']),
+      resolveAvatarUrl: resolve,
+      peekAvatarUrl: () => undefined,
+    },
   } as unknown as AppServices;
   const view = render(
     <SnowdropContextProvider value={value}>

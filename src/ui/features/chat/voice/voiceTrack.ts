@@ -11,7 +11,7 @@ export interface TrackDeps {
   stores: Stores;
   backend: Pick<
     ChatBackend,
-    'resolveAttachmentUrl' | 'retainAttachmentUrl' | 'releaseAttachmentUrl'
+    'capabilities' | 'resolveAttachmentUrl' | 'retainAttachmentUrl' | 'releaseAttachmentUrl'
   >;
   selfId: string | null | undefined;
   /** Where to look for the next note when the loaded window can't say (it is read, not paged in). */
@@ -42,11 +42,12 @@ export function voiceTrackOf(
 ): VoiceTrack {
   const { stores, backend } = deps;
   const direct = attachment.url;
+  const canResolve = backend.capabilities.features.has('attachmentUrls');
   return {
     key: voicePlayKey(messageId, attachment.id),
     resolveUrl: () => {
       if (direct !== undefined) return Promise.resolve(direct);
-      if (!backend.resolveAttachmentUrl) return Promise.reject(new Error('No audio'));
+      if (!canResolve) return Promise.reject(new Error('No audio'));
       return backend.resolveAttachmentUrl(conversationId, attachment);
     },
     onStart: () => {
@@ -54,12 +55,12 @@ export function voiceTrackOf(
         stores.local.getState().markVoiceNotePlayed(playedKeyOf(authorId, sentAt));
       }
     },
-    ...(direct === undefined && backend.retainAttachmentUrl && backend.releaseAttachmentUrl
+    ...(direct === undefined && canResolve
       ? {
           retain: () => {
-            backend.retainAttachmentUrl?.(attachment);
+            backend.retainAttachmentUrl(attachment);
             return () => {
-              backend.releaseAttachmentUrl?.(attachment);
+              backend.releaseAttachmentUrl(attachment);
             };
           },
         }

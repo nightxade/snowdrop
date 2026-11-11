@@ -9,7 +9,7 @@ import {
   type RecipientQuery,
   type ConversationId,
 } from '@/core/domain';
-import { conversationFocusTarget, useSnowdrop } from '@/ui/hooks';
+import { conversationFocusTarget, useBackendFeature, useSnowdrop } from '@/ui/hooks';
 import { formatPhone, openDirectConversation, PersonAvatar } from '@/ui/features/conversation';
 import { Kbd, Modal } from '@/ui/primitives';
 import {
@@ -147,7 +147,7 @@ export function NewMessageDialog({ onClose }: { onClose: () => void }) {
   const generation = useRef(0);
   /** Where focus goes when the dialog closes: the composer of the opened conversation. */
   const target = useRef<(() => HTMLElement | null) | null>(null);
-  const canLookup = app.backend.lookupRecipient !== undefined;
+  const canLookup = useBackendFeature('lookup');
 
   useEffect(
     () => () => {
@@ -185,7 +185,7 @@ export function NewMessageDialog({ onClose }: { onClose: () => void }) {
     setPending(recipient);
     let outcome: RecipientLookup | null;
     try {
-      outcome = (await app.backend.lookupRecipient?.(recipient)) ?? null;
+      outcome = await app.backend.lookupRecipient(recipient);
     } catch {
       outcome = null;
     }

@@ -38,6 +38,7 @@ export type ErrorKind =
   | 'captcha-rejected'
   | 'invalid-params'
   | 'method-not-found'
+  | 'unsupported'
   | 'internal'
   | 'send-failed'
   // local storage and keyring (desktop)
@@ -97,6 +98,21 @@ export class AppError extends Error {
     this.transient = init.transient ?? false;
     this.outcome = init.outcome ?? (kind === 'timeout' ? 'maybe-sent' : 'unknown');
     this.source = init.source;
+  }
+}
+
+/**
+ * A backend method this adapter doesn't implement. Nothing was attempted, so
+ * nothing was sent. Callers normally never see one: they check the backend's
+ * `features` first; this is the safety net when they don't.
+ */
+export class UnsupportedError extends AppError {
+  override name = 'UnsupportedError';
+
+  constructor(readonly method: string) {
+    super('unsupported', `${method} is not supported by this connection`, {
+      outcome: 'not-sent',
+    });
   }
 }
 

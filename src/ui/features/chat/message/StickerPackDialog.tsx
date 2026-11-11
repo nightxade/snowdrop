@@ -36,6 +36,7 @@ export function StickerPackDialog({
   returnFocus,
 }: StickerPackDialogProps) {
   const { backend } = useSnowdrop();
+  const hasStickers = useBackendFeature('stickers');
   const hasInstallFeature = useBackendFeature('stickerPackInstall');
   const state = useStickerPack(sticker);
   const [install, setInstall] = useState<Install>('idle');
@@ -52,7 +53,7 @@ export function StickerPackDialog({
   }, []);
 
   const pack = state.status === 'ready' ? state.pack : undefined;
-  const supported = backend.installStickerPack !== undefined && hasInstallFeature;
+  const supported = hasStickers && hasInstallFeature;
   const installed = install === 'done' || pack?.installed === true;
 
   // The install button is where the user acts; focus it once the pack shows
@@ -65,7 +66,7 @@ export function StickerPackDialog({
   }, [pack]);
 
   const runInstall = () => {
-    if (install === 'busy' || installed || !supported || !backend.installStickerPack) return;
+    if (install === 'busy' || installed || !supported) return;
     setInstall('busy');
     backend
       .installStickerPack(sticker)

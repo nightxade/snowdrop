@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-libra
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Snowdrop } from '@/app/createSnowdrop';
 import type { StickerPackInfo } from '@/core/backend';
+import type { FeatureStore } from '@/core/backend/features';
 import type { ConversationId } from '@/core/domain';
 import { messagesSelectors } from '@/core/stores';
 import { FakeIO, installFakeIO } from '@/test/fakeIntersectionObserver';
@@ -61,7 +62,7 @@ describe('StickerPicker', () => {
   it('hides the sticker button when the backend cannot list packs', async () => {
     const snowdrop = await bootSnowdrop();
     snowdrops.push(snowdrop);
-    delete (snowdrop.backend as { listStickerPacks?: unknown }).listStickerPacks;
+    (snowdrop.backend.capabilities as FeatureStore).setFeature('stickers', false);
     const conv = Object.values(snowdrop.stores.conversations.getState().byId)[0]!;
     renderWithSnowdrop(
       snowdrop,
@@ -112,6 +113,7 @@ describe('StickerPicker', () => {
       retainStickerUrl: retain,
       releaseStickerUrl: release,
     });
+    (snowdrop.backend.capabilities as FeatureStore).setFeature('stickerUrls', true);
     // Real signal-cli packs list no url, so images resolve lazily by id.
     snowdrop.backend.listStickerPacks = () =>
       Promise.resolve([

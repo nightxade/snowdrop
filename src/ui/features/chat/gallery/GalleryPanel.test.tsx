@@ -630,7 +630,7 @@ describe('expired media in the gallery never asks the phone by itself', () => {
     Object.assign(snowdrop.backend, {
       resolveAttachmentUrl: resolve,
       requestAttachmentBackfill: request,
-      capabilities: new FeatureStore(['attachmentBackfill']),
+      capabilities: new FeatureStore(['attachmentUrls', 'attachmentBackfill']),
     });
     await seed(snowdrop, [
       {

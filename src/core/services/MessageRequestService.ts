@@ -5,9 +5,9 @@
  * answer to the user's other devices) and only then changes what this device
  * knows, so a failure leaves the request exactly as it was, with the error
  * reported and a retry possible. A backend with no message requests of its
- * own (no `respondToMessageRequest`) just means the answer is local.
+ * own (no `messageRequests` feature) just means the answer is local.
  */
-import type { ChatBackend } from '@/core/backend';
+import type { ChatBackend, Feature } from '@/core/backend';
 import { mustChooseNewAdmin, parseConversationId, type ConversationId } from '@/core/domain';
 import type { Clock } from '@/core/lib';
 import type { MessageRepository } from '@/core/persistence';
@@ -36,7 +36,7 @@ export class MessageRequestService {
 
   /** Whether the connected backend can block and unblock (menus hide the rest). */
   get canBlock(): boolean {
-    return this.deps.backend.setBlocked !== undefined;
+    return this.has('blocking');
   }
 
   /** Accepts a request: profile sharing starts, the phone is told, receipts for read messages go out. */
@@ -44,8 +44,8 @@ export class MessageRequestService {
     const { backend, stores, clock } = this.deps;
     if (!stores.conversations.getState().byId[id]) return false;
     if (
-      !(await this.ask('accept a message request', () =>
-        backend.respondToMessageRequest?.(id, 'accept'),
+      !(await this.ask('accept a message request', 'messageRequests', () =>
+        backend.respondToMessageRequest(id, 'accept'),
       ))
     )
       return false;
@@ -59,8 +59,8 @@ export class MessageRequestService {
     const { backend, repository, stores, clock } = this.deps;
     if (!stores.conversations.getState().byId[id]) return false;
     if (
-      !(await this.ask('delete a message request', () =>
-        backend.respondToMessageRequest?.(id, 'delete'),
+      !(await this.ask('delete a message request', 'messageRequests', () =>
+        backend.respondToMessageRequest(id, 'delete'),
       ))
     )
       return false;
@@ -86,7 +86,7 @@ export class MessageRequestService {
   async block(id: ConversationId): Promise<boolean> {
     const { backend } = this.deps;
     if (!this.known(id)) return false;
-    if (!(await this.ask('block', () => backend.setBlocked?.(id, true)))) return false;
+    if (!(await this.ask('block', 'blocking', () => backend.setBlocked(id, true)))) return false;
     this.markBlocked(id, true);
     await this.leaveBlockedGroup(id);
     return true;
@@ -96,7 +96,7 @@ export class MessageRequestService {
   async unblock(id: ConversationId): Promise<boolean> {
     const { backend, stores, clock } = this.deps;
     if (!this.known(id)) return false;
-    if (!(await this.ask('unblock', () => backend.setBlocked?.(id, false)))) return false;
+    if (!(await this.ask('unblock', 'blocking', () => backend.setBlocked(id, false)))) return false;
     this.markBlocked(id, false);
     stores.local.getState().markAccepted(id, clock.now());
     await this.sendHeldReceipts(id);
@@ -117,9 +117,10 @@ export class MessageRequestService {
     const { backend, stores } = this.deps;
     const group = stores.conversations.getState().byId[id];
     const selfId = stores.session.getState().self?.id ?? null;
-    if (!group || group.kind !== 'group' || group.left || !backend.leaveGroup) return;
+    if (!group || group.kind !== 'group' || group.left || !this.has('groups')) return;
     if (!selfId || !group.memberIds.includes(selfId) || mustChooseNewAdmin(group, selfId)) return;
-    if (!(await this.ask('leave a blocked group', () => backend.leaveGroup?.(id, [])))) return;
+    if (!(await this.ask('leave a blocked group', 'groups', () => backend.leaveGroup(id, []))))
+      return;
     // The backend announces the left group itself; this only makes sure of it.
     const now = stores.conversations.getState().byId[id];
     if (now && !now.left)
@@ -131,9 +132,14 @@ export class MessageRequestService {
       });
   }
 
-  private async ask(what: string, call: () => Promise<void> | undefined): Promise<boolean> {
+  private has(feature: Feature): boolean {
+    return this.deps.backend.capabilities.features.has(feature);
+  }
+
+  /** Tells the backend, when it has `feature`; without it the answer is only local, so there's nothing to tell. */
+  private async ask(what: string, feature: Feature, call: () => Promise<void>): Promise<boolean> {
     try {
-      await call();
+      if (this.has(feature)) await call();
       return true;
     } catch (error) {
       this.onError(error, `could not ${what}`);

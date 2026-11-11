@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { FeatureStore } from '@/core/backend/features';
 import type { Attachment, ConversationId, StickerContent } from '@/core/domain';
 import { createStores } from '@/core/stores';
 import { SnowdropContextProvider, type AppServices } from '@/ui/hooks';
@@ -11,7 +12,19 @@ const conversationId = 'conv-1' as ConversationId;
 
 function fakeApp(backend: Partial<AppServices['backend']>): AppServices {
   return {
-    backend: { kind: 'signal-cli', ...backend },
+    backend: {
+      kind: 'signal-cli',
+      // A backend supports what the test gave it a resolver for.
+      capabilities: new FeatureStore([
+        ...(backend.resolveStickerUrl ? (['stickerUrls'] as const) : []),
+        ...(backend.resolveAttachmentUrl ? (['attachmentUrls'] as const) : []),
+      ]),
+      retainAttachmentUrl: () => undefined,
+      releaseAttachmentUrl: () => undefined,
+      retainStickerUrl: () => undefined,
+      releaseStickerUrl: () => undefined,
+      ...backend,
+    },
     stores: createStores(),
   } as unknown as AppServices;
 }

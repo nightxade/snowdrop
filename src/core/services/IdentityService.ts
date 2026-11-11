@@ -57,18 +57,13 @@ export class IdentityService {
 
   /** Whether the connected backend has safety numbers at all (menus hide the rest). */
   get available(): boolean {
-    const b = this.deps.backend;
-    return (
-      b.getSafetyNumber !== undefined &&
-      b.verifyIdentity !== undefined &&
-      b.approveIdentity !== undefined
-    );
+    return this.deps.backend.capabilities.features.has('safetyNumbers');
   }
 
   /** Reads their safety number and records how far their key is trusted. */
   async load(contactId: string): Promise<SafetyNumberResult> {
     const { backend, stores } = this.deps;
-    if (!backend.getSafetyNumber) return { status: 'failed' };
+    if (!this.available) return { status: 'failed' };
     try {
       const number = await backend.getSafetyNumber(contactId);
       stores.identities.getState().setTrust(contactId, number?.trust ?? null);
@@ -93,7 +88,7 @@ export class IdentityService {
    */
   async verify(contactId: string, digits: string): Promise<VerifyResult> {
     const { backend, stores } = this.deps;
-    if (!backend.verifyIdentity) return 'failed';
+    if (!this.available) return 'failed';
     try {
       await backend.verifyIdentity(contactId, digits);
     } catch (error) {
@@ -109,7 +104,7 @@ export class IdentityService {
   /** "Clear verification": the key stays accepted, no longer marked verified. */
   async clearVerification(contactId: string): Promise<boolean> {
     const { backend, stores } = this.deps;
-    if (!backend.approveIdentity) return false;
+    if (!this.available) return false;
     try {
       await backend.approveIdentity(contactId);
     } catch (error) {
@@ -128,7 +123,7 @@ export class IdentityService {
    */
   async approveAll(contactIds: readonly string[]): Promise<boolean> {
     const { backend, stores } = this.deps;
-    if (!backend.approveIdentity) return false;
+    if (!this.available) return false;
     let allOk = true;
     for (const id of contactIds) {
       // Asking first: approving a key that is already trusted is an error to the backend.
@@ -154,8 +149,9 @@ export class IdentityService {
   }
 
   private async peek(contactId: string): Promise<SafetyNumber | null> {
+    if (!this.available) return null;
     try {
-      return (await this.deps.backend.getSafetyNumber?.(contactId)) ?? null;
+      return await this.deps.backend.getSafetyNumber(contactId);
     } catch {
       return null;
     }

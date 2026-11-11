@@ -402,7 +402,7 @@ describe('SendService: polls', () => {
     await expect(
       h.send.sendPoll({ conversationId: h.group, poll: { ...draft, options: ['only one'] } }),
     ).rejects.toThrow(/can't be sent/u);
-    Object.assign(h.backend, { votePoll: undefined });
+    h.backend.capabilities.setFeature('polls', false);
     expect(await h.send.sendPoll({ conversationId: h.group, poll: draft })).toBeNull();
     expect(h.send.capabilities.polls).toBe(false);
   });

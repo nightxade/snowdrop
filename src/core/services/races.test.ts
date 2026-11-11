@@ -27,7 +27,7 @@ async function setup(
 ) {
   const scheduler = new ManualScheduler(NOW);
   const backend = new MockBackend({ seed: 7, clock: scheduler, scheduler, latencyMs: 0 });
-  if (options.noServerHistory) Object.assign(backend, { fetchHistory: undefined });
+  if (options.noServerHistory) backend.capabilities.setFeature('history', false);
   const repository = options.repository ?? new MemoryMessageRepository();
   const stores = createStores();
   const onError = vi.fn();

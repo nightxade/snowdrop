@@ -4,11 +4,23 @@
  */
 import { afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 import type { DesktopErrorKind } from '@/core/backend';
-import { MockBackendError } from '@/core/backend/mock';
+import { MockBackend, MockBackendError } from '@/core/backend/mock';
 import { SignalCliError, type SignalCliErrorKind } from '@/core/backend/signal-cli';
-import { AppError, ignore, ignored, toAppError, type ErrorKind } from '@/core/lib';
+import {
+  AppError,
+  ignore,
+  ignored,
+  toAppError,
+  UnsupportedError,
+  type ErrorKind,
+} from '@/core/lib';
 import { asCommandError, IpcValidationError } from '@/platform/tauri/ipc';
-import { describeFailure, describeSendFailure, friendlyAppError } from '@/ui/lib/connectionErrors';
+import {
+  describeFailure,
+  describeSendFailure,
+  friendlyAppError,
+  friendlyErrorMessage,
+} from '@/ui/lib/connectionErrors';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -83,6 +95,21 @@ describe('toAppError', () => {
       outcome: 'not-sent',
     });
     expect(new MockBackendError('no', 'user').kind).toBe('user');
+  });
+
+  it('UnsupportedError is an AppError of kind unsupported, kept by toAppError and never sent', async () => {
+    const error = new UnsupportedError('resolveAvatarUrl');
+    expect(error).toBeInstanceOf(AppError);
+    expect(error).toMatchObject({ kind: 'unsupported', outcome: 'not-sent' });
+    expect(toAppError(error)).toBe(error);
+    // What an adapter without the method rejects with.
+    const rejected: unknown = await new MockBackend().resolveAvatarUrl().then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(rejected).toBeInstanceOf(UnsupportedError);
+    expect(toAppError(rejected)).toMatchObject({ kind: 'unsupported' });
+    expect(friendlyErrorMessage('unsupported')).not.toBe(friendlyErrorMessage('nonsense'));
   });
 
   it('a plain Error, a string and nothing become unknown, keeping the cause', () => {

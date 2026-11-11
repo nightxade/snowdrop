@@ -14,7 +14,7 @@ const fake = (kind: string): BackendRegistration => ({
   kind,
   label: kind.toUpperCase(),
   load: () => Promise.reject(new Error('not loaded in this test')),
-  capabilities: new Set(),
+  features: new Set(),
   history: { kind: 'memory' },
 });
 
@@ -68,7 +68,7 @@ describe('backend registry', () => {
             created = backend;
             return backend;
           }),
-        capabilities: new Set(['fetchHistory', 'adminDelete', 'pinMessage', 'updateConversation']),
+        features: new Set(['history', 'adminDelete', 'pins', 'conversationSettings']),
       },
     ]);
     const snowdrop = createSnowdrop({ storage: storageWith('matrix-bridge'), backends: registry });

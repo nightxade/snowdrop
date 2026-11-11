@@ -5,6 +5,7 @@ import { CUSTOM_EMOJI_MAX_BYTES } from '@/core/stores/customEmoji';
 import {
   CustomEmojiImageError,
   readCustomEmojiImage,
+  useBackendFeature,
   useSnowdrop,
   type CustomEmojiImageProblem,
 } from '@/ui/hooks';
@@ -31,6 +32,7 @@ export function useReceivedEmoji(
   attempt = 0,
 ): ReceivedEmojiImage {
   const { backend } = useSnowdrop();
+  const canRead = useBackendFeature('attachmentBlob');
   const [result, setResult] = useState<{ key: string; image: ReceivedEmojiImage } | null>(null);
   const key = `${attachment.id}\u0000${attempt}`;
 
@@ -39,8 +41,7 @@ export function useReceivedEmoji(
     const finish = (image: ReceivedEmojiImage) => {
       if (!cancelled) setResult({ key, image });
     };
-    const read = backend.readAttachmentBlob;
-    if (!read) {
+    if (!canRead) {
       finish({ status: 'error' });
       return;
     }
@@ -49,8 +50,8 @@ export function useReceivedEmoji(
       finish({ status: 'invalid', problem: 'too-large' });
       return;
     }
-    read
-      .call(backend, conversationId, attachment, { maxBytes: CUSTOM_EMOJI_MAX_BYTES })
+    backend
+      .readAttachmentBlob(conversationId, attachment, { maxBytes: CUSTOM_EMOJI_MAX_BYTES })
       .then((blob) => readCustomEmojiImage(new File([blob], 'emoji', { type: blob.type })))
       .then(
         (dataUrl) => {
@@ -74,7 +75,7 @@ export function useReceivedEmoji(
     };
     // The attachment is identified by its id (and the retry counter).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [backend, conversationId, key]);
+  }, [backend, canRead, conversationId, key]);
 
   return result?.key === key ? result.image : { status: 'loading' };
 }

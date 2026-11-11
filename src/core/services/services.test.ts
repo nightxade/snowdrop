@@ -49,7 +49,7 @@ interface SetupOptions {
 async function setup(options: SetupOptions = {}) {
   const scheduler = new ManualScheduler(NOW);
   const backend = new MockBackend({ seed: 7, clock: scheduler, scheduler, latencyMs: 0 });
-  if (options.noServerHistory) Object.assign(backend, { fetchHistory: undefined });
+  if (options.noServerHistory) backend.capabilities.setFeature('history', false);
   const repository = options.repository ?? new MemoryMessageRepository();
   const stores = options.stores ?? createStores();
   const onError = vi.fn();
@@ -168,6 +168,7 @@ describe('SyncService: initial sync', () => {
       { id: messages[2]!.id, unavailable: false },
     ]);
     Object.assign(backend, { readHistory, getHistoryReadState });
+    backend.capabilities.setFeature('historyArchive', true);
     await sync.start();
     expect(readHistory).not.toHaveBeenCalled();
     expect(getHistoryReadState).toHaveBeenCalledTimes(1);
@@ -259,7 +260,7 @@ describe('SyncService: initial sync', () => {
   it('(A) buffers events until the initial sync is done, so offline messages count as unread', async () => {
     const scheduler = new ManualScheduler(NOW);
     const backend = new MockBackend({ seed: 7, clock: scheduler, scheduler });
-    Object.assign(backend, { fetchHistory: undefined }); // like signal-cli: no server history
+    backend.capabilities.setFeature('history', false); // like signal-cli: no server history
     const stores = createStores();
     const sync = new SyncService({
       backend,
@@ -1902,6 +1903,7 @@ describe('SendService', () => {
     Object.assign(backend, {
       fetchHistory: vi.fn().mockResolvedValue({ messages: [old], hasMoreBefore: false }),
     });
+    backend.capabilities.setFeature('history', true);
     const history = new HistoryService({
       backend,
       repository,
@@ -1957,6 +1959,8 @@ describe('HistoryService', () => {
       await repository.upsertMany([message], { backfill: false, merge: (existing) => existing });
       const fetchHistory = vi.fn().mockResolvedValue({ messages: [], hasMoreBefore: false });
       Object.assign(backend, { fetchHistory });
+      backend.capabilities.setFeature('history', true);
+      backend.capabilities.setFeature('history', true);
       await history.open(id);
       expect(fetchHistory).toHaveBeenCalledWith(id, {
         before: 1000,
@@ -1991,6 +1995,7 @@ describe('HistoryService', () => {
       .fn()
       .mockResolvedValue({ messages: [old, reacted], hasMoreBefore: false });
     Object.assign(backend, { fetchHistory });
+    backend.capabilities.setFeature('history', true);
     const history = new HistoryService({
       backend,
       repository,
@@ -2042,6 +2047,7 @@ describe('HistoryService', () => {
         Promise.resolve(m.map(remappedOf)),
       );
       Object.assign(backend, { remapHistoryMessages });
+      backend.capabilities.setFeature('historyArchive', true);
       await history.open(id);
       expect(remapHistoryMessages).toHaveBeenCalledTimes(1);
       const shown = list(id)[0];
@@ -2068,6 +2074,7 @@ describe('HistoryService', () => {
       await repository.upsertMany([row], { backfill: false, merge: (existing) => existing });
       const remapHistoryMessages = vi.fn(() => Promise.resolve([]));
       Object.assign(backend, { remapHistoryMessages });
+      backend.capabilities.setFeature('historyArchive', true);
       await history.open(id);
       await history.jumpToPresent(id);
       expect(list(id)).toHaveLength(1);
@@ -2092,6 +2099,7 @@ describe('HistoryService', () => {
         return Promise.reject(new Error('archive unavailable'));
       });
       Object.assign(backend, { remapHistoryMessages });
+      backend.capabilities.setFeature('historyArchive', true);
       await history.open(id);
       expect(list(id).map((m) => m.id)).toEqual([plain.id, row.id]);
       expect(onError).toHaveBeenCalled();
@@ -2112,6 +2120,7 @@ describe('HistoryService', () => {
       .fn()
       .mockResolvedValue([{ id: message.id, expiresAt: NOW + 5000, unavailable: false }]);
     Object.assign(backend, { readHistory });
+    backend.capabilities.setFeature('historyArchive', true);
     await history.open(id);
     expect(readHistory).not.toHaveBeenCalled();
     await sync.readHistoryMessages(id, [message.id]);

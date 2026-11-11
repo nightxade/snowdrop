@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { StickerPackDetails } from '@/core/backend';
 import type { StickerContent } from '@/core/domain';
 import { createLogger } from '@/core/lib';
-import { useSnowdrop } from '@/ui/hooks';
+import { useBackendFeature, useSnowdrop } from '@/ui/hooks';
 
 const log = createLogger('ui');
 
@@ -16,6 +16,7 @@ export type StickerPackState =
  */
 export function useStickerPack(sticker: StickerContent): StickerPackState & { retry: () => void } {
   const { backend } = useSnowdrop();
+  const canGet = useBackendFeature('stickers');
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<StickerPackState>({ status: 'loading' });
   const { packId, stickerId } = sticker;
@@ -26,11 +27,10 @@ export function useStickerPack(sticker: StickerContent): StickerPackState & { re
   }, []);
 
   useEffect(() => {
-    const get = backend.getStickerPack;
-    if (!get) return;
+    if (!canGet) return;
     let cancelled = false;
-    get
-      .call(backend, sticker)
+    backend
+      .getStickerPack(sticker)
       .then((pack) => {
         if (!cancelled) setState({ status: 'ready', pack });
       })
@@ -45,8 +45,8 @@ export function useStickerPack(sticker: StickerContent): StickerPackState & { re
     };
     // `sticker` is identified by its pack and sticker ids.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [backend, packId, stickerId, attempt]);
+  }, [backend, canGet, packId, stickerId, attempt]);
 
   // A backend without the capability can only ever fail (the UI doesn't offer it then).
-  return { ...(backend.getStickerPack ? state : { status: 'error' as const }), retry };
+  return { ...(canGet ? state : { status: 'error' as const }), retry };
 }

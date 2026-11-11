@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { StickerPackInfo } from '@/core/backend';
 import { createLogger } from '@/core/lib';
-import { useSnowdrop } from '@/ui/hooks';
+import { useBackendFeature, useSnowdrop } from '@/ui/hooks';
 
 const log = createLogger('ui');
 
@@ -32,6 +32,7 @@ export function invalidateStickerPacks(backend: object): void {
  */
 export function useStickerPacks(enabled: boolean): StickerPacksState & { retry: () => void } {
   const { backend } = useSnowdrop();
+  const canList = useBackendFeature('stickers');
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<StickerPacksState>(() => {
     const cached = lastListing.get(backend);
@@ -44,11 +45,10 @@ export function useStickerPacks(enabled: boolean): StickerPacksState & { retry: 
   }, []);
 
   useEffect(() => {
-    const list = backend.listStickerPacks;
-    if (!enabled || !list) return;
+    if (!enabled || !canList) return;
     let cancelled = false;
-    list
-      .call(backend)
+    backend
+      .listStickerPacks()
       .then((packs) => {
         lastListing.set(backend, packs);
         if (!cancelled) setState({ status: 'ready', packs });
@@ -64,7 +64,7 @@ export function useStickerPacks(enabled: boolean): StickerPacksState & { retry: 
     return () => {
       cancelled = true;
     };
-  }, [backend, enabled, attempt]);
+  }, [backend, canList, enabled, attempt]);
 
   return { ...state, retry };
 }

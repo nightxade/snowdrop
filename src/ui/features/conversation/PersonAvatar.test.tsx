@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { FeatureStore } from '@/core/backend/features';
 import {
   avatarKey,
   directConversationId,
@@ -37,6 +38,7 @@ function setup(contacts: Contact[] = [], photo: string | null = PHOTO) {
   const value = {
     stores,
     backend: {
+      capabilities: new FeatureStore(['avatarUrls']),
       resolveAvatarUrl: resolve,
       peekAvatarUrl: (ref: AvatarRef) => known.get(avatarKey(ref)),
     },

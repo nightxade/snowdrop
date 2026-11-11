@@ -44,7 +44,9 @@ async function open(fakes: Fakes = {}, onOpenChange = vi.fn()) {
   const backend = snowdrop.backend as unknown as Record<string, unknown>;
   backend.getStickerPack = fakes.getStickerPack ?? (() => Promise.resolve(pack()));
   backend.installStickerPack = fakes.installStickerPack ?? (() => Promise.resolve());
-  backend.capabilities = new FeatureStore((fakes.supports ?? true) ? ['stickerPackInstall'] : []);
+  backend.capabilities = new FeatureStore(
+    (fakes.supports ?? true) ? ['stickers', 'stickerPackInstall'] : ['stickers'],
+  );
   renderWithSnowdrop(
     snowdrop,
     <StickerPackDialog
@@ -208,7 +210,7 @@ describe('StickerPackDialog', () => {
       installed = true;
       return Promise.resolve();
     };
-    backend.capabilities = new FeatureStore(['stickerPackInstall']);
+    backend.capabilities = new FeatureStore(['stickers', 'stickerPackInstall']);
 
     const seen: string[] = [];
     function Probe() {

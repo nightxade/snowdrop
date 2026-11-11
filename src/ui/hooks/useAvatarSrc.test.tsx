@@ -1,5 +1,6 @@
 import { act, cleanup, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { FeatureStore } from '@/core/backend/features';
 import type { AvatarRef } from '@/core/domain';
 import { FakeIO, installFakeIO } from '@/test/fakeIntersectionObserver';
 import { SnowdropContextProvider, type AppServices } from './SnowdropContext';
@@ -12,7 +13,7 @@ afterEach(() => {
 
 const URL_A = 'data:image/jpeg;base64,AAAA';
 
-type Backend = Pick<AppServices['backend'], 'resolveAvatarUrl' | 'peekAvatarUrl'>;
+type Backend = Pick<AppServices['backend'], 'capabilities' | 'resolveAvatarUrl' | 'peekAvatarUrl'>;
 
 /** A backend that answers from `answers`, remembers like the real one, and counts its asks. */
 function fakeBackend(answers: Record<string, string | null>) {
@@ -23,6 +24,7 @@ function fakeBackend(answers: Record<string, string | null>) {
     return Promise.resolve(value);
   });
   const backend: Backend = {
+    capabilities: new FeatureStore(['avatarUrls']),
     resolveAvatarUrl: resolve,
     peekAvatarUrl: (ref) => known.get(ref.id),
   };
@@ -176,7 +178,10 @@ describe('useAvatarSrc', () => {
   it('asks for nothing without an id, and falls back for a backend with no avatars', async () => {
     const { backend, resolve } = fakeBackend({});
     renderProbe(backend, <Probe id={null} />);
-    renderProbe({}, <Probe id="ana" options={{ known: 'data:k' }} />);
+    renderProbe(
+      { ...backend, capabilities: new FeatureStore() },
+      <Probe id="ana" options={{ known: 'data:k' }} />,
+    );
     await scrollIntoView();
     expect(resolve).not.toHaveBeenCalled();
     expect(screen.getAllByTestId('probe')[1]?.dataset['src']).toBe('data:k');
@@ -185,7 +190,11 @@ describe('useAvatarSrc', () => {
   it('shows the fallback, and does not retry in a loop, when the daemon is unreachable', async () => {
     const resolve = vi.fn(() => Promise.reject(new Error('down')));
     renderProbe(
-      { resolveAvatarUrl: resolve, peekAvatarUrl: () => undefined },
+      {
+        capabilities: new FeatureStore(['avatarUrls']),
+        resolveAvatarUrl: resolve,
+        peekAvatarUrl: () => undefined,
+      },
       <Probe id="ana" options={{ known: 'data:k' }} />,
     );
     await scrollIntoView();

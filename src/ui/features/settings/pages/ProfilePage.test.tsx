@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { axe } from 'vitest-axe';
 import type { Snowdrop } from '@/app/createSnowdrop';
+import type { FeatureStore } from '@/core/backend/features';
 import { FakeIO, installFakeIO } from '@/test/fakeIntersectionObserver';
 import { bootSnowdrop, renderWithSnowdrop } from '@/test/renderWithSnowdrop';
 import type * as AvatarLib from '@/ui/lib/avatarImage';
@@ -238,6 +239,7 @@ describe('Settings → Profile photo after a restart', () => {
       resolveAvatarUrl: resolve,
       peekAvatarUrl: () => undefined,
     });
+    (snowdrop!.backend.capabilities as FeatureStore).setFeature('avatarUrls', true);
     return resolve;
   }
 

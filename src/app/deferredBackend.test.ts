@@ -4,25 +4,31 @@ import { FeatureStore } from '@/core/backend/features';
 import { MockBackend } from '@/core/backend/mock';
 import { SignalCliBackend } from '@/core/backend/signal-cli';
 import { featuresForVersion } from '@/core/backend/signal-cli/capabilities';
-import { ManualScheduler } from '@/core/lib';
+import { ManualScheduler, UnsupportedError } from '@/core/lib';
 import { createMemoryStorage } from '@/core/persistence';
 import { DEFAULT_DESKTOP_CONNECTION } from '@/core/stores';
 import { BackendRegistry, BUILTIN_BACKENDS, type BackendEnvironment } from './backends';
-import { deferredBackend, FORWARDING, OPTIONAL_METHODS } from './deferredBackend';
+import { deferredBackend, FORWARDING, PEEK_BEFORE_LOAD } from './deferredBackend';
 
-const present = (b: ChatBackend) =>
-  OPTIONAL_METHODS.filter((m) => (b as unknown as Record<string, unknown>)[m] !== undefined).sort();
+const memberKeys = Object.keys(FORWARDING) as Array<keyof ChatBackend>;
 
 describe('deferredBackend', () => {
-  it('declares exactly the optional methods each real adapter has', () => {
-    const mock = new MockBackend({ latencyMs: 0 });
-    const cli = new SignalCliBackend({ baseUrl: '/signal-cli', account: null });
+  it("declares exactly each real adapter's static features", () => {
     const registry = new BackendRegistry(BUILTIN_BACKENDS);
-    expect([...registry.get('mock')!.capabilities].sort()).toEqual(present(mock));
-    expect([...registry.get('signal-cli')!.capabilities].sort()).toEqual(present(cli));
+    expect([...registry.get('mock')!.features].sort()).toEqual([...MockBackend.FEATURES].sort());
+    expect([...registry.get('signal-cli')!.features].sort()).toEqual(
+      [...SignalCliBackend.FEATURES].sort(),
+    );
   });
 
-  it('loads every registered adapter through its factory, with matching kind and capabilities', async () => {
+  it('starts each real adapter with its static features', () => {
+    const mock = new MockBackend({ latencyMs: 0 });
+    const cli = new SignalCliBackend({ baseUrl: '/signal-cli', account: null });
+    expect([...mock.capabilities.features].sort()).toEqual([...MockBackend.FEATURES].sort());
+    expect([...cli.capabilities.features].sort()).toEqual([...SignalCliBackend.FEATURES].sort());
+  });
+
+  it('loads every registered adapter through its factory, with matching kind, features and every member', async () => {
     const env: BackendEnvironment = {
       clock: new ManualScheduler(0),
       scheduler: new ManualScheduler(0),
@@ -40,7 +46,9 @@ describe('deferredBackend', () => {
     for (const registration of BUILTIN_BACKENDS) {
       const backend = (await registration.load())(env);
       expect(backend.kind).toBe(registration.kind);
-      expect(present(backend)).toEqual([...registration.capabilities].sort());
+      expect([...backend.capabilities.features].sort()).toEqual([...registration.features].sort());
+      for (const key of memberKeys)
+        expect(key in backend, `${registration.kind}.${key}`).toBe(true);
     }
   });
 
@@ -51,12 +59,12 @@ describe('deferredBackend', () => {
     });
     const deferred = deferredBackend(
       'mock',
-      new BackendRegistry(BUILTIN_BACKENDS).get('mock')!.capabilities,
+      new BackendRegistry(BUILTIN_BACKENDS).get('mock')!.features,
       ready,
     );
     expect(deferred.kind).toBe('mock');
-    expect('fetchHistory' in deferred).toBe(true);
-    expect('resolveAttachmentUrl' in deferred).toBe(false);
+    expect(deferred.capabilities.features.has('history')).toBe(true);
+    expect(deferred.capabilities.features.has('attachmentUrls')).toBe(false);
     expect(deferred.getStatus()).toBe('connecting');
 
     // Subscriptions made early are attached on load; unsubscribing early works too.
@@ -78,11 +86,13 @@ describe('deferredBackend', () => {
   it('rejects calls when the adapter fails to load', async () => {
     const deferred = deferredBackend(
       'signal-cli',
-      new Set(['link']),
+      ['deviceLinking'],
       Promise.reject(new Error('chunk failed')),
     );
     await expect(deferred.connect()).rejects.toThrow('chunk failed');
-    expect(deferred.link).toBeDefined();
+    await expect(deferred.link.start()).rejects.toThrow('chunk failed');
+    // What the registration declared stays; nothing is mirrored from an adapter that never came.
+    expect(deferred.capabilities.features.has('deviceLinking')).toBe(true);
   });
 
   it('exposes polls before the adapter loads and forwards votes and ends after', async () => {
@@ -90,9 +100,8 @@ describe('deferredBackend', () => {
     const ready = new Promise<ChatBackend>((r) => {
       resolve = r;
     });
-    const deferred = deferredBackend('signal-cli', new Set(['votePoll', 'terminatePoll']), ready);
-    expect('votePoll' in deferred).toBe(true);
-    expect('terminatePoll' in deferred).toBe(true);
+    const deferred = deferredBackend('signal-cli', ['polls'], ready);
+    expect(deferred.capabilities.features.has('polls')).toBe(true);
     const votePoll = vi.fn(() => Promise.resolve());
     const terminatePoll = vi.fn(() => Promise.resolve());
     resolve({
@@ -108,12 +117,12 @@ describe('deferredBackend', () => {
       optionIndexes: [1],
       voteCount: 1,
     };
-    await deferred.votePoll?.(vote);
-    await deferred.terminatePoll?.('group:g' as never, 5);
+    await deferred.votePoll(vote);
+    await deferred.terminatePoll('group:g' as never, 5);
     expect(votePoll).toHaveBeenCalledWith(vote);
     expect(terminatePoll).toHaveBeenCalledWith('group:g', 5);
     // An adapter without them offers no polls at all.
-    expect('votePoll' in deferredBackend('mock', new Set(), ready)).toBe(false);
+    expect(deferredBackend('mock', [], ready).capabilities.features.has('polls')).toBe(false);
   });
 
   it('forwards the sticker pack install and reports its support only once the adapter is known', async () => {
@@ -121,11 +130,7 @@ describe('deferredBackend', () => {
     const ready = new Promise<ChatBackend>((r) => {
       resolve = r;
     });
-    const deferred = deferredBackend(
-      'signal-cli',
-      new Set(['getStickerPack', 'installStickerPack']),
-      ready,
-    );
+    const deferred = deferredBackend('signal-cli', ['stickers'], ready);
     expect(deferred.capabilities.features.has('stickerPackInstall')).toBe(false);
     const sticker = { packId: 'ab12', stickerId: 0 };
     const install = vi.fn(() => Promise.resolve());
@@ -143,12 +148,12 @@ describe('deferredBackend', () => {
       installStickerPack: install,
       getStickerPack: vi.fn(() => Promise.resolve(details)),
     } as unknown as ChatBackend;
-    const pending = deferred.installStickerPack!(sticker);
+    const pending = deferred.installStickerPack(sticker);
     resolve(real);
     await pending;
     expect(install).toHaveBeenCalledWith(sticker);
     expect(deferred.capabilities.features.has('stickerPackInstall')).toBe(true);
-    expect(await deferred.getStickerPack!(sticker)).toBe(details);
+    expect(await deferred.getStickerPack(sticker)).toBe(details);
   });
 
   it('forwards attachment backfill and reports its support only once the adapter is known', async () => {
@@ -156,7 +161,7 @@ describe('deferredBackend', () => {
     const ready = new Promise<ChatBackend>((r) => {
       resolve = r;
     });
-    const deferred = deferredBackend('signal-cli', new Set(['requestAttachmentBackfill']), ready);
+    const deferred = deferredBackend('signal-cli', [], ready);
     expect(deferred.capabilities.features.has('attachmentBackfill')).toBe(false);
     const request = vi.fn(() => Promise.resolve());
     const real = {
@@ -164,7 +169,7 @@ describe('deferredBackend', () => {
       capabilities: new FeatureStore(['attachmentBackfill']),
       requestAttachmentBackfill: request,
     } as unknown as ChatBackend;
-    const pending = deferred.requestAttachmentBackfill!('conv' as never, 'author', 5, ['a1']);
+    const pending = deferred.requestAttachmentBackfill('conv' as never, 'author', 5, ['a1']);
     resolve(real);
     await pending;
     expect(request).toHaveBeenCalledWith('conv', 'author', 5, ['a1']);
@@ -189,9 +194,7 @@ describe('deferredBackend', () => {
       for (const key of forwarded) {
         if (key === 'link') continue;
         const kind = FORWARDING[key];
-        spies[key] = vi.fn(() =>
-          kind === 'required' || kind === 'async' ? Promise.resolve(RESULT) : RESULT,
-        );
+        spies[key] = vi.fn(() => (kind === 'async' ? Promise.resolve(RESULT) : RESULT));
         real[key] = spies[key];
       }
       spies['link.start'] = vi.fn(() => Promise.resolve(RESULT));
@@ -200,10 +203,9 @@ describe('deferredBackend', () => {
       return { real: real as unknown as ChatBackend, spies };
     };
 
-    const wrap = (real: ChatBackend) =>
-      deferredBackend('signal-cli', new Set(OPTIONAL_METHODS), Promise.resolve(real));
+    const wrap = (real: ChatBackend) => deferredBackend('signal-cli', [], Promise.resolve(real));
 
-    it('exposes every member when every capability is declared', () => {
+    it('exposes every ChatBackend member', () => {
       const deferred = wrap(fakeReal().real);
       for (const key of keys) expect(key in deferred, key).toBe(true);
     });
@@ -223,27 +225,31 @@ describe('deferredBackend', () => {
           continue;
         }
         const result = deferred[key]!(...ARGS);
-        if (kind === 'required' || kind === 'async') expect(await result, key).toBe(RESULT);
+        if (kind === 'async') expect(await result, key).toBe(RESULT);
         else if (kind === 'peek') expect(result, key).toBe(RESULT);
         expect(spies[key], key).toHaveBeenCalledWith(...ARGS);
       }
     });
 
-    it('rejects for what the adapter does not have', async () => {
-      const bare = {
+    it('rejects with what the adapter rejects with, an UnsupportedError included', async () => {
+      const real = {
         kind: 'signal-cli',
         getStatus: () => 'connected',
         capabilities: new FeatureStore(),
+        votePoll: () => Promise.reject(new UnsupportedError('votePoll')),
       } as unknown as ChatBackend;
-      const deferred = wrap(bare) as unknown as Record<string, Fn>;
-      for (const key of forwarded) {
-        const kind = FORWARDING[key];
-        if (kind === 'required' || kind === 'async')
-          await expect(deferred[key]!(...ARGS), key).rejects.toThrow(TypeError);
-      }
-      await expect(
-        deferred['link'] ? (deferred['link'] as never as { start: Fn }).start() : 0,
-      ).rejects.toThrow(TypeError);
+      const deferred = wrap(real);
+      const error: unknown = await deferred.votePoll({} as never).then(
+        () => null,
+        (e: unknown) => e,
+      );
+      expect(error).toBeInstanceOf(UnsupportedError);
+    });
+
+    it('answers a peek before the adapter loads without throwing', () => {
+      const deferred = deferredBackend('signal-cli', [], new Promise<ChatBackend>(() => undefined));
+      expect(deferred.peekAvatarUrl({ kind: 'contact', id: 'ana' })).toBeUndefined();
+      expect(deferred.hasPendingEvents()).toBe(false);
     });
 
     it('replays fire-and-forget calls made before the adapter loads, in order', async () => {
@@ -251,16 +257,12 @@ describe('deferredBackend', () => {
       const ready = new Promise<ChatBackend>((r) => {
         resolve = r;
       });
-      const deferred = deferredBackend(
-        'signal-cli',
-        new Set(['retainAttachmentUrl', 'releaseAttachmentUrl', 'acknowledge']),
-        ready,
-      );
+      const deferred = deferredBackend('signal-cli', [], ready);
       const calls: string[] = [];
       const attachment = { id: 'a1' } as never;
-      deferred.retainAttachmentUrl!(attachment);
-      deferred.acknowledge!('c1');
-      deferred.releaseAttachmentUrl!(attachment);
+      deferred.retainAttachmentUrl(attachment);
+      deferred.acknowledge('c1');
+      deferred.releaseAttachmentUrl(attachment);
       resolve({
         kind: 'signal-cli',
         capabilities: new FeatureStore(),
@@ -282,10 +284,10 @@ describe('deferredBackend', () => {
         return { ready, resolve };
       };
 
-      it('is empty before the adapter loads, then mirrors it', async () => {
+      it("is the registration's before the adapter loads, then mirrors it", async () => {
         const { ready, resolve } = pending();
-        const deferred = deferredBackend('signal-cli', new Set(), ready);
-        expect(deferred.capabilities.features.size).toBe(0);
+        const deferred = deferredBackend('signal-cli', ['pins'], ready);
+        expect([...deferred.capabilities.features]).toEqual(['pins']);
         resolve({
           kind: 'signal-cli',
           capabilities: new FeatureStore(['customEmojiDelivery', 'readSync']),
@@ -299,7 +301,7 @@ describe('deferredBackend', () => {
 
       it('tells a subscriber attached before the load about the later change', async () => {
         const { ready, resolve } = pending();
-        const deferred = deferredBackend('signal-cli', new Set(), ready);
+        const deferred = deferredBackend('signal-cli', [], ready);
         const seen: boolean[] = [];
         deferred.capabilities.subscribe(() =>
           seen.push(deferred.capabilities.features.has('customEmojiDelivery')),
@@ -316,7 +318,7 @@ describe('deferredBackend', () => {
         const adapter = new FeatureStore();
         const deferred = deferredBackend(
           'signal-cli',
-          new Set(),
+          [],
           Promise.resolve({ kind: 'signal-cli', capabilities: adapter } as unknown as ChatBackend),
         );
         await Promise.resolve();
@@ -341,8 +343,18 @@ describe('deferredBackend', () => {
         resolveAttachmentUrl,
       } as unknown as ChatBackend);
       const attachment = { id: 'a1' } as never;
-      await deferred.resolveAttachmentUrl!('conv' as never, attachment, { forceRefresh: true });
+      await deferred.resolveAttachmentUrl('conv' as never, attachment, { forceRefresh: true });
       expect(resolveAttachmentUrl).toHaveBeenCalledWith('conv', attachment, { forceRefresh: true });
     });
+  });
+});
+
+describe('peeks before load', () => {
+  it('every peek member has an answer for before the adapter loads', () => {
+    const peeks = Object.entries(FORWARDING)
+      .filter(([, kind]) => kind === 'peek')
+      .map(([key]) => key)
+      .sort();
+    expect(Object.keys(PEEK_BEFORE_LOAD).sort()).toEqual(peeks);
   });
 });

@@ -178,7 +178,12 @@ export function buildMessageMenu(
     });
   }
 
-  if (m.kind === 'normal' && !m.deleted && m.sticker && app.backend.getStickerPack) {
+  if (
+    m.kind === 'normal' &&
+    !m.deleted &&
+    m.sticker &&
+    app.backend.capabilities.features.has('stickers')
+  ) {
     entries.push({
       kind: 'item',
       id: 'sticker-pack',

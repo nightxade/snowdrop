@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Snowdrop } from '@/app/createSnowdrop';
+import type { FeatureStore } from '@/core/backend/features';
 import type { Message } from '@/core/domain';
 import { messagesSelectors } from '@/core/stores';
 import { bootSnowdrop, renderWithSnowdrop, settle } from '@/test/renderWithSnowdrop';
@@ -94,13 +95,13 @@ describe('a received sticker', () => {
     const { snowdrop } = await row(packSticker);
     fireEvent.click(screen.getByRole('button', { name: '🧣 sticker, view sticker pack' }));
     await settle(snowdrop);
-    expect((await snowdrop.backend.listStickerPacks?.())?.map((p) => p.title)).not.toContain(
+    expect((await snowdrop.backend.listStickerPacks()).map((p) => p.title)).not.toContain(
       'Winter Folk',
     );
     fireEvent.click(screen.getByRole('button', { name: 'Install' }));
     await settle(snowdrop);
     expect(screen.getByRole('button', { name: 'Installed' })).toBeTruthy();
-    expect((await snowdrop.backend.listStickerPacks?.())?.map((p) => p.title)).toContain(
+    expect((await snowdrop.backend.listStickerPacks()).map((p) => p.title)).toContain(
       'Winter Folk',
     );
   });
@@ -109,7 +110,7 @@ describe('a received sticker', () => {
     stubImage();
     const snowdrop = await bootSnowdrop();
     snowdrops.push(snowdrop);
-    delete (snowdrop.backend as { getStickerPack?: unknown }).getStickerPack;
+    (snowdrop.backend.capabilities as FeatureStore).setFeature('stickers', false);
     const conv = Object.values(snowdrop.stores.conversations.getState().byId).find(
       (c) => c.title === 'Orchard · Design Crit',
     )!;

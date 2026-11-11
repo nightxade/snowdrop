@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ConversationId, StickerContent } from '@/core/domain';
 import { createLogger } from '@/core/lib';
-import { useSnowdrop } from '@/ui/hooks';
+import { useBackendFeature, useSnowdrop } from '@/ui/hooks';
 import { classifyAttachmentFailure } from '../lib/attachments';
 import { useMediaHold } from './useMediaHold';
 
@@ -45,9 +45,9 @@ export function useStickerUrl(
     state: StickerUrlState;
   } | null>(null);
   const direct = sticker.url;
-  const canResolve = backend.resolveStickerUrl !== undefined;
-  const canResolveBackup =
-    backupAttachment !== undefined && backend.resolveAttachmentUrl !== undefined;
+  const canResolve = useBackendFeature('stickerUrls');
+  const canResolveAttachments = useBackendFeature('attachmentUrls');
+  const canResolveBackup = backupAttachment !== undefined && canResolveAttachments;
 
   const retry = useCallback(() => {
     setAttempt((n) => n + 1);
@@ -56,26 +56,24 @@ export function useStickerUrl(
   // Claims the sticker's own cached URL for as long as this hook stays
   // mounted (see useAttachmentUrl's identical reasoning for attachments).
   useEffect(() => {
-    if (held || direct !== undefined || !backend.retainStickerUrl || !backend.releaseStickerUrl)
-      return;
+    if (held || direct !== undefined || !canResolve) return;
     backend.retainStickerUrl(sticker);
     return () => {
-      backend.releaseStickerUrl?.(sticker);
+      backend.releaseStickerUrl(sticker);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, direct, backend, held]);
+  }, [key, direct, backend, held, canResolve]);
 
   // Same protection for the backup attachment, for whatever stretch it's
   // the one actually shown (the pack fetch failed, or isn't supported).
   useEffect(() => {
-    if (held || !backupAttachment || !backend.retainAttachmentUrl || !backend.releaseAttachmentUrl)
-      return;
+    if (held || !backupAttachment || !canResolveAttachments) return;
     backend.retainAttachmentUrl(backupAttachment);
     return () => {
-      backend.releaseAttachmentUrl?.(backupAttachment);
+      backend.releaseAttachmentUrl(backupAttachment);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [backupAttachment?.id, backend, held]);
+  }, [backupAttachment?.id, backend, held, canResolveAttachments]);
 
   // Nothing to fetch at all (no backend path exists for either the pack or
   // a backup): `unavailable` is derived below, directly from capabilities,
@@ -84,7 +82,7 @@ export function useStickerUrl(
     if (held || direct !== undefined || (!canResolve && !canResolveBackup)) return;
     let cancelled = false;
     const resolveBackup = async (): Promise<void> => {
-      if (!canResolveBackup || !backend.resolveAttachmentUrl) {
+      if (!canResolveBackup) {
         if (!cancelled) setResult({ key, attempt, state: { status: 'error' } });
         return;
       }
@@ -102,7 +100,7 @@ export function useStickerUrl(
         setResult({ key, attempt, state: { status: 'error' } });
       }
     };
-    if (canResolve && backend.resolveStickerUrl) {
+    if (canResolve) {
       backend
         .resolveStickerUrl(sticker, { forceRefresh: attempt > 0 })
         .then((url) => {

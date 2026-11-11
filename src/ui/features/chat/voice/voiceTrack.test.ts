@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { FeatureStore } from '@/core/backend/features';
 import { type ConversationId } from '@/core/domain';
 import { makeMessage } from '@/core/domain/testing';
 import { createStores, localSelectors } from '@/core/stores';
@@ -27,7 +28,11 @@ function setup(selfId = 'me') {
   );
   const deps = {
     stores,
-    backend: { kind: 'signal-cli', resolveAttachmentUrl },
+    backend: {
+      kind: 'signal-cli',
+      capabilities: new FeatureStore(['attachmentUrls']),
+      resolveAttachmentUrl,
+    },
     selfId,
   } as unknown as TrackDeps;
   return { stores, a, b, deps, resolveAttachmentUrl };

@@ -38,7 +38,13 @@ interface FakeBackend {
 
 function fakeApp(backend: FakeBackend): AppServices {
   return {
-    backend: { kind: 'signal-cli', capabilities: new FeatureStore(), ...backend },
+    backend: {
+      kind: 'signal-cli',
+      capabilities: new FeatureStore(['attachmentUrls']),
+      retainAttachmentUrl: () => undefined,
+      releaseAttachmentUrl: () => undefined,
+      ...backend,
+    },
     stores: createStores(),
   } as unknown as AppServices;
 }
@@ -153,7 +159,7 @@ describe('useAttachmentUrl: attachment backfill (patches/signal-cli, "0014")', (
     const app = fakeApp({
       resolveAttachmentUrl,
       requestAttachmentBackfill,
-      capabilities: new FeatureStore(['attachmentBackfill']),
+      capabilities: new FeatureStore(['attachmentUrls', 'attachmentBackfill']),
     });
 
     render(
@@ -209,7 +215,7 @@ describe('useAttachmentUrl: attachment backfill (patches/signal-cli, "0014")', (
     const app = fakeApp({
       resolveAttachmentUrl,
       requestAttachmentBackfill,
-      capabilities: new FeatureStore(['attachmentBackfill']),
+      capabilities: new FeatureStore(['attachmentUrls', 'attachmentBackfill']),
     });
 
     render(
@@ -238,7 +244,7 @@ describe('useAttachmentUrl: attachment backfill (patches/signal-cli, "0014")', (
     const app = fakeApp({
       resolveAttachmentUrl,
       requestAttachmentBackfill,
-      capabilities: new FeatureStore(['attachmentBackfill']),
+      capabilities: new FeatureStore(['attachmentUrls', 'attachmentBackfill']),
     });
 
     render(
@@ -273,7 +279,7 @@ describe('useAttachmentUrl: attachment backfill (patches/signal-cli, "0014")', (
     const app = fakeApp({
       resolveAttachmentUrl,
       requestAttachmentBackfill,
-      capabilities: new FeatureStore(['attachmentBackfill']),
+      capabilities: new FeatureStore(['attachmentUrls', 'attachmentBackfill']),
     });
     const total = BACKFILL_MAX_OUTSTANDING + 2;
     const messages = Array.from({ length: total }, (_, i) => ({
@@ -335,7 +341,7 @@ describe('useAttachmentUrl: attachment backfill (patches/signal-cli, "0014")', (
       const app = fakeApp({
         resolveAttachmentUrl,
         requestAttachmentBackfill,
-        capabilities: new FeatureStore(['attachmentBackfill']),
+        capabilities: new FeatureStore(['attachmentUrls', 'attachmentBackfill']),
       });
 
       render(
@@ -381,7 +387,7 @@ describe('useAttachmentUrl: a failed backfill request', () => {
     const app = fakeApp({
       resolveAttachmentUrl,
       requestAttachmentBackfill,
-      capabilities: new FeatureStore(['attachmentBackfill']),
+      capabilities: new FeatureStore(['attachmentUrls', 'attachmentBackfill']),
     });
 
     render(

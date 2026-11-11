@@ -71,8 +71,7 @@ export class GroupService {
 
   /** Whether the connected backend can edit, make and leave groups. */
   get available(): boolean {
-    const b = this.deps.backend;
-    return b.updateGroup !== undefined && b.createGroup !== undefined && b.leaveGroup !== undefined;
+    return this.deps.backend.capabilities.features.has('groups');
   }
 
   private selfId(): string | null {
@@ -117,8 +116,7 @@ export class GroupService {
    * the timeline have been updated by then), else to what to tell the user.
    */
   async update(id: ConversationId, change: GroupChange): Promise<string | null> {
-    const update = this.deps.backend.updateGroup?.bind(this.deps.backend);
-    if (!update) return `Groups can't be changed with this connection.`;
+    if (!this.available) return `Groups can't be changed with this connection.`;
     if (!this.allows(id, change)) return NOT_ALLOWED;
     if (change.title !== undefined) {
       const title = normalizeGroupTitle(change.title);
@@ -136,7 +134,7 @@ export class GroupService {
       // Re-checked once it is our turn: the change before ours may have changed our role.
       if (!this.allows(id, change)) return NOT_ALLOWED;
       try {
-        await update(id, change);
+        await this.deps.backend.updateGroup(id, change);
         return null;
       } catch (error) {
         this.onError(error, 'group update failed');
@@ -153,15 +151,15 @@ export class GroupService {
 
   /** Makes a group with us as its admin. */
   async create(input: NewGroupInput): Promise<CreateGroupResult> {
-    const create = this.deps.backend.createGroup?.bind(this.deps.backend);
-    if (!create) return { ok: false, message: `Groups can't be made with this connection.` };
+    if (!this.available)
+      return { ok: false, message: `Groups can't be made with this connection.` };
     const title = normalizeGroupTitle(input.title);
     if (!title) return { ok: false, message: 'A group needs a name.' };
     if (graphemes(title).length > GROUP_LIMITS.title) {
       return { ok: false, message: 'That group name is too long.' };
     }
     try {
-      const group = await create({ ...input, title });
+      const group = await this.deps.backend.createGroup({ ...input, title });
       this.deps.stores.conversations.getState().upsert(group);
       // Our own doing, not someone writing to us: no request to answer.
       this.deps.stores.local.getState().markAccepted(group.id, this.deps.clock.now());
@@ -178,8 +176,7 @@ export class GroupService {
    * one the backend would refuse, so say so before asking.
    */
   async leave(id: ConversationId, newAdminIds: readonly string[] = []): Promise<string | null> {
-    const leave = this.deps.backend.leaveGroup?.bind(this.deps.backend);
-    if (!leave) return `Groups can't be left with this connection.`;
+    if (!this.available) return `Groups can't be left with this connection.`;
     const group = this.group(id);
     const self = this.selfId();
     if (!group || group.left) return NOT_ALLOWED;
@@ -189,7 +186,7 @@ export class GroupService {
       return 'Choose at least one new admin before you leave.';
     }
     try {
-      await leave(id, needsAdmin ? chosen : []);
+      await this.deps.backend.leaveGroup(id, needsAdmin ? chosen : []);
     } catch (error) {
       this.onError(error, 'leaving a group failed');
       return groupFailureMessage(error);

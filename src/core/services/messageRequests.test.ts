@@ -387,6 +387,25 @@ describe('blocking from anywhere', () => {
   });
 });
 
+describe('a backend without message requests or blocking', () => {
+  it('answers locally, tells the backend nothing and offers no blocking', async () => {
+    const { requests, backend, dm, state } = await setup({
+      prepare: (b) => {
+        b.capabilities.setFeature('messageRequests', false);
+        b.capabilities.setFeature('blocking', false);
+      },
+    });
+    const respond = vi.spyOn(backend, 'respondToMessageRequest');
+    const block = vi.spyOn(backend, 'setBlocked');
+    expect(requests.canBlock).toBe(false);
+    expect(await requests.accept(dm)).toBe(true);
+    expect(state(dm)).toBe('accepted');
+    expect(await requests.block(dm)).toBe(true);
+    expect(respond).not.toHaveBeenCalled();
+    expect(block).not.toHaveBeenCalled();
+  });
+});
+
 describe('sending accepts', () => {
   it('writing to a request accepts it, here and for the typing that follows', async () => {
     const { send, stores, dm, state, backend } = await setup();
@@ -459,6 +478,7 @@ describe('an outgoing message anywhere accepts the chat (Desktop: sentMessageCou
     /** Gives the mock backend an archive that says who the user wrote to. */
     const withArchive =
       (wrote: Set<string>, log: string[], gate?: Promise<void>) => (backend: MockBackend) => {
+        backend.capabilities.setFeature('historyArchive', true);
         Object.assign(backend, {
           historyHasOutgoing: async (id: string) => {
             log.push(`start:${id}`);

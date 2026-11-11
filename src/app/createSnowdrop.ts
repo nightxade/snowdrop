@@ -726,12 +726,12 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
       disposeBindings();
     },
     syncContactsAndGroups: async () => {
-      // Optional capability: backends without an equivalent (the mock) just
-      // don't implement it. The resulting contacts/groups land through the
+      // Backends without an equivalent (the mock) lack the `contactSync`
+      // feature, and this does nothing for them. The resulting contacts/groups land through the
       // adapter's own conversationUpdated/contactUpdated events, which
       // SyncService already turns into store updates — nothing further to
       // do here.
-      await backend.syncContactsAndGroups?.();
+      if (backend.capabilities.features.has('contactSync')) await backend.syncContactsAndGroups();
     },
   };
 

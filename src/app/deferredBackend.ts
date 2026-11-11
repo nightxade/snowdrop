@@ -4,12 +4,15 @@
  * Each adapter is a separate chunk (the demo world and the signal-cli client
  * are both large, and a session only ever needs one), so `createSnowdrop`
  * imports it dynamically. Services are wired synchronously, though, and some
- * read *which optional methods exist* up front (`SendService.capabilities`,
- * the UI's `resolveAttachmentUrl` check). So each backend registration
- * (`app/backends.ts`) declares its capabilities, and a test keeps them in
- * line with the real adapters.
+ * read *what the backend supports* up front (`SendService.capabilities`, the
+ * menus). So each backend registration (`app/backends.ts`) declares the
+ * `features` the adapter has before it connects, and a test keeps them in line
+ * with the real adapters' static `FEATURES`. The store starts with those, then
+ * mirrors the adapter's own once it has loaded.
  *
- * Async methods await the adapter; `on()` subscriptions made early are
+ * Every `ChatBackend` method exists on every adapter (one that can't do
+ * something rejects with `UnsupportedError`), so the wrapper always has all of
+ * them. Async methods await the adapter; `on()` subscriptions made early are
  * attached once it arrives; `getStatus()` is "connecting" until then.
  *
  * Every `ChatBackend` member is listed once in `FORWARDING`, which is typed
@@ -17,49 +20,39 @@
  * forwarded is a compile error. Arguments always pass through unchanged.
  */
 import { ignored } from '@/core/lib';
-import type { BackendEvents, BackendKind, ChatBackend, LinkFlow } from '@/core/backend';
+import type { BackendEvents, BackendKind, ChatBackend, Feature, LinkFlow } from '@/core/backend';
 import type { Unsubscribe } from '@/core/lib';
 import { FeatureStore } from '@/core/backend/features';
 
 type Keys = keyof ChatBackend;
-type RequiredKeys = {
-  [K in Keys]-?: object extends Pick<ChatBackend, K> ? never : K;
-}[Keys];
-/** Every optional member: present only when the registration declares it. */
-export type OptionalMethod = Exclude<Keys, RequiredKeys>;
 
 /**
  * How each member is forwarded:
- * - `required`: always present; awaits the adapter, then calls it with the same arguments;
- * - `async`: the same, but only present when the registration declares it, and a
- *   method the adapter lacks rejects with `missing(...)`;
+ * - `async`: awaits the adapter, then calls it with the same arguments;
  * - `queued`: synchronous and fire-and-forget; calls made before the adapter loads
  *   are replayed, in order, when it does;
- * - `peek`: synchronous lookup, `undefined` until the adapter is known;
+ * - `peek`: synchronous lookup, answering `PEEK_BEFORE_LOAD` until the adapter is known;
  * - `link`: the device-linking object (two async methods);
  * - `custom`: written out by hand below (`kind`, `getStatus`, `on`, `capabilities`).
  */
-type OptionalKind = 'async' | 'queued' | 'peek' | 'link';
-type Forwarding = {
-  [K in Keys]: K extends RequiredKeys ? 'required' | 'custom' : OptionalKind;
-};
+type Forwarding = 'async' | 'queued' | 'peek' | 'link' | 'custom';
 
-export const FORWARDING: Forwarding = {
+export const FORWARDING: Record<Keys, Forwarding> = {
   kind: 'custom',
   getStatus: 'custom',
   on: 'custom',
   capabilities: 'custom',
-  connect: 'required',
-  disconnect: 'required',
-  getSelf: 'required',
-  listContacts: 'required',
-  listConversations: 'required',
-  send: 'required',
-  edit: 'required',
-  react: 'required',
-  deleteForEveryone: 'required',
-  setTyping: 'required',
-  markRead: 'required',
+  connect: 'async',
+  disconnect: 'async',
+  getSelf: 'async',
+  listContacts: 'async',
+  listConversations: 'async',
+  send: 'async',
+  edit: 'async',
+  react: 'async',
+  deleteForEveryone: 'async',
+  setTyping: 'async',
+  markRead: 'async',
   fetchHistory: 'async',
   remapHistoryMessages: 'async',
   historyHasOutgoing: 'async',
@@ -102,11 +95,19 @@ export const FORWARDING: Forwarding = {
   lookupRecipient: 'async',
 };
 
-const keysOf = (kinds: readonly string[]): Keys[] =>
-  (Object.keys(FORWARDING) as Keys[]).filter((k) => kinds.includes(FORWARDING[k]));
+type PeekKey = 'peekAvatarUrl' | 'hasPendingEvents';
 
-/** Every optional method a registration may declare (`BackendRegistration.capabilities`). */
-export const OPTIONAL_METHODS = keysOf(['async', 'queued', 'peek', 'link']) as OptionalMethod[];
+/**
+ * What a `peek` member answers before the adapter has loaded. Every `peek`
+ * entry in `FORWARDING` must have one (a test checks).
+ */
+export const PEEK_BEFORE_LOAD: { [K in PeekKey]: ReturnType<ChatBackend[K]> } = {
+  peekAvatarUrl: undefined,
+  hasPendingEvents: false,
+};
+
+const keysOf = (kind: Forwarding): Keys[] =>
+  (Object.keys(FORWARDING) as Keys[]).filter((k) => FORWARDING[k] === kind);
 
 interface Subscription {
   event: keyof BackendEvents;
@@ -115,23 +116,19 @@ interface Subscription {
   active: boolean;
 }
 
-function missing(name: string): never {
-  throw new TypeError(`Backend has no ${name}()`);
-}
-
 /**
  * @param kind the registration's kind (reported before the adapter loads)
- * @param caps the registration's declared optional methods
+ * @param features the registration's declared features (what the adapter has before it connects)
  * @param ready resolves with the real adapter once its chunk has loaded
  */
 export function deferredBackend(
   kind: BackendKind,
-  caps: ReadonlySet<OptionalMethod>,
+  features: Iterable<Feature>,
   ready: Promise<ChatBackend>,
 ): ChatBackend {
   let real: ChatBackend | null = null;
-  // Empty until the adapter arrives, then its set, and every change after.
-  const capabilities = new FeatureStore();
+  // The registration's set until the adapter arrives, then its set, and every change after.
+  const capabilities = new FeatureStore(features);
   const subscriptions = new Set<Subscription>();
   // Fire-and-forget calls made before the adapter loads (acknowledge, and the
   // retain/release pairs) are replayed in order once it does: an id retained
@@ -159,41 +156,26 @@ export function deferredBackend(
 
   // Members are assigned by name from the table, so this is the one untyped spot.
   const target: Record<string, unknown> = {};
-  const declared = (key: Keys) =>
-    caps.has(key as OptionalMethod) || !OPTIONAL_METHODS.includes(key as OptionalMethod);
-
-  for (const key of keysOf(['required', 'async'])) {
-    if (!declared(key)) continue;
-    target[key] = (...args: unknown[]) =>
-      call((b) => {
-        const method = (b as unknown as Record<string, unknown>)[key];
-        return typeof method === 'function'
-          ? (Reflect.apply(method, b, args) as Promise<unknown>)
-          : missing(key);
-      });
+  const invoke = (b: ChatBackend, key: Keys, args: unknown[]): unknown => {
+    const method = (b as unknown as Record<string, unknown>)[key];
+    return Reflect.apply(method as (...a: unknown[]) => unknown, b, args);
+  };
+  for (const key of keysOf('async')) {
+    target[key] = (...args: unknown[]) => call((b) => invoke(b, key, args) as Promise<unknown>);
   }
-  const named = (backend: ChatBackend, key: Keys) =>
-    (backend as unknown as Record<string, unknown>)[key];
-  for (const key of keysOf(['queued'])) {
-    if (!declared(key)) continue;
+  for (const key of keysOf('queued')) {
     target[key] = (...args: unknown[]) => {
       const apply = (b: ChatBackend) => {
-        const method = named(b, key);
-        if (typeof method === 'function') Reflect.apply(method, b, args);
+        invoke(b, key, args);
       };
       if (real) apply(real);
       else replay.push(apply);
     };
   }
   // Synchronous lookups: nothing is known before the real backend exists.
-  for (const key of keysOf(['peek'])) {
-    if (!declared(key)) continue;
-    target[key] = (...args: unknown[]) => {
-      const method = real ? named(real, key) : undefined;
-      return typeof method === 'function'
-        ? (Reflect.apply(method, real, args) as unknown)
-        : undefined;
-    };
+  for (const key of keysOf('peek')) {
+    target[key] = (...args: unknown[]) =>
+      real ? invoke(real, key, args) : PEEK_BEFORE_LOAD[key as PeekKey];
   }
 
   const backend = target as unknown as ChatBackend;
@@ -214,12 +196,9 @@ export function deferredBackend(
     },
   } satisfies Pick<ChatBackend, 'kind' | 'capabilities' | 'getStatus' | 'on'>);
 
-  if (caps.has('link'))
-    backend.link = {
-      start: (...args: Parameters<LinkFlow['start']>) =>
-        call((b) => (b.link ? b.link.start(...args) : missing('link.start'))),
-      finish: (...args: Parameters<LinkFlow['finish']>) =>
-        call((b) => (b.link ? b.link.finish(...args) : missing('link.finish'))),
-    };
+  backend.link = {
+    start: (...args: Parameters<LinkFlow['start']>) => call((b) => b.link.start(...args)),
+    finish: (...args: Parameters<LinkFlow['finish']>) => call((b) => b.link.finish(...args)),
+  };
   return backend;
 }

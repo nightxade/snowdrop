@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { HistoryPage, HistoryQuery } from '@/core/backend';
+import { FeatureStore } from '@/core/backend/features';
 import { directConversationId, messageId, type ConversationId, type Message } from '@/core/domain';
 import { systemScheduler, type Clock } from '@/core/lib';
 import {
@@ -40,6 +41,7 @@ function archive(conversationId: ConversationId, authorId: string, count: number
  * pages by cursor).
  */
 class FakeHistoryBackend {
+  readonly capabilities = new FeatureStore(['history', 'historyArchive']);
   calls: { conversationId: ConversationId; query: HistoryQuery }[] = [];
   failConversation: ConversationId | null = null;
 
@@ -206,6 +208,19 @@ describe('HistoryImportService', () => {
     await service(h).start();
 
     expect(await h.repository.count(CONV_A)).toBe(0);
+    expect(h.stores.session.getState().historyImport.status).toBe('idle');
+  });
+
+  it('never asks a backend without an archive feature', async () => {
+    const h = harness();
+    h.backend.capabilities.set([]);
+    const asked = vi.spyOn(h.backend, 'getHistoryArchiveId');
+    seedConversations(h.stores, [CONV_A]);
+
+    await service(h).start();
+
+    expect(asked).not.toHaveBeenCalled();
+    expect(h.backend.calls).toEqual([]);
     expect(h.stores.session.getState().historyImport.status).toBe('idle');
   });
 

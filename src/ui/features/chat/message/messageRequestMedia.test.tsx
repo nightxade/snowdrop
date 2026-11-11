@@ -51,7 +51,15 @@ function requestApp(backend: Partial<AppServices['backend']>): {
     lastActivityAt: 1,
   });
   const app = {
-    backend: { kind: 'signal-cli', capabilities: new FeatureStore(), ...backend },
+    backend: {
+      kind: 'signal-cli',
+      capabilities: new FeatureStore(['attachmentUrls', 'stickerUrls']),
+      retainAttachmentUrl: () => undefined,
+      releaseAttachmentUrl: () => undefined,
+      retainStickerUrl: () => undefined,
+      releaseStickerUrl: () => undefined,
+      ...backend,
+    },
     stores,
   } as unknown as AppServices;
   return { app, stores };

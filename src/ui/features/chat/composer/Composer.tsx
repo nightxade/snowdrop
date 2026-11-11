@@ -7,6 +7,7 @@ import type { ConversationId, ConversationView } from '@/core/domain';
 import { messagesSelectors, uiSelectors } from '@/core/stores';
 import {
   setConversationFocusResolver,
+  useBackendFeature,
   useKeybindLabel,
   useObservableList,
   useSnowdrop,
@@ -74,8 +75,8 @@ function ComposerInner({ conversation }: { conversation: ConversationView }) {
   const [pollDraft, setPollDraft] = useState<PollDraft>(emptyPollDraft);
   // Polls are offered in groups only, as Signal Desktop does (a one-to-one poll is behind a flag there).
   const canPoll = conversation.kind === 'group' && app.send.capabilities.polls;
-  // Only backends that can list (and so send) sticker packs get the button.
-  const canSendStickers = app.backend.listStickerPacks !== undefined;
+  // Only backends with stickers get the button.
+  const canSendStickers = useBackendFeature('stickers');
   const accessories = useObservableList(app.registries.composerAccessories);
   // An accessory may describe the field's state (Vim's mode) on this id (ComposerSlotProps).
   const descriptionId = useId();

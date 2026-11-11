@@ -15,7 +15,12 @@ const expired = () => Object.assign(new Error('Attachment no longer available'),
 
 function deps(backend: Record<string, unknown>) {
   const stores = createStores();
-  return { backend: backend as unknown as MediaDeps['backend'], stores } satisfies MediaDeps;
+  // A backend that can read bytes has the feature, unless the test says otherwise.
+  const capabilities = new FeatureStore(backend['readAttachmentBlob'] ? ['attachmentBlob'] : []);
+  return {
+    backend: { capabilities, ...backend } as unknown as MediaDeps['backend'],
+    stores,
+  } satisfies MediaDeps;
 }
 
 beforeEach(() => {
@@ -97,7 +102,7 @@ describe('readForwardFile', () => {
     const readAttachmentBlob = vi.fn().mockRejectedValueOnce(gone()).mockResolvedValue(blob);
     const d = deps({
       readAttachmentBlob,
-      capabilities: new FeatureStore(['attachmentBackfill']),
+      capabilities: new FeatureStore(['attachmentBlob', 'attachmentBackfill']),
       requestAttachmentBackfill: vi.fn().mockResolvedValue(undefined),
     });
     const onBackfilling = vi.fn();
@@ -127,7 +132,7 @@ describe('readForwardFile', () => {
     const readAttachmentBlob = vi.fn().mockRejectedValue(gone());
     const d = deps({
       readAttachmentBlob,
-      capabilities: new FeatureStore(['attachmentBackfill']),
+      capabilities: new FeatureStore(['attachmentBlob', 'attachmentBackfill']),
       requestAttachmentBackfill: vi.fn().mockResolvedValue(undefined),
     });
     d.stores.session.getState().setAttachmentBackfill(KEY, { status: 'ready', attachmentIds: [] });
@@ -142,7 +147,7 @@ describe('readForwardFile', () => {
     const make = () =>
       deps({
         readAttachmentBlob: vi.fn().mockRejectedValue(gone()),
-        capabilities: new FeatureStore(['attachmentBackfill']),
+        capabilities: new FeatureStore(['attachmentBlob', 'attachmentBackfill']),
         requestAttachmentBackfill: vi.fn().mockResolvedValue(undefined),
       });
     const failed = make();
@@ -164,7 +169,7 @@ describe('readForwardFile', () => {
   it('treats a backfill request that itself fails as the phone not having it', async () => {
     const d = deps({
       readAttachmentBlob: vi.fn().mockRejectedValue(gone()),
-      capabilities: new FeatureStore(['attachmentBackfill']),
+      capabilities: new FeatureStore(['attachmentBlob', 'attachmentBackfill']),
       requestAttachmentBackfill: vi.fn().mockRejectedValue(new Error('boom')),
     });
     await expect(readForwardFile(d, conversationId, draft, file)).rejects.toMatchObject({
@@ -175,7 +180,7 @@ describe('readForwardFile', () => {
   it('does not ask the phone when the connection cannot', async () => {
     const d = deps({
       readAttachmentBlob: vi.fn().mockRejectedValue(gone()),
-      capabilities: new FeatureStore(),
+      capabilities: new FeatureStore(['attachmentBlob']),
       requestAttachmentBackfill: vi.fn(),
     });
     await expect(readForwardFile(d, conversationId, draft, file)).rejects.toMatchObject({

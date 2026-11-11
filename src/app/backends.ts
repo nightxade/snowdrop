@@ -1,8 +1,8 @@
 /**
  * The backend registry: every transport Snowdrop can run on, registered here in
  * the composition root. A registration says how to load the adapter (its own
- * chunk), which optional `ChatBackend` methods it implements (so services can
- * be wired before it loads), where history is kept, and any adapter-specific
+ * chunk), which `features` it has before it connects (so services can be wired
+ * before it loads), where history is kept, and any adapter-specific
  * wiring (the demo's liveliness switch and seeded spaces).
  *
  * Adding an adapter = its folder under `core/backend/<kind>/` plus one entry
@@ -10,7 +10,7 @@
  * Settings parsing, `deferredBackend`, Settings → Connection and plugins'
  * `ctx.backend.kind` all read from the registry.
  */
-import type { BackendKind, BackendOption, ChatBackend } from '@/core/backend';
+import type { BackendKind, BackendOption, ChatBackend, Feature } from '@/core/backend';
 // Type-only: the adapters themselves are loaded on demand (one chunk each).
 import type { MockBackend } from '@/core/backend/mock';
 import type { FetchLike } from '@/core/backend/signal-cli';
@@ -23,7 +23,7 @@ import {
 import type { SettingsSchema } from '@/core/plugins';
 import type { ConnectionSettings, Stores } from '@/core/stores';
 import { isTauri } from '@/platform/detect';
-import { deferredBackend, type OptionalMethod } from './deferredBackend';
+import { deferredBackend } from './deferredBackend';
 import { deferredRepository } from './deferredRepository';
 
 /** What an adapter factory gets from the app. */
@@ -58,10 +58,11 @@ export interface BackendRegistration extends BackendOption {
   /** Loads the adapter's chunk and returns its factory. */
   load(): Promise<ChatBackendFactory>;
   /**
-   * Exactly the optional `ChatBackend` methods the adapter implements (checked
-   * against the real adapters by `deferredBackend.test.ts`).
+   * The adapter's version-independent features, known before its chunk loads
+   * (the adapter can't be imported statically here). Equal to the adapter's
+   * static `FEATURES`, which `backends.test.ts` checks.
    */
-  capabilities: ReadonlySet<OptionalMethod>;
+  features: ReadonlySet<Feature>;
   history: HistoryStore;
   /**
    * Adapter-specific options, described like plugin settings. Reserved for
@@ -137,28 +138,23 @@ const mockBackend: BackendRegistration = {
               : {}),
           }),
     ),
-  capabilities: new Set([
-    'fetchHistory',
+  features: new Set<Feature>([
+    'history',
+    'pins',
+    'polls',
     'adminDelete',
-    'pinMessage',
-    'votePoll',
-    'terminatePoll',
-    'updateConversation',
-    'updateGroup',
-    'createGroup',
-    'leaveGroup',
-    'updateProfile',
-    'respondToMessageRequest',
-    'setBlocked',
-    'getSafetyNumber',
-    'verifyIdentity',
-    'approveIdentity',
-    'readAttachmentBlob',
-    'listStickerPacks',
-    'getStickerPack',
-    'installStickerPack',
-    'requestAttachmentBackfill',
-    'lookupRecipient',
+    'conversationSettings',
+    'groups',
+    'lookup',
+    'messageRequests',
+    'blocking',
+    'safetyNumbers',
+    'attachmentBlob',
+    'stickers',
+    'profile',
+    'readSync',
+    'stickerPackInstall',
+    'attachmentBackfill',
   ]),
   // The world is regenerated relative to "now" on each launch; persisting it would mix timelines.
   history: { kind: 'memory' },
@@ -221,47 +217,27 @@ const signalCliBackend: BackendRegistration = {
         },
       });
   },
-  capabilities: new Set([
-    'fetchHistory',
-    'historyHasOutgoing',
-    'getHistoryArchiveId',
-    'remapHistoryMessages',
-    'readHistory',
-    'getHistoryReadState',
+  features: new Set<Feature>([
+    'history',
+    'historyArchive',
+    'pins',
+    'polls',
     'adminDelete',
-    'pinMessage',
-    'votePoll',
-    'terminatePoll',
-    'updateConversation',
-    'updateGroup',
-    'createGroup',
-    'leaveGroup',
-    'respondToMessageRequest',
-    'setBlocked',
-    'getSafetyNumber',
-    'verifyIdentity',
-    'approveIdentity',
-    'resolveAttachmentUrl',
-    'readAttachmentBlob',
-    'retainAttachmentUrl',
-    'releaseAttachmentUrl',
-    'resolveAvatarUrl',
-    'peekAvatarUrl',
-    'hasPendingEvents',
-    'resolveStickerUrl',
-    'retainStickerUrl',
-    'releaseStickerUrl',
-    'listStickerPacks',
-    'getStickerPack',
-    'installStickerPack',
-    'requestAttachmentBackfill',
-    'readPhonePrivacy',
-    'updatePhonePrivacy',
-    'updateProfile',
-    'acknowledge',
-    'link',
-    'syncContactsAndGroups',
-    'lookupRecipient',
+    'conversationSettings',
+    'groups',
+    'lookup',
+    'messageRequests',
+    'blocking',
+    'safetyNumbers',
+    'attachmentUrls',
+    'attachmentBlob',
+    'avatarUrls',
+    'stickers',
+    'stickerUrls',
+    'profile',
+    'phonePrivacyUpdate',
+    'contactSync',
+    'deviceLinking',
   ]),
   // The daemon keeps no history.
   history: { kind: 'indexeddb', name: 'snowdrop-signal-cli' },
@@ -292,7 +268,7 @@ export function connectBackend(
 ): BackendConnection {
   const ready = registration.load().then((factory) => factory(env));
   return {
-    backend: deferredBackend(registration.kind, registration.capabilities, ready),
+    backend: deferredBackend(registration.kind, registration.features, ready),
     ready,
     repository: repository ?? createRepository(registration.history),
   };

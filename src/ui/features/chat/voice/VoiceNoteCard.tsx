@@ -1,7 +1,7 @@
 import { useStore } from 'zustand';
 import type { Attachment, ConversationId, MessageId } from '@/core/domain';
 import { localSelectors, sessionSelectors } from '@/core/stores';
-import { useSnowdrop } from '@/ui/hooks';
+import { useBackendFeature, useSnowdrop } from '@/ui/hooks';
 import { formatBytes } from '../lib/attachments';
 import { voicePlayKey } from './nextVoice';
 import { playedKeyOf, voiceTrackOf } from './voiceTrack';
@@ -38,8 +38,8 @@ export function VoiceNoteCard({
   const playedKey = playedKeyOf(authorId, sentAt);
   const played = useStore(stores.local, localSelectors.voiceNotePlayed(playedKey));
   const incoming = authorId !== selfId;
-  const read = backend.readAttachmentBlob;
-  const canRead = read !== undefined && (attachment.size ?? 0) <= MAX_WAVEFORM_BYTES;
+  const hasBlobs = useBackendFeature('attachmentBlob');
+  const canRead = hasBlobs && (attachment.size ?? 0) <= MAX_WAVEFORM_BYTES;
 
   const track = voiceTrackOf(
     { stores, backend, selfId, repository },
@@ -57,7 +57,10 @@ export function VoiceNoteCard({
       waveform={{
         keys: [`url:${url}`, `att:${attachment.id}`],
         read: canRead
-          ? () => read.call(backend, conversationId, attachment, { maxBytes: MAX_WAVEFORM_BYTES })
+          ? () =>
+              backend.readAttachmentBlob(conversationId, attachment, {
+                maxBytes: MAX_WAVEFORM_BYTES,
+              })
           : undefined,
       }}
       sizeText={formatBytes(attachment.size)}

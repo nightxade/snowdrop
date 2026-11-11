@@ -22,7 +22,13 @@ import {
   type MessageId,
 } from '@/core/domain';
 import { messagesSelectors, sessionSelectors } from '@/core/stores';
-import { BREAKPOINTS, overlayOwnsKeys, useMediaQuery, useSnowdrop } from '@/ui/hooks';
+import {
+  BREAKPOINTS,
+  overlayOwnsKeys,
+  useBackendFeature,
+  useMediaQuery,
+  useSnowdrop,
+} from '@/ui/hooks';
 import { ContextMenu, Drawer, EmojiPicker, VisuallyHidden } from '@/ui/primitives';
 import { useMessageRequestState } from '@/ui/features/conversation';
 import { useChatController } from '../ChatController';
@@ -82,6 +88,7 @@ export const MessageItem = memo(function MessageItem({
 }: MessageItemProps) {
   const app = useSnowdrop();
   const { stores } = app;
+  const hasStickers = useBackendFeature('stickers');
   const chat = useChatController();
   const m = useStore(stores.messages, messagesSelectors.message(conversationId, id));
   const nameFor = useMessageNames(m);
@@ -419,7 +426,7 @@ export const MessageItem = memo(function MessageItem({
           setVotesOpen(true);
         }}
         onOpenStickerPack={
-          app.backend.getStickerPack
+          hasStickers
             ? () => {
                 setPackOpen(true);
               }

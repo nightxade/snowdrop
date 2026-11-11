@@ -1,6 +1,7 @@
 import { ignored } from '@/core/lib';
 import { useEffect, useState } from 'react';
 import type { AvatarRef, ConversationId } from '@/core/domain';
+import { useBackendFeature } from './useBackendFeature';
 import { whenNearViewport } from './nearViewport';
 import { useSnowdrop } from './SnowdropContext';
 
@@ -10,7 +11,7 @@ export interface AvatarSrcOptions {
    * shown avatar then asks the backend again.
    */
   version?: number | undefined;
-  /** Shown while the backend has nothing for it, and for a backend that has no `resolveAvatarUrl`. */
+  /** Shown while the backend has nothing for it, and for a backend without the `avatarUrls` feature. */
   known?: string | undefined;
   /** Show nothing (and fetch nothing): the picture belongs to someone who hasn't been accepted. */
   held?: boolean;
@@ -39,9 +40,8 @@ export function useAvatarSrc(
   const [node, setNode] = useState<HTMLSpanElement | null>(null);
   const [seen, setSeen] = useState(typeof IntersectionObserver === 'undefined');
   const [resolved, setResolved] = useState<{ key: string; url: string | null } | null>(null);
-  const resolve = backend.resolveAvatarUrl;
-  const peek = backend.peekAvatarUrl;
-  const enabled = !held && id !== null && id !== undefined && id !== '' && resolve !== undefined;
+  const canResolve = useBackendFeature('avatarUrls');
+  const enabled = !held && id !== null && id !== undefined && id !== '' && canResolve;
 
   // One-shot: once it has been on screen, it stays eligible (no refetch churn while scrolling).
   useEffect(() => {
@@ -51,19 +51,19 @@ export function useAvatarSrc(
     });
   }, [node, seen, enabled]);
 
-  const peeked = enabled ? peek?.(refFor(kind, id)) : undefined;
+  const peeked = enabled ? backend.peekAvatarUrl(refFor(kind, id)) : undefined;
   const wanted = enabled && seen && peeked === undefined;
   useEffect(() => {
     if (!wanted || !id) return;
     let live = true;
     const key = `${kind}:${id}`;
-    resolve.call(backend, refFor(kind, id)).then((url) => {
+    backend.resolveAvatarUrl(refFor(kind, id)).then((url) => {
       if (live) setResolved({ key, url });
     }, ignored('no avatar image; the initials stand in'));
     return () => {
       live = false;
     };
-  }, [wanted, resolve, backend, kind, id, version]);
+  }, [wanted, backend, kind, id, version]);
 
   if (held) return [setNode, undefined];
   // The backend's own memory first (it knows when a picture changed); what this

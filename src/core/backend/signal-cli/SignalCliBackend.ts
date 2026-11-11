@@ -81,6 +81,7 @@ import type {
   StickerPackDetails,
   StickerPackInfo,
   StickerPackSticker,
+  Feature,
 } from '../types';
 import { FeatureStore } from '../features';
 import {
@@ -236,6 +237,33 @@ const ACCOUNT_RETRY_DELAYS_MS = [2_000, 5_000, 15_000, 30_000];
 type GroupChanged = Extract<AdapterEvent, { kind: 'groupChanged' }>;
 
 export class SignalCliBackend implements ChatBackend {
+  /**
+   * What every signal-cli connection offers; the version-dependent features
+   * (capabilities.ts) are added after connect.
+   */
+  static readonly FEATURES: ReadonlySet<Feature> = new Set<Feature>([
+    'history',
+    'historyArchive',
+    'pins',
+    'polls',
+    'adminDelete',
+    'conversationSettings',
+    'groups',
+    'lookup',
+    'messageRequests',
+    'blocking',
+    'safetyNumbers',
+    'attachmentUrls',
+    'attachmentBlob',
+    'avatarUrls',
+    'stickers',
+    'stickerUrls',
+    'profile',
+    'phonePrivacyUpdate',
+    'contactSync',
+    'deviceLinking',
+  ]);
+
   readonly kind = 'signal-cli' as const;
   readonly link: LinkFlow;
 
@@ -276,11 +304,11 @@ export class SignalCliBackend implements ChatBackend {
   private multiAccount = true;
   private peers: DirectPeers | null = null;
   /**
-   * What the connected daemon can do beyond the required contract; the
-   * version-dependent features are decided by capabilities.ts after the
-   * version probe and cleared again on disconnect.
+   * What the connected daemon can do beyond the common core: the static
+   * `FEATURES` always, plus the version-dependent ones decided by
+   * capabilities.ts after the version probe (dropped again on disconnect).
    */
-  readonly capabilities = new FeatureStore();
+  readonly capabilities = new FeatureStore(SignalCliBackend.FEATURES);
   /** Whether the connected daemon can register a history sticker's pack key (see capabilities.ts). */
   private historyStickerPackSupported = false;
   /** Installed packs whose download `listStickerPacks` already started this session. */
@@ -395,7 +423,7 @@ export class SignalCliBackend implements ChatBackend {
       await this.rpc.check({ timeoutMs: this.transport.checkTimeoutMs ?? 5_000 });
       const version = await this.probeVersion();
       this.historyStickerPackSupported = detectHistoryStickerPackSupport(version);
-      this.capabilities.set(featuresForVersion(version));
+      this.capabilities.set([...SignalCliBackend.FEATURES, ...featuresForVersion(version)]);
       this.selectAccount(await this.discoverAccount());
       // Stream first: nothing sent to us while we load the directory is missed.
       this.openStream();
@@ -558,7 +586,7 @@ export class SignalCliBackend implements ChatBackend {
     this.avatars.clear();
     this.groupChanges.clear();
     this.historyStickerPackSupported = false;
-    this.capabilities.set([]);
+    this.capabilities.set(SignalCliBackend.FEATURES);
     this.setStatus('offline');
   }
 
