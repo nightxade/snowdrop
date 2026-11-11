@@ -6,6 +6,7 @@ pub mod aead;
 #[cfg(target_os = "linux")]
 mod appimage;
 pub mod applog;
+pub mod cancel;
 pub mod clipboard;
 pub mod commands;
 pub mod config;
@@ -350,6 +351,7 @@ pub fn run() {
             commands::signal_cli_restart,
             commands::signal_cli_request,
             commands::signal_cli_subscribe,
+            commands::signal_cli_cancel,
             commands::signal_cli_unsubscribe,
             commands::signal_cli_ack,
             commands::signal_cli_probe,

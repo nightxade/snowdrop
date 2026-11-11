@@ -16,6 +16,8 @@ export const DESKTOP_ERROR_KINDS = [
   'config',
   'invalid-response',
   'cancelled',
+  /** A request stopped by its caller (`signal_cli_cancel`) before it was answered. */
+  'aborted',
   'keyring-unavailable',
   'keyring-locked',
   'keyring-corrupt',

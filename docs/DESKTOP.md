@@ -471,8 +471,10 @@ and however bytes actually move:
   through the dev/preview proxy.
 - **Desktop:** `src/platform/tauri/TauriTransport.ts`'s `TauriTransport` —
   requests become Tauri command invocations (`signal_cli_connect`,
-  `signal_cli_request`, `signal_cli_subscribe`, `signal_cli_unsubscribe`,
-  `signal_cli_ack`); incoming
+  `signal_cli_request`, `signal_cli_cancel`, `signal_cli_subscribe`,
+  `signal_cli_unsubscribe`, `signal_cli_ack`); a request
+  carries a short `cancelId`, and aborting it calls `signal_cli_cancel` so the
+  Rust side stops waiting too (signal-cli itself isn't touched); incoming
   messages and stream state arrive as the Tauri events `signal-cli://event`
   and `signal-cli://state`, emitted by `src-tauri/src/lib.rs`.
 

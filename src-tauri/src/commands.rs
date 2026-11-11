@@ -173,6 +173,7 @@ pub async fn signal_cli_request(
     method: String,
     params: Option<Map<String, Value>>,
     timeout_ms: Option<u64>,
+    cancel_id: Option<String>,
 ) -> Result<Value, Error> {
     let Some(allowed) = allowed_method(&method) else {
         return Err(Error::new(ErrorKind::Config, format!("{method} is not a method Snowdrop's UI may call.")));
@@ -181,7 +182,17 @@ pub async fn signal_cli_request(
     crate::rpc_guard::validate_request(&method, params.as_ref())?;
     let _t = CommandTimer::start_with_detail("signal_cli_request", allowed);
     let timeout = Duration::from_millis(timeout_ms.unwrap_or(30_000)).min(MAX_TIMEOUT);
-    service.request(&method, params, timeout).await
+    service.request_cancellable(cancel_id.as_deref(), &method, params, timeout).await
+}
+
+/// Stops the `signal_cli_request` that was given `cancel_id`. A no-op once
+/// that request has finished (or for an id nobody used); never touches the
+/// signal-cli process itself.
+#[tauri::command]
+pub fn signal_cli_cancel(service: Svc<'_>, cancel_id: String) -> Result<(), Error> {
+    crate::cancel::validate_cancel_id(&cancel_id)?;
+    service.cancel_request(&cancel_id);
+    Ok(())
 }
 
 #[tauri::command]

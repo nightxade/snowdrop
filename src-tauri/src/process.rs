@@ -124,6 +124,18 @@ impl Shared {
     }
 }
 
+/// Drops a request's `pending` entry when the request ends for any reason.
+struct PendingEntry<'a> {
+    shared: &'a Shared,
+    id: u64,
+}
+
+impl Drop for PendingEntry<'_> {
+    fn drop(&mut self) {
+        self.shared.pending.lock().expect("pending lock").remove(&self.id);
+    }
+}
+
 pub struct RpcProcess {
     shared: Arc<Shared>,
     shutdown: watch::Sender<bool>,
@@ -233,6 +245,9 @@ impl RpcProcess {
     pub async fn request(&self, method: &str, params: Option<&Map<String, Value>>, timeout: Duration) -> Result<Value, Error> {
         let id = self.shared.next_id.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
+        // Removes the entry however this call ends, including its future being
+        // dropped (a caller-side cancel); a no-op once a reply has taken it.
+        let _pending;
         // The writer is only held while the line is queued, never across the
         // wait for the answer: a clone kept that long would stop `shutdown`
         // from closing stdin until every request had been answered.
@@ -245,18 +260,15 @@ impl RpcProcess {
                 .clone()
                 .ok_or_else(|| Error::new(ErrorKind::Unreachable, "signal-cli isn't running right now."))?;
             self.shared.pending.lock().expect("pending lock").insert(id, tx);
+            _pending = PendingEntry { shared: &self.shared, id };
             if writer.send(request_line(id, method, params)).is_err() {
-                self.shared.pending.lock().expect("pending lock").remove(&id);
                 return Err(Error::new(ErrorKind::Unreachable, "signal-cli isn't running right now."));
             }
         }
         match tokio::time::timeout(timeout, rx).await {
             Ok(Ok(reply)) => Ok(reply),
             Ok(Err(_)) => Err(Error::new(ErrorKind::Unreachable, "signal-cli stopped before answering.")),
-            Err(_) => {
-                self.shared.pending.lock().expect("pending lock").remove(&id);
-                Err(Error::new(ErrorKind::Timeout, format!("signal-cli didn't answer {method} within {} s.", timeout.as_secs())))
-            }
+            Err(_) => Err(Error::new(ErrorKind::Timeout, format!("signal-cli didn't answer {method} within {} s.", timeout.as_secs()))),
         }
     }
 
@@ -901,5 +913,85 @@ mod tests {
                     .to_string()
             )]
         );
+    }
+
+    // ─── caller-side cancel ────────────────────────────────────────────
+
+    /// A process whose writer is a channel the test holds, with no child behind it.
+    fn bare_process() -> (RpcProcess, mpsc::UnboundedReceiver<String>) {
+        let (state, _) = watch::channel(ProcessState::Running { generation: 1 });
+        let shared = Arc::new(Shared {
+            next_id: AtomicU64::new(1),
+            pending: Mutex::new(HashMap::new()),
+            writer: Mutex::new(None),
+            state,
+            on_notification: Arc::new(|_, _| {}),
+            on_state: Arc::new(|_| {}),
+            generation: AtomicU64::new(1),
+            program: Mutex::new(PathBuf::from("x")),
+            has_fallback: true,
+            can_fall_back: AtomicBool::new(true),
+            abandon: Notify::new(),
+        });
+        let (line_tx, line_rx) = mpsc::unbounded_channel();
+        *shared.writer.lock().unwrap() = Some(line_tx);
+        let (shutdown, _) = watch::channel(false);
+        (RpcProcess { shared, shutdown, supervisor: Mutex::new(None) }, line_rx)
+    }
+
+    #[tokio::test]
+    async fn a_cancelled_request_removes_its_pending_entry_and_leaves_abandon_alone() {
+        let (process, mut lines) = bare_process();
+        let registry = crate::cancel::CancelRegistry::new();
+        let guard = registry.register("c").unwrap();
+        let process = Arc::new(process);
+        let task = {
+            let process = process.clone();
+            tokio::spawn(async move { guard.run(process.request("listAccounts", None, Duration::from_secs(60))).await })
+        };
+        // The line reached the writer, so the entry is registered.
+        lines.recv().await.expect("the request line");
+        assert_eq!(process.pending_count(), 1);
+        registry.cancel("c");
+        let result = tokio::time::timeout(Duration::from_secs(5), task).await.unwrap().unwrap();
+        assert_eq!(result.unwrap_err().kind, ErrorKind::Aborted);
+        assert_eq!(process.pending_count(), 0);
+        assert!(registry.is_empty());
+        // `notify_one` leaves a permit: an abandon would make this resolve at once.
+        let abandoned = tokio::time::timeout(Duration::from_millis(50), process.shared.abandon.notified()).await;
+        assert!(abandoned.is_err(), "a cancel must not ask the supervisor to give up on signal-cli");
+    }
+
+    #[tokio::test]
+    async fn the_pending_entry_and_registration_are_gone_after_a_timeout() {
+        let (process, _lines) = bare_process();
+        let registry = crate::cancel::CancelRegistry::new();
+        let result = registry
+            .register("t")
+            .unwrap()
+            .run(process.request("listAccounts", None, Duration::from_millis(20)))
+            .await;
+        assert_eq!(result.unwrap_err().kind, ErrorKind::Timeout);
+        assert_eq!(process.pending_count(), 0);
+        assert!(registry.is_empty());
+    }
+
+    #[tokio::test]
+    async fn the_registration_is_gone_after_a_normal_answer() {
+        let (process, mut lines) = bare_process();
+        let process = Arc::new(process);
+        let registry = crate::cancel::CancelRegistry::new();
+        let guard = registry.register("n").unwrap();
+        let task = {
+            let process = process.clone();
+            tokio::spawn(async move { guard.run(process.request("listAccounts", None, Duration::from_secs(60))).await })
+        };
+        lines.recv().await.expect("the request line");
+        let tx = process.shared.pending.lock().unwrap().remove(&1).expect("pending entry");
+        tx.send(serde_json::json!({"result": []})).unwrap();
+        let reply = tokio::time::timeout(Duration::from_secs(5), task).await.unwrap().unwrap().unwrap();
+        assert_eq!(reply["result"], serde_json::json!([]));
+        assert_eq!(process.pending_count(), 0);
+        assert!(registry.is_empty());
     }
 }

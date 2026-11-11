@@ -102,6 +102,7 @@ describe('TauriTransport', () => {
       method: 'listGroups',
       params: { account: '+1' },
       timeoutMs: 5_000,
+      cancelId: expect.stringMatching(/^[A-Za-z0-9._-]{1,64}$/) as string,
     });
   });
 
@@ -135,6 +136,15 @@ describe('TauriTransport', () => {
     });
     controller.abort();
     await expect(pending).rejects.toMatchObject({ kind: 'aborted' });
+    // Rust is told to stop the same request, by the id it was given.
+    const requestArgs = ipc.invoke.mock.calls.find(
+      ([name]) => name === 'signal_cli_request',
+    )?.[1] as {
+      cancelId: string;
+    };
+    expect(ipc.invoke).toHaveBeenCalledWith('signal_cli_cancel', {
+      cancelId: requestArgs.cancelId,
+    });
     // Rust still answers; nothing is waiting for it and nothing throws.
     answer({ result: { timestamp: 1 } });
     await Promise.resolve();
@@ -150,6 +160,33 @@ describe('TauriTransport', () => {
       }),
     ).rejects.toMatchObject({ kind: 'aborted' });
     expect(ipc.invoke).not.toHaveBeenCalled();
+  });
+
+  it('does not cancel a request that finished before any abort', async () => {
+    ipc.invoke.mockResolvedValue({ result: [] });
+    const controller = new AbortController();
+    await new TauriTransport({ desktop: spawn }).request('listGroups', undefined, {
+      signal: controller.signal,
+      timeoutMs: 5_000,
+    });
+    controller.abort();
+    expect(ipc.invoke).toHaveBeenCalledTimes(1);
+  });
+
+  it('maps a request Rust reports as aborted onto the aborted kind', async () => {
+    ipc.invoke.mockRejectedValueOnce({ kind: 'aborted', message: 'The request was cancelled.' });
+    await expect(
+      new TauriTransport({ desktop: spawn }).request('send', undefined, call),
+    ).rejects.toMatchObject({ name: 'SignalCliError', kind: 'aborted' });
+  });
+
+  it('gives each request its own cancel id', async () => {
+    ipc.invoke.mockResolvedValue({ result: [] });
+    const transport = new TauriTransport({ desktop: spawn });
+    await transport.request('listGroups', undefined, call);
+    await transport.request('listGroups', undefined, call);
+    const ids = ipc.invoke.mock.calls.map(([, args]) => (args as { cancelId: string }).cancelId);
+    expect(new Set(ids).size).toBe(2);
   });
 
   it('maps command errors onto SignalCliError kinds', async () => {

@@ -139,6 +139,8 @@ pub struct Service {
     stop_epoch: AtomicU64,
     /// Numbers subscribes, for [`Subscriptions::tokens`].
     next_token: AtomicU64,
+    /// In-flight requests the UI may cancel ([`crate::cancel`]).
+    cancels: crate::cancel::CancelRegistry,
 }
 
 /// What [`Service::prespawn`] did.
@@ -200,6 +202,7 @@ impl Service {
             starting: Mutex::new(None),
             stop_epoch: AtomicU64::new(0),
             next_token: AtomicU64::new(1),
+            cancels: crate::cancel::CancelRegistry::new(),
         })
     }
 
@@ -550,6 +553,28 @@ impl Service {
             log::warn!("signal-cli didn't stop within {backend_budget:?}; going on to the vault's final sync");
         }
         self.vault.shutdown().await;
+    }
+
+    /// [`request`](Self::request) that the UI can stop early: with a `cancel_id`,
+    /// `cancel_request` ends the wait with [`ErrorKind::Aborted`]. Registered
+    /// before anything is awaited, and released however the request ends.
+    pub async fn request_cancellable(
+        &self,
+        cancel_id: Option<&str>,
+        method: &str,
+        params: Option<Map<String, Value>>,
+        timeout: Duration,
+    ) -> Result<Value, Error> {
+        match cancel_id {
+            None => self.request(method, params, timeout).await,
+            Some(id) => self.cancels.register(id)?.run(self.request(method, params, timeout)).await,
+        }
+    }
+
+    /// Stops the in-flight request registered under `cancel_id`; a no-op if
+    /// it already finished. Deliberately leaves signal-cli alone.
+    pub fn cancel_request(&self, cancel_id: &str) {
+        self.cancels.cancel(cancel_id);
     }
 
     pub async fn request(&self, method: &str, params: Option<Map<String, Value>>, timeout: Duration) -> Result<Value, Error> {

@@ -32,6 +32,14 @@ import { validateRpcReply } from './ipcValidate';
 
 const log = createLogger('signal-cli');
 
+let cancelCounter = 0;
+
+/** A short token naming one request, so `signal_cli_cancel` can stop it in Rust. */
+function newCancelId(): string {
+  cancelCounter += 1;
+  return `r${cancelCounter}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 /** The Rust side's `StreamState`. */
 type RustStreamState =
   | { kind: 'connecting'; attempt: number }
@@ -48,6 +56,8 @@ const KINDS: Record<CommandError['kind'], SignalCliErrorKind> = {
   'invalid-response': 'invalid-response',
   // Only ever returned by the signal-cli *install* commands, never connect/request.
   cancelled: 'internal',
+  // A request stopped by `signal_cli_cancel`: the same as the caller's own abort.
+  aborted: 'aborted',
   // Only ever returned by `storage_keyring_status`, never connect/request.
   'keyring-unavailable': 'internal',
   'keyring-locked': 'internal',
@@ -141,14 +151,16 @@ export class TauriTransport implements SignalCliTransport {
     const { signal } = options;
     // Nothing is sent for a call abandoned before it started.
     if (signal.aborted) throw new SignalCliError('aborted', 'Request aborted');
+    const cancelId = newCancelId();
     let onAbort: (() => void) | undefined;
     const abandoned = new Promise<never>((_, reject) => {
       onAbort = () => {
-        // TODO(cancel_request): once Rust has `cancel_request(id)`, give the
-        // request an id here and call it, so the Rust side drops its pending
-        // entry and stops waiting on signal-cli. Until then the request still
-        // runs there; only this side stops waiting, and its late reply is
-        // dropped below.
+        // Stop the request in Rust too (it drops its pending entry and stops
+        // waiting; signal-cli itself is left alone). Best effort: if this
+        // misses, the request finishes there and its late reply is dropped below.
+        this.ipc
+          .invoke('signal_cli_cancel', { cancelId })
+          .catch(ignored('best effort: a missed cancel only lets the request finish unseen'));
         reject(new SignalCliError('aborted', 'Request aborted'));
       };
       signal.addEventListener('abort', onAbort, { once: true });
@@ -159,6 +171,7 @@ export class TauriTransport implements SignalCliTransport {
       method,
       params: params ?? null,
       timeoutMs: options.timeoutMs,
+      cancelId,
     });
     // A reply (or failure) that arrives after an abort is ignored.
     invoked.catch(ignored('the call was abandoned or already reported by the race below'));

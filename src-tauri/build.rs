@@ -9,6 +9,7 @@ fn main() {
             "signal_cli_connect",
             "signal_cli_restart",
             "signal_cli_request",
+            "signal_cli_cancel",
             "signal_cli_subscribe",
             "signal_cli_unsubscribe",
             "signal_cli_ack",

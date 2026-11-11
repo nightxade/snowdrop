@@ -18,6 +18,8 @@ pub enum ErrorKind {
     InvalidResponse,
     /// The caller cancelled an in-progress operation (e.g. the signal-cli download).
     Cancelled,
+    /// A request was cancelled by its caller (`signal_cli_cancel`) before it was answered.
+    Aborted,
     /// No OS keyring service is reachable (no Secret Service on the bus, no
     /// backend at all) or it didn't answer within the timeout.
     KeyringUnavailable,
