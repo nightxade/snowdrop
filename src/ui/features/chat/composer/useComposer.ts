@@ -2,7 +2,10 @@ import { describeSendFailure } from '@/ui/lib/connectionErrors';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import {
+  attachmentProblem,
   isPendingMessageId,
+  rejectedFilesMessage,
+  type AttachmentProblem,
   pollPreviewText,
   type Message,
   type Quote,
@@ -134,7 +137,16 @@ export function useComposer(conversation: ConversationView): ComposerState {
       setError(VOICE_ALONE);
       return;
     }
-    const added = files.map((file): PendingAttachment => ({
+    // A file that can never be sent never becomes a pending attachment; the rest of a drop stays.
+    const rejected: { name: string; problem: AttachmentProblem }[] = [];
+    const accepted = files.filter((file) => {
+      const problem = attachmentProblem(file);
+      if (problem) rejected.push({ name: file.name, problem });
+      return problem === null;
+    });
+    if (rejected.length > 0) setError(rejectedFilesMessage(rejected));
+    if (accepted.length === 0) return;
+    const added = accepted.map((file): PendingAttachment => ({
       id: `att-${++attachmentSeq}`,
       file,
       ...(isPreviewable(file) ? { previewUrl: URL.createObjectURL(file) } : {}),

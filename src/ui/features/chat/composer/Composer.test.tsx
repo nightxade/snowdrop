@@ -3,7 +3,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { axe } from 'vitest-axe';
 import type { Snowdrop } from '@/app/createSnowdrop';
 import { NavCommand } from '@/core/commands';
-import { MENTION_PLACEHOLDER, pendingMessageId, type ConversationId } from '@/core/domain';
+import {
+  MAX_ATTACHMENT_BYTES,
+  MENTION_PLACEHOLDER,
+  pendingMessageId,
+  type ConversationId,
+} from '@/core/domain';
 import { messagesSelectors } from '@/core/stores';
 import { bootSnowdrop, renderWithSnowdrop, settle } from '@/test/renderWithSnowdrop';
 import { ChatController, ChatControllerProvider } from '../ChatController';
@@ -140,6 +145,35 @@ describe('<Composer />', () => {
       },
     });
     expect(screen.getAllByRole('button', { name: 'Remove notes.txt' })).toHaveLength(1);
+  });
+
+  it('refuses a too-large file with a message and keeps the rest of the drop', async () => {
+    const { chat } = await setup();
+    const huge = new File(['x'], 'movie.mov', { type: 'video/quicktime' });
+    Object.defineProperty(huge, 'size', { value: MAX_ATTACHMENT_BYTES + 1 });
+    const fine = new File(['hello'], 'notes.txt', { type: 'text/plain' });
+    act(() => {
+      chat.addFiles([huge, fine]);
+    });
+    expect(screen.getByRole('alert').textContent).toBe(
+      '\u201cmovie.mov\u201d is over 100 MB, so it can\u2019t be sent.',
+    );
+    expect(screen.getAllByRole('button', { name: /^Remove / })).toHaveLength(1);
+    expect(screen.getByRole('button', { name: 'Remove notes.txt' })).toBeTruthy();
+  });
+
+  it('adds no attachment for an empty file, and counts many refused files', async () => {
+    const { chat } = await setup();
+    act(() => {
+      chat.addFiles([new File([], 'blank.txt', { type: 'text/plain' })]);
+    });
+    expect(screen.getByRole('alert').textContent).toBe('\u201cblank.txt\u201d is empty.');
+    expect(screen.queryByRole('list', { name: 'Attachments to send' })).toBeNull();
+    act(() => {
+      chat.addFiles(['a', 'b', 'c', 'd'].map((n) => new File([], `${n}.txt`)));
+    });
+    expect(screen.getByRole('alert').textContent).toBe('4 files are empty.');
+    expect(screen.queryByRole('list', { name: 'Attachments to send' })).toBeNull();
   });
 
   it('leaves ordinary text paste to the browser', async () => {

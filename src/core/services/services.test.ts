@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { MockBackend } from '@/core/backend/mock';
 import {
+  MAX_ATTACHMENT_BYTES,
   MENTION_PLACEHOLDER,
   applyDelete,
   applyReaction,
@@ -1730,6 +1731,33 @@ describe('SendService', () => {
       attachments: [{ fileName: 'a.txt', contentType: 'text/plain', data: file }],
     });
     expect(list(id).at(-1)?.attachments[0]?.url).toBe('data:text/plain;base64,aGVsbG8=');
+  });
+
+  it('refuses an oversize or empty file before staging anything', async () => {
+    const { send, conv, list, history, repository } = await setup();
+    const id = conv('dm-ines');
+    await history.open(id);
+    const before = list(id).length;
+    const huge = new Blob(['x'], { type: 'text/plain' });
+    Object.defineProperty(huge, 'size', { value: MAX_ATTACHMENT_BYTES + 1 });
+    await expect(
+      send.send({
+        ...draft(id, 'here'),
+        attachments: [{ fileName: 'big.bin', contentType: 'application/octet-stream', data: huge }],
+      }),
+    ).rejects.toMatchObject({
+      kind: 'user',
+      outcome: 'not-sent',
+      message: '\u201cbig.bin\u201d is over 100 MB, so it can\u2019t be sent.',
+    });
+    await expect(
+      send.send({
+        ...draft(id, ''),
+        attachments: [{ fileName: 'none.txt', contentType: 'text/plain', data: new Blob([]) }],
+      }),
+    ).rejects.toMatchObject({ message: '\u201cnone.txt\u201d is empty.' });
+    expect(list(id)).toHaveLength(before);
+    expect(await repository.listOutbox()).toEqual([]);
   });
 
   it('edits optimistically and rolls back on failure', async () => {

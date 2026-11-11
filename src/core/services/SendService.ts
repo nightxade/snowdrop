@@ -33,6 +33,8 @@ import {
   applyDelete,
   applyEdit,
   applyPollTerminate,
+  attachmentProblem,
+  attachmentProblemMessage,
   applyPollVote,
   applyReaction,
   attachMentions,
@@ -66,6 +68,7 @@ import {
   pollDraftProblem,
   tidyPollDraft,
   toAppError,
+  AppError,
   type Clock,
   ignore,
   ignored,
@@ -286,6 +289,19 @@ export class SendService {
       transformed.format,
     );
     if (body.trim() === '' && transformed.attachments.length === 0) return null;
+    // The composer already refuses these; this is the net for the paths that skip it. Nothing is
+    // staged, so no row or Blob is stored for a file that can never go out.
+    for (const a of transformed.attachments) {
+      const problem = attachmentProblem({
+        size: a.data.size,
+        name: a.fileName,
+        type: a.contentType,
+      });
+      if (problem)
+        throw new AppError('user', attachmentProblemMessage(a.fileName, problem), {
+          outcome: 'not-sent',
+        });
+    }
 
     const { repository, clock } = this.deps;
     const nonce = this.newNonce();

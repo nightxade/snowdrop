@@ -5,38 +5,45 @@
  */
 import type { DesktopConnection } from '@/core/stores';
 
-export type DesktopErrorKind =
-  | 'unreachable'
-  | 'timeout'
-  | 'not-installed'
-  | 'config'
-  | 'invalid-response'
-  | 'cancelled'
-  | 'keyring-unavailable'
-  | 'keyring-locked'
-  | 'keyring-corrupt'
-  | 'keyring-secret-missing'
-  | 'auth-failed'
-  | 'slot-missing'
+/**
+ * Every `kind` the desktop commands can fail with: the serialized names of Rust's
+ * `ErrorKind` (src-tauri/src/error.rs), kept equal by a test.
+ */
+export const DESKTOP_ERROR_KINDS = [
+  'unreachable',
+  'timeout',
+  'not-installed',
+  'config',
+  'invalid-response',
+  'cancelled',
+  'keyring-unavailable',
+  'keyring-locked',
+  'keyring-corrupt',
+  'keyring-secret-missing',
+  'auth-failed',
+  'slot-missing',
   /**
    * Removing a recovery or passphrase slot would leave no way to ever
    * unlock Snowdrop again. The UI should explain that another method needs
    * setting up first, not just show a generic failure.
    */
-  | 'last-unlock-method'
-  | 'keys-file-corrupt'
-  | 'recovery-code-typo'
-  | 'vault-corrupt'
-  | 'vault-blob-corrupt'
-  | 'no-ram-dir'
-  | 'already-running'
+  'last-unlock-method',
+  'keys-file-corrupt',
+  'recovery-code-typo',
+  'vault-corrupt',
+  'vault-blob-corrupt',
+  'no-ram-dir',
+  'already-running',
   /**
    * `signal_cli_connect` while storage is `'locked'` or `'needsSetup'`: the
    * signal-cli vault can't be restored or created yet. The UI should route
    * to the unlock or setup screen rather than retry.
    */
-  | 'storage-locked'
-  | 'internal';
+  'storage-locked',
+  'internal',
+] as const;
+
+export type DesktopErrorKind = (typeof DESKTOP_ERROR_KINDS)[number];
 
 export interface ResolvedProgram {
   path: string;

@@ -9,7 +9,7 @@
  * re-download or leak object URLs.
  */
 import { ignored } from '@/core/lib';
-import type { Attachment, LinkPreview } from '@/core/domain';
+import { MAX_ATTACHMENT_BYTES, type Attachment, type LinkPreview } from '@/core/domain';
 import type { OutgoingAttachment, OutgoingLinkPreview } from '../types';
 import { SignalCliError } from './errors';
 import { toDataUri } from './params';
@@ -116,8 +116,7 @@ export function sniffStickerMediaType(bytes: Uint8Array): string {
   return 'image/webp';
 }
 
-/** Largest file we send or download through the daemon's JSON API. */
-export const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
+export { MAX_ATTACHMENT_BYTES };
 /** Shortest edge limit of the preview we keep for our own sent images, in pixels. */
 export const THUMBNAIL_MAX_EDGE = 512;
 /**

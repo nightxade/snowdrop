@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Snowdrop } from '@/app/createSnowdrop';
-import { directConversationId, type Contact } from '@/core/domain';
+import { directConversationId, MAX_ATTACHMENT_BYTES, type Contact } from '@/core/domain';
 import { selectConversationViews } from '@/core/stores';
 import { bootForward, openChat, ownMessages, type ForwardKit } from '@/test/forwardKit';
 import { buildForwardTargets, type ForwardTarget } from './model';
@@ -104,6 +104,25 @@ describe('forwardToTarget', () => {
       { fileName: 'a.png', contentType: 'image/png', width: 3, height: 2 },
     ]);
     expect(second?.attachments?.[0]?.voiceNote).toBeUndefined();
+  });
+
+  it('names a file that is too large and sends nothing', async () => {
+    const huge = new Blob(['x']);
+    Object.defineProperty(huge, 'size', { value: MAX_ATTACHMENT_BYTES + 1 });
+    const inputs = sentInputs();
+    const result = await forwardToTarget(kit.snowdrop, target('dm-ines'), [
+      {
+        kind: 'message',
+        text: '',
+        files: [{ fileName: 'big.bin', contentType: 'x/y', data: huge }],
+      },
+    ]);
+    expect(result).toMatchObject({
+      ok: false,
+      reason: '\u201cbig.bin\u201d is over 100 MB, so it can\u2019t be sent.',
+      sent: 0,
+    });
+    expect(inputs()).toEqual([]);
   });
 
   it('sends a sticker as a sticker, and the link preview with its picture', async () => {

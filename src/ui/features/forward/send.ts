@@ -4,7 +4,12 @@
  * chat with its own pending / failed state and a Retry.
  */
 import type { OutgoingAttachment, OutgoingLinkPreview } from '@/core/backend';
-import type { ConversationId, StickerContent } from '@/core/domain';
+import {
+  attachmentProblem,
+  attachmentProblemMessage,
+  type ConversationId,
+  type StickerContent,
+} from '@/core/domain';
 import { createLogger } from '@/core/lib';
 import { selectMessageRequestState } from '@/core/stores';
 import { ensureDirectConversation } from '@/ui/features/conversation';
@@ -139,6 +144,10 @@ export async function forwardToTarget(
         await app.send.sendSticker({ conversationId: id, sticker: item.sticker });
         delivered.add(key);
         continue;
+      }
+      for (const file of item.files) {
+        const problem = attachmentProblem({ size: file.data.size, name: file.fileName });
+        if (problem) return fail(id, attachmentProblemMessage(file.fileName, problem), delivered);
       }
       const nonce = await app.send.send({
         conversationId: id,
