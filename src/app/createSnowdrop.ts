@@ -43,6 +43,7 @@ import {
   IdentityService,
   ReadStateService,
   PhonePrivacyService,
+  ExpiryService,
   ProfileService,
   MessageRequestService,
   SendService,
@@ -155,6 +156,8 @@ export interface Snowdrop {
   phonePrivacy: PhonePrivacyService;
   /** The user's own name, about and photo. */
   profile: ProfileService;
+  /** Disappearing messages: the purge, tombstones and history countdowns. */
+  expiry: ExpiryService;
   send: SendService;
   /** Accept, delete, block and unblock a message request. */
   requests: MessageRequestService;
@@ -468,8 +471,18 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     const connection = stores.settings.getState().connection;
     return scopeFor(registration.kind, connection.account ?? (connection.desktop.account || null));
   };
-  // Declared before `send` and `sync`, which both use it; the purge it asks for
-  // is SyncService's (a countdown just started), reached through `sync` once built.
+  // Declared before `readState`, `send` and `sync`, which all use it; `sync`
+  // attaches its queue and connection to it when built.
+  const expiry = new ExpiryService({
+    backend,
+    repository,
+    stores,
+    clock,
+    scheduler,
+    onError: (error, context) => {
+      syncLog.error(context, error);
+    },
+  });
   const readState = new ReadStateService({
     backend,
     repository,
@@ -477,7 +490,7 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     clock,
     scheduler,
     schedulePurge: (delayMs) => {
-      sync.noteExpiry(clock.now() + delayMs);
+      expiry.schedulePurge(delayMs);
     },
     onError: (error, context) => {
       syncLog.error(context, error);
@@ -511,7 +524,7 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     reactionWatch,
     readConversation: (id) => readState.markConversationRead(id),
     onExpiry: (at) => {
-      sync.noteExpiry(at);
+      expiry.noteExpiry(at);
     },
     onIdentityBlocked: ({ conversationId, nonce, contactIds }) => {
       identity.noteUntrusted(contactIds);
@@ -544,6 +557,7 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     readState,
     phonePrivacy,
     profile,
+    expiry,
     postConnect,
     onError: (error, context) => {
       syncLog.error(context, error);
@@ -806,6 +820,7 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     readState,
     phonePrivacy,
     profile,
+    expiry,
     send,
     requests,
     groups,
