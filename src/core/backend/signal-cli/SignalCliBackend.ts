@@ -39,8 +39,10 @@ import {
 import {
   createLogger,
   Emitter,
+  raceAbort,
   stripBidiControls,
   systemClock,
+  throwIfAborted,
   systemScheduler,
   type Cancel,
   type Clock,
@@ -51,6 +53,7 @@ import {
 } from '@/core/lib';
 import type { KeyValueStorage } from '@/core/persistence';
 import type {
+  AbortOptions,
   BackendEvents,
   ChatBackend,
   ConversationPatch,
@@ -366,18 +369,25 @@ export class SignalCliBackend implements ChatBackend {
       },
     });
     this.link = {
-      start: async () => {
+      start: async (options) => {
         const { deviceLinkUri } = await this.rpc.call('startLink', undefined, wireStartLink, {
           account: null,
+          ...(options?.signal ? { signal: options.signal } : {}),
         });
         return { uri: deviceLinkUri };
       },
-      finish: async (uri, deviceName) => {
+      finish: async (uri, deviceName, options) => {
         const result = await this.rpc.call(
           'finishLink',
           { deviceLinkUri: uri, deviceName },
           wireFinishLink,
-          { account: null, timeoutMs: LINK_TIMEOUT_MS },
+          {
+            account: null,
+            timeoutMs: LINK_TIMEOUT_MS,
+            // Linking may complete on the daemon even if we stop waiting.
+            mutating: true,
+            ...(options?.signal ? { signal: options.signal } : {}),
+          },
         );
         const accountId = result.aci ?? result.number;
         if (!accountId) {
@@ -1351,12 +1361,24 @@ export class SignalCliBackend implements ChatBackend {
     return archive !== null && chatId !== undefined ? archive.chatHasOutgoing(chatId) : false;
   }
 
-  async fetchHistory(conversationId: ConversationId, query: HistoryQuery): Promise<HistoryPage> {
+  async fetchHistory(
+    conversationId: ConversationId,
+    query: HistoryQuery,
+    options?: AbortOptions,
+  ): Promise<HistoryPage> {
     this.assertAccount();
-    const archive = await this.loadHistory();
-    return archive
-      ? archive.fetchHistory(conversationId, query, this.clock.now())
-      : { messages: [], hasMoreBefore: false };
+    throwIfAborted(options?.signal);
+    // Opening the archive is shared by every caller, so an abort only stops
+    // this caller's wait (and its paging loop), never the shared open.
+    return raceAbort(
+      (async () => {
+        const archive = await this.loadHistory();
+        return archive
+          ? archive.fetchHistory(conversationId, query, this.clock.now(), options?.signal)
+          : { messages: [], hasMoreBefore: false };
+      })(),
+      options?.signal,
+    );
   }
 
   async remapHistoryMessages(messages: readonly Message[]): Promise<Message[]> {
@@ -1410,19 +1432,30 @@ export class SignalCliBackend implements ChatBackend {
   async resolveAttachmentUrl(
     _conversationId: ConversationId,
     attachment: Attachment,
-    options?: { forceRefresh?: boolean },
+    options?: { forceRefresh?: boolean } & AbortOptions,
   ): Promise<string> {
     this.assertAccount();
-    return this.attachments.resolve(attachment, {}, options);
+    throwIfAborted(options?.signal);
+    // Downloads are shared and cached across callers: an abort only stops this
+    // caller's wait, and the download still lands in the cache.
+    return raceAbort(
+      this.attachments.resolve(
+        attachment,
+        {},
+        options?.forceRefresh === undefined ? {} : { forceRefresh: options.forceRefresh },
+      ),
+      options?.signal,
+    );
   }
 
   async readAttachmentBlob(
     _conversationId: ConversationId,
     attachment: Attachment,
-    options?: { maxBytes?: number },
+    options?: { maxBytes?: number } & AbortOptions,
   ): Promise<Blob> {
     this.assertAccount();
-    return this.attachments.readBlob(attachment, {}, options?.maxBytes);
+    throwIfAborted(options?.signal);
+    return this.attachments.readBlob(attachment, {}, options?.maxBytes, options?.signal);
   }
 
   /**
@@ -1748,10 +1781,11 @@ export class SignalCliBackend implements ChatBackend {
     );
   }
 
-  async send(input: SendInput): Promise<SendResult> {
+  async send(input: SendInput, options?: AbortOptions): Promise<SendResult> {
     this.assertAccount();
+    throwIfAborted(options?.signal);
     const target = this.targetOf(input.conversationId);
-    if (input.poll) return this.sendPoll(input.conversationId, input.poll, target);
+    if (input.poll) return this.sendPoll(input.conversationId, input.poll, target, options);
     const stamp = this.clock.now().toString(36);
     let sticker: string | undefined;
     if (input.sticker) {
@@ -1790,6 +1824,8 @@ export class SignalCliBackend implements ChatBackend {
     try {
       result = await this.rpc.call('send', params, wireSendResult, {
         timeoutMs: encoded.length > 0 ? 180_000 : 60_000,
+        mutating: true,
+        ...(options?.signal ? { signal: options.signal } : {}),
       });
     } catch (error) {
       throw enrichSendError(error);
@@ -1810,6 +1846,7 @@ export class SignalCliBackend implements ChatBackend {
     conversationId: ConversationId,
     poll: NonNullable<SendInput['poll']>,
     target: RpcParams,
+    options?: AbortOptions,
   ): Promise<SendResult> {
     let result;
     try {
@@ -1817,7 +1854,11 @@ export class SignalCliBackend implements ChatBackend {
         'sendPollCreate',
         { ...target, ...pollCreateParams(poll) },
         wireSendResult,
-        { timeoutMs: 60_000 },
+        {
+          timeoutMs: 60_000,
+          mutating: true,
+          ...(options?.signal ? { signal: options.signal } : {}),
+        },
       );
     } catch (error) {
       throw enrichSendError(error);

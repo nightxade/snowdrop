@@ -620,7 +620,29 @@ export class SendService {
     await this.deps.repository.discardOutgoing(nonce);
   }
 
-  private async attempt(nonce: string): Promise<void> {
+  /** Attempts still talking to the backend or recording how they ended. */
+  private readonly attempts = new Set<Promise<void>>();
+
+  /**
+   * Resolves once every attempt running now has finished and recorded its
+   * outcome (stored row and outbox entry). The exit path waits on this, briefly,
+   * after aborting in-flight sends so "may have sent" is written before the flush.
+   */
+  async settled(): Promise<void> {
+    while (this.attempts.size > 0) await Promise.allSettled([...this.attempts]);
+  }
+
+  private attempt(nonce: string): Promise<void> {
+    const running = this.runAttempt(nonce);
+    this.attempts.add(running);
+    const done = (): void => {
+      this.attempts.delete(running);
+    };
+    running.then(done, done);
+    return running;
+  }
+
+  private async runAttempt(nonce: string): Promise<void> {
     const out = this.outgoing.get(nonce);
     if (!out) return;
     const { repository, stores, backend, clock } = this.deps;

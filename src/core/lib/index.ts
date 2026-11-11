@@ -9,3 +9,4 @@ export * from './startup';
 export * from './poll';
 export * from './yield';
 export * from './errors';
+export * from './abort';

@@ -14,6 +14,7 @@ import {
   createLogger,
   systemClock,
   systemScheduler,
+  type Cancel,
   type Clock,
   type LogAdmin,
   type Scheduler,
@@ -105,6 +106,8 @@ import {
  * with the same key, so the old account's cache would otherwise survive.
  * `start()` below honours it before connecting.
  */
+/** How long quitting waits for aborted sends to record their outcome (the exit handshake allows 2 s). */
+const ABORT_SETTLE_MS = 500;
 const PENDING_HISTORY_CLEAR_KEY = 'snowdrop.pendingHistoryClear';
 
 export interface SnowdropOptions {
@@ -178,6 +181,13 @@ export interface Snowdrop {
   start(): Promise<void>;
   /** Writes debounced persisted state now (call on page hide). */
   flush(): void;
+  /**
+   * The app is quitting: stops waiting on in-flight sends, link steps, history
+   * pages and downloads. A send that was aborted ends as "may have sent".
+   * Resolves once aborted sends have recorded that (bounded, so a stuck one
+   * cannot hold up quitting). Final; `dispose()` aborts too.
+   */
+  abortInFlight(): Promise<void>;
   dispose(): Promise<void>;
 }
 
@@ -393,6 +403,10 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
   // The transport is chosen once per instance; switching means a new instance
   // (a reload) — `registration` was already resolved above, to pick spaces/
   // local's initial scope before loading them.
+  // One controller for the session: `dispose()` aborts it, so quitting doesn't
+  // wait for a slow send, history page or download (the bounded waits in
+  // `SyncService.stop` still cover everything else).
+  const shutdown = new AbortController();
   const { backend, ready, repository } = connectBackend(
     registration,
     {
@@ -415,6 +429,7 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
       },
     },
     options.repository,
+    shutdown.signal,
   );
   // Shared so a receipt, or a delete/reaction/edit/pin, that beats the send's
   // acknowledgement isn't lost.
@@ -789,7 +804,18 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
       flushBindings();
     },
 
+    async abortInFlight() {
+      shutdown.abort();
+      let cancel: Cancel | undefined;
+      const gaveUp = new Promise<void>((resolve) => {
+        cancel = scheduler.setTimeout(resolve, ABORT_SETTLE_MS);
+      });
+      await Promise.race([send.settled(), gaveUp]);
+      cancel?.();
+    },
+
     async dispose() {
+      shutdown.abort();
       for (const off of cleanups.splice(0)) off();
       persistenceStopped = true;
       disposeBindings();

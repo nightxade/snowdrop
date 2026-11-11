@@ -24,7 +24,11 @@ const attachment: Attachment = { id: 'att-1', contentType: 'image/png' };
 const message: MessageRef = { authorId: 'author-1', sentAt: 1_000 };
 
 interface FakeBackend {
-  resolveAttachmentUrl: (conversationId: ConversationId, attachment: Attachment) => Promise<string>;
+  resolveAttachmentUrl: (
+    conversationId: ConversationId,
+    attachment: Attachment,
+    options?: { forceRefresh?: boolean; signal?: AbortSignal },
+  ) => Promise<string>;
   retainAttachmentUrl?: (attachment: Attachment) => void;
   releaseAttachmentUrl?: (attachment: Attachment) => void;
   requestAttachmentBackfill?: (
@@ -120,6 +124,24 @@ describe('useAttachmentUrl: no URL cache that can outlive the backend resolver',
     });
     await screen.findByText('ready:blob:second');
     expect(resolveAttachmentUrl).toHaveBeenCalledTimes(2);
+  });
+
+  it('aborts the download when the tile unmounts', () => {
+    let signal: AbortSignal | undefined;
+    const resolveAttachmentUrl = vi.fn(
+      (_c: ConversationId, _a: Attachment, options?: { signal?: AbortSignal }) => {
+        signal = options?.signal;
+        return new Promise<string>(() => undefined);
+      },
+    );
+    const { unmount } = render(
+      <SnowdropContextProvider value={fakeApp({ resolveAttachmentUrl })}>
+        <Probe />
+      </SnowdropContextProvider>,
+    );
+    expect(signal?.aborted).toBe(false);
+    unmount();
+    expect(signal?.aborted).toBe(true);
   });
 
   it('surfaces a rejection as an error state with a retry, not a stuck "ready"', async () => {

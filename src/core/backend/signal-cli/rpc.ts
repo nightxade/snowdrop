@@ -30,7 +30,18 @@ export interface CallOptions {
   /** Overrides the client's account; `null` sends no account param. */
   account?: string | null;
   timeoutMs?: number;
+  /**
+   * Gives up on the call: it rejects with kind `aborted` at once and a late
+   * reply is ignored. The transport is asked to cancel where it can (HTTP
+   * aborts the fetch); the desktop shell does not yet (see TauriTransport).
+   */
   signal?: AbortSignal;
+  /**
+   * The method changes something (a send, linking). An abort after the
+   * request was handed to the transport then says `maybe-sent`: the daemon
+   * may still carry it out. Without this an abort says `unknown`.
+   */
+  mutating?: boolean;
 }
 
 export class JsonRpcClient {
@@ -93,26 +104,34 @@ export class JsonRpcClient {
    * deadline is enforced here, whether or not the transport can cancel.
    */
   private async withDeadline<T>(
-    options: Pick<CallOptions, 'timeoutMs' | 'signal'>,
+    options: Pick<CallOptions, 'timeoutMs' | 'signal' | 'mutating'>,
     run: (call: TransportCallOptions) => Promise<T>,
   ): Promise<T> {
     const controller = new AbortController();
     const timeoutMs = options.timeoutMs ?? this.timeoutMs;
     const external = options.signal;
+    // Nothing is dispatched for a call that was abandoned before it started.
+    if (external?.aborted)
+      throw new SignalCliError('aborted', 'Request aborted', { outcome: 'not-sent' });
     const failure = new Promise<never>((_, reject) => {
       const timer = setTimeout(() => {
         controller.abort();
         reject(new SignalCliError('timeout', `signal-cli did not answer within ${timeoutMs} ms`));
       }, timeoutMs);
-      const onAbort = (): void => {
+      const onAbortLater = (): void => {
         controller.abort();
-        reject(new SignalCliError('aborted', 'Request aborted'));
+        reject(
+          new SignalCliError('aborted', 'Request aborted', {
+            // The request was handed to the transport, so a mutating call may
+            // have been carried out anyway.
+            ...(options.mutating ? { requestSent: true } : {}),
+          }),
+        );
       };
-      if (external?.aborted) onAbort();
-      else external?.addEventListener('abort', onAbort, { once: true });
+      external?.addEventListener('abort', onAbortLater, { once: true });
       controller.signal.addEventListener('abort', () => {
         clearTimeout(timer);
-        external?.removeEventListener('abort', onAbort);
+        external?.removeEventListener('abort', onAbortLater);
       });
     });
     // Unhandled-rejection guard: `failure` may settle after the call won.

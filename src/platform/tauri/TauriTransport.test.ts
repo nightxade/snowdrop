@@ -121,6 +121,37 @@ describe('TauriTransport', () => {
     },
   );
 
+  it('stops waiting for a request that is aborted, and ignores its late reply', async () => {
+    let answer!: (reply: unknown) => void;
+    ipc.invoke.mockReturnValue(
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    );
+    const controller = new AbortController();
+    const pending = new TauriTransport({ desktop: spawn }).request('send', undefined, {
+      signal: controller.signal,
+      timeoutMs: 5_000,
+    });
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ kind: 'aborted' });
+    // Rust still answers; nothing is waiting for it and nothing throws.
+    answer({ result: { timestamp: 1 } });
+    await Promise.resolve();
+  });
+
+  it('sends nothing for a request already aborted', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      new TauriTransport({ desktop: spawn }).request('send', undefined, {
+        signal: controller.signal,
+        timeoutMs: 5_000,
+      }),
+    ).rejects.toMatchObject({ kind: 'aborted' });
+    expect(ipc.invoke).not.toHaveBeenCalled();
+  });
+
   it('maps command errors onto SignalCliError kinds', async () => {
     const transport = new TauriTransport({ desktop: spawn });
     ipc.invoke.mockRejectedValueOnce({ kind: 'not-installed', message: 'Install signal-cli…' });

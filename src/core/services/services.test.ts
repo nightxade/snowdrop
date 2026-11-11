@@ -12,7 +12,7 @@ import {
   type ConversationId,
   type Message,
 } from '@/core/domain';
-import { ManualScheduler } from '@/core/lib';
+import { AppError, ManualScheduler } from '@/core/lib';
 import { createMemoryStorage, MemoryMessageRepository } from '@/core/persistence';
 import {
   createStores,
@@ -1189,6 +1189,33 @@ describe('SendService', () => {
     const sent = stores.messages.getState().findByNonce(id, 'nonce-1');
     expect(sent?.status).toBe('sent');
     expect(sent?.sendUnconfirmed).toBeUndefined();
+  });
+
+  it('marks a send aborted by shutdown as unconfirmed, not as a plain failure', async () => {
+    const { stores, send, backend, conv, history } = await setup();
+    const id = conv('orchard-eng');
+    await history.open(id);
+    // The request left and the app stopped waiting: the daemon may have sent it.
+    backend.failNext(new AppError('aborted', 'Request aborted', { outcome: 'maybe-sent' }));
+    await send.send(draft(id, 'quit mid-send'));
+    expect(stores.messages.getState().findByNonce(id, 'nonce-1')).toMatchObject({
+      status: 'failed',
+      sendUnconfirmed: true,
+    });
+    // An abort that says nothing about delivery (a reconnect that was replaced) is a plain failure.
+    backend.failNext(new AppError('aborted', 'Request aborted', { outcome: 'unknown' }));
+    await send.send(draft(id, 'plain abort'));
+    expect(stores.messages.getState().findByNonce(id, 'nonce-2')?.sendUnconfirmed).toBeUndefined();
+  });
+
+  it('never gives a user-initiated send a signal of its own, so leaving a screen cannot cancel it', async () => {
+    const { send, backend, conv, history } = await setup();
+    const id = conv('orchard-eng');
+    await history.open(id);
+    const spy = vi.spyOn(backend, 'send');
+    await send.send(draft(id, 'must complete'));
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0]).toHaveLength(1);
   });
 
   describe('stickers', () => {

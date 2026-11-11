@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { StrictMode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { AppError } from '@/core/lib';
 import { LinkDevice } from './LinkDevice';
 
 afterEach(cleanup);
@@ -67,6 +68,59 @@ describe('LinkDevice', () => {
       await Promise.resolve();
     });
     expect(onLinked).not.toHaveBeenCalled();
+  });
+
+  /** A link whose `finish` waits until its signal fires, then rejects the way an adapter does. */
+  function abortableLink() {
+    const signals: AbortSignal[] = [];
+    const link = {
+      start: vi.fn().mockResolvedValue({ uri: 'sgnl://linkdevice?uuid=test' }),
+      finish: vi.fn(
+        (_uri: string, _name: string, options?: { signal?: AbortSignal }) =>
+          new Promise<{ accountId: string }>((_resolve, reject) => {
+            const signal = options?.signal;
+            if (signal) signals.push(signal);
+            signal?.addEventListener('abort', () => {
+              reject(new AppError('aborted', 'Request aborted', { outcome: 'maybe-sent' }));
+            });
+          }),
+      ),
+    };
+    return { link, signals };
+  }
+
+  it('aborts the link in flight when the screen is left, and shows no error', async () => {
+    const onLinked = vi.fn();
+    const { link, signals } = abortableLink();
+    const { unmount, container } = render(<LinkDevice link={link} onLinked={onLinked} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Show code' }));
+    await vi.waitFor(() => {
+      expect(link.finish).toHaveBeenCalledTimes(1);
+    });
+    expect(signals[0]?.aborted).toBe(false);
+    unmount();
+    expect(signals[0]?.aborted).toBe(true);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(container.textContent).toBe('');
+    expect(onLinked).not.toHaveBeenCalled();
+  });
+
+  it('aborts the link when the user goes back to edit, without showing a failure', async () => {
+    const { link, signals } = abortableLink();
+    render(<LinkDevice link={link} onLinked={() => undefined} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Show code' }));
+    await vi.waitFor(() => {
+      expect(link.finish).toHaveBeenCalledTimes(1);
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Change name' }));
+    expect(signals[0]?.aborted).toBe(true);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByLabelText('Device name')).toBeTruthy();
   });
 
   it('still reports a link that finishes while the screen is up (StrictMode safe)', async () => {

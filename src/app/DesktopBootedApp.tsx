@@ -56,6 +56,9 @@ export function DesktopBootedApp({
     // (a message still being encrypted when the window closes). The caller's
     // exit budget bounds the wait.
     registerFlusher?.(async () => {
+      // Quitting: stop waiting on slow requests and let an aborted send record
+      // "may have sent" (briefly), so that write is in the flush below.
+      await snowdrop.abortInFlight();
       snowdrop.flush();
       await Promise.all([
         storage.flush(),

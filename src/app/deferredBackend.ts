@@ -19,8 +19,15 @@
  * to cover the whole interface: adding a member without saying how it is
  * forwarded is a compile error. Arguments always pass through unchanged.
  */
-import { ignored } from '@/core/lib';
-import type { BackendEvents, BackendKind, ChatBackend, Feature, LinkFlow } from '@/core/backend';
+import { anySignal, ignored } from '@/core/lib';
+import type {
+  AbortOptions,
+  BackendEvents,
+  BackendKind,
+  ChatBackend,
+  Feature,
+  LinkFlow,
+} from '@/core/backend';
 import type { Unsubscribe } from '@/core/lib';
 import { FeatureStore } from '@/core/backend/features';
 
@@ -95,6 +102,43 @@ export const FORWARDING: Record<Keys, Forwarding> = {
   lookupRecipient: 'async',
 };
 
+/**
+ * Where the trailing `{ signal }` options sit in the calls that take one.
+ * With a shutdown signal, these calls also stop when it fires.
+ */
+const SIGNAL_OPTIONS_AT = {
+  send: 1,
+  fetchHistory: 2,
+  resolveAttachmentUrl: 2,
+  readAttachmentBlob: 2,
+} as const satisfies Partial<Record<Keys, number>>;
+
+/** `args` with the options at `index` carrying a signal that also fires on `shutdown`. */
+function withShutdown(
+  args: unknown[],
+  index: number,
+  shutdown: AbortSignal,
+): { args: unknown[]; dispose: () => void } {
+  const options = (args[index] ?? {}) as AbortOptions;
+  const { signal, dispose } = anySignal([options.signal, shutdown]);
+  const next = [...args];
+  while (next.length < index) next.push(undefined);
+  next[index] = { ...options, signal };
+  return { args: next, dispose };
+}
+
+/** Runs `run` with the shutdown signal merged into the call's options, if there is one. */
+function guarded<T>(
+  shutdown: AbortSignal | undefined,
+  args: unknown[],
+  index: number,
+  run: (args: unknown[]) => Promise<T>,
+): Promise<T> {
+  if (!shutdown) return run(args);
+  const merged = withShutdown(args, index, shutdown);
+  return run(merged.args).finally(merged.dispose);
+}
+
 type PeekKey = 'peekAvatarUrl' | 'hasPendingEvents';
 
 /**
@@ -120,11 +164,16 @@ interface Subscription {
  * @param kind the registration's kind (reported before the adapter loads)
  * @param features the registration's declared features (what the adapter has before it connects)
  * @param ready resolves with the real adapter once its chunk has loaded
+ * @param shutdown fires when the session is closing: the long calls (`send`,
+ *   `link.*`, `fetchHistory`, `resolveAttachmentUrl`, `readAttachmentBlob`) stop
+ *   waiting for the daemon (an abort of a send says `maybe-sent`), in
+ *   addition to any signal the caller passes
  */
 export function deferredBackend(
   kind: BackendKind,
   features: Iterable<Feature>,
   ready: Promise<ChatBackend>,
+  shutdown?: AbortSignal,
 ): ChatBackend {
   let real: ChatBackend | null = null;
   // The registration's set until the adapter arrives, then its set, and every change after.
@@ -161,7 +210,14 @@ export function deferredBackend(
     return Reflect.apply(method as (...a: unknown[]) => unknown, b, args);
   };
   for (const key of keysOf('async')) {
-    target[key] = (...args: unknown[]) => call((b) => invoke(b, key, args) as Promise<unknown>);
+    const signalAt = (SIGNAL_OPTIONS_AT as Partial<Record<Keys, number>>)[key];
+    target[key] =
+      signalAt === undefined
+        ? (...args: unknown[]) => call((b) => invoke(b, key, args) as Promise<unknown>)
+        : (...args: unknown[]) =>
+            guarded(shutdown, args, signalAt, (merged) =>
+              call((b) => invoke(b, key, merged) as Promise<unknown>),
+            );
   }
   for (const key of keysOf('queued')) {
     target[key] = (...args: unknown[]) => {
@@ -197,8 +253,14 @@ export function deferredBackend(
   } satisfies Pick<ChatBackend, 'kind' | 'capabilities' | 'getStatus' | 'on'>);
 
   backend.link = {
-    start: (...args: Parameters<LinkFlow['start']>) => call((b) => b.link.start(...args)),
-    finish: (...args: Parameters<LinkFlow['finish']>) => call((b) => b.link.finish(...args)),
+    start: (...args: Parameters<LinkFlow['start']>) =>
+      guarded(shutdown, args, 0, (merged) =>
+        call((b) => b.link.start(...(merged as Parameters<LinkFlow['start']>))),
+      ),
+    finish: (...args: Parameters<LinkFlow['finish']>) =>
+      guarded(shutdown, args, 2, (merged) =>
+        call((b) => b.link.finish(...(merged as Parameters<LinkFlow['finish']>))),
+      ),
   };
   return backend;
 }

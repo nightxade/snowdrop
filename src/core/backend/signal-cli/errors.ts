@@ -62,6 +62,8 @@ export interface SignalCliErrorInit {
   cause?: unknown;
   /** The request reached the daemon and was answered, so what it asked for may have happened. */
   requestSent?: boolean;
+  /** Overrides what the kind and `requestSent` say (an abort before anything was sent: `not-sent`). */
+  outcome?: ErrorOutcome;
 }
 
 export class SignalCliError extends AppError {
@@ -83,7 +85,7 @@ export class SignalCliError extends AppError {
   constructor(kind: SignalCliErrorKind, message: string, init: SignalCliErrorInit = {}) {
     super(kind, message, {
       transient: isTransient(kind, init.status),
-      outcome: outcomeOf(kind, init.requestSent === true),
+      outcome: init.outcome ?? outcomeOf(kind, init.requestSent === true),
       source: 'signal-cli',
       ...(init.cause === undefined ? {} : { cause: init.cause }),
     });

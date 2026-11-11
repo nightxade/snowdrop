@@ -1232,6 +1232,92 @@ describe('SignalCliBackend: commands', () => {
     expect(onAccountSelected).toHaveBeenCalledWith(SELF_ACI);
   });
 
+  describe('aborting a long call', () => {
+    const stall = () => new Promise<never>(() => undefined);
+
+    it('ends an aborted send as "may have been sent", and asks nothing twice', async () => {
+      const { backend, daemon } = await connected();
+      daemon.handle('send', stall);
+      const controller = new AbortController();
+      const sending = backend.send(
+        { conversationId: directConversationId(BOB), body: 'x', ranges: [] },
+        { signal: controller.signal },
+      );
+      await flush();
+      expect(daemon.callsTo('send')).toHaveLength(1);
+      controller.abort();
+      await expect(sending).rejects.toMatchObject({ kind: 'aborted', outcome: 'maybe-sent' });
+      await backend.disconnect();
+    });
+
+    it('sends nothing when the signal had already fired', async () => {
+      const { backend, daemon } = await connected();
+      const controller = new AbortController();
+      controller.abort();
+      await expect(
+        backend.send(
+          { conversationId: directConversationId(BOB), body: 'x', ranges: [] },
+          { signal: controller.signal },
+        ),
+      ).rejects.toMatchObject({ kind: 'aborted', outcome: 'not-sent' });
+      expect(daemon.callsTo('send')).toHaveLength(0);
+      await backend.disconnect();
+    });
+
+    it('aborts finishLink, which may still have linked, and never selects the account', async () => {
+      const daemon = new FakeDaemon().handle('finishLink', stall);
+      const { backend, onAccountSelected } = setup({ daemon });
+      const controller = new AbortController();
+      const finishing = backend.link.finish('sgnl://linkdevice?uuid=X', 'Snowdrop', {
+        signal: controller.signal,
+      });
+      await flush();
+      controller.abort();
+      await expect(finishing).rejects.toMatchObject({ kind: 'aborted', outcome: 'maybe-sent' });
+      expect(onAccountSelected).not.toHaveBeenCalled();
+    });
+
+    it('stops one caller waiting for an attachment without cancelling the shared download', async () => {
+      const { backend, daemon } = await connected();
+      let release!: (reply: { result: unknown }) => void;
+      daemon.handle(
+        'getAttachment',
+        () =>
+          new Promise((resolve) => {
+            release = resolve;
+          }),
+      );
+      const attachment = { id: 'Zx9.jpg', contentType: 'image/jpeg' };
+      const controller = new AbortController();
+      const impatient = backend.resolveAttachmentUrl(GROUP, attachment, {
+        signal: controller.signal,
+      });
+      const patient = backend.resolveAttachmentUrl(GROUP, attachment);
+      await flush();
+      controller.abort();
+      await expect(impatient).rejects.toMatchObject({ kind: 'aborted' });
+      release({ result: { data: 'aGVsbG8=' } });
+      expect(await patient).toMatch(/^blob:/u);
+      expect(daemon.callsTo('getAttachment')).toHaveLength(1);
+      await backend.disconnect();
+    });
+
+    it('aborts an attachment read', async () => {
+      const { backend, daemon } = await connected();
+      daemon.handle('getAttachment', stall);
+      const controller = new AbortController();
+      const reading = backend.readAttachmentBlob(
+        GROUP,
+        { id: 'Zx9.jpg', contentType: 'image/jpeg' },
+        { signal: controller.signal },
+      );
+      await flush();
+      controller.abort();
+      await expect(reading).rejects.toMatchObject({ kind: 'aborted' });
+      await backend.disconnect();
+    });
+  });
+
   it('preserves a successful link while reporting a failed history transfer', async () => {
     const daemon = new FakeDaemon().reply('finishLink', {
       number: SELF_NUMBER,

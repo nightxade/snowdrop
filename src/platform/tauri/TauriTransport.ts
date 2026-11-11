@@ -138,15 +138,37 @@ export class TauriTransport implements SignalCliTransport {
     params: RpcParams | undefined,
     options: TransportCallOptions,
   ): Promise<RpcReply> {
+    const { signal } = options;
+    // Nothing is sent for a call abandoned before it started.
+    if (signal.aborted) throw new SignalCliError('aborted', 'Request aborted');
+    let onAbort: (() => void) | undefined;
+    const abandoned = new Promise<never>((_, reject) => {
+      onAbort = () => {
+        // TODO(cancel_request): once Rust has `cancel_request(id)`, give the
+        // request an id here and call it, so the Rust side drops its pending
+        // entry and stops waiting on signal-cli. Until then the request still
+        // runs there; only this side stops waiting, and its late reply is
+        // dropped below.
+        reject(new SignalCliError('aborted', 'Request aborted'));
+      };
+      signal.addEventListener('abort', onAbort, { once: true });
+    });
+    // `abandoned` only settles by rejecting; the race below reports it.
+    abandoned.catch(ignored('the race below reports an abort; this avoids an unhandled rejection'));
+    const invoked = this.ipc.invoke<unknown>('signal_cli_request', {
+      method,
+      params: params ?? null,
+      timeoutMs: options.timeoutMs,
+    });
+    // A reply (or failure) that arrives after an abort is ignored.
+    invoked.catch(ignored('the call was abandoned or already reported by the race below'));
     try {
-      const raw = await this.ipc.invoke<unknown>('signal_cli_request', {
-        method,
-        params: params ?? null,
-        timeoutMs: options.timeoutMs,
-      });
+      const raw = await Promise.race([invoked, abandoned]);
       return validateRpcReply(method, raw);
     } catch (error) {
       throw toSignalCliError(error);
+    } finally {
+      if (onAbort) signal.removeEventListener('abort', onAbort);
     }
   }
 

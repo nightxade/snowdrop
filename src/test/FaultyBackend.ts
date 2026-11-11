@@ -6,6 +6,7 @@
  *   unreachable transport by default), later calls go through;
  * - `delay`: a listed method waits that many ms on the injected scheduler
  *   before it calls the real backend (advance a `ManualScheduler` to release it);
+ *   a call whose `{ signal }` fires meanwhile rejects with `aborted`;
  * - `holdEvent`: events of the listed kinds are kept back instead of delivered,
  *   in order, until `release(event)` hands them over (`caughtUp` arriving late,
  *   or behind messages the test delivers meanwhile).
@@ -15,7 +16,7 @@
  * and contract checks unchanged.
  */
 import type { BackendEvents, ChatBackend } from '@/core/backend';
-import { AppError, type Scheduler } from '@/core/lib';
+import { abortedError, AppError, type Scheduler } from '@/core/lib';
 
 type Method = keyof ChatBackend;
 type EventName = keyof BackendEvents;
@@ -45,6 +46,15 @@ interface Held {
   hold: boolean;
   queue: unknown[];
   handlers: Set<(payload: never) => void>;
+}
+
+/** The `{ signal }` a call was given, wherever it sits in the arguments. */
+function signalOf(args: readonly unknown[]): AbortSignal | undefined {
+  for (const arg of args) {
+    const signal = (arg as { signal?: unknown } | undefined)?.signal;
+    if (signal instanceof AbortSignal) return signal;
+  }
+  return undefined;
 }
 
 export function faultyBackend(inner: ChatBackend, options: FaultyOptions = {}): FaultyBackend {
@@ -115,8 +125,18 @@ export function faultyBackend(inner: ChatBackend, options: FaultyOptions = {}): 
         callCounts.set(method, nth + 1);
         if (delayMs !== undefined && options.scheduler) {
           const scheduler = options.scheduler;
-          await new Promise<void>((resolve) => {
-            scheduler.setTimeout(resolve, delayMs);
+          const signal = signalOf(args);
+          await new Promise<void>((resolve, reject) => {
+            const cancel = scheduler.setTimeout(() => {
+              signal?.removeEventListener('abort', onAbort);
+              resolve();
+            }, delayMs);
+            const onAbort = (): void => {
+              cancel();
+              reject(abortedError());
+            };
+            if (signal?.aborted) onAbort();
+            else signal?.addEventListener('abort', onAbort, { once: true });
           });
         }
         if (failFirst.has(method) && nth === 0) throw fail(method);

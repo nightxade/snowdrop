@@ -179,3 +179,96 @@ describe('whether a failed request was written', () => {
     expect(never).toMatchObject({ kind: 'unreachable', requestSent: false });
   });
 });
+
+describe('aborting a call', () => {
+  /** A transport whose request never answers until `answer` is called; counts what it was given. */
+  function slowTransport() {
+    const requests: string[] = [];
+    let answer: (reply: unknown) => void = () => undefined;
+    const transport: SignalCliTransport = {
+      resumeScope: 'test',
+      description: 'test transport',
+      check: () => Promise.resolve(),
+      request: (method) => {
+        requests.push(method);
+        return new Promise((resolve) => {
+          answer = resolve as (reply: unknown) => void;
+        });
+      },
+      subscribe: () => {
+        throw new Error('not used in these tests');
+      },
+    };
+    return {
+      transport,
+      requests,
+      answer: (reply: unknown) => {
+        answer(reply);
+      },
+    };
+  }
+
+  it('rejects at once with `aborted`, and ignores a reply that arrives afterwards', async () => {
+    const slow = slowTransport();
+    const rpc = new JsonRpcClient({ transport: slow.transport, timeoutMs: 10_000 });
+    const controller = new AbortController();
+    const pending = rpc.call('x', {}, unknownValue, { signal: controller.signal });
+    await Promise.resolve();
+    controller.abort();
+    const error = await failure(pending);
+    expect(error).toMatchObject({ kind: 'aborted', outcome: 'unknown', transient: false });
+    // The late answer neither throws nor resurrects the call.
+    slow.answer({ result: { ok: true } });
+    await Promise.resolve();
+  });
+
+  it('says an aborted mutating call may have been carried out', async () => {
+    const slow = slowTransport();
+    const rpc = new JsonRpcClient({ transport: slow.transport, timeoutMs: 10_000 });
+    const mutating = new AbortController();
+    const sent = rpc.call('send', {}, unknownValue, { signal: mutating.signal, mutating: true });
+    mutating.abort();
+    expect(await failure(sent)).toMatchObject({ kind: 'aborted', outcome: 'maybe-sent' });
+  });
+
+  it('sends nothing for a call abandoned before it started', async () => {
+    const slow = slowTransport();
+    const rpc = new JsonRpcClient({ transport: slow.transport, timeoutMs: 10_000 });
+    const controller = new AbortController();
+    controller.abort();
+    const error = await failure(
+      rpc.call('send', {}, unknownValue, { signal: controller.signal, mutating: true }),
+    );
+    expect(error).toMatchObject({ kind: 'aborted', outcome: 'not-sent' });
+    expect(slow.requests).toEqual([]);
+  });
+
+  it('still times out when the caller never aborts', async () => {
+    const slow = slowTransport();
+    const rpc = new JsonRpcClient({ transport: slow.transport, timeoutMs: 20 });
+    const controller = new AbortController();
+    const error = await failure(rpc.call('x', {}, unknownValue, { signal: controller.signal }));
+    expect(error.kind).toBe('timeout');
+    // Aborting after the timeout changes nothing.
+    controller.abort();
+  });
+
+  it('stops the HTTP request itself', async () => {
+    let seen: AbortSignal | undefined;
+    const hang: FetchLike = (_url, init) =>
+      new Promise((_resolve, reject) => {
+        seen = init?.signal ?? undefined;
+        seen?.addEventListener('abort', () => {
+          reject(new DOMException('aborted', 'AbortError'));
+        });
+      });
+    const controller = new AbortController();
+    const pending = client(new FakeDaemon(), hang).call('x', {}, unknownValue, {
+      signal: controller.signal,
+      timeoutMs: 10_000,
+    });
+    controller.abort();
+    expect((await failure(pending)).kind).toBe('aborted');
+    expect(seen?.aborted).toBe(true);
+  });
+});

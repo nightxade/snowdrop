@@ -506,11 +506,26 @@ export interface BackendEvents {
   };
 }
 
+/**
+ * Lets a caller give up on a long call (the screen was left, the app is
+ * quitting). An aborted call rejects with an error of kind `aborted` and
+ * never reports a failure to the user. For a call that changes something
+ * (`send`, `link.finish`) an abort after the request left says `maybe-sent`:
+ * the other side may still have carried it out.
+ */
+export interface AbortOptions {
+  signal?: AbortSignal;
+}
+
 export interface LinkFlow {
   /** Begins device linking; `uri` is rendered as a QR code (sgnl://linkdevice?...). */
-  start(): Promise<{ uri: string }>;
+  start(options?: AbortOptions): Promise<{ uri: string }>;
   /** Resolves once the primary device has scanned the code and linking completed. */
-  finish(uri: string, deviceName: string): Promise<{ accountId: string; historyWarning?: string }>;
+  finish(
+    uri: string,
+    deviceName: string,
+    options?: AbortOptions,
+  ): Promise<{ accountId: string; historyWarning?: string }>;
 }
 
 export interface MarkReadOptions {
@@ -630,7 +645,7 @@ export interface ChatBackend {
   listConversations(): Promise<Conversation[]>;
 
   /** Resolves with the timestamp Signal assigned, which becomes the message identity. */
-  send(input: SendInput): Promise<SendResult>;
+  send(input: SendInput, options?: AbortOptions): Promise<SendResult>;
   edit(input: EditInput): Promise<EditResult>;
   react(input: ReactInput): Promise<void>;
   deleteForEveryone(conversationId: ConversationId, sentAt: number): Promise<void>;
@@ -747,7 +762,11 @@ export interface ChatBackend {
    * Backend history, when available (mock seed data or an imported phone
    * archive in patched signal-cli). Needs `history`.
    */
-  fetchHistory(conversationId: ConversationId, query: HistoryQuery): Promise<HistoryPage>;
+  fetchHistory(
+    conversationId: ConversationId,
+    query: HistoryQuery,
+    options?: AbortOptions,
+  ): Promise<HistoryPage>;
   /**
    * Whether the history archive holds a real message the user sent in this
    * conversation (a chat started from their phone). Possibly several heavy
@@ -801,7 +820,7 @@ export interface ChatBackend {
   resolveAttachmentUrl(
     conversationId: ConversationId,
     attachment: Attachment,
-    options?: { forceRefresh?: boolean },
+    options?: { forceRefresh?: boolean } & AbortOptions,
   ): Promise<string>;
 
   /**
@@ -827,7 +846,7 @@ export interface ChatBackend {
   readAttachmentBlob(
     conversationId: ConversationId,
     attachment: Attachment,
-    options?: { maxBytes?: number },
+    options?: { maxBytes?: number } & AbortOptions,
   ): Promise<Blob>;
 
   /**

@@ -265,10 +265,12 @@ export function connectBackend(
   registration: BackendRegistration,
   env: BackendEnvironment,
   repository?: MessageRepository,
+  /** Fires when the session closes: in-flight long calls stop waiting (see `deferredBackend`). */
+  shutdown?: AbortSignal,
 ): BackendConnection {
   const ready = registration.load().then((factory) => factory(env));
   return {
-    backend: deferredBackend(registration.kind, registration.features, ready),
+    backend: deferredBackend(registration.kind, registration.features, ready, shutdown),
     ready,
     repository: repository ?? createRepository(registration.history),
   };

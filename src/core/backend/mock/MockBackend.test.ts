@@ -172,6 +172,55 @@ describe('MockBackend', () => {
     ).resolves.toBeDefined();
   });
 
+  /** A demo with a real round-trip time, so a call can be aborted while it is in flight. */
+  async function slowSetup() {
+    const scheduler = new ManualScheduler(NOW);
+    const backend = new MockBackend({ seed: 7, clock: scheduler, scheduler, latencyMs: 500 });
+    const connecting = backend.connect();
+    scheduler.advance(10_000);
+    await connecting;
+    return { scheduler, backend };
+  }
+
+  it('rejects a send promptly with `aborted` and never applies it', async () => {
+    const { backend, scheduler } = await slowSetup();
+    const conv = backend.world.conversationIds.get('orchard-eng')!;
+    const sent = collect(backend, 'message');
+    const controller = new AbortController();
+    const pending = backend.send(
+      { conversationId: conv, body: 'never sent', ranges: [] },
+      { signal: controller.signal },
+    );
+    controller.abort();
+    // Without advancing the scheduler: the abort ends the simulated round trip itself.
+    await expect(pending).rejects.toMatchObject({ kind: 'aborted', outcome: 'not-sent' });
+    scheduler.advance(60_000);
+    await Promise.resolve();
+    expect(sent.filter((m) => m.body === 'never sent')).toHaveLength(0);
+    // An already-aborted signal rejects before anything starts.
+    await expect(
+      backend.send({ conversationId: conv, body: 'x', ranges: [] }, { signal: controller.signal }),
+    ).rejects.toMatchObject({ kind: 'aborted' });
+  });
+
+  it('rejects a history page and an attachment read with `aborted`', async () => {
+    const { backend } = await slowSetup();
+    const conv = backend.world.conversationIds.get('orchard-eng')!;
+    const controller = new AbortController();
+    const page = backend.fetchHistory(conv, { limit: 10 }, { signal: controller.signal });
+    controller.abort();
+    await expect(page).rejects.toMatchObject({ kind: 'aborted' });
+    await expect(
+      backend.readAttachmentBlob(
+        conv,
+        { id: 'a', contentType: 'image/png' },
+        {
+          signal: controller.signal,
+        },
+      ),
+    ).rejects.toMatchObject({ kind: 'aborted' });
+  });
+
   it('edits, reacts and deletes own messages', async () => {
     const { backend } = setup();
     await backend.connect();

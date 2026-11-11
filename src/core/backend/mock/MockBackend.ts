@@ -34,6 +34,7 @@ import {
   type StickerContent,
 } from '@/core/domain';
 import {
+  abortedError,
   AppError,
   Emitter,
   UnsupportedError,
@@ -45,6 +46,7 @@ import {
   type Unsubscribe,
 } from '@/core/lib';
 import type {
+  AbortOptions,
   BackendEvents,
   ChatBackend,
   Feature,
@@ -323,8 +325,12 @@ export class MockBackend implements ChatBackend {
   }
   acknowledge(): void {}
 
-  async fetchHistory(conversationId: ConversationId, query: HistoryQuery): Promise<HistoryPage> {
-    await this.delay();
+  async fetchHistory(
+    conversationId: ConversationId,
+    query: HistoryQuery,
+    options?: AbortOptions,
+  ): Promise<HistoryPage> {
+    await this.delay(options?.signal);
     const history = this.world.histories.get(conversationId) ?? [];
     const before = query.before;
     const end =
@@ -393,8 +399,8 @@ export class MockBackend implements ChatBackend {
 
   // ─── Commands ──────────────────────────────────────────────────────────
 
-  async send(input: SendInput): Promise<SendResult> {
-    await this.delay();
+  async send(input: SendInput, options?: AbortOptions): Promise<SendResult> {
+    await this.delay(options?.signal);
     this.assertOnline();
     this.takeFailure();
     const conv = this.requireConversation(input.conversationId, true);
@@ -455,9 +461,9 @@ export class MockBackend implements ChatBackend {
   async readAttachmentBlob(
     _conversationId: ConversationId,
     attachment: Attachment,
-    options?: { maxBytes?: number },
+    options?: { maxBytes?: number } & AbortOptions,
   ): Promise<Blob> {
-    await this.delay();
+    await this.delay(options?.signal);
     this.assertOnline();
     this.takeFailure();
     // Base64 (a sent file) or percent-encoded text (the demo's generated images).
@@ -994,10 +1000,23 @@ export class MockBackend implements ChatBackend {
     this.emitter.emit('status', status);
   }
 
-  private delay(): Promise<void> {
+  /**
+   * The simulated round trip. An abort ends it at once and the call's effect
+   * never happens (the demo applies a command only after the wait).
+   */
+  private delay(signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted) return Promise.reject(abortedError('Request aborted', 'not-sent'));
     if (this.latencyMs <= 0) return Promise.resolve();
-    return new Promise((resolve) => {
-      this.scheduler.setTimeout(resolve, this.latencyMs);
+    return new Promise((resolve, reject) => {
+      const cancel = this.scheduler.setTimeout(() => {
+        signal?.removeEventListener('abort', onAbort);
+        resolve();
+      }, this.latencyMs);
+      const onAbort = (): void => {
+        cancel();
+        reject(abortedError('Request aborted', 'not-sent'));
+      };
+      signal?.addEventListener('abort', onAbort, { once: true });
     });
   }
 

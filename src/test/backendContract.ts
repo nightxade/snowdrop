@@ -395,6 +395,27 @@ export function describeBackendContract(
           });
         });
       });
+
+      it('rejects a send whose signal is aborted with kind "aborted", sends nothing, and keeps working', async () => {
+        await withSubject(async (subject) => {
+          await subject.backend.connect();
+          await subject.settle();
+          const target = await pickTarget(subject);
+          const echoed = record(subject.backend, 'message');
+          const controller = new AbortController();
+          controller.abort();
+          const error = await rejection(
+            subject.backend.send(text(target, 'never sent'), { signal: controller.signal }),
+          );
+          expect(error).toBeInstanceOf(AppError);
+          expect(toAppError(error).kind).toBe('aborted');
+          await subject.settle();
+          expect(echoed.filter((m) => m.body === 'never sent')).toHaveLength(0);
+          await expect(subject.backend.send(text(target, 'again'))).resolves.toMatchObject({
+            sentAt: expect.any(Number) as unknown,
+          });
+        });
+      });
     });
   });
 }

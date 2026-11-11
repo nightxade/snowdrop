@@ -1,5 +1,6 @@
 import { SignalCliError } from '../errors';
 import type { ConversationId, Message, MessageId } from '@/core/domain';
+import { throwIfAborted } from '@/core/lib';
 import type { HistoryPage, HistoryQuery } from '../../types';
 import type { CallOptions, JsonRpcClient } from '../rpc';
 import { isRecord } from '../validate';
@@ -285,6 +286,7 @@ export class HistoryArchive {
     conversationId: ConversationId,
     query: HistoryQuery,
     now: number,
+    signal?: AbortSignal,
   ): Promise<HistoryPage> {
     if (!Number.isInteger(query.limit) || query.limit < 1 || query.limit > PAGE_SIZE)
       throw new RangeError('History page limit must be between 1 and 500');
@@ -301,6 +303,8 @@ export class HistoryArchive {
     const hasExactBoundary = before !== undefined;
     const messages: Message[] = [];
     for (;;) {
+      // A caller that gave up stops the paging, not just its wait.
+      throwIfAborted(signal);
       const page = await this.chatPage(chatId, before, PAGE_SIZE);
       const converted = page.entries.flatMap((entry) => {
         const message = backupMessage({

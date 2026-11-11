@@ -349,6 +349,83 @@ describe('deferredBackend', () => {
   });
 });
 
+describe('the shutdown signal', () => {
+  const stubs = () => {
+    const seen: Record<string, AbortSignal | undefined> = {};
+    const hang = (name: string, at: number) =>
+      vi.fn((...args: unknown[]) => {
+        seen[name] = (args[at] as { signal?: AbortSignal } | undefined)?.signal;
+        return new Promise(() => undefined);
+      });
+    const real = {
+      kind: 'mock',
+      capabilities: new FeatureStore(),
+      send: hang('send', 1),
+      fetchHistory: hang('fetchHistory', 2),
+      resolveAttachmentUrl: hang('resolveAttachmentUrl', 2),
+      readAttachmentBlob: hang('readAttachmentBlob', 2),
+      link: { start: hang('link.start', 0), finish: hang('link.finish', 2) },
+    };
+    return { seen, real: real as unknown as ChatBackend, spies: real };
+  };
+
+  it('reaches every long call, with the caller’s own options kept', async () => {
+    const shutdown = new AbortController();
+    const { seen, real, spies } = stubs();
+    const deferred = deferredBackend('mock', [], Promise.resolve(real), shutdown.signal);
+    void deferred.send({ conversationId: 'c' as never, body: '', ranges: [] });
+    void deferred.fetchHistory('c' as never, { limit: 1 });
+    void deferred.resolveAttachmentUrl('c' as never, { id: 'a' } as never, {
+      forceRefresh: true,
+    });
+    void deferred.readAttachmentBlob('c' as never, { id: 'a' } as never);
+    void deferred.link.start();
+    void deferred.link.finish('uri', 'name');
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    expect(Object.keys(seen).sort()).toEqual([
+      'fetchHistory',
+      'link.finish',
+      'link.start',
+      'readAttachmentBlob',
+      'resolveAttachmentUrl',
+      'send',
+    ]);
+    for (const signal of Object.values(seen)) expect(signal?.aborted).toBe(false);
+    expect(spies.resolveAttachmentUrl).toHaveBeenCalledWith(
+      'c',
+      { id: 'a' },
+      expect.objectContaining({ forceRefresh: true }),
+    );
+    shutdown.abort();
+    for (const signal of Object.values(seen)) expect(signal?.aborted).toBe(true);
+  });
+
+  it('also honours the signal the caller passed', async () => {
+    const shutdown = new AbortController();
+    const { seen, real } = stubs();
+    const deferred = deferredBackend('mock', [], Promise.resolve(real), shutdown.signal);
+    const own = new AbortController();
+    void deferred.send(
+      { conversationId: 'c' as never, body: '', ranges: [] },
+      { signal: own.signal },
+    );
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    expect(seen.send?.aborted).toBe(false);
+    own.abort();
+    expect(seen.send?.aborted).toBe(true);
+    expect(shutdown.signal.aborted).toBe(false);
+  });
+
+  it('leaves the arguments alone without one', async () => {
+    const { seen, real, spies } = stubs();
+    const deferred = deferredBackend('mock', [], Promise.resolve(real));
+    void deferred.send({ conversationId: 'c' as never, body: '', ranges: [] });
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    expect(spies.send).toHaveBeenCalledWith({ conversationId: 'c', body: '', ranges: [] });
+    expect(seen.send).toBeUndefined();
+  });
+});
+
 describe('peeks before load', () => {
   it('every peek member has an answer for before the adapter loads', () => {
     const peeks = Object.entries(FORWARDING)

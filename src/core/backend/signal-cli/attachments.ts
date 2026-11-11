@@ -462,6 +462,7 @@ export class AttachmentResolver {
     attachment: Attachment,
     scope: RpcParams = {},
     maxBytes: number = this.maxBytes,
+    signal?: AbortSignal,
   ): Promise<Blob> {
     const limit = Math.min(maxBytes, this.maxBytes);
     const tooLarge = () =>
@@ -470,18 +471,22 @@ export class AttachmentResolver {
         'Attachment is too large to open here; open it on your phone.',
       );
     if (attachment.size !== undefined && attachment.size > limit) throw tooLarge();
-    const blob = await this.downloadBlob(attachment, scope);
+    const blob = await this.downloadBlob(attachment, scope, signal);
     if (blob.size > limit) throw tooLarge();
     return blob;
   }
 
-  private async downloadBlob(attachment: Attachment, scope: RpcParams): Promise<Blob> {
+  private async downloadBlob(
+    attachment: Attachment,
+    scope: RpcParams,
+    signal?: AbortSignal,
+  ): Promise<Blob> {
     const { data } = await this.options.rpc.call(
       'getAttachment',
       { id: attachment.id, ...scope },
       wireAttachmentData,
       // Large files take a while to base64 through JSON.
-      { timeoutMs: 120_000 },
+      { timeoutMs: 120_000, ...(signal ? { signal } : {}) },
     );
     const bytes = base64ToBytes(data);
     // Never label the bytes with an unvetted, sender-chosen type (XSS).

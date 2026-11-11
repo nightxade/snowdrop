@@ -128,6 +128,24 @@ describe('createSnowdrop on a faulty backend', () => {
     await t.snowdrop.dispose();
   });
 
+  it('stops waiting for a slow call when the session shuts down', async () => {
+    const t = boot((scheduler) => ({ delay: { readAttachmentBlob: 60_000 }, scheduler }));
+    await t.snowdrop.start();
+    const conversationId = (await t.inner.listConversations()).find((c) => c.kind === 'direct')!.id;
+    // Straight on the backend the services use, so the call is the shell's, not a service's.
+    const blob = t.snowdrop.backend.readAttachmentBlob(conversationId, { id: 'a1' } as never);
+    const outcome = blob.then(
+      () => 'resolved',
+      (error: unknown) => (error as { kind?: string }).kind,
+    );
+    await settle();
+    expect(t.faulty.calls('readAttachmentBlob')).toBe(1);
+
+    // No clock advance: the 60 s wait is cut short by the shutdown alone.
+    await t.snowdrop.dispose();
+    expect(await outcome).toBe('aborted');
+  });
+
   it('ends catching up only after every message delivered before caughtUp is stored', async () => {
     // caughtUp is held back and handed over right behind two messages, while
     // the initial sync is still running: all three are parked and replayed in

@@ -185,11 +185,17 @@ export function useAttachmentUrl(
   useEffect(() => {
     if (held || direct !== undefined || !canResolve) return;
     let cancelled = false;
+    // Leaving the tile stops waiting for the download (a shared download
+    // keeps going and lands in the cache); the abort is not a failure.
+    const controller = new AbortController();
     // Every retry (attempt > 0, whether clicked or the one automatic retry
     // after a media error) bypasses the resolver's cache: handing back a URL
     // already known not to work would make the retry a no-op.
     backend
-      .resolveAttachmentUrl(conversationId, attachment, { forceRefresh: attempt > 0 })
+      .resolveAttachmentUrl(conversationId, attachment, {
+        forceRefresh: attempt > 0,
+        signal: controller.signal,
+      })
       .then((url) => {
         if (!cancelled) setResult({ key, attempt, state: { status: 'ready', url } });
       })
@@ -202,6 +208,7 @@ export function useAttachmentUrl(
       });
     return () => {
       cancelled = true;
+      controller.abort();
     };
     // The attachment/message objects may be re-created by unrelated updates; their ids are the identity.
     // eslint-disable-next-line react-hooks/exhaustive-deps
