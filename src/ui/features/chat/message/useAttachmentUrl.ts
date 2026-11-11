@@ -4,7 +4,7 @@ import type { MessageRef } from '@/core/backend';
 import type { Attachment, ConversationId } from '@/core/domain';
 import { createLogger } from '@/core/lib';
 import { sessionSelectors } from '@/core/stores';
-import { useSnowdrop } from '@/ui/hooks';
+import { useBackendFeature, useSnowdrop } from '@/ui/hooks';
 import { classifyAttachmentFailure, type AttachmentFailureKind } from '../lib/attachments';
 import { backfillGate, type BackfillSlot } from './backfillGate';
 import { useMediaHold } from './useMediaHold';
@@ -89,6 +89,7 @@ export function useAttachmentUrl(
   fromPhone: (() => void) | undefined;
 } {
   const { backend, stores } = useSnowdrop();
+  const hasBackfillFeature = useBackendFeature('attachmentBackfill');
   const { held, release: download } = useMediaHold(conversationId, message.authorId, attachment.id);
   const key = `${conversationId}\u0000${attachment.id}`;
   const backfillKey = `${message.authorId}\u0000${message.sentAt}`;
@@ -114,8 +115,7 @@ export function useAttachmentUrl(
   const direct = attachment.url;
   const canResolve = backend.resolveAttachmentUrl !== undefined;
   const requestBackfill = backend.requestAttachmentBackfill;
-  const canBackfill =
-    requestBackfill !== undefined && (backend.supportsAttachmentBackfill?.() ?? false);
+  const canBackfill = requestBackfill !== undefined && hasBackfillFeature;
   const backfill = useStore(
     stores.session,
     sessionSelectors.attachmentBackfill(message.authorId, message.sentAt),

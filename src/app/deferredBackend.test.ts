@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ChatBackend } from '@/core/backend';
+import { FeatureStore } from '@/core/backend/features';
 import { MockBackend } from '@/core/backend/mock';
 import { SignalCliBackend } from '@/core/backend/signal-cli';
+import { featuresForVersion } from '@/core/backend/signal-cli/capabilities';
 import { ManualScheduler } from '@/core/lib';
 import { createMemoryStorage } from '@/core/persistence';
 import { DEFAULT_DESKTOP_CONNECTION } from '@/core/stores';
@@ -93,7 +95,12 @@ describe('deferredBackend', () => {
     expect('terminatePoll' in deferred).toBe(true);
     const votePoll = vi.fn(() => Promise.resolve());
     const terminatePoll = vi.fn(() => Promise.resolve());
-    resolve({ kind: 'signal-cli', votePoll, terminatePoll } as unknown as ChatBackend);
+    resolve({
+      kind: 'signal-cli',
+      capabilities: new FeatureStore(),
+      votePoll,
+      terminatePoll,
+    } as unknown as ChatBackend);
     const vote = {
       conversationId: 'group:g' as never,
       pollAuthorId: 'ana',
@@ -119,7 +126,7 @@ describe('deferredBackend', () => {
       new Set(['getStickerPack', 'installStickerPack']),
       ready,
     );
-    expect(deferred.supportsStickerPackInstall?.()).toBe(false);
+    expect(deferred.capabilities.features.has('stickerPackInstall')).toBe(false);
     const sticker = { packId: 'ab12', stickerId: 0 };
     const install = vi.fn(() => Promise.resolve());
     const details = {
@@ -132,7 +139,7 @@ describe('deferredBackend', () => {
     };
     const real = {
       kind: 'signal-cli',
-      supportsStickerPackInstall: () => true,
+      capabilities: new FeatureStore(['stickerPackInstall']),
       installStickerPack: install,
       getStickerPack: vi.fn(() => Promise.resolve(details)),
     } as unknown as ChatBackend;
@@ -140,7 +147,7 @@ describe('deferredBackend', () => {
     resolve(real);
     await pending;
     expect(install).toHaveBeenCalledWith(sticker);
-    expect(deferred.supportsStickerPackInstall?.()).toBe(true);
+    expect(deferred.capabilities.features.has('stickerPackInstall')).toBe(true);
     expect(await deferred.getStickerPack!(sticker)).toBe(details);
   });
 
@@ -150,18 +157,18 @@ describe('deferredBackend', () => {
       resolve = r;
     });
     const deferred = deferredBackend('signal-cli', new Set(['requestAttachmentBackfill']), ready);
-    expect(deferred.supportsAttachmentBackfill?.()).toBe(false);
+    expect(deferred.capabilities.features.has('attachmentBackfill')).toBe(false);
     const request = vi.fn(() => Promise.resolve());
     const real = {
       kind: 'signal-cli',
-      supportsAttachmentBackfill: () => true,
+      capabilities: new FeatureStore(['attachmentBackfill']),
       requestAttachmentBackfill: request,
     } as unknown as ChatBackend;
     const pending = deferred.requestAttachmentBackfill!('conv' as never, 'author', 5, ['a1']);
     resolve(real);
     await pending;
     expect(request).toHaveBeenCalledWith('conv', 'author', 5, ['a1']);
-    expect(deferred.supportsAttachmentBackfill?.()).toBe(true);
+    expect(deferred.capabilities.features.has('attachmentBackfill')).toBe(true);
   });
 
   describe('forwarding every ChatBackend member', () => {
@@ -169,21 +176,21 @@ describe('deferredBackend', () => {
     const RESULT = { sentinel: true };
     type Fn = (...args: unknown[]) => unknown;
     const keys = Object.keys(FORWARDING) as Array<keyof typeof FORWARDING>;
-    const forwarded = keys.filter((k) => !['kind', 'getStatus', 'on'].includes(k));
+    const forwarded = keys.filter((k) => !['kind', 'getStatus', 'on', 'capabilities'].includes(k));
 
     /** A real backend whose every member is a spy, so each call's arguments can be compared. */
     const fakeReal = () => {
       const spies: Record<string, ReturnType<typeof vi.fn>> = {};
-      const real: Record<string, unknown> = { kind: 'signal-cli', getStatus: () => 'connected' };
+      const real: Record<string, unknown> = {
+        kind: 'signal-cli',
+        getStatus: () => 'connected',
+        capabilities: new FeatureStore(),
+      };
       for (const key of forwarded) {
         if (key === 'link') continue;
         const kind = FORWARDING[key];
         spies[key] = vi.fn(() =>
-          kind === 'flag'
-            ? true
-            : kind === 'required' || kind === 'async'
-              ? Promise.resolve(RESULT)
-              : RESULT,
+          kind === 'required' || kind === 'async' ? Promise.resolve(RESULT) : RESULT,
         );
         real[key] = spies[key];
       }
@@ -216,20 +223,22 @@ describe('deferredBackend', () => {
           continue;
         }
         const result = deferred[key]!(...ARGS);
-        if (kind === 'flag') expect(result, key).toBe(true);
-        else if (kind === 'required' || kind === 'async') expect(await result, key).toBe(RESULT);
+        if (kind === 'required' || kind === 'async') expect(await result, key).toBe(RESULT);
         else if (kind === 'peek') expect(result, key).toBe(RESULT);
         expect(spies[key], key).toHaveBeenCalledWith(...ARGS);
       }
     });
 
-    it('rejects, or reports false, for what the adapter does not have', async () => {
-      const bare = { kind: 'signal-cli', getStatus: () => 'connected' } as unknown as ChatBackend;
+    it('rejects for what the adapter does not have', async () => {
+      const bare = {
+        kind: 'signal-cli',
+        getStatus: () => 'connected',
+        capabilities: new FeatureStore(),
+      } as unknown as ChatBackend;
       const deferred = wrap(bare) as unknown as Record<string, Fn>;
       for (const key of forwarded) {
         const kind = FORWARDING[key];
-        if (kind === 'flag') expect(deferred[key]!(), key).toBe(false);
-        else if (kind === 'required' || kind === 'async')
+        if (kind === 'required' || kind === 'async')
           await expect(deferred[key]!(...ARGS), key).rejects.toThrow(TypeError);
       }
       await expect(
@@ -254,6 +263,7 @@ describe('deferredBackend', () => {
       deferred.releaseAttachmentUrl!(attachment);
       resolve({
         kind: 'signal-cli',
+        capabilities: new FeatureStore(),
         retainAttachmentUrl: () => calls.push('retain'),
         releaseAttachmentUrl: () => calls.push('release'),
         acknowledge: (c: string) => calls.push(`ack ${c}`),
@@ -263,24 +273,73 @@ describe('deferredBackend', () => {
       expect(calls).toEqual(['retain', 'ack c1', 'release']);
     });
 
-    it('delivers custom emoji through the wrapper once the adapter is known', async () => {
-      let resolve!: (b: ChatBackend) => void;
-      const ready = new Promise<ChatBackend>((r) => {
-        resolve = r;
+    describe('capabilities', () => {
+      const pending = () => {
+        let resolve!: (b: ChatBackend) => void;
+        const ready = new Promise<ChatBackend>((r) => {
+          resolve = r;
+        });
+        return { ready, resolve };
+      };
+
+      it('is empty before the adapter loads, then mirrors it', async () => {
+        const { ready, resolve } = pending();
+        const deferred = deferredBackend('signal-cli', new Set(), ready);
+        expect(deferred.capabilities.features.size).toBe(0);
+        resolve({
+          kind: 'signal-cli',
+          capabilities: new FeatureStore(['customEmojiDelivery', 'readSync']),
+        } as unknown as ChatBackend);
+        await ready;
+        expect([...deferred.capabilities.features].sort()).toEqual([
+          'customEmojiDelivery',
+          'readSync',
+        ]);
       });
-      const deferred = deferredBackend('signal-cli', new Set(), ready);
-      expect(deferred.supportsCustomEmojiDelivery?.()).toBe(false);
-      resolve({
-        kind: 'signal-cli',
-        supportsCustomEmojiDelivery: () => true,
-      } as unknown as ChatBackend);
-      await ready;
-      expect(deferred.supportsCustomEmojiDelivery?.()).toBe(true);
+
+      it('tells a subscriber attached before the load about the later change', async () => {
+        const { ready, resolve } = pending();
+        const deferred = deferredBackend('signal-cli', new Set(), ready);
+        const seen: boolean[] = [];
+        deferred.capabilities.subscribe(() =>
+          seen.push(deferred.capabilities.features.has('customEmojiDelivery')),
+        );
+        resolve({
+          kind: 'signal-cli',
+          capabilities: new FeatureStore(['customEmojiDelivery']),
+        } as unknown as ChatBackend);
+        await ready;
+        expect(seen).toEqual([true]);
+      });
+
+      it('forwards a version-dependent feature added after connect, with a new set each time', async () => {
+        const adapter = new FeatureStore();
+        const deferred = deferredBackend(
+          'signal-cli',
+          new Set(),
+          Promise.resolve({ kind: 'signal-cli', capabilities: adapter } as unknown as ChatBackend),
+        );
+        await Promise.resolve();
+        const before = deferred.capabilities.features;
+        const seen: string[][] = [];
+        deferred.capabilities.subscribe(() => seen.push([...deferred.capabilities.features]));
+        adapter.set(featuresForVersion('0.14.8-snowdrop-history.19'));
+        expect(deferred.capabilities.features).not.toBe(before);
+        expect(deferred.capabilities.features.has('readSync')).toBe(true);
+        expect(seen).toHaveLength(1);
+        adapter.set([]);
+        expect(deferred.capabilities.features.size).toBe(0);
+        expect(seen).toHaveLength(2);
+      });
     });
 
     it('forwards resolveAttachmentUrl options, so Retry refetches', async () => {
       const resolveAttachmentUrl = vi.fn(() => Promise.resolve('blob:fresh'));
-      const deferred = wrap({ kind: 'signal-cli', resolveAttachmentUrl } as unknown as ChatBackend);
+      const deferred = wrap({
+        kind: 'signal-cli',
+        capabilities: new FeatureStore(),
+        resolveAttachmentUrl,
+      } as unknown as ChatBackend);
       const attachment = { id: 'a1' } as never;
       await deferred.resolveAttachmentUrl!('conv' as never, attachment, { forceRefresh: true });
       expect(resolveAttachmentUrl).toHaveBeenCalledWith('conv', attachment, { forceRefresh: true });

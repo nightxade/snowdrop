@@ -16,8 +16,11 @@ const NOW = Date.UTC(2026, 8, 30, 15, 30);
 async function setup(options: { catchingUpSignal?: boolean; ordered?: boolean } = {}) {
   const scheduler = new ManualScheduler(NOW);
   const backend = new MockBackend({ seed: 7, clock: scheduler, scheduler, latencyMs: 0 });
-  backend.orderedCatchingUpSupported = options.ordered ?? false;
-  backend.catchingUpSignalSupported = options.catchingUpSignal ?? options.ordered ?? false;
+  backend.capabilities.setFeature('orderedCatchingUp', options.ordered ?? false);
+  backend.capabilities.setFeature(
+    'catchingUpSignal',
+    options.catchingUpSignal ?? options.ordered ?? false,
+  );
   const stores = createStores();
   const sync = new SyncService({
     backend,
@@ -76,8 +79,8 @@ describe('the hold on the first connect', () => {
   async function connectLate(ordered: boolean) {
     const scheduler = new ManualScheduler(NOW);
     const backend = new MockBackend({ seed: 7, clock: scheduler, scheduler, latencyMs: 0 });
-    backend.orderedCatchingUpSupported = false;
-    backend.catchingUpSignalSupported = false;
+    backend.capabilities.setFeature('orderedCatchingUp', false);
+    backend.capabilities.setFeature('catchingUpSignal', false);
     const realConnect = backend.connect.bind(backend);
     const realEmit = backend.emit.bind(backend);
     vi.spyOn(backend, 'connect').mockImplementation(async () => {
@@ -88,8 +91,8 @@ describe('the hold on the first connect', () => {
       });
       await realConnect();
       emit.mockRestore();
-      backend.catchingUpSignalSupported = true;
-      backend.orderedCatchingUpSupported = ordered;
+      backend.capabilities.setFeature('catchingUpSignal', true);
+      backend.capabilities.setFeature('orderedCatchingUp', ordered);
     });
     const stores = createStores();
     const sync = new SyncService({

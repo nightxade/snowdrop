@@ -43,7 +43,7 @@ const message = (
 async function setup(options: { readSync?: boolean } = {}) {
   const scheduler = new ManualScheduler(NOW);
   const backend = new MockBackend({ seed: 7, clock: scheduler, scheduler, latencyMs: 0 });
-  backend.readSyncSupported = options.readSync ?? true;
+  backend.capabilities.setFeature('readSync', options.readSync ?? true);
   const repository = new MemoryMessageRepository();
   const stores = createStores();
   const onError = vi.fn();

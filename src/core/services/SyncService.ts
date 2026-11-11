@@ -311,7 +311,10 @@ export class SyncService {
       },
       onEnd: (reason, { strict, messages }) => {
         const detail = { reason, strict, messages };
-        if (reason === 'ceiling' && this.deps.backend.supportsCatchingUpSignal?.() === true) {
+        if (
+          reason === 'ceiling' &&
+          this.deps.backend.capabilities.features.has('catchingUpSignal')
+        ) {
           // This backend promises a `caughtUp`; hitting the ceiling means it never came.
           log.warn('notification hold ended by its ceiling before caughtUp', detail);
         } else {
@@ -470,13 +473,13 @@ export class SyncService {
    * Both end together on `caughtUp` or the quiet period; they differ in the
    * ceiling. The sidebar's stays short so the UI never looks stuck. The
    * hold's is much longer when the backend is known to send `caughtUp`
-   * (`supportsCatchingUpSignal`), because then the ceiling is only a safety
+   * (the `catchingUpSignal` feature), because then the ceiling is only a safety
    * net and a backlog still draining when it fires would all notify; without
    * that signal it is the same short one, so older builds behave as before.
    *
    * `ordered` is for a run started by the backend's own `catchingUp` when the
    * backend orders it before every message of the connection
-   * (`supportsOrderedCatchingUp`). The quiet period only ever covered a
+   * (the `orderedCatchingUp` feature). The quiet period only ever covered a
    * `catchingUp` that could arrive late, and silence right after a wake is not
    * an end (network and server coming back, timers running late), so that
    * hold ends on `caughtUp` or the ceiling alone.
@@ -485,7 +488,7 @@ export class SyncService {
     this.catchUpEpoch += 1;
     this.catchUpTracker.start();
     this.notificationHold.start(
-      this.deps.backend.supportsCatchingUpSignal?.() === true
+      this.deps.backend.capabilities.features.has('catchingUpSignal')
         ? NOTIFICATION_HOLD_CEILING_MS
         : undefined,
       { strict: ordered },
@@ -504,9 +507,9 @@ export class SyncService {
    */
   private restartHoldForConnectedBackend(): void {
     const { backend } = this.deps;
-    if (backend.supportsCatchingUpSignal?.() !== true) return;
+    if (!backend.capabilities.features.has('catchingUpSignal')) return;
     this.notificationHold.start(NOTIFICATION_HOLD_CEILING_MS, {
-      strict: backend.supportsOrderedCatchingUp?.() === true,
+      strict: backend.capabilities.features.has('orderedCatchingUp'),
     });
   }
 
@@ -1251,7 +1254,7 @@ export class SyncService {
    * Tells the user's own devices that the reactions and votes on these of
    * their messages were seen (`refs` are the user's own messages), so the
    * phone drops what it announced for them. Only ever a sync: nothing goes to
-   * anyone else. A signal-cli that can't send one alone (`supportsReadSync`)
+   * anyone else. A signal-cli that can't send one alone (the `readSync` feature)
    * would send a real receipt, so there it sends nothing, as before.
    */
   private sendActivityReadSync(conversationId: ConversationId, refs: MessageRef[]): Promise<void> {
@@ -1264,7 +1267,7 @@ export class SyncService {
     return this.inReceiptOrder(async () => {
       const { backend } = this.deps;
       const generation = this.generation;
-      if (backend.supportsReadSync?.() !== true) {
+      if (!backend.capabilities.features.has('readSync')) {
         // Nothing can be sent: the unread record would only ever pile up.
         log.info('read sync skipped', { reason: 'unsupported', n: refs.length });
         forget();
@@ -1290,7 +1293,7 @@ export class SyncService {
    * Tells Signal these messages were read. A receipt to the senders goes out
    * only when the chat is `accepted` and the effective setting allows it: the
    * phone's when it has told us, Snowdrop's own otherwise. Otherwise, with a
-   * signal-cli that can (`supportsReadSync`), only the user's own devices are
+   * signal-cli that can (the `readSync` feature), only the user's own devices are
    * told (`syncOnly`), so the messages still stop being unread on the phone.
    * An older signal-cli can't send the sync alone, so there nothing is sent
    * when a receipt isn't allowed (the behaviour before read sync existed).
@@ -1317,7 +1320,7 @@ export class SyncService {
       return;
     }
     const receipt = accepted && privacy.sendReadReceipts;
-    if (!receipt && (!syncWithoutReceipt || backend.supportsReadSync?.() !== true)) {
+    if (!receipt && (!syncWithoutReceipt || !backend.capabilities.features.has('readSync'))) {
       log.info('read sync skipped', {
         reason: !accepted ? 'not-accepted' : 'receipts-off',
         n: messages.length,
@@ -1357,7 +1360,7 @@ export class SyncService {
     // A read triggered by a connect or the phone starts over; only its own retries count up.
     if (!isRetry) this.privacyRetries = 0;
     const session = stores.session.getState();
-    if (backend.supportsPhonePrivacy?.() !== true || !backend.readPhonePrivacy) {
+    if (!backend.capabilities.features.has('phonePrivacy') || !backend.readPhonePrivacy) {
       session.setPhonePrivacy({ status: 'unsupported', values: UNKNOWN_PHONE_PRIVACY });
       return;
     }
@@ -1538,7 +1541,7 @@ export class SyncService {
       (mark) => {
         if (mark) this.backendCatchUpSeq = mark.seq;
         if (this.gated) return;
-        this.startCatchUp(backend.supportsOrderedCatchingUp?.() === true);
+        this.startCatchUp(backend.capabilities.features.has('orderedCatchingUp'));
         this.armCatchUpQuiet();
       },
       true,

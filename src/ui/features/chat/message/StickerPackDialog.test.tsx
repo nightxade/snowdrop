@@ -1,3 +1,4 @@
+import { FeatureStore } from '@/core/backend/features';
 import { act, cleanup, fireEvent, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Snowdrop } from '@/app/createSnowdrop';
@@ -43,7 +44,7 @@ async function open(fakes: Fakes = {}, onOpenChange = vi.fn()) {
   const backend = snowdrop.backend as unknown as Record<string, unknown>;
   backend.getStickerPack = fakes.getStickerPack ?? (() => Promise.resolve(pack()));
   backend.installStickerPack = fakes.installStickerPack ?? (() => Promise.resolve());
-  backend.supportsStickerPackInstall = () => fakes.supports ?? true;
+  backend.capabilities = new FeatureStore((fakes.supports ?? true) ? ['stickerPackInstall'] : []);
   renderWithSnowdrop(
     snowdrop,
     <StickerPackDialog
@@ -207,7 +208,7 @@ describe('StickerPackDialog', () => {
       installed = true;
       return Promise.resolve();
     };
-    backend.supportsStickerPackInstall = () => true;
+    backend.capabilities = new FeatureStore(['stickerPackInstall']);
 
     const seen: string[] = [];
     function Probe() {

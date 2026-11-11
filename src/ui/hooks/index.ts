@@ -7,6 +7,7 @@ export {
   type DaemonProbe,
 } from './SnowdropContext';
 export { useObservableList, type ListSource } from './useObservableList';
+export { useBackendFeature } from './useBackendFeature';
 export { BREAKPOINTS, useMediaQuery } from './useMediaQuery';
 export { useKeybindLabel } from './useKeybindLabel';
 export { useNow } from './useNow';

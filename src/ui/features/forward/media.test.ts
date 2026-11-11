@@ -1,3 +1,4 @@
+import { FeatureStore } from '@/core/backend/features';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ConversationId } from '@/core/domain';
 import { createStores } from '@/core/stores';
@@ -96,7 +97,7 @@ describe('readForwardFile', () => {
     const readAttachmentBlob = vi.fn().mockRejectedValueOnce(gone()).mockResolvedValue(blob);
     const d = deps({
       readAttachmentBlob,
-      supportsAttachmentBackfill: () => true,
+      capabilities: new FeatureStore(['attachmentBackfill']),
       requestAttachmentBackfill: vi.fn().mockResolvedValue(undefined),
     });
     const onBackfilling = vi.fn();
@@ -126,7 +127,7 @@ describe('readForwardFile', () => {
     const readAttachmentBlob = vi.fn().mockRejectedValue(gone());
     const d = deps({
       readAttachmentBlob,
-      supportsAttachmentBackfill: () => true,
+      capabilities: new FeatureStore(['attachmentBackfill']),
       requestAttachmentBackfill: vi.fn().mockResolvedValue(undefined),
     });
     d.stores.session.getState().setAttachmentBackfill(KEY, { status: 'ready', attachmentIds: [] });
@@ -141,7 +142,7 @@ describe('readForwardFile', () => {
     const make = () =>
       deps({
         readAttachmentBlob: vi.fn().mockRejectedValue(gone()),
-        supportsAttachmentBackfill: () => true,
+        capabilities: new FeatureStore(['attachmentBackfill']),
         requestAttachmentBackfill: vi.fn().mockResolvedValue(undefined),
       });
     const failed = make();
@@ -163,7 +164,7 @@ describe('readForwardFile', () => {
   it('treats a backfill request that itself fails as the phone not having it', async () => {
     const d = deps({
       readAttachmentBlob: vi.fn().mockRejectedValue(gone()),
-      supportsAttachmentBackfill: () => true,
+      capabilities: new FeatureStore(['attachmentBackfill']),
       requestAttachmentBackfill: vi.fn().mockRejectedValue(new Error('boom')),
     });
     await expect(readForwardFile(d, conversationId, draft, file)).rejects.toMatchObject({
@@ -174,7 +175,7 @@ describe('readForwardFile', () => {
   it('does not ask the phone when the connection cannot', async () => {
     const d = deps({
       readAttachmentBlob: vi.fn().mockRejectedValue(gone()),
-      supportsAttachmentBackfill: () => false,
+      capabilities: new FeatureStore(),
       requestAttachmentBackfill: vi.fn(),
     });
     await expect(readForwardFile(d, conversationId, draft, file)).rejects.toMatchObject({

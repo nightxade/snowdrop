@@ -63,7 +63,7 @@ export interface OutgoingAttachment {
 
 /**
  * A custom emoji used (as `:name:`) in an outgoing message's body, for
- * backends that can deliver it (see `ChatBackend.supportsCustomEmojiDelivery`).
+ * backends that can deliver it (see the `customEmojiDelivery` feature).
  */
 export interface OutgoingCustomEmoji {
   name: string;
@@ -474,13 +474,13 @@ export interface BackendEvents {
    * queue that built up while it was away (signal-cli's own reconnect after
    * a sleep or network change, which Snowdrop's local stream never sees).
    * SyncService starts "catching up" again; the next `caughtUp` ends it.
-   * Only emitted where `supportsCatchingUpSignal()` is true.
+   * Only emitted where the `catchingUpSignal` feature is present.
    */
   catchingUp: CatchUpMark | undefined;
   /**
    * The phone's privacy settings may have changed (a sync from the phone, or
    * our own `updatePhonePrivacy`); the payload is empty, callers re-read with
-   * `readPhonePrivacy`. Only emitted where `supportsPhonePrivacy()` is true.
+   * `readPhonePrivacy`. Only emitted where the `phonePrivacy` feature is present.
    */
   phonePrivacyChanged: undefined;
   /**
@@ -529,7 +529,45 @@ export interface ReadSummary {
   sync: string;
 }
 
+/**
+ * What a backend can do beyond the required contract, decided by the running
+ * transport (some only once connected, from the signal-cli version). Absent
+ * is the same as unsupported.
+ * - `readSync`: `markRead` can sync read state to the user's own devices
+ *   without sending receipts (patches/signal-cli "0019").
+ * - `customEmojiDelivery`: custom emoji images can be sent alongside `:name:`
+ *   text (the custom-emoji extension). Gates whether `SendInput.customEmoji`
+ *   is worth building at all.
+ * - `phonePrivacy`: the phone's synced privacy settings can be read ("0018");
+ *   otherwise Snowdrop uses its own local settings.
+ * - `catchingUpSignal`: `catchingUp` is emitted ("0020", build 21+), so
+ *   `caughtUp` reliably ends every drain; otherwise a quiet period or the
+ *   ceiling does.
+ * - `orderedCatchingUp`: `catchingUp` is also strictly ordered before every
+ *   message of the new connection (build 23+). Implies `catchingUpSignal`.
+ * - `stickerPackInstall`: `installStickerPack` can work ("0017"); the dialog
+ *   disables Install otherwise.
+ * - `attachmentBackfill`: `requestAttachmentBackfill` is answered at all
+ *   ("0014"; an older patched build or upstream signal-cli advertises none).
+ */
+export type Feature =
+  | 'readSync'
+  | 'customEmojiDelivery'
+  | 'phonePrivacy'
+  | 'catchingUpSignal'
+  | 'orderedCatchingUp'
+  | 'stickerPackInstall'
+  | 'attachmentBackfill';
+
+/** A changing set of `Feature`s. `features` is a new set on every change, and `subscribe` fires once per change. */
+export interface BackendCapabilities {
+  readonly features: ReadonlySet<Feature>;
+  subscribe(fn: () => void): Unsubscribe;
+}
+
 export interface ChatBackend {
+  /** What this backend supports beyond the required contract (see `Feature`). */
+  readonly capabilities: BackendCapabilities;
   readonly kind: BackendKind;
 
   connect(): Promise<void>;
@@ -561,7 +599,7 @@ export interface ChatBackend {
    * Marks messages read: tells their senders (a read receipt) and the user's
    * other devices. With `syncOnly` only the user's own devices are told and
    * nothing goes to the senders; a backend that can't do that
-   * (`supportsReadSync()` false) does nothing for a `syncOnly` call. Resolves
+   * (no `readSync` feature) does nothing for a `syncOnly` call. Resolves
    * with what happened where the backend can tell.
    */
   markRead(
@@ -569,12 +607,6 @@ export interface ChatBackend {
     messages: MessageRef[],
     options?: MarkReadOptions,
   ): Promise<ReadSummary | undefined>;
-  /**
-   * Whether `markRead` can sync read state to the user's own devices without
-   * sending receipts (patches/signal-cli's "0019"). Only meaningful once
-   * connected. Omitted is the same as false.
-   */
-  supportsReadSync?(): boolean;
   updateConversation?(conversationId: ConversationId, patch: ConversationPatch): Promise<void>;
 
   /**
@@ -645,35 +677,6 @@ export interface ChatBackend {
    */
   syncContactsAndGroups?(): Promise<void>;
 
-  /**
-   * Whether the connected backend can deliver custom emoji images alongside
-   * `:name:` text (patches/signal-cli's custom-emoji extension). Gates
-   * whether `SendInput.customEmoji` is worth building at all; adapters
-   * without this capability (upstream signal-cli, the mock) omit it, which
-   * is the same as always returning false.
-   */
-  supportsCustomEmojiDelivery?(): boolean;
-
-  /**
-   * Whether the connected backend can report the phone's synced privacy
-   * settings (patches/signal-cli's "0018"). Only meaningful once connected.
-   * Omitted is the same as false: Snowdrop then uses its own local settings.
-   */
-  supportsPhonePrivacy?(): boolean;
-  /**
-   * Whether the connected backend emits `catchingUp` (patches/signal-cli's
-   * "0020", from build 21) and so reliably sends `caughtUp` after every drain. Only
-   * meaningful once connected. Omitted is the same as false: a drain is then
-   * ended by a quiet period or the ceiling, as before.
-   */
-  supportsCatchingUpSignal?(): boolean;
-  /**
-   * Whether `catchingUp` is strictly ordered before every message of the new
-   * connection and before the `caughtUp` that ends it (patches/signal-cli's
-   * "0020", from build 23). A drain can then be held until `caughtUp`, with no quiet period.
-   * Implies `supportsCatchingUpSignal()`. Omitted is the same as false.
-   */
-  supportsOrderedCatchingUp?(): boolean;
   /** The phone's synced privacy settings; rejects if the backend can't tell. */
   readPhonePrivacy?(): Promise<PhonePrivacySettings>;
   /**
@@ -834,13 +837,6 @@ export interface ChatBackend {
   getStickerPack?(sticker: StickerContent): Promise<StickerPackDetails>;
 
   /**
-   * Whether `installStickerPack` can work against the connected backend
-   * (patches/signal-cli's "0017"); the dialog disables Install otherwise.
-   * Omitted is the same as false.
-   */
-  supportsStickerPackInstall?(): boolean;
-
-  /**
    * Installs a sticker's pack, the way Signal's own "Install" does — and
    * like it, the install is synced to the user's phone. Only ever called
    * for a user's explicit click; never done implicitly. The pack key is
@@ -853,16 +849,6 @@ export interface ChatBackend {
 
   /** Releases a previous `retainStickerUrl`. */
   releaseStickerUrl?(sticker: StickerContent): void;
-
-  /**
-   * Whether the connected backend can answer `requestAttachmentBackfill` at
-   * all (patches/signal-cli's "0014: attachment backfill" — an older
-   * patched build, or upstream signal-cli, advertises none of this).
-   * Adapters without the capability (the mock always supports it; a future
-   * adapter without an equivalent would omit both this and the method
-   * below) omit this, which is the same as always returning false.
-   */
-  supportsAttachmentBackfill?(): boolean;
 
   /**
    * Asks our primary device to re-upload a message's attachments, for when

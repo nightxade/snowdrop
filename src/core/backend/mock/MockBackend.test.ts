@@ -268,7 +268,7 @@ describe('MockBackend', () => {
   it('simulates attachment backfill: a pending event, then ready after a delay', async () => {
     const { backend, scheduler } = setup();
     await backend.connect();
-    expect(backend.supportsAttachmentBackfill()).toBe(true);
+    expect(backend.capabilities.features.has('attachmentBackfill')).toBe(true);
     const conv = backend.world.conversationIds.get('dm-lucia')!;
     const events = collect(backend, 'attachmentBackfill');
 
@@ -425,7 +425,7 @@ describe('mock sticker pack install and delivered custom emoji', () => {
     expect(details).toMatchObject({ title: 'Winter Folk', installed: false });
     expect(details.stickers.length).toBeGreaterThan(1);
     expect((await backend.listStickerPacks()).map((p) => p.title)).not.toContain('Winter Folk');
-    expect(backend.supportsStickerPackInstall()).toBe(true);
+    expect(backend.capabilities.features.has('stickerPackInstall')).toBe(true);
   });
 
   it('installs it: the picker lists the pack afterwards and the dialog says installed', async () => {

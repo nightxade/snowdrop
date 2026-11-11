@@ -1012,7 +1012,7 @@ describe('SendService', () => {
 
   it('includes the sender own custom emoji used in the text, when the backend supports delivering them', async () => {
     const s = await setup();
-    Object.assign(s.backend, { supportsCustomEmojiDelivery: () => true });
+    s.backend.capabilities.setFeature('customEmojiDelivery', true);
     const sendSpy = vi.spyOn(s.backend, 'send');
     s.stores.local
       .getState()

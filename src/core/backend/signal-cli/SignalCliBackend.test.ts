@@ -437,9 +437,9 @@ describe('SignalCliBackend: connection', () => {
       const { daemon } = daemonWithAccount();
       daemon.reply('version', { version });
       const { backend } = await connected({ daemon });
-      expect(backend.supportsCatchingUpSignal()).toBe(expected);
+      expect(backend.capabilities.features.has('catchingUpSignal')).toBe(expected);
       await backend.disconnect();
-      expect(backend.supportsCatchingUpSignal()).toBe(false);
+      expect(backend.capabilities.features.has('catchingUpSignal')).toBe(false);
     }
   });
 
@@ -452,9 +452,9 @@ describe('SignalCliBackend: connection', () => {
       const { daemon } = daemonWithAccount();
       daemon.reply('version', { version });
       const { backend } = await connected({ daemon });
-      expect(backend.supportsOrderedCatchingUp()).toBe(expected);
+      expect(backend.capabilities.features.has('orderedCatchingUp')).toBe(expected);
       await backend.disconnect();
-      expect(backend.supportsOrderedCatchingUp()).toBe(false);
+      expect(backend.capabilities.features.has('orderedCatchingUp')).toBe(false);
     }
   });
 
@@ -482,17 +482,17 @@ describe('SignalCliBackend: connection', () => {
     const { daemon } = daemonWithAccount();
     daemon.reply('version', { version: '0.14.8-snowdrop-history.11' });
     const { backend } = await connected({ daemon });
-    expect(backend.supportsCustomEmojiDelivery()).toBe(true);
+    expect(backend.capabilities.features.has('customEmojiDelivery')).toBe(true);
     await backend.disconnect();
     // A fresh connect to a daemon that doesn't support it drops back to false.
-    expect(backend.supportsCustomEmojiDelivery()).toBe(false);
+    expect(backend.capabilities.features.has('customEmojiDelivery')).toBe(false);
   });
 
   it('treats a missing or unsupported version as no custom-emoji support', async () => {
     const { daemon } = daemonWithAccount();
     // No 'version' handler configured: FakeDaemon answers method-not-found.
     const { backend } = await connected({ daemon });
-    expect(backend.supportsCustomEmojiDelivery()).toBe(false);
+    expect(backend.capabilities.features.has('customEmojiDelivery')).toBe(false);
     await backend.disconnect();
   });
 
@@ -500,17 +500,17 @@ describe('SignalCliBackend: connection', () => {
     const { daemon } = daemonWithAccount();
     daemon.reply('version', { version: '0.14.8-snowdrop-history.14' });
     const { backend } = await connected({ daemon });
-    expect(backend.supportsAttachmentBackfill()).toBe(true);
+    expect(backend.capabilities.features.has('attachmentBackfill')).toBe(true);
     await backend.disconnect();
     // A fresh connect to a daemon that doesn't support it drops back to false.
-    expect(backend.supportsAttachmentBackfill()).toBe(false);
+    expect(backend.capabilities.features.has('attachmentBackfill')).toBe(false);
   });
 
   it('treats an older patched build as no attachment-backfill support', async () => {
     const { daemon } = daemonWithAccount();
     daemon.reply('version', { version: '0.14.8-snowdrop-history.13' });
     const { backend } = await connected({ daemon });
-    expect(backend.supportsAttachmentBackfill()).toBe(false);
+    expect(backend.capabilities.features.has('attachmentBackfill')).toBe(false);
     await backend.disconnect();
   });
 });
@@ -556,7 +556,7 @@ describe('SignalCliBackend: attachment backfill (patches/signal-cli 0014)', () =
 
   it('is a no-op against a daemon that does not support it', async () => {
     const { daemon } = daemonWithAccount();
-    // No 'version' handler: supportsAttachmentBackfill() is false.
+    // No 'version' handler: the attachmentBackfill feature is absent.
     const { backend } = await connected({ daemon });
 
     await backend.requestAttachmentBackfill(directConversationId(ALICE), ALICE, T0, ['att-1']);
@@ -1493,15 +1493,31 @@ describe('SignalCliBackend sync-only read receipts', () => {
     return { ...s, daemon };
   }
 
+  it('tells a subscriber once when connecting adds features and once when disconnecting drops them', async () => {
+    const { daemon } = daemonWithAccount();
+    daemon.reply('version', { version: '0.14.8-snowdrop-history.19' });
+    const { backend } = setup({ daemon });
+    await flush();
+    const seen: string[][] = [];
+    backend.capabilities.subscribe(() => seen.push([...backend.capabilities.features].sort()));
+    await backend.connect();
+    await flush();
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toEqual(expect.arrayContaining(['readSync', 'phonePrivacy']));
+    await backend.disconnect();
+    expect(seen).toHaveLength(2);
+    expect(seen[1]).toEqual([]);
+  });
+
   it('asks signal-cli for syncOnly on a build with patch 0019', async () => {
     const { backend, daemon } = await backendAt('0.14.8-snowdrop-history.19');
-    expect(backend.supportsReadSync()).toBe(true);
+    expect(backend.capabilities.features.has('readSync')).toBe(true);
     await backend.markRead(GROUP, [{ authorId: ALICE, sentAt: 1 }], { syncOnly: true });
     expect(daemon.callsTo('sendReceipt')).toEqual([
       { account: SELF_ACI, recipient: ALICE, targetTimestamp: [1], type: 'read', syncOnly: true },
     ]);
     await backend.disconnect();
-    expect(backend.supportsReadSync()).toBe(false);
+    expect(backend.capabilities.features.has('readSync')).toBe(false);
   });
 
   it('returns the receipt and sync outcome types from the reply', async () => {
@@ -1565,7 +1581,7 @@ describe('SignalCliBackend sync-only read receipts', () => {
 
   it('never sends a sync-only read to an older build (it would be a real receipt)', async () => {
     const { backend, daemon } = await backendAt('0.14.8-snowdrop-history.18');
-    expect(backend.supportsReadSync()).toBe(false);
+    expect(backend.capabilities.features.has('readSync')).toBe(false);
     await backend.markRead(GROUP, [{ authorId: ALICE, sentAt: 1 }], { syncOnly: true });
     expect(daemon.callsTo('sendReceipt')).toEqual([]);
     await backend.markRead(GROUP, [{ authorId: ALICE, sentAt: 1 }]);
@@ -1589,14 +1605,18 @@ describe('SignalCliBackend phone privacy settings', () => {
   }
 
   it('is only offered on a build with patch 0018, and never after disconnecting', async () => {
-    expect((await backendAt('0.14.8-snowdrop-history.17')).backend.supportsPhonePrivacy()).toBe(
+    expect(
+      (await backendAt('0.14.8-snowdrop-history.17')).backend.capabilities.features.has(
+        'phonePrivacy',
+      ),
+    ).toBe(false);
+    expect((await backendAt('0.14.8')).backend.capabilities.features.has('phonePrivacy')).toBe(
       false,
     );
-    expect((await backendAt('0.14.8')).backend.supportsPhonePrivacy()).toBe(false);
     const { backend } = await backendAt('0.14.8-snowdrop-history.18');
-    expect(backend.supportsPhonePrivacy()).toBe(true);
+    expect(backend.capabilities.features.has('phonePrivacy')).toBe(true);
     await backend.disconnect();
-    expect(backend.supportsPhonePrivacy()).toBe(false);
+    expect(backend.capabilities.features.has('phonePrivacy')).toBe(false);
   });
 
   it('reads the stored values, keeping unknown ones as null', async () => {
@@ -1766,13 +1786,17 @@ describe('SignalCliBackend installing a sticker pack from a sticker', () => {
 
   it('only offers installing on a build with patch 0017', async () => {
     expect(
-      (await backendAt('0.14.8-snowdrop-history.16')).backend.supportsStickerPackInstall(),
+      (await backendAt('0.14.8-snowdrop-history.16')).backend.capabilities.features.has(
+        'stickerPackInstall',
+      ),
     ).toBe(false);
-    expect((await backendAt('0.14.8')).backend.supportsStickerPackInstall()).toBe(false);
+    expect(
+      (await backendAt('0.14.8')).backend.capabilities.features.has('stickerPackInstall'),
+    ).toBe(false);
     const { backend } = await backendAt('0.14.8-snowdrop-history.17');
-    expect(backend.supportsStickerPackInstall()).toBe(true);
+    expect(backend.capabilities.features.has('stickerPackInstall')).toBe(true);
     await backend.disconnect();
-    expect(backend.supportsStickerPackInstall()).toBe(false);
+    expect(backend.capabilities.features.has('stickerPackInstall')).toBe(false);
   });
 
   it('shows an uninstalled pack with its stickers and its install state, never the key', async () => {

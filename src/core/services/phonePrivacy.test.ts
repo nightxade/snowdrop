@@ -48,8 +48,8 @@ async function setup(
   const reads = vi.fn(options.phone ?? (() => Promise.resolve({ ...state.values })));
   const updates = vi.fn((_patch: PhonePrivacyPatch) => Promise.resolve());
   if (options.supported !== false) {
+    backend.capabilities.setFeature('phonePrivacy', true);
     Object.assign(backend, {
-      supportsPhonePrivacy: () => true,
       readPhonePrivacy: reads,
       updatePhonePrivacy: updates,
     });

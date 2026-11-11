@@ -7,6 +7,7 @@
  * checks that a remount (e.g. a row scrolling back into a virtualised list)
  * always asks the backend again instead of replaying a cached value.
  */
+import { FeatureStore } from '@/core/backend/features';
 import { act, cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { MessageRef } from '@/core/backend';
@@ -32,12 +33,12 @@ interface FakeBackend {
     targetSentAt: number,
     attachmentIds: string[],
   ) => Promise<void>;
-  supportsAttachmentBackfill?: () => boolean;
+  capabilities?: FeatureStore;
 }
 
 function fakeApp(backend: FakeBackend): AppServices {
   return {
-    backend: { kind: 'signal-cli', ...backend },
+    backend: { kind: 'signal-cli', capabilities: new FeatureStore(), ...backend },
     stores: createStores(),
   } as unknown as AppServices;
 }
@@ -152,7 +153,7 @@ describe('useAttachmentUrl: attachment backfill (patches/signal-cli, "0014")', (
     const app = fakeApp({
       resolveAttachmentUrl,
       requestAttachmentBackfill,
-      supportsAttachmentBackfill: () => true,
+      capabilities: new FeatureStore(['attachmentBackfill']),
     });
 
     render(
@@ -208,7 +209,7 @@ describe('useAttachmentUrl: attachment backfill (patches/signal-cli, "0014")', (
     const app = fakeApp({
       resolveAttachmentUrl,
       requestAttachmentBackfill,
-      supportsAttachmentBackfill: () => true,
+      capabilities: new FeatureStore(['attachmentBackfill']),
     });
 
     render(
@@ -237,7 +238,7 @@ describe('useAttachmentUrl: attachment backfill (patches/signal-cli, "0014")', (
     const app = fakeApp({
       resolveAttachmentUrl,
       requestAttachmentBackfill,
-      supportsAttachmentBackfill: () => true,
+      capabilities: new FeatureStore(['attachmentBackfill']),
     });
 
     render(
@@ -272,7 +273,7 @@ describe('useAttachmentUrl: attachment backfill (patches/signal-cli, "0014")', (
     const app = fakeApp({
       resolveAttachmentUrl,
       requestAttachmentBackfill,
-      supportsAttachmentBackfill: () => true,
+      capabilities: new FeatureStore(['attachmentBackfill']),
     });
     const total = BACKFILL_MAX_OUTSTANDING + 2;
     const messages = Array.from({ length: total }, (_, i) => ({
@@ -334,7 +335,7 @@ describe('useAttachmentUrl: attachment backfill (patches/signal-cli, "0014")', (
       const app = fakeApp({
         resolveAttachmentUrl,
         requestAttachmentBackfill,
-        supportsAttachmentBackfill: () => true,
+        capabilities: new FeatureStore(['attachmentBackfill']),
       });
 
       render(
@@ -380,7 +381,7 @@ describe('useAttachmentUrl: a failed backfill request', () => {
     const app = fakeApp({
       resolveAttachmentUrl,
       requestAttachmentBackfill,
-      supportsAttachmentBackfill: () => true,
+      capabilities: new FeatureStore(['attachmentBackfill']),
     });
 
     render(

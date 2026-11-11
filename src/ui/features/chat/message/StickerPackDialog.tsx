@@ -3,7 +3,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import type { StickerPackDetails } from '@/core/backend';
 import type { ConversationId, StickerContent } from '@/core/domain';
 import { createLogger } from '@/core/lib';
-import { useSnowdrop } from '@/ui/hooks';
+import { useBackendFeature, useSnowdrop } from '@/ui/hooks';
 import { Button, EmptyState, Modal, Skeleton } from '@/ui/primitives';
 import { invalidateStickerPacks } from '../composer/useStickerPacks';
 import { StickerThumb } from './StickerThumb';
@@ -36,6 +36,7 @@ export function StickerPackDialog({
   returnFocus,
 }: StickerPackDialogProps) {
   const { backend } = useSnowdrop();
+  const hasInstallFeature = useBackendFeature('stickerPackInstall');
   const state = useStickerPack(sticker);
   const [install, setInstall] = useState<Install>('idle');
   const mounted = useRef(true);
@@ -51,8 +52,7 @@ export function StickerPackDialog({
   }, []);
 
   const pack = state.status === 'ready' ? state.pack : undefined;
-  const supported =
-    backend.installStickerPack !== undefined && backend.supportsStickerPackInstall?.() === true;
+  const supported = backend.installStickerPack !== undefined && hasInstallFeature;
   const installed = install === 'done' || pack?.installed === true;
 
   // The install button is where the user acts; focus it once the pack shows

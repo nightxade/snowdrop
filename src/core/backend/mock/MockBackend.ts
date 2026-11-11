@@ -76,6 +76,7 @@ import { generateStickerUrl } from './images';
 import { Liveliness, type LivelinessOptions } from './liveliness';
 import { Random } from './prng';
 import { buildWorld, type MockWorld } from './world';
+import { FeatureStore } from '../features';
 
 export interface MockBackendOptions {
   seed?: number;
@@ -148,12 +149,16 @@ export class MockBackend implements ChatBackend {
     messages: MessageRef[];
     syncOnly?: true;
   }[] = [];
-  /** Whether this mock can sync reads without receipts (a test turns it off to act like an old signal-cli). */
-  readSyncSupported = true;
-  /** Whether this mock claims to send `catchingUp` (a test turns it on to act like a patched signal-cli). */
-  catchingUpSignalSupported = false;
-  /** Whether this mock also claims that `catchingUp` is ordered before every message (build 23+). */
-  orderedCatchingUpSupported = false;
+  /**
+   * The mock's features. A test turns one off to act like an old signal-cli
+   * (`readSync`) or on to act like a patched one (`catchingUpSignal`,
+   * `orderedCatchingUp`).
+   */
+  readonly capabilities = new FeatureStore([
+    'readSync',
+    'stickerPackInstall',
+    'attachmentBackfill',
+  ]);
   /** Every message-request answer, for the same reason. */
   /** Trust per person's key; absent is `default`. Seeded from `world.untrustedIds`. */
   private readonly identityTrust = new Map<string, IdentityTrust>();
@@ -430,10 +435,6 @@ export class MockBackend implements ChatBackend {
     return this.packDetails(pack);
   }
 
-  supportsStickerPackInstall(): boolean {
-    return true;
-  }
-
   async installStickerPack(sticker: StickerContent): Promise<void> {
     await this.delay();
     this.assertOnline();
@@ -525,18 +526,6 @@ export class MockBackend implements ChatBackend {
     this.updateMessage(conversationId, this.world.self.id, pollSentAt, applyPollTerminate);
   }
 
-  supportsReadSync(): boolean {
-    return this.readSyncSupported;
-  }
-
-  supportsCatchingUpSignal(): boolean {
-    return this.catchingUpSignalSupported;
-  }
-
-  supportsOrderedCatchingUp(): boolean {
-    return this.orderedCatchingUpSupported;
-  }
-
   async setTyping(conversationId: ConversationId, typing: boolean): Promise<void> {
     await this.delay();
     this.typingSent.push({ conversationId, typing });
@@ -548,7 +537,7 @@ export class MockBackend implements ChatBackend {
     options?: MarkReadOptions,
   ): Promise<ReadSummary | undefined> {
     await this.delay();
-    if (options?.syncOnly && !this.readSyncSupported) return undefined;
+    if (options?.syncOnly && !this.capabilities.features.has('readSync')) return undefined;
     this.readReceiptsSent.push({
       conversationId,
       messages: structuredClone(messages),
@@ -652,10 +641,6 @@ export class MockBackend implements ChatBackend {
     if (next.blocked === false) delete next.blocked;
     this.world.contacts.set(contact.id, next);
     this.emitter.emit('contactUpdated', structuredClone(next));
-  }
-
-  supportsAttachmentBackfill(): boolean {
-    return true;
   }
 
   /**

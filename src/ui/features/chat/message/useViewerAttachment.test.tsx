@@ -1,6 +1,7 @@
 import { act, cleanup, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MessageRef } from '@/core/backend';
+import { FeatureStore } from '@/core/backend/features';
 import type { Attachment, ConversationId } from '@/core/domain';
 import { createStores } from '@/core/stores';
 import { SnowdropContextProvider, type AppServices } from '@/ui/hooks';
@@ -53,7 +54,7 @@ function mount(
     return null;
   }
   const app = {
-    backend: { kind: 'signal-cli' },
+    backend: { kind: 'signal-cli', capabilities: new FeatureStore() },
     stores: createStores(),
     repository: { readSentMedia },
   } as unknown as AppServices;

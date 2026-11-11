@@ -1,3 +1,5 @@
+import type { Feature } from '../types';
+
 /**
  * The one place that decides whether a running signal-cli build can deliver
  * Snowdrop's custom-emoji extension (patches/signal-cli, "Custom emoji").
@@ -143,4 +145,18 @@ export function supportsCatchingUpSignal(version: string | undefined): boolean {
   const match = SNOWDROP_PATCH_LEVEL.exec(version);
   if (!match?.[1]) return false;
   return Number(match[1]) >= MIN_CATCHING_UP_SIGNAL_PATCH_LEVEL;
+}
+
+/** Every version-dependent `Feature` the given signal-cli build has (none for an unknown version). */
+export function featuresForVersion(version: string | undefined): Set<Feature> {
+  const decided: Array<[Feature, (version: string | undefined) => boolean]> = [
+    ['customEmojiDelivery', supportsCustomEmojiDelivery],
+    ['attachmentBackfill', supportsAttachmentBackfill],
+    ['stickerPackInstall', supportsStickerPackInstall],
+    ['phonePrivacy', supportsPhonePrivacy],
+    ['readSync', supportsReadSync],
+    ['catchingUpSignal', supportsCatchingUpSignal],
+    ['orderedCatchingUp', supportsOrderedCatchingUp],
+  ];
+  return new Set(decided.filter(([, supported]) => supported(version)).map(([feature]) => feature));
 }

@@ -1,6 +1,7 @@
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { MessageRef } from '@/core/backend';
+import { FeatureStore } from '@/core/backend/features';
 import type { Attachment, ConversationId, LinkPreview } from '@/core/domain';
 import { createStores } from '@/core/stores';
 import { SnowdropContextProvider, type AppServices } from '@/ui/hooks';
@@ -18,7 +19,7 @@ function fakeApp(
   ) => Promise<string> = vi.fn().mockResolvedValue('blob:preview-image'),
 ): AppServices {
   return {
-    backend: { kind: 'signal-cli', resolveAttachmentUrl },
+    backend: { kind: 'signal-cli', resolveAttachmentUrl, capabilities: new FeatureStore() },
     stores: createStores(),
   } as unknown as AppServices;
 }

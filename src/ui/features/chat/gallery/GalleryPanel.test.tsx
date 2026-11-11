@@ -1,3 +1,4 @@
+import { FeatureStore } from '@/core/backend/features';
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { axe } from 'vitest-axe';
@@ -629,7 +630,7 @@ describe('expired media in the gallery never asks the phone by itself', () => {
     Object.assign(snowdrop.backend, {
       resolveAttachmentUrl: resolve,
       requestAttachmentBackfill: request,
-      supportsAttachmentBackfill: () => true,
+      capabilities: new FeatureStore(['attachmentBackfill']),
     });
     await seed(snowdrop, [
       {

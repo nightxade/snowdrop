@@ -8,6 +8,7 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MessageRef } from '@/core/backend';
+import { FeatureStore } from '@/core/backend/features';
 import {
   directConversationId,
   type Attachment,
@@ -49,7 +50,10 @@ function requestApp(backend: Partial<AppServices['backend']>): {
     expireTimerSec: 0,
     lastActivityAt: 1,
   });
-  const app = { backend: { kind: 'signal-cli', ...backend }, stores } as unknown as AppServices;
+  const app = {
+    backend: { kind: 'signal-cli', capabilities: new FeatureStore(), ...backend },
+    stores,
+  } as unknown as AppServices;
   return { app, stores };
 }
 

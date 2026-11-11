@@ -148,9 +148,8 @@ export interface AppServices {
     | 'listStickerPacks'
     | 'getStickerPack'
     | 'installStickerPack'
-    | 'supportsStickerPackInstall'
     | 'link'
-    | 'supportsAttachmentBackfill'
+    | 'capabilities'
     | 'requestAttachmentBackfill'
     | 'lookupRecipient'
   >;

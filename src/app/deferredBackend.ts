@@ -19,43 +19,36 @@
 import { ignored } from '@/core/lib';
 import type { BackendEvents, BackendKind, ChatBackend, LinkFlow } from '@/core/backend';
 import type { Unsubscribe } from '@/core/lib';
+import { FeatureStore } from '@/core/backend/features';
 
 type Keys = keyof ChatBackend;
 type RequiredKeys = {
   [K in Keys]-?: object extends Pick<ChatBackend, K> ? never : K;
 }[Keys];
-/** The `supports*()` capability flags: known only once the adapter has connected. */
-export type CapabilityFlag = Extract<Keys, `supports${string}`>;
-/** Every optional, non-flag member: present only when the registration declares it. */
-export type OptionalMethod = Exclude<Keys, RequiredKeys | CapabilityFlag>;
+/** Every optional member: present only when the registration declares it. */
+export type OptionalMethod = Exclude<Keys, RequiredKeys>;
 
 /**
  * How each member is forwarded:
  * - `required`: always present; awaits the adapter, then calls it with the same arguments;
  * - `async`: the same, but only present when the registration declares it, and a
  *   method the adapter lacks rejects with `missing(...)`;
- * - `flag`: `false` until the adapter is known, then whatever it answers (a flag
- *   the adapter lacks stays `false`);
  * - `queued`: synchronous and fire-and-forget; calls made before the adapter loads
  *   are replayed, in order, when it does;
  * - `peek`: synchronous lookup, `undefined` until the adapter is known;
  * - `link`: the device-linking object (two async methods);
- * - `custom`: written out by hand below (`kind`, `getStatus`, `on`).
+ * - `custom`: written out by hand below (`kind`, `getStatus`, `on`, `capabilities`).
  */
-type FlagKind = 'flag';
 type OptionalKind = 'async' | 'queued' | 'peek' | 'link';
 type Forwarding = {
-  [K in Keys]: K extends CapabilityFlag
-    ? FlagKind
-    : K extends RequiredKeys
-      ? 'required' | 'custom'
-      : OptionalKind;
+  [K in Keys]: K extends RequiredKeys ? 'required' | 'custom' : OptionalKind;
 };
 
 export const FORWARDING: Forwarding = {
   kind: 'custom',
   getStatus: 'custom',
   on: 'custom',
+  capabilities: 'custom',
   connect: 'required',
   disconnect: 'required',
   getSelf: 'required',
@@ -107,13 +100,6 @@ export const FORWARDING: Forwarding = {
   link: 'link',
   syncContactsAndGroups: 'async',
   lookupRecipient: 'async',
-  supportsReadSync: 'flag',
-  supportsCustomEmojiDelivery: 'flag',
-  supportsPhonePrivacy: 'flag',
-  supportsCatchingUpSignal: 'flag',
-  supportsOrderedCatchingUp: 'flag',
-  supportsStickerPackInstall: 'flag',
-  supportsAttachmentBackfill: 'flag',
 };
 
 const keysOf = (kinds: readonly string[]): Keys[] =>
@@ -144,6 +130,8 @@ export function deferredBackend(
   ready: Promise<ChatBackend>,
 ): ChatBackend {
   let real: ChatBackend | null = null;
+  // Empty until the adapter arrives, then its set, and every change after.
+  const capabilities = new FeatureStore();
   const subscriptions = new Set<Subscription>();
   // Fire-and-forget calls made before the adapter loads (acknowledge, and the
   // retain/release pairs) are replayed in order once it does: an id retained
@@ -153,6 +141,11 @@ export function deferredBackend(
   // Avoid an unhandled rejection before a call observes it; calls reject with the error.
   ready.then((backend) => {
     real = backend;
+    capabilities.set(backend.capabilities.features);
+    // The adapter lives as long as this wrapper, so the mirror is never detached.
+    backend.capabilities.subscribe(() => {
+      capabilities.set(backend.capabilities.features);
+    });
     for (const sub of subscriptions) {
       if (sub.active)
         sub.off = backend.on(
@@ -179,13 +172,6 @@ export function deferredBackend(
           : missing(key);
       });
   }
-  for (const key of keysOf(['flag'])) {
-    target[key] = (...args: unknown[]) => {
-      const method = real ? (real as unknown as Record<string, unknown>)[key] : undefined;
-      return typeof method === 'function' ? (Reflect.apply(method, real, args) as boolean) : false;
-    };
-  }
-
   const named = (backend: ChatBackend, key: Keys) =>
     (backend as unknown as Record<string, unknown>)[key];
   for (const key of keysOf(['queued'])) {
@@ -213,6 +199,7 @@ export function deferredBackend(
   const backend = target as unknown as ChatBackend;
   Object.assign(target, {
     kind,
+    capabilities,
     // Loading the adapter is the first step of connecting.
     getStatus: () => real?.getStatus() ?? 'connecting',
     on(event, fn) {
@@ -225,7 +212,7 @@ export function deferredBackend(
         subscriptions.delete(sub);
       };
     },
-  } satisfies Pick<ChatBackend, 'kind' | 'getStatus' | 'on'>);
+  } satisfies Pick<ChatBackend, 'kind' | 'capabilities' | 'getStatus' | 'on'>);
 
   if (caps.has('link'))
     backend.link = {

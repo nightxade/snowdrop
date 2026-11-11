@@ -106,7 +106,7 @@ export async function readForwardFile(
     const recoverable = kind === 'missing-on-disk' || kind === 'expired';
     const canAsk =
       backend.requestAttachmentBackfill !== undefined &&
-      (backend.supportsAttachmentBackfill?.() ?? false);
+      backend.capabilities.features.has('attachmentBackfill');
     if (!recoverable || !canAsk) throw error instanceof MediaError ? error : new MediaError(kind);
     const key = `${draft.authorId}\u0000${draft.sentAt}`;
     stores.local.getState().markBackfillRequested(key);

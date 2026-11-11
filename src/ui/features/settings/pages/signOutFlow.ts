@@ -21,7 +21,9 @@ export type SignOutFlow =
   | 'browser';
 
 /** Decides the flow from what's actually running, not from an unapplied Settings → Connection edit. */
-export function signOutFlowFor(app: Pick<AppServices, 'backend' | 'storageAdmin'>): SignOutFlow {
+export function signOutFlowFor(
+  app: Pick<AppServices, 'storageAdmin'> & { backend: Pick<AppServices['backend'], 'kind'> },
+): SignOutFlow {
   if (app.backend.kind !== 'signal-cli') return 'demo';
   return app.storageAdmin ? 'desktop' : 'browser';
 }

@@ -222,14 +222,14 @@ export class SendService {
   /**
    * The sender's own *image* custom emoji actually used (as `:name:`) in
    * `body`, deduplicated, for a backend that can deliver them (see
-   * ChatBackend.supportsCustomEmojiDelivery). A name with no matching local
+   * the `customEmojiDelivery` feature). A name with no matching local
    * image emoji is simply left out — a text emoticon's token was already
    * expanded to its text by `compose` before `body` ever reached here, and
    * an unknown name renders as plain `:name:` text everywhere, same as it
    * always did.
    */
   private buildCustomEmoji(body: string): OutgoingCustomEmoji[] | undefined {
-    if (!this.deps.backend.supportsCustomEmojiDelivery?.()) return undefined;
+    if (!this.deps.backend.capabilities.features.has('customEmojiDelivery')) return undefined;
     const library = this.deps.stores.local.getState().customEmoji;
     const used = extractCustomEmojiNames(body)
       .map((name) => library.find((e) => e.name === name))

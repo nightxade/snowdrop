@@ -8,6 +8,7 @@
  * so a genuine failure surfaces the hook's own error state and its Retry
  * button rather than a dead end.
  */
+import { FeatureStore } from '@/core/backend/features';
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { axe } from 'vitest-axe';
@@ -27,7 +28,7 @@ function fakeApp(
   resolveAttachmentUrl: (conversationId: ConversationId, attachment: Attachment) => Promise<string>,
 ): AppServices {
   return {
-    backend: { kind: 'signal-cli', resolveAttachmentUrl },
+    backend: { kind: 'signal-cli', resolveAttachmentUrl, capabilities: new FeatureStore() },
     stores: createStores(),
   } as unknown as AppServices;
 }
@@ -278,7 +279,7 @@ describe('expired attachments in the message list: the phone is only asked on a 
         kind: 'signal-cli',
         resolveAttachmentUrl: vi.fn().mockRejectedValue(gone),
         requestAttachmentBackfill,
-        supportsAttachmentBackfill: () => true,
+        capabilities: new FeatureStore(['attachmentBackfill']),
       },
       stores: createStores(),
     } as unknown as AppServices;

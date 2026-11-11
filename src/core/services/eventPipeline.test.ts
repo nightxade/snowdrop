@@ -32,7 +32,7 @@ const incoming = (
 async function setup() {
   const scheduler = new ManualScheduler(NOW);
   const backend = new MockBackend({ seed: 7, clock: scheduler, scheduler, latencyMs: 0 });
-  backend.readSyncSupported = true;
+  backend.capabilities.setFeature('readSync', true);
   const repository = new MemoryMessageRepository();
   const stores = createStores();
   const onError = vi.fn();
@@ -200,7 +200,7 @@ describe('the sidebar preview follows the messages that remain', () => {
 describe('the catch-up quiet period follows processing', () => {
   it('keeps holding notifications while the queue is still working through the backlog', async () => {
     const { backend, scheduler, repository, stores, sync, conv, peerOf } = await setup();
-    backend.catchingUpSignalSupported = false;
+    backend.capabilities.setFeature('catchingUpSignal', false);
     // A catch-up with the quiet-period fallback (no caughtUp promised).
     backend.emit('catchingUp', undefined);
     expect(stores.session.getState().notificationsHeld).toBe(true);

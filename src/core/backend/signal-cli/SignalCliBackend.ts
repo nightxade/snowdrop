@@ -82,6 +82,7 @@ import type {
   StickerPackInfo,
   StickerPackSticker,
 } from '../types';
+import { FeatureStore } from '../features';
 import {
   AttachmentResolver,
   encodeOutgoing,
@@ -91,14 +92,8 @@ import {
 } from './attachments';
 import { AvatarResolver } from './avatars';
 import {
-  supportsAttachmentBackfill as detectAttachmentBackfillSupport,
-  supportsCustomEmojiDelivery as detectCustomEmojiSupport,
+  featuresForVersion,
   supportsHistoryStickerPack as detectHistoryStickerPackSupport,
-  supportsPhonePrivacy as detectPhonePrivacySupport,
-  supportsReadSync as detectReadSyncSupport,
-  supportsCatchingUpSignal as detectCatchingUpSignalSupport,
-  supportsOrderedCatchingUp as detectOrderedCatchingUpSupport,
-  supportsStickerPackInstall as detectStickerPackInstallSupport,
 } from './capabilities';
 import { Directory } from './directory';
 import { describeError, isSignalCliError, SignalCliError } from './errors';
@@ -280,19 +275,14 @@ export class SignalCliBackend implements ChatBackend {
   private identity = new SelfIdentity('');
   private multiAccount = true;
   private peers: DirectPeers | null = null;
-  /** Whether the connected daemon can deliver custom emoji (see capabilities.ts). */
-  private customEmojiSupported = false;
-  /** Whether the connected daemon implements attachment backfill (see capabilities.ts). */
-  private attachmentBackfillSupported = false;
+  /**
+   * What the connected daemon can do beyond the required contract; the
+   * version-dependent features are decided by capabilities.ts after the
+   * version probe and cleared again on disconnect.
+   */
+  readonly capabilities = new FeatureStore();
   /** Whether the connected daemon can register a history sticker's pack key (see capabilities.ts). */
   private historyStickerPackSupported = false;
-  /** Whether the connected daemon can install a known sticker pack by id (see capabilities.ts). */
-  private stickerPackInstallSupported = false;
-  /** Whether the connected daemon reports the phone's privacy settings (see capabilities.ts). */
-  private phonePrivacySupported = false;
-  private readSyncSupported = false;
-  private catchingUpSignalSupported = false;
-  private orderedCatchingUpSupported = false;
   /** Installed packs whose download `listStickerPacks` already started this session. */
   private readonly stickerPacksFetchTried = new Set<string>();
   /** listConversations logs its counts once per backend, not on every refresh. */
@@ -404,14 +394,8 @@ export class SignalCliBackend implements ChatBackend {
     try {
       await this.rpc.check({ timeoutMs: this.transport.checkTimeoutMs ?? 5_000 });
       const version = await this.probeVersion();
-      this.customEmojiSupported = detectCustomEmojiSupport(version);
-      this.attachmentBackfillSupported = detectAttachmentBackfillSupport(version);
       this.historyStickerPackSupported = detectHistoryStickerPackSupport(version);
-      this.stickerPackInstallSupported = detectStickerPackInstallSupport(version);
-      this.phonePrivacySupported = detectPhonePrivacySupport(version);
-      this.readSyncSupported = detectReadSyncSupport(version);
-      this.catchingUpSignalSupported = detectCatchingUpSignalSupport(version);
-      this.orderedCatchingUpSupported = detectOrderedCatchingUpSupport(version);
+      this.capabilities.set(featuresForVersion(version));
       this.selectAccount(await this.discoverAccount());
       // Stream first: nothing sent to us while we load the directory is missed.
       this.openStream();
@@ -443,45 +427,10 @@ export class SignalCliBackend implements ChatBackend {
     }
   }
 
-  /** Whether the connected signal-cli build can deliver custom emoji images (see capabilities.ts). */
-  supportsCustomEmojiDelivery(): boolean {
-    return this.customEmojiSupported;
-  }
-
-  /** Whether the connected signal-cli build implements attachment backfill (see capabilities.ts). */
-  supportsAttachmentBackfill(): boolean {
-    return this.attachmentBackfillSupported;
-  }
-
-  /** Whether the connected signal-cli build can install a known sticker pack (see capabilities.ts). */
-  supportsStickerPackInstall(): boolean {
-    return this.stickerPackInstallSupported;
-  }
-
-  /** Whether the connected signal-cli build reports the phone's privacy settings (see capabilities.ts). */
-  supportsPhonePrivacy(): boolean {
-    return this.phonePrivacySupported;
-  }
-
-  /** Whether `markRead` can sync-only (see capabilities.ts, `supportsReadSync`). */
-  supportsReadSync(): boolean {
-    return this.readSyncSupported;
-  }
-
-  /** Whether the build tells us when a drain starts (see capabilities.ts, `supportsCatchingUpSignal`). */
-  supportsCatchingUpSignal(): boolean {
-    return this.catchingUpSignalSupported;
-  }
-
-  /** Whether `catchingUp` is ordered before every message of a connection (see capabilities.ts). */
-  supportsOrderedCatchingUp(): boolean {
-    return this.orderedCatchingUpSupported;
-  }
-
   /** See `ChatBackend.readPhonePrivacy`: the stored configuration the phone synced to us. */
   async readPhonePrivacy(): Promise<PhonePrivacySettings> {
     this.assertAccount();
-    if (!this.phonePrivacySupported)
+    if (!this.capabilities.features.has('phonePrivacy'))
       throw new SignalCliError(
         'user',
         "This signal-cli can't report your phone's privacy settings.",
@@ -498,7 +447,7 @@ export class SignalCliBackend implements ChatBackend {
   /** See `ChatBackend.updatePhonePrivacy`: signal-cli stores it and syncs it to the phone. */
   async updatePhonePrivacy(patch: PhonePrivacyPatch): Promise<void> {
     this.assertAccount();
-    if (!this.phonePrivacySupported)
+    if (!this.capabilities.features.has('phonePrivacy'))
       throw new SignalCliError(
         'user',
         "This signal-cli can't change your phone's privacy settings.",
@@ -608,14 +557,8 @@ export class SignalCliBackend implements ChatBackend {
     this.attachments.clear();
     this.avatars.clear();
     this.groupChanges.clear();
-    this.customEmojiSupported = false;
-    this.attachmentBackfillSupported = false;
     this.historyStickerPackSupported = false;
-    this.stickerPackInstallSupported = false;
-    this.phonePrivacySupported = false;
-    this.readSyncSupported = false;
-    this.catchingUpSignalSupported = false;
-    this.orderedCatchingUpSupported = false;
+    this.capabilities.set([]);
     this.setStatus('offline');
   }
 
@@ -1657,7 +1600,7 @@ export class SignalCliBackend implements ChatBackend {
    */
   async installStickerPack(sticker: StickerContent): Promise<void> {
     this.assertAccount();
-    if (!this.stickerPackInstallSupported)
+    if (!this.capabilities.features.has('stickerPackInstall'))
       throw new SignalCliError('user', 'Installing sticker packs needs a newer signal-cli.');
     if (!HEX_ID.test(sticker.packId))
       throw new SignalCliError('user', "This sticker pack can't be installed.");
@@ -1685,7 +1628,7 @@ export class SignalCliBackend implements ChatBackend {
 
   /**
    * See `ChatBackend.requestAttachmentBackfill`. A no-op against a daemon
-   * that doesn't implement it (`supportsAttachmentBackfill` is false): the
+   * that doesn't implement it (no `attachmentBackfill` feature): the
    * caller already decided to ask only because this returned true, but a
    * backend swap or a stale capability check must not send an RPC the
    * daemon would otherwise reject with "method not found".
@@ -1697,7 +1640,7 @@ export class SignalCliBackend implements ChatBackend {
     attachmentIds: readonly string[],
   ): Promise<void> {
     this.assertAccount();
-    if (!this.attachmentBackfillSupported) return;
+    if (!this.capabilities.features.has('attachmentBackfill')) return;
     const parsed = parseConversationId(conversationId);
     if (!parsed) throw new SignalCliError('user', `Not a conversation id: ${conversationId}`);
     const target =
@@ -1810,7 +1753,7 @@ export class SignalCliBackend implements ChatBackend {
         ...(encodedPreview ? { preview: encodedPreview.param } : {}),
         // Defensive: never forward customEmoji to a daemon that hasn't
         // advertised support for it, even if the caller built one anyway.
-        ...(this.customEmojiSupported && input.customEmoji
+        ...(this.capabilities.features.has('customEmojiDelivery') && input.customEmoji
           ? { customEmoji: input.customEmoji }
           : {}),
       }),
@@ -1888,7 +1831,7 @@ export class SignalCliBackend implements ChatBackend {
         ...(quote ? { quote } : {}),
         editTimestamp: input.targetSentAt,
         ...(encodedPreview ? { preview: encodedPreview.param } : {}),
-        ...(this.customEmojiSupported && input.customEmoji
+        ...(this.capabilities.features.has('customEmojiDelivery') && input.customEmoji
           ? { customEmoji: input.customEmoji }
           : {}),
       }),
@@ -1962,7 +1905,8 @@ export class SignalCliBackend implements ChatBackend {
   ): Promise<ReadSummary> {
     this.assertAccount();
     // An older signal-cli would treat `syncOnly` as a plain receipt: never send it one.
-    if (options?.syncOnly && !this.readSyncSupported) return summariseReadReplies([]);
+    if (options?.syncOnly && !this.capabilities.features.has('readSync'))
+      return summariseReadReplies([]);
     // Receipts are addressed to each message's author, not to the conversation.
     // The user's own messages never get a receipt, but a sync-only read may name
     // them: that is how the phone learns the reactions and votes on them were
