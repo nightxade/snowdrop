@@ -23,7 +23,7 @@ import {
   type Conversation,
   type ConversationId,
 } from '@/core/domain';
-import { graphemes } from '@/core/lib';
+import { graphemes, toAppError } from '@/core/lib';
 import type { MessageRepository } from '@/core/persistence';
 import type { Stores } from '@/core/stores';
 import { consoleReporter, type ErrorReporter } from './types';
@@ -44,9 +44,7 @@ const CONNECTION = 'Check your connection and try again.';
 
 /** The sentence for a failed group call, from the error's transport `kind` (when it has one). */
 export function groupFailureMessage(error: unknown): string {
-  const kind =
-    typeof error === 'object' && error !== null && 'kind' in error ? error.kind : undefined;
-  switch (kind) {
+  switch (toAppError(error).kind) {
     case 'rate-limited':
       return 'Signal is limiting group changes right now. Wait a little, then try again.';
     case 'user':

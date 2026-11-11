@@ -18,7 +18,7 @@ const STATUS_TEXT: Record<ConnectionStatus, string> = {
 export function UserPanel() {
   const { stores, commands } = useSnowdrop();
   const self = useStore(stores.session, sessionSelectors.self);
-  const status = useStore(stores.session, sessionSelectors.status);
+  const status = useStore(stores.session, sessionSelectors.link);
   const backend = useStore(stores.session, (s) => s.backendKind);
   const historyImport = useStore(stores.session, sessionSelectors.historyImport);
   const notify = useStore(stores.settings, (s) => s.notifications.enabled);

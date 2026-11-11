@@ -8,6 +8,7 @@
  * requests, and keep a small LRU so scrolling back and forth doesn't
  * re-download or leak object URLs.
  */
+import { ignored } from '@/core/lib';
 import type { Attachment, LinkPreview } from '@/core/domain';
 import type { OutgoingAttachment, OutgoingLinkPreview } from '../types';
 import { SignalCliError } from './errors';
@@ -212,7 +213,9 @@ export async function encodeOutgoing(
   };
   if (file.voiceNote) attachment.voiceNote = true;
   if (safeMediaType(file.contentType).startsWith('image/')) {
-    const thumb = await thumbnailer(file.data).catch(() => undefined);
+    const thumb = await thumbnailer(file.data).catch(
+      ignored('a thumbnail is optional; the attachment goes out without one'),
+    );
     if (thumb) {
       attachment.url = thumb.url;
       attachment.width = thumb.width;

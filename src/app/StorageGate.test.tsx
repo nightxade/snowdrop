@@ -10,6 +10,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StorageAdmin, StorageStatus } from '@/core/backend';
 import { toBase64 } from '@/core/persistence';
+import { IpcValidationError } from '@/platform/tauri/ipc';
 import { StorageGate } from './StorageGate';
 
 afterEach(cleanup);
@@ -68,6 +69,23 @@ function fakeAdmin(overrides: Partial<StorageAdmin> = {}): StorageAdmin {
 }
 
 describe('StorageGate: routes every state', () => {
+  it('a malformed storage reply is reported as such, never as a signal-cli problem', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    render(
+      <StorageGate
+        admin={fakeAdmin({
+          status: () =>
+            Promise.reject(new IpcValidationError('storage_status: expected an object')),
+        })}
+      >
+        {() => <div>never</div>}
+      </StorageGate>,
+    );
+    expect(await screen.findByText(/storage_status: expected an object/u)).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/signal-cli/iu);
+    consoleError.mockRestore();
+  });
+
   it('needsSetup shows the setup wizard', async () => {
     render(
       <StorageGate admin={fakeAdmin({ status: () => Promise.resolve(needsSetup) })}>

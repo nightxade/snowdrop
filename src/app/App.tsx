@@ -3,6 +3,7 @@ import { useStore } from 'zustand';
 import type { BackendKind } from '@/core/backend';
 import { createLogger } from '@/core/lib';
 import { wasConnectionErrorReported } from '@/core/services';
+import { sessionSelectors } from '@/core/stores';
 // Onboarding is seen once (or on connection trouble): keep it out of the main chunk.
 const Welcome = lazy(() =>
   import('@/ui/features/onboarding').then((m) => ({ default: m.Welcome })),
@@ -11,8 +12,9 @@ const ConnectionSetup = lazy(() =>
   import('@/ui/features/onboarding').then((m) => ({ default: m.ConnectionSetup })),
 );
 import { AppShell } from '@/ui/features/shell';
-import { friendlyErrorMessage } from '@/ui/lib/connectionErrors';
+import { friendlyAppError } from '@/ui/lib/connectionErrors';
 import type { Snowdrop } from './createSnowdrop';
+import { screenFor, setupReasonFor } from './routing';
 import { useSnowdrop } from './SnowdropProvider';
 
 const log = createLogger('app');
@@ -49,9 +51,8 @@ export function App({ onBackendChange }: AppProps) {
   const choice = signingOut ? snowdrop.backend.kind : savedChoice;
   const daemonUrl = useStore(snowdrop.stores.settings, (s) => s.connection.daemonUrl);
   const matches = choice !== null && choice === snowdrop.backend.kind;
-  const errorKind = useStore(snowdrop.stores.session, (s) => s.errorKind);
-  const errorMessage = useStore(snowdrop.stores.session, (s) => s.error);
-  const ready = useStore(snowdrop.stores.session, (s) => s.ready);
+  const phase = useStore(snowdrop.stores.session, sessionSelectors.phase);
+  const sessionError = useStore(snowdrop.stores.session, sessionSelectors.error);
   const desktopBinaryPath = useStore(
     snowdrop.stores.settings,
     (s) => s.connection.desktop.binaryPath,
@@ -63,7 +64,15 @@ export function App({ onBackendChange }: AppProps) {
     else onBackendChange?.();
   }, [choice, matches, snowdrop, onBackendChange]);
 
-  if (choice === null) {
+  const screen = screenFor(phase, {
+    chosen: choice !== null,
+    matches,
+    backend: snowdrop.backend.kind,
+    desktop: snowdrop.desktop !== null,
+  });
+  const setupReason = setupReasonFor(phase, snowdrop.desktop !== null);
+
+  if (screen === 'welcome') {
     const choose = (backend: BackendKind, url?: string) => {
       snowdrop.stores.settings
         .getState()
@@ -90,20 +99,13 @@ export function App({ onBackendChange }: AppProps) {
   }
   // signal-cli without a usable account: link this device, or name the account (PLAN §4.10).
   // In the desktop app, also: no signal-cli program to run.
-  if (
-    matches &&
-    !ready &&
-    snowdrop.backend.kind === 'signal-cli' &&
-    (errorKind === 'no-account' ||
-      errorKind === 'account-required' ||
-      (snowdrop.desktop && errorKind === 'not-installed'))
-  ) {
+  if (screen === 'connection-setup' && setupReason !== null) {
     return (
       <Suspense fallback={null}>
         <ConnectionSetup
-          reason={errorKind}
+          reason={setupReason}
           desktop={snowdrop.desktop !== null}
-          errorMessage={friendlyErrorMessage(errorKind, errorMessage)}
+          errorMessage={friendlyAppError(sessionError)}
           onProgramPath={(binaryPath) => {
             const { connection } = snowdrop.stores.settings.getState();
             snowdrop.stores.settings.getState().update('connection', {

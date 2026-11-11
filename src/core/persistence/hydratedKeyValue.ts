@@ -15,7 +15,7 @@
  * a value that predates encryption — is migrated to the encrypted format the
  * first time it's read here.
  */
-import { createLogger } from '@/core/lib';
+import { createLogger, ignore } from '@/core/lib';
 import { fromBase64, toBase64, utf8Decode, utf8Encode } from './crypto/bytes';
 import type { RecordCipher } from './crypto/RecordCipher';
 import { defaultStorage, type KeyValueStorage } from './keyValue';
@@ -78,8 +78,8 @@ export async function hydrateKeyValue(
       ) {
         return [(parsed as { k: string }).k, (parsed as { v: string }).v];
       }
-    } catch {
-      // Falls through: unreadable.
+    } catch (error) {
+      ignore(error, 'an unreadable entry is treated as missing');
     }
     return null;
   };

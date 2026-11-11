@@ -1958,7 +1958,7 @@ describe('SignalCliBackend + SyncService', () => {
     // The sync engine acknowledged the last event after storing it.
     expect(storage.getItem(`snowdrop.signal-cli.cursor.http.${SELF_ACI}`)).toBe('r-3');
     await sync.stop();
-    expect(stores.session.getState().status).toBe('offline');
+    expect(stores.session.getState().link).toBe('offline');
   });
 
   it('a message the user sent from the phone to a non-contact (sync transcript) accepts that chat', async () => {

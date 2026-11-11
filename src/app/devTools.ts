@@ -14,7 +14,7 @@ import {
   type ConversationId,
   type Message,
 } from '@/core/domain';
-import { uiSelectors } from '@/core/stores';
+import { isSynced, uiSelectors } from '@/core/stores';
 import type { Snowdrop } from './createSnowdrop';
 
 const LINES = [
@@ -80,7 +80,7 @@ export function installDevTools(snowdrop: Snowdrop): void {
   const count = Number(new URLSearchParams(window.location.search).get('stress'));
   if (count > 0) {
     const unsubscribe = snowdrop.stores.session.subscribe((s) => {
-      if (!s.ready) return;
+      if (!isSynced(s.phase)) return;
       unsubscribe();
       void stress(snowdrop, count).then((id) => {
         if (id) snowdrop.stores.ui.getState().selectConversation(id);

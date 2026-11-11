@@ -1,3 +1,4 @@
+import { describeFailure } from '@/ui/lib/connectionErrors';
 import { ImageDown, LoaderCircle } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { SentOriginalsUsage } from '@/core/persistence';
@@ -245,5 +246,5 @@ export function SentPhotosRows() {
 }
 
 function failure(error: unknown): string {
-  return `Couldn’t free up space: ${error instanceof Error ? error.message : String(error)}`;
+  return `Couldn’t free up space: ${describeFailure(error)}`;
 }

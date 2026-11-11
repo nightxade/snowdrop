@@ -1,3 +1,4 @@
+import { ignored } from '@/core/lib';
 import { Check, Star } from 'lucide-react';
 import { useId, useState } from 'react';
 import { useStore } from 'zustand';
@@ -76,7 +77,7 @@ export function PollCard({ poll, mode, selfId, onVote, onViewVotes, id }: PollCa
     setBusy(true);
     // A vote that throws must still free the options (the caller reports failures).
     void onVote([...next].sort((a, b) => a - b))
-      .catch(() => undefined)
+      .catch(ignored('the caller reports vote failures; this only frees the options'))
       .finally(() => {
         setBusy(false);
       });

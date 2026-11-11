@@ -76,7 +76,7 @@ describe('backend registry', () => {
     await snowdrop.start();
     expect(created).not.toBeNull();
     expect(snowdrop.stores.session.getState().backendKind).toBe('matrix-bridge');
-    expect(snowdrop.stores.session.getState().ready).toBe(true);
+    expect(snowdrop.stores.session.getState().phase).toBe('ready');
     await snowdrop.dispose();
   });
 });

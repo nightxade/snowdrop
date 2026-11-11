@@ -31,17 +31,11 @@ import type {
   StorageReason,
   StorageStatus,
 } from '@/core/backend';
-import type { CommandError } from './ipc';
+import { IpcValidationError } from './ipc';
 
 /** `null`/`undefined` → `null` (Rust's `Option<T>` serialises as JSON `null`). */
 function nullable<T>(d: Decoder<T>): Decoder<T | null> {
   return (v, path, issues) => (v === null || v === undefined ? null : d(v, path, issues));
-}
-
-/** A `CommandError` that's also a real `Error`, so it's safe to `throw`. */
-class IpcValidationError extends Error implements CommandError {
-  override readonly name = 'IpcValidationError';
-  readonly kind: CommandError['kind'] = 'invalid-response';
 }
 
 function invalidResponse(command: string, message: string): IpcValidationError {

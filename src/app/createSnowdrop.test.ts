@@ -31,7 +31,7 @@ describe('createSnowdrop', () => {
     await snowdrop.start();
 
     const { stores } = snowdrop;
-    expect(stores.session.getState().ready).toBe(true);
+    expect(stores.session.getState().phase).toBe('ready');
     expect(Object.keys(stores.conversations.getState().byId)).toHaveLength(24);
     // Default spaces were seeded and persisted, under the demo's own scope
     // (src/app/dataScope.ts) — never the bare, unscoped key.
@@ -80,7 +80,7 @@ describe('createSnowdrop', () => {
     expect(stores.ui.getState().memberListOpen).toBe(false);
 
     await snowdrop.dispose();
-    expect(stores.session.getState().status).toBe('offline');
+    expect(stores.session.getState().link).toBe('offline');
   });
 
   it('does not re-seed spaces the user deleted', async () => {
@@ -232,7 +232,7 @@ describe('start() and a pending history clear (sign-out fallback)', () => {
     await snowdrop.start();
     expect(storage.getItem(PENDING_KEY)).toBe('1');
     expect(error).toHaveBeenCalled();
-    expect(snowdrop.stores.session.getState().ready).toBe(true);
+    expect(snowdrop.stores.session.getState().phase).toBe('ready');
     await snowdrop.dispose();
   });
 
@@ -265,13 +265,13 @@ describe('createSnowdrop: connecting after a failure', () => {
     vi.spyOn(snowdrop.backend, 'connect').mockRejectedValueOnce(new Error('down'));
 
     await expect(snowdrop.start()).rejects.toThrow('down');
-    expect(snowdrop.stores.session.getState().status).toBe('error');
+    expect(snowdrop.stores.session.getState().link).toBe('error');
     for (const spy of Object.values(ran)) expect(spy).not.toHaveBeenCalled();
 
     // The Retry buttons call SyncService directly, not Snowdrop.start().
     await snowdrop.sync.start();
     await snowdrop.sync.settled();
-    expect(snowdrop.stores.session.getState().ready).toBe(true);
+    expect(snowdrop.stores.session.getState().phase).toBe('ready');
     for (const spy of Object.values(ran)) expect(spy).toHaveBeenCalledTimes(1);
     expect(snowdrop.plugins.get('clear-urls')?.status).toBe('running');
 
@@ -288,14 +288,14 @@ describe('createSnowdrop: connecting after a failure', () => {
     ran.outbox.mockRejectedValueOnce(new Error('storage trouble'));
 
     await snowdrop.start();
-    expect(snowdrop.stores.session.getState().ready).toBe(true);
+    expect(snowdrop.stores.session.getState().phase).toBe('ready');
     expect(ran.notifications).toHaveBeenCalledTimes(1);
     expect(ran.history).toHaveBeenCalledTimes(1);
     expect(ran.plugins).toHaveBeenCalledTimes(1);
     expect(ran.outbox).toHaveBeenCalledTimes(1);
 
     // The failed step is pending still: the next successful connect runs it.
-    snowdrop.stores.session.getState().setStatus('error');
+    snowdrop.stores.session.getState().setLink('error');
     await snowdrop.sync.start();
     await snowdrop.sync.settled();
     expect(ran.outbox).toHaveBeenCalledTimes(2);

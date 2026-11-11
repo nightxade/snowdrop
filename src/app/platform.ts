@@ -4,7 +4,14 @@
  * build and the tests never load `@tauri-apps/*`.
  */
 import type { DesktopAdmin, OutgoingLinkPreview, StorageAdmin } from '@/core/backend';
-import { addLogSink, createLogger, setStartupSink, type LogAdmin } from '@/core/lib';
+import {
+  addLogSink,
+  createLogger,
+  setStartupSink,
+  type LogAdmin,
+  ignore,
+  ignored,
+} from '@/core/lib';
 import type { NotificationApi } from '@/core/services';
 import { isTauri } from '@/platform/detect';
 import { deferredAsync } from './deferredRepository';
@@ -93,7 +100,7 @@ export function desktopLastIpcCommand(): LastIpcCommand | null {
       .then((m) => {
         ipcDiagnostics = m;
       })
-      .catch(() => {});
+      .catch(ignored('IPC diagnostics are optional when the desktop module fails to load'));
     return null;
   }
   return ipcDiagnostics.getLastIpcCommand();
@@ -120,7 +127,7 @@ export function installDesktopLinks(): void {
 export function desktopSetUnread(count: number, mentions: number): void {
   void platform()
     .then((m) => m.appSetUnread(count, mentions))
-    .catch(() => {});
+    .catch(ignored('best-effort tray badge'));
 }
 
 /**
@@ -131,7 +138,7 @@ export function desktopSetUnread(count: number, mentions: number): void {
 export function desktopSetCloseToTray(enabled: boolean): void {
   void platform()
     .then((m) => m.appSetCloseToTray(enabled))
-    .catch(() => {});
+    .catch(ignored('best-effort close-to-tray setting'));
 }
 
 /**
@@ -177,6 +184,8 @@ function installDesktopLogSink(): void {
         .then((m) => {
           m.sendFrontendLog(level, scope, message);
         })
+        // The log sink cannot log its own failure: that would feed it again.
+        // eslint-disable-next-line no-restricted-syntax
         .catch(() => {});
     },
   });
@@ -188,6 +197,8 @@ function installDesktopLogSink(): void {
       .then((m) => {
         m.sendFrontendLog('info', 'startup', `${name} at ${elapsedMs} ms`);
       })
+      // The log sink cannot log its own failure: that would feed it again.
+      // eslint-disable-next-line no-restricted-syntax
       .catch(() => {});
   });
 }
@@ -206,17 +217,20 @@ export function desktopLogAdmin(): LogAdmin {
     recent: (maxBytes) =>
       platform()
         .then((m) => m.logRecent(maxBytes))
-        .catch(() => ''),
+        .catch((error: unknown) => {
+          ignore(error, 'the log is unreadable; show an empty tail');
+          return '';
+        }),
     setVerbose: (verbose) => {
       verboseLogging = verbose;
       return platform()
         .then((m) => m.logSetVerbose(verbose))
-        .catch(() => {});
+        .catch(ignored('best-effort verbose logging switch'));
     },
     openFolder: () => {
       void platform()
         .then((m) => m.logOpenFolder())
-        .catch(() => {});
+        .catch(ignored('best-effort open of the log folder'));
     },
   };
 }

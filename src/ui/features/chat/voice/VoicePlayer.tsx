@@ -1,3 +1,4 @@
+import { ignore } from '@/core/lib';
 import { Pause, Play } from 'lucide-react';
 import {
   useEffect,
@@ -23,8 +24,8 @@ function capture(event: PointerEvent, on: boolean): void {
   try {
     if (on) event.currentTarget.setPointerCapture(event.pointerId);
     else event.currentTarget.releasePointerCapture(event.pointerId);
-  } catch {
-    // The pointer is already gone; the drag simply ends.
+  } catch (error) {
+    ignore(error, 'the pointer is already gone; the drag simply ends');
   }
 }
 

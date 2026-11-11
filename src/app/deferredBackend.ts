@@ -16,6 +16,7 @@
  * to cover the whole interface: adding a member without saying how it is
  * forwarded is a compile error. Arguments always pass through unchanged.
  */
+import { ignored } from '@/core/lib';
 import type { BackendEvents, BackendKind, ChatBackend, LinkFlow } from '@/core/backend';
 import type { Unsubscribe } from '@/core/lib';
 
@@ -150,20 +151,17 @@ export function deferredBackend(
   // (or vice versa).
   const replay: Array<(backend: ChatBackend) => void> = [];
   // Avoid an unhandled rejection before a call observes it; calls reject with the error.
-  ready.then(
-    (backend) => {
-      real = backend;
-      for (const sub of subscriptions) {
-        if (sub.active)
-          sub.off = backend.on(
-            sub.event,
-            sub.fn as (payload: BackendEvents[typeof sub.event]) => void,
-          );
-      }
-      for (const apply of replay.splice(0)) apply(backend);
-    },
-    () => undefined,
-  );
+  ready.then((backend) => {
+    real = backend;
+    for (const sub of subscriptions) {
+      if (sub.active)
+        sub.off = backend.on(
+          sub.event,
+          sub.fn as (payload: BackendEvents[typeof sub.event]) => void,
+        );
+    }
+    for (const apply of replay.splice(0)) apply(backend);
+  }, ignored('a failed backend start is reported by the connect itself; calls on the deferred backend reject on their own'));
   const call = <T>(fn: (backend: ChatBackend) => Promise<T>): Promise<T> => ready.then(fn);
 
   // Members are assigned by name from the table, so this is the one untyped spot.

@@ -3,6 +3,7 @@
  * tested. The driver (useLinkFlow) calls `link.start()` for a code, then
  * `link.finish(uri, name)`, which resolves once the phone has scanned it.
  */
+import { toAppError } from '@/core/lib';
 
 export type LinkState =
   /** `attempt` survives going back to naming, so late results of an abandoned attempt are ignored. */
@@ -113,7 +114,7 @@ export function defaultDeviceName(userAgent: string, desktop = false): string {
 
 /** Is this failure the code timing out (worth a fresh code) rather than a hard error? */
 export function isExpiry(error: unknown): boolean {
-  const kind = typeof error === 'object' && error !== null && 'kind' in error ? error.kind : null;
+  const { kind } = toAppError(error);
   const message = error instanceof Error ? error.message : '';
   return kind === 'timeout' || /expired|timed? ?out/iu.test(message);
 }

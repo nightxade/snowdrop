@@ -8,6 +8,7 @@
  * interface. If opening fails, every call rejects with that error, which the
  * sync engine reports as a failed start (with retry).
  */
+import { ignored } from '@/core/lib';
 import type { MessageRepository } from '@/core/persistence';
 
 export function deferredRepository(ready: Promise<MessageRepository>): MessageRepository {
@@ -21,7 +22,11 @@ export function deferredRepository(ready: Promise<MessageRepository>): MessageRe
  */
 export function deferredAsync<T extends object>(ready: Promise<T>, name: string): T {
   // Avoid an unhandled rejection before the first call observes it.
-  ready.catch(() => undefined);
+  ready.catch(
+    ignored(
+      'the first call observes this rejection; this only avoids an unhandled-rejection report',
+    ),
+  );
   return new Proxy({} as T, {
     get(_target, key) {
       // Never look like a thenable (await on the proxy itself must not hang).

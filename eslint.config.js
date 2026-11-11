@@ -132,6 +132,44 @@ const appZones = [
   },
 ];
 
+const NO_DEFAULT_EXPORT = {
+  selector: 'ExportDefaultDeclaration',
+  message: 'Use named exports only (PLAN §7).',
+};
+
+/**
+ * A failure is never dropped without saying why: use `ignore(error, reason)` or
+ * `.catch(ignored(reason))` from '@/core/lib' (debug log, no personal data).
+ */
+const SILENT_CATCH_MESSAGE =
+  "Don't swallow a failure silently: use ignore(error, 'reason') or .catch(ignored('reason')) from '@/core/lib'.";
+const CATCH_HANDLER = "CallExpression[callee.property.name='catch'] > :function";
+// `.then(ok, onRejected)`: the second argument is a rejection handler too.
+const THEN_REJECTION = "CallExpression[callee.property.name='then'] > :function:nth-child(2)";
+const SILENT_CATCHES = [
+  { selector: 'CatchClause > BlockStatement[body.length=0]', message: SILENT_CATCH_MESSAGE },
+  ...[CATCH_HANDLER, THEN_REJECTION].flatMap((handler) => [
+    {
+      // Any parameters, nothing in the body.
+      selector: `${handler}[body.type='BlockStatement'][body.body.length=0]`,
+      message: SILENT_CATCH_MESSAGE,
+    },
+    {
+      // Any parameters, a body that is just `undefined`, `null`, `false` or `void x`.
+      selector: `${handler}[body.type='Identifier'][body.name='undefined']`,
+      message: SILENT_CATCH_MESSAGE,
+    },
+    {
+      selector: `${handler}[body.type='Literal']`,
+      message: SILENT_CATCH_MESSAGE,
+    },
+    {
+      selector: `${handler}[body.type='UnaryExpression'][body.operator='void']`,
+      message: SILENT_CATCH_MESSAGE,
+    },
+  ]),
+];
+
 export default tseslint.config(
   {
     ignores: [
@@ -175,13 +213,7 @@ export default tseslint.config(
         'error',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
       ],
-      'no-restricted-syntax': [
-        'error',
-        {
-          selector: 'ExportDefaultDeclaration',
-          message: 'Use named exports only (PLAN §7).',
-        },
-      ],
+      'no-restricted-syntax': ['error', NO_DEFAULT_EXPORT, ...SILENT_CATCHES],
       'import-x/no-cycle': 'error',
       'import-x/no-restricted-paths': [
         'error',
@@ -224,6 +256,8 @@ export default tseslint.config(
     rules: {
       'import-x/no-restricted-paths': ['error', { zones: [...boundaryZones, ...platformZones] }],
       '@typescript-eslint/no-non-null-assertion': 'off',
+      // Tests may swallow on purpose (a promise they assert about elsewhere).
+      'no-restricted-syntax': ['error', NO_DEFAULT_EXPORT],
     },
   },
   {

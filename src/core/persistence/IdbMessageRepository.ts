@@ -34,7 +34,7 @@ import {
   type Message,
   type MessageId,
 } from '@/core/domain';
-import { createLogger, yieldToEventLoop } from '@/core/lib';
+import { createLogger, yieldToEventLoop, ignored } from '@/core/lib';
 import { plaintextCipher, utf8Decode, utf8Encode, type RecordCipher } from './crypto';
 import {
   droppedOriginals,
@@ -197,7 +197,7 @@ export class IdbMessageRepository implements MessageRepository {
     // still propagates to this call's own caller via `run`.
     this.writeQueue = run.then(
       () => undefined,
-      () => undefined,
+      ignored('the failure already reached this write’s caller; the queue only keeps order'),
     );
     return run;
   }

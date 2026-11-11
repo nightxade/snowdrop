@@ -3,7 +3,10 @@
  * `error.kind`) can tell "daemon not running" from "rate limited" from
  * "that person isn't on Signal" without parsing strings.
  */
+import { AppError, describeError, type ErrorOutcome } from '@/core/lib/errors';
 import type { RecipientFailure } from '../types';
+
+export { describeError };
 
 export type SignalCliErrorKind =
   /** fetch failed: daemon not running, wrong URL, proxy down. */
@@ -61,7 +64,7 @@ export interface SignalCliErrorInit {
   requestSent?: boolean;
 }
 
-export class SignalCliError extends Error {
+export class SignalCliError extends AppError {
   override name = 'SignalCliError';
   readonly code: number | undefined;
   readonly status: number | undefined;
@@ -75,12 +78,15 @@ export class SignalCliError extends Error {
    */
   readonly requestSent: boolean;
 
-  constructor(
-    readonly kind: SignalCliErrorKind,
-    message: string,
-    init: SignalCliErrorInit = {},
-  ) {
-    super(message, init.cause === undefined ? undefined : { cause: init.cause });
+  declare readonly kind: SignalCliErrorKind;
+
+  constructor(kind: SignalCliErrorKind, message: string, init: SignalCliErrorInit = {}) {
+    super(kind, message, {
+      transient: isTransient(kind, init.status),
+      outcome: outcomeOf(kind, init.requestSent === true),
+      source: 'signal-cli',
+      ...(init.cause === undefined ? {} : { cause: init.cause }),
+    });
     this.code = init.code;
     this.status = init.status;
     this.data = init.data;
@@ -88,32 +94,32 @@ export class SignalCliError extends Error {
     this.retryAfterSec = init.retryAfterSec;
     this.requestSent = init.requestSent === true;
   }
+}
 
-  /** Worth retrying automatically (transient transport trouble). */
-  get transient(): boolean {
-    return (
-      this.kind === 'unreachable' ||
-      this.kind === 'timeout' ||
-      this.kind === 'io' ||
-      this.kind === 'account-unavailable' ||
-      (this.kind === 'http' && (this.status ?? 0) >= 500)
-    );
-  }
+/** Worth retrying automatically (transient transport trouble). */
+function isTransient(kind: SignalCliErrorKind, status: number | undefined): boolean {
+  return (
+    kind === 'unreachable' ||
+    kind === 'timeout' ||
+    kind === 'io' ||
+    kind === 'account-unavailable' ||
+    (kind === 'http' && (status ?? 0) >= 500)
+  );
+}
+
+/**
+ * A timeout, or a request that was written and then failed to be answered
+ * properly, may have been carried out; a failed connection or an aborted
+ * call can't say; anything else was answered with a refusal.
+ */
+function outcomeOf(kind: SignalCliErrorKind, requestSent: boolean): ErrorOutcome {
+  if (kind === 'timeout' || requestSent) return 'maybe-sent';
+  if (kind === 'unreachable' || kind === 'aborted') return 'unknown';
+  return 'not-sent';
 }
 
 export function isSignalCliError(error: unknown): error is SignalCliError {
   return error instanceof SignalCliError;
-}
-
-/**
- * A safe, content-free description of a thrown value for debug logs — its
- * class (and `SignalCliError.kind`), never its message, which can embed
- * identifiers or payload data pulled in by the code that threw.
- */
-export function describeError(error: unknown): string {
-  if (isSignalCliError(error)) return `SignalCliError(${error.kind})`;
-  if (error instanceof Error) return error.constructor.name;
-  return typeof error;
 }
 
 /** Maps a JSON-RPC error object to our error kind. */

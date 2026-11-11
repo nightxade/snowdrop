@@ -34,10 +34,12 @@ import {
   type StickerContent,
 } from '@/core/domain';
 import {
+  AppError,
   Emitter,
   systemClock,
   systemScheduler,
   type Clock,
+  type ErrorKind,
   type Scheduler,
   type Unsubscribe,
 } from '@/core/lib';
@@ -88,21 +90,25 @@ export interface MockBackendOptions {
    * Scroll-performance harness only (`?mockBulkMessages=` in the browser):
    * prepends this many synthetic older messages to one conversation's
    * history, so paging has thousands of pages to work through. Ignored when
-   * `world` is given. See `scratch/wk/` for the scenario that uses it.
+   * `world` is given.
    */
   bulkMessages?: number;
 }
 
-export class MockBackendError extends Error {
+export class MockBackendError extends AppError {
   override name = 'MockBackendError';
+
+  /** The demo refuses before anything happens, so nothing was sent. */
+  constructor(message: string, kind: ErrorKind = 'unknown') {
+    super(kind, message, { outcome: 'not-sent' });
+  }
 }
 
 /** A send the demo refuses like signal-cli does for a changed, unapproved key. */
 class MockUntrustedIdentityError extends MockBackendError {
-  readonly kind = 'send-failed';
   readonly recipientFailures: { recipientId: string; reason: 'untrusted-identity' }[];
   constructor(recipientId: string) {
-    super('Failed to send message due to untrusted identities');
+    super('Failed to send message due to untrusted identities', 'send-failed');
     this.recipientFailures = [{ recipientId, reason: 'untrusted-identity' }];
   }
 }
@@ -601,15 +607,13 @@ export class MockBackend implements ChatBackend {
   async verifyIdentity(contactId: string, digits: string): Promise<void> {
     const current = await this.getSafetyNumber(contactId);
     if (!current || current.digits !== digits)
-      throw Object.assign(new MockBackendError('The safety number does not match'), {
-        kind: 'user',
-      });
+      throw new MockBackendError('The safety number does not match', 'user');
     this.identityTrust.set(contactId, 'verified');
   }
 
   async approveIdentity(contactId: string): Promise<void> {
     const current = await this.getSafetyNumber(contactId);
-    if (!current) throw Object.assign(new MockBackendError('No key'), { kind: 'user' });
+    if (!current) throw new MockBackendError('No key', 'user');
     this.identityTrust.set(contactId, 'default');
   }
 

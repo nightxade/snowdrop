@@ -7,6 +7,7 @@
  */
 import { act, cleanup, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { AppError } from '@/core/lib';
 import { bootSnowdrop, renderWithSnowdrop, settle } from '@/test/renderWithSnowdrop';
 import type { Snowdrop } from '@/app/createSnowdrop';
 import { ConnectionBanner } from './ConnectionBanner';
@@ -25,9 +26,10 @@ describe('ConnectionBanner', () => {
     renderWithSnowdrop(snowdrop, <ConnectionBanner />);
 
     act(() => {
-      snowdrop!.stores.session.getState().setReady(true);
-      snowdrop!.stores.session.getState().setError('boom (NullPointerException)', 'internal');
-      snowdrop!.stores.session.getState().setStatus('error');
+      snowdrop!.stores.session.getState().markSynced();
+      snowdrop!.stores.session
+        .getState()
+        .markFailed(new AppError('internal', 'boom (NullPointerException)'));
     });
     await settle(snowdrop);
 
@@ -45,7 +47,7 @@ describe('ConnectionBanner', () => {
     snowdrop = await bootSnowdrop();
     renderWithSnowdrop(snowdrop, <ConnectionBanner />);
     act(() => {
-      snowdrop!.stores.session.getState().setStatus('online');
+      snowdrop!.stores.session.getState().setLink('online');
     });
     await settle(snowdrop);
     expect(screen.queryByRole('status')).toBeNull();

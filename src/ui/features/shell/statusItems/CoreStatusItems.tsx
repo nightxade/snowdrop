@@ -46,7 +46,7 @@ export function makeUnreadStatusItem(stores: Stores) {
 
 export function makeConnectionStatusItem(stores: Stores) {
   return function ConnectionStatusItem() {
-    const status = useStore(stores.session, sessionSelectors.status);
+    const status = useStore(stores.session, sessionSelectors.link);
     return <span className={styles.item}>{CONNECTION_LABEL[status] ?? status}</span>;
   };
 }

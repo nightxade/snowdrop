@@ -46,6 +46,8 @@ import {
   type Clock,
   type Scheduler,
   type Unsubscribe,
+  ignore,
+  ignored,
 } from '@/core/lib';
 import type { KeyValueStorage } from '@/core/persistence';
 import type {
@@ -589,13 +591,15 @@ export class SignalCliBackend implements ChatBackend {
             lastCount = count;
           })
           // A daemon blip on one of these checks is not worth an unhandled rejection.
-          .catch(() => undefined);
+          .catch(ignored('a daemon blip on one group check; the next backoff step checks again'));
       }, delayMs);
     }
   }
 
   async disconnect(): Promise<void> {
-    await this.connecting?.catch(() => undefined);
+    await this.connecting?.catch(
+      ignored('disconnect only waits for the connect to settle; its caller got the failure'),
+    );
     this.session++;
     this.historyAbort.abort();
     this.history = null;
@@ -731,8 +735,8 @@ export class SignalCliBackend implements ChatBackend {
     let resumeFrom = '';
     try {
       resumeFrom = this.options.storage?.getItem(this.cursorKey()) ?? '';
-    } catch {
-      // Storage unavailable: start from live events.
+    } catch (error) {
+      ignore(error, 'storage unavailable: start from live events');
     }
     const stream = this.transport.subscribe({
       account: this.multiAccount ? this.selfId : null,
@@ -904,8 +908,8 @@ export class SignalCliBackend implements ChatBackend {
     if (!this.selfId) return;
     try {
       this.options.storage?.setItem(this.cursorKey(), cursor);
-    } catch {
-      // Resume position is an optimisation only; the worst case is re-delivery.
+    } catch (error) {
+      ignore(error, 'resume position is an optimisation only; the worst case is re-delivery');
     }
     // The desktop transport stops holding what's now stored.
     this.transport.acknowledge?.(cursor);
@@ -1586,7 +1590,7 @@ export class SignalCliBackend implements ChatBackend {
             .call('getSticker', { packId: p.packId, stickerId: 0 }, ignoreResult, {
               timeoutMs: 30_000,
             })
-            .catch(() => undefined),
+            .catch(ignored('pack fetch is best effort; the pack listing decides what exists')),
         ),
       );
       packs = (await list()).filter((p) => p.installed);
@@ -1625,7 +1629,9 @@ export class SignalCliBackend implements ChatBackend {
     this.assertAccount();
     if (!HEX_ID.test(sticker.packId))
       throw new SignalCliError('user', "This sticker pack can't be shown.");
-    await this.resolveStickerUrl(sticker).catch(() => undefined);
+    await this.resolveStickerUrl(sticker).catch(
+      ignored('the sticker download is best effort; the pack listing below decides what exists'),
+    );
     const pack = (await this.rpc.call('listStickerPacks', {}, wireStickerPacks)).find(
       (p) => p.packId === sticker.packId,
     );

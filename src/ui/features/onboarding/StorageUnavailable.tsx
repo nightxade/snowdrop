@@ -1,3 +1,4 @@
+import { describeFailure } from '@/ui/lib/connectionErrors';
 import { AppWindow, HardDrive } from 'lucide-react';
 import { useState } from 'react';
 import type { StorageReason } from '@/core/backend';
@@ -59,7 +60,7 @@ export function StorageUnavailable({ reason, onRetry }: StorageUnavailableProps)
               setRetryError(null);
               void onRetry()
                 .catch((e: unknown) => {
-                  setRetryError(e instanceof Error ? e.message : String(e));
+                  setRetryError(describeFailure(e));
                 })
                 .finally(() => {
                   setChecking(false);

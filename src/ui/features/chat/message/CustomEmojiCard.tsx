@@ -1,3 +1,4 @@
+import { describeFailure } from '@/ui/lib/connectionErrors';
 import { Check, ImageOff, SmilePlus } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type SyntheticEvent } from 'react';
 import type { CustomEmoji } from '@/core/stores/customEmoji';
@@ -95,7 +96,7 @@ export function CustomEmojiCard({ conversationId, delivery }: CustomEmojiCardPro
       setAddedAs(target);
     } catch (e) {
       log.warn('adding a received emoji failed', { kind: e instanceof Error ? e.name : 'unknown' });
-      setError(e instanceof Error ? e.message : 'Could not add this emoji.');
+      setError(describeFailure(e, 'Could not add this emoji.'));
     }
   };
 

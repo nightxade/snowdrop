@@ -1,3 +1,4 @@
+import { describeFailure } from '@/ui/lib/connectionErrors';
 import {
   Copy,
   Download,
@@ -237,7 +238,7 @@ export function DataPage() {
       });
     } catch (error) {
       app.stores.ui.getState().pushToast({
-        message: `Export failed: ${error instanceof Error ? error.message : String(error)}`,
+        message: `Export failed: ${describeFailure(error)}`,
         kind: 'error',
         source: 'core',
       });
@@ -260,7 +261,7 @@ export function DataPage() {
       await app.admin.reload();
       // A successful reload leaves the page; this stays busy until it does.
     } catch (error) {
-      setDangerError(error instanceof Error ? error.message : String(error));
+      setDangerError(describeFailure(error));
       setBusy(false);
     }
   };

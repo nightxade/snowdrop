@@ -7,7 +7,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Attachment, ConversationId } from '@/core/domain';
-import { createLogger } from '@/core/lib';
+import { createLogger, ignored } from '@/core/lib';
 import type { Stores } from '@/core/stores';
 import type { AppServices } from '@/ui/hooks';
 import { useSnowdrop } from '@/ui/hooks';
@@ -86,7 +86,7 @@ export async function readForwardFile(
   const original = file.attachment.original
     ? await deps.repository
         ?.readSentMedia(file.attachment.id, file.attachment.contentType)
-        .catch(() => undefined)
+        .catch(ignored('any trouble reading the original falls through to the backend'))
     : undefined;
   if (original) return original;
   const read = async (): Promise<Blob> => {

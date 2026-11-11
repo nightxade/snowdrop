@@ -7,16 +7,11 @@
  */
 import type { OutgoingLinkPreview } from '@/core/backend';
 import { decode, num, object, str, type Decoder } from '@/core/backend/signal-cli';
-import { tauriIpc, type CommandError, type TauriIpc } from './ipc';
+import { IpcValidationError, tauriIpc, type TauriIpc } from './ipc';
 
 /** `null`/`undefined` → `undefined` (Rust's `Option<T>` serialises as JSON `null`). */
 function optional<T>(d: Decoder<T>): Decoder<T | undefined> {
   return (v, path, issues) => (v === null || v === undefined ? undefined : d(v, path, issues));
-}
-
-class IpcValidationError extends Error implements CommandError {
-  override readonly name = 'IpcValidationError';
-  readonly kind: CommandError['kind'] = 'invalid-response';
 }
 
 const fetchedImageShape = object({

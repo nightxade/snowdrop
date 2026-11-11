@@ -1,3 +1,4 @@
+import { ignored } from '@/core/lib';
 import { useEffect, useState } from 'react';
 import type { AvatarRef, ConversationId } from '@/core/domain';
 import { whenNearViewport } from './nearViewport';
@@ -56,12 +57,9 @@ export function useAvatarSrc(
     if (!wanted || !id) return;
     let live = true;
     const key = `${kind}:${id}`;
-    resolve.call(backend, refFor(kind, id)).then(
-      (url) => {
-        if (live) setResolved({ key, url });
-      },
-      () => undefined,
-    );
+    resolve.call(backend, refFor(kind, id)).then((url) => {
+      if (live) setResolved({ key, url });
+    }, ignored('no avatar image; the initials stand in'));
     return () => {
       live = false;
     };

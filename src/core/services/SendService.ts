@@ -60,7 +60,15 @@ import {
   type Quote,
   type StickerContent,
 } from '@/core/domain';
-import { createNonce, pollDraftProblem, tidyPollDraft, type Clock } from '@/core/lib';
+import {
+  createNonce,
+  pollDraftProblem,
+  tidyPollDraft,
+  toAppError,
+  type Clock,
+  ignore,
+  ignored,
+} from '@/core/lib';
 import type { MessageRepository, OutboxEntry, SentMedia } from '@/core/persistence';
 import { effectivePrivacy, selectMessageRequestState, type Stores } from '@/core/stores';
 import { refreshPreviewAfterRemoval } from './sidebarPreview';
@@ -153,15 +161,11 @@ function untrustedRecipients(error: unknown): string[] {
 /**
  * Whether a send's outcome is unknown: it timed out with no answer, or the
  * request was written and the reply then failed (`requestSent`). The daemon
- * may have sent it, so this is not a plain failure (read structurally, like
- * `recipientFailures`). A connection that never opened is a plain failure.
+ * may have sent it, so this is not a plain failure: the error's `outcome` says
+ * so. A connection that never opened is a plain failure.
  */
 function isUnconfirmedSend(error: unknown): boolean {
-  if (typeof error !== 'object' || error === null) return false;
-  return (
-    ('kind' in error && error.kind === 'timeout') ||
-    ('requestSent' in error && error.requestSent === true)
-  );
+  return toAppError(error).outcome === 'maybe-sent';
 }
 
 /** A pending row in any state but these was acknowledged by the backend. */
@@ -813,8 +817,8 @@ export class SendService {
         sentAt,
         ...(final?.expiresAt === undefined ? {} : { expiresAt: final.expiresAt }),
       });
-    } catch {
-      // Best effort: the pending row below is the other record.
+    } catch (error) {
+      ignore(error, 'best effort: the pending row below is the other record');
     }
     if (!final) {
       // No account to build the message for: only its state can be shown and kept.
@@ -823,7 +827,9 @@ export class SendService {
       for (const op of out.queue) {
         stores.messages.getState().update(out.conversationId, pendingId, op.revert);
       }
-      await repository.update(pendingId, markSent).catch(() => undefined);
+      await repository
+        .update(pendingId, markSent)
+        .catch(ignored('the storage write failed; the in-memory row is already up to date'));
       if (out.queue.length > 0) {
         this.onError(
           new Error('queued changes were dropped'),
@@ -836,7 +842,7 @@ export class SendService {
     const attachments = final.attachments.map(({ original: _original, ...rest }) => rest);
     await repository
       .update(pendingId, (m) => ({ ...m, ...content, attachments }))
-      .catch(() => undefined);
+      .catch(ignored('the storage write failed; the in-memory row is already up to date'));
     // A receipt that arrived for this timestamp while we were sending.
     const late = this.receipts.take(sentAt, clock.now());
     const receipts = late ? mergeReceipts(final.receipts, late.recipients) : final.receipts;
@@ -1002,8 +1008,8 @@ export class SendService {
           ...(image.width !== undefined ? { width: image.width } : {}),
           ...(image.height !== undefined ? { height: image.height } : {}),
         };
-      } catch {
-        // Title and description only.
+      } catch (error) {
+        ignore(error, 'the preview image is optional; send the title and description only');
       }
     }
     return { send, kept: true };

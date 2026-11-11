@@ -3,6 +3,7 @@
  * Audio graph whose worklet (public/voice-capture-worklet.js) hands over the
  * samples. Nothing here runs until someone starts a recording.
  */
+import { ignored } from '@/core/lib';
 import type { CaptureSession } from './recorder';
 
 const WORKLET_NAME = 'snowdrop-voice-capture';
@@ -30,11 +31,13 @@ export function createWebAudioCapture(): CaptureSession {
     new URL(`${import.meta.env.BASE_URL}voice-capture-worklet.js`, document.baseURI).href,
   );
   // Nobody waits on this until `attach`; a closed context must not report it as unhandled.
-  workletReady.catch(() => undefined);
+  workletReady.catch(ignored('nobody waits on this until attach, where its failure is handled'));
   // The webview starts a context only on a user gesture, and by `attach` (after the
   // permission) the gesture is long gone: ask for it to run now.
   const started: Promise<void> = context.state === 'running' ? Promise.resolve() : context.resume();
-  started.catch(() => undefined);
+  started.catch(
+    ignored('the context may refuse to resume; attach handles a context that is not running'),
+  );
 
   let onBlock: ((samples: Float32Array) => void) | null = null;
   let pendingFlush: ((samples: Float32Array) => void) | null = null;
@@ -106,7 +109,7 @@ export function createWebAudioCapture(): CaptureSession {
         graph.tap.disconnect();
         graph = null;
       }
-      void context.close().catch(() => undefined);
+      void context.close().catch(ignored('closing a context that is already closed'));
     },
   };
 }

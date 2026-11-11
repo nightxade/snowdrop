@@ -1,3 +1,4 @@
+import { describeFailure } from '@/ui/lib/connectionErrors';
 import { ChartBar, Ellipsis, FileUp, Mic, Smile, Sticker } from 'lucide-react';
 import { memo, useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import { useStore } from 'zustand';
@@ -392,8 +393,7 @@ function ComposerInner({ conversation }: { conversation: ConversationView }) {
                           if (source.isConnected) state.addFiles(copied);
                         })
                         .catch((error: unknown) => {
-                          if (source.isConnected)
-                            state.setError(error instanceof Error ? error.message : String(error));
+                          if (source.isConnected) state.setError(describeFailure(error));
                         });
                     }
                   }}

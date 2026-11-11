@@ -1,3 +1,4 @@
+import { ignored } from '@/core/lib';
 import { useEffect } from 'react';
 import type { Message, MessageId } from '@/core/domain';
 import { useSnowdrop } from '@/ui/hooks';
@@ -58,7 +59,7 @@ export function usePlaybackGuard(playback: VoicePlayback = sharedPlayback): void
               playback.stop();
             }
           })
-          .catch(() => undefined);
+          .catch(ignored('storage could not say; the player keeps playing'));
       }
     });
     const unsubscribeUi = stores.ui.subscribe((state, previous) => {

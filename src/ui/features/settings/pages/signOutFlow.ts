@@ -5,6 +5,7 @@
  * running backend (`app/backends.ts`), the same way `ConnectionPage` and
  * `EncryptionSection` decide what to show.
  */
+import { describeFailure } from '@/ui/lib/connectionErrors';
 import { createLogger } from '@/core/lib';
 import type { AppAdmin, AppServices } from '@/ui/hooks';
 
@@ -65,7 +66,7 @@ async function withClearedConnection(
         persistError,
       );
       throw new Error(
-        `${error instanceof Error ? error.message : String(error)}. Snowdrop also couldn’t save that you’re still signed in: if it shows the Welcome screen next time, choose Connect; your account is still on this computer.`,
+        `${describeFailure(error)}. Snowdrop also couldn’t save that you’re still signed in: if it shows the Welcome screen next time, choose Connect; your account is still on this computer.`,
         { cause: persistError },
       );
     }

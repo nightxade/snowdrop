@@ -4,6 +4,7 @@
  * state per composer (keyed by conversation) so mode, undo and registers
  * survive switching conversations.
  */
+import { ignore } from '@/core/lib';
 import {
   KeySequencer,
   NavCommand,
@@ -367,8 +368,8 @@ export class VimController {
             selectionStart: field.selectionStart,
             selectionEnd: field.selectionStart,
           });
-        } catch {
-          // The field may be gone (conversation closed).
+        } catch (error) {
+          ignore(error, 'the field may be gone (conversation closed)');
         }
       }
     }

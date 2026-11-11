@@ -110,7 +110,7 @@ function harness(
   );
   const repository = overrides.repository ?? new MemoryMessageRepository();
   const stores = overrides.stores ?? createStores();
-  stores.session.getState().setReady(true);
+  stores.session.getState().markSynced();
   const storage = overrides.storage ?? createMemoryStorage();
   return { backend, repository, stores, storage, onErrors: [] };
 }
@@ -173,7 +173,7 @@ describe('HistoryImportService', () => {
 
   it('waiting for the session to be ready leaves no subscription behind, even after stop', async () => {
     const h = harness({ chats: new Map([[CONV_A, archive(CONV_A, 'alice', 2)]]) });
-    h.stores.session.getState().setReady(false);
+    h.stores.session.getState().markStopped();
     let live = 0;
     const subscribe = h.stores.session.subscribe.bind(h.stores.session);
     h.stores.session.subscribe = (listener) => {

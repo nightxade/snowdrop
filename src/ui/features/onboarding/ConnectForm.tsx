@@ -1,3 +1,5 @@
+import { ignored } from '@/core/lib';
+import { describeFailure } from '@/ui/lib/connectionErrors';
 import { useState } from 'react';
 import { Check, Copy, LoaderCircle } from 'lucide-react';
 import type { DaemonProbe } from '@/ui/hooks';
@@ -35,12 +37,9 @@ function CommandChip({ command }: { command: string }) {
         label={copied ? 'Copied' : 'Copy command'}
         icon={copied ? <Check /> : <Copy />}
         onClick={() => {
-          void navigator.clipboard.writeText(command).then(
-            () => {
-              setCopied(true);
-            },
-            () => undefined,
-          );
+          void navigator.clipboard.writeText(command).then(() => {
+            setCopied(true);
+          }, ignored('the clipboard is unavailable; the address can be copied by hand'));
         }}
       />
     </span>
@@ -76,7 +75,7 @@ export function ConnectForm({
       result = await probe(target);
     } catch (e) {
       // Probing reports failures as a result; a rejection must not leave the form checking forever.
-      result = { ok: false, kind: 'network', message: e instanceof Error ? e.message : String(e) };
+      result = { ok: false, kind: 'network', message: describeFailure(e) };
     } finally {
       setChecking(false);
     }

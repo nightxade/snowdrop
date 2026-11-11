@@ -6,10 +6,12 @@
  * `UnlockScreen` and `StorageUnavailable`.
  */
 import type { StorageReason } from '@/core/backend';
+import { toAppError } from '@/core/lib';
 
-/** A thrown command's `kind`, duck-typed (mirrors `linkFlow.ts`'s `isExpiry`). */
+/** A thrown command's `kind`, or null when it came without one. */
 export function errorKind(error: unknown): string | null {
-  return typeof error === 'object' && error !== null && 'kind' in error ? String(error.kind) : null;
+  const { kind } = toAppError(error);
+  return kind === 'unknown' ? null : kind;
 }
 
 const BACKEND_NAMES: Record<'secret-service' | 'macos-keychain' | 'windows', string> = {

@@ -5,6 +5,7 @@
  * a fresh `StorageStatus` back up — this is the only place that decides what
  * that means. Nothing else should branch on storage state.
  */
+import { describeFailure } from '@/ui/lib/connectionErrors';
 import { LoaderCircle } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { StorageAdmin, StorageStatus } from '@/core/backend';
@@ -94,7 +95,7 @@ export function StorageGate({ admin, document, children }: StorageGateProps) {
         log.error('failed to open encrypted storage', error);
         setPhase({
           kind: 'failed',
-          message: error instanceof Error ? error.message : String(error),
+          message: describeFailure(error),
         });
       });
   };
@@ -124,7 +125,7 @@ export function StorageGate({ admin, document, children }: StorageGateProps) {
         log.error('failed to query encrypted storage', error);
         setPhase({
           kind: 'failed',
-          message: error instanceof Error ? error.message : String(error),
+          message: describeFailure(error),
         });
       });
 

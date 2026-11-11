@@ -1,3 +1,4 @@
+import { describeFailure } from '@/ui/lib/connectionErrors';
 import { useRef, useState } from 'react';
 import { CUSTOM_EMOJI_TEXT_MAX_LENGTH } from '@/core/stores/customEmoji';
 import { useCustomEmojiLibrary } from '@/ui/hooks';
@@ -22,7 +23,7 @@ export function CustomEmojiPanel({ onSelect }: { onSelect: (insert: string) => v
       await addImage(name, file);
       setName('');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not add this emoji.');
+      setError(describeFailure(e, 'Could not add this emoji.'));
     }
   };
 
@@ -33,7 +34,7 @@ export function CustomEmojiPanel({ onSelect }: { onSelect: (insert: string) => v
       setName('');
       setText('');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not add this emoticon.');
+      setError(describeFailure(e, 'Could not add this emoticon.'));
     }
   };
 

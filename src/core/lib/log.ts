@@ -130,6 +130,8 @@ export function createLogger(scope: string): Logger {
     for (const sink of sinks) {
       try {
         sink.write(level, scope, text);
+        // The logger cannot report a failure of its own sinks through itself.
+        // eslint-disable-next-line no-restricted-syntax
       } catch {
         // A sink must never break the call site it's logging for.
       }

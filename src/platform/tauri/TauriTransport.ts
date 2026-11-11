@@ -17,7 +17,7 @@ import {
   type SignalCliTransport,
   type TransportCallOptions,
 } from '@/core/backend/signal-cli';
-import { createLogger, markStartup } from '@/core/lib';
+import { createLogger, markStartup, ignore, ignored } from '@/core/lib';
 import type { DesktopConnection } from '@/core/stores';
 import {
   asCommandError,
@@ -155,9 +155,9 @@ export class TauriTransport implements SignalCliTransport {
   }
 
   acknowledge(cursor: string): void {
-    this.ipc.invoke('signal_cli_ack', { cursor }).catch(() => {
-      // Only releases memory on the Rust side; a missed ack means a longer hold.
-    });
+    this.ipc
+      .invoke('signal_cli_ack', { cursor })
+      .catch(ignored('only releases memory on the Rust side; a missed ack means a longer hold'));
   }
 
   async restart(): Promise<void> {
@@ -225,8 +225,8 @@ class TauriSubscription implements EventSubscription {
         this.ipc.invoke('signal_cli_unsubscribe', { account: this.options.account, token }),
         gaveUp,
       ]);
-    } catch {
-      // Nothing to do about it.
+    } catch (error) {
+      ignore(error, 'unsubscribing is best effort');
     } finally {
       clearTimeout(timer);
     }

@@ -18,6 +18,7 @@
  *
  * The browser API is injected so the rules are testable headless.
  */
+import { ignored } from '@/core/lib';
 import {
   mentionsContact,
   MENTION_PLACEHOLDER,
@@ -580,7 +581,7 @@ export function browserNotificationApi(): NotificationApi {
           status = result;
           status.addEventListener('change', listener);
         })
-        .catch(() => undefined);
+        .catch(ignored('permission status is only used to refresh the notification setting'));
       return () => {
         live = false;
         status?.removeEventListener('change', listener);

@@ -1,3 +1,4 @@
+import { describeFailure } from '@/ui/lib/connectionErrors';
 import { useCallback, useEffect, useReducer, useRef } from 'react';
 import type { LinkFlow } from '@/core/backend';
 import {
@@ -65,7 +66,7 @@ export function useLinkFlow(
           type: 'failed',
           attempt,
           expired: uri !== null && isExpiry(error),
-          message: error instanceof Error ? error.message : String(error),
+          message: describeFailure(error),
         });
       });
   }, [state, link]);

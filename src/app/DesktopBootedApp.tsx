@@ -4,6 +4,7 @@
  * build: safe mode (?safe=1), native dev tools in
  * development, and a flush on page hide.
  */
+import { ignored } from '@/core/lib';
 import { useEffect, useState } from 'react';
 import type { HydratedKeyValue, MessageRepository } from '@/core/persistence';
 import type { ThemeDocument } from '@/core/themes';
@@ -56,7 +57,12 @@ export function DesktopBootedApp({
     // exit budget bounds the wait.
     registerFlusher?.(async () => {
       snowdrop.flush();
-      await Promise.all([storage.flush(), snowdrop.repository.flush().catch(() => undefined)]);
+      await Promise.all([
+        storage.flush(),
+        snowdrop.repository
+          .flush()
+          .catch(ignored('the exit flush is best effort; the exit budget bounds the wait')),
+      ]);
     });
   }, [snowdrop, storage, registerFlusher]);
 

@@ -8,6 +8,7 @@
  * are reused for a long TTL and refreshed on the events that make them stale
  * (contacts sync, a message from someone unknown, a group we don't know).
  */
+import { ignore } from '@/core/lib';
 import {
   groupConversationId,
   type AvatarRef,
@@ -163,8 +164,11 @@ export class Directory {
     try {
       const parsed: unknown = JSON.parse(this.deps.storage?.getItem(key) ?? '[]');
       if (Array.isArray(parsed)) for (const id of parsed) if (typeof id === 'string') found.add(id);
-    } catch {
-      // A damaged list is the same as none: the group just won't be kept after a restart.
+    } catch (error) {
+      ignore(
+        error,
+        'a damaged list is the same as none: the group just won’t be kept after a restart',
+      );
     }
     this.left = found;
     return found;
@@ -184,8 +188,8 @@ export class Directory {
         leftGroupsStorageKey(this.deps.identity().selfId),
         JSON.stringify([...ids]),
       );
-    } catch {
-      // Storage full or blocked: the group stays listed for this session.
+    } catch (error) {
+      ignore(error, 'storage full or blocked: the group stays listed for this session');
     }
   }
 

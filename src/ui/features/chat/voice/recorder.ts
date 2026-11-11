@@ -5,6 +5,7 @@
  * state machine, and above all the promise that the microphone is released,
  * testable without any of them.
  */
+import { ignored } from '@/core/lib';
 import { VOICE_NOTE_MAX_SECONDS } from '@/core/domain';
 import { meanSquare, toLevel, WaveformBuilder } from './waveform';
 
@@ -160,7 +161,7 @@ export class VoiceRecorder {
       this.session = session;
       // Loads while the permission is being asked for.
       encoderReady = this.deps.createEncoder(session.capture.sampleRate);
-      encoderReady.catch(() => undefined);
+      encoderReady.catch(ignored('the encoder is awaited later, where its failure is handled'));
     } catch {
       this.release();
       throw new VoiceRecorderError('failed');

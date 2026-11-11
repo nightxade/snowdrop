@@ -16,7 +16,7 @@ import {
   type ConversationId,
   type Message,
 } from '@/core/domain';
-import { stripBidiControls } from '@/core/lib';
+import { stripBidiControls, toAppError } from '@/core/lib';
 import type { MessageRepository } from '@/core/persistence';
 import type { Stores } from '@/core/stores';
 import { consoleReporter, type ErrorReporter } from './types';
@@ -51,15 +51,7 @@ export class IdentityService {
    * (an invalid number) and these calls handle safety numbers.
    */
   private report(error: unknown, context: string): void {
-    const kind =
-      typeof error === 'object' &&
-      error !== null &&
-      'kind' in error &&
-      typeof error.kind === 'string'
-        ? error.kind
-        : error instanceof Error
-          ? error.constructor.name
-          : typeof error;
+    const kind = toAppError(error).kind;
     this.onError(`error kind: ${kind}`, context);
   }
 

@@ -8,6 +8,7 @@
  * client injects the selected account unless a call opts out (`account: null`
  * for startLink/finishLink/listAccounts).
  */
+import { ignored } from '@/core/lib';
 import { kindForRpcCode, SignalCliError } from './errors';
 import { HttpTransport, type FetchLike } from './httpTransport';
 import type { RpcParams, RpcReply, SignalCliTransport, TransportCallOptions } from './transport';
@@ -115,7 +116,11 @@ export class JsonRpcClient {
       });
     });
     // Unhandled-rejection guard: `failure` may settle after the call won.
-    failure.catch(() => undefined);
+    failure.catch(
+      ignored(
+        'the call’s own race reports the failure; this only avoids an unhandled-rejection report',
+      ),
+    );
     try {
       return await Promise.race([run({ signal: controller.signal, timeoutMs }), failure]);
     } catch (error) {

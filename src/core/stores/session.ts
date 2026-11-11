@@ -1,6 +1,7 @@
 import { createStore, type StoreApi } from 'zustand/vanilla';
 import type { BackendKind } from '@/core/backend';
 import type { ConnectionStatus, Contact } from '@/core/domain';
+import type { AppError } from '@/core/lib';
 import { initialPhonePrivacy, type PhonePrivacyState } from './privacy';
 
 export type HistoryImportStatus = 'idle' | 'importing' | 'done' | 'failed';
@@ -26,19 +27,65 @@ const IDLE_HISTORY_IMPORT: HistoryImportProgress = {
   error: null,
 };
 
+/**
+ * Where the session is, in the one vocabulary the shell routes on:
+ *
+ * - `idle`: nothing started, or stopped.
+ * - `connecting`: the first connect and initial sync are in flight.
+ * - `needs-link`: signal-cli has no linked account; run the link flow.
+ * - `needs-account`: a single-account daemon that must be told which account.
+ * - `not-installed`: no signal-cli program to run (desktop).
+ * - `ready`: initial sync done and the connection is online.
+ * - `degraded`: initial sync done, the connection is not online right now.
+ *   The data is still there; a banner explains the connection.
+ * - `failed`: the first connect failed with nothing the user can set up.
+ *
+ * `error` is the failure behind `needs-*`, `not-installed`, `failed`, and
+ * also `degraded` after a failed reconnect.
+ */
+export type SessionPhase =
+  | 'idle'
+  | 'connecting'
+  | 'needs-link'
+  | 'needs-account'
+  | 'not-installed'
+  | 'ready'
+  | 'degraded'
+  | 'failed';
+
+/** The phase a failed first connect lands in; only these kinds mean "the user has a setup step". */
+export function phaseForConnectError(error: AppError): SessionPhase {
+  switch (error.kind) {
+    case 'no-account':
+      return 'needs-link';
+    case 'account-required':
+      return 'needs-account';
+    case 'not-installed':
+      return 'not-installed';
+    default:
+      return 'failed';
+  }
+}
+
+/** True once the initial sync has completed (contacts, conversations, unread are loaded). */
+export function isSynced(phase: SessionPhase): boolean {
+  return phase === 'ready' || phase === 'degraded';
+}
+
 export interface SessionState {
   backendKind: BackendKind | null;
-  status: ConnectionStatus;
-  self: Contact | null;
-  /** Last connection/sync error, user-presentable. */
-  error: string | null;
+  phase: SessionPhase;
   /**
-   * Machine-readable kind of `error` when the transport provides one (e.g.
-   * signal-cli's 'no-account' / 'account-required', which start the link flow).
+   * The live state of the backend's connection, as it reports it. Orthogonal
+   * to `phase`: a retry after a failure shows `connecting` here while the
+   * phase (and the screen it routes to) stays put, and `degraded` can be
+   * `connecting`, `offline` or `error`. Only the store's own transitions
+   * (`setLink`, `markFailed`, ...) write it, together with `phase`.
    */
-  errorKind: string | null;
-  /** True once the initial sync (contacts, conversations, unread) finished. */
-  ready: boolean;
+  link: ConnectionStatus;
+  self: Contact | null;
+  /** The last connection failure, until the connection comes back. See `SessionPhase`. */
+  error: AppError | null;
   /**
    * True while the backend is draining messages queued on the server before
    * this connection (SyncService's CatchUpTracker). The sidebar freezes
@@ -70,10 +117,17 @@ export interface SessionState {
   phonePrivacy: PhonePrivacyState;
 
   setBackendKind(kind: BackendKind | null): void;
-  setStatus(status: ConnectionStatus): void;
+  /** The backend reported a connection state. */
+  setLink(link: ConnectionStatus): void;
+  /** A first connect (or a retry of one) is starting. Keeps a failure's screen up while it runs. */
+  markConnecting(): void;
+  /** The initial sync finished. */
+  markSynced(): void;
+  /** A connect or reconnect failed. */
+  markFailed(error: AppError): void;
+  /** The session was stopped. */
+  markStopped(): void;
   setSelf(self: Contact): void;
-  setError(error: string | null, kind?: string | null): void;
-  setReady(ready: boolean): void;
   setCatchingUp(catchingUp: boolean): void;
   setNotificationsHeld(held: boolean): void;
   setHistoryImport(patch: Partial<HistoryImportProgress>): void;
@@ -93,11 +147,10 @@ export type SessionStore = StoreApi<SessionState>;
 export function createSessionStore(): SessionStore {
   return createStore<SessionState>()((set) => ({
     backendKind: null,
-    status: 'offline',
+    phase: 'idle',
+    link: 'offline',
     self: null,
     error: null,
-    errorKind: null,
-    ready: false,
     catchingUp: false,
     notificationsHeld: false,
     historyImport: IDLE_HISTORY_IMPORT,
@@ -106,17 +159,34 @@ export function createSessionStore(): SessionStore {
     setBackendKind: (backendKind) => {
       set({ backendKind });
     },
-    setStatus: (status) => {
-      set(status === 'online' ? { status, error: null, errorKind: null } : { status });
+    setLink: (link) => {
+      set((s) => {
+        if (link === 'online') {
+          // Online clears the failure. Before the initial sync that is "connecting"
+          // (a retry after a failure moves off the failure's screen here, not earlier).
+          return { link, error: null, phase: isSynced(s.phase) ? 'ready' : 'connecting' };
+        }
+        return { link, phase: s.phase === 'ready' ? 'degraded' : s.phase };
+      });
+    },
+    markConnecting: () => {
+      set((s) => (s.phase === 'idle' ? { phase: 'connecting' } : s));
+    },
+    markSynced: () => {
+      set((s) => ({ phase: s.link === 'online' ? 'ready' : 'degraded' }));
+    },
+    markFailed: (error) => {
+      set((s) => ({
+        link: 'error',
+        error,
+        phase: isSynced(s.phase) ? 'degraded' : phaseForConnectError(error),
+      }));
+    },
+    markStopped: () => {
+      set({ phase: 'idle', error: null });
     },
     setSelf: (self) => {
       set({ self });
-    },
-    setError: (error, kind = null) => {
-      set({ error, errorKind: error === null ? null : kind });
-    },
-    setReady: (ready) => {
-      set({ ready });
     },
     setCatchingUp: (catchingUp) => {
       set({ catchingUp });
@@ -143,13 +213,14 @@ export function createSessionStore(): SessionStore {
 }
 
 export const sessionSelectors = {
-  status: (s: SessionState) => s.status,
+  phase: (s: SessionState) => s.phase,
+  link: (s: SessionState) => s.link,
   self: (s: SessionState) => s.self,
   selfId: (s: SessionState) => s.self?.id ?? null,
-  isOnline: (s: SessionState) => s.status === 'online',
-  ready: (s: SessionState) => s.ready,
+  isOnline: (s: SessionState) => s.link === 'online',
+  /** The initial sync has completed (see `isSynced`). */
+  ready: (s: SessionState) => isSynced(s.phase),
   error: (s: SessionState) => s.error,
-  errorKind: (s: SessionState) => s.errorKind,
   catchingUp: (s: SessionState) => s.catchingUp,
   notificationsHeld: (s: SessionState) => s.notificationsHeld,
   historyImport: (s: SessionState) => s.historyImport,

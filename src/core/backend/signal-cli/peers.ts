@@ -16,6 +16,7 @@
  * already has activity recorded (so existing history doesn't need migrating),
  * falling back to the ACI.
  */
+import { ignore } from '@/core/lib';
 import type { KeyValueStorage } from '@/core/persistence';
 import { isUuid } from './identity';
 import { peersStorageKey } from './storageKeys';
@@ -178,8 +179,8 @@ export class DirectPeers {
       if (Array.isArray(parsed.moved)) {
         for (const id of parsed.moved) if (typeof id === 'string') this.moved.add(id);
       }
-    } catch {
-      // Corrupt entry: start empty; conversations reappear as messages arrive.
+    } catch (error) {
+      ignore(error, 'corrupt entry: start empty; conversations reappear as messages arrive');
     }
   }
 
@@ -191,8 +192,8 @@ export class DirectPeers {
         ...(this.moved.size > 0 ? { moved: [...this.moved] } : {}),
       };
       this.storage?.setItem(this.key, JSON.stringify(shape));
-    } catch {
-      // Quota/disabled storage: keep the in-memory set.
+    } catch (error) {
+      ignore(error, 'quota/disabled storage: keep the in-memory set');
     }
   }
 }

@@ -6,7 +6,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { DesktopErrorKind } from '@/core/backend';
-import { createLogger } from '@/core/lib';
+import { AppError, createLogger, toAppError } from '@/core/lib';
 import type { DesktopConnection } from '@/core/stores';
 
 export interface TauriIpc {
@@ -75,13 +75,19 @@ export interface CommandError {
   message: string;
 }
 
+/** An error from a command, as the UI-facing `{ kind, message }`; anything unrecognised is `internal`. */
 export function asCommandError(error: unknown): CommandError {
-  if (typeof error === 'object' && error !== null && 'kind' in error && 'message' in error) {
-    const { kind, message } = error;
-    if (typeof kind === 'string' && typeof message === 'string')
-      return { kind: kind as CommandError['kind'], message };
+  const { kind, message } = toAppError(error);
+  return { kind: kind === 'unknown' ? 'internal' : (kind as CommandError['kind']), message };
+}
+
+/** A reply from the Rust side that isn't the shape its command promises; a real `Error`, so it is safe to `throw`. */
+export class IpcValidationError extends AppError {
+  override readonly name = 'IpcValidationError';
+
+  constructor(message: string) {
+    super('invalid-response', message);
   }
-  return { kind: 'internal', message: error instanceof Error ? error.message : String(error) };
 }
 
 /** The connect configuration the Rust side expects (`ConnectConfig`). */

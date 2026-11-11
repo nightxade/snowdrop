@@ -6,6 +6,7 @@
  * Settings → Connection, and the `core.signOut` command, so there's one
  * place that gets the copy and the ordering right.
  */
+import { describeFailure } from '@/ui/lib/connectionErrors';
 import { RotateCw } from 'lucide-react';
 import { useState } from 'react';
 import { useStore } from 'zustand';
@@ -51,7 +52,7 @@ export function SignOutDialog({ onClose }: SignOutDialogProps) {
         setBusy(false);
         return;
       }
-      setError(e instanceof Error ? e.message : String(e));
+      setError(describeFailure(e));
       setBusy(false);
     }
   };
@@ -62,7 +63,7 @@ export function SignOutDialog({ onClose }: SignOutDialogProps) {
     try {
       await app.storageAdmin?.restart();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(describeFailure(e));
       setBusy(false);
     }
   };

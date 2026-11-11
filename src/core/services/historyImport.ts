@@ -55,7 +55,7 @@
 import type { ChatBackend } from '@/core/backend';
 import { mergeDuplicate, type ConversationId, type Message } from '@/core/domain';
 import type { Clock, Logger, Scheduler } from '@/core/lib';
-import { createLogger } from '@/core/lib';
+import { createLogger, ignored } from '@/core/lib';
 import {
   isRecord,
   loadVersioned,
@@ -64,7 +64,7 @@ import {
   type MessageRepository,
   type VersionedSchema,
 } from '@/core/persistence';
-import { isDeletedRequest, type Stores } from '@/core/stores';
+import { isDeletedRequest, isSynced, type Stores } from '@/core/stores';
 import type { PendingOpsBuffer } from './PendingOpsBuffer';
 import { consoleReporter, type ErrorReporter } from './types';
 
@@ -191,7 +191,9 @@ export class HistoryImportService {
   async stop(): Promise<void> {
     this.stopped = true;
     this.wakeAll();
-    await (this.running ?? Promise.resolve()).catch(() => undefined);
+    await (this.running ?? Promise.resolve()).catch(
+      ignored('stop only waits for the run to finish; the run reports its own failure'),
+    );
   }
 
   /**
@@ -229,7 +231,7 @@ export class HistoryImportService {
     for (;;) {
       if (this.stopped) return false;
       const session = this.deps.stores.session.getState();
-      if (session.ready && !session.catchingUp) return true;
+      if (isSynced(session.phase) && !session.catchingUp) return true;
       await new Promise<void>((resolve) => {
         // One way out, whichever fires first (a session change, or stop/reset):
         // it drops both the subscription and the wake entry.

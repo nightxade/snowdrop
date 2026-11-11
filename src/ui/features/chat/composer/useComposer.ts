@@ -1,3 +1,4 @@
+import { describeSendFailure } from '@/ui/lib/connectionErrors';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import {
@@ -218,7 +219,7 @@ export function useComposer(conversation: ConversationView): ComposerState {
       if (w && !w.anchoredToPresent) await history.jumpToPresent(conversationId);
       return await run();
     } catch (e) {
-      setError(e instanceof Error ? e.message : failure);
+      setError(describeSendFailure(e, failure));
       return FAILED;
     } finally {
       void chat.jumpToPresent();
@@ -333,7 +334,7 @@ export function useComposer(conversation: ConversationView): ComposerState {
           break;
       }
     } catch (e) {
-      setError(`/${slash.name} failed: ${e instanceof Error ? e.message : String(e)}`);
+      setError(`/${slash.name} failed: ${describeSendFailure(e)}`);
     } finally {
       executing.current = false;
     }

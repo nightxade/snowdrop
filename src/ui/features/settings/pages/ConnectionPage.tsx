@@ -5,7 +5,7 @@ import type { BackendKind } from '@/core/backend';
 import { sessionSelectors, type DesktopConnection } from '@/core/stores';
 import { validateDaemonUrl } from '@/ui/features/onboarding';
 import { useSnowdrop, type DaemonProbe } from '@/ui/hooks';
-import { friendlyErrorMessage } from '@/ui/lib/connectionErrors';
+import { friendlyErrorMessage, describeFailure } from '@/ui/lib/connectionErrors';
 import { Button, Modal, Segmented, Switch, TextInput } from '@/ui/primitives';
 import { SettingRow } from '../rows/SettingRow';
 import { SettingsSection } from '../rows/SettingsSection';
@@ -35,7 +35,7 @@ function trimmedDesktop(desktop: DesktopConnection): DesktopConnection {
 export function ConnectionPage() {
   const app = useSnowdrop();
   const [saved, set] = useSettingsSection('connection');
-  const status = useStore(app.stores.session, (s) => s.status);
+  const status = useStore(app.stores.session, (s) => s.link);
   const self = useStore(app.stores.session, sessionSelectors.self);
   const running = app.backend.kind;
   // Every registered transport (app/backends.ts), in registration order.
@@ -94,7 +94,7 @@ export function ConnectionPage() {
     }
     setApplying(true);
     app.admin.reload().catch((error: unknown) => {
-      setApplyError(error instanceof Error ? error.message : String(error));
+      setApplyError(describeFailure(error));
       setApplying(false);
     });
   };
@@ -126,7 +126,7 @@ export function ConnectionPage() {
       await app.admin.reload();
       // A successful reload leaves the page; this stays busy until it does.
     } catch (error) {
-      setApplyError(error instanceof Error ? error.message : String(error));
+      setApplyError(describeFailure(error));
       setApplying(false);
     }
   };
@@ -305,7 +305,7 @@ export function ConnectionPage() {
                     .catch((error: unknown) => {
                       setSyncState('idle');
                       app.stores.ui.getState().pushToast({
-                        message: `Sync failed: ${error instanceof Error ? error.message : String(error)}`,
+                        message: `Sync failed: ${describeFailure(error)}`,
                         kind: 'error',
                         source: 'core',
                       });

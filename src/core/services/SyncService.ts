@@ -47,8 +47,11 @@ import {
   Emitter,
   type Cancel,
   type Clock,
+  type ErrorKind,
   type Scheduler,
   type Unsubscribe,
+  toAppError,
+  ignored,
 } from '@/core/lib';
 import { latestRealMessage, type MessageRepository } from '@/core/persistence';
 import { refreshPreviewAfterRemoval } from './sidebarPreview';
@@ -147,7 +150,7 @@ const log = createLogger('sync');
  * error. Logged once, at info — not at error, and not from every place that
  * happens to observe the same rejection (see `wasConnectionErrorReported`).
  */
-const SETUP_STATE_MESSAGES: Record<string, string> = {
+const SETUP_STATE_MESSAGES: Partial<Record<ErrorKind, string>> = {
   'not-installed': "signal-cli isn't installed yet (first run)",
   'no-account': 'no linked account yet; showing the link screen',
   'account-required': 'signal-cli needs an account number; showing the setup screen',
@@ -327,8 +330,8 @@ export class SyncService {
   start(): Promise<void> {
     if (this.startPromise) return this.startPromise;
     if (this.connected) {
-      const { status } = this.deps.stores.session.getState();
-      if (status !== 'error' && status !== 'offline') return Promise.resolve();
+      const { link } = this.deps.stores.session.getState();
+      if (link !== 'error' && link !== 'offline') return Promise.resolve();
     }
     const attempt: Promise<void> = (this.connected ? this.doReconnect() : this.doStart()).finally(
       () => {
@@ -346,6 +349,7 @@ export class SyncService {
     this.accountRetryCancel?.();
     this.accountRetryCancel = null;
     stores.session.getState().setBackendKind(backend.kind);
+    stores.session.getState().markConnecting();
     this.gated = true;
     this.subscribe();
     // "Catching up" from here; `subscribe()` wired the events that end it.
@@ -371,7 +375,7 @@ export class SyncService {
     // Before the gate opens: nothing live can have been let through yet, so
     // whatever listens for it (notifications) is ready for the first one.
     await this.deps.postConnect?.run('before-live');
-    stores.session.getState().setReady(true);
+    stores.session.getState().markSynced();
     this.openGate();
     this.armCatchUpQuiet();
     this.schedulePurge(0);
@@ -389,7 +393,7 @@ export class SyncService {
    */
   private async doReconnect(): Promise<void> {
     const { backend, stores } = this.deps;
-    const startedOver = stores.session.getState().status === 'error';
+    const startedOver = stores.session.getState().link === 'error';
     this.accountRetryCancel?.();
     this.accountRetryCancel = null;
     if (startedOver) this.startCatchUp();
@@ -401,7 +405,7 @@ export class SyncService {
         this.armCatchUpQuiet();
         // The stream's own `open` may still be on its way; don't leave the
         // banner on the old error until it arrives.
-        stores.session.getState().setStatus(backend.getStatus());
+        stores.session.getState().setLink(backend.getStatus());
       }
     } catch (error) {
       if (startedOver) this.disposeCatchUp();
@@ -435,17 +439,14 @@ export class SyncService {
   /** Records a failed connect in the session store and logs it, once. */
   private failConnect(error: unknown, context: string): void {
     const { stores } = this.deps;
-    const kind = errorKindOf(error);
-    stores.session
-      .getState()
-      .setError(error instanceof Error ? error.message : String(error), kind);
-    stores.session.getState().setStatus('error');
+    const appError = toAppError(error);
+    stores.session.getState().markFailed(appError);
     // The single place this failure is logged (see `wasConnectionErrorReported`):
     // an expected setup state (no account yet, signal-cli not installed, …)
     // is routed to its own screen and logged once at info, not at error;
     // a real failure still logs once, at error, never from the other
     // places (App.tsx, ConnectionBanner) that also observe this rejection.
-    const setupMessage = kind !== null ? SETUP_STATE_MESSAGES[kind] : undefined;
+    const setupMessage = SETUP_STATE_MESSAGES[appError.kind];
     if (setupMessage !== undefined) log.info(setupMessage);
     else this.onError(error, context);
     markConnectionErrorReported(error);
@@ -454,10 +455,12 @@ export class SyncService {
     // slower, steady pace rather than leaving it to a manual Retry click —
     // this must never happen for `no-account`/`account-required`, which
     // mean the user has to act (link, or enter an account number).
-    if (kind === 'account-unavailable') {
+    if (appError.kind === 'account-unavailable') {
       this.accountRetryCancel = this.deps.scheduler.setTimeout(() => {
         this.accountRetryCancel = null;
-        this.start().catch(() => undefined);
+        this.start().catch(
+          ignored('an automatic retry’s failure is already reported by the connect itself'),
+        );
       }, ACCOUNT_UNAVAILABLE_RETRY_MS);
     }
   }
@@ -554,7 +557,10 @@ export class SyncService {
   }
 
   async stop(): Promise<void> {
-    if (this.startPromise) await this.startPromise.catch(() => undefined);
+    if (this.startPromise)
+      await this.startPromise.catch(
+        ignored('stop only waits for the start to settle; its failure went to its caller'),
+      );
     this.accountRetryCancel?.();
     this.accountRetryCancel = null;
     this.privacyRetryCancel?.();
@@ -577,7 +583,7 @@ export class SyncService {
     this.teardown();
     this.startPromise = null;
     this.connected = false;
-    this.deps.stores.session.getState().setReady(false);
+    this.deps.stores.session.getState().markStopped();
   }
 
   private async waitForPostReady(): Promise<void> {
@@ -839,7 +845,7 @@ export class SyncService {
       const page = await backend
         .fetchHistory(conv.id, { limit: this.deps.seedPageSize ?? 50 })
         .catch((error: unknown) => {
-          log.warn('history unavailable for a chat', { reason: errorKindOf(error) ?? 'unknown' });
+          log.warn('history unavailable for a chat', { reason: toAppError(error).kind });
           const none: { messages: Message[]; hasMoreBefore: boolean; readUpTo?: number } = {
             messages: [],
             hasMoreBefore: false,
@@ -1235,7 +1241,9 @@ export class SyncService {
   private inReceiptOrder(job: () => Promise<void>): Promise<void> {
     const generation = this.generation;
     const run = this.receiptTail.then(() => (generation === this.generation ? job() : undefined));
-    this.receiptTail = run.catch(() => undefined);
+    this.receiptTail = run.catch(
+      ignored('a failed receipt job was already reported; the chain only keeps order'),
+    );
     return run;
   }
 
@@ -1485,7 +1493,7 @@ export class SyncService {
         // messages again; the initial `start()` call above already covers
         // the very first connect (its status goes 'connecting' → 'online',
         // never through 'offline').
-        if (status === 'online' && this.deps.stores.session.getState().status === 'offline') {
+        if (status === 'online' && this.deps.stores.session.getState().link === 'offline') {
           // Our own stream dropped, which says nothing about whether signal-cli
           // reconnected too. If its `catchingUp` already started a strict hold,
           // keep it: restarting would bring back a quiet period that could end
@@ -1497,7 +1505,7 @@ export class SyncService {
           // The daemon may have restarted: read the phone's settings again.
           void this.refreshPhonePrivacy();
         }
-        this.deps.stores.session.getState().setStatus(status);
+        this.deps.stores.session.getState().setLink(status);
       },
       true,
     );
@@ -2283,10 +2291,4 @@ function reportReadSync(
   const ok = (v: string) => v === 'success' || v === 'none' || v === 'unreported';
   if (ok(fields.receipt) && ok(fields.sync)) log.info('read sync sent', fields);
   else log.warn('read sync sent', fields);
-}
-
-/** Adapters throw typed errors with a string `kind` (no import: core can't depend on adapters). */
-function errorKindOf(error: unknown): string | null {
-  if (typeof error !== 'object' || error === null || !('kind' in error)) return null;
-  return typeof error.kind === 'string' ? error.kind : null;
 }

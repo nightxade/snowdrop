@@ -53,7 +53,7 @@ describe('createSnowdrop with signal-cli', () => {
     ).not.toBeNull();
     expect(storage.getItem(scopedSchema(spacesSchema, 'signal-cli:pending').key)).toBeNull();
     await snowdrop.dispose();
-    expect(snowdrop.stores.session.getState().status).toBe('offline');
+    expect(snowdrop.stores.session.getState().link).toBe('offline');
   });
 
   it('never shows the demo’s seeded spaces under a signal-cli scope', async () => {
@@ -202,7 +202,7 @@ describe('createSnowdrop with signal-cli', () => {
     startOnce(snowdrop);
     await flush();
 
-    expect(snowdrop.stores.session.getState().errorKind).toBe('no-account');
+    expect(snowdrop.stores.session.getState().phase).toBe('needs-link');
     // (The catch-up hold's own diagnostics line is a different message.)
     const setupLines = consoleInfo.mock.calls.filter((call) =>
       /no linked account yet/u.test(String(call[0])),
@@ -237,7 +237,7 @@ describe('createSnowdrop with signal-cli', () => {
     startOnce(snowdrop);
     await flush();
 
-    expect(snowdrop.stores.session.getState().status).toBe('error');
+    expect(snowdrop.stores.session.getState().link).toBe('error');
     // Exactly one error line for this failure, not triplicated across
     // SyncService, App.tsx's effect and startOnce's own catch.
     expect(consoleError).toHaveBeenCalledTimes(1);

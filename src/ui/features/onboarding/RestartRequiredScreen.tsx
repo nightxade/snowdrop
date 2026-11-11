@@ -8,6 +8,7 @@
  * set, no matter which screen would otherwise show, so the user is never
  * dropped back into "Protect your data" on data that's already gone.
  */
+import { describeFailure } from '@/ui/lib/connectionErrors';
 import { RotateCw } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '@/ui/primitives';
@@ -54,7 +55,7 @@ export function RestartRequiredScreen({ onRestart }: RestartRequiredScreenProps)
               setError(null);
               // Success replaces this process, so busy only clears on failure.
               void onRestart().catch((e: unknown) => {
-                setError(e instanceof Error ? e.message : String(e));
+                setError(describeFailure(e));
                 setBusy(false);
               });
             }}

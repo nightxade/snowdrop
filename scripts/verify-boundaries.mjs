@@ -45,6 +45,33 @@ const cases = [
   ['core/stores', "export type { Message } from '@/core/domain';", []],
   ['app', "export { MockBackend } from '@/core/backend/mock';", []],
   ['core/domain', 'const x = 1;\nexport default x;', ['no-restricted-syntax']],
+  // A failure is never dropped silently: it says why (`ignore` / `ignored`) or is reported.
+  [
+    'core/services',
+    'export const f = (p: Promise<number>): Promise<number | undefined> => p.catch(() => undefined);',
+    ['no-restricted-syntax'],
+  ],
+  [
+    'core/services',
+    'export function g(): void {\n  try {\n    JSON.parse("");\n  } catch {\n    // nothing\n  }\n}',
+    ['no-restricted-syntax'],
+  ],
+  ...[
+    'p.catch((_e: unknown) => {})',
+    'p.catch((_e: unknown) => undefined)',
+    'p.catch(() => null)',
+    'p.then((n) => n, () => {})',
+    'p.then((n) => n, (_e: unknown) => undefined)',
+  ].map((expr) => [
+    'core/services',
+    `export const f = (p: Promise<number>): Promise<unknown> => ${expr};`,
+    ['no-restricted-syntax'],
+  ]),
+  [
+    'core/services',
+    "import { ignored } from '@/core/lib';\nexport const f = (p: Promise<number>): Promise<unknown> => p.catch(ignored('why'));",
+    [],
+  ],
   // Top-level files (the entry point main.tsx) are outside the composition root: no adapters.
   ['', "export { MockBackend } from '@/core/backend/mock';", ['import-x/no-restricted-paths']],
   // ui/hooks sit below features and plugins.

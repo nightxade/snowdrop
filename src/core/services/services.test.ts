@@ -195,8 +195,8 @@ describe('SyncService: initial sync', () => {
   it('fills stores and repository', async () => {
     const { stores, backend, repository, conv } = await setup();
     expect(stores.session.getState()).toMatchObject({
-      status: 'online',
-      ready: true,
+      link: 'online',
+      phase: 'ready',
       backendKind: 'mock',
     });
     expect(stores.session.getState().self?.id).toBe(backend.world.self.id);
@@ -295,10 +295,10 @@ describe('SyncService: initial sync', () => {
     };
     await expect(s.sync.start()).rejects.toThrow('down');
     expect(s.stores.session.getState()).toMatchObject({
-      status: 'error',
-      error: 'down',
-      ready: false,
+      link: 'error',
+      phase: 'failed',
     });
+    expect(s.stores.session.getState().error?.message).toBe('down');
     await s.sync.start();
     // start() is idempotent while running, too.
     await s.sync.start();
@@ -313,7 +313,7 @@ describe('SyncService: initial sync', () => {
   it('can stop and start again', async () => {
     const s = await setup();
     await s.sync.stop();
-    expect(s.stores.session.getState()).toMatchObject({ status: 'offline', ready: false });
+    expect(s.stores.session.getState()).toMatchObject({ link: 'offline', phase: 'idle' });
     await s.sync.start();
     const group = s.conv('books');
     const before = s.stores.conversations.getState().unread[group]?.count ?? 0;
@@ -344,10 +344,10 @@ describe('SyncService: reconnecting', () => {
     async (status) => {
       const s = await setup();
       const connect = countConnects(s.backend);
-      s.stores.session.getState().setStatus(status);
+      s.stores.session.getState().setLink(status);
       await s.sync.start();
       expect(connect).toHaveBeenCalledTimes(1);
-      expect(s.stores.session.getState()).toMatchObject({ status: 'online', ready: true });
+      expect(s.stores.session.getState()).toMatchObject({ link: 'online', phase: 'ready' });
       // Still subscribed exactly once: one arrival, one unread.
       s.stores.ui.getState().setWindowFocused(false);
       const group = s.conv('books');
@@ -367,17 +367,17 @@ describe('SyncService: reconnecting', () => {
       return connect();
     });
     s.backend.connect = spy;
-    s.stores.session.getState().setStatus('error');
+    s.stores.session.getState().setLink('error');
     await expect(s.sync.start()).rejects.toThrow('still down');
     expect(s.stores.session.getState()).toMatchObject({
-      status: 'error',
-      error: 'still down',
-      ready: true,
+      link: 'error',
+      phase: 'degraded',
     });
+    expect(s.stores.session.getState().error?.message).toBe('still down');
     fail = false;
     await s.sync.start();
     expect(spy).toHaveBeenCalledTimes(2);
-    expect(s.stores.session.getState()).toMatchObject({ status: 'online', error: null });
+    expect(s.stores.session.getState()).toMatchObject({ link: 'online', error: null });
   });
 
   it('a Retry while a connect is in flight joins it', async () => {
@@ -388,7 +388,7 @@ describe('SyncService: reconnecting', () => {
     await Promise.all([first, second]);
     expect(connect).toHaveBeenCalledTimes(1);
     // Same while reconnecting.
-    s.stores.session.getState().setStatus('error');
+    s.stores.session.getState().setLink('error');
     const third = s.sync.start();
     const fourth = s.sync.start();
     await Promise.all([third, fourth]);
@@ -795,10 +795,10 @@ describe('SyncService: events', () => {
     });
     await expect(sync.start()).rejects.toThrow('boom');
     expect(stores.session.getState()).toMatchObject({
-      status: 'error',
-      error: 'boom',
-      ready: false,
+      link: 'error',
+      phase: 'failed',
     });
+    expect(stores.session.getState().error?.message).toBe('boom');
     // Nothing is catching up once the start has failed.
     expect(stores.session.getState()).toMatchObject({
       catchingUp: false,
@@ -829,7 +829,11 @@ describe('SyncService: events', () => {
       caught = e;
     });
 
-    expect(stores.session.getState()).toMatchObject({ status: 'error', errorKind: 'no-account' });
+    expect(stores.session.getState()).toMatchObject({
+      link: 'error',
+      phase: 'needs-link',
+    });
+    expect(stores.session.getState().error?.kind).toBe('no-account');
     // Not logged as an error at all: an expected first-run state, not a failure.
     expect(onError).not.toHaveBeenCalled();
     expect(consoleError).not.toHaveBeenCalled();
@@ -880,10 +884,10 @@ describe('SyncService: events', () => {
     await sync.start().catch(() => undefined);
     expect(connect).toHaveBeenCalledTimes(1);
     expect(stores.session.getState()).toMatchObject({
-      status: 'error',
-      errorKind: 'account-unavailable',
-      ready: false,
+      link: 'error',
+      phase: 'failed',
     });
+    expect(stores.session.getState().error?.kind).toBe('account-unavailable');
     // A real failure, not a setup state: logged once, at error.
     expect(onError).toHaveBeenCalledTimes(1);
 
@@ -897,7 +901,7 @@ describe('SyncService: events', () => {
     scheduler.advance(1_000);
     await sync.start();
     expect(connect).toHaveBeenCalledTimes(2);
-    expect(stores.session.getState()).toMatchObject({ status: 'online', ready: true });
+    expect(stores.session.getState()).toMatchObject({ link: 'online', phase: 'ready' });
   });
 
   it('stops retrying account-unavailable once the service is stopped', async () => {

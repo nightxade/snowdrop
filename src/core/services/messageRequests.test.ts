@@ -501,7 +501,7 @@ describe('an outgoing message anywhere accepts the chat (Desktop: sentMessageCou
       });
       const s = await setup({ prepare: withArchive(new Set(), log, gate) });
       // setup() returned: the sync finished although the first ask is still pending.
-      expect(s.stores.session.getState().ready).toBe(true);
+      expect(s.stores.session.getState().phase).toBe('ready');
       await settle();
       expect(log).toHaveLength(1);
       release();

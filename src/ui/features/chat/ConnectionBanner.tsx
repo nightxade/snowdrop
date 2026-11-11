@@ -1,9 +1,10 @@
 import { RotateCw, WifiOff, LoaderCircle } from 'lucide-react';
 import { useState } from 'react';
 import { useStore } from 'zustand';
+import { ignored } from '@/core/lib';
 import { sessionSelectors } from '@/core/stores';
 import { useSnowdrop } from '@/ui/hooks';
-import { friendlyErrorMessage } from '@/ui/lib/connectionErrors';
+import { friendlyAppError } from '@/ui/lib/connectionErrors';
 import styles from './ConnectionBanner.module.css';
 
 /**
@@ -16,10 +17,9 @@ import styles from './ConnectionBanner.module.css';
  */
 export function ConnectionBanner() {
   const { stores, sync } = useSnowdrop();
-  const status = useStore(stores.session, sessionSelectors.status);
+  const status = useStore(stores.session, sessionSelectors.link);
   const ready = useStore(stores.session, sessionSelectors.ready);
   const error = useStore(stores.session, sessionSelectors.error);
-  const errorKind = useStore(stores.session, sessionSelectors.errorKind);
   const backend = useStore(stores.session, (s) => s.backendKind);
   const [retrying, setRetrying] = useState(false);
 
@@ -31,14 +31,14 @@ export function ConnectionBanner() {
     status === 'connecting'
       ? `Reconnecting to ${daemon}…`
       : status === 'error'
-        ? `Can't reach ${daemon}: ${friendlyErrorMessage(errorKind, error)}`
+        ? `Can't reach ${daemon}: ${friendlyAppError(error)}`
         : `You're offline. Messages you send will go out when ${daemon} is back.`;
 
   const retry = () => {
     setRetrying(true);
     sync
       .start()
-      .catch(() => undefined)
+      .catch(ignored('retry button: the banner already shows the failure'))
       .finally(() => {
         setRetrying(false);
       });

@@ -1,4 +1,5 @@
 import { useStore } from 'zustand';
+import { ignored } from '@/core/lib';
 import { sessionSelectors } from '@/core/stores';
 import { useSnowdrop } from '@/ui/hooks';
 import { Tooltip } from '@/ui/primitives';
@@ -7,7 +8,7 @@ import styles from './HealthDot.module.css';
 /** Only shown when the connection isn't healthy (PLAN §4.2); click retries. */
 export function HealthDot() {
   const { stores, sync } = useSnowdrop();
-  const status = useStore(stores.session, sessionSelectors.status);
+  const status = useStore(stores.session, sessionSelectors.link);
   const ready = useStore(stores.session, sessionSelectors.ready);
   if (status === 'online' || (!ready && status === 'offline')) return null;
   const label =
@@ -26,7 +27,7 @@ export function HealthDot() {
           aria-label={label}
           disabled={status === 'connecting'}
           onClick={() => {
-            void sync.start().catch(() => undefined);
+            void sync.start().catch(ignored('retry click: the health dot shows the failure'));
           }}
         />
       </Tooltip>

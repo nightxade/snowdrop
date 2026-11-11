@@ -9,7 +9,7 @@ import {
   sendNotification,
 } from '@tauri-apps/plugin-notification';
 import type { NotificationApi } from '@/core/services';
-import { createLogger } from '@/core/lib';
+import { createLogger, ignore } from '@/core/lib';
 import { tauriIpc, type TauriIpc } from './ipc';
 
 type Permission = ReturnType<NotificationApi['permission']>;
@@ -24,7 +24,10 @@ export async function tauriNotificationApi(ipc: TauriIpc = tauriIpc): Promise<No
       log.warn('Desktop notification failed');
     });
   };
-  let permission: Permission = (await isPermissionGranted().catch(() => false))
+  let permission: Permission = (await isPermissionGranted().catch((error: unknown) => {
+    ignore(error, 'permission unknown; treat it as not granted');
+    return false;
+  }))
     ? 'granted'
     : 'default';
   return {

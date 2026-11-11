@@ -18,6 +18,8 @@
  * keyword-based rewrites for the phrasing we can make clearer.
  */
 
+import { toAppError, type AppError } from '@/core/lib';
+
 type DetailMessage = (detail: string) => string;
 
 const PASS_THROUGH_FALLBACKS: Record<string, string> = {
@@ -95,4 +97,66 @@ export function friendlyErrorMessage(
   if (passThroughFallback !== undefined) return safeDetail || passThroughFallback;
   const generic = GENERIC_MESSAGES[kind];
   return generic ? generic(safeDetail) : FALLBACK;
+}
+
+/** `friendlyErrorMessage` for a connection failure held in the session store. */
+export function friendlyAppError(error: AppError | null | undefined): string {
+  if (!error) return FALLBACK;
+  return friendlyErrorMessage(error.kind, error.message);
+}
+
+/**
+ * Kinds whose table copy is a catch-all, or talks about signal-cli: shown
+ * inline for a failure that may have nothing to do with it, the error's own
+ * message says more. (The connection banner and onboarding still use the table.)
+ */
+const KEEP_OWN_MESSAGE: ReadonlySet<string> = new Set([
+  'internal',
+  'user',
+  'io',
+  'invalid-params',
+  'http',
+  'send-failed',
+]);
+
+/**
+ * Kinds whose table copy names signal-cli. Only an error that really came from
+ * signal-cli gets it; an IPC, storage or media error of the same kind keeps its
+ * own message.
+ */
+const SIGNAL_CLI_WORDED: ReadonlySet<string> = new Set([
+  'invalid-response',
+  'protocol',
+  'method-not-found',
+  'account-unavailable',
+]);
+
+/**
+ * The sentence for whatever a call threw, for the places that show a failure
+ * inline. A failure with copy of its own (a kind in the
+ * table above) reads the same as everywhere else; one without (an `Error` the
+ * app itself threw with a sentence meant for display, such as a validation
+ * message) keeps its message; anything else gets `fallback`.
+ */
+export function describeFailure(error: unknown, fallback: string = FALLBACK): string {
+  const appError = toAppError(error);
+  const { kind } = appError;
+  const hasCopy =
+    Object.hasOwn(PASS_THROUGH_FALLBACKS, kind) || Object.hasOwn(GENERIC_MESSAGES, kind);
+  const fromSignalCli = appError.source === 'signal-cli';
+  if (hasCopy && !KEEP_OWN_MESSAGE.has(kind) && (fromSignalCli || !SIGNAL_CLI_WORDED.has(kind)))
+    return friendlyErrorMessage(kind, appError.message);
+  return appError.message === '' ? fallback : appError.message;
+}
+
+/**
+ * `describeFailure` for a send-like action. A failure that may still have gone
+ * through (`maybe-sent`) must not read as a plain "try again", which invites a
+ * duplicate.
+ */
+export function describeSendFailure(error: unknown, fallback: string = FALLBACK): string {
+  if (toAppError(error).outcome === 'maybe-sent') {
+    return "That didn't answer in time, so it may have been sent. Check the conversation before sending again.";
+  }
+  return describeFailure(error, fallback);
 }

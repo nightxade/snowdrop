@@ -6,7 +6,7 @@
  * several releases still gets their settings. Corrupt or future-version data
  * falls back to defaults rather than crashing the app on boot.
  */
-import { createLogger } from '@/core/lib';
+import { createLogger, ignore } from '@/core/lib';
 
 const log = createLogger('storage');
 
@@ -102,8 +102,8 @@ function backup(storage: KeyValueStorage, key: string, raw: string, reason: stri
   log.warn(`could not load "${key}" (${reason}); backed up to "${backupKey(key)}"`);
   try {
     storage.setItem(backupKey(key), raw);
-  } catch {
-    // Out of quota: nothing more we can do safely.
+  } catch (error) {
+    ignore(error, 'out of quota: nothing more we can do safely');
   }
 }
 

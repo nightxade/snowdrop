@@ -7,6 +7,7 @@
  * note keeps playing when its row is scrolled away, and the next note is
  * started from what the request carries, whether or not its row is mounted.
  */
+import { ignored } from '@/core/lib';
 
 /** The speeds, in the order the button cycles through them: Signal Desktop's. */
 export const PLAYBACK_RATES = [1, 1.5, 2, 0.5] as const;
@@ -356,12 +357,9 @@ export class VoicePlayback {
     if (found instanceof Promise) {
       // Reading it from storage: anything started meanwhile (or a stop) wins.
       const token = this.token;
-      found.then(
-        (track) => {
-          if (track && token === this.token) this.playTrack(track);
-        },
-        () => undefined,
-      );
+      found.then((track) => {
+        if (track && token === this.token) this.playTrack(track);
+      }, ignored('the track could not be loaded; nothing starts playing'));
     } else if (found) {
       this.playTrack(found);
     }

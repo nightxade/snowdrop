@@ -17,7 +17,7 @@
  */
 import { Copy, RotateCw } from 'lucide-react';
 import { Component, useEffect, useRef, useState, type ErrorInfo, type ReactNode } from 'react';
-import { createLogger, recentLogLines } from '@/core/lib';
+import { createLogger, recentLogLines, ignore } from '@/core/lib';
 import { OnboardingShell } from '@/ui/features/onboarding/OnboardingShell';
 import setupStyles from '@/ui/features/onboarding/Setup.module.css';
 import storageStyles from '@/ui/features/onboarding/Storage.module.css';
@@ -40,8 +40,8 @@ async function recentLogTail(maxLines: number): Promise<string[]> {
       const text = await desktopLogAdmin().recent(65536);
       const lines = text.split('\n').filter((line) => line.length > 0);
       if (lines.length > 0) return lines.slice(-maxLines);
-    } catch {
-      // Fall through to the ring buffer below.
+    } catch (error) {
+      ignore(error, 'the desktop log is unreadable; use the in-memory log');
     }
   }
   return [...recentLogLines()].slice(-maxLines);
@@ -107,14 +107,14 @@ function ErrorFallback({ error }: { error: Error }) {
     try {
       const lines = await recentLogTail(LOG_TAIL_LINES);
       if (lines.length > 0) text += `\n\n--- recent log ---\n${lines.join('\n')}`;
-    } catch {
-      // Best effort: the error details alone are still worth copying.
+    } catch (error) {
+      ignore(error, 'the log tail is optional; the error details alone are still worth copying');
     }
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
-    } catch {
-      // Clipboard access denied or unavailable; nothing more to do about it.
+    } catch (error) {
+      ignore(error, 'clipboard access denied or unavailable; nothing more to do about it');
     }
   };
 

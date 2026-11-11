@@ -1,3 +1,4 @@
+import { ignored } from '@/core/lib';
 import { useEffect, useState } from 'react';
 import { cachedWaveform, loadWaveform, type WaveformInfo } from './waveformCache';
 
@@ -18,12 +19,9 @@ export function useWaveform(source: WaveformSource): WaveformInfo | undefined {
   useEffect(() => {
     if (known || !read) return;
     let cancelled = false;
-    loadWaveform(keys, read).then(
-      (info) => {
-        if (!cancelled) setComputed({ identity, info });
-      },
-      () => undefined,
-    );
+    loadWaveform(keys, read).then((info) => {
+      if (!cancelled) setComputed({ identity, info });
+    }, ignored('no waveform; the player shows without one'));
     return () => {
       cancelled = true;
     };

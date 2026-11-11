@@ -18,6 +18,8 @@ export function sendFrontendLog(
   message: string,
   ipc: TauriIpc = tauriIpc,
 ): void {
+  // The log's own bridge: a failure here has nowhere else to be reported.
+  // eslint-disable-next-line no-restricted-syntax
   void ipc.invoke('frontend_log', { level, scope, message }).catch(() => {
     // Nothing else to report it to.
   });

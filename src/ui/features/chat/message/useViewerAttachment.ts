@@ -1,3 +1,4 @@
+import { ignored } from '@/core/lib';
 import { useEffect, useState } from 'react';
 import type { MessageRef } from '@/core/backend';
 import type { Attachment, ConversationId } from '@/core/domain';
@@ -38,9 +39,7 @@ export function useViewerAttachment(
         url = URL.createObjectURL(blob);
         setOriginal({ id, url });
       })
-      .catch(() => {
-        // The preview stays.
-      });
+      .catch(ignored('the preview stays'));
     return () => {
       cancelled = true;
       if (url !== undefined) URL.revokeObjectURL(url);
