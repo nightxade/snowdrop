@@ -3,6 +3,8 @@ export * from './CatchUpTracker';
 export * from './SendService';
 export * from './SyncService';
 export * from './ReadStateService';
+export * from './PhonePrivacyService';
+export * from './ProfileService';
 export * from './MessageRequestService';
 export * from './GroupService';
 export * from './IdentityService';

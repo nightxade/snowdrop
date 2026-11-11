@@ -42,6 +42,8 @@ import {
   GroupService,
   IdentityService,
   ReadStateService,
+  PhonePrivacyService,
+  ProfileService,
   MessageRequestService,
   SendService,
   PostConnect,
@@ -149,6 +151,10 @@ export interface Snowdrop {
   sync: SyncService;
   /** Marking read, read receipts and read syncs, the unread recount. */
   readState: ReadStateService;
+  /** The phone's privacy settings: read, change, and the hand-off of held receipts. */
+  phonePrivacy: PhonePrivacyService;
+  /** The user's own name, about and photo. */
+  profile: ProfileService;
   send: SendService;
   /** Accept, delete, block and unblock a message request. */
   requests: MessageRequestService;
@@ -477,6 +483,22 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
       syncLog.error(context, error);
     },
   });
+  const phonePrivacy = new PhonePrivacyService({
+    backend,
+    stores,
+    scheduler,
+    readState,
+    onError: (error, context) => {
+      syncLog.error(context, error);
+    },
+  });
+  const profile = new ProfileService({
+    backend,
+    stores,
+    onError: (error, context) => {
+      syncLog.error(context, error);
+    },
+  });
   const send = new SendService({
     sentMarkers: new SentMarkers(storage, accountScope),
     backend,
@@ -520,6 +542,8 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     pendingOps,
     reactionWatch,
     readState,
+    phonePrivacy,
+    profile,
     postConnect,
     onError: (error, context) => {
       syncLog.error(context, error);
@@ -780,6 +804,8 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     plugins: runtime,
     sync,
     readState,
+    phonePrivacy,
+    profile,
     send,
     requests,
     groups,

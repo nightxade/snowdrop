@@ -61,6 +61,8 @@ import {
 import { CatchUpTracker, NOTIFICATION_HOLD_CEILING_MS } from './CatchUpTracker';
 import { PendingOpsBuffer, PENDING_OPS_MAX, PENDING_OPS_TTL_MS } from './PendingOpsBuffer';
 import { ReactionWatch } from './ReactionWatch';
+import { PhonePrivacyService } from './PhonePrivacyService';
+import { ProfileService } from './ProfileService';
 import { ReadStateService } from './ReadStateService';
 import { ReceiptBuffer } from './ReceiptBuffer';
 import type { PostConnectRunner } from './PostConnect';
@@ -83,6 +85,10 @@ export interface SyncServiceDeps {
    * when not given; `createSnowdrop` builds it so others can share it.
    */
   readState?: ReadStateService;
+  /** The phone's privacy settings. Built here when not given; `createSnowdrop` builds it so Settings can use it. */
+  phonePrivacy?: PhonePrivacyService;
+  /** The user's own profile. Built here when not given. */
+  profile?: ProfileService;
   onError?: ErrorReporter;
   /** The app's steps for after a successful connect (see PostConnect); run after every one. */
   postConnect?: PostConnectRunner;
@@ -165,16 +171,6 @@ const SETUP_STATE_MESSAGES: Partial<Record<ErrorKind, string>> = {
 const ACCOUNT_UNAVAILABLE_RETRY_MS = 60_000;
 
 /**
- * Retry cadence for a failed read of the phone's privacy settings. Until one
- * succeeds nothing that depends on them is sent (see `effectivePrivacy`), so
- * a few quick tries cover a daemon that is still starting up.
- */
-const PHONE_PRIVACY_RETRY_MS = 3_000;
-/** Retries at the base delay before backing off (doubling) up to the cap; it never gives up while connected. */
-const PHONE_PRIVACY_FAST_RETRIES = 8;
-const PHONE_PRIVACY_RETRY_CAP_MS = 60_000;
-
-/**
  * Tags a connect/initial-sync failure once `doStart` has logged and stored
  * it, so other places that see the very same rejection bubble through
  * (e.g. `createSnowdrop`'s `start()`, re-thrown up to callers in
@@ -198,6 +194,8 @@ export class SyncService {
   private readonly pendingOps: PendingOpsBuffer;
   private readonly reactionWatch: ReactionWatch;
   private readonly readState: ReadStateService;
+  private readonly phonePrivacy: PhonePrivacyService;
+  private readonly profile: ProfileService;
   private readonly onError: ErrorReporter;
   private unsubscribers: Unsubscribe[] = [];
   /**
@@ -256,12 +254,6 @@ export class SyncService {
   private catchUpEpoch = 0;
   /** The newest catch-up number the backend has announced (see `CatchUpMark`). */
   private backendCatchUpSeq = 0;
-  /** Latest phone-privacy read wins; an older answer arriving late is ignored. */
-  private privacyReadSeq = 0;
-  private privacyRetryCancel: Cancel | null = null;
-  private privacyRetries = 0;
-  /** Whether the current run of failed phone-privacy reads has been reported (once per outage). */
-  private privacyFailureReported = false;
   /** A pending steady-state retry after `account-unavailable` (see `doStart`'s catch). */
   private accountRetryCancel: Cancel | null = null;
   /**
@@ -292,6 +284,18 @@ export class SyncService {
         },
         onError: this.onError,
       });
+    this.phonePrivacy =
+      deps.phonePrivacy ??
+      new PhonePrivacyService({
+        backend: deps.backend,
+        stores: deps.stores,
+        scheduler: deps.scheduler,
+        readState: this.readState,
+        onError: this.onError,
+      });
+    this.profile =
+      deps.profile ??
+      new ProfileService({ backend: deps.backend, stores: deps.stores, onError: this.onError });
     this.catchUpTracker = new CatchUpTracker({
       clock: deps.clock,
       scheduler: deps.scheduler,
@@ -362,12 +366,12 @@ export class SyncService {
     this.startCatchUp();
     // Until the connected daemon has been asked, nothing that depends on the
     // phone's privacy settings (read receipts, typing, link previews) may go
-    // out. `refreshPhonePrivacy` settles this right after `connect()`.
+    // out. `PhonePrivacyService.refresh` settles this right after `connect()`.
     stores.session.getState().setPhonePrivacy({ status: 'pending', values: UNKNOWN_PHONE_PRIVACY });
     try {
       await backend.connect();
       this.restartHoldForConnectedBackend();
-      await this.refreshPhonePrivacy();
+      await this.phonePrivacy.refresh();
       await this.initialSync();
     } catch (error) {
       // Drop the subscriptions so a retry doesn't double-subscribe, but keep the
@@ -407,7 +411,7 @@ export class SyncService {
       await backend.connect();
       if (startedOver) {
         this.restartHoldForConnectedBackend();
-        await this.refreshPhonePrivacy();
+        await this.phonePrivacy.refresh();
         this.armCatchUpQuiet();
         // The stream's own `open` may still be on its way; don't leave the
         // banner on the old error until it arrives.
@@ -569,8 +573,7 @@ export class SyncService {
       );
     this.accountRetryCancel?.();
     this.accountRetryCancel = null;
-    this.privacyRetryCancel?.();
-    this.privacyRetryCancel = null;
+    this.phonePrivacy.cancelRetry();
     this.pruneTimer?.();
     this.purgeTimer?.();
     this.pruneTimer = null;
@@ -612,9 +615,7 @@ export class SyncService {
     this.backlog = [];
     this.gated = true;
     this.parkedReactions = [];
-    this.privacyReadSeq++;
-    this.privacyRetryCancel?.();
-    this.privacyRetryCancel = null;
+    this.phonePrivacy.teardown();
   }
 
   /** Post-processing hooks (plugins, notifications) that should see stored state. */
@@ -1039,114 +1040,16 @@ export class SyncService {
     return this.readState.sendHeldReadReceipts(conversationId);
   }
 
-  // ─── Phone privacy settings ───────────────────────────────────────────
+  // ─── Phone privacy settings and profile ───────────────────────────────
 
-  /**
-   * Reads the privacy settings the user's phone syncs to this device (only
-   * where the backend can), or marks them unsupported. Never throws: a failed
-   * read leaves them pending (nothing depending on them is sent) and retries.
-   */
-  private async refreshPhonePrivacy(isRetry = false): Promise<void> {
-    const { backend, stores } = this.deps;
-    // A read triggered by a connect or the phone starts over; only its own retries count up.
-    if (!isRetry) this.privacyRetries = 0;
-    const session = stores.session.getState();
-    if (!backend.capabilities.features.has('phonePrivacy')) {
-      session.setPhonePrivacy({ status: 'unsupported', values: UNKNOWN_PHONE_PRIVACY });
-      return;
-    }
-    // A daemon that newly reports support starts from "unknown", not local settings.
-    if (session.phonePrivacy.status === 'unsupported') {
-      session.setPhonePrivacy({ status: 'pending', values: UNKNOWN_PHONE_PRIVACY });
-    }
-    const seq = ++this.privacyReadSeq;
-    try {
-      const values = await backend.readPhonePrivacy();
-      if (seq !== this.privacyReadSeq) return;
-      this.privacyRetries = 0;
-      this.privacyFailureReported = false;
-      stores.session.getState().setPhonePrivacy({ status: 'ready', values });
-    } catch (error) {
-      if (seq !== this.privacyReadSeq) return;
-      if (!this.privacyFailureReported) {
-        this.privacyFailureReported = true;
-        this.onError(error, 'reading the phone privacy settings failed');
-      }
-      this.privacyRetryCancel?.();
-      // Giving up would leave receipts, typing and link previews off (and read
-      // sync held) until the next connect, so keep trying, ever more slowly.
-      const slow = Math.min(Math.max(0, this.privacyRetries - PHONE_PRIVACY_FAST_RETRIES), 10);
-      const delay = Math.min(PHONE_PRIVACY_RETRY_MS * 2 ** slow, PHONE_PRIVACY_RETRY_CAP_MS);
-      this.privacyRetries++;
-      this.privacyRetryCancel = this.deps.scheduler.setTimeout(() => {
-        this.privacyRetryCancel = null;
-        void this.refreshPhonePrivacy(true);
-      }, delay);
-    }
+  /** Settings → Privacy (see {@link PhonePrivacyService.update}). */
+  updatePhonePrivacy(patch: PhonePrivacyPatch): Promise<boolean> {
+    return this.phonePrivacy.update(patch);
   }
 
-  /**
-   * Settings → Privacy: changes read receipts / typing indicators / link
-   * previews on the phone's account (stored by signal-cli and synced to the
-   * phone, as Signal Desktop does). Applies at once and reverts on failure.
-   * Returns false when the phone's settings aren't known (the caller then
-   * edits the local setting) or the change failed.
-   */
-  async updatePhonePrivacy(patch: PhonePrivacyPatch): Promise<boolean> {
-    const { backend, stores } = this.deps;
-    const current = stores.session.getState().phonePrivacy;
-    if (current.status !== 'ready' || !backend.capabilities.features.has('phonePrivacyUpdate'))
-      return false;
-    const previous = current.values;
-    stores.session.getState().setPhonePrivacy({
-      status: 'ready',
-      values: { ...previous, ...patch },
-    });
-    try {
-      await backend.updatePhonePrivacy(patch);
-      return true;
-    } catch (error) {
-      this.onError(error, 'privacy setting update failed');
-      // Put back only what this change touched, unless a newer read replaced it.
-      const now = stores.session.getState().phonePrivacy;
-      if (now.status === 'ready') {
-        const reverted = { ...now.values };
-        for (const key of Object.keys(patch) as (keyof PhonePrivacyPatch)[]) {
-          if (reverted[key] === patch[key]) reverted[key] = previous[key];
-        }
-        stores.session.getState().setPhonePrivacy({ status: 'ready', values: reverted });
-      }
-      return false;
-    }
-  }
-
-  /**
-   * Settings → Profile: saves the user's own name, about and photo, then
-   * shows them at once. Returns null on success or a short message to show
-   * inline; nothing changes on failure. The photo isn't something signal-cli
-   * lists back, so what was just set is kept for this session (a restart
-   * shows whatever signal-cli reports).
-   */
-  async updateProfile(update: ProfileUpdate): Promise<string | null> {
-    const { backend, stores } = this.deps;
-    if (!backend.capabilities.features.has('profile'))
-      return "This connection can't change your profile.";
-    const before = stores.session.getState().self;
-    try {
-      const fresh = await backend.updateProfile(update);
-      const self: Contact = { ...fresh, isSelf: true };
-      if (update.avatar) {
-        self.avatarUrl = `data:${update.avatar.contentType};base64,${update.avatar.base64}`;
-      } else if (update.avatar === undefined && before?.avatarUrl) {
-        self.avatarUrl = before.avatarUrl;
-      } else delete self.avatarUrl;
-      stores.session.getState().setSelf(self);
-      stores.contacts.getState().upsert(self);
-      return null;
-    } catch (error) {
-      this.onError(error, 'profile update failed');
-      return "Couldn't save your profile. Check your connection and try again.";
-    }
+  /** Settings → Profile (see {@link ProfileService.update}). */
+  updateProfile(update: ProfileUpdate): Promise<string | null> {
+    return this.profile.update(update);
   }
 
   private isViewing(conversationId: ConversationId): boolean {
@@ -1199,7 +1102,7 @@ export class SyncService {
             this.armCatchUpQuiet();
           }
           // The daemon may have restarted: read the phone's settings again.
-          void this.refreshPhonePrivacy();
+          void this.phonePrivacy.refresh();
         }
         this.deps.stores.session.getState().setLink(status);
       },
@@ -1210,18 +1113,12 @@ export class SyncService {
     on(
       'phonePrivacyChanged',
       () => {
-        void this.refreshPhonePrivacy();
+        void this.phonePrivacy.refresh();
       },
       true,
     );
     // Held read receipts leave (or are dropped) the moment the settings are known.
-    this.unsubscribers.push(
-      this.deps.stores.session.subscribe((state, prev) => {
-        if (state.phonePrivacy !== prev.phonePrivacy && state.phonePrivacy.status !== 'pending') {
-          this.readState.flushHeldReceipts();
-        }
-      }),
-    );
+    this.unsubscribers.push(this.phonePrivacy.watch());
     // signal-cli reconnected to the server by itself (after a sleep or a network
     // change; our own stream never dropped) and is draining what queued up
     // (patches/signal-cli 0020, build 21+): catch up again, like after an offline period.
