@@ -100,7 +100,7 @@ These are enforced on every source file by `eslint.config.js`
 
 A boundary rule that silently stops matching (a resolver change, a typo in a
 glob) is worse than no rule. `npm run lint` therefore runs
-`eslint . && node scripts/verify-boundaries.mjs`. The script writes small,
+`eslint . && node scripts/verify-boundaries.mjs` (then the cycle check below). The script writes small,
 uniquely named fixture files (`__boundary_<pid>_<n>__.ts`) into each layer,
 lints them with the real config, and fails unless each produces exactly the
 expected rule ids. For example, `core/domain` importing `@/core/services` must
@@ -109,6 +109,13 @@ report `no-restricted-imports`; `ui/features/rail` importing `../sidebar` (the
 index) must be clean. Fixtures are new files only, never existing ones, and are
 removed on exit, on SIGINT/SIGTERM and at the next start. When you add a
 layer or a rule, add a case to the `cases` table in that script.
+
+Lint then runs `node scripts/check-cycles.mjs`, which fails on any cycle in the
+runtime import graph under `src/` (test files excluded). Layer rules keep
+imports pointing one way between layers; this catches cycles inside a layer.
+A whole `import type` / `export type` statement is erased and doesn't count,
+but with `verbatimModuleSyntax` an `import { type A }` still loads its module,
+so it does. Dynamic `import()` doesn't count.
 
 ## The composition root
 

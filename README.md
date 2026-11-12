@@ -119,7 +119,7 @@ see [docs/DESKTOP.md](docs/DESKTOP.md).
 | `npm run build`                    | Type-checks (`tsc -b`) and builds to `dist/` (with CSP and `THIRD_PARTY_NOTICES.txt`).                               |
 | `npm run preview`                  | Serves the production build locally, with the same proxy.                                                            |
 | `npm run typecheck`                | TypeScript only, no output.                                                                                          |
-| `npm run lint`                     | ESLint, then `scripts/verify-boundaries.mjs` (proves the architecture rules still fire).                             |
+| `npm run lint`                     | ESLint, `scripts/verify-boundaries.mjs` (architecture rules still fire), `scripts/check-cycles.mjs` (no cycles).     |
 | `npm test`                         | All Vitest suites once.                                                                                              |
 | `npm run test:watch`               | Vitest in watch mode.                                                                                                |
 | `npm run format`                   | Prettier, writing changes.                                                                                           |
@@ -178,7 +178,7 @@ src/
     styles/           tokens.css (the Dusk theme), global.css, reset.css
   test/               test helpers and app-level tests
 devserver/            Vite plugins: CSP, signal-cli proxy guard, local emoji data, notices
-scripts/              verify-boundaries.mjs, gen-licences.mjs
+scripts/              verify-boundaries.mjs, check-cycles.mjs, gen-licences.mjs
 docs/                 documentation
 ```
 
