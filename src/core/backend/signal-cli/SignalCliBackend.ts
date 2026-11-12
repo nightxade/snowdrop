@@ -83,7 +83,6 @@ import type {
   SendResult,
   StickerPackDetails,
   StickerPackInfo,
-  StickerPackSticker,
   Feature,
 } from '../types';
 import { FeatureStore } from '../features';
@@ -91,7 +90,6 @@ import {
   AttachmentResolver,
   encodeOutgoing,
   encodeOutgoingPreview,
-  stickerCacheId,
   type Thumbnailer,
 } from './attachments';
 import { AvatarResolver } from './avatars';
@@ -102,8 +100,7 @@ import {
 import { Directory } from './directory';
 import { describeError, isSignalCliError, SignalCliError } from './errors';
 import { GroupChangeTracker } from './groupChanges';
-import { HistoryArchive } from './history/archive';
-import { timestamp } from './history/wire';
+import { HistoryFacade } from './HistoryFacade';
 import { isUuid, SelfIdentity } from './identity';
 import { systemMessage } from './normalise/content';
 import { describeGroupChange, timerSentence, toDirectConversation } from './normalise/directory';
@@ -124,6 +121,7 @@ import {
   targetParams,
 } from './params';
 import { DirectPeers } from './peers';
+import { StickerOps } from './StickerOps';
 import { cursorStorageKey } from './storageKeys';
 import { HttpTransport } from './httpTransport';
 import { JsonRpcClient, type FetchLike, type RpcParams } from './rpc';
@@ -142,11 +140,9 @@ import {
   wireSendResult,
   wirePhonePrivacy,
   wireStartLink,
-  wireStickerPacks,
   wireUserStatuses,
   wireVersion,
   type WireAccount,
-  type WireStickerPack,
 } from './wire';
 
 export interface SignalCliBackendOptions {
@@ -276,15 +272,13 @@ export class SignalCliBackend implements ChatBackend {
   private readonly scheduler: Scheduler;
   private readonly attachments: AttachmentResolver;
   private readonly avatars: AvatarResolver;
+  private readonly stickers: StickerOps;
+  private readonly historyFacade: HistoryFacade;
   /** The last `avatarVersion` handed out for the user's own edit (see `updateProfile`). */
   private selfAvatarVersion = 0;
   private readonly directory: Directory;
-  private history: Promise<HistoryArchive | null> | null = null;
   /** The bounded wait on the contact listing in flight (see `contactsForListing`). */
   private listingWait: Promise<void> | null = null;
-  private historyAbort = new AbortController();
-  /** Whether this session already reported an unreadable history. */
-  private historyWarned = false;
   private readonly groupChanges = new GroupChangeTracker();
   private readonly sentQuotes = new Map<string, Quote>();
   private readonly debugLog: (message: string, detail?: unknown) => void;
@@ -314,8 +308,6 @@ export class SignalCliBackend implements ChatBackend {
   readonly capabilities = new FeatureStore(SignalCliBackend.FEATURES);
   /** Whether the connected daemon can register a history sticker's pack key (see capabilities.ts). */
   private historyStickerPackSupported = false;
-  /** Installed packs whose download `listStickerPacks` already started this session. */
-  private readonly stickerPacksFetchTried = new Set<string>();
   /** listConversations logs its counts once per backend, not on every refresh. */
   private listingLogged = false;
 
@@ -343,6 +335,25 @@ export class SignalCliBackend implements ChatBackend {
     });
     this.attachments = new AttachmentResolver({ rpc: this.rpc });
     this.avatars = new AvatarResolver({ rpc: this.rpc, now: () => this.clock.now() });
+    this.stickers = new StickerOps({
+      rpc: this.rpc,
+      attachments: this.attachments,
+      assertAccount: () => {
+        this.assertAccount();
+      },
+      historyStickerPackSupported: () => this.historyStickerPackSupported,
+      canInstallPack: () => this.capabilities.features.has('stickerPackInstall'),
+    });
+    this.historyFacade = new HistoryFacade({
+      rpc: this.rpc,
+      clock: this.clock,
+      identity: () => this.identity,
+      peers: () => this.peers,
+      contactsForListing: () => this.contactsForListing(),
+      assertAccount: () => {
+        this.assertAccount();
+      },
+    });
     this.directory = new Directory({
       rpc: this.rpc,
       now: () => this.clock.now(),
@@ -588,8 +599,7 @@ export class SignalCliBackend implements ChatBackend {
       ignored('disconnect only waits for the connect to settle; its caller got the failure'),
     );
     this.session++;
-    this.historyAbort.abort();
-    this.history = null;
+    this.historyFacade.close();
     this.listingWait = null;
     await this.closeStream();
     this.attachments.clear();
@@ -696,10 +706,7 @@ export class SignalCliBackend implements ChatBackend {
     this.peers = new DirectPeers(this.options.storage, id);
     this.directory.reset();
     this.avatars.clear();
-    this.historyAbort.abort();
-    this.historyAbort = new AbortController();
-    this.historyWarned = false;
-    this.history = null;
+    this.historyFacade.reset();
     this.listingWait = null;
     this.groupChanges.clear();
     if (id !== this.preferredAccount) this.options.onAccountSelected?.(id);
@@ -1176,23 +1183,6 @@ export class SignalCliBackend implements ChatBackend {
     return wait;
   }
 
-  /** The imported history, or null if it can't be read: it only enriches the listing, never fails it. */
-  private async historyForListing(): Promise<{
-    archive: HistoryArchive | null;
-    unreadable: boolean;
-  }> {
-    try {
-      return { archive: await this.loadHistory(), unreadable: false };
-    } catch (error) {
-      // Once per session, the kind only: nothing from the archive itself.
-      if (!this.historyWarned) {
-        this.historyWarned = true;
-        log.warn('history unavailable for the listing', { reason: describeError(error) });
-      }
-      return { archive: null, unreadable: true };
-    }
-  }
-
   async getSelf(): Promise<Contact> {
     this.assertAccount();
     await this.contactsForListing();
@@ -1212,7 +1202,7 @@ export class SignalCliBackend implements ChatBackend {
   async listContacts(): Promise<Contact[]> {
     this.assertAccount();
     await this.contactsForListing();
-    const { archive: history } = await this.historyForListing();
+    const { archive: history } = await this.historyFacade.historyForListing();
     // After the (slow) history read: a listing that finished meanwhile is included.
     const contacts = this.directory.allContacts();
     return [
@@ -1258,7 +1248,7 @@ export class SignalCliBackend implements ChatBackend {
     for (const [peer, at] of this.peers?.entries() ?? []) {
       dms.set(peer, this.directConversation(peer, at));
     }
-    const { archive: history, unreadable } = await this.historyForListing();
+    const { archive: history, unreadable } = await this.historyFacade.historyForListing();
     const dmIds = new Set([...dms.values()].map((conversation) => conversation.id));
     const live = new Set([...groups, ...dms.values()].map((conversation) => conversation.id));
     // Per-id: the archive's newest real message (for ordering *and*
@@ -1332,101 +1322,32 @@ export class SignalCliBackend implements ChatBackend {
     return [...merged.values()];
   }
 
-  private loadHistory(): Promise<HistoryArchive | null> {
-    if (this.history) return this.history;
-    const signal = this.historyAbort.signal;
-    const pending = (async () => {
-      await this.contactsForListing();
-      if (signal.aborted) throw new SignalCliError('aborted', 'History session ended');
-      const identity = this.identity;
-      const peers = this.peers;
-      return HistoryArchive.open(
-        this.rpc,
-        identity.selfId,
-        (id) => identity.resolve(peers?.resolve(id) ?? id),
-        signal,
-      );
-    })();
-    this.history = pending;
-    void pending.catch(() => {
-      if (this.history === pending) this.history = null;
-    });
-    return pending;
+  historyHasOutgoing(conversationId: ConversationId): Promise<boolean> {
+    return this.historyFacade.historyHasOutgoing(conversationId);
   }
 
-  async historyHasOutgoing(conversationId: ConversationId): Promise<boolean> {
-    this.assertAccount();
-    const archive = await this.loadHistory();
-    const chatId = archive?.directory.chatId(conversationId);
-    return archive !== null && chatId !== undefined ? archive.chatHasOutgoing(chatId) : false;
-  }
-
-  async fetchHistory(
+  fetchHistory(
     conversationId: ConversationId,
     query: HistoryQuery,
     options?: AbortOptions,
   ): Promise<HistoryPage> {
-    this.assertAccount();
-    throwIfAborted(options?.signal);
-    // Opening the archive is shared by every caller, so an abort only stops
-    // this caller's wait (and its paging loop), never the shared open.
-    return raceAbort(
-      (async () => {
-        const archive = await this.loadHistory();
-        return archive
-          ? archive.fetchHistory(conversationId, query, this.clock.now(), options?.signal)
-          : { messages: [], hasMoreBefore: false };
-      })(),
-      options?.signal,
-    );
+    return this.historyFacade.fetchHistory(conversationId, query, options);
   }
 
-  async remapHistoryMessages(messages: readonly Message[]): Promise<Message[]> {
-    this.assertAccount();
-    const archive = await this.loadHistory();
-    return archive ? archive.remap(messages, this.clock.now()) : [];
+  remapHistoryMessages(messages: readonly Message[]): Promise<Message[]> {
+    return this.historyFacade.remapHistoryMessages(messages);
   }
 
-  async getHistoryArchiveId(): Promise<string | null> {
-    this.assertAccount();
-    const archive = await this.loadHistory();
-    return archive?.archiveId ?? null;
+  getHistoryArchiveId(): Promise<string | null> {
+    return this.historyFacade.getHistoryArchiveId();
   }
 
-  async readHistory(messages: readonly HistoryReadRef[]): Promise<HistoryReadState[]> {
-    return this.historyReadStates(messages, true);
+  readHistory(messages: readonly HistoryReadRef[]): Promise<HistoryReadState[]> {
+    return this.historyFacade.readHistory(messages);
   }
 
-  async getHistoryReadState(messages: readonly HistoryReadRef[]): Promise<HistoryReadState[]> {
-    return this.historyReadStates(messages, false);
-  }
-
-  private async historyReadStates(
-    messages: readonly HistoryReadRef[],
-    markRead: boolean,
-  ): Promise<HistoryReadState[]> {
-    this.assertAccount();
-    const archive = await this.loadHistory();
-    if (!archive) throw new SignalCliError('io', 'Imported history is unavailable');
-    const prefix = `${archive.archiveId}:`;
-    const references = new Map(
-      messages.map((message) => {
-        if (!message.cursor.startsWith(prefix))
-          throw new SignalCliError('io', 'History archive changed');
-        return [message.cursor.slice(prefix.length), message.id];
-      }),
-    );
-    const states = await archive.read([...references.keys()], markRead);
-    return states.map((state) => {
-      const id = references.get(state.cursor);
-      if (!id)
-        throw new SignalCliError('invalid-response', 'History read returned an unknown cursor');
-      return {
-        id,
-        ...(state.expiresAt === undefined ? {} : { expiresAt: timestamp(state.expiresAt) }),
-        unavailable: state.unavailable,
-      };
-    });
+  getHistoryReadState(messages: readonly HistoryReadRef[]): Promise<HistoryReadState[]> {
+    return this.historyFacade.getHistoryReadState(messages);
   }
 
   async resolveAttachmentUrl(
@@ -1499,192 +1420,31 @@ export class SignalCliBackend implements ChatBackend {
     this.attachments.release(attachment.id);
   }
 
-  /**
-   * See `ChatBackend.resolveStickerUrl`. When the pack isn't known locally —
-   * typical for a sticker that only ever arrived through an imported
-   * history archive — and this build can register one (patches/signal-cli's
-   * "0016"), registers it from the backup's own copy of the key first.
-   * Registration asks signal-cli to resolve `backupAttachment.id` itself
-   * (the same opaque history id `getAttachment` already accepts); the key
-   * never crosses this RPC boundary.
-   *
-   * Then retries `getSticker`, bounded: a daemon without patch 0016
-   * (< history.16) downloads a not-yet-fetched pack on the first call that
-   * needs it and still fails that call, so one more call (two after a fresh
-   * registration, whose first `getSticker` was the one that failed) is what
-   * actually works there. A current daemon just succeeds on the first retry.
-   * Failures log the stage and error kind/code only.
-   */
-  async resolveStickerUrl(
+  resolveStickerUrl(
     sticker: StickerContent,
     options?: { forceRefresh?: boolean },
   ): Promise<string> {
-    this.assertAccount();
-    let first: unknown;
-    try {
-      return await this.attachments.resolveSticker(sticker, options);
-    } catch (error) {
-      first = error;
-    }
-    let retries = 1;
-    let registration: 'unsupported' | 'no-backup' | 'ok' | 'failed' = !this
-      .historyStickerPackSupported
-      ? 'unsupported'
-      : sticker.backupAttachment
-        ? 'ok'
-        : 'no-backup';
-    if (this.historyStickerPackSupported && sticker.backupAttachment) {
-      try {
-        await this.rpc.call(
-          'registerHistoryStickerPack',
-          { id: sticker.backupAttachment.id },
-          ignoreResult,
-        );
-        retries = 2;
-      } catch (error) {
-        const { kind, code } = error as { kind?: unknown; code?: unknown };
-        log.warn('sticker pack registration failed', {
-          ...(typeof kind === 'string' ? { kind } : {}),
-          ...(typeof code === 'number' ? { code } : {}),
-        });
-        registration = 'failed';
-        logStickerFailure(registration, first, first);
-        throw first; // The original error names the real cause.
-      }
-    }
-    let last: unknown = first;
-    for (let i = 0; i < retries; i++) {
-      try {
-        return await this.attachments.resolveSticker(sticker, options);
-      } catch (error) {
-        // Keep the first error to throw; it's the one that names the real cause.
-        last = error;
-      }
-    }
-    logStickerFailure(registration, first, last);
-    throw first;
+    return this.stickers.resolveStickerUrl(sticker, options);
   }
 
-  /**
-   * See `ChatBackend.listStickerPacks`. `listStickerPacks` lists every pack
-   * the account knows — including history-registered ones that aren't
-   * installed (patch 0016), which are left out — and an installed pack whose
-   * files were never downloaded (it arrived through storage sync) lists with
-   * no stickers. `getSticker` downloads a whole pack as a side effect (the
-   * same local download `resolveStickerUrl` relies on; no install, no sync
-   * to the phone), so one call per such pack and a second listing fill them
-   * in. The result of that call is ignored: a daemon without patch 0016
-   * downloads the pack and still throws on the first one.
-   */
-  async listStickerPacks(): Promise<StickerPackInfo[]> {
-    this.assertAccount();
-    const list = (): Promise<WireStickerPack[]> =>
-      this.rpc.call('listStickerPacks', {}, wireStickerPacks);
-    let packs = (await list()).filter((p) => p.installed);
-    // Each not-yet-downloaded pack is fetched once per session: one that
-    // can't be (removed from the CDN, offline) mustn't stall every open.
-    const unfetched = packs.filter(
-      (p) => p.stickers.length === 0 && !this.stickerPacksFetchTried.has(p.packId),
-    );
-    if (unfetched.length > 0) {
-      for (const p of unfetched) this.stickerPacksFetchTried.add(p.packId);
-      await Promise.all(
-        unfetched.map((p) =>
-          this.rpc
-            .call('getSticker', { packId: p.packId, stickerId: 0 }, ignoreResult, {
-              timeoutMs: 30_000,
-            })
-            .catch(ignored('pack fetch is best effort; the pack listing decides what exists')),
-        ),
-      );
-      packs = (await list()).filter((p) => p.installed);
-    }
-    return packs
-      .flatMap((p): StickerPackInfo[] => {
-        if (p.stickers.length === 0 || !/^[\da-f]+$/u.test(p.packId)) return [];
-        const stickers = p.stickers.map((s): StickerPackSticker => ({
-          stickerId: s.id,
-          emoji: s.emoji,
-        }));
-        const cover = p.cover ?? p.stickers[0];
-        return [
-          {
-            packId: p.packId,
-            title: p.title,
-            author: p.author,
-            cover: { stickerId: cover?.id ?? 0, emoji: cover?.emoji ?? '' },
-            stickers,
-          },
-        ];
-      })
-      .sort((a, b) => a.title.localeCompare(b.title));
+  listStickerPacks(): Promise<StickerPackInfo[]> {
+    return this.stickers.listStickerPacks();
   }
 
-  /**
-   * See `ChatBackend.getStickerPack`. First makes sure the account knows the
-   * pack and has downloaded it, the same way showing the sticker does
-   * (`resolveStickerUrl`: registers a history sticker's pack via 0016, then
-   * `getSticker` downloads the whole pack as a side effect; no install, no
-   * sync). That call's outcome is ignored here: the listing below is the
-   * judge of whether the pack is usable. Unlike `listStickerPacks`, an
-   * uninstalled pack is returned (with `installed: false`).
-   */
-  async getStickerPack(sticker: StickerContent): Promise<StickerPackDetails> {
-    this.assertAccount();
-    if (!HEX_ID.test(sticker.packId))
-      throw new SignalCliError('user', "This sticker pack can't be shown.");
-    await this.resolveStickerUrl(sticker).catch(
-      ignored('the sticker download is best effort; the pack listing below decides what exists'),
-    );
-    const pack = (await this.rpc.call('listStickerPacks', {}, wireStickerPacks)).find(
-      (p) => p.packId === sticker.packId,
-    );
-    if (!pack || pack.stickers.length === 0)
-      throw new SignalCliError('user', 'This sticker pack is not available.');
-    const cover = pack.cover ?? pack.stickers[0];
-    return {
-      packId: pack.packId,
-      title: pack.title,
-      author: pack.author,
-      installed: pack.installed,
-      cover: { stickerId: cover?.id ?? 0, emoji: cover?.emoji ?? '' },
-      stickers: pack.stickers.map((s): StickerPackSticker => ({ stickerId: s.id, emoji: s.emoji })),
-    };
+  getStickerPack(sticker: StickerContent): Promise<StickerPackDetails> {
+    return this.stickers.getStickerPack(sticker);
   }
 
-  /**
-   * See `ChatBackend.installStickerPack`. A history sticker's pack is
-   * registered first (0016, from the backup frame's own key) when this
-   * build can, since `installKnownStickerPack` only knows packs the sticker
-   * store already holds. Only the hex pack id crosses the RPC boundary; the
-   * key is looked up by signal-cli itself.
-   */
-  async installStickerPack(sticker: StickerContent): Promise<void> {
-    this.assertAccount();
-    if (!this.capabilities.features.has('stickerPackInstall'))
-      throw new SignalCliError('user', 'Installing sticker packs needs a newer signal-cli.');
-    if (!HEX_ID.test(sticker.packId))
-      throw new SignalCliError('user', "This sticker pack can't be installed.");
-    if (this.historyStickerPackSupported && sticker.backupAttachment) {
-      await this.rpc.call(
-        'registerHistoryStickerPack',
-        { id: sticker.backupAttachment.id },
-        ignoreResult,
-      );
-    }
-    await this.rpc.call('installKnownStickerPack', { packId: sticker.packId }, ignoreResult, {
-      timeoutMs: 60_000,
-    });
-    // The listing the picker reads changes now; the next one re-fetches.
-    this.stickerPacksFetchTried.delete(sticker.packId);
+  installStickerPack(sticker: StickerContent): Promise<void> {
+    return this.stickers.installStickerPack(sticker);
   }
 
   retainStickerUrl(sticker: StickerContent): void {
-    this.attachments.retain(stickerCacheId(sticker));
+    this.stickers.retainStickerUrl(sticker);
   }
 
   releaseStickerUrl(sticker: StickerContent): void {
-    this.attachments.release(stickerCacheId(sticker));
+    this.stickers.releaseStickerUrl(sticker);
   }
 
   /**
@@ -2292,30 +2052,4 @@ function base64Bytes(value: string): number[] | null {
   } catch {
     return null;
   }
-}
-
-/** A sticker pack id as signal-cli prints it: hex. */
-const HEX_ID = /^[\da-f]+$/u;
-
-/**
- * Why a `getSticker` call failed, from signal-cli's own message prefix —
- * never the message itself, which names the pack and sticker ids.
- */
-function stickerFailureReason(error: unknown): string {
-  const message = error instanceof Error ? error.message : '';
-  if (message.startsWith('Could not find sticker')) return 'not-found';
-  if (message.startsWith('An error occurred reading sticker')) return 'read-error';
-  const kind = (error as { kind?: unknown } | null)?.kind;
-  return typeof kind === 'string' ? kind : 'unknown';
-}
-
-/** One diagnostic line per sticker that couldn't be fetched (no ids or keys). */
-function logStickerFailure(registration: string, first: unknown, last: unknown): void {
-  const code = (first as { code?: unknown } | null)?.code;
-  log.warn('sticker fetch failed', {
-    registration,
-    first: stickerFailureReason(first),
-    last: stickerFailureReason(last),
-    ...(typeof code === 'number' ? { code } : {}),
-  });
 }
