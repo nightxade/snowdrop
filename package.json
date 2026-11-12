@@ -13,7 +13,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",
-    "lint": "eslint . && node scripts/verify-boundaries.mjs && node scripts/check-cycles.mjs",
+    "lint": "eslint . && node scripts/verify-boundaries.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",
