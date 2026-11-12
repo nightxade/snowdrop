@@ -23,7 +23,6 @@
 import {
   avatarKey,
   colorForId,
-  directConversationId,
   parseConversationId,
   type Attachment,
   type AvatarRef,
@@ -64,7 +63,6 @@ import type {
   HistoryQuery,
   HistoryReadRef,
   HistoryReadState,
-  IdentityTrust,
   LinkFlow,
   MarkReadOptions,
   ReadSummary,
@@ -100,17 +98,16 @@ import {
 import { Directory } from './directory';
 import { describeError, isSignalCliError, SignalCliError } from './errors';
 import { GroupChangeTracker } from './groupChanges';
+import { GroupOps } from './GroupOps';
 import { HistoryFacade } from './HistoryFacade';
 import { isUuid, SelfIdentity } from './identity';
 import { systemMessage } from './normalise/content';
-import { describeGroupChange, timerSentence, toDirectConversation } from './normalise/directory';
+import { describeGroupChange, toDirectConversation } from './normalise/directory';
 import { normaliseReceive } from './normalise/envelope';
 import type { AdapterEvent, NormaliseContext } from './normalise/types';
 import {
   enrichSendError,
-  groupChangeParams,
   messageParams,
-  newGroupParams,
   pinDurationParam,
   pollCreateParams,
   pollVoteParams,
@@ -121,6 +118,7 @@ import {
   targetParams,
 } from './params';
 import { DirectPeers } from './peers';
+import { SafetyOps } from './SafetyOps';
 import { StickerOps } from './StickerOps';
 import { cursorStorageKey } from './storageKeys';
 import { HttpTransport } from './httpTransport';
@@ -135,8 +133,6 @@ import { isRecord, unknownValue } from './validate';
 import {
   wireAccounts,
   wireFinishLink,
-  wireGroupResult,
-  wireIdentities,
   wireSendResult,
   wirePhonePrivacy,
   wireStartLink,
@@ -182,9 +178,6 @@ const SENT_QUOTES_MAX = 500;
 
 /** For commands whose result we don't need (it varies across daemon versions). */
 const ignoreResult = unknownValue;
-
-/** A group change can upload a photo and notify every member. */
-const GROUP_TIMEOUT_MS = 60_000;
 
 const ATTACHMENT_BACKFILL_STATUSES = new Set(['pending', 'ready', 'failed']);
 
@@ -274,6 +267,8 @@ export class SignalCliBackend implements ChatBackend {
   private readonly avatars: AvatarResolver;
   private readonly stickers: StickerOps;
   private readonly historyFacade: HistoryFacade;
+  private readonly groups: GroupOps;
+  private readonly safety: SafetyOps;
   /** The last `avatarVersion` handed out for the user's own edit (see `updateProfile`). */
   private selfAvatarVersion = 0;
   private readonly directory: Directory;
@@ -378,6 +373,35 @@ export class SignalCliBackend implements ChatBackend {
       onAvatarChanged: (ref) => {
         this.avatars.invalidate(avatarKey(ref));
       },
+    });
+    this.groups = new GroupOps({
+      rpc: this.rpc,
+      directory: this.directory,
+      avatars: this.avatars,
+      assertAccount: () => {
+        this.assertAccount();
+      },
+      selfId: () => this.selfId,
+      emitConversationUpdated: (conversation) => {
+        this.emitter.emit('conversationUpdated', conversation);
+      },
+      emitOwnSystem: (conversationId, sentAt, text, kind) => {
+        this.emitOwnSystem(conversationId, sentAt, text, kind);
+      },
+      resultTimestamp: (result) => this.resultTimestamp(result),
+      nameOf: (id) => this.nameOf(id),
+      applyTimer: (conversationId, seconds) => {
+        this.applyTimer(conversationId, seconds);
+      },
+    });
+    this.safety = new SafetyOps({
+      rpc: this.rpc,
+      directory: this.directory,
+      assertAccount: () => {
+        this.assertAccount();
+      },
+      targetOf: (conversationId) => this.targetOf(conversationId),
+      isAlias: (id) => this.identity.aliases.has(id),
     });
     this.link = {
       start: async (options) => {
@@ -1767,247 +1791,50 @@ export class SignalCliBackend implements ChatBackend {
   /**
    * Group: `updateGroup`. DM timer: `updateContact --expiration`, which also
    * un-hides a contact you had hidden on your phone (signal-cli behaviour).
-   * Our other devices learn the change from Signal, but nothing echoes it to
-   * *this* client, so the system line is written locally.
    */
   async updateConversation(
     conversationId: ConversationId,
     patch: ConversationPatch,
   ): Promise<void> {
-    this.assertAccount();
-    const parsed = parseConversationId(conversationId);
-    if (!parsed) throw new SignalCliError('user', `Not a conversation id: ${conversationId}`);
-    if (parsed.kind === 'direct') {
-      if (patch.title !== undefined || patch.description !== undefined) {
-        throw new SignalCliError('user', 'Direct conversations have no editable name or topic');
-      }
-      if (patch.expireTimerSec === undefined) return;
-      const result = await this.rpc.call(
-        'updateContact',
-        { recipient: parsed.target, expiration: patch.expireTimerSec },
-        ignoreResult,
-      );
-      const dm = directConversationId(parsed.target);
-      this.applyTimer(dm, patch.expireTimerSec);
-      this.emitOwnSystem(
-        dm,
-        this.resultTimestamp(result),
-        timerSentence('You', patch.expireTimerSec),
-        'timer',
-      );
-      return;
-    }
-    const params: RpcParams = { groupId: parsed.target };
-    if (patch.title !== undefined) params.name = patch.title;
-    if (patch.description !== undefined) params.description = patch.description;
-    if (patch.expireTimerSec !== undefined) params.expiration = patch.expireTimerSec;
-    const result = await this.rpc.call('updateGroup', params, ignoreResult);
-    const current = this.directory.group(conversationId);
-    if (!current) return;
-    const next: Conversation = { ...current };
-    if (patch.title !== undefined) next.title = patch.title;
-    if (patch.description !== undefined) next.description = patch.description;
-    if (patch.expireTimerSec !== undefined) next.expireTimerSec = patch.expireTimerSec;
-    this.directory.setGroup(next);
-    this.emitter.emit('conversationUpdated', next);
-    const lines = describeGroupChange(current, next, 'You', (id) => this.nameOf(id), true);
-    if (lines.length > 0) {
-      this.emitOwnSystem(conversationId, this.resultTimestamp(result), lines.join(' '), 'group');
-    }
+    return this.groups.updateConversation(conversationId, patch);
   }
 
-  /**
-   * `updateGroup`: one call for any mix of details, members, admins,
-   * permissions and link. Nothing echoes our own change, so afterwards the
-   * group is re-listed (which is what the directory keeps current, and what
-   * "what changed" is diffed from) and the system line is written locally.
-   */
   async updateGroup(conversationId: ConversationId, change: GroupChange): Promise<void> {
-    this.assertAccount();
-    const parsed = parseConversationId(conversationId);
-    if (parsed?.kind !== 'group') throw new SignalCliError('user', 'That is not a group.');
-    const params = groupChangeParams(parsed.target, change);
-    const before = this.directory.group(conversationId);
-    const result = await this.rpc.call('updateGroup', params, wireGroupResult, {
-      timeoutMs: GROUP_TIMEOUT_MS,
-    });
-    let after = before;
-    try {
-      after = (await this.directory.fetchGroup(parsed.target)) ?? before;
-    } catch (error) {
-      this.directory.invalidateGroups();
-      log.warn('re-listing a group after changing it failed', { kind: describeError(error) });
-    }
-    if (after && change.avatar !== undefined) {
-      after = this.directory.rememberGroupAvatar(conversationId, change.avatar) ?? after;
-      this.avatars.prime(avatarKey({ kind: 'group', id: conversationId }), change.avatar);
-    }
-    if (!after) return;
-    this.emitter.emit('conversationUpdated', after);
-    const lines = describeGroupChange(before, after, 'You', (id) => this.nameOf(id), true);
-    if (lines.length > 0) {
-      const sentAt = this.resultTimestamp(result);
-      this.emitOwnSystem(conversationId, sentAt, lines.join(' '), 'group');
-    }
+    return this.groups.updateGroup(conversationId, change);
   }
 
-  /** `updateGroup` with no `groupId` makes the group; its first system line is ours. */
   async createGroup(input: NewGroupInput): Promise<Conversation> {
-    this.assertAccount();
-    const result = await this.rpc.call('updateGroup', newGroupParams(input), wireGroupResult, {
-      timeoutMs: GROUP_TIMEOUT_MS,
-    });
-    if (!result.groupId) {
-      throw new SignalCliError('invalid-response', 'signal-cli did not say which group it made.');
-    }
-    let group = await this.directory.fetchGroup(result.groupId);
-    if (!group) throw new SignalCliError('invalid-response', 'The new group could not be read.');
-    if (input.avatar !== undefined) {
-      group = this.directory.rememberGroupAvatar(group.id, input.avatar) ?? group;
-      this.avatars.prime(avatarKey({ kind: 'group', id: group.id }), input.avatar);
-    }
-    this.emitter.emit('conversationUpdated', group);
-    this.emitOwnSystem(group.id, this.resultTimestamp(result), 'You created the group.', 'group');
-    return group;
+    return this.groups.createGroup(input);
   }
 
-  /**
-   * `quitGroup`, without `delete`: signal-cli keeps the group (listed as not
-   * joined) and this device keeps the chat, read-only, as Signal Desktop does.
-   * The last admin has to hand the role on (`admin`), or signal-cli refuses.
-   * Nothing echoes our own leaving, so the "You left the group." line is ours.
-   */
   async leaveGroup(
     conversationId: ConversationId,
     newAdminIds: readonly string[] = [],
   ): Promise<void> {
-    this.assertAccount();
-    const parsed = parseConversationId(conversationId);
-    if (parsed?.kind !== 'group') throw new SignalCliError('user', 'That is not a group.');
-    const before = this.directory.group(conversationId);
-    const params: RpcParams = { groupId: parsed.target };
-    if (newAdminIds.length > 0) params.admin = [...newAdminIds];
-    const result = await this.rpc.call('quitGroup', params, ignoreResult, {
-      timeoutMs: GROUP_TIMEOUT_MS,
-    });
-    this.directory.markLeft(parsed.target);
-    let after: Conversation | undefined;
-    try {
-      after = (await this.directory.fetchGroup(parsed.target)) ?? undefined;
-    } catch (error) {
-      log.warn('re-listing a group after leaving it failed', { kind: describeError(error) });
-    }
-    after ??= before ? this.directory.leftConversation(before, this.selfId) : undefined;
-    if (!after) return;
-    this.emitter.emit('conversationUpdated', after);
-    this.emitOwnSystem(
-      conversationId,
-      this.resultTimestamp(result),
-      'You left the group.',
-      'group',
-    );
+    return this.groups.leaveGroup(conversationId, newAdminIds);
   }
 
-  /**
-   * `sendMessageRequestResponse`: signal-cli shares (accept) or withdraws
-   * (delete) profile sharing with a contact, and tells the user's other
-   * devices. For a group it only sends that sync message, so deleting one
-   * also quits it (`quitGroup`, local copy included) — a failed quit never
-   * blocks the delete: the app hides the chat regardless.
-   */
   async respondToMessageRequest(
     conversationId: ConversationId,
     response: MessageRequestResponse,
   ): Promise<void> {
-    this.assertAccount();
-    const parsed = parseConversationId(conversationId);
-    if (!parsed) throw new SignalCliError('user', `Not a conversation id: ${conversationId}`);
-    const target = this.targetOf(conversationId);
-    if ('noteToSelf' in target) return;
-    try {
-      await this.rpc.call(
-        'sendMessageRequestResponse',
-        { ...target, type: response },
-        ignoreResult,
-      );
-    } catch (error) {
-      throw enrichSendError(error);
-    }
-    if (parsed.kind === 'group') {
-      if (response === 'delete') {
-        try {
-          await this.rpc.call('quitGroup', { groupId: parsed.target, delete: true }, ignoreResult);
-        } catch (error) {
-          log.warn('leaving a deleted group request failed', {
-            kind: isSignalCliError(error) ? error.kind : 'unknown',
-          });
-        }
-        this.directory.invalidateGroups();
-      }
-      return;
-    }
-    // The contact's `profileSharing` just changed. Re-read in the background:
-    // listing contacts can take a while, and the answer is already applied here.
-    void this.directory.loadContacts(true);
+    return this.safety.respondToMessageRequest(conversationId, response);
   }
 
-  /**
-   * `listIdentities` for one person: their safety number (digits and scannable
-   * bytes) and trust level. Null when signal-cli holds no key for them.
-   * Never logged: the number is what the user is meant to compare.
-   */
   async getSafetyNumber(contactId: string): Promise<SafetyNumber | null> {
-    this.assertAccount();
-    const rows = await this.rpc.call('listIdentities', { number: contactId }, wireIdentities);
-    const row = rows.find((r) => r.uuid === contactId || r.number === contactId) ?? rows[0];
-    if (!row?.safetyNumber) return null;
-    return {
-      digits: row.safetyNumber,
-      qr: row.scannableSafetyNumber ? base64Bytes(row.scannableSafetyNumber) : null,
-      trust: trustOf(row.trustLevel),
-    };
+    return this.safety.getSafetyNumber(contactId);
   }
 
-  /** `trust` with `verifiedSafetyNumber`: signal-cli checks it against the key it holds. */
   async verifyIdentity(contactId: string, digits: string): Promise<void> {
-    this.assertAccount();
-    await this.rpc.call(
-      'trust',
-      { recipient: contactId, verifiedSafetyNumber: digits },
-      ignoreResult,
-    );
+    return this.safety.verifyIdentity(contactId, digits);
   }
 
-  /** `trust` with `trustAllKnownKeys`: accepts the current key, unverified. */
   async approveIdentity(contactId: string): Promise<void> {
-    this.assertAccount();
-    await this.rpc.call('trust', { recipient: contactId, trustAllKnownKeys: true }, ignoreResult);
+    return this.safety.approveIdentity(contactId);
   }
 
-  /** `block` / `unblock` (signal-cli syncs both to the phone). */
   async setBlocked(conversationId: ConversationId, blocked: boolean): Promise<void> {
-    this.assertAccount();
-    const parsed = parseConversationId(conversationId);
-    if (!parsed) throw new SignalCliError('user', `Not a conversation id: ${conversationId}`);
-    if (parsed.kind === 'direct' && this.identity.aliases.has(parsed.target)) return;
-    try {
-      await this.rpc.call(
-        blocked ? 'block' : 'unblock',
-        parsed.kind === 'group' ? { groupId: [parsed.target] } : { recipient: [parsed.target] },
-        ignoreResult,
-      );
-    } catch (error) {
-      throw enrichSendError(error);
-    }
-    // Re-read in the background (see respondToMessageRequest): the caller
-    // already shows the answer.
-    void Promise.all([this.directory.loadContacts(true), this.directory.loadGroups(true)]).catch(
-      (error: unknown) => {
-        log.warn('re-reading the directory after a block failed', {
-          kind: isSignalCliError(error) ? error.kind : 'unknown',
-        });
-      },
-    );
+    return this.safety.setBlocked(conversationId, blocked);
   }
 
   /** The `timestamp` of a send-like result, else now (identity of a local system line). */
@@ -2035,21 +1862,5 @@ export class SignalCliBackend implements ChatBackend {
     if (!this.selfId) {
       throw new SignalCliError('no-account', 'Not connected to a signal-cli account');
     }
-  }
-}
-
-/** signal-cli's trust levels as Signal Desktop's states; anything unknown counts as untrusted. */
-function trustOf(level: string): IdentityTrust {
-  if (level === 'TRUSTED_VERIFIED') return 'verified';
-  if (level === 'TRUSTED_UNVERIFIED') return 'default';
-  return 'untrusted';
-}
-
-/** Bytes of a base64 string; null when it isn't valid base64. */
-function base64Bytes(value: string): number[] | null {
-  try {
-    return Array.from(atob(value), (c) => c.charCodeAt(0));
-  } catch {
-    return null;
   }
 }
