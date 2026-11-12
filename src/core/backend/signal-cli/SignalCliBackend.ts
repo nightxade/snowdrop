@@ -39,7 +39,6 @@ import {
   createLogger,
   Emitter,
   raceAbort,
-  stripBidiControls,
   systemClock,
   throwIfAborted,
   systemScheduler,
@@ -96,15 +95,11 @@ import {
   supportsHistoryStickerPack as detectHistoryStickerPackSupport,
 } from './capabilities';
 import { Directory } from './directory';
-import { describeError, isSignalCliError, SignalCliError } from './errors';
-import { GroupChangeTracker } from './groupChanges';
+import { isSignalCliError, SignalCliError } from './errors';
+import { EventPump } from './EventPump';
 import { GroupOps } from './GroupOps';
 import { HistoryFacade } from './HistoryFacade';
 import { isUuid, SelfIdentity } from './identity';
-import { systemMessage } from './normalise/content';
-import { describeGroupChange, toDirectConversation } from './normalise/directory';
-import { normaliseReceive } from './normalise/envelope';
-import type { AdapterEvent, NormaliseContext } from './normalise/types';
 import {
   enrichSendError,
   messageParams,
@@ -123,12 +118,7 @@ import { StickerOps } from './StickerOps';
 import { cursorStorageKey } from './storageKeys';
 import { HttpTransport } from './httpTransport';
 import { JsonRpcClient, type FetchLike, type RpcParams } from './rpc';
-import type {
-  EventStreamState,
-  EventSubscription,
-  SignalCliTransport,
-  TransportEvent,
-} from './transport';
+import type { EventStreamState, EventSubscription, SignalCliTransport } from './transport';
 import { isRecord, unknownValue } from './validate';
 import {
   wireAccounts,
@@ -179,33 +169,6 @@ const SENT_QUOTES_MAX = 500;
 /** For commands whose result we don't need (it varies across daemon versions). */
 const ignoreResult = unknownValue;
 
-const ATTACHMENT_BACKFILL_STATUSES = new Set(['pending', 'ready', 'failed']);
-
-/**
- * Parses the `attachmentBackfill` SSE event's data (patches/signal-cli's
- * `{targetAuthor, targetTimestamp, status, attachmentIds}`) into the
- * `BackendEvents['attachmentBackfill']` shape. Lenient like `learnSelf`/
- * `learnPeers`: a malformed event is dropped rather than crashing the
- * stream, since it's advisory (the attachment just stays however it was).
- */
-function parseAttachmentBackfillEvent(
-  payload: unknown,
-): BackendEvents['attachmentBackfill'] | undefined {
-  if (!isRecord(payload)) return undefined;
-  const { targetAuthor, targetTimestamp, status, attachmentIds } = payload;
-  if (typeof targetAuthor !== 'string') return undefined;
-  if (typeof targetTimestamp !== 'number' && typeof targetTimestamp !== 'string') return undefined;
-  if (typeof status !== 'string' || !ATTACHMENT_BACKFILL_STATUSES.has(status)) return undefined;
-  if (!Array.isArray(attachmentIds) || !attachmentIds.every((id) => typeof id === 'string'))
-    return undefined;
-  return {
-    targetAuthorId: targetAuthor,
-    targetSentAt: Number(targetTimestamp),
-    status: status as 'pending' | 'ready' | 'failed',
-    attachmentIds,
-  };
-}
-
 const log = createLogger('signal-cli');
 
 /**
@@ -225,8 +188,6 @@ const GROUP_BACKOFF_DELAYS_MS = [5_000, 20_000, 60_000, 180_000];
  * retrying every minute after that.
  */
 const ACCOUNT_RETRY_DELAYS_MS = [2_000, 5_000, 15_000, 30_000];
-
-type GroupChanged = Extract<AdapterEvent, { kind: 'groupChanged' }>;
 
 export class SignalCliBackend implements ChatBackend {
   /**
@@ -267,6 +228,7 @@ export class SignalCliBackend implements ChatBackend {
   private readonly avatars: AvatarResolver;
   private readonly stickers: StickerOps;
   private readonly historyFacade: HistoryFacade;
+  private readonly pump: EventPump;
   private readonly groups: GroupOps;
   private readonly safety: SafetyOps;
   /** The last `avatarVersion` handed out for the user's own edit (see `updateProfile`). */
@@ -274,7 +236,6 @@ export class SignalCliBackend implements ChatBackend {
   private readonly directory: Directory;
   /** The bounded wait on the contact listing in flight (see `contactsForListing`). */
   private listingWait: Promise<void> | null = null;
-  private readonly groupChanges = new GroupChangeTracker();
   private readonly sentQuotes = new Map<string, Quote>();
   private readonly debugLog: (message: string, detail?: unknown) => void;
 
@@ -283,11 +244,6 @@ export class SignalCliBackend implements ChatBackend {
   private stream: EventSubscription | null = null;
   private readonly transport: SignalCliTransport;
   private connecting: Promise<void> | null = null;
-  private queue: Promise<void> = Promise.resolve();
-  /** `enqueue` calls whose events are not all applied yet. */
-  private queuedBatches = 0;
-  /** How many `catchingUp` signals this backend has emitted (see `CatchUpMark`). */
-  private catchUpSeq = 0;
   /** Bumped on disconnect so queued work from an old session is dropped. */
   private session = 0;
 
@@ -364,7 +320,7 @@ export class SignalCliBackend implements ChatBackend {
         // contact we've never messaged into a conversation on its own (see
         // listConversations).
         if (this.peers?.has(contact.id)) {
-          this.emitter.emit('conversationUpdated', this.directConversation(contact.id, 0));
+          this.emitter.emit('conversationUpdated', this.pump.directConversation(contact.id, 0));
         }
       },
       onGroupChanged: (conv) => {
@@ -372,6 +328,20 @@ export class SignalCliBackend implements ChatBackend {
       },
       onAvatarChanged: (ref) => {
         this.avatars.invalidate(avatarKey(ref));
+      },
+    });
+    this.pump = new EventPump({
+      emitter: this.emitter,
+      clock: this.clock,
+      directory: this.directory,
+      debug: this.debugLog,
+      storage: this.options.storage,
+      session: () => this.session,
+      identity: () => this.identity,
+      peers: () => this.peers,
+      cursorKey: () => this.cursorKey(),
+      acknowledgeTransport: (cursor) => {
+        this.transport.acknowledge?.(cursor);
       },
     });
     this.groups = new GroupOps({
@@ -386,12 +356,12 @@ export class SignalCliBackend implements ChatBackend {
         this.emitter.emit('conversationUpdated', conversation);
       },
       emitOwnSystem: (conversationId, sentAt, text, kind) => {
-        this.emitOwnSystem(conversationId, sentAt, text, kind);
+        this.pump.emitOwnSystem(conversationId, sentAt, text, kind);
       },
       resultTimestamp: (result) => this.resultTimestamp(result),
-      nameOf: (id) => this.nameOf(id),
+      nameOf: (id) => this.pump.nameOf(id),
       applyTimer: (conversationId, seconds) => {
-        this.applyTimer(conversationId, seconds);
+        this.pump.applyTimer(conversationId, seconds);
       },
     });
     this.safety = new SafetyOps({
@@ -628,7 +598,7 @@ export class SignalCliBackend implements ChatBackend {
     await this.closeStream();
     this.attachments.clear();
     this.avatars.clear();
-    this.groupChanges.clear();
+    this.pump.clearGroupChanges();
     this.historyStickerPackSupported = false;
     this.capabilities.set(SignalCliBackend.FEATURES);
     this.setStatus('offline');
@@ -732,7 +702,7 @@ export class SignalCliBackend implements ChatBackend {
     this.avatars.clear();
     this.historyFacade.reset();
     this.listingWait = null;
-    this.groupChanges.clear();
+    this.pump.clearGroupChanges();
     if (id !== this.preferredAccount) this.options.onAccountSelected?.(id);
     this.preferredAccount = id;
   }
@@ -754,7 +724,7 @@ export class SignalCliBackend implements ChatBackend {
       account: this.multiAccount ? this.selfId : null,
       resumeFrom,
       onEvent: (event) => {
-        if (session === this.session) this.onTransportEvent(event);
+        if (session === this.session) this.pump.onTransportEvent(event);
       },
       onState: (state) => {
         if (session === this.session) this.onStreamState(state);
@@ -796,388 +766,23 @@ export class SignalCliBackend implements ChatBackend {
 
   // ─── Incoming events ───────────────────────────────────────────────────
 
-  private onTransportEvent(event: TransportEvent): void {
-    let events: AdapterEvent[] = [];
-    if (event.type === 'receiveCatchingUp') {
-      // Patched signal-cli only (patches/signal-cli/0020, build 21+): the receive
-      // websocket (re)connected and the server is delivering what queued up.
-      // No envelope; the receiveCaughtUp that follows ends it.
-      this.emitter.emit('catchingUp', { seq: ++this.catchUpSeq });
-    } else if (event.type === 'receiveCaughtUp') {
-      // Patched signal-cli only (patches/signal-cli/0010): the receive loop
-      // drained the server's queue. No envelope; nothing to normalise. Queued
-      // like a message: it must not be emitted before the events that arrived
-      // ahead of it have been applied (see the ordering contract above `queue`).
-      events = [{ kind: 'caughtUp', payload: { seq: this.catchUpSeq } }];
-    } else if (event.type === 'receiveConfigurationChanged') {
-      // Patched signal-cli only (patches/signal-cli/0018): the privacy settings
-      // changed; no values travel with it, the service re-reads them.
-      this.emitter.emit('phonePrivacyChanged', undefined);
-    } else if (event.type === 'attachmentBackfill') {
-      // Patched signal-cli only (patches/signal-cli/0014): our primary
-      // answered a requestAttachmentBackfill call.
-      let payload: unknown;
-      try {
-        payload = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
-      } catch {
-        payload = undefined; // advisory: a malformed event is dropped below
-      }
-      const backfill = parseAttachmentBackfillEvent(payload);
-      if (backfill) this.emitter.emit('attachmentBackfill', backfill);
-      else this.debugLog('ignored malformed attachmentBackfill event');
-    } else if (event.type !== 'receive') {
-      this.debugLog(`ignored event "${event.type}"`);
-    } else {
-      try {
-        // SSE delivers text; IPC delivers parsed JSON.
-        const payload: unknown =
-          typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
-        this.learnSelf(payload);
-        this.learnPeers(payload);
-        events = normaliseReceive(payload, this.normaliseContext());
-      } catch {
-        // Never log the data itself: it can be (or embed) raw message text.
-        this.debugLog('ignored non-JSON event data', `${String(event.data).length} chars`);
-      }
-    }
-    // Even an ignored event advances the resume position (once acknowledged).
-    this.enqueue(events, event.cursor || undefined);
-  }
-
-  /** Learns our other identifier from payloads (see SelfIdentity). */
-  private learnSelf(payload: unknown): void {
-    if (!isRecord(payload)) return;
-    // The daemon labels every event with the account it belongs to.
-    if (typeof payload.account === 'string') this.identity.add(payload.account);
-    const envelope = payload.envelope;
-    if (isRecord(envelope)) {
-      const uuid = typeof envelope.sourceUuid === 'string' ? envelope.sourceUuid : undefined;
-      const number = typeof envelope.sourceNumber === 'string' ? envelope.sourceNumber : undefined;
-      this.identity.learnPair(uuid, number);
-    }
-  }
-
-  /**
-   * Learns peer number↔ACI aliases (DirectPeers) from any raw payload: every
-   * wire shape names an address pair the same way — a `<prefix>Uuid` field
-   * alongside a `<prefix>Number` one (`source*`, `destination*`,
-   * `targetAuthor*`, `sender*`, the legacy quote `author*`, …) — so walking
-   * the tree for that shape, rather than hand-listing every field, keeps
-   * this learning everywhere an alias could show up.
-   */
-  private learnPeers(payload: unknown): void {
-    if (!this.peers) return;
-    const seen = new Set<unknown>();
-    const walk = (value: unknown): void => {
-      if (!isRecord(value) || seen.has(value)) return;
-      seen.add(value);
-      for (const key of Object.keys(value)) {
-        if (!key.endsWith('Uuid')) continue;
-        const uuid = value[key];
-        const number = value[`${key.slice(0, -4)}Number`];
-        if (typeof uuid === 'string' && typeof number === 'string') {
-          this.peers?.learnPair(uuid, number);
-        }
-      }
-      for (const v of Object.values(value)) {
-        if (Array.isArray(v)) v.forEach(walk);
-        else walk(v);
-      }
-    };
-    walk(payload);
-  }
-
-  private normaliseContext(): NormaliseContext {
-    return {
-      selfId: this.selfId,
-      selfAliases: this.identity.aliases,
-      resolvePeer: (id) => this.peers?.resolve(id) ?? id,
-      now: this.clock.now(),
-      nameOf: (id) => this.directory.contact(id)?.name,
-      debug: this.debugLog,
-    };
-  }
-
   /** Test hook: feeds a raw `receive` payload as if it came from the stream. */
   ingest(payload: unknown, cursor?: string): Promise<void> {
-    this.learnSelf(payload);
-    this.learnPeers(payload);
-    this.enqueue(normaliseReceive(payload, this.normaliseContext()), cursor);
-    return this.queue;
+    return this.pump.ingest(payload, cursor);
   }
 
   hasPendingEvents(): boolean {
-    return this.queuedBatches > 0;
+    return this.pump.hasPendingEvents();
   }
 
   /** Resolves once every queued incoming event has been applied. */
   idle(): Promise<void> {
-    return this.queue;
+    return this.pump.idle();
   }
 
   /** Persists the resume position once the sync engine has stored everything before it. */
   acknowledge(cursor: string): void {
-    if (!this.selfId) return;
-    try {
-      this.options.storage?.setItem(this.cursorKey(), cursor);
-    } catch (error) {
-      ignore(error, 'resume position is an optimisation only; the worst case is re-delivery');
-    }
-    // The desktop transport stops holding what's now stored.
-    this.transport.acknowledge?.(cursor);
-  }
-
-  /**
-   * Ordering contract. Events reach the stores through two serial queues in
-   * series, and what each one guarantees is what the layer above relies on:
-   *
-   * 1. This adapter queue applies decoded stream events strictly in arrival
-   *    order and emits them (`message`, `messageEdited`, `reaction`, `receipt`,
-   *    `readSync`, `conversationUpdated` from a group update, `caughtUp`, ...).
-   *    The `checkpoint` for a stream position is emitted after every event of
-   *    that position. `caughtUp` is one of these events: it is emitted only
-   *    after everything that arrived before it.
-   * 2. SyncService's queue then applies what this one emitted, again in order
-   *    (parked in a backlog until the initial sync is done), and acknowledges
-   *    a checkpoint only once everything before it is stored.
-   *
-   * Outside both queues, on purpose: `catchingUp` (it must run before the
-   * backlog it announces), `status`, `typing`, `phonePrivacyChanged`,
-   * `attachmentBackfill`, `contactUpdated` (ephemeral, or a later refresh
-   * replaces them), and anything that waits on the network: the contact
-   * listing (a profile refresh, up to minutes) and, in SyncService, read
-   * receipts. An event is applied inside this queue only when order is the
-   * point: a group update waits on a local `listGroups` so its diff and system
-   * line land between the messages around it.
-   */
-  private enqueue(events: AdapterEvent[], cursor: string | undefined): void {
-    const session = this.session;
-    // Snapshot group state *now*: a directory reload before this update is
-    // processed would otherwise already contain the new state.
-    for (const event of events) {
-      if (event.kind === 'groupChanged') {
-        this.groupChanges.arrived(
-          event.conversationId,
-          this.directory.group(event.conversationId),
-          event.actorId,
-        );
-      }
-    }
-    this.queuedBatches++;
-    this.queue = this.queue.then(async () => {
-      try {
-        for (const event of events) {
-          if (session !== this.session) return;
-          try {
-            await this.apply(event);
-          } catch (error) {
-            // Never log the error object itself: its message can embed payload data.
-            this.debugLog(`failed to apply ${event.kind}`, describeError(error));
-          }
-        }
-        if (cursor && session === this.session) this.emitter.emit('checkpoint', { cursor });
-      } finally {
-        this.queuedBatches--;
-      }
-    });
-  }
-
-  private async apply(event: AdapterEvent): Promise<void> {
-    switch (event.kind) {
-      case 'message': {
-        const message = event.payload;
-        this.noteUnknown(message.conversationId, message.authorId);
-        // Only a real message lists a DM or bumps its activity (see
-        // notePeer): a system line (a decrypt failure, a timer change) is
-        // still stored and shown in an already-listed conversation, but must
-        // never create or raise one on its own.
-        if (message.kind === 'normal') this.notePeer(message.conversationId, message.sentAt);
-        this.emitter.emit('message', message);
-        return;
-      }
-      case 'caughtUp':
-        this.emitter.emit('caughtUp', event.payload);
-        return;
-      case 'expirationChanged':
-        this.applyTimer(event.conversationId, event.seconds);
-        return;
-      case 'groupChanged':
-        await this.applyGroupChange(event);
-        return;
-      case 'contactsChanged':
-        // Contacts and groups syncs often arrive together (and either can
-        // land first right after linking), so a sync of either kind
-        // refreshes both, bypassing the cache TTL. The contact listing makes
-        // signal-cli refresh profiles from the server (up to minutes), so it
-        // never holds the queue: results arrive as `contactUpdated` /
-        // `conversationUpdated`. The group listing is local to signal-cli and
-        // stays in order, so a later group update's diff sees this state.
-        void this.directory.loadContacts(true);
-        await this.directory.loadGroups(true);
-        return;
-      case 'directoryHint':
-        this.directory.scheduleContactsRefresh();
-        return;
-      case 'messageEdited':
-        this.emitter.emit('messageEdited', event.payload);
-        return;
-      case 'messageDeleted':
-        this.emitter.emit('messageDeleted', event.payload);
-        return;
-      case 'messagePinned':
-        this.emitter.emit('messagePinned', event.payload);
-        return;
-      case 'reaction':
-        this.emitter.emit('reaction', event.payload);
-        return;
-      case 'pollVote':
-        this.emitter.emit('pollVote', event.payload);
-        return;
-      case 'pollTerminate':
-        this.emitter.emit('pollTerminate', event.payload);
-        return;
-      case 'receipt':
-        this.emitter.emit('receipt', event.payload);
-        return;
-      case 'typing':
-        this.emitter.emit('typing', event.payload);
-        return;
-      case 'readSync':
-        this.emitter.emit('readSync', event.payload);
-        return;
-    }
-  }
-
-  /** Stale-directory triggers: a stranger wrote, or a group we don't know. */
-  private noteUnknown(conversationId: ConversationId, authorId: string): void {
-    if (authorId !== this.selfId && !this.directory.hasContact(authorId)) {
-      this.directory.scheduleContactsRefresh();
-    }
-    const parsed = parseConversationId(conversationId);
-    if (parsed?.kind === 'group' && !this.directory.group(conversationId)) {
-      // The sync engine re-lists conversations for unknown ids; make that fresh.
-      this.directory.invalidateGroups();
-    }
-  }
-
-  /**
-   * Remembers a DM peer; announces the conversation the first time we see
-   * it. `at` is always a real message's own `sentAt` (never a system line's,
-   * and never this device's local receive time) — see the `kind === 'normal'`
-   * guard at both call sites, and `chatLatestMessageAt`'s doc for why
-   * `sentAt` rather than receive time keeps a replayed backlog in the
-   * phone's order.
-   */
-  private notePeer(conversationId: ConversationId, at: number): void {
-    const parsed = parseConversationId(conversationId);
-    if (parsed?.kind !== 'direct' || !this.peers) return;
-    if (this.peers.touch(parsed.target, at)) {
-      this.emitter.emit('conversationUpdated', this.directConversation(parsed.target, at));
-    }
-  }
-
-  private directConversation(rawPeerId: string, lastActivityAt: number): Conversation {
-    // Always the canonical form, so a conversation is never announced under a folded alias.
-    const peerId = this.peers?.resolve(rawPeerId) ?? rawPeerId;
-    return toDirectConversation(
-      peerId,
-      this.selfId,
-      this.directory.contact(peerId),
-      this.directory.dmTimer(peerId),
-      lastActivityAt,
-    );
-  }
-
-  private applyTimer(conversationId: ConversationId, seconds: number): void {
-    const parsed = parseConversationId(conversationId);
-    if (!parsed) return;
-    if (parsed.kind === 'direct') {
-      this.directory.setDmTimer(parsed.target, seconds);
-      // Same rule as onContactChanged: a timer change alone (no content of
-      // its own — see normalise/envelope.ts's isExpirationUpdate branch)
-      // must not announce, and so list, a DM we've never otherwise talked
-      // to. Once a real message does arrive, directConversation reads the
-      // timer set here fresh, so nothing is lost by not announcing it now.
-      if (this.peers?.has(parsed.target)) {
-        this.emitter.emit('conversationUpdated', this.directConversation(parsed.target, 0));
-      }
-      return;
-    }
-    const group = this.directory.group(conversationId);
-    if (!group) return;
-    const next = { ...group, expireTimerSec: seconds };
-    this.directory.setGroup(next);
-    this.emitter.emit('conversationUpdated', next);
-  }
-
-  private async applyGroupChange(event: GroupChanged): Promise<void> {
-    const turn = this.groupChanges.take(event.conversationId);
-    // A later update to the same group is queued: it will re-list and describe
-    // the combined change (re-listing now would already show its state).
-    if (!turn.last) return;
-    const after = await this.directory.fetchGroup(event.groupId);
-    if (!after) {
-      // We left or were removed; keep history, just note it.
-      this.emitSystem(event, 'You are no longer a member of this group.');
-      return;
-    }
-    this.emitter.emit('conversationUpdated', after);
-    const actorName = turn.actorId === null ? null : this.nameOf(turn.actorId);
-    let lines: string[];
-    if (!turn.before) {
-      lines = [
-        turn.actorId === this.selfId || actorName === null
-          ? 'The group was updated.'
-          : `${actorName} added you to the group.`,
-      ];
-    } else {
-      lines = describeGroupChange(turn.before, after, actorName, (id) => this.nameOf(id));
-      if (lines.length === 0) {
-        lines = [actorName ? `${actorName} updated the group settings.` : 'The group was updated.'];
-      }
-    }
-    this.emitSystem(event, lines.join(' '));
-  }
-
-  private emitSystem(event: GroupChanged, text: string): void {
-    this.emitter.emit(
-      'message',
-      systemMessage(
-        {
-          conversationId: event.conversationId,
-          authorId: event.actorId,
-          receivedAt: this.clock.now(),
-        },
-        event.sentAt,
-        text,
-        'group',
-      ),
-    );
-  }
-
-  /** A local system line for a change we made from this device. */
-  private emitOwnSystem(
-    conversationId: ConversationId,
-    sentAt: number,
-    text: string,
-    kind: string,
-  ): void {
-    this.emitter.emit(
-      'message',
-      systemMessage(
-        { conversationId, authorId: this.selfId, receivedAt: this.clock.now() },
-        sentAt,
-        text,
-        kind,
-      ),
-    );
-  }
-
-  // Stripped here since the result feeds plain-text system sentences
-  // (describeGroupChange) that no later CSS isolation can protect.
-  private nameOf(id: string): string {
-    if (id === this.selfId) return 'You';
-    return stripBidiControls(this.directory.contact(id)?.name ?? id);
+    this.pump.acknowledge(cursor);
   }
 
   // ─── Queries ───────────────────────────────────────────────────────────
@@ -1270,7 +875,7 @@ export class SignalCliBackend implements ChatBackend {
     ]);
     const dms = new Map<string, Conversation>();
     for (const [peer, at] of this.peers?.entries() ?? []) {
-      dms.set(peer, this.directConversation(peer, at));
+      dms.set(peer, this.pump.directConversation(peer, at));
     }
     const { archive: history, unreadable } = await this.historyFacade.historyForListing();
     const dmIds = new Set([...dms.values()].map((conversation) => conversation.id));
@@ -1617,7 +1222,7 @@ export class SignalCliBackend implements ChatBackend {
     if (input.quote) this.rememberQuote(input.conversationId, result.timestamp, input.quote);
     const failures = recipientFailures(result);
     // The message's own sentAt (not "now"), consistent with every other notePeer call.
-    this.notePeer(input.conversationId, result.timestamp);
+    this.pump.notePeer(input.conversationId, result.timestamp);
     const out: SendResult = { sentAt: result.timestamp };
     if (encoded.length > 0) out.attachments = encoded.map((e) => e.attachment);
     if (encodedPreview) out.preview = encodedPreview.preview;
@@ -1648,7 +1253,7 @@ export class SignalCliBackend implements ChatBackend {
       throw enrichSendError(error);
     }
     const failures = recipientFailures(result);
-    this.notePeer(conversationId, result.timestamp);
+    this.pump.notePeer(conversationId, result.timestamp);
     return {
       sentAt: result.timestamp,
       ...(failures.length > 0 ? { recipientFailures: failures } : {}),
