@@ -43,6 +43,7 @@ import {
   IdentityService,
   ReadStateService,
   PhonePrivacyService,
+  ConversationDirectory,
   ExpiryService,
   ProfileService,
   MessageRequestService,
@@ -483,6 +484,15 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
       syncLog.error(context, error);
     },
   });
+  const directory = new ConversationDirectory({
+    backend,
+    repository,
+    stores,
+    clock,
+    onError: (error, context) => {
+      syncLog.error(context, error);
+    },
+  });
   const readState = new ReadStateService({
     backend,
     repository,
@@ -558,6 +568,7 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     phonePrivacy,
     profile,
     expiry,
+    directory,
     postConnect,
     onError: (error, context) => {
       syncLog.error(context, error);

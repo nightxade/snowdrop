@@ -6,6 +6,7 @@ export * from './ReadStateService';
 export * from './PhonePrivacyService';
 export * from './ProfileService';
 export * from './ExpiryService';
+export * from './ConversationDirectory';
 export * from './MessageRequestService';
 export * from './GroupService';
 export * from './IdentityService';

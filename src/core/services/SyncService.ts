@@ -22,11 +22,8 @@ import {
   applyPollVote,
   applyReaction,
   applyRecipientReceipt,
-  colorForId,
-  directConversationId,
   mergeDuplicate,
   messageId,
-  parseConversationId,
   pollEndedText,
   systemMessageId,
   type Contact,
@@ -48,11 +45,11 @@ import {
   ignored,
 } from '@/core/lib';
 import { latestRealMessage, type MessageRepository } from '@/core/persistence';
+import { ConversationDirectory } from './ConversationDirectory';
 import { ExpiryService } from './ExpiryService';
 import {
   acceptForOutgoing,
   isDeletedRequest,
-  selectMessageRequestState,
   UNKNOWN_PHONE_PRIVACY,
   uiSelectors,
   UNKNOWN_CONTACT_NAME,
@@ -91,6 +88,8 @@ export interface SyncServiceDeps {
   profile?: ProfileService;
   /** Disappearing messages. Built here when not given. */
   expiry?: ExpiryService;
+  /** Which conversations are listed. Built here when not given. */
+  directory?: ConversationDirectory;
   onError?: ErrorReporter;
   /** The app's steps for after a successful connect (see PostConnect); run after every one. */
   postConnect?: PostConnectRunner;
@@ -196,6 +195,7 @@ export class SyncService {
   private readonly phonePrivacy: PhonePrivacyService;
   private readonly profile: ProfileService;
   private readonly expiry: ExpiryService;
+  private readonly directory: ConversationDirectory;
   private readonly onError: ErrorReporter;
   private unsubscribers: Unsubscribe[] = [];
   /**
@@ -232,8 +232,6 @@ export class SyncService {
   private gated = true;
   private backlog: { event: string; task: () => Promise<void> | void }[] = [];
   private pruneTimer: Cancel | null = null;
-  private refreshing: Promise<void> | null = null;
-  private refreshAgain = false;
   private readonly catchUpTracker: CatchUpTracker;
   /**
    * A second tracker driven in lockstep with `catchUpTracker`, with the same
@@ -254,16 +252,6 @@ export class SyncService {
   private backendCatchUpSeq = 0;
   /** A pending steady-state retry after `account-unavailable` (see `doStart`'s catch). */
   private accountRetryCancel: Cancel | null = null;
-  /**
-   * Direct conversations already confirmed (this instance's lifetime) to
-   * have a real message in the repository — skips re-checking them on every
-   * `dropStaleDirects` call. A real message is never retroactively un-real,
-   * so nothing ever needs to leave this set.
-   */
-  private readonly confirmedReal = new Set<ConversationId>();
-  /** `dropStaleDirects` logs its one-time count the same way the backend's own listing does. */
-  private staleDropLogged = false;
-
   constructor(private readonly deps: SyncServiceDeps) {
     this.receipts = deps.receipts ?? new ReceiptBuffer();
     this.pendingOps = deps.pendingOps ?? new PendingOpsBuffer();
@@ -290,6 +278,16 @@ export class SyncService {
         this.announceRemoved(message);
       },
     });
+    this.directory =
+      deps.directory ??
+      new ConversationDirectory({
+        backend: deps.backend,
+        repository: deps.repository,
+        stores: deps.stores,
+        clock: deps.clock,
+        onError: this.onError,
+      });
+    this.directory.attach({ generation: () => this.generation });
     this.readState =
       deps.readState ??
       new ReadStateService({
@@ -689,12 +687,12 @@ export class SyncService {
       backend.listContacts(),
       backend.listConversations(),
     ]);
-    const conversations = this.admit(listedByBackend);
+    const conversations = this.directory.admit(listedByBackend);
     stores.session.getState().setSelf(self);
     stores.contacts.getState().upsertMany([self, ...contacts]);
     // Anything announced while those answers were being built is newer.
     for (const contact of this.contactsSeenDuringSync?.values() ?? []) this.applyContact(contact);
-    this.grandfatherRequests(conversations, await repository.getReadCursors());
+    this.directory.grandfatherRequests(conversations, await repository.getReadCursors());
     stores.conversations.getState().upsertMany(conversations);
     this.seedHistoryLocalState(conversations);
 
@@ -707,117 +705,16 @@ export class SyncService {
         return { conv, hasRealMessage: result.hasRealMessage };
       }),
     );
-    // A direct conversation only reachable through peer metadata (never a
-    // group, which the phone lists by membership alone) that still has no
-    // real message anywhere now that seeding above pulled in whatever
-    // history it has: a peer persisted by the since-fixed bug that let a
-    // system line list and bump a DM. Dropped here, not excluded from
-    // `conversations` up front, because bumpActivity above needs the store
-    // entry to already exist to compare against (see `seedConversation`).
-    const stale = seeded
-      .filter(({ conv, hasRealMessage }) => !hasRealMessage && this.mayDropAsStale(conv))
-      .map(({ conv }) => conv.id);
-    for (const { conv, hasRealMessage } of seeded) {
-      if (hasRealMessage) this.confirmedReal.add(conv.id);
-    }
-    if (stale.length > 0) {
-      stores.conversations.getState().removeMany(stale);
-      for (const id of stale) cursors.delete(id);
-    }
-    if (!this.staleDropLogged) {
-      // Counts only (never names or ids), same discipline as the backend's
-      // own "conversations listed" log.
-      this.staleDropLogged = true;
-      log.info('conversations listed', { staleDirectsDropped: stale.length });
-    }
+    // Stale peers (see ConversationDirectory.settleSeeded).
+    const stale = this.directory.settleSeeded(seeded);
+    for (const id of stale) cursors.delete(id);
     const listed = conversations.filter((c) => !stale.includes(c.id));
     while ((await this.purgeExpired()) === 500) {
       // Drain expired cache entries before setting ready or exposing message previews.
     }
     stores.conversations.getState().setReadCursors(Object.fromEntries(cursors));
     await Promise.all(listed.map((c) => this.readState.recomputeUnread(c.id)));
-    this.checkHistoryOutgoing();
-  }
-
-  /** Conversations whose archive was already asked about the user's own messages (answered, either way). */
-  private readonly outgoingChecked = new Set<ConversationId>();
-  private outgoingChecking = false;
-  private outgoingAgain = false;
-
-  /**
-   * A chat the user started from their phone counts as accepted (Desktop:
-   * any outgoing message), but only the phone's history archive knows that
-   * for a chat with nothing stored here yet. Asking costs real lookups, so
-   * it happens in the background, after listing, one conversation at a time,
-   * and only for chats that are currently message requests and have archived
-   * history (normally a handful). Until it answers the chat reads as a
-   * request; the answer only ever accepts. A failed ask is retried on the
-   * next refresh.
-   */
-  /** A refresh asked while a check ran (a method, so the loop re-reads what the awaits may have changed). */
-  private wantsOutgoingCheckAgain(): boolean {
-    return this.outgoingAgain;
-  }
-
-  private checkHistoryOutgoing(): void {
-    const { backend, stores } = this.deps;
-    if (!backend.capabilities.features.has('historyArchive')) return;
-    if (this.outgoingChecking) {
-      this.outgoingAgain = true;
-      return;
-    }
-    this.outgoingChecking = true;
-    const generation = this.generation;
-    void (async () => {
-      try {
-        do {
-          this.outgoingAgain = false;
-          for (const c of Object.values(stores.conversations.getState().byId)) {
-            if (generation !== this.generation) return;
-            if (!c.historyHasMessages || this.outgoingChecked.has(c.id)) continue;
-            if (selectMessageRequestState(stores, c.id) !== 'request') continue;
-            try {
-              const wrote = await backend.historyHasOutgoing(c.id);
-              this.outgoingChecked.add(c.id);
-              if (wrote && generation === this.generation)
-                stores.local.getState().markAccepted(c.id, this.deps.clock.now());
-            } catch (error) {
-              this.onError(error, 'history outgoing check failed');
-            }
-          }
-        } while (this.wantsOutgoingCheckAgain() && generation === this.generation);
-      } finally {
-        this.outgoingChecking = false;
-      }
-    })();
-  }
-
-  /**
-   * Drops conversations the user deleted (message requests): the backend can
-   * keep naming them (a peer list, the phone's history archive) long after.
-   * A message from the other side lifts the delete again (`onMessage`).
-   */
-  private admit(conversations: readonly Conversation[]): Conversation[] {
-    const local = this.deps.stores.local.getState();
-    return conversations.filter((c) => local.deletedChats[c.id] === undefined);
-  }
-
-  /**
-   * Message requests arrived with this version: every chat this device
-   * already knew (it has a read position stored) stays accepted, once, so an
-   * upgrade never turns existing conversations into requests. A fresh
-   * install knows none, so everything is judged on its own from then on.
-   */
-  private grandfatherRequests(
-    conversations: readonly Conversation[],
-    known: ReadonlyMap<ConversationId, number>,
-  ): void {
-    const local = this.deps.stores.local.getState();
-    if (local.requestsSeeded) return;
-    local.grandfather(
-      conversations.filter((c) => known.has(c.id)).map((c) => c.id),
-      this.deps.clock.now(),
-    );
+    this.directory.checkHistoryOutgoing();
   }
 
   /**
@@ -1081,7 +978,7 @@ export class SyncService {
       true,
     );
     on('conversationUpdated', (conv) => {
-      this.upsertConversation(conv);
+      this.directory.upsertConversation(conv);
     });
     on('message', (m, live) => this.onMessage(m, live));
     on('messageEdited', (e) =>
@@ -1180,12 +1077,12 @@ export class SyncService {
       // create one on their own — only a real message does either.
       if (message.kind === 'normal') {
         stores.conversations.getState().bumpActivity(id, message.sentAt);
-        this.confirmedReal.add(id);
+        this.directory.noteReal(id);
       }
       stores.conversations.getState().noteLatest(message);
       stores.typing.getState().setTyping(id, message.authorId, false, this.deps.clock.now());
       if (message.kind === 'normal' && !stores.conversations.getState().byId[id])
-        this.ensureConversation(message);
+        this.directory.ensureConversation(message);
       if (message.expiresAt !== undefined)
         this.expiry.schedulePurge(message.expiresAt - this.deps.clock.now());
       this.readState.noteArrival(message);
@@ -1235,63 +1132,6 @@ export class SyncService {
     } else {
       stores.conversations.getState().applyIncoming(message, selfId);
     }
-  }
-
-  /**
-   * Protocol fields only; local state lives in localStore and is untouched.
-   * A direct conversation neither already listed nor yet confirmed to have
-   * a real message (`confirmedReal` — set once `seedConversation` or
-   * `dropStaleDirects` has actually checked the repository) is never
-   * created from this alone: a stale persisted peer's own profile/timer
-   * refresh (`onContactChanged`, `applyTimer`) must not resurrect it
-   * between one `dropStaleDirects` pass and the next. A genuinely new DM is
-   * still listed immediately, through the real message that justifies it
-   * (`ensureConversation`, called from `onMessage`), which refreshes the
-   * full list right after anyway.
-   */
-  private upsertConversation(conv: Conversation): void {
-    const { stores } = this.deps;
-    if (stores.local.getState().deletedChats[conv.id] !== undefined) return;
-    if (
-      parseConversationId(conv.id)?.kind === 'direct' &&
-      !stores.conversations.getState().byId[conv.id] &&
-      !this.confirmedReal.has(conv.id)
-    ) {
-      return;
-    }
-    stores.conversations.getState().upsert(conv);
-  }
-
-  /**
-   * A *real* message for a conversation we don't know yet (someone new
-   * messaged us, or we were added to a group) — never called for a system
-   * line (see `onMessage`), so a decrypt failure or a timer change for a
-   * stranger can never list their DM on its own. DMs can be synthesised
-   * immediately so the message is visible; groups need the backend's
-   * metadata.
-   */
-  private ensureConversation(message: Message): void {
-    const parsed = parseConversationId(message.conversationId);
-    const selfId = this.selfId();
-    if (parsed?.kind === 'direct' && selfId) {
-      const peer = parsed.target;
-      const contact = this.deps.stores.contacts.getState().byId[peer];
-      if (!contact) {
-        this.deps.stores.contacts
-          .getState()
-          .upsert({ id: peer, name: peer, color: colorForId(peer) });
-      }
-      this.deps.stores.conversations.getState().upsert({
-        id: directConversationId(peer),
-        kind: 'direct',
-        title: contact?.name ?? peer,
-        memberIds: [selfId, peer],
-        adminIds: [],
-        expireTimerSec: 0,
-        lastActivityAt: message.sentAt,
-      });
-    }
-    void this.refreshConversations();
   }
 
   private async updateMessage(
@@ -1563,86 +1403,6 @@ export class SyncService {
       this.pruneTimer = null;
       this.schedulePrune();
     }, next - this.deps.clock.now());
-  }
-
-  /** Consumes a refresh requested while one was in flight. */
-  private takeRefreshRequest(): boolean {
-    const requested = this.refreshAgain;
-    this.refreshAgain = false;
-    return requested;
-  }
-
-  /** Re-lists conversations. Concurrent requests coalesce into one follow-up, never get dropped. */
-  private refreshConversations(): Promise<void> {
-    if (this.refreshing) {
-      this.refreshAgain = true;
-      return this.refreshing;
-    }
-    this.refreshing = (async () => {
-      this.refreshAgain = false;
-      do {
-        try {
-          const conversations = this.admit(await this.deps.backend.listConversations());
-          this.deps.stores.conversations.getState().upsertMany(conversations);
-          // The backend can't tell a stale persisted peer from a real one
-          // (see SignalCliBackend.listConversations's doc); re-apply the
-          // same drop every refresh, or a stale entry excluded at initial
-          // sync would reappear the moment anything else re-lists.
-          const stale = await this.dropStaleDirects(conversations);
-          if (stale.length > 0) this.deps.stores.conversations.getState().removeMany(stale);
-          this.checkHistoryOutgoing();
-        } catch (error) {
-          this.onError(error, 'conversation refresh failed');
-        }
-      } while (this.takeRefreshRequest());
-      this.refreshing = null;
-    })();
-    return this.refreshing;
-  }
-
-  /**
-   * A direct conversation that could be a stale peer: not one whose real
-   * messages are still only in the backend's history archive (none stored
-   * locally yet), and not one open in any space — opening a contact's DM
-   * creates an empty placeholder (openDirectConversation) that must not
-   * vanish under the user before they've written anything.
-   */
-  private mayDropAsStale(conv: Conversation): boolean {
-    if (
-      parseConversationId(conv.id)?.kind !== 'direct' ||
-      conv.historyHasMessages ||
-      conv.historyUnreadable
-    )
-      return false;
-    const open = this.deps.stores.ui.getState().selectedConversationBySpace;
-    return !Object.values(open).includes(conv.id);
-  }
-
-  /**
-   * Ids of direct conversations with no real (non-system) message anywhere
-   * in local storage — a peer persisted by the since-fixed bug that let a
-   * system line (a decrypt failure, a timer change) list and bump a DM.
-   * Never a group, which the phone lists by membership alone regardless of
-   * messages. Safe to call any time after initial sync: by then, every
-   * pre-existing conversation's history (if any) has already been pulled
-   * in, and a conversation new to *this* call is only ever reached through
-   * `ensureConversation`, for a message already stored by the time it is.
-   */
-  private async dropStaleDirects(
-    conversations: readonly Conversation[],
-  ): Promise<ConversationId[]> {
-    const { repository } = this.deps;
-    const candidates = conversations.filter(
-      (c) => this.mayDropAsStale(c) && !this.confirmedReal.has(c.id),
-    );
-    const checked = await Promise.all(
-      candidates.map(async (c) => {
-        const real = (await latestRealMessage(repository, c.id)) !== undefined;
-        if (real) this.confirmedReal.add(c.id);
-        return real ? null : c.id;
-      }),
-    );
-    return checked.filter((id): id is ConversationId => id !== null);
   }
 }
 
