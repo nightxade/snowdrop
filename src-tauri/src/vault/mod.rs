@@ -32,8 +32,10 @@ pub use lock::InstanceLock;
 pub use manifest::ManifestSource;
 pub use restore::RestoreReport;
 pub use runtime::resolve as resolve_runtime_dir;
-pub use session::{EvictReport, StartKind, VaultSession, DEFAULT_MEDIA_BUDGET_BYTES, DEFAULT_MEDIA_IDLE, MEDIA_PREFIXES};
+pub use session::{EvictReport, SessionHandle, StartKind, VaultSession, DEFAULT_MEDIA_BUDGET_BYTES, DEFAULT_MEDIA_IDLE, MEDIA_PREFIXES};
 pub use sync::{SkippedFile, SyncReport};
+#[cfg(test)]
+pub(crate) use sync::test_hooks;
 
 use std::fs;
 use std::io;

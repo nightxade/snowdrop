@@ -45,6 +45,13 @@ pub(crate) fn restore(vault: &Vault, runtime_dir: &Path, filter: impl Fn(&str) -
 /// `session::VaultSession::ensure_media` to hydrate a single on-demand media
 /// file (docs/ENCRYPTION.md, "Attachment budget"). `Ok(false)` if `relpath`
 /// isn't tracked in the current manifest at all; nothing is written then.
+///
+/// Unlike a full restore, this runs while a sync may be walking the runtime
+/// dir, so the file must appear whole or not at all: it's written (mtime
+/// included) under a temporary name directly in `runtime_dir` — outside the
+/// allowlisted top-level dirs, so a walk never sees it — and then renamed
+/// into place. Anything half-written would otherwise look like a changed
+/// file to that walk and replace the good blob with a truncated one.
 pub(crate) fn restore_one(vault: &Vault, runtime_dir: &Path, relpath: &str) -> Result<bool, Error> {
     validate_relpath(relpath)?;
     if !is_allowlisted(relpath) {
@@ -54,12 +61,32 @@ pub(crate) fn restore_one(vault: &Vault, runtime_dir: &Path, relpath: &str) -> R
     let Some(entry) = manifest.entries.get(relpath) else {
         return Ok(false);
     };
+    #[cfg(test)]
+    super::sync::test_hooks::fire(&vault.dir, "hydrate-manifest", relpath);
+    let plaintext = read_entry(vault, relpath, entry)?;
     create_secure_dir(runtime_dir)?;
-    restore_entry(vault, runtime_dir, relpath, entry)?;
+
+    let dest = runtime_dir.join(relpath);
+    if let Some(parent) = dest.parent() {
+        if parent != runtime_dir {
+            create_secure_dir(parent)?;
+        }
+    }
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let tmp = runtime_dir.join(format!(".hydrate-{}-{}.tmp", std::process::id(), NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
+    let placed = write_secure_file(&tmp, &plaintext).and_then(|()| set_mtime(&tmp, entry.mtime_ns)).and_then(|()| {
+        std::fs::rename(&tmp, &dest).map_err(|e| super::io_err(&dest, e))
+    });
+    if placed.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    placed?;
     Ok(true)
 }
 
-fn restore_entry(vault: &Vault, runtime_dir: &Path, relpath: &str, entry: &manifest::ManifestEntry) -> Result<(), Error> {
+/// Reads and verifies one entry's blob: decrypts it and checks it against the
+/// manifest's recorded hash.
+fn read_entry(vault: &Vault, relpath: &str, entry: &manifest::ManifestEntry) -> Result<Vec<u8>, Error> {
     let id = blobs::id_from_hex(&entry.blob)
         .ok_or_else(|| Error::new(ErrorKind::VaultCorrupt, format!("vault: manifest entry {relpath:?} has a malformed blob id.")))?;
     let plaintext = blobs::read(&vault.dir, &vault.key, &vault.vault_id, &id)?;
@@ -68,6 +95,11 @@ fn restore_entry(vault: &Vault, runtime_dir: &Path, relpath: &str, entry: &manif
     if actual_sha256 != entry.sha256 {
         return Err(Error::new(ErrorKind::VaultBlobCorrupt, format!("vault: blob for {relpath:?} doesn't match its recorded hash.")));
     }
+    Ok(plaintext)
+}
+
+fn restore_entry(vault: &Vault, runtime_dir: &Path, relpath: &str, entry: &manifest::ManifestEntry) -> Result<(), Error> {
+    let plaintext = read_entry(vault, relpath, entry)?;
 
     let dest = runtime_dir.join(relpath);
     if let Some(parent) = dest.parent() {

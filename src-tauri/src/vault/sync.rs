@@ -16,7 +16,7 @@
 //! "Attachment budget".
 
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, UNIX_EPOCH};
@@ -59,6 +59,136 @@ pub(crate) struct WalkEntry {
     pub(crate) path: PathBuf,
     pub(crate) len: u64,
     pub(crate) mtime_ns: u64,
+    /// `(len, mtime_ns)` of a `*.db` file's `-wal` sidecar, `None` for any
+    /// other file or a database with no WAL file. A WAL-mode database takes
+    /// its writes in the `-wal` file and only moves them into the `.db`
+    /// itself at a checkpoint, so the `.db`'s own size and mtime can stay
+    /// put while committed data piles up beside it.
+    pub(crate) wal: Option<(u64, u64)>,
+}
+
+fn is_db(path: &Path) -> bool {
+    path.extension().is_some_and(|ext| ext == "db")
+}
+
+/// What [`sync_walked_with`] last saw of a database the last time it copied
+/// it: the `.db` file's own stat plus its `-wal` sidecar's. In memory only
+/// (the manifest schema is unchanged), so it starts empty with every
+/// session, which is the safe direction: an unknown database whose WAL isn't
+/// empty is copied once.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct DbPrint {
+    len: u64,
+    mtime_ns: u64,
+    wal: (u64, u64),
+}
+
+pub(crate) type DbPrints = HashMap<String, DbPrint>;
+
+fn print_of(entry: &WalkEntry) -> DbPrint {
+    DbPrint { len: entry.len, mtime_ns: entry.mtime_ns, wal: entry.wal.unwrap_or((0, 0)) }
+}
+
+/// Test-only injection points, keyed by vault directory so parallel tests
+/// can't see each other's hooks: the production code calls [`fire`] at a few
+/// named points, and a test can park a pass there or count what reached it.
+#[cfg(test)]
+pub(crate) mod test_hooks {
+    use std::path::{Path, PathBuf};
+    use std::sync::mpsc::{channel, Receiver, Sender};
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+
+    type Hook = Arc<dyn Fn(&str, &str) + Send + Sync>;
+    static HOOKS: Mutex<Vec<(PathBuf, Hook)>> = Mutex::new(Vec::new());
+
+    pub(crate) fn set(vault_dir: &Path, hook: impl Fn(&str, &str) + Send + Sync + 'static) {
+        HOOKS.lock().unwrap().push((vault_dir.to_path_buf(), Arc::new(hook)));
+    }
+
+    /// Forgets every hook registered for this vault.
+    pub(crate) fn clear(vault_dir: &Path) {
+        HOOKS.lock().unwrap().retain(|(dir, _)| dir != vault_dir);
+    }
+
+    /// Tells a test that `point` was reached, without holding anyone up.
+    pub(crate) struct Notified(Mutex<Receiver<()>>);
+
+    pub(crate) fn notify_at(vault_dir: &Path, point: &'static str) -> Notified {
+        let (tx, rx) = channel::<()>();
+        let tx = Mutex::new(tx);
+        set(vault_dir, move |p, _| {
+            if p == point {
+                let _ = tx.lock().unwrap().send(());
+            }
+        });
+        Notified(Mutex::new(rx))
+    }
+
+    impl Notified {
+        pub(crate) fn wait(&self, timeout: Duration) -> bool {
+            self.0.lock().unwrap().recv_timeout(timeout).is_ok()
+        }
+    }
+
+    pub(crate) fn fire(vault_dir: &Path, point: &str, detail: &str) {
+        let hooks: Vec<Hook> = HOOKS.lock().unwrap().iter().filter(|(dir, _)| dir == vault_dir).map(|(_, h)| h.clone()).collect();
+        for hook in hooks {
+            hook(point, detail);
+        }
+    }
+
+    /// Everything `point` fired with (its detail string) for this vault, in order.
+    pub(crate) fn record(vault_dir: &Path, point: &'static str) -> Arc<Mutex<Vec<String>>> {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let sink = seen.clone();
+        set(vault_dir, move |p, detail| {
+            if p == point {
+                sink.lock().unwrap().push(detail.to_string());
+            }
+        });
+        seen
+    }
+
+    /// Parks every thread that reaches `point` for this vault until
+    /// [`Park::release`] (or the `Park` is dropped, so a failing test can't
+    /// leave a thread stuck).
+    pub(crate) struct Park {
+        entered: Mutex<Receiver<()>>,
+        release: Option<Sender<()>>,
+        vault_dir: PathBuf,
+    }
+
+    impl Drop for Park {
+        fn drop(&mut self) {
+            self.release.take(); // let any parked thread go before the hooks vanish
+            clear(&self.vault_dir);
+        }
+    }
+
+    pub(crate) fn park_at(vault_dir: &Path, point: &'static str) -> Park {
+        let (entered_tx, entered_rx) = channel::<()>();
+        let (release_tx, release_rx) = channel::<()>();
+        let release_rx = Mutex::new(release_rx);
+        set(vault_dir, move |p, _| {
+            if p == point {
+                let _ = entered_tx.send(());
+                let _ = release_rx.lock().unwrap().recv();
+            }
+        });
+        Park { entered: Mutex::new(entered_rx), release: Some(release_tx), vault_dir: vault_dir.to_path_buf() }
+    }
+
+    impl Park {
+        /// Whether a thread reached the point within `timeout`.
+        pub(crate) fn wait_entered(&self, timeout: Duration) -> bool {
+            self.entered.lock().unwrap().recv_timeout(timeout).is_ok()
+        }
+
+        pub(crate) fn release(&mut self) {
+            self.release.take();
+        }
+    }
 }
 
 fn is_sidecar(name: &str) -> bool {
@@ -119,7 +249,14 @@ fn walk_into(root: &Path, dir: &Path, out: &mut Vec<WalkEntry>) -> Result<(), Er
             continue;
         }
         let meta = entry.metadata().map_err(|e| io_err(&path, e))?;
-        out.push(WalkEntry { relpath, path, len: meta.len(), mtime_ns: mtime_ns(&meta) });
+        let wal = if is_db(&path) {
+            let mut wal_path = path.clone().into_os_string();
+            wal_path.push("-wal");
+            fs::metadata(PathBuf::from(wal_path)).ok().map(|m| (m.len(), mtime_ns(&m)))
+        } else {
+            None
+        };
+        out.push(WalkEntry { relpath, path, len: meta.len(), mtime_ns: mtime_ns(&meta), wal });
     }
     Ok(())
 }
@@ -130,9 +267,11 @@ fn walk_into(root: &Path, dir: &Path, out: &mut Vec<WalkEntry>) -> Result<(), Er
 /// failure is retried the same way for consistency, though it isn't
 /// normally transient).
 fn copy_one(path: &Path, vault_dir: &Path) -> Result<Vec<u8>, String> {
-    let is_db = path.extension().is_some_and(|ext| ext == "db");
+    let is_db = is_db(path);
     let mut last_err = String::new();
     for attempt in 0..3u32 {
+        #[cfg(test)]
+        test_hooks::fire(vault_dir, "copy", &path.to_string_lossy());
         let result = if is_db { copy::copy_sqlite(path, vault_dir) } else { copy::copy_locked(path) };
         match result {
             Ok(bytes) => return Ok(bytes),
@@ -164,11 +303,35 @@ pub(crate) fn sync(vault: &Vault, runtime_dir: &Path, keep_if_absent: impl Fn(&s
 /// carried over unchanged (not deleted, not re-copied, not counted in the
 /// returned `deleted`). See this module's docs for why that exists.
 pub(crate) fn sync_walked(vault: &Vault, walked: &[WalkEntry], keep_if_absent: impl Fn(&str) -> bool) -> Result<SyncReport, Error> {
+    sync_walked_with(vault, walked, keep_if_absent, &mut DbPrints::new())
+}
+
+/// [`sync_walked`] with the caller's record of what it last copied of each
+/// database (`prints`), which is what lets a database with pending WAL
+/// content be told apart from one that is genuinely unchanged.
+///
+/// A file whose size and mtime match its manifest entry is skipped without
+/// being read. A `*.db` file gets one more check, because its own size and
+/// mtime say nothing about writes still sitting in its `-wal`: it's skipped
+/// only if the WAL is empty or absent, or if `prints` shows this exact
+/// `.db`+WAL state was already copied. Callers must not run two of these at
+/// once against one vault (each reads the manifest, then commits the next
+/// generation); `session::SessionHandle` serialises them.
+pub(crate) fn sync_walked_with(
+    vault: &Vault,
+    walked: &[WalkEntry],
+    keep_if_absent: impl Fn(&str) -> bool,
+    prints: &mut DbPrints,
+) -> Result<SyncReport, Error> {
     let (old_manifest, _source) = manifest::load_with_fallback(&vault.dir, &vault.key, &vault.vault_id)?;
 
     let mut new_entries = old_manifest.entries.clone();
     let mut skipped = Vec::new();
     let mut changed = 0usize;
+    // Database fingerprints, applied to `prints` only once this pass's data is
+    // durable (manifest committed), so a failed blob write or commit can't
+    // leave a print claiming a state the vault doesn't hold.
+    let mut staged: Vec<(String, DbPrint)> = Vec::new();
 
     let present: HashSet<&str> = walked.iter().map(|w| w.relpath.as_str()).collect();
     let deleted_keys: Vec<String> =
@@ -176,22 +339,39 @@ pub(crate) fn sync_walked(vault: &Vault, walked: &[WalkEntry], keep_if_absent: i
     for key in &deleted_keys {
         new_entries.remove(key);
     }
+    prints.retain(|relpath, _| present.contains(relpath.as_str()));
 
     for entry in walked {
         validate_relpath(&entry.relpath)?;
 
         let unchanged_by_stat =
             old_manifest.entries.get(&entry.relpath).is_some_and(|old| old.size == entry.len && old.mtime_ns == entry.mtime_ns);
+        let db = is_db(&entry.path);
         if unchanged_by_stat {
-            continue; // cheap path: trust size+mtime, no copy, no hash, no new blob.
+            let wal_pending = db && entry.wal.is_some_and(|(len, _)| len > 0);
+            if !wal_pending || prints.get(&entry.relpath) == Some(&print_of(entry)) {
+                continue; // cheap path: trust size+mtime, no copy, no hash, no new blob.
+            }
         }
 
         match copy_one(&entry.path, &vault.dir) {
             Ok(plaintext) => {
+                if db {
+                    // Taken from the walk, i.e. from before the copy: a write
+                    // that lands during the backup changes the WAL's stat and
+                    // makes the next pass copy again.
+                    staged.push((entry.relpath.clone(), print_of(entry)));
+                }
                 let sha256 = to_hex(&Sha256::digest(&plaintext));
                 let same_content = old_manifest.entries.get(&entry.relpath).is_some_and(|old| old.sha256 == sha256);
                 if same_content {
-                    continue; // size/mtime moved but content didn't: avoid a needless rewrite.
+                    // size/mtime moved but content didn't: no new blob, but
+                    // record the new stat so the next pass skips this file.
+                    if let Some(old) = new_entries.get_mut(&entry.relpath) {
+                        old.size = entry.len;
+                        old.mtime_ns = entry.mtime_ns;
+                    }
+                    continue;
                 }
                 let id = blobs::write(&vault.dir, &vault.key, &vault.vault_id, &plaintext)?;
                 new_entries.insert(
@@ -210,11 +390,17 @@ pub(crate) fn sync_walked(vault: &Vault, walked: &[WalkEntry], keep_if_absent: i
     }
 
     if new_entries == old_manifest.entries {
+        prints.extend(staged);
         return Ok(SyncReport { wrote: false, generation: old_manifest.generation, changed: 0, deleted: 0, skipped, removed_blobs: 0 });
     }
 
     let new_manifest = Manifest { generation: old_manifest.generation + 1, entries: new_entries };
+    #[cfg(test)]
+    test_hooks::fire(&vault.dir, "commit", "");
     manifest::commit(&vault.dir, &vault.key, &vault.vault_id, &new_manifest)?;
+    prints.extend(staged);
+    #[cfg(test)]
+    test_hooks::fire(&vault.dir, "gc", "");
 
     let mut keep: HashSet<BlobId> = HashSet::new();
     for e in new_manifest.entries.values().chain(old_manifest.entries.values()) {

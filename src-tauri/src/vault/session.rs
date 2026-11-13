@@ -19,12 +19,13 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::error::Error;
+use crate::error::{Error, ErrorKind};
 
 use super::lock::InstanceLock;
 use super::manifest::{self, ManifestEntry};
@@ -156,24 +157,27 @@ pub struct EvictReport {
 /// What [`VaultSession::start_or_return`] was given, handed back when it fails.
 pub type StartParts = (Vault, PathBuf, InstanceLock);
 
-/// Ties a [`Vault`], its RAM-backed runtime dir and the process-wide
-/// [`InstanceLock`] together for the lifetime of one signal-cli run.
-pub struct VaultSession {
-    vault: Vault,
-    runtime_dir: PathBuf,
-    _lock: InstanceLock,
-    last_start: StartKind,
+/// Locks `m`, ignoring poisoning: everything these mutexes guard is a plain
+/// map or a unit, left consistent at every point a panic could interrupt it.
+fn relock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// The in-memory media bookkeeping, behind `Inner::state`.
+#[derive(Default)]
+struct MediaState {
     /// In-memory only, per docs/ENCRYPTION.md's "Attachment budget": lost on
     /// restart, which just means every media file looks freshly accessed
     /// again right after a restore — never a correctness problem, since
     /// `evict_media` only ever removes files already safely in the vault.
     last_access: HashMap<String, Instant>,
     /// Media relpaths this session knows are materialized in the runtime
-    /// dir: seen present on a [`sync`](Self::sync)'s walk, or hydrated by
-    /// [`ensure_media`](Self::ensure_media). Also in-memory only, lost on
-    /// restart exactly like `last_access` — a fresh session has hydrated
-    /// nothing yet, so starting empty is always correct, never a reason a
-    /// real deletion could be missed (docs/ENCRYPTION.md, "Sync").
+    /// dir: seen present on a [`sync`](SessionHandle::sync)'s walk, or
+    /// hydrated by [`ensure_media`](SessionHandle::ensure_media). Also
+    /// in-memory only, lost on restart exactly like `last_access` — a fresh
+    /// session has hydrated nothing yet, so starting empty is always
+    /// correct, never a reason a real deletion could be missed
+    /// (docs/ENCRYPTION.md, "Sync").
     ///
     /// `sync` consults this to tell a media relpath signal-cli genuinely
     /// deleted (materialized, now gone: drop it) from one this session
@@ -185,6 +189,305 @@ pub struct VaultSession {
     /// through "materialized → not materialized → materialized" exactly as
     /// its presence on disk does.
     materialized_media: HashSet<String>,
+}
+
+/// Everything a session shares between its handles. See [`SessionHandle`] for
+/// what may run concurrently and why that's safe.
+struct Inner {
+    vault: Vault,
+    runtime_dir: PathBuf,
+    /// Held for the session's life; released when the last handle drops.
+    _lock: InstanceLock,
+    state: Mutex<MediaState>,
+    /// What the last sync copied of each database, so one with writes still
+    /// sitting in its WAL isn't mistaken for unchanged. Only ever touched
+    /// under `maintenance`.
+    db_prints: Mutex<sync::DbPrints>,
+    /// Serialises everything that commits to the vault or deletes runtime
+    /// media: [`SessionHandle::sync`], [`evict_media`](SessionHandle::evict_media),
+    /// [`finish`](SessionHandle::finish) and [`quiesce`](SessionHandle::quiesce).
+    /// A pass holds it from reading the manifest to the end of its garbage
+    /// collection, which is what keeps manifest generations strictly linear.
+    /// Hydration never takes it on the way in (that is the point).
+    maintenance: Mutex<()>,
+    /// `true` once the session is shut down or discarded. Hydration holds it
+    /// shared for the whole of its work; closing takes it exclusively, so
+    /// closing waits for hydrations in flight and no later one can write into
+    /// a runtime dir that is being (or has been) wiped.
+    closed: RwLock<bool>,
+}
+
+/// A cheap, cloneable, thread-safe handle on a running vault session.
+///
+/// Every method takes `&self`, so the caller needs no lock of its own around
+/// the session, and in particular a long [`sync`](Self::sync) doesn't hold
+/// anything a [`ensure_media`](Self::ensure_media) needs. The pieces:
+///
+/// - **`maintenance`** serialises sync, eviction and shutdown/discard.
+/// - **`state`** (touch times, the materialized-media set) is held only for
+///   map updates, never across I/O except eviction's single `unlink`.
+/// - **`closed`** (see `Inner::closed`) fences hydration off from shutdown and
+///   discard.
+///
+/// The interleavings, and why each is safe:
+///
+/// - *Hydration during a sync.* Hydration neither reads nor writes anything a
+///   sync is in the middle of: it reads the manifest from disk (always a whole
+///   generation, because [`manifest::commit`] renames), and writes the file
+///   whole-or-not-at-all (temp name, then rename), so a sync's walk never sees
+///   a partial file. The sync decides "deleted" from the materialized set as
+///   it was *before* its walk, so a file hydrated after the walk is never
+///   mistaken for a deleted one.
+/// - *Hydrating a blob the sync garbage-collects.* GC keeps the current and
+///   previous generation; a hydration that loaded an older manifest can find
+///   its blob gone. Any hydration failure waits for the sync in flight (the
+///   `maintenance` lock) and retries once against the settled vault: the
+///   retry either finds the entry gone (reported as absent, as if it had been
+///   deleted first) or the new blob, and a real corruption fails twice.
+/// - *Hydrating while the first-ever sync has written blobs but no manifest.*
+///   The manifest loader would call that "manifests missing, blobs remain";
+///   the same wait-and-retry resolves it.
+/// - *Eviction during hydration.* Hydration records the access before it
+///   looks at the file; eviction re-checks the access time under the `state`
+///   lock right before each `unlink`, and unlinks and updates the
+///   materialized set in that one critical section. A file just hydrated or
+///   touched is therefore skipped, and the materialized set always matches
+///   the disk.
+/// - *Shutdown or discard during a sync or hydration.* Both close the session
+///   first (waiting out hydrations in flight, refusing new ones), then wait
+///   for the sync's `maintenance` hold. Shutdown then runs its own final sync;
+///   discard runs none. A sync that was still queued behind the lock sees
+///   `closed` and does nothing, so nothing is written to a vault after an
+///   erase, and no hydration can recreate the runtime dir once it is wiped.
+#[derive(Clone)]
+pub struct SessionHandle(Arc<Inner>);
+
+impl SessionHandle {
+    pub fn runtime_dir(&self) -> &Path {
+        &self.0.runtime_dir
+    }
+
+    fn is_closed(&self) -> bool {
+        *self.0.closed.read().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Records `relpath` as just accessed, without restoring anything.
+    /// [`ensure_media`](Self::ensure_media) calls this itself; exposed
+    /// separately for a caller that reads a file without going through it
+    /// (e.g. one it knows is already present).
+    pub fn touch(&self, relpath: &str) {
+        relock(&self.0.state).last_access.insert(relpath.to_string(), Instant::now());
+    }
+
+    /// [`touch`](Self::touch) and record `relpath` as materialized in one
+    /// critical section, so eviction can't slip between the two and leave the
+    /// set claiming a file it just removed.
+    fn touch_and_mark(&self, relpath: &str) {
+        let mut state = relock(&self.0.state);
+        state.last_access.insert(relpath.to_string(), Instant::now());
+        state.materialized_media.insert(relpath.to_string());
+    }
+
+    /// Syncs the runtime dir into the vault (docs/ENCRYPTION.md, "Sync",
+    /// "When to sync"). Unlike [`Vault::sync`](super::Vault::sync), a media
+    /// relpath absent from the runtime dir is only treated as deleted once
+    /// this session has actually seen it materialized there. Does nothing on
+    /// a closed session.
+    pub fn sync(&self) -> Result<sync::SyncReport, Error> {
+        let _pass = relock(&self.0.maintenance);
+        if self.is_closed() {
+            return Ok(sync::SyncReport::default());
+        }
+        self.sync_locked()
+    }
+
+    /// The body of a sync; the caller holds `maintenance`.
+    fn sync_locked(&self) -> Result<sync::SyncReport, Error> {
+        // What was materialized *before* the walk: a file hydrated after it
+        // isn't in the walk, so must not count as known-and-deleted.
+        let known = relock(&self.0.state).materialized_media.clone();
+        let walked = sync::walk(&self.0.runtime_dir)?;
+        {
+            let mut state = relock(&self.0.state);
+            for entry in &walked {
+                if is_media(&entry.relpath) {
+                    state.materialized_media.insert(entry.relpath.clone());
+                }
+            }
+        }
+        #[cfg(test)]
+        sync::test_hooks::fire(&self.0.vault.dir, "walked", "");
+        let mut prints = relock(&self.0.db_prints);
+        sync::sync_walked_with(&self.0.vault, &walked, |relpath| is_media(relpath) && !known.contains(relpath), &mut prints)
+    }
+
+    /// Hydrates `relpath` into the runtime dir if it's missing there but
+    /// present in the vault's manifest (docs/ENCRYPTION.md, "Attachment
+    /// budget"): decrypts it in place, verified, exactly like a full
+    /// restore verifies every entry. Returns whether it actually restored
+    /// anything — `false` when the file was already there, when the
+    /// manifest doesn't have it at all, and when the session is closed.
+    /// Either way, a successful call (file present on return) counts as an
+    /// access and, since the file is now known to be materialized, makes
+    /// `relpath` safe for a later [`sync`](Self::sync) to delete if it later
+    /// goes missing for real.
+    ///
+    /// Never waits for a sync on the way in. If the attempt fails in a way a
+    /// settling vault could explain, it waits for any pass in flight and tries
+    /// once more (see the type docs).
+    pub fn ensure_media(&self, relpath: &str) -> Result<bool, Error> {
+        validate_relpath(relpath)?;
+        // Before anything else, so eviction can't pick the file in between.
+        self.touch(relpath);
+        match self.hydrate_once(relpath) {
+            Ok(restored) => Ok(restored),
+            // Only what a settling vault can fix is worth waiting for: the
+            // manifest missing or mid-commit (`VaultCorrupt`) and a blob that
+            // was collected (`VaultBlobCorrupt`). Anything else (a full or
+            // unwritable runtime dir, say) can't be helped by a sync
+            // finishing, so it fails at once instead of stalling behind one.
+            Err(e) if matches!(e.kind, ErrorKind::VaultCorrupt | ErrorKind::VaultBlobCorrupt) => {
+                drop(relock(&self.0.maintenance));
+                self.hydrate_once(relpath)
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    fn hydrate_once(&self, relpath: &str) -> Result<bool, Error> {
+        let closed = self.0.closed.read().unwrap_or_else(PoisonError::into_inner);
+        if *closed {
+            return Ok(false);
+        }
+        let full = self.0.runtime_dir.join(relpath);
+        if full.is_file() {
+            self.touch_and_mark(relpath);
+            return Ok(false);
+        }
+        let restored = restore::restore_one(&self.0.vault, &self.0.runtime_dir, relpath)?;
+        if restored {
+            self.touch_and_mark(relpath);
+        }
+        Ok(restored)
+    }
+
+    /// Evicts already-synced, idle media once the runtime media total
+    /// exceeds `budget_bytes` (docs/ENCRYPTION.md, "Attachment budget"):
+    /// oldest-accessed first, stopping as soon as the total is back under
+    /// budget. A media file is only ever a candidate if it's tracked in the
+    /// current manifest with matching size, mtime and sha256 — an unsynced
+    /// file (new, or changed since the last sync) is never evicted, no
+    /// matter how idle it looks. Meant to run right after a
+    /// [`sync`](Self::sync), so "already in the manifest" means "safe to
+    /// delete and re-hydrate later". Does nothing on a closed session.
+    pub fn evict_media(&self, budget_bytes: u64, idle: Duration) -> Result<EvictReport, Error> {
+        let _pass = relock(&self.0.maintenance);
+        if self.is_closed() {
+            return Ok(EvictReport::default());
+        }
+        let vault = &self.0.vault;
+        let (manifest, _source) = manifest::load_with_fallback(&vault.dir, &vault.key, &vault.vault_id)?;
+        let entries = sync::walk(&self.0.runtime_dir)?;
+        let media: Vec<&WalkEntry> = entries.iter().filter(|e| is_media(&e.relpath)).collect();
+
+        let total: u64 = media.iter().map(|e| e.len).sum();
+        if total <= budget_bytes {
+            return Ok(EvictReport { evicted: Vec::new(), freed_bytes: 0, remaining_bytes: total });
+        }
+
+        let now = Instant::now();
+        let last_access = relock(&self.0.state).last_access.clone();
+        let mut candidates = Vec::new();
+        for entry in &media {
+            if !idle_enough(last_access.get(&entry.relpath).copied(), now, idle) {
+                continue;
+            }
+            if is_synced(manifest.entries.get(&entry.relpath), entry)? {
+                candidates.push(*entry);
+            }
+        }
+        // Oldest access first; never-accessed-this-session sorts first
+        // (`None < Some(_)`), matching "restored a while ago and never
+        // touched since" being at least as evictable as any recorded access.
+        candidates.sort_by_key(|e| last_access.get(&e.relpath).copied());
+
+        let mut remaining = total;
+        let mut evicted = Vec::new();
+        let mut freed = 0u64;
+        for entry in candidates {
+            if remaining <= budget_bytes {
+                break;
+            }
+            #[cfg(test)]
+            sync::test_hooks::fire(&vault.dir, "evict-remove", &entry.relpath);
+            // The candidate list is a snapshot; a hydration may have touched
+            // this file since. Re-check, and unlink plus bookkeeping, as one
+            // critical section against `touch`.
+            let mut state = relock(&self.0.state);
+            if !idle_enough(state.last_access.get(&entry.relpath).copied(), Instant::now(), idle) {
+                continue;
+            }
+            fs::remove_file(&entry.path).map_err(|e| io_err(&entry.path, e))?;
+            state.last_access.remove(&entry.relpath);
+            // No longer materialized: the next sync must not treat its
+            // absence as a real deletion (docs/ENCRYPTION.md, "Sync").
+            state.materialized_media.remove(&entry.relpath);
+            drop(state);
+            remaining -= entry.len;
+            freed += entry.len;
+            evicted.push(entry.relpath.clone());
+        }
+
+        Ok(EvictReport { evicted, freed_bytes: freed, remaining_bytes: remaining })
+    }
+
+    /// Marks the session closed: waits for hydrations in flight, and makes
+    /// every later hydration, sync and eviction a no-op.
+    fn close(&self) {
+        *self.0.closed.write().unwrap_or_else(PoisonError::into_inner) = true;
+        #[cfg(test)]
+        sync::test_hooks::fire(&self.0.vault.dir, "closed", "");
+    }
+
+    /// Closes the session and waits for a sync or eviction in flight, without
+    /// syncing anything itself. For discarding a session (erase): the caller
+    /// then wipes the runtime dir knowing nothing else can touch it or the
+    /// vault.
+    pub fn quiesce(&self) {
+        self.close();
+        drop(relock(&self.0.maintenance));
+    }
+
+    /// A final sync, then wipes the runtime dir. Closes the session first and
+    /// waits for any sync or eviction in flight. If the sync fails, the
+    /// runtime dir is deliberately left alone — it's still there for the
+    /// next launch's crash recovery — and the error is returned; the session
+    /// stays closed either way, and the instance lock is released once the
+    /// last handle drops. That's harmless: a marker matching this vault is
+    /// exactly what makes the next `start` take the recovery path instead of
+    /// restoring over unsynced changes.
+    pub fn finish(&self) -> Result<(), Error> {
+        self.close();
+        let _pass = relock(&self.0.maintenance);
+        self.sync_locked()?;
+        wipe_runtime_dir(&self.0.runtime_dir)
+    }
+}
+
+fn idle_enough(accessed: Option<Instant>, now: Instant, idle: Duration) -> bool {
+    match accessed {
+        Some(t) => now.duration_since(t) >= idle,
+        None => true,
+    }
+}
+
+/// Ties a [`Vault`], its RAM-backed runtime dir and the process-wide
+/// [`InstanceLock`] together for the lifetime of one signal-cli run. Owns the
+/// session; [`handle`](Self::handle) gives out the thread-safe view that the
+/// vault bridge shares between the sync loop and media hydration.
+pub struct VaultSession {
+    handle: SessionHandle,
+    last_start: StartKind,
 }
 
 impl VaultSession {
@@ -216,12 +519,16 @@ impl VaultSession {
     ) -> Result<Self, (Error, Box<StartParts>)> {
         match Self::prepare(&vault, &runtime_dir) {
             Ok(kind) => Ok(Self {
-                vault,
-                runtime_dir,
-                _lock: lock,
+                handle: SessionHandle(Arc::new(Inner {
+                    vault,
+                    runtime_dir,
+                    _lock: lock,
+                    state: Mutex::new(MediaState::default()),
+                    db_prints: Mutex::new(sync::DbPrints::new()),
+                    maintenance: Mutex::new(()),
+                    closed: RwLock::new(false),
+                })),
                 last_start: kind,
-                last_access: HashMap::new(),
-                materialized_media: HashSet::new(),
             }),
             Err(error) => Err((error, Box::new((vault, runtime_dir, lock)))),
         }
@@ -284,136 +591,46 @@ impl VaultSession {
     }
 
     pub fn runtime_dir(&self) -> &Path {
-        &self.runtime_dir
+        self.handle.runtime_dir()
     }
 
-    /// Syncs the runtime dir into the vault (docs/ENCRYPTION.md, "Sync",
-    /// "When to sync"). Unlike [`Vault::sync`](super::Vault::sync), a media
-    /// relpath absent from the runtime dir is only treated as deleted once
-    /// this session has actually seen it materialized there — walks its own
-    /// copy of the runtime dir first (rather than calling `Vault::sync`) so
-    /// it can both update that record and reuse the walk for the sync
-    /// itself.
+    /// A shared handle on this session. Handles keep the instance lock alive,
+    /// so the lock is released only once the session and every handle are gone.
+    pub fn handle(&self) -> SessionHandle {
+        self.handle.clone()
+    }
+
+    /// Consumes the session into its shared handle, for a caller that only
+    /// ever uses the thread-safe interface.
+    pub fn into_handle(self) -> SessionHandle {
+        self.handle
+    }
+
+    /// See [`SessionHandle::sync`].
     pub fn sync(&mut self) -> Result<sync::SyncReport, Error> {
-        self.sync_inner()
+        self.handle.sync()
     }
 
-    /// The shared implementation behind [`sync`](Self::sync) and
-    /// [`shutdown`](Self::shutdown) (which needs one last sync with the
-    /// same media-aware rule before it wipes the runtime dir).
-    fn sync_inner(&mut self) -> Result<sync::SyncReport, Error> {
-        let walked = sync::walk(&self.runtime_dir)?;
-        for entry in &walked {
-            if is_media(&entry.relpath) {
-                self.materialized_media.insert(entry.relpath.clone());
-            }
-        }
-        let materialized = &self.materialized_media;
-        sync::sync_walked(&self.vault, &walked, |relpath| is_media(relpath) && !materialized.contains(relpath))
-    }
-
-    /// Records `relpath` as just accessed, without restoring anything.
-    /// [`ensure_media`](Self::ensure_media) calls this itself; exposed
-    /// separately for a caller that reads a file without going through it
-    /// (e.g. one it knows is already present).
+    /// See [`SessionHandle::touch`].
     pub fn touch(&mut self, relpath: &str) {
-        self.last_access.insert(relpath.to_string(), Instant::now());
+        self.handle.touch(relpath);
     }
 
-    /// Hydrates `relpath` into the runtime dir if it's missing there but
-    /// present in the vault's manifest (docs/ENCRYPTION.md, "Attachment
-    /// budget"): decrypts it in place, verified, exactly like a full
-    /// restore verifies every entry. Returns whether it actually restored
-    /// anything — `false` both when the file was already there and when
-    /// the manifest doesn't have it at all. Either way, a successful call
-    /// (file present on return) counts as an access and, since the file is
-    /// now known to be materialized, makes `relpath` safe for a later
-    /// [`sync`](Self::sync) to delete if it later goes missing for real.
+    /// See [`SessionHandle::ensure_media`].
     pub fn ensure_media(&mut self, relpath: &str) -> Result<bool, Error> {
-        validate_relpath(relpath)?;
-        let full = self.runtime_dir.join(relpath);
-        if full.is_file() {
-            self.touch(relpath);
-            self.materialized_media.insert(relpath.to_string());
-            return Ok(false);
-        }
-        let restored = restore::restore_one(&self.vault, &self.runtime_dir, relpath)?;
-        if restored {
-            self.touch(relpath);
-            self.materialized_media.insert(relpath.to_string());
-        }
-        Ok(restored)
+        self.handle.ensure_media(relpath)
     }
 
-    /// Evicts already-synced, idle media once the runtime media total
-    /// exceeds `budget_bytes` (docs/ENCRYPTION.md, "Attachment budget"):
-    /// oldest-accessed first, stopping as soon as the total is back under
-    /// budget. A media file is only ever a candidate if it's tracked in the
-    /// current manifest with matching size, mtime and sha256 — an unsynced
-    /// file (new, or changed since the last sync) is never evicted, no
-    /// matter how idle it looks. Meant to run right after a
-    /// [`sync`](Self::sync), so "already in the manifest" means "safe to
-    /// delete and re-hydrate later".
+    /// See [`SessionHandle::evict_media`].
     pub fn evict_media(&mut self, budget_bytes: u64, idle: Duration) -> Result<EvictReport, Error> {
-        let (manifest, _source) = manifest::load_with_fallback(&self.vault.dir, &self.vault.key, &self.vault.vault_id)?;
-        let entries = sync::walk(&self.runtime_dir)?;
-        let media: Vec<&WalkEntry> = entries.iter().filter(|e| is_media(&e.relpath)).collect();
-
-        let total: u64 = media.iter().map(|e| e.len).sum();
-        if total <= budget_bytes {
-            return Ok(EvictReport { evicted: Vec::new(), freed_bytes: 0, remaining_bytes: total });
-        }
-
-        let now = Instant::now();
-        let mut candidates = Vec::new();
-        for entry in &media {
-            let accessed = self.last_access.get(&entry.relpath).copied();
-            let idle_enough = match accessed {
-                Some(t) => now.duration_since(t) >= idle,
-                None => true,
-            };
-            if !idle_enough {
-                continue;
-            }
-            if is_synced(manifest.entries.get(&entry.relpath), entry)? {
-                candidates.push(*entry);
-            }
-        }
-        // Oldest access first; never-accessed-this-session sorts first
-        // (`None < Some(_)`), matching "restored a while ago and never
-        // touched since" being at least as evictable as any recorded access.
-        candidates.sort_by_key(|e| self.last_access.get(&e.relpath).copied());
-
-        let mut remaining = total;
-        let mut evicted = Vec::new();
-        let mut freed = 0u64;
-        for entry in candidates {
-            if remaining <= budget_bytes {
-                break;
-            }
-            fs::remove_file(&entry.path).map_err(|e| io_err(&entry.path, e))?;
-            self.last_access.remove(&entry.relpath);
-            // No longer materialized: the next sync must not treat its
-            // absence as a real deletion (docs/ENCRYPTION.md, "Sync").
-            self.materialized_media.remove(&entry.relpath);
-            remaining -= entry.len;
-            freed += entry.len;
-            evicted.push(entry.relpath.clone());
-        }
-
-        Ok(EvictReport { evicted, freed_bytes: freed, remaining_bytes: remaining })
+        self.handle.evict_media(budget_bytes, idle)
     }
 
     /// A final sync, then wipes the runtime dir and releases the instance
-    /// lock. If the sync fails, the runtime dir is deliberately left alone
-    /// — it's still there for the next launch's crash recovery — and the
-    /// error is returned; the lock is still released (dropped) either way,
-    /// since this consumes the session regardless, but that's harmless: a
-    /// marker matching this vault is exactly what makes the next `start`
-    /// take the recovery path instead of restoring over unsynced changes.
-    pub fn shutdown(mut self) -> Result<(), Error> {
-        self.sync_inner()?;
-        wipe_runtime_dir(&self.runtime_dir)
+    /// lock (see [`SessionHandle::finish`], which this wraps; the lock is
+    /// released here as long as no [`handle`](Self::handle) is still alive).
+    pub fn shutdown(self) -> Result<(), Error> {
+        self.handle.finish()
     }
 }
 
@@ -834,5 +1051,403 @@ mod tests {
         let restored = restored.path();
         check_vault.restore(restored, |_| true).unwrap();
         assert!(!restored.join(MARKER_FILE_NAME).exists());
+    }
+
+    // Concurrency: media hydration runs while a sync or an eviction is in
+    // flight (see `SessionHandle`'s docs for the reasoning behind each).
+
+    use crate::vault::test_hooks;
+    use std::sync::mpsc;
+    use std::sync::Arc;
+    use std::thread;
+
+    const WAIT: Duration = Duration::from_secs(10);
+
+    struct Fx {
+        _base: TempDir,
+        handle: SessionHandle,
+        runtime: PathBuf,
+        vault_dir: PathBuf,
+        key: Vec<u8>,
+        vault_id: [u8; VAULT_ID_LEN],
+    }
+
+    impl Drop for Fx {
+        fn drop(&mut self) {
+            test_hooks::clear(&self.vault_dir);
+        }
+    }
+
+    impl Fx {
+        /// Everything in `seed` is synced into the vault, then a session starts
+        /// on a fresh runtime dir (so seeded media isn't hydrated yet).
+        fn start(name: &str, id: u8, seed: &[(&str, &[u8])]) -> Fx {
+            let base = temp_dir(name);
+            let vault_id = [id; VAULT_ID_LEN];
+            let key = Key32::random();
+            let vault_dir = base.path().join("vault");
+            let runtime = base.path().join("runtime");
+            let vault = Vault::open(&vault_dir, Key32::from_slice(key.as_bytes()).unwrap(), vault_id).unwrap();
+            for (relpath, contents) in seed {
+                write_file(&runtime, relpath, contents);
+            }
+            vault.sync(&runtime).unwrap();
+            let _ = fs::remove_dir_all(&runtime);
+            let handle = VaultSession::start(vault, runtime.clone(), lock(base.path())).unwrap().into_handle();
+            Fx { handle, runtime, vault_dir, key: key.as_bytes().to_vec(), vault_id, _base: base }
+        }
+
+        fn restored_elsewhere(&self, name: &str) -> TempDir {
+            let vault = Vault::open(&self.vault_dir, Key32::from_slice(&self.key).unwrap(), self.vault_id).unwrap();
+            let out = temp_dir(name);
+            vault.restore(out.path(), |_| true).unwrap();
+            out
+        }
+    }
+
+    /// The blob a hydration is about to read is garbage-collected by two syncs
+    /// that happen after it loaded the manifest. It must settle as "gone", not
+    /// fail with a missing-blob error.
+    #[test]
+    fn hydration_whose_blob_is_collected_underneath_it_settles_cleanly() {
+        let fx = Fx::start("conc-gc", 40, &[("data/account", b"v1"), ("attachments/m.bin", b"media bytes")]);
+        let m = "attachments/m.bin";
+        assert!(fx.handle.ensure_media(m).unwrap());
+        // signal-cli really deletes it: materialized, then gone.
+        fs::remove_file(fx.runtime.join(m)).unwrap();
+
+        let mut park = test_hooks::park_at(&fx.vault_dir, "hydrate-manifest");
+        let hydrating = {
+            let handle = fx.handle.clone();
+            thread::spawn(move || handle.ensure_media(m))
+        };
+        assert!(park.wait_entered(WAIT), "the hydration never got as far as the manifest");
+
+        // Generation +1 drops the entry, generation +2 collects its blob.
+        assert_eq!(fx.handle.sync().unwrap().deleted, 1);
+        fs::write(fx.runtime.join("data/account"), b"v2, longer").unwrap();
+        assert!(fx.handle.sync().unwrap().removed_blobs >= 1);
+
+        park.release();
+        let result = hydrating.join().unwrap();
+        assert!(!result.expect("a collected blob must settle, not fail"), "nothing to restore: it was deleted first");
+        assert!(!fx.runtime.join(m).exists());
+    }
+
+    /// A hydration that runs while the very first sync has written blobs but
+    /// not yet its manifest used to see "manifests missing, blobs remain". It
+    /// waits for the sync instead of failing.
+    #[test]
+    fn hydration_during_the_first_ever_sync_waits_instead_of_failing() {
+        let fx = Fx::start("conc-first-sync", 41, &[]);
+        write_file(&fx.runtime, "data/account", b"first data");
+        let mut park = test_hooks::park_at(&fx.vault_dir, "commit");
+        let syncing = {
+            let handle = fx.handle.clone();
+            thread::spawn(move || handle.sync())
+        };
+        assert!(park.wait_entered(WAIT));
+
+        let (tx, rx) = mpsc::channel();
+        let hydrating = {
+            let handle = fx.handle.clone();
+            thread::spawn(move || tx.send(handle.ensure_media("attachments/x.bin")).unwrap())
+        };
+        assert!(rx.recv_timeout(Duration::from_millis(300)).is_err(), "the failed attempt should be waiting for the sync");
+        park.release();
+        assert!(!rx.recv_timeout(WAIT).unwrap().expect("must not report corruption"));
+        hydrating.join().unwrap();
+        assert!(syncing.join().unwrap().unwrap().wrote);
+    }
+
+    /// A hydration that lands between eviction picking its candidates and
+    /// unlinking one must win: the file stays.
+    #[test]
+    fn eviction_skips_a_file_hydration_touched_after_it_was_picked() {
+        let fx = Fx::start("conc-evict", 42, &[]);
+        write_file(&fx.runtime, "attachments/a.bin", &[7u8; 100]);
+        fx.handle.sync().unwrap();
+
+        let mut park = test_hooks::park_at(&fx.vault_dir, "evict-remove");
+        let evicting = {
+            let handle = fx.handle.clone();
+            thread::spawn(move || handle.evict_media(0, Duration::from_secs(600)))
+        };
+        assert!(park.wait_entered(WAIT));
+        // Doesn't wait for the parked eviction (it holds the maintenance lock).
+        let (tx, rx) = mpsc::channel();
+        {
+            let handle = fx.handle.clone();
+            thread::spawn(move || tx.send(handle.ensure_media("attachments/a.bin")).unwrap());
+        }
+        assert!(!rx.recv_timeout(WAIT).expect("hydration must not wait for the eviction").unwrap());
+        park.release();
+        let report = evicting.join().unwrap().unwrap();
+        assert!(report.evicted.is_empty(), "a just-touched file must not be evicted");
+        assert!(fx.runtime.join("attachments/a.bin").exists());
+    }
+
+    /// A file hydrated after the sync's walk isn't in the walk, but isn't
+    /// deleted either: its manifest entry must survive.
+    #[test]
+    fn a_file_hydrated_after_the_walk_is_not_treated_as_deleted() {
+        let fx = Fx::start("conc-walk", 43, &[("data/account", b"v1"), ("attachments/m.bin", b"media bytes")]);
+        let mut park = test_hooks::park_at(&fx.vault_dir, "walked");
+        let syncing = {
+            let handle = fx.handle.clone();
+            thread::spawn(move || handle.sync())
+        };
+        assert!(park.wait_entered(WAIT));
+        let (tx, rx) = mpsc::channel();
+        {
+            let handle = fx.handle.clone();
+            thread::spawn(move || tx.send(handle.ensure_media("attachments/m.bin")).unwrap());
+        }
+        assert!(rx.recv_timeout(WAIT).expect("hydration must not wait for the sync").unwrap());
+        park.release();
+        assert_eq!(syncing.join().unwrap().unwrap().deleted, 0);
+
+        fs::remove_file(fx.runtime.join("attachments/m.bin")).unwrap();
+        assert!(fx.handle.ensure_media("attachments/m.bin").unwrap(), "the manifest entry must have survived");
+    }
+
+    /// Hydration leaves no half-written file for a walk to find, and no
+    /// temporary behind.
+    #[test]
+    fn hydration_leaves_no_temporary_file_behind() {
+        let fx = Fx::start("conc-tmp", 44, &[("attachments/m.bin", b"media bytes")]);
+        assert!(fx.handle.ensure_media("attachments/m.bin").unwrap());
+        let strays: Vec<_> = fs::read_dir(&fx.runtime).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).filter(|n| n.starts_with(".hydrate")).collect();
+        assert!(strays.is_empty(), "{strays:?}");
+        assert_eq!(fs::read(fx.runtime.join("attachments/m.bin")).unwrap(), b"media bytes");
+    }
+
+    /// signal-cli's database takes its writes in the `-wal` file, leaving the
+    /// `.db`'s own size and mtime alone until a checkpoint; those writes must
+    /// still be synced, once, and an idle WAL must not be copied again.
+    #[test]
+    fn a_wal_only_change_is_synced_and_an_idle_wal_is_not_recopied() {
+        let fx = Fx::start("conc-wal", 45, &[]);
+        let copies = test_hooks::record(&fx.vault_dir, "copy");
+        let db_copies = || copies.lock().unwrap().iter().filter(|p| p.ends_with("account.db")).count();
+
+        let db = rusqlite::Connection::open({
+            fs::create_dir_all(fx.runtime.join("data")).unwrap();
+            fx.runtime.join("data/account.db")
+        })
+        .unwrap();
+        db.execute_batch("PRAGMA journal_mode=WAL; CREATE TABLE msgs (id INTEGER PRIMARY KEY, body TEXT);").unwrap();
+        db.execute("INSERT INTO msgs (body) VALUES ('a')", []).unwrap();
+        assert!(fx.handle.sync().unwrap().wrote);
+        assert_eq!(db_copies(), 1);
+
+        // Committed to the WAL only: the .db file itself is untouched.
+        db.execute("INSERT INTO msgs (body) VALUES ('b')", []).unwrap();
+        let report = fx.handle.sync().unwrap();
+        assert!(report.wrote && report.changed == 1, "a change sitting in the WAL was missed");
+        assert_eq!(db_copies(), 2);
+
+        // Nothing changed since: no copy at all.
+        let report = fx.handle.sync().unwrap();
+        assert!(!report.wrote);
+        assert_eq!(db_copies(), 2, "an unchanged database was copied again");
+
+        db.execute("INSERT INTO msgs (body) VALUES ('c')", []).unwrap();
+        fx.handle.sync().unwrap();
+        assert_eq!(db_copies(), 3);
+
+        let restored = fx.restored_elsewhere("conc-wal-restored");
+        let check = rusqlite::Connection::open(restored.path().join("data/account.db")).unwrap();
+        let bodies: Vec<String> = check.prepare("SELECT body FROM msgs ORDER BY id").unwrap().query_map([], |r| r.get(0)).unwrap().map(Result::unwrap).collect();
+        assert_eq!(bodies, ["a", "b", "c"]);
+    }
+
+    /// A non-WAL database (or any plain file) is skipped on size+mtime alone.
+    #[test]
+    fn an_unchanged_plain_file_is_not_copied_and_a_changed_one_is() {
+        let fx = Fx::start("conc-plain", 46, &[]);
+        let copies = test_hooks::record(&fx.vault_dir, "copy");
+        write_file(&fx.runtime, "data/account", b"one");
+        fx.handle.sync().unwrap();
+        assert_eq!(copies.lock().unwrap().len(), 1);
+        fx.handle.sync().unwrap();
+        assert_eq!(copies.lock().unwrap().len(), 1, "an unchanged file was copied again");
+        fs::write(fx.runtime.join("data/account"), b"two, longer").unwrap();
+        fx.handle.sync().unwrap();
+        assert_eq!(copies.lock().unwrap().len(), 2);
+    }
+
+    /// Once a session is closed (shutdown or erase) nothing may write to the
+    /// vault or the runtime dir any more.
+    #[test]
+    fn a_closed_session_syncs_nothing_and_hydrates_nothing() {
+        let fx = Fx::start("conc-closed", 47, &[("data/account", b"v1"), ("attachments/m.bin", b"media bytes")]);
+        fx.handle.quiesce();
+        fs::write(fx.runtime.join("data/account"), b"changed after close").unwrap();
+        assert!(!fx.handle.sync().unwrap().wrote);
+        assert!(fx.handle.evict_media(0, Duration::ZERO).unwrap().evicted.is_empty());
+        assert!(!fx.handle.ensure_media("attachments/m.bin").unwrap());
+        assert!(!fx.runtime.join("attachments/m.bin").exists());
+        let restored = fx.restored_elsewhere("conc-closed-restored");
+        assert_eq!(fs::read(restored.path().join("data/account")).unwrap(), b"v1");
+    }
+
+    #[test]
+    fn hydration_after_shutdown_does_not_recreate_the_runtime_dir() {
+        let fx = Fx::start("conc-after-finish", 48, &[("data/account", b"v1"), ("attachments/m.bin", b"media bytes")]);
+        fs::write(fx.runtime.join("data/account"), b"v2, synced by the final pass").unwrap();
+        fx.handle.finish().unwrap();
+        assert!(!fx.runtime.exists());
+        assert!(!fx.handle.ensure_media("attachments/m.bin").unwrap());
+        assert!(!fx.runtime.exists(), "a late hydration put plaintext back after the wipe");
+        let restored = fx.restored_elsewhere("conc-after-finish-restored");
+        assert_eq!(fs::read(restored.path().join("data/account")).unwrap(), b"v2, synced by the final pass");
+    }
+
+    /// Shutdown while a sync is mid-pass waits for it, then syncs and wipes.
+    #[test]
+    fn finish_waits_for_a_running_sync_then_runs_its_own() {
+        let fx = Fx::start("conc-finish-waits", 49, &[("data/account", b"v1")]);
+        fs::write(fx.runtime.join("data/account"), b"v2 from the running sync").unwrap();
+        let mut park = test_hooks::park_at(&fx.vault_dir, "copy");
+        let syncing = {
+            let handle = fx.handle.clone();
+            thread::spawn(move || handle.sync())
+        };
+        assert!(park.wait_entered(WAIT));
+        let closed = test_hooks::notify_at(&fx.vault_dir, "closed");
+        let finished = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let finishing = {
+            let (handle, finished) = (fx.handle.clone(), finished.clone());
+            thread::spawn(move || {
+                let r = handle.finish();
+                finished.store(true, std::sync::atomic::Ordering::SeqCst);
+                r
+            })
+        };
+        assert!(closed.wait(WAIT), "shutdown never started");
+        thread::sleep(Duration::from_millis(50));
+        assert!(!finished.load(std::sync::atomic::Ordering::SeqCst), "shutdown ran over a sync that was mid-pass");
+        park.release();
+        syncing.join().unwrap().unwrap();
+        finishing.join().unwrap().unwrap();
+        assert!(!fx.runtime.exists());
+        let restored = fx.restored_elsewhere("conc-finish-waits-restored");
+        assert_eq!(fs::read(restored.path().join("data/account")).unwrap(), b"v2 from the running sync");
+    }
+
+    /// Timing probe, not a check: `cargo test --offline vault::session::tests::sync_cost -- --ignored --nocapture`.
+    /// Builds a ~50 MB WAL-mode database, then times a pass with nothing
+    /// changed and a pass after one row changed. A debug build, so the
+    /// absolute numbers are pessimistic; the ratio is what matters.
+    #[test]
+    #[ignore]
+    fn sync_cost_of_a_50_mb_database() {
+        let fx = Fx::start("cost", 50, &[]);
+        fs::create_dir_all(fx.runtime.join("data")).unwrap();
+        let db = rusqlite::Connection::open(fx.runtime.join("data/account.db")).unwrap();
+        db.execute_batch("PRAGMA journal_mode=WAL; CREATE TABLE blobs (id INTEGER PRIMARY KEY, b BLOB);").unwrap();
+        db.execute_batch("BEGIN").unwrap();
+        for i in 0..12_800u32 {
+            let payload: Vec<u8> = (0..4096u32).map(|j| (i.wrapping_mul(2_654_435_761).wrapping_add(j.wrapping_mul(40503)) >> 7) as u8).collect();
+            db.execute("INSERT INTO blobs (b) VALUES (?1)", [payload]).unwrap();
+        }
+        db.execute_batch("COMMIT; PRAGMA wal_checkpoint(TRUNCATE);").unwrap();
+        let size = fs::metadata(fx.runtime.join("data/account.db")).unwrap().len();
+
+        let time = |label: &str, fx: &Fx| {
+            let started = Instant::now();
+            let report = fx.handle.sync().unwrap();
+            eprintln!("COST {label}: {:?} (wrote={}, changed={})", started.elapsed(), report.wrote, report.changed);
+        };
+        eprintln!("COST database size: {} MiB", size / (1024 * 1024));
+        time("first pass (everything is new)", &fx);
+        time("no change, 1st repeat", &fx);
+        time("no change, 2nd repeat", &fx);
+        db.execute("UPDATE blobs SET b = zeroblob(4096) WHERE id = 1", []).unwrap();
+        time("one row changed (lands in the WAL)", &fx);
+        time("no change again", &fx);
+    }
+
+    /// A pass that fails after copying a database (here: the manifest commit)
+    /// must not leave a fingerprint claiming the vault holds that state.
+    #[test]
+    fn a_failed_commit_does_not_mark_a_database_as_synced() {
+        use std::os::unix::fs::PermissionsExt;
+        let fx = Fx::start("conc-failed-commit", 51, &[]);
+        let copies = test_hooks::record(&fx.vault_dir, "copy");
+        let db_copies = || copies.lock().unwrap().iter().filter(|p| p.ends_with("account.db")).count();
+        fs::create_dir_all(fx.runtime.join("data")).unwrap();
+        let db = rusqlite::Connection::open(fx.runtime.join("data/account.db")).unwrap();
+        db.execute_batch("PRAGMA journal_mode=WAL; CREATE TABLE msgs (id INTEGER PRIMARY KEY, body TEXT);").unwrap();
+        db.execute("INSERT INTO msgs (body) VALUES ('a')", []).unwrap();
+        fx.handle.sync().unwrap();
+        assert_eq!(db_copies(), 1);
+
+        db.execute("INSERT INTO msgs (body) VALUES ('b')", []).unwrap();
+        let armed = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let vault_dir = fx.vault_dir.clone();
+        test_hooks::set(&fx.vault_dir, move |point, _| {
+            if point == "commit" && armed.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                fs::set_permissions(&vault_dir, fs::Permissions::from_mode(0o500)).unwrap();
+            }
+        });
+        let failed = fx.handle.sync();
+        fs::set_permissions(&fx.vault_dir, fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(failed.is_err(), "the commit was supposed to fail");
+        assert_eq!(db_copies(), 2);
+
+        let report = fx.handle.sync().unwrap();
+        assert_eq!(db_copies(), 3, "the database whose commit failed was skipped as if synced");
+        assert!(report.wrote);
+        let restored = fx.restored_elsewhere("conc-failed-commit-restored");
+        let check = rusqlite::Connection::open(restored.path().join("data/account.db")).unwrap();
+        let n: i64 = check.query_row("SELECT count(*) FROM msgs", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 2);
+    }
+
+    /// A file whose stat moved but whose content didn't gets its manifest stat
+    /// refreshed, so it isn't copied on every later pass.
+    #[test]
+    fn a_touched_but_identical_file_is_copied_once_more_then_skipped() {
+        let fx = Fx::start("conc-touch-only", 52, &[]);
+        let copies = test_hooks::record(&fx.vault_dir, "copy");
+        write_file(&fx.runtime, "data/account", b"same bytes");
+        fx.handle.sync().unwrap();
+        assert_eq!(copies.lock().unwrap().len(), 1);
+
+        let file = fs::File::open(fx.runtime.join("data/account")).unwrap();
+        file.set_modified(std::time::SystemTime::now() + Duration::from_secs(5)).unwrap();
+        let report = fx.handle.sync().unwrap();
+        assert_eq!(copies.lock().unwrap().len(), 2);
+        assert_eq!(report.changed, 0, "no new blob for identical content");
+        fx.handle.sync().unwrap();
+        fx.handle.sync().unwrap();
+        assert_eq!(copies.lock().unwrap().len(), 2, "the refreshed stat should make later passes skip the file");
+    }
+
+    /// An error no sync can explain fails at once instead of waiting behind
+    /// the sync in flight.
+    #[test]
+    fn an_unrecoverable_hydration_error_does_not_wait_for_a_sync() {
+        let fx = Fx::start("conc-no-wait", 53, &[("data/account", b"v1"), ("attachments/m.bin", b"media bytes")]);
+        // A directory where the file belongs: the final rename fails.
+        fs::create_dir_all(fx.runtime.join("attachments/m.bin")).unwrap();
+        fs::write(fx.runtime.join("data/account"), b"changed so the sync has work").unwrap();
+        let mut park = test_hooks::park_at(&fx.vault_dir, "copy");
+        let syncing = {
+            let handle = fx.handle.clone();
+            thread::spawn(move || handle.sync())
+        };
+        assert!(park.wait_entered(WAIT));
+        let (tx, rx) = mpsc::channel();
+        {
+            let handle = fx.handle.clone();
+            thread::spawn(move || tx.send(handle.ensure_media("attachments/m.bin")).unwrap());
+        }
+        let err = rx.recv_timeout(WAIT).expect("the error waited for the sync").unwrap_err();
+        assert_eq!(err.kind, ErrorKind::Internal);
+        park.release();
+        syncing.join().unwrap().unwrap();
     }
 }

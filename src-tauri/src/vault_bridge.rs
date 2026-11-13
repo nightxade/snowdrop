@@ -29,7 +29,7 @@ use tokio::time::{interval, sleep, MissedTickBehavior};
 
 use crate::error::{Error, ErrorKind};
 use crate::storage::VaultSessionParts;
-use crate::vault::{VaultSession, DEFAULT_MEDIA_BUDGET_BYTES, DEFAULT_MEDIA_IDLE};
+use crate::vault::{SessionHandle, VaultSession, DEFAULT_MEDIA_BUDGET_BYTES, DEFAULT_MEDIA_IDLE};
 
 /// Cheap, non-mutating check of whether storage is `Unlocked` right now
 /// (in practice `StorageService::webcache_key().is_some()`), used before
@@ -81,7 +81,9 @@ struct Inner {
     disabled: bool,
     is_unlocked: IsUnlocked,
     take_session_parts: TakeSessionParts,
-    session: Mutex<Option<VaultSession>>,
+    /// Held only long enough to clone or take the handle out; never across
+    /// a sync, an eviction or a hydration (see [`SessionHandle`]).
+    session: Mutex<Option<SessionHandle>>,
     /// The parts a session start failed with, kept (instance lock included)
     /// so the next attempt can use them: the lock is only ever handed over
     /// once, and a failed start must not lose it.
@@ -160,7 +162,7 @@ impl VaultBridge {
         match VaultSession::start_or_return(vault, runtime_dir, lock) {
             Ok(session) => {
                 let dir = session.runtime_dir().to_path_buf();
-                *self.inner.session.lock().expect("vault session lock") = Some(session);
+                *self.inner.session.lock().expect("vault session lock") = Some(session.into_handle());
                 Ok(dir)
             }
             Err((error, parts)) => {
@@ -189,6 +191,13 @@ impl VaultBridge {
         self.inner.session.lock().expect("vault session lock").as_ref().map(|s| s.runtime_dir().to_path_buf())
     }
 
+    /// A handle on the current session, if there is one. The session mutex is
+    /// released before this returns, so what the caller then does with the
+    /// handle never blocks anyone else's `current_session`.
+    fn current_session(&self) -> Option<SessionHandle> {
+        self.inner.session.lock().expect("vault session lock").clone()
+    }
+
     /// Marks the vault dirty: [`run_sync_loop`] syncs within [`DEBOUNCE`] of
     /// the last trigger, or sooner if it's already mid-debounce. Cheap and
     /// safe to call even when disabled or no session exists yet — there's
@@ -207,8 +216,7 @@ impl VaultBridge {
             return Ok(());
         }
         let relpath = attachment_relpath(id);
-        let mut guard = self.inner.session.lock().expect("vault session lock");
-        let Some(session) = guard.as_mut() else { return Ok(()) };
+        let Some(session) = self.current_session() else { return Ok(()) };
         session.ensure_media(&relpath)?;
         Ok(())
     }
@@ -221,8 +229,7 @@ impl VaultBridge {
         if self.inner.disabled || self.inner.erased.load(Ordering::SeqCst) {
             return true;
         }
-        let mut guard = self.inner.session.lock().expect("vault session lock");
-        let Some(session) = guard.as_mut() else { return true };
+        let Some(session) = self.current_session() else { return true };
         #[cfg(test)]
         self.inner.sync_attempts.fetch_add(1, Ordering::SeqCst);
         if let Err(e) = session.sync() {
@@ -244,14 +251,14 @@ impl VaultBridge {
     /// [`SHUTDOWN_BUDGET`]: past that, the runtime dir is left exactly as it
     /// is, for the next launch's crash recovery (docs/ENCRYPTION.md).
     pub async fn shutdown(self: &Arc<Self>) {
-        // Taking the session waits behind a sync that is mid-pass (it holds
-        // the same mutex), so that wait is inside the budget too.
+        // Closing the session waits for a sync that is mid-pass, so that wait
+        // is inside the budget too.
         let bridge = self.clone();
         let result = tokio::time::timeout(
             SHUTDOWN_BUDGET,
             tokio::task::spawn_blocking(move || {
                 let session = bridge.inner.session.lock().expect("vault session lock").take();
-                session.map(VaultSession::shutdown).unwrap_or(Ok(()))
+                session.map(|s| s.finish()).unwrap_or(Ok(()))
             }),
         )
         .await;
@@ -275,7 +282,11 @@ impl VaultBridge {
         self.inner.pending_parts.lock().expect("vault pending parts lock").take();
         let Some(session) = self.inner.session.lock().expect("vault session lock").take() else { return };
         let runtime_dir = session.runtime_dir().to_path_buf();
-        drop(session); // dropped, not `shutdown()`'d: no final sync.
+        // Waits for a sync or hydration already in flight and refuses any that
+        // starts later, so nothing touches the vault or recreates the runtime
+        // dir once it is wiped below. No final sync: dropped, not finished.
+        session.quiesce();
+        drop(session);
         if let Err(e) = std::fs::remove_dir_all(&runtime_dir) {
             if e.kind() != std::io::ErrorKind::NotFound {
                 log::warn!("vault: couldn't wipe the runtime dir while erasing: {e}");
@@ -584,5 +595,133 @@ mod tests {
         // sync_once treats "erased" the same as "nothing to do": a clean
         // `true`, never a failure to retry.
         assert!(bridge.sync_once());
+    }
+
+    // A sync no longer holds anything media hydration needs.
+
+    fn keyed_fixture(name: &str) -> (TempDir, VaultSessionParts, Vec<u8>) {
+        let base = temp_dir(name);
+        let seed = base.path().join("seed");
+        write_file(&seed, "data/account", b"account data");
+        write_file(&seed, "attachments/photo.jpg", b"fake jpeg bytes");
+        let key = Key32::random();
+        let key_bytes = key.as_bytes().to_vec();
+        let vault = Vault::open(&base.path().join("vault"), key, [1u8; VAULT_ID_LEN]).unwrap();
+        vault.sync(&seed).unwrap();
+        let runtime_dir = base.path().join("runtime");
+        let lock = InstanceLock::acquire(&base.path().join("app-data")).unwrap();
+        (base, (vault, runtime_dir, lock), key_bytes)
+    }
+
+    #[test]
+    fn hydration_completes_while_a_sync_is_running() {
+        use crate::vault::test_hooks;
+        let (guard, parts) = fixture("hydrate-during-sync");
+        let vault_dir = guard.path().join("vault");
+        let (_guard, take_parts) = once((guard, parts));
+        let (bridge, _rx) = VaultBridge::new(false, always_unlocked(), take_parts);
+        let dir = bridge.spawn_config_dir(Path::new("/fallback")).unwrap();
+
+        // Give the sync something to copy, then park it mid-copy.
+        fs::write(dir.join("data/account"), b"changed, so the sync has work to do").unwrap();
+        let mut park = test_hooks::park_at(&vault_dir, "copy");
+        let syncing = {
+            let bridge = bridge.clone();
+            std::thread::spawn(move || bridge.sync_once())
+        };
+        assert!(park.wait_entered(Duration::from_secs(10)), "the sync never started copying");
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        {
+            let bridge = bridge.clone();
+            std::thread::spawn(move || tx.send(bridge.ensure_attachment("photo.jpg")).unwrap());
+        }
+        let hydrated = rx.recv_timeout(Duration::from_secs(10)).expect("hydration waited for the sync");
+        hydrated.unwrap();
+        assert_eq!(fs::read(dir.join("attachments/photo.jpg")).unwrap(), b"fake jpeg bytes");
+
+        park.release();
+        assert!(syncing.join().unwrap());
+    }
+
+    /// Shutdown while a sync is mid-pass waits for it (inside the budget),
+    /// then its own final sync captures the latest state and wipes the dir.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn shutdown_during_a_sync_waits_for_it_and_loses_nothing() {
+        use crate::vault::test_hooks;
+        let (guard, parts, key) = keyed_fixture("shutdown-during-sync");
+        let vault_dir = guard.path().join("vault");
+        let (_guard, take_parts) = once((guard, parts));
+        let (bridge, _rx) = VaultBridge::new(false, always_unlocked(), take_parts);
+        let dir = bridge.spawn_config_dir(Path::new("/fallback")).unwrap();
+        fs::write(dir.join("data/account"), b"first change").unwrap();
+        let mut park = test_hooks::park_at(&vault_dir, "copy");
+        let syncing = {
+            let bridge = bridge.clone();
+            tokio::task::spawn_blocking(move || bridge.sync_once())
+        };
+        assert!(tokio::task::block_in_place(|| park.wait_entered(Duration::from_secs(10))));
+        fs::write(dir.join("data/account"), b"second change, after the sync walked").unwrap();
+
+        let closed = test_hooks::notify_at(&vault_dir, "closed");
+        let shutting_down = {
+            let bridge = bridge.clone();
+            tokio::spawn(async move { bridge.shutdown().await })
+        };
+        assert!(tokio::task::block_in_place(|| closed.wait(Duration::from_secs(10))));
+        sleep(Duration::from_millis(50)).await;
+        assert!(!shutting_down.is_finished(), "shutdown ran over a sync that was mid-pass");
+        park.release();
+        syncing.await.unwrap();
+        shutting_down.await.unwrap();
+
+        assert!(!dir.exists(), "the runtime dir must be wiped");
+        let check = Vault::open(&vault_dir, Key32::from_slice(&key).unwrap(), [1u8; VAULT_ID_LEN]).unwrap();
+        let restored = temp_dir("shutdown-during-sync-restored");
+        check.restore(restored.path(), |_| true).unwrap();
+        assert_eq!(fs::read(restored.path().join("data/account")).unwrap(), b"second change, after the sync walked");
+        assert_eq!(fs::read(restored.path().join("attachments/photo.jpg")).unwrap(), b"fake jpeg bytes");
+    }
+
+    /// Erase while a sync is mid-pass waits for it, never syncs afterwards,
+    /// and leaves the runtime dir wiped even with a hydration right behind it.
+    #[test]
+    fn discard_during_a_sync_waits_for_it_and_nothing_runs_after() {
+        use crate::vault::test_hooks;
+        let (guard, parts) = fixture("discard-during-sync");
+        let vault_dir = guard.path().join("vault");
+        let (_guard, take_parts) = once((guard, parts));
+        let (bridge, _rx) = VaultBridge::new(false, always_unlocked(), take_parts);
+        let dir = bridge.spawn_config_dir(Path::new("/fallback")).unwrap();
+        fs::write(dir.join("data/account"), b"changed").unwrap();
+        let mut park = test_hooks::park_at(&vault_dir, "copy");
+        let syncing = {
+            let bridge = bridge.clone();
+            std::thread::spawn(move || bridge.sync_once())
+        };
+        assert!(park.wait_entered(Duration::from_secs(10)));
+
+        let closed = test_hooks::notify_at(&vault_dir, "closed");
+        let done = Arc::new(AtomicBool::new(false));
+        let discarding = {
+            let (bridge, done) = (bridge.clone(), done.clone());
+            std::thread::spawn(move || {
+                bridge.discard();
+                done.store(true, Ordering::SeqCst);
+            })
+        };
+        assert!(closed.wait(Duration::from_secs(10)));
+        std::thread::sleep(Duration::from_millis(50));
+        assert!(!done.load(Ordering::SeqCst), "discard ran over a sync that was mid-pass");
+        park.release();
+        syncing.join().unwrap();
+        discarding.join().unwrap();
+
+        assert!(!dir.exists(), "the runtime dir must be wiped");
+        // A hydration or sync arriving now finds no session and does nothing.
+        bridge.ensure_attachment("photo.jpg").unwrap();
+        assert!(!dir.exists(), "a late hydration recreated the runtime dir");
+        assert!(bridge.sync_once());
+        assert_eq!(bridge.sync_attempts(), 1, "only the sync that was already running may have run");
     }
 }
