@@ -111,9 +111,13 @@ export function useAttachments(setError: (error: string | null) => void) {
     setAttachments(back);
   };
 
+  /** A voice note goes alone: it replaces the tray, releasing what it replaces. */
   const addVoiceNote = (recording: VoiceRecording) => {
     const pending = voicePending(recording);
-    setAttachments([{ ...pending, previewUrl: URL.createObjectURL(pending.file) }]);
+    for (const a of latest.current) if (a.previewUrl) URL.revokeObjectURL(a.previewUrl);
+    const next = [{ ...pending, previewUrl: URL.createObjectURL(pending.file) }];
+    latest.current = next;
+    setAttachments(next);
   };
 
   return {
