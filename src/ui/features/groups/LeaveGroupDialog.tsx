@@ -3,7 +3,7 @@ import { useStore } from 'zustand';
 import { colorForId, mustChooseNewAdmin, type Contact, type ConversationId } from '@/core/domain';
 import { stripBidiControls } from '@/core/lib';
 import { useSnowdrop } from '@/ui/hooks';
-import { ActionDialog } from './ActionDialog';
+import { ConfirmDialog } from '@/ui/primitives';
 import { ContactChecklist } from './ContactChecklist';
 import { nameOf, useGroup } from './useGroup';
 
@@ -35,7 +35,7 @@ export function LeaveGroupDialog({
   if (!group) return null;
   const needsAdmin = mustChooseNewAdmin(group, selfId);
   return (
-    <ActionDialog
+    <ConfirmDialog
       title={`Leave “${stripBidiControls(group.title)}”?`}
       description={
         needsAdmin
@@ -59,6 +59,6 @@ export function LeaveGroupDialog({
           empty="No other members."
         />
       )}
-    </ActionDialog>
+    </ConfirmDialog>
   );
 }

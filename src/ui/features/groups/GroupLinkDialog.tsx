@@ -3,9 +3,8 @@ import { useState } from 'react';
 import type { ConversationId, GroupLinkMode } from '@/core/domain';
 import { copyText } from '@/ui/features/conversation';
 import { useSnowdrop } from '@/ui/hooks';
-import { Button, Modal, Switch } from '@/ui/primitives';
+import { Button, ConfirmDialog, Modal, Switch } from '@/ui/primitives';
 import { QrCode } from '@/ui/primitives/QrCode';
-import { ActionDialog } from './ActionDialog';
 import { useGroup } from './useGroup';
 import styles from './groups.module.css';
 
@@ -45,7 +44,7 @@ export function GroupLinkDialog({
 
   if (confirmReset) {
     return (
-      <ActionDialog
+      <ConfirmDialog
         title="Reset the group link?"
         description="People will no longer be able to join the group using the current link."
         confirmLabel="Reset link"

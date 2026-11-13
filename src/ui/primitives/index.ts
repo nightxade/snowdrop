@@ -31,6 +31,7 @@ export {
   type DropdownMenuProps,
 } from './Menu';
 export { tidyMenu, type MenuEntry } from './menuModel';
+export { ConfirmDialog, type ConfirmDialogProps } from './ConfirmDialog';
 export { Modal, ModalClose, type ModalProps } from './Modal';
 export { Popover, PopoverClose, type PopoverProps } from './Popover';
 export { Scroller, type ScrollerProps } from './Scroller';

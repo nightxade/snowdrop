@@ -1,8 +1,9 @@
 import { useState, type ReactNode } from 'react';
-import { Button, Modal } from '@/ui/primitives';
-import styles from './groups.module.css';
+import { Button } from './Button';
+import { Modal } from './Modal';
+import styles from './ConfirmDialog.module.css';
 
-export interface ActionDialogProps {
+export interface ConfirmDialogProps {
   title: string;
   description?: ReactNode;
   confirmLabel: string;
@@ -17,11 +18,12 @@ export interface ActionDialogProps {
 }
 
 /**
- * A confirm dialog for a group action that takes a moment and can be refused:
- * the button shows it is working, a refusal is read out and stays on screen,
- * and the dialog closes only once the action went through.
+ * Asks, then runs an action that takes a moment and can be refused: the
+ * button shows it is working, the dialog can't be dismissed meanwhile, a
+ * refusal is read out and stays on screen, and the dialog closes only once
+ * the action went through.
  */
-export function ActionDialog({
+export function ConfirmDialog({
   title,
   description,
   confirmLabel,
@@ -31,7 +33,7 @@ export function ActionDialog({
   run,
   onClose,
   children,
-}: ActionDialogProps) {
+}: ConfirmDialogProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const confirm = async () => {

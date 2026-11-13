@@ -1,0 +1,15 @@
+/* A refusal, read out when it appears; hidden while empty. */
+.error {
+  color: var(--snowdrop-danger);
+  font-size: var(--snowdrop-font-size-sm);
+  line-height: 1.4;
+}
+
+.error:empty {
+  display: none;
+}
+
+/* Spaced from whatever the dialog shows above it. */
+.error:not(:empty):not(:first-child) {
+  margin-top: var(--snowdrop-space-4);
+}

@@ -4,7 +4,7 @@ import type { ConversationId } from '@/core/domain';
 import { stripBidiControls } from '@/core/lib';
 import type { GroupMemberAction } from '@/ui/features/conversation';
 import { useSnowdrop } from '@/ui/hooks';
-import { ActionDialog } from './ActionDialog';
+import { ConfirmDialog } from '@/ui/primitives';
 import { nameOf, useGroup } from './useGroup';
 
 interface Copy {
@@ -86,7 +86,7 @@ export function MemberActionDialog({
   const copy = COPY[action];
   const who = stripBidiControls(nameOf(contacts, memberId));
   return (
-    <ActionDialog
+    <ConfirmDialog
       title={copy.title(who)}
       description={copy.body(who, stripBidiControls(group.title))}
       confirmLabel={copy.confirm}
