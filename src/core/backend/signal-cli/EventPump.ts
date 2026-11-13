@@ -358,6 +358,12 @@ export class EventPump {
       case 'readSync':
         this.emitter.emit('readSync', event.payload);
         return;
+      case 'messageRequestResponse':
+        this.emitter.emit('messageRequestResponse', event.payload);
+        return;
+      case 'identityVerified':
+        this.emitter.emit('identityVerified', event.payload);
+        return;
     }
   }
 

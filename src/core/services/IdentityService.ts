@@ -8,7 +8,7 @@
  * back to the backend, never stored or logged here: the store keeps trust
  * levels only, and failures are logged by context alone.
  */
-import type { ChatBackend, SafetyNumber } from '@/core/backend';
+import type { BackendEvents, ChatBackend, SafetyNumber } from '@/core/backend';
 import { directConversationId, type ConversationId } from '@/core/domain';
 import { stripBidiControls, toAppError } from '@/core/lib';
 import type { MessageRepository } from '@/core/persistence';
@@ -36,6 +36,8 @@ export type VerifyResult = 'ok' | 'changed' | 'failed';
 
 export class IdentityService {
   private readonly onError: ErrorReporter;
+  /** When each person's verification was last set, here or (by `at`) on the phone: older syncs are replays. */
+  private readonly changedAt = new Map<string, number>();
 
   constructor(private readonly deps: IdentityServiceDeps) {
     this.onError = deps.onError ?? consoleReporter;
@@ -92,6 +94,7 @@ export class IdentityService {
       return now !== null && now.digits !== digits ? 'changed' : 'failed';
     }
     stores.identities.getState().setTrust(contactId, 'verified');
+    this.changedAt.set(contactId, this.deps.clock.now());
     await this.noteLine(contactId, 'verified');
     return 'ok';
   }
@@ -107,8 +110,40 @@ export class IdentityService {
       return false;
     }
     stores.identities.getState().setTrust(contactId, 'default');
+    this.changedAt.set(contactId, this.deps.clock.now());
     await this.noteLine(contactId, 'not-verified');
     return true;
+  }
+
+  /**
+   * The user marked this person's safety number verified (or not) on their
+   * phone. Nothing is sent to the backend: it was done there. `VERIFIED` is
+   * verified; `DEFAULT` and `UNVERIFIED` both mean "not verified" (the sync
+   * carries no key and Signal's own clients show the same line for both).
+   * Desktop writes the "…from another device" line only when the verified
+   * state really moves, so this does too: never over an `untrusted` key (the
+   * sync names no key, so it can't be known to cover the new one), and a
+   * person never known to be verified here has nothing to take back.
+   *
+   * The cached trust is a guess until the backend is asked, so afterwards it
+   * is read again: the badge then shows signal-cli's real trust (it applies
+   * the sync itself when the key matches), even for a replay after a restart.
+   * A replay writes the line under the same id.
+   */
+  async applySynced(e: BackendEvents['identityVerified']): Promise<void> {
+    const { stores } = this.deps;
+    const last = this.changedAt.get(e.contactId);
+    if (last !== undefined && e.at <= last) return;
+    this.changedAt.set(e.contactId, e.at);
+    const trust = stores.identities.getState().trustById[e.contactId];
+    if (e.verified && trust !== 'untrusted' && trust !== 'verified') {
+      stores.identities.getState().setTrust(e.contactId, 'verified');
+      await this.noteLine(e.contactId, 'verified', e.at);
+    } else if (!e.verified && trust === 'verified') {
+      stores.identities.getState().setTrust(e.contactId, 'default');
+      await this.noteLine(e.contactId, 'not-verified', e.at);
+    }
+    await this.refreshTrust(e.contactId);
   }
 
   /**
@@ -153,8 +188,14 @@ export class IdentityService {
   }
 
   /** Desktop's local timeline line for a verification change (only in a chat that exists). */
-  private async noteLine(contactId: string, change: 'verified' | 'not-verified'): Promise<void> {
+  private async noteLine(
+    contactId: string,
+    change: 'verified' | 'not-verified',
+    /** Set when it was done on another device, and when: the line says so and does not mark the chat read. */
+    otherDeviceAt?: number,
+  ): Promise<void> {
     const { stores } = this.deps;
+    const other = otherDeviceAt !== undefined;
     const selfId = stores.session.getState().self?.id;
     const conversationId: ConversationId = directConversationId(contactId);
     if (!selfId || !stores.conversations.getState().byId[conversationId]) return;
@@ -165,8 +206,9 @@ export class IdentityService {
       await appendLocalSystemLine(this.deps, {
         conversationId,
         authorId: selfId,
-        text: `You marked your Safety Number with ${name} as ${change === 'verified' ? 'verified' : 'not verified'}`,
-        tag: `identity-${change}`,
+        text: `You marked your Safety Number with ${name} as ${change === 'verified' ? 'verified' : 'not verified'}${other ? ' from another device' : ''}`,
+        tag: other ? `identity-${change}-other` : `identity-${change}`,
+        ...(otherDeviceAt !== undefined ? { at: otherDeviceAt, keepUnread: true as const } : {}),
       });
     } catch (error) {
       this.report(error, 'noting a safety number change failed');

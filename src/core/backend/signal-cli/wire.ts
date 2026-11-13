@@ -209,7 +209,27 @@ export const wireSyncRead = object({
   timestamp: num,
 });
 
+/** A message request answered on the phone. Absent fields are omitted by older and newer builds alike. */
+export const wireSyncRequestResponse = object({
+  /** ACCEPT, DELETE, BLOCK, BLOCK_AND_DELETE, SPAM, BLOCK_AND_SPAM, UNBLOCK_AND_ACCEPT, UNKNOWN */
+  type: optStr,
+  threadAci: optStr,
+  threadE164: optStr,
+  /** Base64 group id. */
+  groupId: optStr,
+});
+
+/** A safety number marked on the phone (no identity key is carried). */
+export const wireSyncVerified = object({
+  destinationAci: optStr,
+  destinationNumber: optStr,
+  /** DEFAULT | VERIFIED | UNVERIFIED */
+  state: optStr,
+});
+
 export const wireSyncMessage = object({
+  messageRequestResponse: maybe(wireSyncRequestResponse),
+  verified: maybe(wireSyncVerified),
   sentMessage: maybe(wireSentTranscript),
   sentStoryMessage: opt(unknownValue),
   blockedNumbers: list(str),

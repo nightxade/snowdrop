@@ -98,6 +98,13 @@ export interface SyncServiceDeps {
   expiry?: ExpiryService;
   /** Which conversations are listed. Built here when not given. */
   directory?: ConversationDirectory;
+  /**
+   * What an answer given on the phone does here (MessageRequestService, which
+   * is built after this and so is passed as a function). Without it the events are ignored.
+   */
+  onRequestAnswered?: (e: BackendEvents['messageRequestResponse']) => Promise<void>;
+  /** Likewise for a safety number marked on the phone (IdentityService). */
+  onVerificationSynced?: (e: BackendEvents['identityVerified']) => Promise<void>;
   onError?: ErrorReporter;
   /** The app's steps for after a successful connect (see PostConnect); run after every one. */
   postConnect?: PostConnectRunner;
@@ -1033,6 +1040,10 @@ export class SyncService {
     on('pollTerminate', (e, live) => this.onPollTerminate(e, live));
     on('receipt', (e) => this.onReceipt(e));
     on('readSync', (e) => this.readState.applyReadSync(e));
+    // Quiet state changes (no notification, nothing sent), so they neither hold nor
+    // wait for the notification machinery: only the queue, so the chats they name exist.
+    on('messageRequestResponse', (e) => this.deps.onRequestAnswered?.(e));
+    on('identityVerified', (e) => this.deps.onVerificationSynced?.(e));
     // Queued like everything else (and parked behind the initial-sync gate),
     // so the transport only learns a position once everything before it has
     // been written to the repository. A lost ack just means re-delivery.

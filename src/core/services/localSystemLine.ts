@@ -37,15 +37,21 @@ export async function appendLocalSystemLine(
     keepUnread?: true;
     /** Never the sidebar preview (see `Message.previewless`). */
     previewless?: true;
+    /**
+     * When it happened, when that is not now (an answer given on another
+     * device): the line's id comes from it, so a replay of the same sync
+     * writes the same line, not a second one.
+     */
+    at?: number;
   },
 ): Promise<void> {
   const { repository, stores, clock } = deps;
   const now = clock.now();
   const draft: Message = {
-    id: systemMessageId(line.authorId, now, line.tag),
+    id: systemMessageId(line.authorId, line.at ?? now, line.tag),
     conversationId: line.conversationId,
     authorId: line.authorId,
-    sentAt: now,
+    sentAt: line.at ?? now,
     receivedAt: now,
     body: '',
     ranges: [],

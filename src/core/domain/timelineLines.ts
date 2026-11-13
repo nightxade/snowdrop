@@ -25,7 +25,7 @@ export function profileChangeText(
 
 export const SESSION_RESET_TEXT = 'Secure session reset';
 
-export type RequestAnswer = 'accepted' | 'blocked' | 'unblocked';
+export type RequestAnswer = 'accepted' | 'blocked' | 'unblocked' | 'reported';
 
 /** Desktop's `MessageRequestResponseNotification` lines for the user's own answers. */
 export function requestAnswerText(
@@ -42,5 +42,7 @@ export function requestAnswerText(
       return isGroup ? 'You blocked the group' : 'You blocked this person';
     case 'unblocked':
       return isGroup ? 'You unblocked the group' : 'You unblocked this person';
+    case 'reported':
+      return 'Reported as spam';
   }
 }

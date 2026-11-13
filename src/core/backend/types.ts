@@ -385,6 +385,10 @@ export interface CatchUpMark {
   seq: number;
 }
 
+/** What the phone did with a message request (signal-cli's `messageRequestResponse` types, minus UNKNOWN). */
+export type SyncedRequestAnswer =
+  'accept' | 'unblockAndAccept' | 'delete' | 'block' | 'blockAndDelete' | 'spam' | 'blockAndSpam';
+
 export interface BackendEvents {
   status: ConnectionStatus;
   /** Incoming message, or one we sent from another linked device (sync). */
@@ -467,6 +471,19 @@ export interface BackendEvents {
      */
     readAt?: number;
   };
+  /**
+   * A message request was answered on the user's phone. Already done there:
+   * apply it here without sending anything back. `at` is the answer's own time.
+   */
+  messageRequestResponse: {
+    conversationId: ConversationId;
+    /** The same person under their number, when the answer named both and this is a different id. */
+    alsoKnownAs?: ConversationId;
+    answer: SyncedRequestAnswer;
+    at: number;
+  };
+  /** The user marked a person's safety number verified (or not) on the phone; `at` is when. */
+  identityVerified: { contactId: string; verified: boolean; at: number };
   conversationUpdated: Conversation;
   contactUpdated: Contact;
   /**

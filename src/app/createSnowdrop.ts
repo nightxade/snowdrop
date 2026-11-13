@@ -570,6 +570,8 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     expiry,
     directory,
     postConnect,
+    onRequestAnswered: (e): Promise<void> => requests.applySynced(e),
+    onVerificationSynced: (e): Promise<void> => identity.applySynced(e),
     onError: (error, context) => {
       syncLog.error(context, error);
     },

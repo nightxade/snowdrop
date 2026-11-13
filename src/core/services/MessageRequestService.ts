@@ -7,7 +7,7 @@
  * reported and a retry possible. A backend with no message requests of its
  * own (no `messageRequests` feature) just means the answer is local.
  */
-import type { ChatBackend, Feature } from '@/core/backend';
+import type { BackendEvents, ChatBackend, Feature } from '@/core/backend';
 import {
   mustChooseNewAdmin,
   parseConversationId,
@@ -36,6 +36,11 @@ export interface MessageRequestServiceDeps {
 
 export class MessageRequestService {
   private readonly onError: ErrorReporter;
+  /**
+   * When each chat was last answered, here or (by `at`) on the phone. A synced
+   * answer no newer than that is a replay of one already overtaken, and is dropped.
+   */
+  private readonly answeredAt = new Map<ConversationId, number>();
 
   constructor(private readonly deps: MessageRequestServiceDeps) {
     this.onError = deps.onError ?? consoleReporter;
@@ -56,7 +61,8 @@ export class MessageRequestService {
       ))
     )
       return false;
-    stores.local.getState().markAccepted(id, clock.now());
+    this.stampAccepted(id, clock.now());
+    this.answeredAt.set(id, clock.now());
     await this.noteAnswer(id, 'accepted');
     await this.sendHeldReceipts(id);
     return true;
@@ -64,7 +70,7 @@ export class MessageRequestService {
 
   /** Deletes a request: the sender is told nothing, a group is left, and the chat is gone from here. */
   async remove(id: ConversationId): Promise<boolean> {
-    const { backend, repository, stores, clock } = this.deps;
+    const { backend, stores, clock } = this.deps;
     if (!stores.conversations.getState().byId[id]) return false;
     if (
       !(await this.ask('delete a message request', 'messageRequests', () =>
@@ -72,8 +78,16 @@ export class MessageRequestService {
       ))
     )
       return false;
+    this.answeredAt.set(id, clock.now());
+    await this.deleteLocally(id, clock.now());
+    return true;
+  }
+
+  /** The local half of a delete: the chat is hidden, forgotten and its stored messages go. */
+  private async deleteLocally(id: ConversationId, at: number): Promise<void> {
+    const { repository, stores } = this.deps;
     // Hidden first: nothing the backend or the history archive still names may bring it back.
-    stores.local.getState().markDeleted(id, clock.now());
+    stores.local.getState().markDeleted(id, at);
     stores.conversations.getState().removeMany([id]);
     stores.conversations.getState().setUnread(id, NO_UNREAD);
     stores.messages.getState().closeWindow(id);
@@ -83,7 +97,116 @@ export class MessageRequestService {
     } catch (error) {
       this.onError(error, 'deleting a message request failed');
     }
-    return true;
+  }
+
+  /**
+   * An answer the user gave on their phone (Desktop's `MessageRequestResponse`
+   * sync): the same local state and timeline lines as answering here, but the
+   * phone already did the rest, so nothing is sent: no backend call, no
+   * profile sharing, no read receipts. Blocking a group does not leave it
+   * either (as in Desktop, only a local action does).
+   *
+   * Safe to replay, also after a restart. An answer is dropped when it is not
+   * newer than the chat's latest accept or delete stamp in `localStore`
+   * (`acceptedChats` holds the time of the latest accept, `deletedChats` the
+   * time of the delete), and an answer that already holds changes nothing and
+   * writes the same lines under the same ids. A block time is not persisted
+   * anywhere: a replayed block after a later local unblock is caught because
+   * unblocking stamps an accept, and a replayed accept after a later local
+   * block is caught because applying (or finding applied) an accept stamps it.
+   *
+   * One kind of clock in those stamps: wall-clock ms. A synced answer stamps
+   * the phone's envelope time, an answer given here this device's clock, so
+   * answers closer together than the two clocks' skew can be mis-ordered; the
+   * failure is an answer being ignored, never one being applied twice.
+   *
+   * The local blocked flag is only a mirror: signal-cli (patch 0026) applies
+   * the block or unblock to its own store from this same sync, and the next
+   * directory refresh agrees with it. Nothing here asks the backend to block,
+   * since that would send.
+   */
+  async applySynced(e: BackendEvents['messageRequestResponse']): Promise<void> {
+    const { stores } = this.deps;
+    const id = this.knownTarget(e);
+    if (id === undefined) return;
+    const last = this.answeredAt.get(id);
+    if (last !== undefined && e.at <= last) return;
+    const local = stores.local.getState();
+    const deletedAt = local.deletedChats[id];
+    // Overtaken by a delete (here or on the phone): nothing may bring the chat back or act on it.
+    if (deletedAt !== undefined && deletedAt >= e.at) return;
+    const acceptedAt = local.acceptedChats[id];
+    const blocked = this.isBlocked(id);
+    switch (e.answer) {
+      case 'accept':
+      case 'unblockAndAccept':
+        // Overtaken by a later accept (or an unblock) of this chat.
+        if (acceptedAt !== undefined && acceptedAt >= e.at) return;
+        this.stampAccepted(id, e.at);
+        // Already a normal chat: only the stamp, so a replay after a later local block stays dropped.
+        if (acceptedAt !== undefined && !blocked) break;
+        if (blocked) this.markBlocked(id, false);
+        await this.noteAnswer(id, blocked ? 'unblocked' : 'accepted', e.at);
+        break;
+      case 'block':
+      case 'blockAndSpam':
+      case 'blockAndDelete':
+        if (acceptedAt !== undefined && acceptedAt >= e.at) return;
+        if (!blocked) {
+          this.markBlocked(id, true);
+          if (e.answer !== 'blockAndDelete') await this.noteAnswer(id, 'blocked', e.at);
+        }
+        if (e.answer === 'blockAndSpam') await this.noteReported(id, e.at);
+        if (e.answer === 'blockAndDelete') await this.deleteIfStale(id, e.at);
+        break;
+      case 'delete':
+        if (acceptedAt !== undefined && acceptedAt >= e.at) return;
+        await this.deleteIfStale(id, e.at);
+        break;
+      case 'spam':
+        await this.noteReported(id, e.at);
+        break;
+    }
+    this.answeredAt.set(id, e.at);
+  }
+
+  /** The chat an answer is about, if it is one this device knows (a person's by ACI, else by number). */
+  private knownTarget(e: BackendEvents['messageRequestResponse']): ConversationId | undefined {
+    if (this.known(e.conversationId)) return e.conversationId;
+    if (e.alsoKnownAs !== undefined && this.known(e.alsoKnownAs)) return e.alsoKnownAs;
+    return undefined;
+  }
+
+  /** Records the time of the latest accept (`markAccepted` alone keeps the first). */
+  private stampAccepted(id: ConversationId, at: number): void {
+    const { local } = this.deps.stores;
+    local.getState().markAccepted(id, at);
+    const stamp = local.getState().acceptedChats[id];
+    if (stamp !== undefined && stamp < at)
+      local.setState((s) => ({ acceptedChats: { ...s.acceptedChats, [id]: at } }));
+  }
+
+  /** "Reported as spam", once per chat however many syncs say so. */
+  private async noteReported(id: ConversationId, at: number): Promise<void> {
+    const lines = await this.deps.repository.listAfter(id, 0);
+    if (lines.some((m) => m.id.endsWith(':sys:request-reported'))) return;
+    await this.noteAnswer(id, 'reported', at);
+  }
+
+  /** Deletes the chat unless something newer than the phone's answer is in it (a replay after a new request). */
+  private async deleteIfStale(id: ConversationId, at: number): Promise<void> {
+    const conversation = this.deps.stores.conversations.getState().byId[id];
+    if (!conversation || conversation.lastActivityAt > at) return;
+    await this.deleteLocally(id, at);
+  }
+
+  private isBlocked(id: ConversationId): boolean {
+    const { stores } = this.deps;
+    const conversation = stores.conversations.getState().byId[id];
+    const parsed = parseConversationId(id);
+    if (parsed?.kind === 'direct')
+      return stores.contacts.getState().byId[parsed.target]?.blocked === true;
+    return conversation?.blocked === true;
   }
 
   /**
@@ -96,6 +219,7 @@ export class MessageRequestService {
     if (!this.known(id)) return false;
     if (!(await this.ask('block', 'blocking', () => backend.setBlocked(id, true)))) return false;
     this.markBlocked(id, true);
+    this.answeredAt.set(id, this.deps.clock.now());
     await this.noteAnswer(id, 'blocked');
     await this.leaveBlockedGroup(id);
     return true;
@@ -103,12 +227,13 @@ export class MessageRequestService {
 
   /** Unblocking is accepting, as in Signal's own clients. */
   async unblock(id: ConversationId): Promise<boolean> {
-    const { backend, stores, clock } = this.deps;
+    const { backend, clock } = this.deps;
     if (!this.known(id)) return false;
     if (!(await this.ask('unblock', 'blocking', () => backend.setBlocked(id, false)))) return false;
     this.markBlocked(id, false);
+    this.answeredAt.set(id, clock.now());
     await this.noteAnswer(id, 'unblocked');
-    stores.local.getState().markAccepted(id, clock.now());
+    this.stampAccepted(id, clock.now());
     await this.sendHeldReceipts(id);
     return true;
   }
@@ -124,7 +249,7 @@ export class MessageRequestService {
   }
 
   /** Desktop's timeline line for the user's own answer ("You accepted the message request"), in a chat that exists. */
-  private async noteAnswer(id: ConversationId, answer: RequestAnswer): Promise<void> {
+  private async noteAnswer(id: ConversationId, answer: RequestAnswer, at?: number): Promise<void> {
     const { stores } = this.deps;
     const conversation = stores.conversations.getState().byId[id];
     const selfId = stores.session.getState().self?.id;
@@ -141,6 +266,7 @@ export class MessageRequestService {
         tag: `request-${answer}`,
         keepUnread: true,
         previewless: true,
+        ...(at !== undefined ? { at } : {}),
       });
     } catch (error) {
       this.onError(error, 'noting a message request answer failed');

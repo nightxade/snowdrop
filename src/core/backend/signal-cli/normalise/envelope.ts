@@ -15,7 +15,7 @@ import {
   type MessageStatus,
 } from '@/core/domain';
 import { stripBidiControls } from '@/core/lib';
-import type { ReceiptType } from '../../types';
+import type { ReceiptType, SyncedRequestAnswer } from '../../types';
 import { noteServerReceived } from '../../serverTime';
 import { decode } from '../validate';
 import {
@@ -32,6 +32,17 @@ import type { AdapterEvent, NormaliseContext } from './types';
 
 /** Typing indicators older than this are dropped (Signal clients expire them after 15 s). */
 export const TYPING_STALE_MS = 15_000;
+
+/** signal-cli's `messageRequestResponse` types we act on (UNKNOWN and anything newer are ignored). */
+const SYNCED_ANSWERS: ReadonlyMap<string, SyncedRequestAnswer> = new Map([
+  ['ACCEPT', 'accept'],
+  ['UNBLOCK_AND_ACCEPT', 'unblockAndAccept'],
+  ['DELETE', 'delete'],
+  ['BLOCK', 'block'],
+  ['BLOCK_AND_DELETE', 'blockAndDelete'],
+  ['SPAM', 'spam'],
+  ['BLOCK_AND_SPAM', 'blockAndSpam'],
+]);
 
 /** Server receive time (epoch ms), when the daemon reported one. */
 function serverTime(envelope: WireEnvelope): number | undefined {
@@ -209,6 +220,55 @@ export function normaliseEnvelope(envelope: WireEnvelope, ctx: NormaliseContext)
           }),
         },
       });
+    }
+    const answer = sync.messageRequestResponse;
+    if (answer) {
+      const kind = SYNCED_ANSWERS.get(answer.type ?? '');
+      const person = addressId(answer.threadAci, answer.threadE164);
+      const target = answer.groupId
+        ? groupConversationId(answer.groupId)
+        : person !== undefined
+          ? directConversationId(resolve(person))
+          : undefined;
+      // A person named by both ACI and number may be stored under the number.
+      const byNumber =
+        !answer.groupId && answer.threadAci !== undefined && answer.threadE164 !== undefined
+          ? directConversationId(resolve(answer.threadE164))
+          : undefined;
+      if (kind && target) {
+        events.push({
+          kind: 'messageRequestResponse',
+          payload: {
+            conversationId: target,
+            ...(byNumber !== undefined && byNumber !== target ? { alsoKnownAs: byNumber } : {}),
+            answer: kind,
+            at: envelope.timestamp,
+          },
+        });
+      } else
+        ctx.debug('ignored a synced message request answer', kind ? 'no target' : 'unknown type');
+    }
+    const verified = sync.verified;
+    if (verified) {
+      const who = addressId(verified.destinationAci, verified.destinationNumber);
+      const state = verified.state;
+      if (
+        who !== undefined &&
+        (state === 'VERIFIED' || state === 'DEFAULT' || state === 'UNVERIFIED')
+      ) {
+        events.push({
+          kind: 'identityVerified',
+          payload: {
+            contactId: resolve(who),
+            verified: state === 'VERIFIED',
+            at: envelope.timestamp,
+          },
+        });
+      } else
+        ctx.debug(
+          'ignored a synced verification',
+          who === undefined ? 'no target' : 'unknown state',
+        );
     }
     // Right after linking, signal-cli is still receiving the contacts/groups
     // sync it requested from the phone automatically; CONTACTS_SYNC and

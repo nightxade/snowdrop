@@ -610,6 +610,105 @@ describe('normaliseReceive: ephemeral events', () => {
   });
 });
 
+describe('normaliseReceive: answers and verification synced from the phone', () => {
+  const sync = (syncMessage: object) => run(receive('self', { syncMessage }));
+
+  it.each([
+    ['ACCEPT', 'accept'],
+    ['UNBLOCK_AND_ACCEPT', 'unblockAndAccept'],
+    ['DELETE', 'delete'],
+    ['BLOCK', 'block'],
+    ['BLOCK_AND_DELETE', 'blockAndDelete'],
+    ['SPAM', 'spam'],
+    ['BLOCK_AND_SPAM', 'blockAndSpam'],
+  ])('maps a %s answer about a person', (type, answer) => {
+    const { events, debug } = sync({
+      messageRequestResponse: { type, threadAci: ALICE, threadE164: ALICE_NUMBER },
+    });
+    expect(only(events, 'messageRequestResponse').payload).toEqual({
+      conversationId: DM_ALICE,
+      // Both addresses were named: the number's id is offered in case that is how the chat is stored.
+      alsoKnownAs: directConversationId(ALICE_NUMBER),
+      answer,
+      at: T0,
+    });
+    expect(debug).toEqual([]);
+  });
+
+  it('maps an answer about a group by its group id', () => {
+    const { events } = sync({ messageRequestResponse: { type: 'SPAM', groupId: GROUP_ID } });
+    expect(only(events, 'messageRequestResponse').payload).toEqual({
+      conversationId: GROUP,
+      answer: 'spam',
+      at: T0,
+    });
+  });
+
+  it('addresses a person by number when there is no ACI, and folds it to their canonical id', () => {
+    const { events } = sync({
+      messageRequestResponse: { type: 'ACCEPT', threadE164: ALICE_NUMBER },
+    });
+    expect(only(events, 'messageRequestResponse').payload.conversationId).toBe(
+      directConversationId(ALICE_NUMBER),
+    );
+    const folded = run(
+      receive('self', {
+        syncMessage: { messageRequestResponse: { type: 'ACCEPT', threadE164: ALICE_NUMBER } },
+      }),
+      { resolvePeer: (id) => (id === ALICE_NUMBER ? ALICE : id) },
+    );
+    expect(only(folded.events, 'messageRequestResponse').payload.conversationId).toBe(DM_ALICE);
+  });
+
+  it.each([
+    ['an unknown type', { type: 'UNKNOWN', threadAci: ALICE }],
+    ['a type from the future', { type: 'MUTE', threadAci: ALICE }],
+    ['an inherited property name as the type', { type: 'constructor', threadAci: ALICE }],
+    ['no type', { threadAci: ALICE }],
+    ['no target', { type: 'ACCEPT' }],
+  ])('ignores %s with a debug line that names no one', (_name, response) => {
+    const { events, debug } = sync({ messageRequestResponse: response });
+    // Nothing recognised: the usual "the directory may have changed" hint, and that is all.
+    expect(events).toEqual([{ kind: 'directoryHint' }]);
+    expect(debug).toContain('ignored a synced message request answer');
+    expect(JSON.stringify(debug)).not.toContain(ALICE);
+  });
+
+  it.each([
+    ['VERIFIED', true],
+    ['DEFAULT', false],
+    ['UNVERIFIED', false],
+  ])('maps a %s safety number', (state, verified) => {
+    const { events } = sync({
+      verified: { destinationAci: ALICE, destinationNumber: ALICE_NUMBER, state },
+    });
+    expect(only(events, 'identityVerified').payload).toEqual({
+      contactId: ALICE,
+      verified,
+      at: T0,
+    });
+  });
+
+  it('ignores a verification with an unknown state or no one named', () => {
+    for (const verified of [
+      { destinationAci: ALICE, state: 'MAYBE' },
+      { destinationAci: ALICE },
+      { state: 'VERIFIED' },
+    ]) {
+      const { events, debug } = sync({ verified });
+      expect(events).toEqual([{ kind: 'directoryHint' }]);
+      expect(debug).toContain('ignored a synced verification');
+      expect(JSON.stringify(debug)).not.toContain(ALICE);
+    }
+  });
+
+  it('an older signal-cli, which never sends these, is read as before', () => {
+    expect(only(run(fixtures.readSync).events, 'readSync').kind).toBe('readSync');
+    expect(only(run(fixtures.contactsSync).events, 'contactsChanged').kind).toBe('contactsChanged');
+    expect(run(receive('self', { syncMessage: {} })).events).toEqual([{ kind: 'directoryHint' }]);
+  });
+});
+
 describe('normaliseReceive: robustness', () => {
   it.each([
     ['call', fixtures.call],
