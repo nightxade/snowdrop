@@ -12,29 +12,35 @@ import {
   Tooltip,
   type MenuEntry,
 } from '@/ui/primitives';
-import type { MessagePermissions } from './actions';
+import {
+  messageActionEnabled,
+  runMessageAction,
+  type ActionContext,
+  type MessageActionId,
+} from './actions';
 import { useShiftHeld } from './useShiftHeld';
 import styles from './HoverBar.module.css';
 
 export interface HoverBarProps {
   message: Message;
-  permissions: MessagePermissions;
+  /** What the table's actions run with; its `requestDelete` is the immediate (Shift) delete. */
+  actions: ActionContext;
   pickerOpen: boolean;
   onPickerOpenChange: (open: boolean) => void;
   menuOpen: boolean;
   onMenuOpenChange: (open: boolean) => void;
   menu: () => readonly MenuEntry[];
   onReact: (emoji: string) => void;
-  onReply: () => void;
-  onEdit: () => void;
-  onRetry: () => void;
-  /** Immediate delete (Shift held): for everyone if own, else for me. */
-  onQuickDelete: () => void;
 }
 
 /** Floating quick actions at a message's top-right (hover or keyboard focus). */
 export function HoverBar(props: HoverBarProps) {
-  const { message: m, permissions: p } = props;
+  const { message: m, actions: ctx } = props;
+  const p = ctx.p;
+  const offers = (id: MessageActionId) => messageActionEnabled(id, p, m);
+  const run = (id: MessageActionId) => () => {
+    runMessageAction(id, ctx);
+  };
   const { stores, registries } = useSnowdrop();
   const quick = useStore(stores.local, localSelectors.quickReactions);
   const shift = useShiftHeld();
@@ -49,10 +55,10 @@ export function HoverBar(props: HoverBarProps) {
       aria-label="Message actions"
       data-snowdrop="hover-bar"
     >
-      {p.failed ? (
-        <IconButton label={retryCopy(m).menuLabel} icon={<RotateCw />} onClick={props.onRetry} />
+      {offers('retry') ? (
+        <IconButton label={retryCopy(m).menuLabel} icon={<RotateCw />} onClick={run('retry')} />
       ) : (
-        p.canReact && (
+        offers('react') && (
           <>
             {quick.map((emoji) => (
               <Tooltip key={emoji} label={`React with ${emoji}`}>
@@ -81,8 +87,8 @@ export function HoverBar(props: HoverBarProps) {
           </>
         )
       )}
-      {p.canReply && <IconButton label="Reply" icon={<Reply />} onClick={props.onReply} />}
-      {p.canEdit && <IconButton label="Edit" icon={<Pencil />} onClick={props.onEdit} />}
+      {offers('reply') && <IconButton label="Reply" icon={<Reply />} onClick={run('reply')} />}
+      {offers('edit') && <IconButton label="Edit" icon={<Pencil />} onClick={run('edit')} />}
       {plugins.map((action) => {
         const Icon = isRenderableComponent<{ size?: number }>(action.icon) ? action.icon : Puzzle;
         return (
@@ -100,12 +106,12 @@ export function HoverBar(props: HoverBarProps) {
           </PluginBoundary>
         );
       })}
-      {shift && p.canDelete ? (
+      {shift && offers('delete') ? (
         <IconButton
           label={p.canDeleteForEveryone ? 'Delete for everyone' : 'Delete for me'}
           icon={<Trash2 />}
           className={styles.danger}
-          onClick={props.onQuickDelete}
+          onClick={run('delete')}
         />
       ) : (
         <DropdownMenu

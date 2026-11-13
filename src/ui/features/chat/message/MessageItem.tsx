@@ -19,6 +19,7 @@ import {
   EDIT_WINDOW_MS,
   isNoteToSelf,
   type ConversationId,
+  type Message,
   type MessageId,
 } from '@/core/domain';
 import { messagesSelectors, sessionSelectors } from '@/core/stores';
@@ -42,19 +43,13 @@ import {
   type RowActionHandler,
 } from '../list/rowState';
 import * as act from './actions';
-import { ConfirmDelete } from './ConfirmDelete';
-import { ConfirmEndPoll } from './ConfirmEndPoll';
-import { CustomEmojiDialog } from './CustomEmojiPopover';
 import { HoverBar } from './HoverBar';
 import { MessageActionSheet } from './MessageActionSheet';
 import { MessageContent } from './MessageContent';
-import { MessageDetails } from './MessageDetails';
-import { PollVotesDialog } from './PollCard';
-import { StickerPackDialog } from './StickerPackDialog';
-import { buildMessageMenu, deleteKindOf, type DeleteKind } from './messageMenu';
+import { buildMessageMenu } from './messageMenu';
+import { useMessageDialogs } from './useMessageDialogs';
 import { QuoteHeader } from './QuoteHeader';
 import { firstControl, useInertUntilEntered, useLongPress, useMessageNames } from './rowHooks';
-import { isShiftHeld } from './useShiftHeld';
 import { useRenderProbe } from '../lib/useRenderProbe';
 import styles from './MessageItem.module.css';
 
@@ -67,6 +62,16 @@ export interface MessageItemProps {
   /** Show 16px avatars in compact mode. */
   compactAvatars: boolean;
 }
+
+/** Row key bindings (Enter and Control+Shift+S are handled apart). */
+const KEY_ACTIONS: Partial<Record<string, act.MessageActionId>> = {
+  r: 'reply',
+  e: 'edit',
+  '+': 'react',
+  '=': 'react',
+  delete: 'delete',
+  backspace: 'delete',
+};
 
 const MAX_TIMER_MS = 2 ** 31 - 1;
 
@@ -115,12 +120,28 @@ export const MessageItem = memo(function MessageItem({
   const [menuOpen, setMenuOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
-  const [confirm, setConfirm] = useState<DeleteKind | null>(null);
-  const [detailsOpen, setDetailsOpen] = useState(false);
-  const [packOpen, setPackOpen] = useState(false);
-  const [votesOpen, setVotesOpen] = useState(false);
-  const [endOpen, setEndOpen] = useState(false);
-  const [emojiDialog, setEmojiDialog] = useState<string | null>(null);
+  const perms = m ? act.permissionsFor(app, m) : undefined;
+  const { callbacks: dialog, dialogs } = useMessageDialogs(m, row, perms);
+  /** What the table's actions run with; each surface overrides what it does differently. */
+  const actionContext = (
+    msg: Message,
+    p: act.MessagePermissions,
+    over: Partial<act.ActionContext> = {},
+  ): act.ActionContext => ({
+    app,
+    chat,
+    m: msg,
+    p,
+    openPicker: () => {
+      setFocused(true);
+      setPickerOpen(true);
+    },
+    requestDelete: dialog.requestDelete,
+    openDetails: dialog.openDetails,
+    requestEndPoll: dialog.requestEndPoll,
+    open: () => false,
+    ...over,
+  });
   const longPress = useLongPress(() => {
     setSheetOpen(true);
   });
@@ -153,35 +174,10 @@ export const MessageItem = memo(function MessageItem({
       const msg = messagesSelectors.message(conversationId, id)(stores.messages.getState());
       if (!msg) return false;
       const p = act.permissionsFor(app, msg);
-      switch (action) {
-        case 'reply':
-          if (p.canReply) act.reply(app, chat, msg);
-          return p.canReply;
-        case 'forward':
-          if (p.canForward) act.forward(app, msg);
-          return p.canForward;
-        case 'edit':
-          // Asks again (and says why not) in case the window closed since `p` was read.
-          return p.own && act.startEdit(app, msg);
-        case 'react':
-          if (!p.canReact) return false;
-          setFocused(true);
-          setPickerOpen(true);
-          return true;
-        case 'copyText':
-          if (p.canCopy) act.copyMessageText(app, msg);
-          return p.canCopy;
-        case 'copyMarkdown':
-          if (p.canCopy) act.copyMarkdown(app, msg);
-          return p.canCopy;
-        case 'delete':
-          // Always through the confirm dialog (like the Delete key without Shift).
-          if (p.canDelete) setConfirm(deleteKindOf(p));
-          return p.canDelete;
-        case 'pin':
-          if (p.canPin) act.setPinned(app, msg, !msg.pinned);
-          return p.canPin;
-        case 'open': {
+      const ctx = actionContext(msg, p, {
+        // Always through the confirm dialog (like the Delete key without Shift).
+        requestDelete: dialog.confirmDelete,
+        open: () => {
           const media = row.current?.querySelector<HTMLElement>('[data-open-attachment]');
           if (media) {
             media.click();
@@ -193,8 +189,9 @@ export const MessageItem = memo(function MessageItem({
             focus: true,
           });
           return true;
-        }
-      }
+        },
+      });
+      return act.runMessageAction(action, ctx, 'command');
     };
   });
   useLayoutEffect(() => rows.registerActions(id, (action) => actions.current(action)), [rows, id]);
@@ -212,8 +209,7 @@ export const MessageItem = memo(function MessageItem({
     };
   }, [entered]);
 
-  if (!m) return null;
-  const perms = act.permissionsFor(app, m);
+  if (!m || !perms) return null;
   const name = nameFor(m.authorId);
   const active = (hovered && !touch) || focused || menuOpen || contextOpen || pickerOpen;
   const mentionsMe = selfId !== null && m.authorId !== selfId && mentionsContact(m, selfId);
@@ -221,49 +217,16 @@ export const MessageItem = memo(function MessageItem({
   const labelId = `${domId}-label`;
   const bodyId = `${domId}-body`;
 
-  /** After a delete, keep the keyboard somewhere sensible: the next message, else the composer. */
-  const focusAfterDelete = () => {
-    const all = [
-      ...(row.current
-        ?.closest('[data-snowdrop="message-log"]')
-        ?.querySelectorAll<HTMLElement>('[data-roving-item]') ?? []),
-    ];
-    const next = all[all.indexOf(row.current as HTMLElement) + 1];
-    // After the confirm dialog has closed and restored its own focus.
-    setTimeout(() => {
-      const nextId = next?.dataset.messageId as MessageId | undefined;
-      if (next?.isConnected && nextId) {
-        rows.setActive(nextId);
-        next.focus();
-      } else chat.focusComposer();
-    }, 60);
-  };
-  const runDelete = (kind: DeleteKind) => {
-    if (kind === 'everyone') act.deleteForEveryone(app, m);
-    else if (kind === 'admin') act.adminDelete(app, m);
-    else act.deleteForMe(app, m);
-    focusAfterDelete();
-  };
-  const requestDelete = (kind: DeleteKind) => {
-    if (isShiftHeld()) runDelete(kind);
-    else setConfirm(kind);
-  };
   const menu = () =>
     buildMessageMenu(app, chat, m, {
       openPicker: () => {
         setPickerOpen(true);
       },
-      requestDelete,
-      openDetails: () => {
-        setDetailsOpen(true);
-      },
-      requestEndPoll: () => {
-        setEndOpen(true);
-      },
-      openStickerPack: () => {
-        setPackOpen(true);
-      },
-      openCustomEmoji: setEmojiDialog,
+      requestDelete: dialog.requestDelete,
+      openDetails: dialog.openDetails,
+      requestEndPoll: dialog.requestEndPoll,
+      openStickerPack: dialog.openStickerPack,
+      openCustomEmoji: dialog.openCustomEmoji,
     });
   const leaveRow = () => {
     rows.enter(null);
@@ -284,10 +247,16 @@ export const MessageItem = memo(function MessageItem({
     if (e.defaultPrevented) return;
     // Decided now, not when the row last rendered: an edit window may have closed since.
     const live = act.permissionsFor(app, m);
+    const ctx = actionContext(m, live);
+    // Enabled means handled, even if the action then declines (an edit says why not).
+    const run = (action: act.MessageActionId) => {
+      if (!act.messageActionEnabled(action, live, m)) return false;
+      act.runMessageAction(action, ctx);
+      return true;
+    };
     // Signal Desktop's shortcut for forwarding the focused message.
     if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && e.key.toLowerCase() === 's') {
-      if (!live.canForward) return;
-      act.forward(app, m);
+      if (!run('forward')) return;
       e.preventDefault();
       return;
     }
@@ -296,15 +265,11 @@ export const MessageItem = memo(function MessageItem({
     if (key === 'enter' && !editing) {
       rows.enter(id);
       setFocused(true);
-    } else if (key === 'r' && live.canReply) act.reply(app, chat, m);
-    else if (key === 'e' && live.canEdit) void act.startEdit(app, m);
-    else if ((key === '+' || key === '=') && live.canReact) {
-      setFocused(true);
-      setPickerOpen(true);
-    } else if ((key === 'delete' || key === 'backspace') && live.canDelete)
-      requestDelete(deleteKindOf(live));
-    else return;
-    e.preventDefault();
+      e.preventDefault();
+      return;
+    }
+    const action = Object.hasOwn(KEY_ACTIONS, key) ? KEY_ACTIONS[key] : undefined;
+    if (action && run(action)) e.preventDefault();
   };
 
   // The row's own context menu replaces the bar (and the time tooltip) while it's open.
@@ -369,7 +334,7 @@ export const MessageItem = memo(function MessageItem({
       {showBar && (
         <HoverBar
           message={m}
-          permissions={perms}
+          actions={actionContext(m, perms, { requestDelete: dialog.runDelete })}
           pickerOpen={pickerOpen}
           onPickerOpenChange={setPickerOpen}
           menuOpen={menuOpen}
@@ -377,18 +342,6 @@ export const MessageItem = memo(function MessageItem({
           menu={menu}
           onReact={(emoji) => {
             act.react(app, m, emoji);
-          }}
-          onReply={() => {
-            act.reply(app, chat, m);
-          }}
-          onEdit={() => {
-            act.startEdit(app, m);
-          }}
-          onRetry={() => {
-            act.retry(app, m);
-          }}
-          onQuickDelete={() => {
-            runDelete(deleteKindOf(perms));
           }}
         />
       )}
@@ -422,16 +375,8 @@ export const MessageItem = memo(function MessageItem({
         menuOpen={contextOpen}
         bodyId={bodyId}
         onEditDone={leaveRow}
-        onViewPollVotes={() => {
-          setVotesOpen(true);
-        }}
-        onOpenStickerPack={
-          hasStickers
-            ? () => {
-                setPackOpen(true);
-              }
-            : undefined
-        }
+        onViewPollVotes={dialog.openPollVotes}
+        onOpenStickerPack={hasStickers ? dialog.openStickerPack : undefined}
       />
     </div>
   );
@@ -460,71 +405,7 @@ export const MessageItem = memo(function MessageItem({
           />
         </Drawer>
       )}
-      {confirm && (
-        <ConfirmDelete
-          kind={confirm}
-          message={m}
-          onConfirm={() => {
-            runDelete(confirm);
-            setConfirm(null);
-          }}
-          onCancel={() => {
-            setConfirm(null);
-          }}
-        />
-      )}
-      {detailsOpen && <MessageDetails message={m} onOpenChange={setDetailsOpen} />}
-      {votesOpen && m.poll && (
-        <PollVotesDialog
-          poll={m.poll}
-          conversationId={conversationId}
-          onEnd={
-            perms.canEndPoll
-              ? () => {
-                  setVotesOpen(false);
-                  setEndOpen(true);
-                }
-              : undefined
-          }
-          onOpenChange={setVotesOpen}
-        />
-      )}
-      {endOpen && m.poll && (
-        <ConfirmEndPoll
-          question={m.poll.question}
-          onConfirm={() => {
-            setEndOpen(false);
-            void act.endPoll(app, m);
-          }}
-          onCancel={() => {
-            setEndOpen(false);
-          }}
-        />
-      )}
-      {packOpen && m.sticker && (
-        <StickerPackDialog
-          conversationId={conversationId}
-          sticker={m.sticker}
-          onOpenChange={setPackOpen}
-          // The sticker button isn't always focused after a click (WebKit), so name it.
-          returnFocus={() =>
-            row.current?.querySelector<HTMLElement>('[data-open-attachment]') ?? row.current
-          }
-        />
-      )}
-      {emojiDialog !== null &&
-        (() => {
-          const delivery = m.customEmoji?.find((d) => d.name === emojiDialog);
-          return delivery ? (
-            <CustomEmojiDialog
-              conversationId={conversationId}
-              delivery={delivery}
-              onOpenChange={(open) => {
-                if (!open) setEmojiDialog(null);
-              }}
-            />
-          ) : null;
-        })()}
+      {dialogs}
     </>
   );
 });

@@ -14,6 +14,7 @@ import type { AppServices } from '@/ui/hooks';
 import { copyText } from '@/ui/features/conversation';
 import type { ChatController } from '../ChatController';
 import { toMarkdown } from '../lib/toMarkdown';
+import type { MessageAction } from '../list/rowState';
 
 export function nameResolver(app: AppServices): (id: string) => string {
   const contacts = app.stores.contacts.getState().byId;
@@ -143,4 +144,163 @@ export function permissionsFor(app: AppServices, m: Message): MessagePermissions
     capabilities: app.send.capabilities,
     now: Date.now(),
   });
+}
+
+export type DeleteKind = 'everyone' | 'me' | 'admin';
+
+/** What a plain Delete does: for everyone on our own message, otherwise for ourselves. */
+export function deleteKindOf(p: MessagePermissions): DeleteKind {
+  return p.canDeleteForEveryone ? 'everyone' : 'me';
+}
+
+/** Every operation a message offers, whichever surface (key, command, menu, hover bar) reaches it. */
+export type MessageActionId =
+  | MessageAction
+  | 'retry'
+  | 'discard'
+  | 'details'
+  | 'endPoll'
+  | 'deleteEveryone'
+  | 'deleteAdmin'
+  | 'deleteMe';
+
+/** What an action needs to run: the message, its permissions, and the row's own UI hooks. */
+export interface ActionContext {
+  app: AppServices;
+  chat: ChatController;
+  m: Message;
+  p: MessagePermissions;
+  openPicker: () => void;
+  /** Asks before deleting (skipped when Shift is held), or deletes at once on the quick-delete path. */
+  requestDelete: (kind: DeleteKind) => void;
+  openDetails: () => void;
+  requestEndPoll: () => void;
+  /** Opens the row's attachment or jumps to its quote; false when it has neither. */
+  open: () => boolean;
+}
+
+interface ActionDef {
+  enabled: (p: MessagePermissions, m: Message) => boolean;
+  /**
+   * The command layer's gate, where it is looser than `enabled`: it hands the call to `run`, which
+   * checks again and says why not.
+   */
+  commandEnabled?: (p: MessagePermissions, m: Message) => boolean;
+  /** Does it; false when it did not apply. */
+  run: (ctx: ActionContext) => boolean;
+}
+
+const done = (fn: () => void): boolean => {
+  fn();
+  return true;
+};
+
+export const MESSAGE_ACTIONS: Record<MessageActionId, ActionDef> = {
+  retry: {
+    enabled: (p) => p.failed,
+    run: ({ app, m }) =>
+      done(() => {
+        retry(app, m);
+      }),
+  },
+  discard: {
+    enabled: (p) => p.failed,
+    run: ({ app, m }) =>
+      done(() => {
+        discard(app, m);
+      }),
+  },
+  react: { enabled: (p) => p.canReact, run: ({ openPicker }) => done(openPicker) },
+  reply: {
+    enabled: (p) => p.canReply,
+    run: ({ app, chat, m }) =>
+      done(() => {
+        reply(app, chat, m);
+      }),
+  },
+  forward: {
+    enabled: (p) => p.canForward,
+    run: ({ app, m }) =>
+      done(() => {
+        forward(app, m);
+      }),
+  },
+  edit: {
+    enabled: (p) => p.canEdit,
+    // Asks again (and says why not) in case the window closed since the permissions were read.
+    commandEnabled: (p) => p.own,
+    run: ({ app, m }) => startEdit(app, m),
+  },
+  pin: {
+    enabled: (p) => p.canPin,
+    run: ({ app, m }) =>
+      done(() => {
+        setPinned(app, m, !m.pinned);
+      }),
+  },
+  endPoll: { enabled: (p) => p.canEndPoll, run: ({ requestEndPoll }) => done(requestEndPoll) },
+  details: { enabled: (p) => p.canShowDetails, run: ({ openDetails }) => done(openDetails) },
+  copyText: {
+    enabled: (p) => p.canCopy,
+    run: ({ app, m }) =>
+      done(() => {
+        copyMessageText(app, m);
+      }),
+  },
+  copyMarkdown: {
+    enabled: (p) => p.canCopy,
+    run: ({ app, m }) =>
+      done(() => {
+        copyMarkdown(app, m);
+      }),
+  },
+  delete: {
+    enabled: (p) => p.canDelete,
+    run: ({ p, requestDelete }) =>
+      done(() => {
+        requestDelete(deleteKindOf(p));
+      }),
+  },
+  deleteEveryone: {
+    enabled: (p) => p.canDelete && p.canDeleteForEveryone,
+    run: ({ requestDelete }) =>
+      done(() => {
+        requestDelete('everyone');
+      }),
+  },
+  deleteAdmin: {
+    enabled: (p) => p.canDelete && p.canAdminDelete,
+    run: ({ requestDelete }) =>
+      done(() => {
+        requestDelete('admin');
+      }),
+  },
+  // Same gate as `delete`; named apart so the menu can list "Delete for me" explicitly.
+  deleteMe: {
+    enabled: (p) => p.canDelete,
+    run: ({ requestDelete }) =>
+      done(() => {
+        requestDelete('me');
+      }),
+  },
+  open: { enabled: () => true, run: ({ open }) => open() },
+};
+
+export function messageActionEnabled(
+  id: MessageActionId,
+  p: MessagePermissions,
+  m: Message,
+): boolean {
+  return MESSAGE_ACTIONS[id].enabled(p, m);
+}
+
+/** Runs the action if it is enabled (the command layer's looser gate when `command`). */
+export function runMessageAction(
+  id: MessageActionId,
+  ctx: ActionContext,
+  gate: 'surface' | 'command' = 'surface',
+): boolean {
+  const def = MESSAGE_ACTIONS[id];
+  const ok = gate === 'command' && def.commandEnabled ? def.commandEnabled : def.enabled;
+  return ok(ctx.p, ctx.m) && def.run(ctx);
 }

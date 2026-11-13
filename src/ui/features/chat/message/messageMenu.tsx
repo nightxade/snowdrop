@@ -1,3 +1,4 @@
+import type { ReactElement } from 'react';
 import {
   Copy,
   Forward,
@@ -21,18 +22,12 @@ import type { AppServices } from '@/ui/hooks';
 import { isRenderableComponent, type MenuEntry } from '@/ui/primitives';
 import type { ChatController } from '../ChatController';
 import * as act from './actions';
-
-export type DeleteKind = 'everyone' | 'me' | 'admin';
-
-/** What a plain Delete does: for everyone on our own message, otherwise for ourselves. */
-export function deleteKindOf(p: act.MessagePermissions): DeleteKind {
-  return p.canDeleteForEveryone ? 'everyone' : 'me';
-}
+import { messageActionEnabled, runMessageAction, type MessageActionId } from './actions';
 
 export interface MenuCallbacks {
   openPicker: () => void;
   /** Asks before deleting (skipped when Shift is held). */
-  requestDelete: (kind: DeleteKind) => void;
+  requestDelete: (kind: act.DeleteKind) => void;
   /** Opens the "Message details" dialog (own messages only — see MessageDetails). */
   openDetails: () => void;
   /** Asks to end this poll (confirmed first; only offered on the user's own open polls). */
@@ -54,33 +49,44 @@ export function buildMessageMenu(
 ): MenuEntry[] {
   const p = act.permissionsFor(app, m);
   const entries: MenuEntry[] = [];
+  const ctx: act.ActionContext = {
+    app,
+    chat,
+    m,
+    p,
+    openPicker: cb.openPicker,
+    requestDelete: cb.requestDelete,
+    openDetails: cb.openDetails,
+    requestEndPoll: cb.requestEndPoll,
+    open: () => false,
+  };
+  const offers = (id: MessageActionId) => messageActionEnabled(id, p, m);
+  const item = (
+    action: MessageActionId,
+    id: string,
+    label: string,
+    icon: ReactElement,
+    danger = false,
+  ): MenuEntry => ({
+    kind: 'item',
+    id,
+    label,
+    icon,
+    ...(danger ? { danger: true } : {}),
+    onSelect: () => {
+      runMessageAction(action, ctx);
+    },
+  });
 
-  if (p.failed) {
+  if (offers('retry')) {
     entries.push(
-      {
-        kind: 'item',
-        id: 'retry',
-        label: retryCopy(m).menuLabel,
-        icon: <RotateCw size={ICON} />,
-        onSelect: () => {
-          act.retry(app, m);
-        },
-      },
-      {
-        kind: 'item',
-        id: 'discard',
-        label: 'Delete',
-        icon: <Trash2 size={ICON} />,
-        danger: true,
-        onSelect: () => {
-          act.discard(app, m);
-        },
-      },
+      item('retry', 'retry', retryCopy(m).menuLabel, <RotateCw size={ICON} />),
+      item('discard', 'discard', 'Delete', <Trash2 size={ICON} />, true),
       { kind: 'separator', id: 'sep-failed' },
     );
   }
 
-  if (p.canReact) {
+  if (offers('react')) {
     const quick = localSelectors.quickReactions(app.stores.local.getState());
     entries.push({
       kind: 'submenu',
@@ -97,85 +103,34 @@ export function buildMessageMenu(
           },
         })),
         { kind: 'separator', id: 'react-sep' },
-        { kind: 'item', id: 'react-more', label: 'More reactions…', onSelect: cb.openPicker },
+        {
+          kind: 'item',
+          id: 'react-more',
+          label: 'More reactions…',
+          onSelect: () => {
+            runMessageAction('react', ctx);
+          },
+        },
       ],
     });
   }
-  if (p.canReply) {
-    entries.push({
-      kind: 'item',
-      id: 'reply',
-      label: 'Reply',
-      icon: <Reply size={ICON} />,
-      onSelect: () => {
-        act.reply(app, chat, m);
-      },
-    });
-  }
-  if (p.canForward) {
-    entries.push({
-      kind: 'item',
-      id: 'forward',
-      label: 'Forward',
-      icon: <Forward size={ICON} />,
-      onSelect: () => {
-        act.forward(app, m);
-      },
-    });
-  }
-  if (p.canEdit) {
-    entries.push({
-      kind: 'item',
-      id: 'edit',
-      label: 'Edit message',
-      icon: <Pencil size={ICON} />,
-      onSelect: () => {
-        act.startEdit(app, m);
-      },
-    });
-  }
-  if (p.canPin) {
+  if (offers('reply')) entries.push(item('reply', 'reply', 'Reply', <Reply size={ICON} />));
+  if (offers('forward'))
+    entries.push(item('forward', 'forward', 'Forward', <Forward size={ICON} />));
+  if (offers('edit')) entries.push(item('edit', 'edit', 'Edit message', <Pencil size={ICON} />));
+  if (offers('pin')) {
     entries.push(
       m.pinned
-        ? {
-            kind: 'item',
-            id: 'unpin',
-            label: 'Unpin message',
-            icon: <PinOff size={ICON} />,
-            onSelect: () => {
-              act.setPinned(app, m, false);
-            },
-          }
-        : {
-            kind: 'item',
-            id: 'pin',
-            label: 'Pin message',
-            icon: <Pin size={ICON} />,
-            onSelect: () => {
-              act.setPinned(app, m, true);
-            },
-          },
+        ? item('pin', 'unpin', 'Unpin message', <PinOff size={ICON} />)
+        : item('pin', 'pin', 'Pin message', <Pin size={ICON} />),
     );
   }
-
-  if (p.canEndPoll) {
-    entries.push({
-      kind: 'item',
-      id: 'end-poll',
-      label: 'End poll',
-      icon: <CircleStop size={ICON} />,
-      onSelect: cb.requestEndPoll,
-    });
+  if (offers('endPoll')) {
+    entries.push(item('endPoll', 'end-poll', 'End poll', <CircleStop size={ICON} />));
   }
 
-  if (p.canShowDetails) {
-    entries.push({
-      kind: 'item',
-      id: 'details',
-      label: 'Message details',
-      icon: <Info size={ICON} />,
-      onSelect: cb.openDetails,
-    });
+  if (offers('details')) {
+    entries.push(item('details', 'details', 'Message details', <Info size={ICON} />));
   }
 
   if (
@@ -224,27 +179,11 @@ export function buildMessageMenu(
     });
   }
 
-  if (p.canCopy) {
+  if (offers('copyText')) {
     entries.push(
       { kind: 'separator', id: 'sep-copy' },
-      {
-        kind: 'item',
-        id: 'copy',
-        label: 'Copy text',
-        icon: <Copy size={ICON} />,
-        onSelect: () => {
-          act.copyMessageText(app, m);
-        },
-      },
-      {
-        kind: 'item',
-        id: 'copy-md',
-        label: 'Copy as Markdown',
-        icon: <FileCode size={ICON} />,
-        onSelect: () => {
-          act.copyMarkdown(app, m);
-        },
-      },
+      item('copyText', 'copy', 'Copy text', <Copy size={ICON} />),
+      item('copyMarkdown', 'copy-md', 'Copy as Markdown', <FileCode size={ICON} />),
     );
   }
 
@@ -281,42 +220,31 @@ export function buildMessageMenu(
     },
   );
 
-  if (p.canDelete) {
+  if (offers('deleteMe')) {
     entries.push({ kind: 'separator', id: 'sep-delete' });
-    if (p.canDeleteForEveryone) {
-      entries.push({
-        kind: 'item',
-        id: 'delete-everyone',
-        label: 'Delete for everyone',
-        icon: <Trash2 size={ICON} />,
-        danger: true,
-        onSelect: () => {
-          cb.requestDelete('everyone');
-        },
-      });
+    if (offers('deleteEveryone')) {
+      entries.push(
+        item(
+          'deleteEveryone',
+          'delete-everyone',
+          'Delete for everyone',
+          <Trash2 size={ICON} />,
+          true,
+        ),
+      );
     }
-    if (p.canAdminDelete) {
-      entries.push({
-        kind: 'item',
-        id: 'delete-admin',
-        label: 'Delete for everyone (admin)',
-        icon: <Trash2 size={ICON} />,
-        danger: true,
-        onSelect: () => {
-          cb.requestDelete('admin');
-        },
-      });
+    if (offers('deleteAdmin')) {
+      entries.push(
+        item(
+          'deleteAdmin',
+          'delete-admin',
+          'Delete for everyone (admin)',
+          <Trash2 size={ICON} />,
+          true,
+        ),
+      );
     }
-    entries.push({
-      kind: 'item',
-      id: 'delete-me',
-      label: 'Delete for me',
-      icon: <Trash2 size={ICON} />,
-      danger: true,
-      onSelect: () => {
-        cb.requestDelete('me');
-      },
-    });
+    entries.push(item('deleteMe', 'delete-me', 'Delete for me', <Trash2 size={ICON} />, true));
   }
   return entries;
 }

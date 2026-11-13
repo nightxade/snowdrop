@@ -3,7 +3,7 @@ import { bodyToPlainText, type Message } from '@/core/domain';
 import { contactsSelectors, UNKNOWN_CONTACT_NAME } from '@/core/stores';
 import { useStores } from '@/ui/hooks';
 import { Button, Kbd, Modal } from '@/ui/primitives';
-import type { DeleteKind } from './messageMenu';
+import type { DeleteKind } from './actions';
 import styles from './ConfirmDelete.module.css';
 
 const COPY: Record<DeleteKind, { title: string; body: string; action: string }> = {
