@@ -43,6 +43,29 @@ const cases = [
   ['ui/features/rail', "export * from '../sidebar/model';", ['import-x/no-restricted-paths']],
   ['ui/features/rail', "export * from '../sidebar';", []],
   ['core/stores', "export type { Message } from '@/core/domain';", []],
+  // Inside core, the backend contract sits below stores and persistence.
+  [
+    'core/backend',
+    "export type { AppearanceSettings } from '@/core/stores';",
+    ['import-x/no-restricted-paths'],
+  ],
+  [
+    'core/backend/signal-cli',
+    "export type { MessageRepository } from '@/core/persistence';",
+    ['import-x/no-restricted-paths'],
+  ],
+  [
+    'core/stores',
+    "export { DESKTOP_ERROR_KINDS } from '@/core/backend';",
+    ['@typescript-eslint/no-restricted-imports'],
+  ],
+  [
+    'core/persistence',
+    "export { DESKTOP_ERROR_KINDS } from '@/core/backend/desktop';",
+    ['@typescript-eslint/no-restricted-imports'],
+  ],
+  ['core/stores', "export type { BackendKind } from '@/core/backend';", []],
+  ['core/persistence', "export type { SendInput } from '@/core/backend';", []],
   ['app', "export { MockBackend } from '@/core/backend/mock';", []],
   ['core/domain', 'const x = 1;\nexport default x;', ['no-restricted-syntax']],
   // A failure is never dropped silently: it says why (`ignore` / `ignored`) or is reported.

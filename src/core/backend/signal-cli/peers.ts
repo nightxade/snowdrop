@@ -17,7 +17,7 @@
  * falling back to the ACI.
  */
 import { ignore } from '@/core/lib';
-import type { KeyValueStorage } from '@/core/persistence';
+import type { KeyValueStorage } from '@/core/lib';
 import { isUuid } from './identity';
 import { peersStorageKey } from './storageKeys';
 import { isRecord } from './validate';

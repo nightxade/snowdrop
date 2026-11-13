@@ -6,7 +6,7 @@
  */
 import { parseConversationId, type Conversation, type ConversationId } from '@/core/domain';
 import { ignore, stripBidiControls, type Clock, type Emitter } from '@/core/lib';
-import type { KeyValueStorage } from '@/core/persistence';
+import type { KeyValueStorage } from '@/core/lib';
 import type { BackendEvents } from '../types';
 import type { Directory } from './directory';
 import { describeError } from './errors';

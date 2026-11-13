@@ -132,6 +132,27 @@ const appZones = [
   },
 ];
 
+/**
+ * Production-only layering inside core (tests may build fixtures from any
+ * layer): the backend contract sits below stores and persistence, so shared
+ * types live in core/backend or core/lib, never the other way round.
+ */
+const coreZones = [
+  {
+    target: src('core/backend'),
+    from: [src('core/stores'), src('core/persistence')],
+    message:
+      'core/backend must not import core/stores or core/persistence (put shared types in core/backend or core/lib).',
+  },
+];
+
+/** Stores and persistence may name backend types, but never load backend code. */
+const BACKEND_VALUES = {
+  group: ['@/core/backend', '@/core/backend/*'],
+  allowTypeImports: true,
+  message: 'core/stores and core/persistence may only use `import type` from core/backend.',
+};
+
 const NO_DEFAULT_EXPORT = {
   selector: 'ExportDefaultDeclaration',
   message: 'Use named exports only (PLAN §7).',
@@ -217,7 +238,7 @@ export default tseslint.config(
       'import-x/no-cycle': 'error',
       'import-x/no-restricted-paths': [
         'error',
-        { zones: [...boundaryZones, ...platformZones, ...adapterZones, ...appZones] },
+        { zones: [...boundaryZones, ...platformZones, ...adapterZones, ...appZones, ...coreZones] },
       ],
     },
   },
@@ -248,6 +269,13 @@ export default tseslint.config(
           ],
         },
       ],
+    },
+  },
+  {
+    files: ['src/core/stores/**/*.{ts,tsx}', 'src/core/persistence/**/*.{ts,tsx}'],
+    ignores: ['src/**/*.test.{ts,tsx}'],
+    rules: {
+      '@typescript-eslint/no-restricted-imports': ['error', { patterns: [BACKEND_VALUES] }],
     },
   },
   {

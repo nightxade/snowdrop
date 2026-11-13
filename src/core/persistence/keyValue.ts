@@ -6,22 +6,11 @@
  * several releases still gets their settings. Corrupt or future-version data
  * falls back to defaults rather than crashing the app on boot.
  */
-import { createLogger, ignore } from '@/core/lib';
+import { createLogger, ignore, type KeyValueStorage } from '@/core/lib';
 
 const log = createLogger('storage');
 
-/** The subset of the Web Storage API we need; lets tests use an in-memory map. */
-export interface KeyValueStorage {
-  getItem(key: string): string | null;
-  setItem(key: string, value: string): void;
-  removeItem(key: string): void;
-  /**
-   * Every key currently stored. Optional: only `hydrateKeyValue` (crypto/)
-   * needs it, to decrypt everything once after unlock, and not every
-   * storage worth wrapping (e.g. a narrow test double) can offer it cheaply.
-   */
-  keys?(): string[];
-}
+export type { KeyValueStorage };
 
 export function createMemoryStorage(initial: Record<string, string> = {}): KeyValueStorage {
   const map = new Map(Object.entries(initial));

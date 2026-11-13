@@ -10,3 +10,4 @@ export * from './poll';
 export * from './yield';
 export * from './errors';
 export * from './abort';
+export type * from './keyValueStorage';

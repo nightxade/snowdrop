@@ -6,7 +6,7 @@
  * field* instead of resetting everything.
  */
 import { createStore, type StoreApi } from 'zustand/vanilla';
-import type { BackendKind } from '@/core/backend';
+import type { BackendKind, DesktopConnection } from '@/core/backend';
 import { isRecord, type VersionedSchema } from '@/core/persistence';
 
 export type Density = 'comfortable' | 'compact';
@@ -120,22 +120,7 @@ export interface ConnectionSettings {
   desktop: DesktopConnection;
 }
 
-/**
- * How the desktop app reaches signal-cli. By default it runs signal-cli as a
- * child process (`signal-cli jsonRpc`) — downloaded into the app's own data
- * directory the first time it's needed, or a build-time bundled sidecar in a
- * `tauri:build:bundled` build; an external HTTP daemon on this computer is
- * the advanced alternative.
- */
-export interface DesktopConnection {
-  mode: 'spawn' | 'external';
-  /** Spawn: absolute path of a signal-cli you installed ('' = auto: downloaded, then bundled, then PATH). */
-  binaryPath: string;
-  /** Spawn: run signal-cli for this account only (`-a`); '' = multi-account. */
-  account: string;
-  /** External: the daemon's address (loopback only). */
-  externalUrl: string;
-}
+export type { DesktopConnection };
 
 export const DEFAULT_DESKTOP_CONNECTION: DesktopConnection = {
   mode: 'spawn',

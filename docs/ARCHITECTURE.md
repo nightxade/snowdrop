@@ -91,6 +91,12 @@ These are enforced on every source file by `eslint.config.js`
    import the mock directly.
 7. Named exports only (`no-restricted-syntax` on `export default`), and no
    import cycles (`import-x/no-cycle`).
+8. Inside `core`, the backend contract sits below stores and persistence:
+   `core/backend` must not import `core/stores` or `core/persistence` (shared
+   types such as `DesktopConnection` and `KeyValueStorage` live in
+   `core/backend` or `core/lib`), and `core/stores` and `core/persistence` may
+   import from `core/backend` with `import type` only
+   (`@typescript-eslint/no-restricted-imports`). Test files are exempt.
 
 `ui/features` and `ui/plugins` reach the composed app through
 `AppServices` (declared in `ui/hooks/SnowdropContext.tsx`), which the concrete

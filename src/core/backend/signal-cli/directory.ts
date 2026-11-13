@@ -17,7 +17,7 @@ import {
   type ConversationId,
 } from '@/core/domain';
 import type { Cancel, Scheduler } from '@/core/lib';
-import type { KeyValueStorage } from '@/core/persistence';
+import type { KeyValueStorage } from '@/core/lib';
 import type { SelfIdentity } from './identity';
 import { leftGroupsStorageKey } from './storageKeys';
 import { toContact, toGroupConversation } from './normalise/directory';

@@ -49,7 +49,7 @@ import {
   ignore,
   ignored,
 } from '@/core/lib';
-import type { KeyValueStorage } from '@/core/persistence';
+import type { KeyValueStorage } from '@/core/lib';
 import type {
   AbortOptions,
   BackendEvents,
