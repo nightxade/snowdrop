@@ -65,8 +65,8 @@ regression tests. The second patch adds protobuf decoding and JSON conversion
 that preserve expiration fields and exact 64-bit IDs, plus an official Signal
 fixture test. The third patch adds transactional storage in the account database
 and a `getHistory` CLI/JSON-RPC command. The build version
-(`0.14.8-snowdrop-history.N`, currently `.25`, the first build with the synced message-request answer, synced verification and streamed
-`getAttachment` described below, on top of the backfill, link-import, listener, custom-emoji and
+(`0.14.8-snowdrop-history.N`, currently `.26`, the first build with the synced message-request answer, synced verification and streamed
+`getAttachment` described below (`.26` also carries the signal-service-java `0003` fix that lets SPAM and BLOCK_AND_SPAM reach them), on top of the backfill, link-import, listener, custom-emoji and
 multi-account fixes) is set in this one place, a single
 `build.gradle.kts` hunk, and recorded in PROVENANCE; raise `N` there whenever the patch set
 changes in a way installs must pick up (Snowdrop gates features on it, see the "First shipped"
@@ -995,7 +995,9 @@ showing had been answered elsewhere.
   `{"type":"ACCEPT","threadAci":"a1b2c3d4-e5f6-7890-abcd-ef1234567890","threadE164":"+15551234567"}` for a
   person, `{"type":"SPAM","groupId":"AQIDBAUGBwgJCgsMDQ4PEA=="}` for a group.
   - `type` is the protobuf enum name: `ACCEPT`, `DELETE`, `BLOCK`, `BLOCK_AND_DELETE`, `UNBLOCK_AND_ACCEPT`,
-    `SPAM`, `BLOCK_AND_SPAM` or `UNKNOWN`.
+    `SPAM`, `BLOCK_AND_SPAM` or `UNKNOWN`. `SPAM` and `BLOCK_AND_SPAM` reach the JSON only with
+    `patches/signal-service-java` 0003: stock libsignal-service decodes those two wire values as `UNKNOWN`.
+    The wire enum has no `UNBLOCK_AND_ACCEPT`, so that name never appears from a real message.
   - `threadAci` and `threadE164` are present when the stored recipient has them; `groupId` is base64, like
     every other group id in the JSON.
 - Nothing else changes here; 0026 makes signal-cli act on the message.
@@ -1045,7 +1047,10 @@ the peak (an estimate, not measured), all of it for a payload that sits in a fil
   response line has begun. Two things limit the damage. `getAttachment` reads the first byte before it
   starts (`JsonStreamedAttachmentData.of`), so an unreadable file is still an ordinary error. And if a
   write does fail part-way, `JsonWriterImpl` ends the broken line with a newline and flushes, so the next
-  message (a `receive` notification, say) is on a line of its own and only the broken line is lost.
+  message (a `receive` notification, say) is on a line of its own, and then, for a JSON-RPC response with an
+  id, writes a well-formed error response (`-32603`, "Failed to write the response") for that same id on the
+  next line, so the client's request fails at once instead of waiting for a timeout. Only if that write fails
+  too (the output itself is gone) does it throw.
 - A streamed result is closed in a `finally` whenever its response is not written: on the single, batch and
   HTTP paths, for a request without an `id`, and when an error replaces it.
 - Ordinary attachments already come back from `Manager.retrieveAttachment` as a `FileInputStream`.
@@ -1053,7 +1058,8 @@ the peak (an estimate, not measured), all of it for a payload that sits in a fil
   whole attachment (up to 100 MiB) into a `byte[]` and returned a `ByteArrayInputStream`. They now download
   and verify (size and integrity hash) into a temporary file, exactly as before, and return a
   `TempFileInputStream` over it that deletes the file on close. Nothing is returned for an attachment that
-  fails a check, and a failure leaves no file behind. This costs temporary disk (the plaintext, next to the
+  fails a check, and a failure leaves no file behind, including when creating the second of the two temporary
+  files fails (the first is deleted). This costs temporary disk (the plaintext, next to the
   ciphertext the downloader already wrote) instead of heap. `HistoryAttachment.download` still returns bytes
   for its tests.
 - **Where the plaintext lives.** These two files hold decrypted data, so they are not created in
@@ -1082,7 +1088,9 @@ and sizes above the encoder's buffer, a 96 MiB stream written to a counting writ
 response line from `GetAttachmentCommand` and the error path), `TempFileInputStreamTest`,
 `HistoryAttachmentTest.streamsAVerifiedFileAndRefusesAWrongSize`, `PrivateTempFileTest` (the directory is
 created 0700 and swept, files are staged in it), and in `JsonStreamedAttachmentDataTest` a stream that fails
-mid-way leaves a terminated line and the next message intact, and an unreadable stream is refused up front.
+mid-way leaves a terminated line and the next message intact and answers the request id with an error
+line, and an unreadable stream is refused up front. `HistoryAttachmentTest` also covers the second temporary
+file failing to be created.
 First shipped as build `0.14.8-snowdrop-history.25`.
 
 ## 0026: apply synced message-request answers
@@ -1094,13 +1102,22 @@ block given on the phone took effect here only if the phone also sent a blocked-
 
 `IncomingMessageHandler` now applies the answer to the local stores, as Signal's own clients do:
 
-- `BLOCK`, `BLOCK_AND_DELETE` and `BLOCK_AND_SPAM` block the contact or group.
+- `BLOCK`, `BLOCK_AND_DELETE` and `BLOCK_AND_SPAM` block the contact or group. `BLOCK_AND_SPAM` only arrives
+  with `patches/signal-service-java` 0003 (stock decoding turned it into `UNKNOWN`).
 - `ACCEPT` and `UNBLOCK_AND_ACCEPT` unblock it if it was blocked; for a person they also turn on profile
-  sharing.
+  sharing. The wire enum has no `UNBLOCK_AND_ACCEPT` (values 0 to 6 only), so an unblock made on the phone
+  arrives as `ACCEPT`; the `UNBLOCK_AND_ACCEPT` branch is unreachable from the wire and kept because it is
+  harmless.
 - `DELETE`, `SPAM` and `UNKNOWN` change nothing here (deleting a chat is the client's business).
 
-Nothing is sent: the phone has already done its part. No `DATABASE_VERSION` change. Not verified against a
-real phone. First shipped as build `0.14.8-snowdrop-history.25`.
+Nothing is sent: the phone has already done its part. For a person only `setContactBlocked` and
+`setContactProfileSharing` run, which write the contact store. For a group the handler reads the group from
+`GroupStore` and saves the block flag there directly, so it neither fetches a group from the group server
+(`GroupHelper.getGroup` can) nor enqueues a storage sync (`setGroupBlocked` does); a group that is not in the
+store is skipped. The call is wrapped so that an error while applying (logged as a warning with the exception
+class only) cannot abort handling of the rest of the sync message. No `DATABASE_VERSION` change. Not verified
+against a real phone. First shipped as build `0.14.8-snowdrop-history.25`; `SPAM` and `BLOCK_AND_SPAM` and the
+group change arrived in `.26`.
 
 ## The native build
 

@@ -1,0 +1,99 @@
+diff --git a/lib/libsignal-service/src/main/java/org/whispersystems/signalservice/api/messages/SignalServiceContent.kt b/lib/libsignal-service/src/main/java/org/whispersystems/signalservice/api/messages/SignalServiceContent.kt
+index a3f81cc8..f7b431a7 100644
+--- a/lib/libsignal-service/src/main/java/org/whispersystems/signalservice/api/messages/SignalServiceContent.kt
++++ b/lib/libsignal-service/src/main/java/org/whispersystems/signalservice/api/messages/SignalServiceContent.kt
+@@ -1130,6 +1130,9 @@ class SignalServiceContent {
+           SyncMessage.MessageRequestResponse.Type.DELETE -> MessageRequestResponseMessage.Type.DELETE
+           SyncMessage.MessageRequestResponse.Type.BLOCK -> MessageRequestResponseMessage.Type.BLOCK
+           SyncMessage.MessageRequestResponse.Type.BLOCK_AND_DELETE -> MessageRequestResponseMessage.Type.BLOCK_AND_DELETE
++          // Snowdrop: the stock mapping let SPAM and BLOCK_AND_SPAM fall into UNKNOWN.
++          SyncMessage.MessageRequestResponse.Type.SPAM -> MessageRequestResponseMessage.Type.SPAM
++          SyncMessage.MessageRequestResponse.Type.BLOCK_AND_SPAM -> MessageRequestResponseMessage.Type.BLOCK_AND_SPAM
+           else -> MessageRequestResponseMessage.Type.UNKNOWN
+         }
+         val responseMessage = if (content.messageRequestResponse.groupId != null) {
+diff --git a/lib/libsignal-service/src/test/java/org/whispersystems/signalservice/api/messages/SignalServiceContentMessageRequestResponseTest.kt b/lib/libsignal-service/src/test/java/org/whispersystems/signalservice/api/messages/SignalServiceContentMessageRequestResponseTest.kt
+new file mode 100644
+index 00000000..78d8dfde
+--- /dev/null
++++ b/lib/libsignal-service/src/test/java/org/whispersystems/signalservice/api/messages/SignalServiceContentMessageRequestResponseTest.kt
+@@ -0,0 +1,79 @@
++/*
++ * Licensed according to the LICENSE file in this repository.
++ */
++
++package org.whispersystems.signalservice.api.messages
++
++import assertk.assertThat
++import assertk.assertions.isEqualTo
++import assertk.assertions.isTrue
++import okio.ByteString.Companion.toByteString
++import org.junit.Test
++import org.signal.core.models.ServiceId.ACI
++import org.whispersystems.signalservice.api.crypto.EnvelopeMetadata
++import org.whispersystems.signalservice.api.messages.multidevice.MessageRequestResponseMessage
++import org.whispersystems.signalservice.internal.push.Content
++import org.whispersystems.signalservice.internal.push.Envelope
++import org.whispersystems.signalservice.internal.push.SyncMessage
++import java.util.UUID
++
++/**
++ * A synced message-request answer keeps its type when it is decoded from the wire: SPAM (5) and
++ * BLOCK_AND_SPAM (6) used to fall into UNKNOWN.
++ */
++class SignalServiceContentMessageRequestResponseTest {
++
++  private val self = ACI.from(UUID.fromString("11111111-2222-3333-4444-555555555555"))
++  private val other = UUID.fromString("66666666-7777-8888-9999-000000000000")
++
++  private fun decodeType(wireType: SyncMessage.MessageRequestResponse.Type, group: Boolean = false): MessageRequestResponseMessage {
++    val response = if (group) {
++      SyncMessage.MessageRequestResponse(type = wireType, groupId = byteArrayOf(1, 2, 3, 4).toByteString())
++    } else {
++      SyncMessage.MessageRequestResponse(type = wireType, threadAci = other.toString())
++    }
++    // Round-trip through the wire format, as a received envelope would be.
++    val content = Content.ADAPTER.decode(Content(syncMessage = SyncMessage(messageRequestResponse = response)).encode())
++    val metadata = EnvelopeMetadata(
++      sourceServiceId = self,
++      sourceE164 = null,
++      sourceDeviceId = 1,
++      sealedSender = false,
++      groupId = null,
++      destinationServiceId = self,
++      ciphertextMessageType = 0
++    )
++    val decoded = SignalServiceContent.createFrom(null, Envelope(), metadata, content, 0)!!
++    assertThat(decoded.syncMessage.isPresent).isTrue()
++    return decoded.syncMessage.get().messageRequestResponse.get()
++  }
++
++  @Test
++  fun `proto type 5 decodes as SPAM`() {
++    assertThat(SyncMessage.MessageRequestResponse.Type.SPAM.value).isEqualTo(5)
++    assertThat(decodeType(SyncMessage.MessageRequestResponse.Type.SPAM).type).isEqualTo(MessageRequestResponseMessage.Type.SPAM)
++  }
++
++  @Test
++  fun `proto type 6 decodes as BLOCK_AND_SPAM`() {
++    assertThat(SyncMessage.MessageRequestResponse.Type.BLOCK_AND_SPAM.value).isEqualTo(6)
++    val message = decodeType(SyncMessage.MessageRequestResponse.Type.BLOCK_AND_SPAM)
++    assertThat(message.type).isEqualTo(MessageRequestResponseMessage.Type.BLOCK_AND_SPAM)
++    assertThat(message.person.get().toString()).isEqualTo(other.toString())
++  }
++
++  @Test
++  fun `proto type 6 decodes as BLOCK_AND_SPAM for a group`() {
++    val message = decodeType(SyncMessage.MessageRequestResponse.Type.BLOCK_AND_SPAM, group = true)
++    assertThat(message.type).isEqualTo(MessageRequestResponseMessage.Type.BLOCK_AND_SPAM)
++    assertThat(message.groupId.get().toList()).isEqualTo(listOf<Byte>(1, 2, 3, 4))
++  }
++
++  @Test
++  fun `the four existing types keep their mapping`() {
++    assertThat(decodeType(SyncMessage.MessageRequestResponse.Type.ACCEPT).type).isEqualTo(MessageRequestResponseMessage.Type.ACCEPT)
++    assertThat(decodeType(SyncMessage.MessageRequestResponse.Type.DELETE).type).isEqualTo(MessageRequestResponseMessage.Type.DELETE)
++    assertThat(decodeType(SyncMessage.MessageRequestResponse.Type.BLOCK).type).isEqualTo(MessageRequestResponseMessage.Type.BLOCK)
++    assertThat(decodeType(SyncMessage.MessageRequestResponse.Type.BLOCK_AND_DELETE).type).isEqualTo(MessageRequestResponseMessage.Type.BLOCK_AND_DELETE)
++  }
++}

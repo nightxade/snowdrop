@@ -55,7 +55,7 @@ readonly UPSTREAM_TAG="v0.14.8"
 # ─── Fixed facts about patches/signal-service-java/README.md ─────────────
 readonly SSJ_UPSTREAM_COMMIT="d1b477f1339a1aaf2de4c8a6dff9ef52851fe3b0"
 readonly SSJ_UPSTREAM_TAG="v2.15.3_unofficial_153"
-readonly SSJ_PATCHED_VERSION="2.15.3_unofficial_153-snowdrop.1"
+readonly SSJ_PATCHED_VERSION="2.15.3_unofficial_153-snowdrop.2"
 # ────────────────────────────────────────────────────────────────────────
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

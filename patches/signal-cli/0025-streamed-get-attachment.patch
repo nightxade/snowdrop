@@ -64,10 +64,10 @@ index 39665b1..07a93c5 100644
                  return dependencies.getMessageReceiver().retrieveAttachment(request.pointer(), temporary,
                          ServiceConfig.MAX_ATTACHMENT_SIZE, request.integrity());
 diff --git a/lib/src/main/java/org/asamk/signal/manager/history/HistoryAttachment.java b/lib/src/main/java/org/asamk/signal/manager/history/HistoryAttachment.java
-index 31f984b..69c86d7 100644
+index 31f984b..8215eab 100644
 --- a/lib/src/main/java/org/asamk/signal/manager/history/HistoryAttachment.java
 +++ b/lib/src/main/java/org/asamk/signal/manager/history/HistoryAttachment.java
-@@ -45,22 +45,51 @@ public final class HistoryAttachment {
+@@ -45,22 +45,58 @@ public final class HistoryAttachment {
          return new Request(pointer, integrity);
      }
  
@@ -81,12 +81,19 @@ index 31f984b..69c86d7 100644
          var request = request(file);
 +        long expected = request.pointer().getSize().orElseThrow();
          var temporary = org.asamk.signal.manager.util.IOUtils.createTempFile();
-+        var verified = org.asamk.signal.manager.util.IOUtils.createPrivateTempFile();
-+        boolean handedOver = false;
++        java.io.File verified;
          try {
 -            try (var input = downloader.open(request, temporary)) {
 -                var bytes = input.readNBytes(MAX_BYTES + 1);
 -                if (bytes.length != request.pointer().getSize().orElseThrow()) {
++            verified = org.asamk.signal.manager.util.IOUtils.createPrivateTempFile();
++        } catch (IOException | RuntimeException e) {
++            // Neither file may outlive a failure to create the other.
++            java.nio.file.Files.deleteIfExists(temporary.toPath());
++            throw e;
++        }
++        boolean handedOver = false;
++        try {
 +            try (var input = downloader.open(request, temporary);
 +                 var output = new java.io.FileOutputStream(verified)) {
 +                var buffer = new byte[64 * 1024];
@@ -282,10 +289,10 @@ index 0000000..2b33c2e
 +    }
 +}
 diff --git a/lib/src/test/java/org/asamk/signal/manager/history/HistoryAttachmentTest.java b/lib/src/test/java/org/asamk/signal/manager/history/HistoryAttachmentTest.java
-index 41f4441..228e592 100644
+index 41f4441..10703ce 100644
 --- a/lib/src/test/java/org/asamk/signal/manager/history/HistoryAttachmentTest.java
 +++ b/lib/src/test/java/org/asamk/signal/manager/history/HistoryAttachmentTest.java
-@@ -75,6 +75,19 @@ class HistoryAttachmentTest {
+@@ -75,6 +75,44 @@ class HistoryAttachmentTest {
          }
      }
  
@@ -300,6 +307,31 @@ index 41f4441..228e592 100644
 +                new java.io.ByteArrayInputStream(new byte[] {1, 2, 3})));
 +        assertThrows(IOException.class, () -> HistoryAttachment.downloadStream(pointer(), (request, target) ->
 +                new java.io.ByteArrayInputStream(new byte[] {1, 2, 3, 4, 5})));
++    }
++
++    @Test void failingToCreateTheSecondTempFileLeavesNeitherBehind() throws Exception {
++        var tmp = Path.of(System.getProperty("java.io.tmpdir"));
++        java.util.function.Supplier<java.util.Set<String>> staged = () -> {
++            try (var files = java.nio.file.Files.list(tmp)) {
++                return files.map(f -> f.getFileName().toString())
++                        .filter(n -> n.startsWith("signal-cli_tmp_"))
++                        .collect(java.util.stream.Collectors.toSet());
++            } catch (IOException e) {
++                throw new java.io.UncheckedIOException(e);
++            }
++        };
++        var before = staged.get();
++        var privateDir = directory.resolve("private");
++        org.asamk.signal.manager.util.IOUtils.setPrivateTempDir(privateDir.toFile());
++        try {
++            // The private directory vanishes, so creating the plaintext file fails.
++            java.nio.file.Files.delete(privateDir);
++            assertThrows(IOException.class, () -> HistoryAttachment.downloadStream(pointer(), (request, target) ->
++                    new java.io.ByteArrayInputStream(new byte[] {1, 2, 3, 4})));
++        } finally {
++            org.asamk.signal.manager.util.IOUtils.setPrivateTempDir(null);
++        }
++        assertEquals(before, staged.get());
 +    }
 +
      @TempDir Path directory;
@@ -676,17 +708,20 @@ index 5ce6c6c..887a29a 100644
      }
  
 diff --git a/src/main/java/org/asamk/signal/output/JsonWriterImpl.java b/src/main/java/org/asamk/signal/output/JsonWriterImpl.java
-index 46e3078..4f0816c 100644
+index 46e3078..8b351c2 100644
 --- a/src/main/java/org/asamk/signal/output/JsonWriterImpl.java
 +++ b/src/main/java/org/asamk/signal/output/JsonWriterImpl.java
-@@ -1,6 +1,5 @@
+@@ -1,8 +1,8 @@
  package org.asamk.signal.output;
  
 -import com.fasterxml.jackson.core.JsonProcessingException;
  import com.fasterxml.jackson.databind.ObjectMapper;
  
++import org.asamk.signal.jsonrpc.JsonRpcResponse;
  import org.asamk.signal.util.Util;
-@@ -22,8 +21,19 @@ public class JsonWriterImpl implements JsonWriter {
+ 
+ import java.io.IOException;
+@@ -22,8 +22,35 @@ public class JsonWriterImpl implements JsonWriter {
          try {
              try {
                  objectMapper.writeValue(writer, object);
@@ -704,21 +739,38 @@ index 46e3078..4f0816c 100644
 +                if (e instanceof RuntimeException runtime) {
 +                    throw runtime;
 +                }
++                // A response whose streamed result failed mid-way: the client is waiting for this id, so
++                // answer it with an error on a line of its own instead of leaving it to time out.
++                if (object instanceof JsonRpcResponse response && response.getId() != null
++                        && response.getResult() != null) {
++                    try {
++                        objectMapper.writeValue(writer,
++                                JsonRpcResponse.forError(new JsonRpcResponse.Error(JsonRpcResponse.Error.INTERNAL_ERROR,
++                                        "Failed to write the response",
++                                        null), response.getId()));
++                        writer.write(System.lineSeparator());
++                        writer.flush();
++                        return;
++                    } catch (IOException | RuntimeException errorWriteError) {
++                        e.addSuppressed(errorWriteError);
++                    }
++                }
 +                // Some issue with json serialization (probably a bug), or a stream that failed mid-way
                  throw new AssertionError(e);
              }
              writer.write(System.lineSeparator());
 diff --git a/src/test/java/org/asamk/signal/json/JsonStreamedAttachmentDataTest.java b/src/test/java/org/asamk/signal/json/JsonStreamedAttachmentDataTest.java
 new file mode 100644
-index 0000000..6c5b79c
+index 0000000..aa25075
 --- /dev/null
 +++ b/src/test/java/org/asamk/signal/json/JsonStreamedAttachmentDataTest.java
-@@ -0,0 +1,228 @@
+@@ -0,0 +1,252 @@
 +// SPDX-License-Identifier: GPL-3.0-or-later
 +package org.asamk.signal.json;
 +
 +import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 +import com.fasterxml.jackson.databind.node.ObjectNode;
++import com.fasterxml.jackson.databind.node.POJONode;
 +import com.fasterxml.jackson.databind.node.TextNode;
 +
 +import org.asamk.signal.commands.GetAttachmentCommand;
@@ -874,6 +926,29 @@ index 0000000..6c5b79c
 +        assertTrue(lines[0].isEmpty() || lines[0].startsWith("{\"data\":\""));
 +        assertFalse(lines[0].endsWith("}"));
 +        assertEquals("{\"ok\":1}", lines[1]);
++        assertTrue(holder[0].closed.get());
++    }
++
++    @Test
++    void aStreamThatFailsMidWayStillAnswersTheRequestWithAnError() throws Exception {
++        final var out = new StringWriter();
++        final var writer = new JsonWriterImpl(out);
++        final var holder = new Tracked[1];
++
++        writer.write(JsonRpcResponse.forSuccess(new POJONode(new JsonStreamedAttachmentData(failingAfter(20000, holder))),
++                TextNode.valueOf("7")));
++        writer.write(java.util.Map.of("ok", 1));
++
++        final var lines = out.toString().split("\\R");
++        assertEquals(3, lines.length);
++        assertFalse(lines[0].endsWith("}"));
++        // The id is answered on a line of its own, well-formed, and carries no result.
++        final var node = Util.createJsonObjectMapper().readTree(lines[1]);
++        assertEquals("2.0", node.get("jsonrpc").asText());
++        assertEquals("7", node.get("id").asText());
++        assertEquals(JsonRpcResponse.Error.INTERNAL_ERROR, node.get("error").get("code").asInt());
++        assertFalse(node.has("result"));
++        assertEquals("{\"ok\":1}", lines[2]);
 +        assertTrue(holder[0].closed.get());
 +    }
 +

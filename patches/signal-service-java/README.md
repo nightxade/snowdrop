@@ -48,7 +48,7 @@ unknown-field slot before this patch.
 Files touched:
 
 - `lib/libsignal-service/build.gradle.kts` — bumps only this module's own published version to
-  `2.15.3_unofficial_153-snowdrop.1`. Its sibling modules (`core:network`, `core:util-jvm`,
+  `2.15.3_unofficial_153-snowdrop.2`. Its sibling modules (`core:network`, `core:util-jvm`,
   `core:models-jvm`), which this module depends on, keep the stock upstream version and are
   resolved from the normal `com.github.turasa` Maven coordinates — this patch republishes only
   the one jar it actually touches.
@@ -91,7 +91,7 @@ export SNOWDROP_SIGNAL_SERVICE_REPO=/path/to/a/local/maven/repo/dir
 ```
 
 This publishes the jar, sources, javadoc and Gradle module metadata to
-`$SNOWDROP_SIGNAL_SERVICE_REPO/com/github/turasa/signal-service-java/2.15.3_unofficial_153-snowdrop.1/`
+`$SNOWDROP_SIGNAL_SERVICE_REPO/com/github/turasa/signal-service-java/2.15.3_unofficial_153-snowdrop.2/`
 — a plain directory repo under this patch set's own work tree
 (`patches/signal-service-java/.work/m2repo` when driven by `scripts/build-signal-cli.sh`), never
 the shared `~/.m2` (`mavenLocal()`), so this never leaks into unrelated Gradle/Maven builds on the
@@ -100,7 +100,7 @@ target — it's Snowdrop build plumbing, kept out of the semantic patch, since i
 `PublishingExtension` from the outside rather than editing this module's own `build.gradle.kts`.
 
 `patches/signal-cli`'s own `lib/build.gradle.kts` patch then points at this jar: set
-`SNOWDROP_SIGNAL_SERVICE_VERSION=2.15.3_unofficial_153-snowdrop.1` and
+`SNOWDROP_SIGNAL_SERVICE_VERSION=2.15.3_unofficial_153-snowdrop.2` and
 `SNOWDROP_SIGNAL_SERVICE_REPO` (the same directory) when building signal-cli, and its Gradle
 dependency substitution does the rest. See `patches/signal-cli/README.md`.
 
@@ -115,11 +115,32 @@ classpaths pulls in three transitive POMs the checked-in metadata has no checksu
 Maven Central's published SHA-1. Verification stays strict: any other missing or mismatched
 checksum still fails the build.
 
+### Message-request answers: SPAM and BLOCK_AND_SPAM (`0003`)
+
+`SignalServiceContent` turns a synced `SyncMessage.MessageRequestResponse` into a
+`MessageRequestResponseMessage`, but its `when` mapped only `ACCEPT`, `DELETE`, `BLOCK` and
+`BLOCK_AND_DELETE`; every other wire value, including `SPAM` (5) and `BLOCK_AND_SPAM` (6), fell into
+`else -> UNKNOWN`. `MessageRequestResponseMessage.Type` already has `SPAM` and `BLOCK_AND_SPAM`, so
+`0003-spam-message-request-response.patch` adds the two missing branches and nothing else.
+Without it, "Block and report spam" on the phone reached signal-cli as `UNKNOWN`, so nothing here
+(`patches/signal-cli` 0023's JSON, 0026's blocking) could see it. This is why the published version is
+`snowdrop.2`.
+
+Files touched: `SignalServiceContent.kt` (the two branches) and the new
+`SignalServiceContentMessageRequestResponseTest.kt`, which encodes a `Content` carrying a
+`MessageRequestResponse` of wire type 5 and of type 6 (for a person and for a group), decodes it back
+from bytes and runs it through `SignalServiceContent.createFrom`, and checks the four existing
+types keep their mapping.
+
+The wire enum has no `UNBLOCK_AND_ACCEPT` (values 0 to 6 only), so that library value is never produced
+by decoding: an unblock made on the phone arrives as `ACCEPT`.
+
 ## Verification performed
 
 - `./gradlew :lib:libsignal-service:test` (strict dependency verification): full
   module suite, 637 tests, 0 failures, 0 errors, 7 skipped (includes the 3 new tests in
-  `SignalServiceDataMessageUnknownFieldsTest`).
+  `SignalServiceDataMessageUnknownFieldsTest`; `0003` adds 4 more in
+  `SignalServiceContentMessageRequestResponseTest`, run on their own).
 - Published the jar to a scratch local repo and inspected the generated POM: confirms the jar
   gets the bumped version while `core-network`/`util-jvm`/`models-jvm` stay at the stock
   `2.15.3_unofficial_153`.

@@ -7,7 +7,7 @@ index 338a58d..0085c59 100644
  allprojects {
      group = "org.asamk"
 -    version = "0.14.8"
-+    version = "0.14.8-snowdrop-history.25"
++    version = "0.14.8-snowdrop-history.26"
  }
  
  java {

@@ -1,5 +1,5 @@
 diff --git a/lib/src/main/java/org/asamk/signal/manager/helper/IncomingMessageHandler.java b/lib/src/main/java/org/asamk/signal/manager/helper/IncomingMessageHandler.java
-index b21b557..5b1e428 100644
+index b21b557..819276e 100644
 --- a/lib/src/main/java/org/asamk/signal/manager/helper/IncomingMessageHandler.java
 +++ b/lib/src/main/java/org/asamk/signal/manager/helper/IncomingMessageHandler.java
 @@ -65,6 +65,7 @@ import org.whispersystems.signalservice.api.messages.SignalServicePniSignatureMe
@@ -10,7 +10,7 @@ index b21b557..5b1e428 100644
  import org.whispersystems.signalservice.api.messages.multidevice.SignalServiceSyncMessage;
  import org.whispersystems.signalservice.api.messages.multidevice.StickerPackOperationMessage;
  import org.whispersystems.signalservice.api.push.ServiceIdType;
-@@ -670,6 +671,12 @@ public final class IncomingMessageHandler {
+@@ -670,6 +671,17 @@ public final class IncomingMessageHandler {
                  }
              }
          }
@@ -18,12 +18,17 @@ index b21b557..5b1e428 100644
 +            // Snowdrop: a message request answered on the phone. Apply its block or unblock (and, for an
 +            // accept, profile sharing) to the local stores the way Signal's own clients do, so this device
 +            // stops or resumes dropping that sender's messages. Nothing is sent: the phone already did.
-+            applyMessageRequestResponse(syncMessage.getMessageRequestResponse().get());
++            // A store error must not abort the rest of this sync message.
++            try {
++                applyMessageRequestResponse(syncMessage.getMessageRequestResponse().get());
++            } catch (Exception e) {
++                logger.warn("Could not apply a message request response ({})", e.getClass().getSimpleName());
++            }
 +        }
          if (syncMessage.getContacts().isPresent()) {
              try {
                  final var contactsMessage = syncMessage.getContacts().get();
-@@ -1191,4 +1198,40 @@ public final class IncomingMessageHandler {
+@@ -1191,4 +1203,45 @@ public final class IncomingMessageHandler {
      }
  
      private record DeviceAddress(RecipientId recipientId, ServiceId serviceId, int deviceId) {}
@@ -50,16 +55,21 @@ index b21b557..5b1e428 100644
 +            }
 +            context.getContactHelper().setContactProfileSharing(recipientId, true);
 +        } else if (response.getGroupId().isPresent()) {
++            // Local stores only: read the group without GroupHelper.getGroup (which may fetch a V2 group from
++            // the group server) and without setGroupBlocked (which enqueues a storage sync), so nothing
++            // here touches the network on the receive thread.
 +            final var groupId = GroupId.unknownVersion(response.getGroupId().get());
-+            try {
-+                final var group = context.getGroupHelper().getGroup(groupId);
-+                if (block) {
-+                    context.getGroupHelper().setGroupBlocked(groupId, true);
-+                } else if (group != null && group.isBlocked()) {
-+                    context.getGroupHelper().setGroupBlocked(groupId, false);
-+                }
-+            } catch (GroupNotFoundException e) {
++            final var group = account.getGroupStore().getGroup(groupId);
++            if (group == null) {
 +                logger.debug("Message request response for a group that is not in the GroupStore");
++            } else if (block) {
++                group.setBlocked(true);
++                group.setBlockedAt(System.currentTimeMillis());
++                account.getGroupStore().updateGroup(group);
++            } else if (group.isBlocked()) {
++                group.setBlocked(false);
++                group.setBlockedAt(0);
++                account.getGroupStore().updateGroup(group);
 +            }
 +        }
 +    }
