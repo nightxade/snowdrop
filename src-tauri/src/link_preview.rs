@@ -422,6 +422,12 @@ fn is_disallowed_ipv4(v4: &Ipv4Addr) -> bool {
         || (o[0] == 100 && (o[1] & 0xc0) == 64) // 100.64.0.0/10, carrier-grade NAT
         || (o[0] == 192 && o[1] == 0 && o[2] == 0) // 192.0.0.0/24
         || (o[0] == 198 && (o[1] == 18 || o[1] == 19)) // 198.18.0.0/15, benchmarking
+        || o[0] >= 240 // 240.0.0.0/4, reserved
+}
+
+/// The IPv4 address carried in two 16-bit segments.
+fn v4_from_segments(high: u16, low: u16) -> Ipv4Addr {
+    Ipv4Addr::new((high >> 8) as u8, (high & 0xff) as u8, (low >> 8) as u8, (low & 0xff) as u8)
 }
 
 fn is_disallowed_ipv6(v6: &Ipv6Addr) -> bool {
@@ -429,21 +435,30 @@ fn is_disallowed_ipv6(v6: &Ipv6Addr) -> bool {
         return true;
     }
     let segs = v6.segments();
-    // IPv4-mapped (::ffff:a.b.c.d/96): the embedded v4 address gets checked too.
-    if segs[0] == 0 && segs[1] == 0 && segs[2] == 0 && segs[3] == 0 && segs[4] == 0 && segs[5] == 0xffff
-    {
-        let v4 = Ipv4Addr::new(
-            (segs[6] >> 8) as u8,
-            (segs[6] & 0xff) as u8,
-            (segs[7] >> 8) as u8,
-            (segs[7] & 0xff) as u8,
-        );
-        return is_disallowed_ipv4(&v4);
+    // Addresses that carry an IPv4 address reach that address, so it gets
+    // checked too: IPv4-mapped (::ffff:a.b.c.d/96), the deprecated
+    // IPv4-compatible form (::a.b.c.d/96), well-known NAT64
+    // (64:ff9b::a.b.c.d/96) and 6to4 (2002:aabb:ccdd::/48).
+    if segs[..5] == [0, 0, 0, 0, 0] && (segs[5] == 0xffff || segs[5] == 0) {
+        return is_disallowed_ipv4(&v4_from_segments(segs[6], segs[7]));
+    }
+    if segs[..6] == [0x64, 0xff9b, 0, 0, 0, 0] {
+        return is_disallowed_ipv4(&v4_from_segments(segs[6], segs[7]));
+    }
+    if segs[0] == 0x2002 {
+        return is_disallowed_ipv4(&v4_from_segments(segs[1], segs[2]));
     }
     let o = v6.octets();
     let unique_local = (o[0] & 0xfe) == 0xfc; // fc00::/7
     let link_local = o[0] == 0xfe && (o[1] & 0xc0) == 0x80; // fe80::/10
-    unique_local || link_local
+    let site_local = o[0] == 0xfe && (o[1] & 0xc0) == 0xc0; // fec0::/10 (deprecated, still routed locally)
+    let local_nat64 = segs[0] == 0x64 && segs[1] == 0xff9b && segs[2] == 1; // 64:ff9b:1::/48
+    // Teredo tunnels (2001::/32) hide their real endpoint; nothing a link
+    // preview needs lives behind one.
+    let teredo = segs[0] == 0x2001 && segs[1] == 0;
+    let documentation = segs[0] == 0x2001 && segs[1] == 0x0db8; // 2001:db8::/32
+    let discard = segs[..4] == [0x100, 0, 0, 0]; // 100::/64
+    unique_local || link_local || site_local || local_nat64 || teredo || documentation || discard
 }
 
 // ─── Meta parsing (html5gum: a real tokenizer, not regex) ──────────────
@@ -610,6 +625,7 @@ mod tests {
             "100.64.0.1",  // carrier-grade NAT
             "198.18.0.1",  // benchmarking
             "192.0.0.1",   // IETF protocol assignments
+            "240.0.0.1",   // reserved
         ];
         for ip in disallowed {
             let addr: IpAddr = ip.parse().unwrap();
@@ -634,6 +650,17 @@ mod tests {
             "ff02::1",               // multicast
             "::ffff:10.0.0.1",       // IPv4-mapped private
             "::ffff:127.0.0.1",      // IPv4-mapped loopback
+            "::10.0.0.1",            // IPv4-compatible private
+            "::127.0.0.1",           // IPv4-compatible loopback
+            "64:ff9b::7f00:1",       // NAT64 to loopback
+            "64:ff9b::a00:1",        // NAT64 to private
+            "64:ff9b:1::1",          // local-use NAT64
+            "2002:7f00:1::1",        // 6to4 of loopback
+            "2002:c0a8:101::1",      // 6to4 of private
+            "fec0::1",               // site-local
+            "2001:0:4136:e378:8000:63bf:3fff:fdd2", // Teredo
+            "2001:db8::1",           // documentation
+            "100::1",                // discard
         ];
         for ip in disallowed {
             let addr: IpAddr = ip.parse().unwrap();
@@ -647,6 +674,10 @@ mod tests {
         assert!(!is_disallowed_ip(&public));
         let mapped_public: IpAddr = "::ffff:93.184.216.34".parse().unwrap();
         assert!(!is_disallowed_ip(&mapped_public));
+        for ip in ["64:ff9b::5db8:d822", "2002:5db8:d822::1"] {
+            let addr: IpAddr = ip.parse().unwrap();
+            assert!(!is_disallowed_ip(&addr), "{ip} carries a public v4 address");
+        }
     }
 
     #[tokio::test]
