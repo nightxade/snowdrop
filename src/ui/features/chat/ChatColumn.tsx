@@ -4,6 +4,7 @@ import { CoreCommand } from '@/core/commands';
 import { uiSelectors } from '@/core/stores';
 import { useKeybindLabel, useShellLayout, useStores } from '@/ui/hooks';
 import { MembersPanel } from '@/ui/features/members';
+import { AreaErrorBoundary } from '@/ui/lib/AreaErrorBoundary';
 import { Drawer, Kbd, SnowdropMark } from '@/ui/primitives';
 import { ChatHeader } from './ChatHeader';
 import {
@@ -77,45 +78,51 @@ function ChatColumnInner() {
       <span className={styles.titleTag} data-snowdrop="chat-title-tag" aria-hidden="true">
         {title ?? 'chat'}
       </span>
-      {/* With nothing open the header would be an empty bar; keep it only for the drawer button. */}
-      {(kind ?? drawer) && <ChatHeader conversationId={kind ? selected : null} />}
-      <MiniPlayer />
-      <ConnectionBanner />
-      {/* data-tui-flatten (tui.css): in the TUI shell these wrappers collapse
+      <AreaErrorBoundary area="the chat" resetKeys={[selected]}>
+        {/* With nothing open the header would be an empty bar; keep it only for the drawer button. */}
+        {(kind ?? drawer) && <ChatHeader conversationId={kind ? selected : null} />}
+        <MiniPlayer />
+        <ConnectionBanner />
+        {/* data-tui-flatten (tui.css): in the TUI shell these wrappers collapse
           (display: contents) so the message pane, composer and members panel
           become direct grid items of `.column` instead of nested boxes — the
           standard shell's flex layout is unaffected. */}
-      <div className={styles.body} data-tui-flatten>
-        <div className={styles.conversation} data-tui-flatten>
-          {selected && kind ? (
-            <>
-              <ConversationArea key={selected} conversationId={selected} />
-            </>
-          ) : (
-            <NothingOpen />
-          )}
+        <div className={styles.body} data-tui-flatten>
+          <div className={styles.conversation} data-tui-flatten>
+            {selected && kind ? (
+              <>
+                <ConversationArea key={selected} conversationId={selected} />
+              </>
+            ) : (
+              <NothingOpen />
+            )}
+          </div>
+          {showSearch && <SearchSlot conversationId={selected} narrow={narrow} />}
+          {showGallery && <GallerySlot conversationId={selected} narrow={narrow} />}
+          {showMembers &&
+            (narrow ? (
+              <Drawer
+                side="right"
+                open
+                onOpenChange={(open) => {
+                  if (!open) closeMembers();
+                }}
+                label="Members"
+                returnFocus={memberToggle}
+              >
+                <AreaErrorBoundary area="the members" resetKeys={[selected]}>
+                  <MembersPanel conversationId={selected} onClose={closeMembers} />
+                </AreaErrorBoundary>
+              </Drawer>
+            ) : (
+              <div className={styles.members} data-tui-flatten>
+                <AreaErrorBoundary area="the members" resetKeys={[selected]}>
+                  <MembersPanel conversationId={selected} />
+                </AreaErrorBoundary>
+              </div>
+            ))}
         </div>
-        {showSearch && <SearchSlot conversationId={selected} narrow={narrow} />}
-        {showGallery && <GallerySlot conversationId={selected} narrow={narrow} />}
-        {showMembers &&
-          (narrow ? (
-            <Drawer
-              side="right"
-              open
-              onOpenChange={(open) => {
-                if (!open) closeMembers();
-              }}
-              label="Members"
-              returnFocus={memberToggle}
-            >
-              <MembersPanel conversationId={selected} onClose={closeMembers} />
-            </Drawer>
-          ) : (
-            <div className={styles.members} data-tui-flatten>
-              <MembersPanel conversationId={selected} />
-            </div>
-          ))}
-      </div>
+      </AreaErrorBoundary>
     </main>
   );
 }

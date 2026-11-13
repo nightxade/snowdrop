@@ -484,6 +484,7 @@ instead.
 | `storage-unavailable`   | Encrypted-storage unavailable screen                                                                        |
 | `restart-required`      | Restart-Snowdrop-to-finish screen, after an erase                                                           |
 | `app-error`             | App-level error boundary's fallback card                                                                    |
+| `area-error`            | In-place fallback when one area (chat, sidebar, a settings page) fails to render                            |
 | `note-badge`            | Pronoun & Notes Badge plugin's badge                                                                        |
 | `vim-mode`              | Vim Mode plugin's mode pill                                                                                 |
 | `vim-caret`             | Vim Mode plugin's block cursor                                                                              |

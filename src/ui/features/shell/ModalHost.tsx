@@ -14,6 +14,7 @@ import type { ConversationId, MessageId } from '@/core/domain';
 import { BlockDialog, type GroupMemberAction } from '@/ui/features/conversation';
 import { uiSelectors } from '@/core/stores';
 import { useStores } from '@/ui/hooks';
+import { AreaErrorBoundary } from '@/ui/lib/AreaErrorBoundary';
 import { OpenerHostProvider, type OpenerHost } from '@/ui/primitives';
 import { SettingsFallback } from './SettingsFallback';
 
@@ -255,19 +256,23 @@ export function ModalHost() {
   };
   return (
     <OpenerHostProvider value={host}>
-      <Suspense
-        fallback={
-          <Pending onChange={setSuspended}>
-            {modal.type === 'settings' || modal.type === 'signOut' ? <SettingsFallback /> : null}
-          </Pending>
-        }
-      >
-        {/* The same type with other props is another dialog, not an update of this one. */}
-        <Fragment key={modalKey(modal)}>
-          {modalElement(modal, close)}
-          <Mounted onMounted={onMounted} />
-        </Fragment>
-      </Suspense>
+      {/* Above the Suspense: a dialog that crashes, or whose chunk fails to load, becomes a
+          fallback dialog that still closes (and clears `ui.modal`), instead of taking the app down. */}
+      <AreaErrorBoundary area="this dialog" resetKeys={[modalKey(modal)]} onClose={close}>
+        <Suspense
+          fallback={
+            <Pending onChange={setSuspended}>
+              {modal.type === 'settings' || modal.type === 'signOut' ? <SettingsFallback /> : null}
+            </Pending>
+          }
+        >
+          {/* The same type with other props is another dialog, not an update of this one. */}
+          <Fragment key={modalKey(modal)}>
+            {modalElement(modal, close)}
+            <Mounted onMounted={onMounted} />
+          </Fragment>
+        </Suspense>
+      </AreaErrorBoundary>
     </OpenerHostProvider>
   );
 }

@@ -7,6 +7,7 @@ import {
   useRovingFocus,
   useSnowdrop,
 } from '@/ui/hooks';
+import { AreaErrorBoundary } from '@/ui/lib/AreaErrorBoundary';
 import {
   FullScreenDialog,
   PluginBoundary,
@@ -292,30 +293,32 @@ export function SettingsOverlay({ onClose, initialPage }: SettingsOverlayProps) 
               </div>
             )}
             <div className={styles.mainInner}>
-              <SettingsFilterProvider value={filter}>
-                {matches === null ? (
-                  current && renderPage(current, 'h2')
-                ) : matches.length === 0 ? (
-                  <div className={styles.noResults} role="status">
-                    <p className={styles.noResultsTitle}>No settings match “{query}”</p>
-                    <p>Try a different word, like “theme”, “mentions” or “shortcut”.</p>
-                  </div>
-                ) : (
-                  <>
-                    <p className={styles.resultsTitle} role="status">
-                      Results for “{query}”
-                    </p>
-                    {matches.map((m) => {
-                      const meta = pages.find((p) => p.id === m.pageId);
-                      return meta ? (
-                        <section key={meta.id} className={styles.resultBlock}>
-                          {renderPage(meta, 'h3')}
-                        </section>
-                      ) : null;
-                    })}
-                  </>
-                )}
-              </SettingsFilterProvider>
+              <AreaErrorBoundary area="this page" resetKeys={[page, query]}>
+                <SettingsFilterProvider value={filter}>
+                  {matches === null ? (
+                    current && renderPage(current, 'h2')
+                  ) : matches.length === 0 ? (
+                    <div className={styles.noResults} role="status">
+                      <p className={styles.noResultsTitle}>No settings match “{query}”</p>
+                      <p>Try a different word, like “theme”, “mentions” or “shortcut”.</p>
+                    </div>
+                  ) : (
+                    <>
+                      <p className={styles.resultsTitle} role="status">
+                        Results for “{query}”
+                      </p>
+                      {matches.map((m) => {
+                        const meta = pages.find((p) => p.id === m.pageId);
+                        return meta ? (
+                          <section key={meta.id} className={styles.resultBlock}>
+                            {renderPage(meta, 'h3')}
+                          </section>
+                        ) : null;
+                      })}
+                    </>
+                  )}
+                </SettingsFilterProvider>
+              </AreaErrorBoundary>
             </div>
           </div>
         </div>

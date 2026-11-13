@@ -12,6 +12,7 @@ import {
 import { ChatColumn } from '@/ui/features/chat';
 import { Rail } from '@/ui/features/rail';
 import { Sidebar } from '@/ui/features/sidebar';
+import { AreaErrorBoundary } from '@/ui/lib/AreaErrorBoundary';
 import { Drawer, TooltipProvider } from '@/ui/primitives';
 import { DemoBanner } from './DemoBanner';
 import { ModalHost } from './ModalHost';
@@ -70,13 +71,13 @@ export function AppShell() {
               >
                 <div className={styles.nav} data-snowdrop="drawer">
                   <Rail />
-                  <Sidebar />
+                  <SidebarArea />
                 </div>
               </Drawer>
             ) : (
               <div className={styles.nav}>
                 <Rail />
-                <Sidebar />
+                <SidebarArea />
               </div>
             )}
             <ChatColumn />
@@ -113,4 +114,13 @@ function useMemberSheetPreference(narrow: boolean): void {
       wideOpen.current = null;
     }
   }, [narrow, stores]);
+}
+
+/** The conversation list: a crash in it leaves the chat and settings usable. */
+function SidebarArea() {
+  return (
+    <AreaErrorBoundary area="the conversation list">
+      <Sidebar />
+    </AreaErrorBoundary>
+  );
 }
