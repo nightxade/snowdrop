@@ -2,9 +2,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { MockBackend } from '@/core/backend/mock';
 import type { ChatBackend, IdentityTrust } from '@/core/backend';
 import { directConversationId, type ConversationId } from '@/core/domain';
+import { makeMessage } from '@/core/domain/testing';
 import { ManualScheduler } from '@/core/lib';
 import { MemoryMessageRepository } from '@/core/persistence';
-import { createStores, selectMessageRequestState } from '@/core/stores';
+import { acceptForOutgoing, createStores, selectMessageRequestState } from '@/core/stores';
 import { IdentityService } from './IdentityService';
 import { MessageRequestService } from './MessageRequestService';
 import { SyncService } from './SyncService';
@@ -242,6 +243,23 @@ describe('a message request answered on the phone', () => {
   });
 });
 
+describe('an own message processed before a phone answer that came after it', () => {
+  it('stamps the accept with the message time, so the later synced block still applies', async () => {
+    const t = await setup();
+    const sentAt = AT - 20_000;
+    // Processed late (a backlog replay), long after it was sent.
+    t.scheduler.advance(10 * 60_000);
+    acceptForOutgoing(t.stores, [
+      makeMessage({ conversationId: t.dm, authorId: t.selfId, sentAt: sentAt + 5 }),
+      makeMessage({ conversationId: t.dm, authorId: t.selfId, sentAt }),
+    ]);
+    expect(t.stores.local.getState().acceptedChats[t.dm]).toBe(sentAt);
+    await t.answer(t.dm, 'block', AT);
+    expect(t.state(t.dm)).toBe('blocked');
+    expect(await texts(t, t.dm)).toEqual(['You blocked this person']);
+  });
+});
+
 describe('answers replayed after a restart', () => {
   const restartAfter = async (t: Setup, local: () => Promise<unknown>) => {
     // The user acts here a while after the phone's answer, then the app restarts.
@@ -346,11 +364,23 @@ describe('who an answer is about', () => {
 });
 
 describe('Reported as spam', () => {
-  it('is written once per chat, however many syncs say so', async () => {
+  it('is written once per report, however many times that sync is replayed', async () => {
     const t = await setup();
     await t.answer(t.dm, 'spam', AT);
-    await t.answer(t.dm, 'spam', AT + 1000);
-    await t.answer(t.dm, 'blockAndSpam', AT + 2000);
+    await t.answer(t.dm, 'spam', AT);
+    await t.answer(t.dm, 'blockAndSpam', AT);
+    t.restart();
+    await t.answer(t.dm, 'spam', AT);
+    expect((await texts(t, t.dm)).filter((x) => x === 'Reported as spam')).toHaveLength(1);
+  });
+
+  it('finds an earlier report by its line, without reading the chat', async () => {
+    const t = await setup();
+    await t.answer(t.dm, 'spam', AT);
+    const list = vi.spyOn(t.repository, 'listAfter');
+    t.restart();
+    await t.answer(t.dm, 'spam', AT);
+    expect(list).not.toHaveBeenCalled();
     expect((await texts(t, t.dm)).filter((x) => x === 'Reported as spam')).toHaveLength(1);
   });
 });

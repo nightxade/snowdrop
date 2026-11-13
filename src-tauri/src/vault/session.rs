@@ -1,8 +1,9 @@
 //! Orchestrates restore, sync and crash recovery around the signal-cli
 //! runtime dir (docs/ENCRYPTION.md, "signal-cli vault", "Attachment
-//! budget", "Crash recovery"). Still no Tauri commands or service wiring
-//! here — that's task 4 — but this is where the three pieces (`Vault`, the
-//! RAM-backed runtime dir, the instance lock) meet: `VaultSession::start`
+//! budget", "Crash recovery"). The Tauri commands and the signal-cli
+//! service wiring live elsewhere (`vault_bridge`, `service`); this is where
+//! the three pieces (`Vault`, the RAM-backed runtime dir, the instance
+//! lock) meet: `VaultSession::start`
 //! decides whether it's looking at a clean slate or a crashed previous
 //! session, `ensure_media`/`evict_media` implement the on-demand media
 //! budget, and `shutdown` leaves things safe to start again either way.
@@ -131,7 +132,7 @@ fn sweep_non_allowlisted(runtime_dir: &Path) -> Result<(), Error> {
 }
 
 /// What [`VaultSession::start`] found the runtime dir in. Exposed mainly for
-/// logging and tests; task 4 doesn't need to branch on it.
+/// logging and tests; callers need not branch on it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StartKind {
     /// Nothing usable was there: an ordinary restore.
@@ -298,11 +299,15 @@ impl SessionHandle {
         if self.is_closed() {
             return Ok(sync::SyncReport::default());
         }
-        self.sync_locked()
+        self.sync_locked(false)
     }
 
-    /// The body of a sync; the caller holds `maintenance`.
-    fn sync_locked(&self) -> Result<sync::SyncReport, Error> {
+    /// The body of a sync; the caller holds `maintenance`. `forget_prints`
+    /// ignores what was last copied of each database, so every one with a
+    /// non-empty WAL is copied again (the final sync: a write that landed in
+    /// the same timestamp tick as the last recorded print would look
+    /// unchanged, and nothing afterwards would repair it).
+    fn sync_locked(&self, forget_prints: bool) -> Result<sync::SyncReport, Error> {
         // What was materialized *before* the walk: a file hydrated after it
         // isn't in the walk, so must not count as known-and-deleted.
         let known = relock(&self.0.state).materialized_media.clone();
@@ -317,8 +322,17 @@ impl SessionHandle {
         }
         #[cfg(test)]
         sync::test_hooks::fire(&self.0.vault.dir, "walked", "");
+        let keep_if_absent = |relpath: &str| is_media(relpath) && !known.contains(relpath);
+        if forget_prints {
+            return sync::sync_walked_with(
+                &self.0.vault,
+                &walked,
+                keep_if_absent,
+                &mut sync::DbPrints::new(),
+            );
+        }
         let mut prints = relock(&self.0.db_prints);
-        sync::sync_walked_with(&self.0.vault, &walked, |relpath| is_media(relpath) && !known.contains(relpath), &mut prints)
+        sync::sync_walked_with(&self.0.vault, &walked, keep_if_absent, &mut prints)
     }
 
     /// Hydrates `relpath` into the runtime dir if it's missing there but
@@ -469,7 +483,7 @@ impl SessionHandle {
     pub fn finish(&self) -> Result<(), Error> {
         self.close();
         let _pass = relock(&self.0.maintenance);
-        self.sync_locked()?;
+        self.sync_locked(true)?;
         wipe_runtime_dir(&self.0.runtime_dir)
     }
 }
@@ -1260,6 +1274,28 @@ mod tests {
         let check = rusqlite::Connection::open(restored.path().join("data/account.db")).unwrap();
         let bodies: Vec<String> = check.prepare("SELECT body FROM msgs ORDER BY id").unwrap().query_map([], |r| r.get(0)).unwrap().map(Result::unwrap).collect();
         assert_eq!(bodies, ["a", "b", "c"]);
+    }
+
+    /// The final sync copies a database with a WAL even when its recorded
+    /// print says it was already copied, so a write that landed in the same
+    /// timestamp tick as the print is not left behind.
+    #[test]
+    fn the_final_sync_recopies_a_database_whose_print_looks_current() {
+        let fx = Fx::start("conc-wal-final", 56, &[]);
+        let copies = test_hooks::record(&fx.vault_dir, "copy");
+        let db_copies = || {
+            let seen = copies.lock().unwrap();
+            seen.iter().filter(|p| p.ends_with("account.db")).count()
+        };
+        fs::create_dir_all(fx.runtime.join("data")).unwrap();
+        let db = rusqlite::Connection::open(fx.runtime.join("data/account.db")).unwrap();
+        db.execute_batch("PRAGMA journal_mode=WAL; CREATE TABLE msgs (id INTEGER PRIMARY KEY, body TEXT);").unwrap();
+        db.execute("INSERT INTO msgs (body) VALUES ('a')", []).unwrap();
+        fx.handle.sync().unwrap();
+        fx.handle.sync().unwrap();
+        assert_eq!(db_copies(), 1, "an unchanged database was copied by a normal pass");
+        fx.handle.finish().unwrap();
+        assert_eq!(db_copies(), 2, "the final sync trusted a print instead of copying");
     }
 
     /// A non-WAL database (or any plain file) is skipped on size+mtime alone.

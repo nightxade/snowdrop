@@ -111,6 +111,29 @@ describe('IdbMessageRepository: batches and purge', () => {
     expect(listed.map((m) => m.body)).toEqual(['g']);
   });
 
+  it('purge listing with a limit of one resumes past an unreadable first row', async () => {
+    const { repo, name } = await setup();
+    const rows = [1, 2, 3].map((i) =>
+      makeMessage({
+        conversationId: conv,
+        authorId: 'x',
+        sentAt: i,
+        body: i === 3 ? 'g' : 'b',
+        expiresAt: i,
+      }),
+    );
+    await repo.upsertMany(rows, { backfill: false, merge: mergeDuplicate });
+    const raw = await openDB(name);
+    for (const row of (await raw.getAllFromIndex('messages', 'byExpiresAt')) as {
+      expiresAt: number;
+    }[]) {
+      if (row.expiresAt !== 3)
+        await raw.put('messages', { ...row, payload: new Uint8Array(48).fill(7) });
+    }
+    raw.close();
+    expect((await repo.expired(100, 1)).map((m) => m.body)).toEqual(['g']);
+  });
+
   it('purge listing reads only as many rows as it needs, and pages past unreadable ones', async () => {
     const { repo } = await setup();
     const rows = Array.from({ length: 6 }, (_, i) =>

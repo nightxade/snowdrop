@@ -78,11 +78,21 @@ function ChatColumnInner() {
       <span className={styles.titleTag} data-snowdrop="chat-title-tag" aria-hidden="true">
         {title ?? 'chat'}
       </span>
-      <AreaErrorBoundary area="the chat" resetKeys={[selected]}>
-        {/* With nothing open the header would be an empty bar; keep it only for the drawer button. */}
-        {(kind ?? drawer) && <ChatHeader conversationId={kind ? selected : null} />}
+      {/* Each strip has its own boundary, so a failing global widget (the player, the
+          banner) cannot take the conversation down with it. */}
+      {/* With nothing open the header would be an empty bar; keep it only for the drawer button. */}
+      {(kind ?? drawer) && (
+        <AreaErrorBoundary area="the chat header" resetKeys={[selected]} compact>
+          <ChatHeader conversationId={kind ? selected : null} />
+        </AreaErrorBoundary>
+      )}
+      <AreaErrorBoundary area="the voice player" compact>
         <MiniPlayer />
+      </AreaErrorBoundary>
+      <AreaErrorBoundary area="the connection banner" compact>
         <ConnectionBanner />
+      </AreaErrorBoundary>
+      <AreaErrorBoundary area="the chat" resetKeys={[selected]}>
         {/* data-tui-flatten (tui.css): in the TUI shell these wrappers collapse
           (display: contents) so the message pane, composer and members panel
           become direct grid items of `.column` instead of nested boxes — the

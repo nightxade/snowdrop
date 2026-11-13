@@ -12,6 +12,7 @@ import {
   mustChooseNewAdmin,
   parseConversationId,
   requestAnswerText,
+  systemMessageId,
   type ConversationId,
   type RequestAnswer,
 } from '@/core/domain';
@@ -186,10 +187,15 @@ export class MessageRequestService {
       local.setState((s) => ({ acceptedChats: { ...s.acceptedChats, [id]: at } }));
   }
 
-  /** "Reported as spam", once per chat however many syncs say so. */
+  /**
+   * "Reported as spam", once per report however many syncs say so: the line's
+   * id comes from the report's time, so a replay finds its line by one read
+   * instead of decrypting the chat.
+   */
   private async noteReported(id: ConversationId, at: number): Promise<void> {
-    const lines = await this.deps.repository.listAfter(id, 0);
-    if (lines.some((m) => m.id.endsWith(':sys:request-reported'))) return;
+    const selfId = this.deps.stores.session.getState().self?.id;
+    if (!selfId) return;
+    if (await this.deps.repository.get(systemMessageId(selfId, at, 'request-reported'))) return;
     await this.noteAnswer(id, 'reported', at);
   }
 

@@ -4,7 +4,7 @@
  * build: safe mode (?safe=1), native dev tools in
  * development, and a flush on page hide.
  */
-import { ignored } from '@/core/lib';
+import { createLogger, ignored } from '@/core/lib';
 import { useEffect, useState } from 'react';
 import type { HydratedKeyValue, MessageRepository } from '@/core/persistence';
 import type { ThemeDocument } from '@/core/themes';
@@ -24,6 +24,15 @@ export interface DesktopBootedAppProps {
    */
   registerFlusher?: (flusher: () => Promise<void>) => void;
 }
+
+const log = createLogger('app');
+
+/**
+ * How long a new instance waits for the previous one's `dispose()`. Past it,
+ * the new instance starts anyway (a teardown step that never settles would
+ * otherwise leave a blank window with no way out).
+ */
+const DISPOSE_TIMEOUT_MS = 10_000;
 
 export function DesktopBootedApp({
   storage,
@@ -94,15 +103,23 @@ function scheduleDisposal(snowdrop: Snowdrop): () => void {
   });
   let finished = false;
   let fired = false;
+  let giveUp: ReturnType<typeof setTimeout> | undefined;
   const end = () => {
     if (finished) return;
     finished = true;
     pendingDisposals--;
+    clearTimeout(giveUp);
     finish();
   };
   disposalsSettled = Promise.all([disposalsSettled, done]).then(() => undefined);
   const timer = setTimeout(() => {
     fired = true;
+    giveUp = setTimeout(() => {
+      log.error(
+        `the previous instance did not finish disposing within ${String(DISPOSE_TIMEOUT_MS / 1000)} s; starting anyway`,
+      );
+      end();
+    }, DISPOSE_TIMEOUT_MS);
     snowdrop
       .dispose()
       .catch(ignored('the instance is going away; a failed teardown has nowhere to report'))

@@ -16,3 +16,11 @@
   font-size: var(--snowdrop-font-size-ui);
   line-height: 1.45;
 }
+
+/* A thin strip (chat header, banners): one slim row that does not take the area's space. */
+.compact {
+  flex: none;
+  flex-direction: row;
+  gap: var(--snowdrop-space-3);
+  padding: var(--snowdrop-space-2) var(--snowdrop-space-3);
+}

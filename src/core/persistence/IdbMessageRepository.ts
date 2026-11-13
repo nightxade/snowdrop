@@ -1397,8 +1397,14 @@ export class IdbMessageRepository implements MessageRepository {
         .store.index('byExpiresAt')
         .openCursor(IDBKeyRange.upperBound(now));
       if (cursor && after) {
-        cursor = await cursor.continuePrimaryKey(after.key, after.primary);
-        if (cursor && cursor.primaryKey === after.primary) cursor = await cursor.continue();
+        // Already on the resume point (it is the first record, a page of one): the
+        // cursor cannot be asked to move to where it is.
+        if (cursor.key === after.key && cursor.primaryKey === after.primary) {
+          cursor = await cursor.continue();
+        } else {
+          cursor = await cursor.continuePrimaryKey(after.key, after.primary);
+          if (cursor && cursor.primaryKey === after.primary) cursor = await cursor.continue();
+        }
       }
       while (cursor && page.length < limit) {
         page.push(cursor.value);

@@ -804,7 +804,7 @@ export class SyncService {
             backfill: false,
             merge: mergeDuplicate,
           });
-      acceptForOutgoing(stores, stored, this.deps.clock.now());
+      acceptForOutgoing(stores, stored);
       if (cursor === undefined && page.readUpTo !== undefined) {
         const readUpTo = page.readUpTo;
         // Convert the backend's timestamp-based position into our seq space.
@@ -1104,7 +1104,7 @@ export class SyncService {
       const { message, created } = await repository.upsert(toStore, mergeDuplicate);
       const id = message.conversationId;
       // Our own message, including one sent from the phone, accepts the chat.
-      acceptForOutgoing(stores, [message], this.deps.clock.now());
+      acceptForOutgoing(stores, [message]);
       stores.messages.getState().appendLive(message);
       // System lines (decrypt failures, timer changes) are stored and shown
       // like any other message, but must never move a chat up or (below)

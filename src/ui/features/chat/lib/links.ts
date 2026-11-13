@@ -20,8 +20,31 @@ export interface FoundLink {
   end: number;
 }
 
-const EXPLICIT_URL = /\bhttps?:\/\/[^\s<>"']+/giu;
-const TRAILING_PUNCTUATION = new Set(['.', ',', ';', ':', '!', '?']);
+/**
+ * Bidi controls (zero-width and direction marks, embeddings, overrides,
+ * isolates): they can reorder how an address is drawn, so an address never
+ * contains one.
+ */
+const BIDI_CONTROLS = '\\u200B-\\u200F\\u202A-\\u202E\\u2066-\\u2069';
+const EXPLICIT_URL = new RegExp(`\\bhttps?://[^\\s<>"'${BIDI_CONTROLS}]+`, 'giu');
+const HAS_BIDI_CONTROL = new RegExp(`[${BIDI_CONTROLS}]`, 'u');
+const TRAILING_PUNCTUATION = new Set([
+  '.',
+  ',',
+  ';',
+  ':',
+  '!',
+  '?',
+  // Closing quotes and brackets and CJK punctuation that end a sentence around an address.
+  '\u201D',
+  '\u2019',
+  '\u00BB',
+  '\u300D',
+  '\uFF09',
+  '\u3002',
+  '\u3001',
+  '\u2026',
+]);
 const CLOSERS: Record<string, string> = { ')': '(', ']': '[', '}': '{' };
 
 function count(text: string, char: string): number {
@@ -64,7 +87,7 @@ export function findLinks(text: string): FoundLink[] {
   const bareIn = (from: number, to: number) => {
     if (to <= from) return;
     for (const m of linkify.match(text.slice(from, to)) ?? []) {
-      if (m.schema !== '') continue;
+      if (m.schema !== '' || HAS_BIDI_CONTROL.test(m.text)) continue;
       found.push({
         text: m.text,
         href: `https://${m.text}`,

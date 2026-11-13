@@ -503,8 +503,12 @@ fn is_disallowed_ipv6(v6: &Ipv6Addr) -> bool {
     // Addresses that carry an IPv4 address reach that address, so it gets
     // checked too: IPv4-mapped (::ffff:a.b.c.d/96), the deprecated
     // IPv4-compatible form (::a.b.c.d/96), well-known NAT64
-    // (64:ff9b::a.b.c.d/96) and 6to4 (2002:aabb:ccdd::/48).
+    // (64:ff9b::a.b.c.d/96), IPv4-translated SIIT (::ffff:0:a.b.c.d/96) and
+    // 6to4 (2002:aabb:ccdd::/48).
     if segs[..5] == [0, 0, 0, 0, 0] && (segs[5] == 0xffff || segs[5] == 0) {
+        return is_disallowed_ipv4(&v4_from_segments(segs[6], segs[7]));
+    }
+    if segs[..4] == [0, 0, 0, 0] && segs[4] == 0xffff && segs[5] == 0 {
         return is_disallowed_ipv4(&v4_from_segments(segs[6], segs[7]));
     }
     if segs[..6] == [0x64, 0xff9b, 0, 0, 0, 0] {
@@ -744,6 +748,8 @@ mod tests {
             "::ffff:127.0.0.1",      // IPv4-mapped loopback
             "::10.0.0.1",            // IPv4-compatible private
             "::127.0.0.1",           // IPv4-compatible loopback
+            "::ffff:0:10.0.0.1",     // IPv4-translated (SIIT) private
+            "::ffff:0:7f00:1",       // IPv4-translated (SIIT) loopback
             "64:ff9b::7f00:1",       // NAT64 to loopback
             "64:ff9b::a00:1",        // NAT64 to private
             "64:ff9b:1::1",          // local-use NAT64
@@ -766,7 +772,7 @@ mod tests {
         assert!(!is_disallowed_ip(&public));
         let mapped_public: IpAddr = "::ffff:93.184.216.34".parse().unwrap();
         assert!(!is_disallowed_ip(&mapped_public));
-        for ip in ["64:ff9b::5db8:d822", "2002:5db8:d822::1"] {
+        for ip in ["64:ff9b::5db8:d822", "2002:5db8:d822::1", "::ffff:0:5db8:d822"] {
             let addr: IpAddr = ip.parse().unwrap();
             assert!(!is_disallowed_ip(&addr), "{ip} carries a public v4 address");
         }

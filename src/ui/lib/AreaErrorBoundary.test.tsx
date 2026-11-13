@@ -123,4 +123,59 @@ describe('AreaErrorBoundary', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     expect(onClose).toHaveBeenCalled();
   });
+
+  describe('focus', () => {
+    it('moves focus to the fallback when the crashed area held it', () => {
+      control.broken = false;
+      function Host({ broken }: { broken: boolean }) {
+        return (
+          <AreaErrorBoundary area="the chat" report={() => undefined}>
+            <input aria-label="composer" />
+            {broken && <Maybe />}
+          </AreaErrorBoundary>
+        );
+      }
+      const view = render(<Host broken={false} />);
+      screen.getByLabelText('composer').focus();
+      control.broken = true;
+      view.rerender(<Host broken />);
+      expect(document.activeElement).toBe(screen.getByRole('alert'));
+    });
+
+    it('leaves focus alone when it is somewhere else', () => {
+      control.broken = false;
+      function Host({ broken }: { broken: boolean }) {
+        return (
+          <>
+            <input aria-label="elsewhere" />
+            <AreaErrorBoundary area="the chat" report={() => undefined}>
+              {broken && <Maybe />}
+            </AreaErrorBoundary>
+          </>
+        );
+      }
+      const view = render(<Host broken={false} />);
+      screen.getByLabelText('elsewhere').focus();
+      control.broken = true;
+      view.rerender(<Host broken />);
+      expect(screen.getByRole('alert')).toBeTruthy();
+      expect(document.activeElement).toBe(screen.getByLabelText('elsewhere'));
+    });
+
+    it('after Try again, focus goes to the area container', () => {
+      control.broken = true;
+      render(
+        <section aria-label="area" data-testid="area">
+          <AreaErrorBoundary area="the chat" report={() => undefined}>
+            <Maybe />
+          </AreaErrorBoundary>
+        </section>,
+      );
+      control.broken = false;
+      screen.getByRole('button', { name: 'Try again' }).focus();
+      fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+      expect(screen.getByText('fine now')).toBeTruthy();
+      expect(document.activeElement).toBe(screen.getByTestId('area'));
+    });
+  });
 });

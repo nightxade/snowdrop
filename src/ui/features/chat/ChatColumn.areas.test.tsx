@@ -9,12 +9,18 @@ import type { Snowdrop } from '@/app/createSnowdrop';
 import { bootSnowdrop, renderWithSnowdrop, settle } from '@/test/renderWithSnowdrop';
 import { ChatColumn } from './ChatColumn';
 
-const broken = vi.hoisted(() => ({ area: false, members: false }));
+const broken = vi.hoisted(() => ({ area: false, members: false, player: false }));
 
 vi.mock('./ConversationArea', () => ({
   ConversationArea: ({ conversationId }: { conversationId: string }) => {
     if (broken.area) throw new Error('area boom');
     return <p>area {conversationId}</p>;
+  },
+}));
+vi.mock('./voice/MiniPlayer', () => ({
+  MiniPlayer: () => {
+    if (broken.player) throw new Error('player boom');
+    return null;
   },
 }));
 vi.mock('./ChatHeader', () => ({ ChatHeader: () => <header>stub header</header> }));
@@ -32,6 +38,7 @@ beforeEach(() => {
 afterEach(async () => {
   broken.area = false;
   broken.members = false;
+  broken.player = false;
   cleanup();
   vi.restoreAllMocks();
   for (const s of live.splice(0)) await s.dispose();
@@ -77,6 +84,14 @@ describe('ChatColumn areas', () => {
     broken.members = true;
     const { group } = await mount();
     expect(screen.getByRole('alert').textContent).toContain('the members');
+    expect(screen.getByText(`area ${group}`)).toBeTruthy();
+    expect(screen.getByText('stub header')).toBeTruthy();
+  });
+
+  it('a crashing mini player leaves the conversation and header standing', async () => {
+    broken.player = true;
+    const { group } = await mount();
+    expect(screen.getByRole('alert').textContent).toContain('the voice player');
     expect(screen.getByText(`area ${group}`)).toBeTruthy();
     expect(screen.getByText('stub header')).toBeTruthy();
   });

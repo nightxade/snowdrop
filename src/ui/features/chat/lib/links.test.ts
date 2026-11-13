@@ -47,6 +47,35 @@ describe('findLinks', () => {
   });
 });
 
+describe('bidi controls and closing punctuation', () => {
+  it('stops an explicit address at a bidi control', () => {
+    expect(texts('https://evil.com/\u202Efdp.exe')).toEqual(['https://evil.com/']);
+    expect(texts('https://a.org/x\u200Bmore')).toEqual(['https://a.org/x']);
+  });
+
+  it('drops a bare-domain match that contains a bidi control', () => {
+    expect(texts('x\u202Eexample.com')).not.toContain('x\u202Eexample.com');
+    for (const text of texts('x\u202Eexample.com y\u2066foo.org')) {
+      expect(text).not.toMatch(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069]/u);
+    }
+  });
+
+  it('trims closing quotes, CJK punctuation and an ellipsis after an explicit address', () => {
+    for (const end of [
+      '\u201D',
+      '\u2019',
+      '\u00BB',
+      '\u300D',
+      '\uFF09',
+      '\u3002',
+      '\u3001',
+      '\u2026',
+    ]) {
+      expect(texts(`see https://x.org/a${end}`)).toEqual(['https://x.org/a']);
+    }
+  });
+});
+
 describe('link previews', () => {
   it('only consider explicit http(s) urls', () => {
     expect(firstUrlInText('see example.com')).toBeUndefined();

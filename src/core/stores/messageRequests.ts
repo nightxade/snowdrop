@@ -44,23 +44,27 @@ export function selectMessageRequestState(
  * phone (a sync transcript), or earlier (history pages, the phone's archive).
  * Marks every conversation in `messages` that has a real message from the
  * user. Never un-accepts anything.
+ *
+ * The stamp is the time the message was sent (the earliest one per
+ * conversation), not the time it is processed here: a block or delete the
+ * user made on the phone after that message is replayed later with its own
+ * (earlier than now) time, and must still count as newer than the accept.
  */
 export function acceptForOutgoing(
   stores: Pick<Stores, 'local' | 'session'>,
   messages: readonly Message[],
-  at: number,
 ): void {
   const selfId = stores.session.getState().self?.id;
   if (!selfId) return;
   const local = stores.local.getState();
+  const earliest = new Map<ConversationId, number>();
   for (const m of messages) {
-    if (
-      m.authorId === selfId &&
-      m.kind === 'normal' &&
-      local.acceptedChats[m.conversationId] === undefined
-    )
-      local.markAccepted(m.conversationId, at);
+    if (m.authorId !== selfId || m.kind !== 'normal') continue;
+    if (local.acceptedChats[m.conversationId] !== undefined) continue;
+    const seen = earliest.get(m.conversationId);
+    if (seen === undefined || m.sentAt < seen) earliest.set(m.conversationId, m.sentAt);
   }
+  for (const [id, sentAt] of earliest) local.markAccepted(id, sentAt);
 }
 
 /**

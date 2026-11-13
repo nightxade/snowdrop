@@ -348,7 +348,7 @@ export class HistoryService {
       held?.restore();
       throw error;
     }
-    acceptForOutgoing(this.deps.stores, stored, now);
+    acceptForOutgoing(this.deps.stores, stored);
     return { messages: [...stored, ...local], hasMoreBefore: remote.hasMoreBefore };
   }
 

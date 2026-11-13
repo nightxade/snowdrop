@@ -3,6 +3,7 @@ import { StrictMode } from 'react';
 import { cleanup, render } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { hydrateKeyValue, MemoryMessageRepository, plaintextCipher } from '@/core/persistence';
+import { addLogSink } from '@/core/lib';
 import type { Snowdrop, SnowdropOptions } from './createSnowdrop';
 
 const made = vi.hoisted(() => ({
@@ -89,5 +90,33 @@ describe('DesktopBootedApp: disposal', () => {
       expect(flusher).toHaveBeenCalledTimes(1);
     });
     await vi.dynamicImportSettled();
+  });
+
+  it('a new mount starts anyway, and reports it, when the previous disposal never settles', async () => {
+    vi.useFakeTimers();
+    try {
+      const reported = vi.fn();
+      const remove = addLogSink({ write: reported });
+      made.gate = new Promise<void>(() => undefined);
+      const shared = await props();
+      const first = render(<DesktopBootedApp {...shared} />);
+      first.unmount();
+      const flusher = vi.fn();
+      render(<DesktopBootedApp {...shared} registerFlusher={flusher} />);
+      await vi.advanceTimersByTimeAsync(9_000);
+      expect(flusher).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(2_000);
+      await vi.waitFor(() => {
+        expect(flusher).toHaveBeenCalledTimes(1);
+      });
+      expect(reported).toHaveBeenCalledWith(
+        'error',
+        'app',
+        expect.stringContaining('starting anyway'),
+      );
+      remove();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
