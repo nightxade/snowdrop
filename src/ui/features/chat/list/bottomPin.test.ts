@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BottomPin, PIN_SLACK_PX } from './bottomPin';
+import { BottomPin, PIN_SLACK_PX, slackFor } from './bottomPin';
 
 describe('BottomPin (stick / followOutput rules)', () => {
   it('a list opened at the bottom holds it while rows settle', () => {
@@ -37,6 +37,22 @@ describe('BottomPin (stick / followOutput rules)', () => {
     const beyond = new BottomPin(true);
     beyond.onScroll(PIN_SLACK_PX + 1);
     expect(beyond.shouldRepin()).toBe(false);
+  });
+
+  it('the slack is half the visible height, and never less than the minimum', () => {
+    expect(slackFor(800)).toBe(400);
+    expect(slackFor(100)).toBe(PIN_SLACK_PX);
+  });
+
+  it('a reader up to half a page away keeps following; past it, never moved', () => {
+    const near = new BottomPin(true);
+    near.setViewportHeight(800);
+    near.onScroll(400);
+    expect(near.shouldRepin()).toBe(true);
+    const far = new BottomPin(true);
+    far.setViewportHeight(800);
+    far.onScroll(401);
+    expect(far.shouldRepin()).toBe(false);
   });
 
   it('re-pins when the composer grows only if it was holding the bottom', () => {

@@ -134,6 +134,12 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
     setAtBottom(false);
   }
   const [farFromBottom, setFarFromBottom] = useState(false);
+  // Half the visible height (see `slackFor`), shared by the pin and Virtuoso's at-bottom.
+  const [slack, setSlack] = useState(PIN_SLACK_PX);
+  const measureSlack = (el: HTMLElement) => {
+    pin.setViewportHeight(el.clientHeight);
+    setSlack(pin.slackPx);
+  };
   const [rows] = useState(() => new RowState());
 
   const scrollToBottom = useCallback(() => {
@@ -150,11 +156,15 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
       const el = scroller.current;
       if (!el) return;
       const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+      measureSlack(el);
       pin.onScroll(distance, el.scrollTop);
       setFarFromBottom(distance > el.clientHeight);
       scheduleMeasure();
     },
-    onResize: repin,
+    onResize: () => {
+      if (scroller.current) measureSlack(scroller.current);
+      repin();
+    },
   });
   const { dividerIndex, dividerPos, scheduleMeasure, rangeChanged } = useUnreadDivider({
     items,
@@ -348,7 +358,7 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
           initialTopMostItemIndex={initialIndex}
           computeItemKey={(_, item) => item.key}
           alignToBottom
-          atBottomThreshold={PIN_SLACK_PX}
+          atBottomThreshold={slack}
           increaseViewportBy={{ top: 800, bottom: 400 }}
           defaultItemHeight={compact ? ROW_HEIGHT.compact : ROW_HEIGHT.comfortable}
           skipAnimationFrameInResizeObserver

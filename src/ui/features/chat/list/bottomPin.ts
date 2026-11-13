@@ -11,11 +11,18 @@
  * Kept free of React and the virtualiser so the rules are unit-testable.
  */
 /**
- * How far from the bottom still counts as "at the bottom" (about one short message): a reader this
- * close is followed to a new message, one further up is never moved. Also the list's at-bottom
- * threshold, so "stuck", "follows a new message" and the jump pill agree on the same distance.
+ * How far from the bottom still counts as "at the bottom": half the visible
+ * height of the list, and never less than this. A reader that close is
+ * followed to a new message; one further up is never moved. Also the list's
+ * at-bottom threshold, so "stuck", "follows a new message" and the jump pill
+ * agree on the same distance.
  */
 export const PIN_SLACK_PX = 120;
+
+/** The slack for a list whose visible height is `viewportHeight` px (see `PIN_SLACK_PX`). */
+export function slackFor(viewportHeight: number): number {
+  return Math.max(PIN_SLACK_PX, Math.round(viewportHeight / 2));
+}
 
 export class BottomPin {
   private stuck: boolean;
@@ -27,6 +34,7 @@ export class BottomPin {
   private following = false;
   /** Where the previous scroll event left `scrollTop`, to tell moving down from moving up. */
   private lastTop: number | null = null;
+  private slack = PIN_SLACK_PX;
 
   constructor(initiallyStuck = false) {
     this.stuck = initiallyStuck;
@@ -34,6 +42,16 @@ export class BottomPin {
 
   get isStuck(): boolean {
     return this.stuck;
+  }
+
+  /** The current slack in px (see `slackFor`). */
+  get slackPx(): number {
+    return this.slack;
+  }
+
+  /** The list's visible height changed: the slack is half of it. */
+  setViewportHeight(height: number): void {
+    this.slack = slackFor(height);
   }
 
   /** A (re)mounted list starting at the bottom starts stuck; one opened at a divider or jump target doesn't. */
@@ -57,7 +75,7 @@ export class BottomPin {
     if (distanceFromBottom <= 1) {
       this.stuck = true;
       this.following = false;
-    } else if (distanceFromBottom > PIN_SLACK_PX && (!this.following || movedUp)) {
+    } else if (distanceFromBottom > this.slack && (!this.following || movedUp)) {
       this.stuck = false;
       this.following = false;
     }
