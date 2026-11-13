@@ -123,6 +123,12 @@ describe('rangesToSegments', () => {
 });
 
 describe('bodyToPlainText', () => {
+  it('keeps spoiler text unless asked to hide it', () => {
+    const ranges = [{ start: 4, length: 3, style: 'spoiler' as const }];
+    expect(bodyToPlainText('the end', ranges, () => '')).toBe('the end');
+    expect(bodyToPlainText('the end', ranges, () => '', { hideSpoilers: true })).toBe('the ▒▒▒▒');
+  });
+
   it('resolves mentions and strips stray placeholders', () => {
     expect(
       bodyToPlainText('hi ￼ and ￼', [{ start: 3, length: 1, mentionId: 'a' }], (id) =>

@@ -226,20 +226,28 @@ export function rangesToSegments(
   return build(body, toAtoms(body, clean), new Set());
 }
 
+/** What a spoiler reads as wherever its text can't be revealed (previews, notifications, quotes). */
+export const SPOILER_MASK = '▒▒▒▒';
+
 /**
- * Flattens a body to plain text with mentions resolved, e.g. for previews,
- * notifications and "copy text". Stray placeholders without a range are dropped.
+ * Flattens a body to plain text with mentions resolved. Spoilers keep their
+ * text by default ("copy text", forwarding); `hideSpoilers` masks them, for
+ * every surface that shows a message outside the message itself
+ * (`messageSummary`).
+ * Stray placeholders without a range are dropped.
  */
 export function bodyToPlainText(
   body: string,
   ranges: readonly BodyRange[],
   nameFor: (mentionId: string) => string,
+  options: { hideSpoilers?: boolean } = {},
 ): string {
   const walk = (segments: readonly Segment[]): string =>
     segments
       .map((s) => {
         if (s.type === 'text') return s.text.replaceAll(MENTION_PLACEHOLDER, '');
         if (s.type === 'mention') return `@${nameFor(s.mentionId)}`;
+        if (options.hideSpoilers && s.style === 'spoiler') return SPOILER_MASK;
         return walk(s.children);
       })
       .join('');

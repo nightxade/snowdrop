@@ -42,6 +42,18 @@ describe('<LiveAnnouncer />', () => {
     expect(screen.getByRole('status').textContent).toBe('Ana Lima: dinner at 8');
   });
 
+  it('never reads a spoiler aloud', () => {
+    const receive = setup();
+    receive({ body: 'the end: he dies', ranges: [{ start: 9, length: 7, style: 'spoiler' }] });
+    expect(screen.getByRole('status').textContent).toBe('Ana Lima: the end: ▒▒▒▒');
+  });
+
+  it('names what an attachment-only message sent', () => {
+    const receive = setup();
+    receive({ body: '', attachments: [{ id: '1', contentType: 'image/png' }] });
+    expect(screen.getByRole('status').textContent).toBe('Ana Lima: Photo');
+  });
+
   it('announces a new poll by its question', () => {
     const receive = setup();
     receive({

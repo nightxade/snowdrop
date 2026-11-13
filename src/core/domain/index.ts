@@ -3,6 +3,7 @@ export * from './avatar';
 export * from './types';
 export * from './markdown';
 export * from './segments';
+export * from './messageSummary';
 export * from './fuzzy';
 export * from './color';
 export * from './time';

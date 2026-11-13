@@ -21,16 +21,14 @@
 import { ignored } from '@/core/lib';
 import {
   mentionsContact,
-  MENTION_PLACEHOLDER,
+  messageSummary,
   parseConversationId,
   POLL_EMOJI,
   pollEndedText,
-  pollPreviewText,
-  rangesToSegments,
   type ConversationId,
   type Message,
   type MessageId,
-  type Segment,
+  type SummarySource,
 } from '@/core/domain';
 import type { Clock, Unsubscribe } from '@/core/lib';
 import {
@@ -148,27 +146,8 @@ function spaceOf(stores: Stores, id: ConversationId): string | null {
 }
 
 /** Plain-text preview that never reveals spoilers. */
-export function notificationText(
-  message: Pick<Message, 'body' | 'ranges' | 'attachments' | 'sticker' | 'poll'>,
-  nameFor: (id: string) => string,
-): string {
-  const walk = (segments: readonly Segment[]): string =>
-    segments
-      .map((s) => {
-        if (s.type === 'text') return s.text.replaceAll(MENTION_PLACEHOLDER, '');
-        if (s.type === 'mention') return `@${nameFor(s.mentionId)}`;
-        if (s.style === 'spoiler') return '▒▒▒▒';
-        return walk(s.children);
-      })
-      .join('');
-  const text = walk(rangesToSegments(message.body, message.ranges)).replace(/\s+/gu, ' ').trim();
-  if (!text) {
-    if (message.poll) return `${POLL_EMOJI} ${pollPreviewText(message.poll)}`;
-    if (message.sticker)
-      return message.sticker.emoji ? `${message.sticker.emoji} Sticker` : 'Sticker';
-    const n = message.attachments.length;
-    return n > 0 ? `Sent ${n === 1 ? 'an attachment' : `${n} attachments`}` : 'New message';
-  }
+export function notificationText(message: SummarySource, nameFor: (id: string) => string): string {
+  const text = messageSummary(message, nameFor) || 'New message';
   return text.length > MAX_BODY ? `${text.slice(0, MAX_BODY - 1)}…` : text;
 }
 

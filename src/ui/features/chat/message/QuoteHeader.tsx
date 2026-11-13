@@ -22,7 +22,7 @@ export function QuoteHeader({ quote, nameFor, onJump, compact, conversationId }:
   const stores = useStores();
   const author = useStore(stores.contacts, contactsSelectors.contact(quote.authorId));
   const name = author?.name ?? UNKNOWN_CONTACT_NAME;
-  const text = bodyToPlainText(quote.text, quote.ranges ?? [], nameFor)
+  const text = bodyToPlainText(quote.text, quote.ranges ?? [], nameFor, { hideSpoilers: true })
     .replace(/\s+/gu, ' ')
     .trim();
   const firstAttachment = quote.attachments?.[0];

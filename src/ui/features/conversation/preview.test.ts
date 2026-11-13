@@ -22,6 +22,16 @@ describe('previewText', () => {
     ).toBe('x');
   });
 
+  it('never reveals a spoiler', () => {
+    const m = makeMessage({
+      conversationId: conv,
+      authorId: 'a',
+      body: 'the end: he dies',
+      ranges: [{ start: 9, length: 7, style: 'spoiler' }],
+    });
+    expect(previewText(m, ctx)).toBe('Mira: the end: ▒▒▒▒');
+  });
+
   it('describes attachments, deletions and system lines', () => {
     const photo = makeMessage({
       authorId: 'a',

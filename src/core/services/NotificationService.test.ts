@@ -313,7 +313,17 @@ describe('NotificationService', () => {
         { body: '', ranges: [], attachments: [{ id: 'a', contentType: 'image/png' }] },
         () => '',
       ),
-    ).toBe('Sent an attachment');
+    ).toBe('Photo');
+    expect(
+      notificationText(
+        {
+          body: '',
+          ranges: [],
+          attachments: [{ id: 'a', contentType: 'application/pdf', fileName: 'plan.pdf' }],
+        },
+        () => '',
+      ),
+    ).toBe('plan.pdf');
   });
 
   it('summarises a sticker, with its emoji when known', () => {
