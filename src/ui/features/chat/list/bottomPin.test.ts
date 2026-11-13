@@ -47,4 +47,59 @@ describe('BottomPin (stick / followOutput rules)', () => {
     pin.onReachedBottom();
     expect(pin.isStuck).toBe(true);
   });
+
+  describe('following the newest message', () => {
+    it("the list's own scrolling does not release the pin, however far the new row put the bottom", () => {
+      const pin = new BottomPin(true);
+      // A new message made the bottom 140px away; the smooth scroll to it fires events on the way.
+      pin.beginFollow(1000);
+      pin.onScroll(130, 1010);
+      pin.onScroll(80, 1060);
+      pin.onScroll(0, 1140);
+      expect(pin.isStuck).toBe(true);
+      // The next message is followed too.
+      pin.beginFollow(1140);
+      pin.onScroll(90, 1160);
+      expect(pin.shouldRepin()).toBe(true);
+    });
+
+    it('the reader scrolling up during a follow takes the pin away', () => {
+      const pin = new BottomPin(true);
+      pin.beginFollow(1000);
+      pin.onScroll(130, 1010);
+      pin.onScroll(200, 900);
+      expect(pin.isStuck).toBe(false);
+      // …and the list does not follow again until they come back.
+      expect(pin.shouldRepin()).toBe(false);
+    });
+
+    it('a long jump up right after a follow began still releases the pin', () => {
+      const pin = new BottomPin(true);
+      pin.beginFollow(1000);
+      pin.onScroll(900, 100); // Home / Page Up: one event, far away
+      expect(pin.isStuck).toBe(false);
+    });
+
+    it('a scroll with no position to compare keeps the old rule', () => {
+      const pin = new BottomPin(true);
+      pin.beginFollow();
+      pin.onScroll(130, 1010);
+      expect(pin.isStuck).toBe(false);
+    });
+
+    it('beginFollow holds the pin for a reader who had left, as a jump to the present does', () => {
+      const pin = new BottomPin(true);
+      pin.onScroll(400, 600);
+      expect(pin.isStuck).toBe(false);
+      pin.beginFollow(600);
+      expect(pin.shouldRepin()).toBe(true);
+    });
+
+    it('outside a follow, scrolling away releases the pin even when moving down', () => {
+      const pin = new BottomPin(true);
+      pin.onScroll(100, 500);
+      pin.onScroll(300, 600);
+      expect(pin.isStuck).toBe(false);
+    });
+  });
 });

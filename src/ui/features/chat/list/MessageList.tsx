@@ -32,6 +32,7 @@ import { useListItems } from './useListItems';
 import { useJumpTarget } from './useJumpTarget';
 import { useListNavigation } from './useListNavigation';
 import { useReadTracking } from './useReadTracking';
+import { useFollowOwnSend } from './useFollowOwnSend';
 import { useScrollerBinding } from './useScrollerBinding';
 import { useUnreadDivider } from './useUnreadDivider';
 import styles from './MessageList.module.css';
@@ -138,15 +139,17 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
     virtuoso.current?.scrollToIndex({ index: 'LAST', align: 'end', behavior: 'auto' });
   }, []);
   const repin = () => {
-    if (pin.shouldRepin() && anchoredToPresent) scrollToBottom();
+    if (!pin.shouldRepin() || !anchoredToPresent) return;
+    pin.beginFollow(scrollTopNow());
+    scrollToBottom();
   };
-  const { scroller, scrollerRef } = useScrollerBinding({
+  const { scroller, scrollerRef, scrollTopNow } = useScrollerBinding({
     rows,
     onScroll: () => {
       const el = scroller.current;
       if (!el) return;
       const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
-      pin.onScroll(distance);
+      pin.onScroll(distance, el.scrollTop);
       setFarFromBottom(distance > el.clientHeight);
       scheduleMeasure();
     },
@@ -163,6 +166,8 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
     rows,
     reducedMotion,
   });
+
+  useFollowOwnSend({ items, epoch, anchoredToPresent, pin, scrollTopNow, scrollToBottom });
 
   const atPresent = loaded && anchoredToPresent && atBottom;
   useReadTracking(conversationId, atPresent);
@@ -196,9 +201,9 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
   const jumpToPresent = useCallback(async () => {
     const w = stores.messages.getState().windows[conversationId];
     if (w && !w.anchoredToPresent) await history.jumpToPresent(conversationId);
-    pin.onReachedBottom();
+    pin.beginFollow(scrollTopNow());
     requestAnimationFrame(scrollToBottom);
-  }, [stores, history, conversationId, scrollToBottom, pin]);
+  }, [stores, history, conversationId, scrollToBottom, pin, scrollTopNow]);
 
   const reveal = useCallback(
     async (id: MessageId, options?: { flash?: boolean; focus?: boolean }) => {
@@ -334,9 +339,12 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
           increaseViewportBy={{ top: 800, bottom: 400 }}
           defaultItemHeight={compact ? ROW_HEIGHT.compact : ROW_HEIGHT.comfortable}
           skipAnimationFrameInResizeObserver
-          followOutput={() =>
-            pin.isStuck && anchoredToPresent ? (reducedMotion() ? 'auto' : 'smooth') : false
-          }
+          followOutput={() => {
+            if (!pin.isStuck || !anchoredToPresent) return false;
+            // The scrolling that follows is the list's own: it must not read as the reader leaving.
+            pin.beginFollow(scrollTopNow());
+            return reducedMotion() ? 'auto' : 'smooth';
+          }}
           atBottomStateChange={(bottom) => {
             if (bottom) pin.onReachedBottom();
             setAtBottom(bottom);

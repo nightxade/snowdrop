@@ -71,5 +71,8 @@ export function useScrollerBinding({ rows, onScroll, onResize }: Options) {
     [scrollListener],
   );
 
-  return { scroller, scrollerRef };
+  /** Where the scroller stands now (undefined until it mounts). */
+  const scrollTopNow = useCallback(() => scroller.current?.scrollTop, []);
+
+  return { scroller, scrollerRef, scrollTopNow };
 }
