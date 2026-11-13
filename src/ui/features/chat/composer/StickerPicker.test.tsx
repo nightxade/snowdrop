@@ -188,6 +188,21 @@ describe('StickerPicker', () => {
     expect(snowdrop.stores.ui.getState().replyTo[conv.id]).toBeFalsy();
   });
 
+  it('puts the reply back when the sticker send throws before anything is staged', async () => {
+    const { open, snowdrop, conv } = await setup();
+    const target = messagesSelectors
+      .list(conv.id)(snowdrop.stores.messages.getState())
+      .findLast((m) => m.kind === 'normal' && m.body !== '')!;
+    act(() => {
+      snowdrop.stores.ui.getState().setReplyTo(conv.id, target.id);
+    });
+    await open();
+    vi.spyOn(snowdrop.send, 'sendSticker').mockRejectedValueOnce(new Error('Storage is full'));
+    fireEvent.click(screen.getByRole('button', { name: '🙌 sticker' }));
+    expect((await screen.findByRole('alert')).textContent).toBe('Storage is full');
+    expect(snowdrop.stores.ui.getState().replyTo[conv.id]).toBe(target.id);
+  });
+
   it('shows a failed sticker send as failed (with the usual retry), not as an error banner', async () => {
     const { open, snowdrop, conv, lastOwn } = await setup();
     await open();

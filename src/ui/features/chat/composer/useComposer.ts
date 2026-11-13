@@ -1,11 +1,7 @@
 import { describeSendFailure } from '@/ui/lib/connectionErrors';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { useStore } from 'zustand';
+import { useRef, useState } from 'react';
 import {
-  attachmentProblem,
   isPendingMessageId,
-  rejectedFilesMessage,
-  type AttachmentProblem,
   pollPreviewText,
   type Message,
   type Quote,
@@ -14,16 +10,15 @@ import {
 import type { ConversationView } from '@/core/domain';
 import type { OutgoingPoll } from '@/core/backend';
 import { parseSlash } from '@/core/plugins';
-import { contactsSelectors, localSelectors } from '@/core/stores';
 import { useEffectivePrivacy, useSnowdrop } from '@/ui/hooks';
 import { useChatController } from '../ChatController';
 import type { PendingAttachment } from './AttachmentTray';
-import { addToken, encodeMentions, tokensInText, type MentionToken } from './mentionTokens';
+import { encodeMentions, type MentionToken } from './mentionTokens';
+import { useAttachments, voicePending } from './useAttachments';
+import { useDraft } from './useDraft';
 import { useLinkPreview, type LinkPreviewView } from './useLinkPreview';
 import type { VoiceRecording } from '../voice/recorder';
 import { rememberWaveform } from '../voice/waveformCache';
-
-let attachmentSeq = 0;
 
 /** The quote Signal clients show above a reply, attachment types included. */
 export function quoteOf(m: Message): Quote {
@@ -79,108 +74,28 @@ export function useComposer(conversation: ConversationView): ComposerState {
   const { stores, send, history, registries } = app;
   const chat = useChatController();
   const conversationId = conversation.id;
-  const contacts = useStore(stores.contacts, contactsSelectors.byId);
-  const [text, setTextState] = useState(() =>
-    localSelectors.draft(conversationId)(stores.local.getState()),
-  );
-  const [tokens, setTokens] = useState<MentionToken[]>(() =>
-    tokensInText(
-      text,
-      conversation.memberIds.flatMap((id) =>
-        contacts[id] ? [{ id, name: contacts[id].name }] : [],
-      ),
-    ),
-  );
-  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const { text, setText, tokens, setTokens, addMention, restoreDraft } = useDraft(
+    conversation,
+    setError,
+  );
+  const {
+    attachments,
+    addFiles,
+    removeAttachment,
+    addVoiceNote,
+    clearAttachments,
+    restoreAttachments,
+  } = useAttachments(setError);
   // The phone's link-preview setting wins when known (and nothing is fetched
   // until it has been read).
   const linkPreviewsEnabled = useEffectivePrivacy().linkPreviews && app.linkPreviewFetch !== null;
   const linkPreview = useLinkPreview(text, linkPreviewsEnabled);
-  const latest = useRef(attachments);
-  useEffect(() => {
-    latest.current = attachments;
-  }, [attachments]);
-  // What the field holds right now, readable after an await (a failed send puts the draft
-  // back only if nothing has been typed meanwhile).
-  const currentText = useRef(text);
-  // Previews are object URLs: release whatever is still pending on unmount.
-  useEffect(
-    () => () => {
-      for (const a of latest.current) if (a.previewUrl) URL.revokeObjectURL(a.previewUrl);
-    },
-    [],
-  );
-
-  const setText = useCallback(
-    (next: string) => {
-      currentText.current = next;
-      setTextState(next);
-      setError(null);
-      stores.local.getState().setDraft(conversationId, next);
-      void send.setTyping(conversationId, next.trim() !== '');
-    },
-    [stores, send, conversationId],
-  );
-
-  useEffect(
-    () => () => {
-      void send.setTyping(conversationId, false);
-    },
-    [send, conversationId],
-  );
-
-  const addFiles = useCallback((files: readonly File[]) => {
-    if (files.length === 0) return;
-    // Signal sends a voice message alone.
-    if (latest.current.some((a) => a.voiceNote)) {
-      setError(VOICE_ALONE);
-      return;
-    }
-    // A file that can never be sent never becomes a pending attachment; the rest of a drop stays.
-    const rejected: { name: string; problem: AttachmentProblem }[] = [];
-    const accepted = files.filter((file) => {
-      const problem = attachmentProblem(file);
-      if (problem) rejected.push({ name: file.name, problem });
-      return problem === null;
-    });
-    if (rejected.length > 0) setError(rejectedFilesMessage(rejected));
-    if (accepted.length === 0) return;
-    const added = accepted.map((file): PendingAttachment => ({
-      id: `att-${++attachmentSeq}`,
-      file,
-      ...(isPreviewable(file) ? { previewUrl: URL.createObjectURL(file) } : {}),
-    }));
-    setAttachments((current) => [...current, ...added]);
-    // Measure images so the sent message reserves the right box before it loads.
-    for (const a of added) {
-      if (!a.previewUrl || typeof Image === 'undefined') continue;
-      const img = new Image();
-      img.onload = () => {
-        setAttachments((current) =>
-          current.map((x) =>
-            x.id === a.id ? { ...x, width: img.naturalWidth, height: img.naturalHeight } : x,
-          ),
-        );
-      };
-      img.src = a.previewUrl;
-    }
-  }, []);
-
-  const removeAttachment = useCallback((id: string) => {
-    setAttachments((current) => {
-      const gone = current.find((a) => a.id === id);
-      if (gone?.previewUrl) URL.revokeObjectURL(gone.previewUrl);
-      return current.filter((a) => a.id !== id);
-    });
-  }, []);
 
   const clear = () => {
     setText('');
     setTokens([]);
-    for (const a of attachments) if (a.previewUrl) URL.revokeObjectURL(a.previewUrl);
-    latest.current = [];
-    setAttachments([]);
+    clearAttachments();
     stores.ui.getState().setReplyTo(conversationId, null);
   };
 
@@ -192,55 +107,37 @@ export function useComposer(conversation: ConversationView): ComposerState {
       ),
     );
 
-  /** Puts back what a send that did not go out took from the composer (never over newer input). */
-  const restore = (draft: {
-    text: string;
-    tokens: MentionToken[];
-    attachments: readonly PendingAttachment[];
-    replyId: Message['id'] | undefined;
-  }) => {
-    if (currentText.current === '' && draft.text !== '') {
-      // Not `setText`: that would also clear the error that says why it came back.
-      currentText.current = draft.text;
-      setTextState(draft.text);
-      stores.local.getState().setDraft(conversationId, draft.text);
-      setTokens(draft.tokens);
-    }
-    if (latest.current.length === 0 && draft.attachments.length > 0) {
-      // The files are still held; their previews were released with the tray, so make new ones.
-      const back = draft.attachments.map((a) => ({
-        ...a,
-        ...(a.previewUrl !== undefined || a.voiceNote === true
-          ? { previewUrl: URL.createObjectURL(a.file) }
-          : {}),
-      }));
-      latest.current = back;
-      setAttachments(back);
-    }
-    if (draft.replyId && stores.ui.getState().replyTo[conversationId] === undefined)
-      stores.ui.getState().setReplyTo(conversationId, draft.replyId);
+  /** Puts a spent reply back (never over a reply picked meanwhile). */
+  const restoreReply = (replyId: Message['id'] | undefined) => {
+    if (replyId && stores.ui.getState().replyTo[conversationId] === undefined)
+      stores.ui.getState().setReplyTo(conversationId, replyId);
   };
 
   /**
    * Runs a send once the list shows the present (a send only appears there), reports a failure
-   * in the composer, and scrolls to the end. Resolves with the send's result, or `FAILED`.
+   * in the composer, and scrolls to the end. `notSent` is true when nothing went out and no
+   * failed row was staged for it, so what the send took from the composer should come back
+   * (a staged row has Retry; a restored draft would send it twice).
    */
-  const sendInPresent = async <T>(run: () => Promise<T>, failure: string): Promise<T | Failed> => {
+  const sendInPresent = async <T>(
+    run: () => Promise<T>,
+    failure: string,
+  ): Promise<{ result: T | typeof FAILED; notSent: boolean }> => {
+    let before = new Set<string>();
+    let result: T | typeof FAILED;
     try {
       const w = stores.messages.getState().windows[conversationId];
       if (w && !w.anchoredToPresent) await history.jumpToPresent(conversationId);
-      return await run();
+      before = pendingIds();
+      result = await run();
     } catch (e) {
       setError(describeSendFailure(e, failure));
-      return FAILED;
+      result = FAILED;
     } finally {
       void chat.jumpToPresent();
     }
-  };
-
-  const addVoiceNote = (recording: VoiceRecording) => {
-    const pending = voicePending(recording);
-    setAttachments([{ ...pending, previewUrl: URL.createObjectURL(pending.file) }]);
+    const staged = [...pendingIds()].some((id) => !before.has(id));
+    return { result, notSent: (result === FAILED || result === null) && !staged };
   };
 
   const deliver = async (
@@ -294,26 +191,27 @@ export function useComposer(conversation: ConversationView): ComposerState {
           }
         : {}),
     };
-    const draft = { text, tokens, attachments: outgoing, replyId };
+    const draft = { text, tokens, attachments: outgoing };
     clear();
-    let before = new Set<string>();
-    const sent = await sendInPresent(() => {
-      before = pendingIds();
-      return send.send({
-        conversationId,
-        text: encoded.text,
-        mentionIds: encoded.mentionIds,
-        attachments: files,
-        ...(replyTarget ? { quote: quoteOf(replyTarget) } : {}),
-        ...(format ? { format } : {}),
-        ...(preview ? { preview } : {}),
-      });
-    }, 'Could not send the message');
-    // Not sent (it threw, or a plugin emptied it): the user's words and files come back. Unless
-    // the message was already staged: its failed row, with Retry, is the way back then, and a
-    // restored draft would send it twice.
-    const staged = [...pendingIds()].some((id) => !before.has(id));
-    if ((sent === FAILED || sent === null) && !staged) restore(draft);
+    const { notSent } = await sendInPresent(
+      () =>
+        send.send({
+          conversationId,
+          text: encoded.text,
+          mentionIds: encoded.mentionIds,
+          attachments: files,
+          ...(replyTarget ? { quote: quoteOf(replyTarget) } : {}),
+          ...(format ? { format } : {}),
+          ...(preview ? { preview } : {}),
+        }),
+      'Could not send the message',
+    );
+    // Not sent (it threw, or a plugin emptied it): the user's words, files and reply come back.
+    if (notSent) {
+      restoreDraft(draft);
+      restoreAttachments(draft.attachments);
+      restoreReply(replyId);
+    }
   };
 
   const executing = useRef(false);
@@ -365,7 +263,7 @@ export function useComposer(conversation: ConversationView): ComposerState {
     if (replyId) stores.ui.getState().setReplyTo(conversationId, null);
     setError(null);
     stores.local.getState().noteStickerSent(sticker);
-    await sendInPresent(
+    const { notSent } = await sendInPresent(
       () =>
         send.sendSticker({
           conversationId,
@@ -374,24 +272,24 @@ export function useComposer(conversation: ConversationView): ComposerState {
         }),
       'Could not send the sticker',
     );
+    if (notSent) restoreReply(replyId);
   };
 
   const sendPoll = async (poll: OutgoingPoll) => {
     setError(null);
-    const nonce = await sendInPresent(
+    // Nothing is taken from the composer, so nothing comes back.
+    const { result } = await sendInPresent(
       () => send.sendPoll({ conversationId, poll }),
       'Could not send the poll',
     );
-    if (nonce === null) setError("This connection can't send polls.");
+    if (result === null) setError("This connection can't send polls.");
   };
 
   return {
     text,
     setText,
     tokens,
-    addMention: (token) => {
-      setTokens((current) => addToken(current, token));
-    },
+    addMention,
     attachments,
     addFiles,
     addVoiceNote,
@@ -408,24 +306,3 @@ export function useComposer(conversation: ConversationView): ComposerState {
 
 /** What `sendInPresent` resolves with when the send threw (the error is already shown). */
 const FAILED = Symbol('failed');
-type Failed = typeof FAILED;
-
-const VOICE_ALONE = 'A voice message must have only one attachment.';
-
-let voiceSeq = 0;
-
-/** A recording as a composer attachment (no preview URL yet: only a draft needs one). */
-function voicePending(recording: VoiceRecording): PendingAttachment {
-  return {
-    id: `voice-${++voiceSeq}`,
-    file: new File([recording.blob], 'voice-note.mp3', { type: 'audio/mpeg' }),
-    voiceNote: true,
-    levels: recording.waveform,
-    duration: recording.durationSeconds,
-  };
-}
-
-/** Raster images get a tray thumbnail and an optimistic preview (never SVG). */
-function isPreviewable(file: File): boolean {
-  return file.type.startsWith('image/') && file.type !== 'image/svg+xml';
-}
