@@ -270,12 +270,13 @@ export function createDesktopAdmin(ipc: TauriIpc = tauriIpc): DesktopAdmin {
       return validateInstallStatus('signal_cli_install_status', raw);
     },
     async install(onProgress: (progress: InstallProgress) => void): Promise<InstallResult> {
-      const unlisten = await ipc.listen<unknown>('signal-cli-install-progress', (raw) => {
-        // A malformed progress tick is dropped rather than failing the install.
-        const p = tryValidateInstallProgress(raw);
-        if (p) onProgress({ received: p.received, total: p.total });
-      });
+      let unlisten: (() => void) | undefined;
       try {
+        unlisten = await ipc.listen<unknown>('signal-cli-install-progress', (raw) => {
+          // A malformed progress tick is dropped rather than failing the install.
+          const p = tryValidateInstallProgress(raw);
+          if (p) onProgress({ received: p.received, total: p.total });
+        });
         const raw = await ipc.invoke<unknown>('signal_cli_install');
         const status = validateInstallStatus('signal_cli_install', raw);
         // A fresh install replaces whatever `info()` cached before it existed.
@@ -284,7 +285,7 @@ export function createDesktopAdmin(ipc: TauriIpc = tauriIpc): DesktopAdmin {
       } catch (error) {
         return { ok: false, ...asCommandError(error) };
       } finally {
-        unlisten();
+        unlisten?.();
       }
     },
     async cancelInstall(): Promise<void> {

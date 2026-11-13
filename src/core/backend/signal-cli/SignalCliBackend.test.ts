@@ -1668,6 +1668,27 @@ describe('SignalCliBackend sync-only read receipts', () => {
     await backend.disconnect();
   });
 
+  it('keeps the other authors’ receipts when one author’s fails, and throws only when all do', async () => {
+    const { backend, daemon } = await backendAt('0.14.8-snowdrop-history.20');
+    daemon.handle('sendReceipt', (params) =>
+      params.recipient === BOB
+        ? { error: { code: -1, message: 'boom' } }
+        : { result: { timestamp: 1, results: [{ type: 'SUCCESS' }], sync: 'success' } },
+    );
+    const mixed = await backend.markRead(GROUP, [
+      { authorId: ALICE, sentAt: 1 },
+      { authorId: BOB, sentAt: 2 },
+    ]);
+    expect(mixed).toMatchObject({
+      receipt: 'unknown',
+      sync: 'unknown',
+      failure: { failed: 1, of: 2 },
+    });
+    daemon.handle('sendReceipt', () => ({ error: { code: -1, message: 'boom' } }));
+    await expect(backend.markRead(GROUP, [{ authorId: ALICE, sentAt: 1 }])).rejects.toThrow();
+    await backend.disconnect();
+  });
+
   it('never sends a sync-only read to an older build (it would be a real receipt)', async () => {
     const { backend, daemon } = await backendAt('0.14.8-snowdrop-history.18');
     expect(backend.capabilities.features.has('readSync')).toBe(false);
@@ -3213,7 +3234,7 @@ describe('SignalCliBackend: polls', () => {
       [SELF_ACI, [0, 1]],
     ]);
     expect(ends).toEqual([
-      { conversationId: GROUP, authorId: ALICE, targetSentAt: T0, at: T0 + 60 },
+      { conversationId: GROUP, authorId: ALICE, targetSentAt: T0, at: T0 + 60, serverAt: T0 + 150 },
     ]);
     await backend.disconnect();
   });

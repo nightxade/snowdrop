@@ -2,3 +2,4 @@
 export type * from './types';
 export type * from './desktop';
 export { DESKTOP_ERROR_KINDS } from './desktop';
+export { noteServerReceived, serverReceivedAt } from './serverTime';

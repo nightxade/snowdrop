@@ -15,6 +15,7 @@ import {
 } from '@/core/domain';
 import { stripBidiControls } from '@/core/lib';
 import type { ReceiptType } from '../../types';
+import { noteServerReceived } from '../../serverTime';
 import { decode } from '../validate';
 import {
   addressId,
@@ -47,6 +48,8 @@ interface Origin {
   actorName: string;
   /** When an own message's disappearing timer starts (see buildMessage). */
   timerStart: number;
+  /** When the server got the envelope, if the daemon said. */
+  serverAt?: number;
 }
 
 /**
@@ -134,6 +137,8 @@ export function normaliseEnvelope(envelope: WireEnvelope, ctx: NormaliseContext)
   // Server time, so a replayed message of the user's own expires on schedule
   // instead of getting a fresh timer from "now".
   const timerStart = Math.min(ctx.now, serverTime(envelope) ?? ctx.now);
+  const serverAt = serverTime(envelope);
+  const serverAtField = serverAt !== undefined ? { serverAt } : {};
 
   if (envelope.receiptMessage) {
     const r = envelope.receiptMessage;
@@ -184,6 +189,7 @@ export function normaliseEnvelope(envelope: WireEnvelope, ctx: NormaliseContext)
         own: true,
         actorName: 'You',
         timerStart,
+        ...serverAtField,
       };
       if (sent.editMessage)
         events.push(...fromEdit(sent.editMessage, origin, resolve, serverTime(envelope)));
@@ -231,6 +237,7 @@ export function normaliseEnvelope(envelope: WireEnvelope, ctx: NormaliseContext)
       own: source === ctx.selfId,
       actorName: nameOf(source, envelope.sourceName),
       timerStart,
+      ...serverAtField,
     };
     if (envelope.editMessage)
       return fromEdit(envelope.editMessage, origin, resolve, serverTime(envelope));
@@ -305,6 +312,7 @@ function fromData(
           targetSentAt: r.targetSentTimestamp,
           reaction: { emoji: r.emoji, authorId, at: data.timestamp },
           remove: r.isRemove,
+          ...(origin.serverAt !== undefined ? { serverAt: origin.serverAt } : {}),
         },
       },
     ];
@@ -373,6 +381,7 @@ function fromData(
           optionIndexes: [...new Set(v.optionIndexes)],
           voteCount: v.voteCount,
           at: data.timestamp,
+          ...(origin.serverAt !== undefined ? { serverAt: origin.serverAt } : {}),
         },
       },
     ];
@@ -387,6 +396,7 @@ function fromData(
           authorId,
           targetSentAt: data.pollTerminate.targetSentTimestamp,
           at: data.timestamp,
+          ...(origin.serverAt !== undefined ? { serverAt: origin.serverAt } : {}),
         },
       },
     ];
@@ -432,7 +442,9 @@ function fromData(
     own: origin.own,
     timerStart: origin.timerStart,
   });
-  if (message) events.push({ kind: 'message', payload: message });
-  else if (events.length === 0) ctx.debug('ignored data message without content', data.timestamp);
+  if (message) {
+    noteServerReceived(message, origin.serverAt);
+    events.push({ kind: 'message', payload: message });
+  } else if (events.length === 0) ctx.debug('ignored data message without content', data.timestamp);
   return events;
 }

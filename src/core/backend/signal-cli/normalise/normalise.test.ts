@@ -20,6 +20,7 @@ import {
   SELF_NUMBER,
   T0,
 } from '../fixtures/envelopes';
+import { serverReceivedAt } from '../../serverTime';
 import { DirectPeers } from '../peers';
 import { describeGroupChange, toContact, toGroupConversation } from './directory';
 import { wireContact, wireGroup } from '../wire';
@@ -57,6 +58,12 @@ function only<K extends AdapterEvent['kind']>(events: AdapterEvent[], kind: K) {
 }
 
 describe('normaliseReceive: messages', () => {
+  it('keeps the server receive time beside the message, outside what is stored', () => {
+    const { payload } = only(run(fixtures.dmText).events, 'message');
+    expect(serverReceivedAt(payload)).toBe(T0 + 150);
+    expect(payload).not.toHaveProperty('serverAt');
+  });
+
   it('maps an incoming DM with text styles', () => {
     const { payload } = only(run(fixtures.dmText).events, 'message');
     expect(payload).toEqual({
@@ -318,6 +325,7 @@ describe('normaliseReceive: polls', () => {
       optionIndexes: [1],
       voteCount: 1,
       at: T0,
+      serverAt: T0 + 150,
     });
   });
 
@@ -338,6 +346,7 @@ describe('normaliseReceive: polls', () => {
       authorId: ALICE,
       targetSentAt: T0,
       at: T0 + 60,
+      serverAt: T0 + 150,
     });
   });
 
@@ -383,6 +392,7 @@ describe('normaliseReceive: actions on messages', () => {
       targetSentAt: T0 - 5,
       reaction: { emoji: '🎯', authorId: ALICE, at: T0 + 40 },
       remove: false,
+      serverAt: T0 + 150,
     });
     const remove = only(run(fixtures.reactionRemove).events, 'reaction').payload;
     expect(remove).toMatchObject({

@@ -13,7 +13,8 @@ export type Listener<T> = (payload: T) => void;
 
 /** `Events` maps event names to payload types, e.g. `{ status: Status; message: Message }`. */
 export class Emitter<Events extends object> {
-  private readonly listeners = new Map<keyof Events, Set<Listener<never>>>();
+  /** One entry per `on()`, so the same function subscribed twice is two independent subscriptions. */
+  private readonly listeners = new Map<keyof Events, Set<{ fn: Listener<never> }>>();
 
   constructor(private readonly onListenerError: (error: unknown) => void = reportError) {}
 
@@ -23,9 +24,10 @@ export class Emitter<Events extends object> {
       set = new Set();
       this.listeners.set(event, set);
     }
-    set.add(fn);
+    const entry = { fn };
+    set.add(entry);
     return () => {
-      set.delete(fn);
+      set.delete(entry);
     };
   }
 
@@ -33,7 +35,7 @@ export class Emitter<Events extends object> {
     const set = this.listeners.get(event);
     if (!set) return;
     // Snapshot so listeners may unsubscribe during dispatch.
-    for (const fn of [...set] as Listener<Events[E]>[]) {
+    for (const { fn } of [...set] as { fn: Listener<Events[E]> }[]) {
       try {
         fn(payload);
       } catch (error) {

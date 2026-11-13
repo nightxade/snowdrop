@@ -84,10 +84,15 @@ const KINDS: Record<CommandError['kind'], SignalCliErrorKind> = {
   internal: 'internal',
 };
 
+/** An error kind the Rust side may have added since this build falls back to `internal`. */
+function kindFor(kind: string): SignalCliErrorKind {
+  return (KINDS as Partial<Record<string, SignalCliErrorKind>>)[kind] ?? 'internal';
+}
+
 export function toSignalCliError(error: unknown): SignalCliError {
   if (error instanceof SignalCliError) return error;
   const { kind, message } = asCommandError(error);
-  return new SignalCliError(KINDS[kind], message, { cause: error });
+  return new SignalCliError(kindFor(kind), message, { cause: error });
 }
 
 function toStreamState(state: RustStreamState): EventStreamState {
@@ -100,7 +105,10 @@ function toStreamState(state: RustStreamState): EventStreamState {
         error: new SignalCliError('unreachable', state.reason),
       };
     case 'failed':
-      return { kind: 'failed', error: new SignalCliError(KINDS[state.errorKind], state.message) };
+      return {
+        kind: 'failed',
+        error: new SignalCliError(kindFor(state.errorKind), state.message),
+      };
     default:
       return state;
   }
@@ -234,7 +242,7 @@ class TauriSubscription implements EventSubscription {
     this.running = false;
     this.wake?.();
     await this.loop;
-    for (const off of this.unlisten.splice(0)) off();
+    this.releaseListeners();
     await this.endSubscription();
     this.options.onState({ kind: 'closed' });
   }
@@ -267,6 +275,10 @@ class TauriSubscription implements EventSubscription {
     }
   }
 
+  private releaseListeners(): void {
+    for (const off of this.unlisten.splice(0)) off();
+  }
+
   reconnectNow(): void {
     this.wake?.();
   }
@@ -277,28 +289,38 @@ class TauriSubscription implements EventSubscription {
 
   private async run(): Promise<void> {
     // Listen first: the Rust side replays held events while subscribing.
-    this.unlisten.push(
-      await this.ipc.listen<unknown>(EVENT_RECEIVE, (event) => {
-        if (!this.running) return;
-        if (!isRecord(event) || typeof event.type !== 'string') {
-          log.error('malformed signal-cli event payload', typeof event);
-          return;
-        }
-        this.options.onEvent({
-          type: event.type,
-          data: event.data,
-          cursor: typeof event.cursor === 'string' ? event.cursor || undefined : undefined,
-        });
-      }),
-      await this.ipc.listen<unknown>(EVENT_STATE, (state) => {
-        if (!this.running) return;
-        if (!isRecord(state) || typeof state.kind !== 'string') {
-          log.error('malformed signal-cli state payload', typeof state);
-          return;
-        }
-        this.options.onState(toStreamState(state as RustStreamState));
-      }),
-    );
+    try {
+      this.unlisten.push(
+        await this.ipc.listen<unknown>(EVENT_RECEIVE, (event) => {
+          if (!this.running) return;
+          if (!isRecord(event) || typeof event.type !== 'string') {
+            log.error('malformed signal-cli event payload', typeof event);
+            return;
+          }
+          this.options.onEvent({
+            type: event.type,
+            data: event.data,
+            cursor: typeof event.cursor === 'string' ? event.cursor || undefined : undefined,
+          });
+        }),
+      );
+      this.unlisten.push(
+        await this.ipc.listen<unknown>(EVENT_STATE, (state) => {
+          if (!this.running) return;
+          if (!isRecord(state) || typeof state.kind !== 'string') {
+            log.error('malformed signal-cli state payload', typeof state);
+            return;
+          }
+          this.options.onState(toStreamState(state as RustStreamState));
+        }),
+      );
+    } catch (error) {
+      this.releaseListeners();
+      // After `stop()` the caller has already been told `closed`: no failure to add.
+      if (this.running) this.options.onState({ kind: 'failed', error: toSignalCliError(error) });
+      this.running = false;
+      return;
+    }
     for (let attempt = 0; this.isRunning(); attempt++) {
       this.options.onState({ kind: 'connecting', attempt });
       try {
@@ -318,6 +340,8 @@ class TauriSubscription implements EventSubscription {
         if (failure.kind === 'not-installed' || failure.kind === 'config') {
           this.options.onState({ kind: 'failed', error: failure });
           this.running = false;
+          // `stop()` returns early once not running, so nothing else lets go of these.
+          this.releaseListeners();
           return;
         }
         const delayMs =

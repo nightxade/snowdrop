@@ -72,4 +72,58 @@ describe('desktopNotificationApi', () => {
     await api.request();
     expect(changed).toHaveBeenCalledTimes(1);
   });
+
+  it('says it is not ready until the plugin has answered', async () => {
+    let release: (api: NotificationApi) => void = () => undefined;
+    plugin.load = () =>
+      new Promise((resolve) => {
+        release = resolve;
+      });
+    const api = desktopNotificationApi();
+    expect(api.whenReady?.()).not.toBeNull();
+    await flush();
+    release(nativeApi('granted'));
+    await flush();
+    expect(api.whenReady?.()).toBeNull();
+    expect(api.permission()).toBe('granted');
+  });
+
+  it('holds a notification shown before the plugin has loaded and delivers it once it has', async () => {
+    let release: (api: NotificationApi) => void = () => undefined;
+    plugin.load = () =>
+      new Promise((resolve) => {
+        release = resolve;
+      });
+    const api = desktopNotificationApi();
+    const shown = vi.fn(() => ({ close: vi.fn() }));
+    const handle = api.show({ title: 't', body: 'b', tag: 'x' }, () => undefined);
+    expect(handle).not.toBeNull();
+    await flush();
+    release({ ...nativeApi('granted'), show: shown });
+    expect(await handle?.delivered).toBe(true);
+    expect(shown).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not show a held notification that was closed before the plugin loaded', async () => {
+    let release: (api: NotificationApi) => void = () => undefined;
+    plugin.load = () =>
+      new Promise((resolve) => {
+        release = resolve;
+      });
+    const api = desktopNotificationApi();
+    const shown = vi.fn(() => ({ close: vi.fn() }));
+    const handle = api.show({ title: 't', body: 'b', tag: 'x' }, () => undefined);
+    handle?.close();
+    await flush();
+    release({ ...nativeApi('granted'), show: shown });
+    expect(await handle?.delivered).toBe(false);
+    expect(shown).not.toHaveBeenCalled();
+  });
+
+  it('refuses a notification when the plugin cannot load', async () => {
+    plugin.load = () => Promise.reject(new Error('no plugin'));
+    const api = desktopNotificationApi();
+    await flush();
+    expect(api.show({ title: 't', body: 'b', tag: 'x' }, () => undefined)).toBeNull();
+  });
 });

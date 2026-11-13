@@ -206,7 +206,26 @@ export class IdbMessageRepository implements MessageRepository {
     name = 'snowdrop',
     cipher: RecordCipher = plaintextCipher(),
   ): Promise<IdbMessageRepository> {
-    const db = await openDB<SnowdropDB>(name, DB_VERSION, {
+    // A blocked open (another tab still holds an older version open) would
+    // wait on that tab indefinitely: fail it clearly instead, and drop the
+    // connection if it does come through later.
+    let abandoned = false;
+    let failBlocked: (error: Error) => void = () => undefined;
+    const blockedFailure = new Promise<never>((_, reject) => {
+      failBlocked = reject;
+    });
+    const opening = openDB<SnowdropDB>(name, DB_VERSION, {
+      blocked() {
+        abandoned = true;
+        failBlocked(
+          new Error(
+            'Message history cannot be opened: another Snowdrop window is still using an older version of it. Close the other window and try again.',
+          ),
+        );
+      },
+      terminated() {
+        log.error('the browser closed the history database unexpectedly');
+      },
       upgrade(database, oldVersion, _newVersion, transaction) {
         // Versioned, additive migrations: each step upgrades from the previous version.
         if (oldVersion >= 1 && oldVersion < 2) {
@@ -272,6 +291,21 @@ export class IdbMessageRepository implements MessageRepository {
         }
       },
     });
+    void opening.then((late) => {
+      if (abandoned) late.close();
+    }, ignored('an open that failed is reported to its caller below'));
+    let db: IDBPDatabase<SnowdropDB>;
+    try {
+      db = await Promise.race([opening, blockedFailure]);
+    } catch (error) {
+      if (error instanceof Error && error.name === 'VersionError') {
+        throw new Error(
+          'Message history was written by a newer version of Snowdrop and cannot be opened by this one.',
+          { cause: error },
+        );
+      }
+      throw error;
+    }
     return new IdbMessageRepository(db, cipher);
   }
 
@@ -409,28 +443,40 @@ export class IdbMessageRepository implements MessageRepository {
     { backfill, merge }: { backfill: boolean; merge: MergeFn },
   ): Promise<Message[]> {
     return this.mutate(async () => {
-      const keys = await Promise.all(messages.map((m) => this.cipher.blindId(m.id)));
+      const keyed = await Promise.all(
+        messages.map(async (m) => ({ m, key: await this.cipher.blindId(m.id) })),
+      );
+      const keys = keyed.map((k) => k.key);
       const existingRows = await Promise.all(keys.map((key) => this.db.get('messages', key)));
       const existing = await Promise.all(existingRows.map((row) => this.tryFromRow(row)));
-      const freshCount = existing.filter((e) => e === undefined).length;
+      // The same id twice in one batch folds like two upserts in a row: the
+      // second is merged into what the first stored.
+      const latest = new Map<string, Message | undefined>();
+      keys.forEach((key, i) => {
+        if (!latest.has(key)) latest.set(key, existing[i]);
+      });
+      const final = new Map<string, Message>();
+      const freshCount = [...latest.values()].filter((e) => e === undefined).length;
       const seq = await this.seqStateOnce();
       let next = backfill ? seq.min - freshCount : seq.max + 1;
       const out: Message[] = [];
+      const dropped: string[] = [];
       let min = seq.min;
       let max = seq.max;
-      for (const [i, m] of messages.entries()) {
-        const found = existing[i];
+      for (const { m, key } of keyed) {
+        const found = latest.get(key);
         const stored = found ? merge(found, m) : { ...m, seq: m.seq ?? next++ };
         if (stored.seq !== undefined) {
           min = Math.min(min, stored.seq);
           max = Math.max(max, stored.seq);
         }
+        dropped.push(...droppedOriginals(found, stored));
+        latest.set(key, stored);
+        final.set(key, stored);
         out.push(stored);
       }
-      const rows = await Promise.all(out.map((m) => this.toRow(m)));
-      const dropKeys = await this.mediaKeys(
-        out.flatMap((m, i) => droppedOriginals(existing[i], m)),
-      );
+      const rows = await Promise.all([...final.values()].map((m) => this.toRow(m)));
+      const dropKeys = await this.mediaKeys(dropped);
       const tx = this.db.transaction(['messages', 'meta', 'sentMedia'], 'readwrite');
       await Promise.all([
         ...rows.map((row) => tx.objectStore('messages').put(row)),
@@ -814,13 +860,35 @@ export class IdbMessageRepository implements MessageRepository {
   }
 
   async expired(now: number, limit: number): Promise<Message[]> {
-    const rows = await this.db.getAllFromIndex(
-      'messages',
-      'byExpiresAt',
-      IDBKeyRange.upperBound(now),
-      limit,
-    );
-    return this.fromRows(rows);
+    // Unreadable rows are never returned (so never purged here), so the limit
+    // counts rows that were actually returned: a run of them at the front must
+    // not hide the readable ones behind it. Pages of `limit` rows are read
+    // through the index and decoded until enough readable ones are found.
+    const out: Message[] = [];
+    type Position = { key: number; primary: string };
+    let after: Position | null = null;
+    while (out.length < limit) {
+      const page: MessageRow[] = [];
+      let last: Position | null = after;
+      let cursor = await this.db
+        .transaction('messages')
+        .store.index('byExpiresAt')
+        .openCursor(IDBKeyRange.upperBound(now));
+      if (cursor && after) {
+        cursor = await cursor.continuePrimaryKey(after.key, after.primary);
+        if (cursor && cursor.primaryKey === after.primary) cursor = await cursor.continue();
+      }
+      while (cursor && page.length < limit) {
+        page.push(cursor.value);
+        last = { key: cursor.key, primary: cursor.primaryKey };
+        cursor = await cursor.continue();
+      }
+      if (page.length === 0) break;
+      out.push(...(await this.fromRows(page)).slice(0, limit - out.length));
+      if (page.length < limit) break;
+      after = last;
+    }
+    return out;
   }
 
   async getReadCursors(): Promise<Map<ConversationId, number>> {

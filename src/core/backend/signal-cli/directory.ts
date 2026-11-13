@@ -74,6 +74,10 @@ export class Directory {
   private left: Set<string> | null = null;
   private contactsLoadedAt = -Infinity;
   private groupsLoadedAt = -Infinity;
+  /** Orders group requests: a bulk listing starts at one number, a single fetch lands at a later one. */
+  private groupSeq = 0;
+  /** When each group was last set by a single fetch, in `groupSeq` terms. */
+  private readonly groupFetchedAt = new Map<ConversationId, number>();
   private contactsLoading: Promise<void> | null = null;
   private groupsLoading: Promise<void> | null = null;
   private refreshTimer: Cancel | null = null;
@@ -92,6 +96,7 @@ export class Directory {
     this.left = null;
     this.contactsLoadedAt = -Infinity;
     this.groupsLoadedAt = -Infinity;
+    this.groupFetchedAt.clear();
     this.contactsLoading = null;
     this.groupsLoading = null;
     this.refreshTimer?.();
@@ -299,6 +304,7 @@ export class Directory {
     const conv = this.toConversation(raw, this.resolveMember([raw]));
     if (!conv) return null;
     this.groups.set(conv.id, conv);
+    this.groupFetchedAt.set(conv.id, ++this.groupSeq);
     return conv;
   }
 
@@ -355,6 +361,7 @@ export class Directory {
 
   private async fetchGroups(): Promise<void> {
     const epoch = this.epoch;
+    const startedAt = ++this.groupSeq;
     const raw = await this.deps.rpc.call('listGroups', undefined, wireGroups);
     if (epoch !== this.epoch) return;
     const resolve = this.resolveMember(raw);
@@ -363,7 +370,10 @@ export class Directory {
     for (const g of raw) {
       const conv = this.toConversation(g, resolve);
       if (!conv) continue;
-      this.groups.set(conv.id, conv);
+      // A group fetched on its own after this listing began is newer than it.
+      const newer =
+        (this.groupFetchedAt.get(conv.id) ?? 0) > startedAt ? before.get(conv.id) : null;
+      this.groups.set(conv.id, newer ?? conv);
     }
     this.groupsLoadedAt = this.deps.now();
     // New or changed groups (e.g. the groups sync landing right after

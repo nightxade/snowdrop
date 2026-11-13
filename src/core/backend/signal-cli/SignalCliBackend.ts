@@ -1376,7 +1376,8 @@ export class SignalCliBackend implements ChatBackend {
       const author = own ? this.selfId : m.authorId;
       byAuthor.set(author, [...(byAuthor.get(author) ?? []), m.sentAt]);
     }
-    const replies = await Promise.all(
+    // One author's failed call must not lose what the others reported.
+    const settled = await Promise.allSettled(
       [...byAuthor].map(([author, timestamps]) =>
         this.rpc.call(
           'sendReceipt',
@@ -1390,7 +1391,30 @@ export class SignalCliBackend implements ChatBackend {
         ),
       ),
     );
-    return summariseReadReplies(replies);
+    const replies: unknown[] = [];
+    let failure: { error: unknown } | null = null;
+    for (const result of settled) {
+      if (result.status === 'fulfilled') replies.push(result.value);
+      else failure ??= { error: result.reason };
+    }
+    // Every call failed: surface it as before. Otherwise report the ones that
+    // went through, and mark the failed ones as unknown failures.
+    if (failure && replies.length === 0) throw failure.error;
+    const summary = summariseReadReplies(replies);
+    if (!failure) return summary;
+    return {
+      failure: {
+        error: failure.error instanceof Error ? failure.error : new Error('read receipt failed'),
+        failed: settled.length - replies.length,
+        of: settled.length,
+      },
+      receipt:
+        summary.receipt === 'none' || summary.receipt === 'success' ? 'unknown' : summary.receipt,
+      sync:
+        summary.sync === 'none' || summary.sync === 'success' || summary.sync === 'unreported'
+          ? 'unknown'
+          : summary.sync,
+    };
   }
 
   /**

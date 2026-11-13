@@ -16,6 +16,22 @@ describe('Emitter', () => {
     expect(fn).toHaveBeenCalledExactlyOnceWith(1);
   });
 
+  it('keeps subscribing the same function twice as two independent subscriptions', () => {
+    const e = new Emitter<{ a: number }>();
+    const fn = vi.fn();
+    const first = e.on('a', fn);
+    const second = e.on('a', fn);
+    e.emit('a', 1);
+    expect(fn).toHaveBeenCalledTimes(2);
+    first();
+    e.emit('a', 2);
+    expect(fn).toHaveBeenCalledTimes(3);
+    expect(e.listenerCount('a')).toBe(1);
+    second();
+    e.emit('a', 3);
+    expect(fn).toHaveBeenCalledTimes(3);
+  });
+
   it('isolates throwing listeners', () => {
     const onError = vi.fn();
     const e = new Emitter<{ a: number }>(onError);

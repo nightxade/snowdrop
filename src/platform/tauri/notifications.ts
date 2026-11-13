@@ -11,6 +11,7 @@ import {
 import type { NotificationApi } from '@/core/services';
 import { createLogger, ignore } from '@/core/lib';
 import { tauriIpc, type TauriIpc } from './ipc';
+import { validateHandled } from './ipcValidate';
 
 type Permission = ReturnType<NotificationApi['permission']>;
 
@@ -52,7 +53,10 @@ export async function tauriNotificationApi(ipc: TauriIpc = tauriIpc): Promise<No
           return;
         }
         try {
-          const handled = await ipc.invoke<boolean>('notification_show', { tag, title, body });
+          const handled = validateHandled(
+            'notification_show',
+            await ipc.invoke<unknown>('notification_show', { tag, title, body }),
+          );
           if (!handled) sendNotification({ title, body });
           settle(true);
         } catch (error) {

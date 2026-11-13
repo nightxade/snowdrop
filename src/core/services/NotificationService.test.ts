@@ -23,7 +23,14 @@ const dm = directConversationId('ana');
 const requestDm = directConversationId('eve');
 const requestGroup = conversationIdFor('spam-group');
 
-function setup(options: { permission?: NotificationPermissionState; visible?: boolean } = {}) {
+function setup(
+  options: {
+    permission?: NotificationPermissionState;
+    visible?: boolean;
+    /** A platform that answers `permission()` only once this has resolved. */
+    loading?: Promise<void>;
+  } = {},
+) {
   const stores = createStores();
   stores.session.getState().setSelf({ id: 'me', name: 'Me', color: 'x', isSelf: true });
   stores.contacts.getState().upsertMany([
@@ -50,8 +57,13 @@ function setup(options: { permission?: NotificationPermissionState; visible?: bo
   const shown: { title: string; body: string; tag: string; click: () => void }[] = [];
   const closed = vi.fn();
   let permission = options.permission ?? 'granted';
+  let loaded = options.loading === undefined;
+  void options.loading?.then(() => {
+    loaded = true;
+  });
   const api: NotificationApi = {
-    permission: () => permission,
+    permission: () => (loaded ? permission : 'default'),
+    whenReady: () => (loaded ? null : (options.loading ?? null)),
     request: () => {
       permission = 'granted';
       return Promise.resolve(permission);
@@ -62,7 +74,7 @@ function setup(options: { permission?: NotificationPermissionState; visible?: bo
     },
   };
   const source = new Emitter<{
-    messageArrived: { message: Message; live: boolean };
+    messageArrived: { message: Message; live: boolean; serverAt?: number };
     pollActivity: PollActivityEvent;
     reactionActivity: ReactionActivityEvent;
     messageRemoved: { message: Message };
@@ -79,9 +91,10 @@ function setup(options: { permission?: NotificationPermissionState; visible?: bo
     focusWindow,
   });
   service.start();
-  const receive = (partial: Partial<Message>, live = true) => {
+  const receive = (partial: Partial<Message>, live = true, serverAt?: number) => {
     source.emit('messageArrived', {
       live,
+      ...(serverAt === undefined ? {} : { serverAt }),
       message: makeMessage({
         conversationId: group,
         authorId: 'ana',
@@ -96,11 +109,13 @@ function setup(options: { permission?: NotificationPermissionState; visible?: bo
     actorId: string,
     partial: Partial<Message> = {},
     live = true,
+    serverAt?: number,
   ) => {
     source.emit('pollActivity', {
       kind,
       actorId,
       live,
+      ...(serverAt === undefined ? {} : { serverAt }),
       message: makeMessage({
         conversationId: group,
         authorId: 'me',
@@ -122,6 +137,7 @@ function setup(options: { permission?: NotificationPermissionState; visible?: bo
     partial: Partial<Message> = {},
     live = true,
     at = NOW,
+    serverAt?: number,
   ) => {
     source.emit('reactionActivity', {
       kind,
@@ -129,6 +145,7 @@ function setup(options: { permission?: NotificationPermissionState; visible?: bo
       emoji,
       at,
       live,
+      ...(serverAt === undefined ? {} : { serverAt }),
       message: makeMessage({
         conversationId: group,
         authorId: 'me',
@@ -178,6 +195,16 @@ describe('NotificationService', () => {
     receive({ sentAt: NOW - 1 });
     expect(shown).toHaveLength(0);
     receive({ sentAt: NOW + 1 });
+    expect(shown).toHaveLength(1);
+  });
+
+  it('dates a message by when the server got it, not by the sender’s clock', () => {
+    const { shown, receive } = setup();
+    // Written before launch, but the server only took it after: new.
+    receive({ sentAt: NOW - 60_000 }, true, NOW + 5);
+    expect(shown).toHaveLength(1);
+    // Sent after launch by a fast clock, but the server took it before: queued while offline.
+    receive({ sentAt: NOW + 60_000, body: 'queued' }, true, NOW - 5);
     expect(shown).toHaveLength(1);
   });
 
@@ -375,6 +402,38 @@ describe('NotificationService', () => {
       stores.local.getState().markAccepted(requestDm, NOW);
       receive({ conversationId: requestDm, authorId: 'eve', body: 'hello again' });
       expect(shown[0]).toMatchObject({ title: 'Eve Stranger', body: 'hello again' });
+    });
+  });
+
+  describe('before the platform has loaded', () => {
+    it('holds a notification until the platform has answered, then shows it', async () => {
+      let load: () => void = () => undefined;
+      const loading = new Promise<void>((resolve) => {
+        load = resolve;
+      });
+      const { shown, receive } = setup({ loading });
+      receive({ sentAt: NOW + 1 });
+      expect(shown).toHaveLength(0);
+      load();
+      await loading;
+      await Promise.resolve();
+      expect(shown).toHaveLength(1);
+      expect(shown[0]?.body).toBe('Ana Lima: hello');
+    });
+  });
+
+  describe('replayed activity', () => {
+    it('dates a reaction and a poll vote by when the server got it', () => {
+      const { shown, reactionActivity, pollActivity } = setup();
+      // The reaction was made before launch, but the server only took it after.
+      reactionActivity('react', 'ana', '👍', {}, true, NOW - 60_000, NOW + 5);
+      expect(shown).toHaveLength(1);
+      // Made after launch by the sender's clock, but the server took it before.
+      reactionActivity('react', 'bo', '❤️', {}, true, NOW + 60_000, NOW - 5);
+      pollActivity('vote', 'bo', {}, true, NOW - 5);
+      expect(shown).toHaveLength(1);
+      pollActivity('vote', 'bo', {}, true, NOW + 5);
+      expect(shown).toHaveLength(2);
     });
   });
 

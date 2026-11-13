@@ -381,6 +381,10 @@ export class ReadStateService {
       try {
         const summary = await backend.markRead(conversationId, refs, { syncOnly: true });
         reportReadSync(refs.length, 'sync-only', summary);
+        if (summary?.failure && generation === this.generation) {
+          const { error, failed, of } = summary.failure;
+          this.onError(error, `read sync failed (${failed} of ${of} recipients)`);
+        }
         // Only a sync that reached the user's devices counts; anything else stays unread.
         if (readSyncReached(summary) && generation === this.generation) forget();
       } catch (error) {
@@ -436,6 +440,11 @@ export class ReadStateService {
         receipt ? undefined : { syncOnly: true },
       );
       reportReadSync(messages.length, receipt ? 'receipt' : 'sync-only', summary);
+      // Some recipients' receipts failed outright: report it as a failed receipt, as when all do.
+      if (summary?.failure && generation === this.generation) {
+        const { error, failed, of } = summary.failure;
+        this.onError(error, `read receipt failed (${failed} of ${of} recipients)`);
+      }
     } catch (error) {
       // A receipt that fails because the session was torn down under it is not news.
       if (generation === this.generation) this.onError(error, 'read receipt failed');

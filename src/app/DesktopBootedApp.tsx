@@ -9,7 +9,7 @@ import { useEffect, useState } from 'react';
 import type { HydratedKeyValue, MessageRepository } from '@/core/persistence';
 import type { ThemeDocument } from '@/core/themes';
 import { App } from './App';
-import { createSnowdrop } from './createSnowdrop';
+import { createSnowdrop, type Snowdrop } from './createSnowdrop';
 import { installBootHelpers } from './installBootHelpers';
 import { SnowdropProvider } from './SnowdropProvider';
 
@@ -45,6 +45,87 @@ export function DesktopBootedApp({
     };
   });
 
+  // The previous instance of this app (an unmount followed by a new mount)
+  // shares the signal-cli connection, the storage and the tray with this one,
+  // and its `dispose()` disconnects and flushes: this instance doesn't start
+  // until that has finished. Nothing is pending in the usual case.
+  const [ready, setReady] = useState(() => pendingDisposals === 0);
+
+  // Disposed on unmount. React's development double mount runs this cleanup
+  // and then the effect again on the same instance, and `dispose()` is final,
+  // so the disposal waits a tick and the re-run cancels it.
+  useEffect(() => {
+    cancelDisposal.get(snowdrop)?.();
+    cancelDisposal.delete(snowdrop);
+    let current = true;
+    void disposalsSettled.then(() => {
+      if (current) setReady(true);
+    });
+    return () => {
+      current = false;
+      cancelDisposal.set(snowdrop, scheduleDisposal(snowdrop));
+    };
+  }, [snowdrop]);
+
+  if (!ready) return null;
+  return (
+    <BootedInstance
+      snowdrop={snowdrop}
+      safeMode={safeMode}
+      storage={storage}
+      registerFlusher={registerFlusher}
+    />
+  );
+}
+
+/** Disposals scheduled and not yet finished, and a promise for all of them. */
+let pendingDisposals = 0;
+let disposalsSettled: Promise<void> = Promise.resolve();
+/** Cancels a scheduled disposal that hasn't started (a remount of the same instance). */
+const cancelDisposal = new WeakMap<Snowdrop, () => void>();
+
+function scheduleDisposal(snowdrop: Snowdrop): () => void {
+  pendingDisposals++;
+  let finish: () => void = () => undefined;
+  const done = new Promise<void>((resolve) => {
+    finish = () => {
+      resolve();
+    };
+  });
+  let finished = false;
+  let fired = false;
+  const end = () => {
+    if (finished) return;
+    finished = true;
+    pendingDisposals--;
+    finish();
+  };
+  disposalsSettled = Promise.all([disposalsSettled, done]).then(() => undefined);
+  const timer = setTimeout(() => {
+    fired = true;
+    snowdrop
+      .dispose()
+      .catch(ignored('the instance is going away; a failed teardown has nowhere to report'))
+      .finally(end);
+  }, 0);
+  return () => {
+    if (fired) return;
+    clearTimeout(timer);
+    end();
+  };
+}
+
+function BootedInstance({
+  snowdrop,
+  safeMode,
+  storage,
+  registerFlusher,
+}: {
+  snowdrop: Snowdrop;
+  safeMode: boolean;
+  storage: HydratedKeyValue;
+  registerFlusher: DesktopBootedAppProps['registerFlusher'];
+}) {
   useEffect(() => installBootHelpers({ snowdrop, safeMode }), [snowdrop, safeMode]);
 
   useEffect(() => {

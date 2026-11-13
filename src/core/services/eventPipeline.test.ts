@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { noteServerReceived } from '@/core/backend';
 import { MockBackend } from '@/core/backend/mock';
 import { messageId, type ConversationId, type Message } from '@/core/domain';
 import { ManualScheduler } from '@/core/lib';
@@ -194,6 +195,20 @@ describe('the sidebar preview follows the messages that remain', () => {
     await sync.idle();
     await send.deleteForMe(conv, (await repository.get(messageId(peer, NOW + 1)))!);
     expect(previewId(stores, conv)).toBe(messageId(peer, NOW + 2));
+  });
+});
+
+describe('the server receive time reaches the arrival event', () => {
+  it('passes it along when the transport reported one, and not otherwise', async () => {
+    const { backend, sync, conv, peerOf } = await setup();
+    const seen: (number | undefined)[] = [];
+    sync.on('messageArrived', ({ serverAt }) => seen.push(serverAt));
+    const dated = incoming(conv, peerOf(conv), NOW + 1);
+    noteServerReceived(dated, NOW + 7);
+    backend.emit('message', dated);
+    backend.emit('message', incoming(conv, peerOf(conv), NOW + 2));
+    await sync.idle();
+    expect(seen).toEqual([NOW + 7, undefined]);
   });
 });
 

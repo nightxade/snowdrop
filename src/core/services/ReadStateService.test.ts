@@ -75,6 +75,22 @@ describe('ReadStateService', () => {
     expect(stores.conversations.getState().readCursors[conv]).toBe(stored!.seq);
   });
 
+  it('reports a receipt that failed for some recipients through onError', async () => {
+    const { backend, stores, sync, readState, onError, conv, peer } = await setup();
+    stores.ui.getState().setWindowFocused(false);
+    backend.deliver(incoming(conv, peer, NOW + 1));
+    await sync.idle();
+    const failure = new Error('boom');
+    vi.spyOn(backend, 'markRead').mockResolvedValue({
+      receipt: 'unknown',
+      sync: 'unknown',
+      failure: { error: failure, failed: 1, of: 2 },
+    });
+    await readState.markConversationRead(conv);
+    await readState.waitForReceipts();
+    expect(onError).toHaveBeenCalledWith(failure, 'read receipt failed (1 of 2 recipients)');
+  });
+
   it('stopping waits only briefly on a receipt that hangs', async () => {
     const { backend, stores, sync, readState, scheduler, conv, peer } = await setup();
     stores.ui.getState().setWindowFocused(false);

@@ -57,6 +57,11 @@ export type NotificationTestResult = 'shown' | 'refused' | 'undelivered';
 
 export interface NotificationApi {
   permission(): NotificationPermissionState;
+  /**
+   * Non-null while the platform is still loading, so `permission()` isn't known yet:
+   * resolves once it is. Optional: an API that knows at once need not have it.
+   */
+  whenReady?(): Promise<void> | null;
   request(): Promise<NotificationPermissionState>;
   /**
    * Calls `listener` when `permission()` may have a new answer (the platform
@@ -98,6 +103,8 @@ export interface PollActivityEvent {
   message: Message;
   actorId: string;
   live: boolean;
+  /** When the server got it (epoch ms), when the transport reports it. */
+  serverAt?: number;
 }
 
 /** Someone else's reaction to a message of the user's, or one taken back (see SyncEvents.reactionActivity). */
@@ -108,6 +115,8 @@ export interface ReactionActivityEvent {
   emoji: string;
   at: number;
   live: boolean;
+  /** When the server got it (epoch ms), when the transport reports it. */
+  serverAt?: number;
 }
 
 export interface NotificationServiceDeps {
@@ -118,7 +127,7 @@ export interface NotificationServiceDeps {
   source: {
     on(
       event: 'messageArrived',
-      fn: (event: { message: Message; live: boolean }) => void,
+      fn: (event: { message: Message; live: boolean; serverAt?: number }) => void,
     ): Unsubscribe;
     on(event: 'pollActivity', fn: (event: PollActivityEvent) => void): Unsubscribe;
     on(event: 'reactionActivity', fn: (event: ReactionActivityEvent) => void): Unsubscribe;
@@ -361,31 +370,58 @@ export class NotificationService {
 
   constructor(private readonly deps: NotificationServiceDeps) {}
 
+  /** Whether something the server received at `serverAt` (else sent at `sentAt`) predates this launch. */
+  private beforeLaunch(serverAt: number | undefined, sentAt: number | undefined): boolean {
+    const at = serverAt ?? sentAt;
+    return at !== undefined && at < this.startedAt;
+  }
+
+  /** Runs `run` now, or once the platform has answered if it hasn't (never dropped, never queued beyond that load). */
+  private whenKnown(run: () => void): void {
+    const loading = this.deps.api.whenReady?.() ?? null;
+    if (!loading) {
+      run();
+      return;
+    }
+    void loading.then(() => {
+      if (this.unsub) run();
+    });
+  }
+
   start(): void {
     if (this.unsub) return;
     this.startedAt = this.deps.clock.now();
-    this.unsub = this.deps.source.on('messageArrived', ({ message, live }) => {
-      // The daemon can finish draining old envelopes after initial sync ends,
-      // and signal-cli's catch-up drain (SyncService's CatchUpTracker; see
-      // stores.session.notificationsHeld) can still be running after that, and
-      // starts again on every reconnect while Snowdrop keeps running (after a
-      // sleep, `startedAt` is hours old): all of these are old messages
-      // replayed, not new ones to announce.
+    this.unsub = this.deps.source.on('messageArrived', ({ message, live, serverAt }) => {
+      // Old envelopes are replayed rather than announced: the initial sync
+      // (`live` is false), signal-cli's catch-up drain after a reconnect
+      // (`notificationsHeld`, see SyncService's CatchUpTracker), and what the
+      // daemon is still draining after that hold ends, which is told apart by
+      // when the server received the envelope: before this launch means it
+      // queued while the app was offline. Where the transport doesn't report
+      // that, the sender's `sentAt` stands in.
       const held = this.deps.stores.session.getState().notificationsHeld;
-      if (live && message.sentAt >= this.startedAt && !held) this.handle(message);
+      if (live && !held && !this.beforeLaunch(serverAt, message.sentAt))
+        this.whenKnown(() => this.handle(message));
     });
     this.unsubPolls = this.deps.source.on('pollActivity', (event) => {
       // Replayed (parked, or drained after a reconnect) news is old news, as for messages.
       const held = this.deps.stores.session.getState().notificationsHeld;
-      if (event.live && !held) this.handlePoll(event);
+      // A poll event carries no time of its own, so only the server's receive time can date it.
+      if (event.live && !held && !this.beforeLaunch(event.serverAt, undefined))
+        this.whenKnown(() => this.handlePoll(event));
     });
     this.unsubReactions = this.deps.source.on('reactionActivity', (event) => {
       // A reaction taken back or replaced withdraws what announced it, however it arrives.
       this.withdrawReaction(event);
       const held = this.deps.stores.session.getState().notificationsHeld;
       // Replayed (parked, drained after a reconnect, or older than this run) news is old news, as for messages.
-      if (event.kind === 'react' && event.live && !held && event.at >= this.startedAt)
-        this.handleReaction(event);
+      if (
+        event.kind === 'react' &&
+        event.live &&
+        !held &&
+        !this.beforeLaunch(event.serverAt, event.at)
+      )
+        this.whenKnown(() => this.handleReaction(event));
     });
     this.unsubRemoved = this.deps.source.on('messageRemoved', ({ message }) => {
       for (const [id, { source }] of [...this.shown]) {

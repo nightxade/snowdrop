@@ -2,13 +2,17 @@ import { describe, expect, it, vi } from 'vitest';
 import { sendNotification } from '@tauri-apps/plugin-notification';
 import { tauriNotificationApi } from './notifications';
 import type { TauriIpc } from './ipc';
+import type * as IpcModule from './ipc';
 
 vi.mock('@tauri-apps/plugin-notification', () => ({
   isPermissionGranted: () => Promise.resolve(true),
   requestPermission: () => Promise.resolve('granted'),
   sendNotification: vi.fn(),
 }));
-vi.mock('./ipc', () => ({ tauriIpc: {} }));
+vi.mock('./ipc', async (importActual) => ({
+  ...(await importActual<typeof IpcModule>()),
+  tauriIpc: {},
+}));
 
 function setup() {
   const invoke = vi.fn().mockResolvedValue(true);
@@ -114,5 +118,15 @@ describe('native notifications', () => {
     const old = api.show({ ...content, tag: 'snowdrop:cy' }, clicked)!;
     api.show({ ...content, tag: 'snowdrop:cy', body: 'newer' }, clicked);
     await expect(old.delivered).resolves.toBe(true);
+  });
+
+  it('counts a malformed show reply as undelivered, without a fallback notification', async () => {
+    const { invoke, ipc } = setup();
+    invoke.mockResolvedValue('yes');
+    vi.mocked(sendNotification).mockClear();
+    const api = await tauriNotificationApi(ipc);
+    const handle = api.show(content, clicked)!;
+    expect(await handle.delivered).toBe(false);
+    expect(sendNotification).not.toHaveBeenCalled();
   });
 });

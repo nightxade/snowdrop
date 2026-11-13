@@ -12,7 +12,7 @@ import {
   ignore,
   ignored,
 } from '@/core/lib';
-import type { NotificationApi } from '@/core/services';
+import type { NotificationApi, ShownNotification } from '@/core/services';
 import { isTauri } from '@/platform/detect';
 import { deferredAsync } from './deferredRepository';
 import type { LastIpcCommand } from '@/platform/tauri';
@@ -66,6 +66,7 @@ export function desktopNotificationApi(): NotificationApi {
     .then(changed);
   return {
     permission: () => (api ? api.permission() : failed ? 'unsupported' : 'default'),
+    whenReady: () => (api || failed ? null : loading),
     request: async () => {
       await loading;
       const result = api ? await api.request() : 'unsupported';
@@ -78,7 +79,27 @@ export function desktopNotificationApi(): NotificationApi {
         listeners.delete(listener);
       };
     },
-    show: (content, onClick) => api?.show(content, onClick) ?? null,
+    show: (content, onClick) => {
+      if (api) return api.show(content, onClick);
+      if (failed) return null;
+      // The plugin is still loading: hold the notification for it instead of
+      // dropping it. Closing before then cancels it.
+      let inner: ShownNotification | null = null;
+      let closed = false;
+      const delivered = loading.then(async () => {
+        if (closed || !api) return false;
+        inner = api.show(content, onClick);
+        if (!inner) return false;
+        return inner.delivered ? await inner.delivered : true;
+      });
+      return {
+        close: () => {
+          closed = true;
+          inner?.close();
+        },
+        delivered,
+      };
+    },
   };
 }
 

@@ -219,3 +219,14 @@ describe('createDesktopAdmin().locate', () => {
     });
   });
 });
+
+describe('install', () => {
+  it('reports a failure to listen for progress as an install error, not a throw', async () => {
+    const ipc: TauriIpc = {
+      invoke: vi.fn(() => Promise.resolve(null)) as TauriIpc['invoke'],
+      listen: () => Promise.reject(new Error('no event bus')),
+    };
+    const result = await createDesktopAdmin(ipc).install(() => undefined);
+    expect(result).toMatchObject({ ok: false, kind: 'internal' });
+  });
+});

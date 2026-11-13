@@ -13,6 +13,7 @@
  * The UI only ever reads stores; it never subscribes to the backend.
  */
 import type { BackendEvents, ChatBackend, PhonePrivacyPatch, ProfileUpdate } from '@/core/backend';
+import { serverReceivedAt } from '@/core/backend';
 import {
   advanceStatus,
   applyDelete,
@@ -107,14 +108,20 @@ export interface SyncEvents {
    * messages parked during the initial sync (delivered while the app was
    * closed) and replayed once it completed. Plugins' `onMessage` uses it.
    */
-  messageArrived: { message: Message; live: boolean };
+  messageArrived: { message: Message; live: boolean; serverAt?: number };
   /**
    * News about a poll, once it has been applied: `vote` is someone else's
    * new answer (with at least one choice) on a poll the user created; `end`
    * is someone else ending their poll. `message` is the poll as it now
    * stands. `live` is false when it was parked behind the initial sync.
    */
-  pollActivity: { kind: 'vote' | 'end'; message: Message; actorId: string; live: boolean };
+  pollActivity: {
+    kind: 'vote' | 'end';
+    message: Message;
+    actorId: string;
+    live: boolean;
+    serverAt?: number;
+  };
   /**
    * Someone else reacted to a message the user sent, once it has been applied:
    * `react` is a new reaction (replacing that person's earlier one, if any),
@@ -129,6 +136,7 @@ export interface SyncEvents {
     emoji: string;
     at: number;
     live: boolean;
+    serverAt?: number;
   };
   /** A message was deleted for everyone or expired: what announced it (a notification) no longer applies. */
   messageRemoved: { message: Message };
@@ -1093,7 +1101,12 @@ export class SyncService {
       if (message.kind === 'normal') stores.local.getState().unarchive(id);
       await this.updateReadState(message);
       this.events.emit('message', message);
-      this.events.emit('messageArrived', { message, live });
+      const serverAt = serverReceivedAt(incoming);
+      this.events.emit('messageArrived', {
+        message,
+        live,
+        ...(serverAt !== undefined ? { serverAt } : {}),
+      });
       if (this.parkedReactions.length > 0 && message.authorId === this.selfId())
         await this.replayParkedReactions(message, live);
     } finally {
@@ -1188,7 +1201,14 @@ export class SyncService {
       return;
     const previous = before.reactions.find((r) => r.authorId === actorId);
     const message = (await this.deps.repository.get(id)) ?? before;
-    const base = { message, actorId, emoji: e.reaction.emoji, at: e.reaction.at, live };
+    const base = {
+      message,
+      actorId,
+      emoji: e.reaction.emoji,
+      at: e.reaction.at,
+      live,
+      ...(e.serverAt !== undefined ? { serverAt: e.serverAt } : {}),
+    };
     if (e.remove) {
       // Taking back what was never there (or already replaced) changes nothing.
       if (previous?.emoji !== e.reaction.emoji) return;
@@ -1249,6 +1269,7 @@ export class SyncService {
         emoji: e.reaction.emoji,
         at: e.reaction.at,
         live: live && parkedLive,
+        ...(e.serverAt !== undefined ? { serverAt: e.serverAt } : {}),
       });
     }
   }
@@ -1289,7 +1310,13 @@ export class SyncService {
       const message = await this.deps.repository.get(id);
       if (message) {
         await this.noteActivity(before);
-        this.events.emit('pollActivity', { kind: 'vote', message, actorId: e.voterId, live });
+        this.events.emit('pollActivity', {
+          kind: 'vote',
+          message,
+          actorId: e.voterId,
+          live,
+          ...(e.serverAt !== undefined ? { serverAt: e.serverAt } : {}),
+        });
       }
     }
   }
@@ -1333,7 +1360,13 @@ export class SyncService {
     );
     const message = await this.deps.repository.get(id);
     if (message && e.authorId !== selfId)
-      this.events.emit('pollActivity', { kind: 'end', message, actorId: e.authorId, live });
+      this.events.emit('pollActivity', {
+        kind: 'end',
+        message,
+        actorId: e.authorId,
+        live,
+        ...(e.serverAt !== undefined ? { serverAt: e.serverAt } : {}),
+      });
   }
 
   private async removeContent(

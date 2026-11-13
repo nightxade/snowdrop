@@ -315,6 +315,72 @@ describe('TauriTransport', () => {
     expect(ipc.invoke).toHaveBeenCalledTimes(3);
   });
 
+  it('lets go of its listeners when the subscription gives up', async () => {
+    ipc.invoke.mockRejectedValueOnce({ kind: 'not-installed', message: 'no signal-cli' });
+    const states: { kind: string }[] = [];
+    const sub = new TauriTransport({ desktop: spawn }).subscribe({
+      account: null,
+      resumeFrom: '',
+      onEvent: () => undefined,
+      onState: (s) => states.push(s),
+    });
+    sub.start();
+    await vi.waitFor(() => {
+      expect(states.at(-1)?.kind).toBe('failed');
+    });
+    await sub.stop();
+    for (const set of ipc.listeners.values()) expect(set.size).toBe(0);
+  });
+
+  it('reports a failure to register a listener instead of leaving start() unhandled', async () => {
+    const events = await import('@tauri-apps/api/event');
+    const spy = vi.spyOn(events, 'listen').mockRejectedValueOnce(new Error('no event bus'));
+    const states: { kind: string }[] = [];
+    const sub = new TauriTransport({ desktop: spawn }).subscribe({
+      account: null,
+      resumeFrom: '',
+      onEvent: () => undefined,
+      onState: (s) => states.push(s),
+    });
+    sub.start();
+    await vi.waitFor(() => {
+      expect(states.at(-1)?.kind).toBe('failed');
+    });
+    expect(ipc.invoke).not.toHaveBeenCalledWith('signal_cli_subscribe', expect.anything());
+    spy.mockRestore();
+  });
+
+  it('does not report a failed listener after stop() has already closed the subscription', async () => {
+    const events = await import('@tauri-apps/api/event');
+    let fail: (error: Error) => void = () => undefined;
+    const spy = vi.spyOn(events, 'listen').mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          fail = reject;
+        }),
+    );
+    const states: { kind: string }[] = [];
+    const sub = new TauriTransport({ desktop: spawn }).subscribe({
+      account: null,
+      resumeFrom: '',
+      onEvent: () => undefined,
+      onState: (s) => states.push(s),
+    });
+    sub.start();
+    const stopping = sub.stop();
+    fail(new Error('no event bus'));
+    await stopping;
+    expect(states.map((s) => s.kind)).not.toContain('failed');
+    spy.mockRestore();
+  });
+
+  it('treats an error kind it does not know as internal', async () => {
+    ipc.invoke.mockRejectedValueOnce({ kind: 'brand-new-kind', message: 'from a newer Rust side' });
+    await expect(new TauriTransport({ desktop: spawn }).restart()).rejects.toMatchObject({
+      kind: 'internal',
+    });
+  });
+
   it('ends the subscription with the token it was given, even if that fails', async () => {
     ipc.invoke.mockResolvedValueOnce({ run: 'r1', token: 7 });
     const states: { kind: string }[] = [];

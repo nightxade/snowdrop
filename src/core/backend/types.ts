@@ -421,6 +421,8 @@ export interface BackendEvents {
     targetSentAt: number;
     reaction: Reaction;
     remove: boolean;
+    /** When the server got it (epoch ms), when the transport reports it. */
+    serverAt?: number;
   };
   /**
    * Someone (or we, from another linked device) changed their answer on a
@@ -436,6 +438,8 @@ export interface BackendEvents {
     voteCount: number;
     /** Sender timestamp of the vote. */
     at: number;
+    /** When the server got it (epoch ms), when the transport reports it. */
+    serverAt?: number;
   };
   /** The author ended a poll; `authorId` is who sent it (only the poll's author may end it). */
   pollTerminate: {
@@ -443,6 +447,8 @@ export interface BackendEvents {
     authorId: string;
     targetSentAt: number;
     at: number;
+    /** When the server got it (epoch ms), when the transport reports it. */
+    serverAt?: number;
   };
   /** Receipts for messages *we* sent; `authorId` is the recipient who sent the receipt. */
   receipt: { authorId: string; sentAts: number[]; type: ReceiptType };
@@ -542,6 +548,8 @@ export interface MarkReadOptions {
 export interface ReadSummary {
   receipt: string;
   sync: string;
+  /** Set when some recipients' calls failed outright but others went through: the first failure and the counts. */
+  failure?: { error: Error; failed: number; of: number };
 }
 
 /**

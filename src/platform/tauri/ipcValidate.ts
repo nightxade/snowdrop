@@ -217,3 +217,23 @@ export function validateRpcReply(method: string, payload: unknown): RpcReply {
   if ('result' in payload) return { result: payload.result };
   throw invalidResponse('signal_cli_request', `${method}: reply has neither a result nor an error`);
 }
+
+export interface ClipboardFile {
+  name: string;
+  contentType: string;
+  base64: string;
+}
+
+const clipboardFilesShape: Decoder<ClipboardFile[]> = array(
+  object({ name: str, contentType: str, base64: str }),
+);
+
+export function validateClipboardFiles(command: string, value: unknown): ClipboardFile[] {
+  return validated(command, clipboardFilesShape, value);
+}
+
+/** `notification_show`: whether the desktop service took the notification. */
+export function validateHandled(command: string, value: unknown): boolean {
+  if (typeof value !== 'boolean') throw invalidResponse(command, 'reply is not a boolean');
+  return value;
+}

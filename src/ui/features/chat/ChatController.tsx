@@ -6,6 +6,7 @@
  */
 import { createContext, use, useSyncExternalStore } from 'react';
 import type { ConversationId, MessageId } from '@/core/domain';
+import { ignored } from '@/core/lib';
 import type { MessageAction } from './list/rowState';
 
 export interface RevealOptions {
@@ -90,10 +91,18 @@ export class ChatController {
 
   registerList(handle: ListHandle): () => void {
     this.list = handle;
+    // A pending jump belongs to the navigation it was requested with: it is
+    // consumed when its conversation opens, and dropped when another does.
     const pending = this.pending;
+    this.pending = null;
     if (pending?.conversationId === handle.conversationId) {
-      this.pending = null;
-      void handle.reveal(pending.messageId, pending.options);
+      void handle
+        .reveal(pending.messageId, pending.options)
+        .catch(
+          ignored(
+            'a failed jump has nothing left to retry; the pending request is already consumed',
+          ),
+        );
     }
     return () => {
       if (this.list === handle) this.list = null;
