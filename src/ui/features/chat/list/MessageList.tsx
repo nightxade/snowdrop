@@ -29,8 +29,11 @@ import { prefetchEdges } from './prefetch';
 import { RowState, RowStateProvider } from './rowState';
 import { SystemRow } from './SystemRow';
 import { useListItems } from './useListItems';
+import { useJumpTarget } from './useJumpTarget';
 import { useListNavigation } from './useListNavigation';
 import { useReadTracking } from './useReadTracking';
+import { useScrollerBinding } from './useScrollerBinding';
+import { useUnreadDivider } from './useUnreadDivider';
 import styles from './MessageList.module.css';
 
 interface ListContext {
@@ -45,7 +48,6 @@ interface ListContext {
 
 /** Items within this many rows of the end open at the bottom instead of at the divider. */
 const DIVIDER_NEAR_END = 12;
-const FLASH_MS = 1600;
 /**
  * Typical row heights (measured medians in the demo). A close first guess
  * keeps prepended rows from shifting the view while they are measured.
@@ -119,7 +121,6 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
   const compactAvatars = !tui && showAvatarsInCompact;
   const unread = useStore(stores.conversations, conversationsSelectors.unread(conversationId));
   const virtuoso = useRef<VirtuosoHandle>(null);
-  const scroller = useRef<HTMLElement | null>(null);
   const [pin] = useState(() => new BottomPin());
   useRenderProbe(null);
   // Starts false: a list opened at the unread divider must not count as "seen to the bottom".
@@ -131,21 +132,40 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
     setAtBottom(false);
   }
   const [farFromBottom, setFarFromBottom] = useState(false);
-  const [target, setTarget] = useState<{ id: MessageId; flash: boolean; focus: boolean } | null>(
-    null,
-  );
   const [rows] = useState(() => new RowState());
-  /** Where the unread divider is relative to the viewport (rendered rows include overscan). */
-  const [dividerPos, setDividerPos] = useState<'above' | 'visible' | 'below'>('below');
+
+  const scrollToBottom = useCallback(() => {
+    virtuoso.current?.scrollToIndex({ index: 'LAST', align: 'end', behavior: 'auto' });
+  }, []);
+  const repin = () => {
+    if (pin.shouldRepin() && anchoredToPresent) scrollToBottom();
+  };
+  const { scroller, scrollerRef } = useScrollerBinding({
+    rows,
+    onScroll: () => {
+      const el = scroller.current;
+      if (!el) return;
+      const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+      pin.onScroll(distance);
+      setFarFromBottom(distance > el.clientHeight);
+      scheduleMeasure();
+    },
+    onResize: repin,
+  });
+  const { dividerIndex, dividerPos, scheduleMeasure, rangeChanged } = useUnreadDivider({
+    items,
+    scroller,
+  });
+  const { target, setTarget, clearTarget } = useJumpTarget({
+    items,
+    virtuoso,
+    scroller,
+    rows,
+    reducedMotion,
+  });
 
   const atPresent = loaded && anchoredToPresent && atBottom;
   useReadTracking(conversationId, atPresent);
-
-  const indexOf = useCallback(
-    (id: MessageId) => items.findIndex((it) => 'id' in it && it.id === id),
-    [items],
-  );
-  const dividerIndex = items.findIndex((it) => it.type === 'new-divider');
 
   // Where a freshly (re)mounted list starts: a jump target, the unread divider, or the bottom.
   const initialIndex = useMemo(() => {
@@ -173,60 +193,6 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
     if (last && 'id' in last) rows.setActive(last.id);
   }, [items, rows]);
 
-  // The latest scheduled focus-after-scroll, so a second "jump to" within
-  // 350ms can cancel the first one instead of letting it land on a stale row.
-  const pendingFocus = useRef<{ id: MessageId; timer: ReturnType<typeof setTimeout> } | null>(null);
-
-  // A pending jump whose target is now loaded: scroll to it, flash it, maybe focus it.
-  useEffect(() => {
-    if (!target) return;
-    const index = indexOf(target.id);
-    if (index < 0) return;
-    const { id, flash, focus } = target;
-    const frame = requestAnimationFrame(() => {
-      virtuoso.current?.scrollToIndex({
-        index,
-        align: 'center',
-        behavior: reducedMotion() ? 'auto' : 'smooth',
-      });
-      if (flash) {
-        rows.flash(id);
-        setTimeout(() => {
-          if (rows.isFlashing(id)) rows.flash(null);
-        }, FLASH_MS);
-      }
-      if (focus) {
-        rows.setActive(id);
-        if (pendingFocus.current) clearTimeout(pendingFocus.current.timer);
-        // After the (possibly smooth) scroll has rendered the row.
-        const timer = setTimeout(() => {
-          // Only focus if nothing superseded this jump in the meantime.
-          if (pendingFocus.current?.timer !== timer) return;
-          pendingFocus.current = null;
-          scroller.current
-            ?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(id)}"]`)
-            ?.focus({ preventScroll: true });
-        }, 350);
-        pendingFocus.current = { id, timer };
-      }
-      setTarget(null);
-    });
-    return () => {
-      cancelAnimationFrame(frame);
-    };
-  }, [target, indexOf, rows]);
-
-  // Release a still-pending focus timer if the list unmounts first.
-  useEffect(() => {
-    return () => {
-      if (pendingFocus.current) clearTimeout(pendingFocus.current.timer);
-    };
-  }, []);
-
-  const scrollToBottom = useCallback(() => {
-    virtuoso.current?.scrollToIndex({ index: 'LAST', align: 'end', behavior: 'auto' });
-  }, []);
-
   const jumpToPresent = useCallback(async () => {
     const w = stores.messages.getState().windows[conversationId];
     if (w && !w.anchoredToPresent) await history.jumpToPresent(conversationId);
@@ -243,10 +209,11 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
         return true;
       }
       // Set first, so the list remounting on the new window starts at the target.
-      setTarget(next);
+      const token = setTarget(next);
       const ok = await history.jumpTo(conversationId, id);
       if (!ok) {
-        setTarget(null);
+        // Only the latest request may clear the target.
+        clearTarget(token);
         stores.ui.getState().pushToast({
           message: "The original message isn't available on this device.",
           kind: 'info',
@@ -255,7 +222,7 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
       }
       return ok;
     },
-    [stores, history, conversationId],
+    [stores, history, conversationId, setTarget, clearTarget],
   );
 
   const navigation = useListNavigation({
@@ -290,90 +257,7 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
         const active = document.activeElement;
         return active instanceof HTMLElement && scroller.current?.contains(active) ? active : null;
       }),
-    [conversationId, navigation],
-  );
-
-  // Latest-value refs for the stable scroller callbacks below.
-  const measureRef = useRef<() => void>(() => undefined);
-  const repinRef = useRef<() => void>(() => undefined);
-  const firstRendered = useRef(0);
-  const measureDivider = () => {
-    const el = scroller.current;
-    const divider = el?.querySelector('[data-snowdrop="new-divider"]');
-    let pos: 'above' | 'visible' | 'below';
-    if (el && divider) {
-      const view = el.getBoundingClientRect();
-      const box = divider.getBoundingClientRect();
-      pos = box.bottom < view.top ? 'above' : box.top > view.bottom ? 'below' : 'visible';
-    } else {
-      pos = dividerIndex >= 0 && dividerIndex < firstRendered.current ? 'above' : 'below';
-    }
-    setDividerPos(pos);
-  };
-  const repin = () => {
-    if (pin.shouldRepin() && anchoredToPresent) scrollToBottom();
-  };
-  useEffect(() => {
-    measureRef.current = measureDivider;
-    repinRef.current = repin;
-  });
-
-  const onScroll = useCallback(() => {
-    const el = scroller.current;
-    if (!el) return;
-    const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
-    pin.onScroll(distance);
-    setFarFromBottom(distance > el.clientHeight);
-    measureRef.current();
-  }, [pin]);
-
-  // When no rendered row holds the roving tab stop, the scroller itself takes Tab.
-  useEffect(
-    () =>
-      rows.subscribe(() => {
-        if (scroller.current) scroller.current.tabIndex = rows.activeMounted ? -1 : 0;
-      }),
-    [rows],
-  );
-
-  /**
-   * Stable: Virtuoso calls this again whenever the function identity changes,
-   * and per-render reattachment used to reset the bottom pin (yanking a
-   * reader who had scrolled up back down).
-   */
-  const resize = useRef<ResizeObserver | null>(null);
-  const scrollerRef = useCallback(
-    (el: HTMLElement | Window | null) => {
-      const node = el instanceof HTMLElement ? el : null;
-      if (scroller.current === node) return;
-      scroller.current?.removeEventListener('scroll', onScroll);
-      resize.current?.disconnect();
-      resize.current = null;
-      scroller.current = node;
-      if (!node) return;
-      node.tabIndex = rows.activeMounted ? -1 : 0;
-      // Stable hook for keyboard layers ("focus is on the message list").
-      node.setAttribute('data-message-scroller', '');
-      node.addEventListener('scroll', onScroll, { passive: true });
-      // The viewport shrinks when the composer grows (reply bar, more lines,
-      // attachments): keep the newest message in view if we were holding it.
-      let height = node.clientHeight;
-      if (typeof ResizeObserver !== 'undefined') {
-        resize.current = new ResizeObserver(() => {
-          if (node.clientHeight === height) return;
-          height = node.clientHeight;
-          repinRef.current();
-        });
-        resize.current.observe(node);
-      }
-    },
-    [onScroll, rows],
-  );
-  useEffect(
-    () => () => {
-      resize.current?.disconnect();
-    },
-    [],
+    [conversationId, navigation, scroller],
   );
 
   const context: ListContext = {
@@ -459,8 +343,7 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
           }}
           totalListHeightChanged={repin}
           rangeChanged={(range) => {
-            firstRendered.current = range.startIndex - firstItemIndex;
-            measureDivider();
+            rangeChanged(range.startIndex - firstItemIndex);
             if (!loaded) return;
             const decision = prefetchEdges(range, firstItemIndex, items.length, {
               hasMoreBefore,
