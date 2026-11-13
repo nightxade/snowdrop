@@ -131,6 +131,12 @@ export const LICENCES: readonly LicenceEntry[] = [
     url: 'https://github.com/jakearchibald/idb',
   },
   {
+    name: 'linkify-it',
+    version: '5.0.0',
+    license: 'MIT',
+    url: 'https://github.com/markdown-it/linkify-it',
+  },
+  {
     name: 'lucide-react',
     version: '1.49.0',
     license: 'ISC',

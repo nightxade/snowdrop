@@ -97,12 +97,14 @@ describe('a space in the switcher shows what the rail shows', () => {
 describe('searchConversations', () => {
   it('finds the same chats as the @ and # scopes, without the query syntax', () => {
     const data = input();
+    // The global search's people and groups sections keep leaving archived chats out.
+    const live = { ...data, views: data.views.filter((v) => !v.archived) };
     for (const [kind, prefix] of [
       ['direct', '@'],
       ['group', '#'],
     ] as const) {
       for (const text of ['c', 'cl', 'li']) {
-        const viaQuery = searchSwitcher(`${prefix}${text}`, data).flatMap((s) => s.items);
+        const viaQuery = searchSwitcher(`${prefix}${text}`, live).flatMap((s) => s.items);
         expect(searchConversations(text, kind, data)).toEqual(viaQuery);
       }
     }
@@ -137,10 +139,28 @@ describe('switcher model', () => {
     expect(parseQuery('plain')).toEqual({ scope: 'all', text: 'plain' });
   });
 
-  it('ranks word-start matches first and never shows archived conversations', () => {
+  it('ranks word-start matches first', () => {
     const result = keys(searchSwitcher('clc', input()));
     expect(result[0]).toBe('conversation:group:climb');
-    expect(result).not.toContain('conversation:group:old');
+  });
+
+  it('finds archived chats when searching, below live ones of equal score', () => {
+    const data = input({
+      views: [
+        view('group:a', 'Cabin', 'group', 1, { archived: true }),
+        view('group:b', 'Cabin', 'group', 2),
+      ],
+    });
+    const items = searchSwitcher('cabin', data).flatMap((s) => s.items);
+    expect(items.map((i) => i.key)).toEqual(['conversation:group:b', 'conversation:group:a']);
+    expect(items.map((i) => i.kind === 'conversation' && i.archived)).toEqual([false, true]);
+    expect(keys(searchSwitcher('@clubhouse', data))).toEqual([]);
+    expect(keys(searchSwitcher('#cabin', data))).toHaveLength(2);
+  });
+
+  it('keeps archived chats out of the empty-query lists', () => {
+    const sections = searchSwitcher('', input());
+    expect(keys(sections)).not.toContain('conversation:group:old');
   });
 
   it('scopes results by prefix', () => {

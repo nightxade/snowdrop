@@ -56,7 +56,8 @@ describe('groupGalleryByDate', () => {
     const message: Message = makeMessage({ sentAt: receivedAt, receivedAt });
     return { type: 'attachment', key: id, message, attachment: att(id, 'image/png') };
   };
-  const labels = (items: GalleryItem[]) => groupGalleryByDate(items, now).map((s) => s.label);
+  const labels = (items: GalleryItem[]) =>
+    groupGalleryByDate(items, now, 'en-GB').map((s) => s.label);
 
   it('names the recent buckets as Desktop does and leaves empty ones out', () => {
     const sections = groupGalleryByDate(
@@ -87,6 +88,14 @@ describe('groupGalleryByDate', () => {
         item('d', at(2026, 8, 1)),
       ]),
     ).toEqual(['September 2026', 'August 2026', 'December 2025']);
+  });
+
+  it('words month headings in the given locale', () => {
+    const sections = groupGalleryByDate([item('a', at(2026, 7, 3))], now, 'de-DE');
+    expect(sections.map((s) => s.label)).toEqual(['August 2026']);
+    expect(
+      groupGalleryByDate([item('a', at(2026, 2, 3))], now, 'fr-FR').map((s) => s.label),
+    ).toEqual(['mars 2026']);
   });
 
   it('sorts items newest first inside a section, whatever order they arrive in', () => {

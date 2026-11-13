@@ -291,6 +291,7 @@ function ItemMeta({
   return (
     <>
       {item.muted && <BellOff size={14} aria-label="Muted" />}
+      {item.archived && <span>Archived</span>}
       <span>
         {item.conversationKind === 'direct' ? 'Direct message' : (item.spaceName ?? 'Home')}
       </span>

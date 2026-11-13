@@ -123,13 +123,14 @@ export function App({ onBackendChange }: AppProps) {
                   // A custom path the user set is the "bad path" case
                   // (MissingSignalCli); nothing configured means first run.
                   configured: desktopBinaryPath.trim() !== '',
-                  onInstalled: () => {
+                  // Returned so the download screen leaves "Starting" if this fails.
+                  onInstalled: () =>
                     snowdrop.start().catch((error: unknown) => {
                       if (!wasConnectionErrorReported(error)) {
                         log.error('failed to start after installing signal-cli', error);
                       }
-                    });
-                  },
+                      throw error;
+                    }),
                 }
               : undefined
           }

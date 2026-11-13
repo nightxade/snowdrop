@@ -9,7 +9,8 @@ type Phase =
   | { step: 'idle' }
   | { step: 'downloading'; received: number; total: number | null }
   // signal-cli itself starting can take a few seconds after the download
-  // finishes installing; shown until the parent swaps this screen away.
+  // finishes installing; shown until the parent swaps this screen away, or
+  // until the start it runs fails (the screen can then stay as it is).
   | { step: 'starting' }
   | { step: 'error'; message: string; detail: string };
 
@@ -27,7 +28,12 @@ export function DownloadSignalCli({
   onInstalled,
 }: {
   admin: DesktopAdmin;
-  onInstalled: () => void;
+  /**
+   * Starts signal-cli after the download. Returning a promise lets this
+   * screen see the start fail: when it fails with the same not-installed
+   * state the parent keeps this screen, which must not sit on "Starting".
+   */
+  onInstalled: () => unknown;
 }) {
   const [release, setRelease] = useState<PinnedRelease | null>(null);
   const [phase, setPhase] = useState<Phase>({ step: 'idle' });
@@ -53,7 +59,19 @@ export function DownloadSignalCli({
       (result) => {
         if (result.ok) {
           setPhase({ step: 'starting' });
-          onInstalled();
+          const failed = (error: unknown) => {
+            const message = error instanceof Error ? error.message : String(error);
+            setPhase({
+              step: 'error',
+              message: friendlyErrorMessage(null, message),
+              detail: message,
+            });
+          };
+          try {
+            Promise.resolve(onInstalled()).catch(failed);
+          } catch (error) {
+            failed(error);
+          }
         } else {
           setPhase({
             step: 'error',

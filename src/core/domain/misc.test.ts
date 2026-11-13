@@ -129,8 +129,22 @@ describe('time formatting (UTC)', () => {
   });
 
   it('formats day dividers and full timestamps', () => {
-    expect(formatDayDivider(ts)).toBe('Tuesday, 29 September 2026');
-    expect(formatFullTimestamp(ts, { clock24h: true })).toBe('Tuesday, 29 September 2026 at 14:02');
+    expect(formatDayDivider(ts, 'en-GB')).toBe('Tuesday, 29 September 2026');
+    expect(formatFullTimestamp(ts, { clock24h: true }, 'en-GB')).toBe(
+      'Tuesday, 29 September 2026 at 14:02',
+    );
+  });
+
+  it('orders dates by the locale, not always day-first', () => {
+    const now = Date.UTC(2026, 8, 29, 20, 0);
+    expect(formatDayDivider(ts, 'en-US')).toBe('Tuesday, September 29, 2026');
+    expect(formatFullTimestamp(ts, { clock24h: false }, 'en-US')).toBe(
+      'Tuesday, September 29, 2026 at 2:02 PM',
+    );
+    expect(formatMessageTimestamp(ts - 3 * 86_400_000, now, { clock24h: true }, 'en-US')).toBe(
+      '9/26/2026 14:02',
+    );
+    expect(formatRelative(ts, ts + 30 * 86_400_000, 'en-US')).toBe('Sep 29, 2026');
   });
 
   it('formats message timestamps relative to today', () => {
@@ -139,7 +153,7 @@ describe('time formatting (UTC)', () => {
     expect(formatMessageTimestamp(ts - 86_400_000, now, { clock24h: false })).toBe(
       'Yesterday at 2:02 PM',
     );
-    expect(formatMessageTimestamp(ts - 3 * 86_400_000, now, { clock24h: true })).toBe(
+    expect(formatMessageTimestamp(ts - 3 * 86_400_000, now, { clock24h: true }, 'en-GB')).toBe(
       '26/09/2026 14:02',
     );
   });
@@ -149,7 +163,8 @@ describe('time formatting (UTC)', () => {
     expect(formatRelative(ts, ts + 3 * 60_000)).toBe('3m ago');
     expect(formatRelative(ts, ts + 2 * 3_600_000)).toBe('2h ago');
     expect(formatRelative(ts, ts + 4 * 86_400_000)).toBe('4d ago');
-    expect(formatRelative(ts, ts + 30 * 86_400_000)).toBe('29 Sep 2026');
+    // ICU versions differ on the en-GB short month: "Sep" or "Sept".
+    expect(formatRelative(ts, ts + 30 * 86_400_000, 'en-GB')).toMatch(/^29 Sept? 2026$/);
   });
 
   it('formats durations', () => {

@@ -29,7 +29,7 @@ export interface ConnectionSetupProps {
    * configured at all, meaning this is the first run and nothing was found
    * (the download screen). Omit it to always fall back to `MissingSignalCli`.
    */
-  install?: { admin: DesktopAdmin; configured: boolean; onInstalled: () => void } | undefined;
+  install?: { admin: DesktopAdmin; configured: boolean; onInstalled: () => unknown } | undefined;
   link: LinkFlow | undefined;
   onLinked: (accountId: string) => void;
   onAccount: (account: string) => void;

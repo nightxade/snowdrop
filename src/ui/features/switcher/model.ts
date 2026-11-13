@@ -48,6 +48,8 @@ export type SwitcherItem =
       unread: number;
       mentions: number;
       muted: boolean;
+      /** Shown when searching only; the empty-query lists leave archived chats out. */
+      archived: boolean;
       indices: readonly number[];
     }
   | {
@@ -136,6 +138,7 @@ function conversationItem(
     unread: u?.count ?? 0,
     mentions: u?.mentions ?? 0,
     muted: input.isMuted(view),
+    archived: view.archived,
     indices,
   };
 }
@@ -242,13 +245,15 @@ export function searchSwitcher(raw: string, input: SwitcherInput): SwitcherSecti
   const limit = input.limit ?? DEFAULT_LIMIT;
   const spaceOf = new Map<string, SwitcherSpace>();
   for (const space of input.spaces) for (const id of space.conversationIds) spaceOf.set(id, space);
-  const views = input.views.filter(
+  const inScope = input.views.filter(
     (v) =>
-      !v.archived &&
-      (scope === 'all' ||
-        (scope === 'direct' && v.kind === 'direct') ||
-        (scope === 'groups' && v.kind === 'group')),
+      scope === 'all' ||
+      (scope === 'direct' && v.kind === 'direct') ||
+      (scope === 'groups' && v.kind === 'group'),
   );
+  // Searching finds archived chats too (they rank below live ones of equal score);
+  // the browsing lists for an empty query leave them out.
+  const views = inScope.filter((v) => text !== '' || !v.archived);
   const wantsConversations = scope === 'all' || scope === 'direct' || scope === 'groups';
   const wantsSpaces = scope === 'all' || scope === 'spaces';
   const wantsCommands = scope === 'all' || scope === 'commands';
@@ -286,7 +291,8 @@ export function searchSwitcher(raw: string, input: SwitcherInput): SwitcherSecti
       });
     }
   }
-  scored.sort((a, b) => b.score - a.score || a.order - b.order);
+  const isArchived = (s: Scored) => (s.item.kind === 'conversation' && s.item.archived ? 1 : 0);
+  scored.sort((a, b) => b.score - a.score || isArchived(a) - isArchived(b) || a.order - b.order);
   const best = scored[0]?.score ?? 0;
   const items = scored
     .filter((s) => best <= 0 || s.score >= best * RELATIVE_FLOOR)

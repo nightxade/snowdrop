@@ -11,11 +11,15 @@ const pkg = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8'));
 const repoUrl = (meta) => {
   const repo = typeof meta.repository === 'string' ? meta.repository : meta.repository?.url;
   const raw = meta.homepage ?? repo ?? `https://www.npmjs.com/package/${meta.name}`;
-  return raw
-    .replace(/^git\+/u, '')
-    .replace(/^git:\/\//u, 'https://')
-    .replace(/\.git$/u, '')
-    .replace(/^github:/u, 'https://github.com/');
+  return (
+    raw
+      .replace(/^git\+/u, '')
+      .replace(/^git:\/\//u, 'https://')
+      .replace(/\.git$/u, '')
+      .replace(/^github:/u, 'https://github.com/')
+      // npm's bare "owner/repo" shorthand means GitHub.
+      .replace(/^(?=[\w.-]+\/[\w.-]+$)/u, 'https://github.com/')
+  );
 };
 
 const entries = Object.keys(pkg.dependencies)

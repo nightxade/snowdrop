@@ -352,6 +352,27 @@ describe('<Composer />', () => {
     expect(input.value).toBe('/shrug ');
   });
 
+  it('does not accept a suggestion on Ctrl+Tab, only on a plain Tab', async () => {
+    const { input, typeText } = await setup();
+    typeText('/shr');
+    await screen.findByRole('listbox');
+    fireEvent.keyDown(input, { key: 'Tab', ctrlKey: true });
+    expect(input.value).toBe('/shr');
+    fireEvent.keyDown(input, { key: 'Tab' });
+    expect(input.value).toBe('/shrug ');
+  });
+
+  it.each([{ ctrlKey: true }, { metaKey: true }, { altKey: true }])(
+    'does not accept a suggestion on Enter with %o held',
+    async (mod) => {
+      const { input, typeText } = await setup();
+      typeText('/shr');
+      await screen.findByRole('listbox');
+      fireEvent.keyDown(input, { key: 'Enter', ...mod });
+      expect(input.value).not.toBe('/shrug ');
+    },
+  );
+
   it('autocompletes personal emoji by name, inserting :name:', async () => {
     const { snowdrop, input, typeText } = await setup();
     snowdrop.stores.local

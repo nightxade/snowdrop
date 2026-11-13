@@ -1,12 +1,10 @@
 import { useSyncExternalStore } from 'react';
-import { useStore } from 'zustand';
-import { sessionSelectors } from '@/core/stores';
 import { useEffectivePrivacy, useSnowdrop } from '@/ui/hooks';
 import { Switch } from '@/ui/primitives';
 import { SettingRow } from '../rows/SettingRow';
 import { SettingsSection } from '../rows/SettingsSection';
 import { useSettingsSection } from '../useSettingsSection';
-import { phoneSettingNote } from '../phoneSettingNote';
+import { usePhoneSetting } from '../usePhoneSetting';
 import { BlockedList } from './BlockedList';
 import { EncryptionSection } from './EncryptionSection';
 import styles from './pages.module.css';
@@ -20,31 +18,15 @@ function usePluginEnabled(id: string): [boolean, (on: boolean) => void] {
   return [enabled, (on) => void plugins.setEnabled(id, on)];
 }
 
-type PhoneSetting = 'readReceipts' | 'typingIndicators' | 'linkPreviews';
-
 export function PrivacyPage() {
   const app = useSnowdrop();
   const [, setBehaviour] = useSettingsSection('behaviour');
   const [clearUrls, setClearUrls] = usePluginEnabled('clear-urls');
   const privacy = useEffectivePrivacy();
-  const phone = useStore(app.stores.session, sessionSelectors.phonePrivacy);
   const where = app.storageAdmin ? 'this computer' : 'this browser';
-  const signalCli = app.backend.kind === 'signal-cli';
-  const pending = phone.status === 'pending';
-  const noteFor = (key: PhoneSetting) =>
-    phoneSettingNote(phone.status, privacy.fromPhone[key], signalCli);
-  /** Follows the phone when it has told us, and then writes back to it. */
-  const change = (
-    key: PhoneSetting,
-    local: 'sendReadReceipts' | 'sendTypingIndicators',
-    value: boolean,
-  ) => {
-    if (privacy.fromPhone[key]) void app.sync.updatePhonePrivacy({ [key]: value });
-    else setBehaviour({ [local]: value });
-  };
+  const receipts = usePhoneSetting('readReceipts', 'sendReadReceipts');
+  const typing = usePhoneSetting('typingIndicators', 'sendTypingIndicators');
   const receiptsHiddenByPhone = privacy.fromPhone.readReceipts && !privacy.sendReadReceipts;
-  const receiptsNote = noteFor('readReceipts');
-  const typingNote = noteFor('typingIndicators');
   return (
     <>
       {app.storageAdmin && <EncryptionSection admin={app.storageAdmin} />}
@@ -53,16 +35,14 @@ export function PrivacyPage() {
           id="privacy.receipts"
           label="Send read receipts"
           description="When on, people see when you’ve read their messages. Like Signal’s own apps, turning it off also hides other people’s read marks on your messages."
-          {...(receiptsNote ? { note: receiptsNote } : {})}
+          {...(receipts.note ? { note: receipts.note } : {})}
           control={(ids) => (
             <Switch
               id={ids.id}
               aria-describedby={ids.descriptionId}
               checked={privacy.sendReadReceipts}
-              disabled={pending}
-              onCheckedChange={(v) => {
-                change('readReceipts', 'sendReadReceipts', v);
-              }}
+              disabled={receipts.pending}
+              onCheckedChange={receipts.change}
             />
           )}
         />
@@ -89,16 +69,14 @@ export function PrivacyPage() {
           id="privacy.typing"
           label="Send typing indicators"
           description="When on, people see “typing…” while you write to them. Off applies to every conversation."
-          {...(typingNote ? { note: typingNote } : {})}
+          {...(typing.note ? { note: typing.note } : {})}
           control={(ids) => (
             <Switch
               id={ids.id}
               aria-describedby={ids.descriptionId}
               checked={privacy.sendTypingIndicators}
-              disabled={pending}
-              onCheckedChange={(v) => {
-                change('typingIndicators', 'sendTypingIndicators', v);
-              }}
+              disabled={typing.pending}
+              onCheckedChange={typing.change}
             />
           )}
         />

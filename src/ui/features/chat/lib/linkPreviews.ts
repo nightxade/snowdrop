@@ -4,7 +4,7 @@
  * here — everything comes from what the sender's client already attached.
  */
 import type { Attachment, LinkPreview } from '@/core/domain';
-import { URL_PATTERN } from '../message/MessageBody';
+import { explicitUrls } from './links';
 
 /**
  * Signal's own rule (confirmed by signal-cli's `--preview-url` help text:
@@ -15,10 +15,7 @@ import { URL_PATTERN } from '../message/MessageBody';
  */
 export function previewUrlInText(preview: LinkPreview, body: string): boolean {
   if (!/^https?:\/\//iu.test(preview.url)) return false;
-  for (const match of body.matchAll(URL_PATTERN)) {
-    if (match[0] === preview.url) return true;
-  }
-  return false;
+  return explicitUrls(body).some((link) => link.href === preview.url);
 }
 
 /**
@@ -26,7 +23,7 @@ export function previewUrlInText(preview: LinkPreview, body: string): boolean {
  * one Snowdrop will fetch a preview for (one per message, like Signal).
  */
 export function firstUrlInText(text: string): string | undefined {
-  return text.match(URL_PATTERN)?.[0];
+  return explicitUrls(text)[0]?.href;
 }
 
 /** "example.com" from "https://www.example.com/path" — the card's eyebrow label. */

@@ -102,9 +102,13 @@ const startOfDay = (ms: number): number => {
  * Groups items the way Signal Desktop's gallery does, by when the message
  * was received: Today, Yesterday, This Week (the last seven days), This
  * Month, then one section per earlier month, newest first. Items inside a
- * section run newest first. `now` is a parameter so the result is testable.
+ * section run newest first. `now` and `locale` (the runtime's when omitted) are parameters so the result is testable.
  */
-export function groupGalleryByDate(items: readonly GalleryItem[], now: number): GallerySection[] {
+export function groupGalleryByDate(
+  items: readonly GalleryItem[],
+  now: number,
+  locale?: string,
+): GallerySection[] {
   const today = startOfDay(now);
   const yesterday = startOfDay(today - 1);
   const weekStart = startOfDay(now - 7 * 86_400_000);
@@ -142,7 +146,7 @@ export function groupGalleryByDate(items: readonly GalleryItem[], now: number): 
     const bucket = statics.get(kind);
     if (bucket) sections.push({ key: kind, kind, label: STATIC_LABEL[kind], items: bucket });
   }
-  const formatter = new Intl.DateTimeFormat('en', { month: 'long', year: 'numeric' });
+  const formatter = new Intl.DateTimeFormat(locale, { month: 'long', year: 'numeric' });
   for (const order of [...months.keys()].sort((a, b) => b - a)) {
     const bucket = months.get(order) ?? [];
     const first = bucket[0];

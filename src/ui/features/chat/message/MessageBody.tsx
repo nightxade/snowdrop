@@ -10,6 +10,7 @@ import {
 import { MENTION_PLACEHOLDER, rangesToSegments, type BodyRange, type Segment } from '@/core/domain';
 import { CUSTOM_EMOJI_TOKEN } from '@/core/stores/customEmoji';
 import { splitGraphemes } from '@/ui/lib/graphemes';
+import { findLinks } from '../lib/links';
 import styles from './MessageBody.module.css';
 
 export interface MessageBodyProps {
@@ -53,31 +54,28 @@ export interface MessageBodyProps {
   linksEnabled?: boolean;
 }
 
-/** Exported for LinkPreviewCard: Signal only shows a preview whose url still appears in the text. */
-export const URL_PATTERN = /\bhttps?:\/\/[^\s<>"']+[^\s<>"'.,;:!?)\]}]/giu;
-
-/** Plain text with http(s) links made clickable (opened in a new tab, no referrer). */
+/** Plain text with http(s) links, and bare domains, made clickable (opened in a new tab, no referrer). */
 function Linkified({ text, enabled = true }: { text: string; enabled?: boolean }) {
   if (!enabled) return text;
+  const links = findLinks(text);
+  if (links.length === 0) return text;
   const parts: ReactNode[] = [];
   let last = 0;
-  for (const match of text.matchAll(URL_PATTERN)) {
-    const at = match.index;
-    if (at > last) parts.push(text.slice(last, at));
+  for (const link of links) {
+    if (link.start > last) parts.push(text.slice(last, link.start));
     parts.push(
       <a
-        key={at}
+        key={link.start}
         className={styles.link}
-        href={match[0]}
+        href={link.href}
         target="_blank"
         rel="noopener noreferrer nofollow"
       >
-        {match[0]}
+        {link.text}
       </a>,
     );
-    last = at + match[0].length;
+    last = link.end;
   }
-  if (last === 0) return text;
   if (last < text.length) parts.push(text.slice(last));
   return parts;
 }

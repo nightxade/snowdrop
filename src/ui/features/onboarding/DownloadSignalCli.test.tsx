@@ -4,7 +4,7 @@
  * here), exercising idle → downloading (with progress) → success, and the
  * error/retry and cancel paths.
  */
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { DesktopAdmin, InstallProgress, InstallResult } from '@/core/backend';
 import { DownloadSignalCli } from './DownloadSignalCli';
@@ -195,6 +195,28 @@ describe('DownloadSignalCli: starting', () => {
     const status = screen.getByRole('status');
     expect(status.textContent).toContain('Starting signal-cli…');
     expect(onInstalled).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('DownloadSignalCli: start fails after the download', () => {
+  it('leaves "Starting" for the error and retry state when the start rejects', async () => {
+    const onInstalled = vi.fn(() => Promise.reject(new Error('signal-cli not found')));
+    const admin = fakeAdmin({
+      install: () =>
+        Promise.resolve({ ok: true, status: { installed: true, version: '0.14.8', path: '/x' } }),
+    });
+    render(<DownloadSignalCli admin={admin} onInstalled={onInstalled} />);
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: /Download and continue/u }));
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toBeTruthy();
+    });
+    expect(screen.queryByText(/Starting signal-cli/u)).toBeNull();
+    expect(screen.getByRole('button', { name: /Try again/u })).toBeTruthy();
   });
 });
 

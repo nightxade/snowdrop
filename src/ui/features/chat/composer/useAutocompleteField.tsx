@@ -125,7 +125,13 @@ export function useAutocompleteField(o: AutocompleteFieldOptions): AutocompleteF
         auto.move(e.key === 'ArrowDown' ? 1 : -1);
         return true;
       }
-      if ((e.key === 'Tab' || e.key === 'Enter') && !e.shiftKey) {
+      if (
+        (e.key === 'Tab' || e.key === 'Enter') &&
+        !e.shiftKey &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey
+      ) {
         e.preventDefault();
         accept(auto.active);
         return true;

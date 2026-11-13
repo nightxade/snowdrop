@@ -96,6 +96,29 @@ describe('MessageBody', () => {
     expect(link.getAttribute('target')).toBe('_blank');
   });
 
+  it('links bare domains and keeps balanced brackets, leaving prose brackets outside', () => {
+    renderBody('(see en.wikipedia.org/wiki/Foo and https://en.wikipedia.org/wiki/Foo_(bar)) ok');
+    const links = screen.getAllByRole('link');
+    expect(links.map((l) => l.textContent)).toEqual([
+      'en.wikipedia.org/wiki/Foo',
+      'https://en.wikipedia.org/wiki/Foo_(bar)',
+    ]);
+    expect(links[0]?.getAttribute('href')).toBe('https://en.wikipedia.org/wiki/Foo');
+  });
+
+  it('leaves links as plain text when disabled', () => {
+    render(
+      <MessageBody
+        body="example.com https://x.org"
+        ranges={[]}
+        selfId={null}
+        nameFor={nameFor}
+        linksEnabled={false}
+      />,
+    );
+    expect(screen.queryByRole('link')).toBeNull();
+  });
+
   it('renders previews statically (no nested controls)', () => {
     const body = `${MENTION_PLACEHOLDER} https://x.org ||s||`;
     const { body: b, ranges } = parseMarkdownToRanges(body);

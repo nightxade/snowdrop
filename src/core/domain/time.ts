@@ -3,7 +3,8 @@
  *
  * Clock times are formatted by hand (not Intl) so 12/24h output is identical
  * across ICU versions — some insert U+202F before "PM", which breaks layouts
- * and tests alike. Month/weekday names still come from Intl for localisation.
+ * and tests alike. Dates (day, month, weekday names and their order) come from Intl
+ * and follow the system locale.
  * All functions work in the runtime's local time zone.
  */
 
@@ -47,43 +48,57 @@ export function calendarDaysBetween(from: number, to: number): number {
   return Math.round((startOfDay(to) - startOfDay(from)) / DAY);
 }
 
-function namePart(ts: number, locale: string, part: 'weekday' | 'month'): string {
-  const fmt = new Intl.DateTimeFormat(locale, { [part]: 'long' });
-  return fmt.formatToParts(new Date(ts)).find((p) => p.type === part)?.value ?? '';
+/**
+ * Date parts follow `locale`; left undefined it is the runtime's own locale,
+ * so dates read the way the user's system writes them. Tests pin one.
+ */
+const formatters = new Map<string, Intl.DateTimeFormat>();
+
+function datePart(ts: number, locale: string | undefined, options: Intl.DateTimeFormatOptions) {
+  // Building a formatter costs far more than using one, and the message list
+  // formats a date per row, so each locale + options pair is made once.
+  const key = `${locale ?? ''}|${JSON.stringify(options)}`;
+  let fmt = formatters.get(key);
+  if (!fmt) {
+    fmt = new Intl.DateTimeFormat(locale, options);
+    formatters.set(key, fmt);
+  }
+  return fmt.format(new Date(ts));
 }
 
-/** "Tuesday, 29 September 2026" — day divider label. */
-export function formatDayDivider(ts: number, locale = 'en-GB'): string {
-  const d = new Date(ts);
-  return `${namePart(ts, locale, 'weekday')}, ${d.getDate()} ${namePart(ts, locale, 'month')} ${d.getFullYear()}`;
+/** "Tuesday, 29 September 2026" (en-GB) — day divider label. */
+export function formatDayDivider(ts: number, locale?: string): string {
+  return datePart(ts, locale, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 }
 
 /** "Tuesday, 29 September 2026 at 14:02" — full tooltip form. */
-export function formatFullTimestamp(ts: number, opts: TimeFormatOptions, locale = 'en-GB'): string {
+export function formatFullTimestamp(ts: number, opts: TimeFormatOptions, locale?: string): string {
   return `${formatDayDivider(ts, locale)} at ${formatClock(ts, opts)}`;
 }
 
-/** "Today at 14:02", "Yesterday at 2:02 PM", or "29/09/2026 14:02". */
-export function formatMessageTimestamp(ts: number, now: number, opts: TimeFormatOptions): string {
+/** "Today at 14:02", "Yesterday at 2:02 PM", or "29/09/2026 14:02" (en-GB). */
+export function formatMessageTimestamp(
+  ts: number,
+  now: number,
+  opts: TimeFormatOptions,
+  locale?: string,
+): string {
   const days = calendarDaysBetween(ts, now);
   const clock = formatClock(ts, opts);
   if (days === 0) return `Today at ${clock}`;
   if (days === 1) return `Yesterday at ${clock}`;
-  const d = new Date(ts);
-  const dd = String(d.getDate()).padStart(2, '0');
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  return `${dd}/${mm}/${d.getFullYear()} ${clock}`;
+  const date = datePart(ts, locale, { day: 'numeric', month: 'numeric', year: 'numeric' });
+  return `${date} ${clock}`;
 }
 
 /** Compact relative time: "just now", "3m ago", "2h ago", "4d ago", then a date. */
-export function formatRelative(ts: number, now: number): string {
+export function formatRelative(ts: number, now: number, locale?: string): string {
   const delta = Math.max(0, now - ts);
   if (delta < MINUTE) return 'just now';
   if (delta < HOUR) return `${Math.floor(delta / MINUTE)}m ago`;
   if (delta < DAY) return `${Math.floor(delta / HOUR)}h ago`;
   if (delta < 7 * DAY) return `${Math.floor(delta / DAY)}d ago`;
-  const d = new Date(ts);
-  return `${d.getDate()} ${namePart(ts, 'en-GB', 'month').slice(0, 3)} ${d.getFullYear()}`;
+  return datePart(ts, locale, { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
 /** Human label for a disappearing-message timer, e.g. "1 week", "30 seconds". */

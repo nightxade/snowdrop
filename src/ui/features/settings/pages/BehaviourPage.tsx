@@ -1,10 +1,8 @@
 import { useEffect, useState } from 'react';
-import { useStore } from 'zustand';
-import { sessionSelectors } from '@/core/stores';
 import { useEffectivePrivacy, useSnowdrop } from '@/ui/hooks';
 import { Segmented, Switch } from '@/ui/primitives';
 import { SettingRow } from '../rows/SettingRow';
-import { phoneSettingNote } from '../phoneSettingNote';
+import { usePhoneSetting } from '../usePhoneSetting';
 import { SettingsSection } from '../rows/SettingsSection';
 import { useSettingsSection } from '../useSettingsSection';
 
@@ -31,12 +29,7 @@ export function BehaviourPage() {
   const [b, set] = useSettingsSection('behaviour');
   const trayAvailable = useTrayAvailable();
   const privacy = useEffectivePrivacy();
-  const phone = useStore(app.stores.session, sessionSelectors.phonePrivacy);
-  const linkPreviewsNote = phoneSettingNote(
-    phone.status,
-    privacy.fromPhone.linkPreviews,
-    app.backend.kind === 'signal-cli',
-  );
+  const linkPreviews = usePhoneSetting('linkPreviews', 'linkPreviews');
   return (
     <SettingsSection>
       <SettingRow
@@ -96,19 +89,15 @@ export function BehaviourPage() {
         <SettingRow
           id="behaviour.linkPreviews"
           label="Link previews"
-          {...(linkPreviewsNote ? { note: linkPreviewsNote } : {})}
+          {...(linkPreviews.note ? { note: linkPreviews.note } : {})}
           description="When a message you're writing has a link, Snowdrop fetches that page's title, description and image directly from this device and attaches them, the same way Signal Desktop does — so the site sees this device's IP address, as it would if you opened the link. If the HTTPS_PROXY environment variable is set, the fetch goes through that proxy instead. You'll see what was found before it sends, and can remove it. Off, nothing is ever fetched — you can still see previews other people send you, since those never involve your device contacting anything."
           control={(ids) => (
             <Switch
               id={ids.id}
               aria-describedby={ids.descriptionId}
               checked={privacy.linkPreviews}
-              disabled={phone.status === 'pending'}
-              onCheckedChange={(v) => {
-                if (privacy.fromPhone.linkPreviews)
-                  void app.sync.updatePhonePrivacy({ linkPreviews: v });
-                else set({ linkPreviews: v });
-              }}
+              disabled={linkPreviews.pending}
+              onCheckedChange={linkPreviews.change}
             />
           )}
         />
