@@ -25,6 +25,7 @@ import {
   applyRecipientReceipt,
   mergeDuplicate,
   messageId,
+  pinnedText,
   pollEndedText,
   systemMessageId,
   type Contact,
@@ -37,6 +38,7 @@ import {
 import {
   createLogger,
   Emitter,
+  stripBidiControls,
   type Cancel,
   type Clock,
   type ErrorKind,
@@ -45,7 +47,12 @@ import {
   toAppError,
   ignored,
 } from '@/core/lib';
-import { latestRealMessage, type MessageRepository } from '@/core/persistence';
+import {
+  latestPreviewMessage,
+  latestRealMessage,
+  type MessageRepository,
+} from '@/core/persistence';
+import { contactChangeLines } from './contactChangeLines';
 import { ConversationDirectory } from './ConversationDirectory';
 import { ExpiryService } from './ExpiryService';
 import {
@@ -666,7 +673,21 @@ export class SyncService {
    */
   private applyContact(contact: Contact): void {
     const { stores } = this.deps;
+    const previous = stores.contacts.getState().byId[contact.id];
     stores.contacts.getState().upsert(contact);
+    // A name or number that changed from one we held is a line in their chats; it
+    // goes through the event queue (or waits behind the initial sync) like a message.
+    for (const line of contactChangeLines(
+      previous,
+      contact,
+      stores.conversations.getState().byId,
+      this.selfId(),
+      this.deps.clock.now(),
+    )) {
+      const task = (): Promise<void> => this.onMessage(line, false);
+      if (this.gated) this.backlog.push({ event: 'contactLine', task });
+      else this.enqueue('contactLine', task);
+    }
     const self = stores.session.getState().self;
     if (self && contact.id === self.id) {
       const avatarUrl = self.avatarUrl;
@@ -789,7 +810,7 @@ export class SyncService {
     // (`bumpActivity`) must never move for one, so it's computed separately
     // — reusing `latest` without another lookup in the common case where
     // it's already real.
-    const latest = await repository.latest(conv.id);
+    const latest = await latestPreviewMessage(repository, conv.id);
     if (latest) stores.conversations.getState().noteLatest(latest);
     const latestReal =
       latest?.kind === 'normal' ? latest : await latestRealMessage(repository, conv.id);
@@ -1006,13 +1027,7 @@ export class SyncService {
     on('messageDeleted', (e) =>
       this.removeContent(e.conversationId, messageId(e.authorId, e.targetSentAt), e.deletedBy),
     );
-    on('messagePinned', (e) =>
-      this.updateMessage(e.conversationId, messageId(e.targetAuthorId, e.targetSentAt), (m) => {
-        if (e.pinned) return { ...m, pinned: true };
-        const { pinned: _pinned, ...rest } = m;
-        return rest;
-      }),
-    );
+    on('messagePinned', (e, live) => this.onPinned(e, live));
     on('reaction', (e, live) => this.onReaction(e, live));
     on('pollVote', (e, live) => this.onPollVote(e, live));
     on('pollTerminate', (e, live) => this.onPollTerminate(e, live));
@@ -1122,8 +1137,9 @@ export class SyncService {
     const last = lastId === undefined ? undefined : window?.byId[lastId];
     return (
       last?.kind === 'system' &&
-      last.systemAction?.kind === line.systemAction?.kind &&
-      last.systemAction?.contactId === line.systemAction?.contactId
+      last.systemAction?.kind === 'safety-number' &&
+      line.systemAction?.kind === 'safety-number' &&
+      last.systemAction.contactId === line.systemAction.contactId
     );
   }
 
@@ -1319,6 +1335,45 @@ export class SyncService {
         });
       }
     }
+  }
+
+  /**
+   * A pin or unpin. Pinning also writes Signal's "X pinned a message" line,
+   * with a button to the message, once; like Desktop it needs the pinned
+   * message to be stored in this chat, and unpinning writes nothing.
+   */
+  private async onPinned(e: BackendEvents['messagePinned'], live: boolean): Promise<void> {
+    const id = messageId(e.targetAuthorId, e.targetSentAt);
+    const before = e.pinned ? await this.deps.repository.get(id) : undefined;
+    await this.updateMessage(e.conversationId, id, (m) => {
+      if (e.pinned) return { ...m, pinned: true };
+      const { pinned: _pinned, ...rest } = m;
+      return rest;
+    });
+    if (!before || before.conversationId !== e.conversationId || before.deleted) return;
+    const { stores, clock } = this.deps;
+    const name =
+      e.by === this.selfId()
+        ? 'You'
+        : stripBidiControls(stores.contacts.getState().byId[e.by]?.name ?? UNKNOWN_CONTACT_NAME);
+    await this.onMessage(
+      {
+        id: systemMessageId(e.by, e.at, 'pin'),
+        conversationId: e.conversationId,
+        authorId: e.by,
+        sentAt: e.at,
+        receivedAt: clock.now(),
+        body: '',
+        ranges: [],
+        attachments: [],
+        reactions: [],
+        status: 'sent',
+        kind: 'system',
+        systemText: pinnedText(name),
+        systemAction: { kind: 'go-to-message', messageId: id },
+      },
+      live,
+    );
   }
 
   /**

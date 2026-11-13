@@ -48,6 +48,7 @@ import {
   nextPollVoteCount,
   parseMarkdownToRanges,
   pendingMessageId,
+  pinnedText,
   pollEndedText,
   pollVoteOf,
   reopenPoll,
@@ -1230,7 +1231,7 @@ export class SendService {
         const { pinned: _pinned, ...rest } = m;
         return value ? { ...rest, pinned: true } : rest;
       };
-    return this.operate(conversationId, target.id, {
+    const done = await this.operate(conversationId, target.id, {
       context: pin ? 'pin failed' : 'unpin failed',
       apply: set(pin),
       revert: set(target.pinned === true),
@@ -1242,6 +1243,24 @@ export class SendService {
           pin,
         }),
     });
+    if (done && pin) await this.notePinned(conversationId, target);
+    return done;
+  }
+
+  /** The "You pinned a message" line, with its button to the message, after the pin went out. */
+  private async notePinned(conversationId: ConversationId, target: Message): Promise<void> {
+    if (isPendingMessageId(target.id)) return;
+    try {
+      await appendLocalSystemLine(this.deps, {
+        conversationId,
+        authorId: this.selfId(),
+        text: pinnedText('You'),
+        tag: 'pin',
+        action: { kind: 'go-to-message', messageId: target.id },
+      });
+    } catch (error) {
+      this.onError(error, 'noting a pin failed');
+    }
   }
 
   /** A group admin deleting someone else's message, when the transport supports it. */

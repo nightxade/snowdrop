@@ -414,6 +414,8 @@ export interface BackendEvents {
     targetSentAt: number;
     pinned: boolean;
     by: string;
+    /** When the pin or unpin was sent (epoch ms): the identity of its timeline line. */
+    at: number;
   };
   reaction: {
     conversationId: ConversationId;

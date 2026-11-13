@@ -8,10 +8,17 @@
  * own (no `messageRequests` feature) just means the answer is local.
  */
 import type { ChatBackend, Feature } from '@/core/backend';
-import { mustChooseNewAdmin, parseConversationId, type ConversationId } from '@/core/domain';
-import type { Clock } from '@/core/lib';
+import {
+  mustChooseNewAdmin,
+  parseConversationId,
+  requestAnswerText,
+  type ConversationId,
+  type RequestAnswer,
+} from '@/core/domain';
+import { stripBidiControls, type Clock } from '@/core/lib';
 import type { MessageRepository } from '@/core/persistence';
 import { NO_UNREAD, type Stores } from '@/core/stores';
+import { appendLocalSystemLine } from './localSystemLine';
 import type { SyncService } from './SyncService';
 import { consoleReporter, type ErrorReporter } from './types';
 
@@ -50,6 +57,7 @@ export class MessageRequestService {
     )
       return false;
     stores.local.getState().markAccepted(id, clock.now());
+    await this.noteAnswer(id, 'accepted');
     await this.sendHeldReceipts(id);
     return true;
   }
@@ -88,6 +96,7 @@ export class MessageRequestService {
     if (!this.known(id)) return false;
     if (!(await this.ask('block', 'blocking', () => backend.setBlocked(id, true)))) return false;
     this.markBlocked(id, true);
+    await this.noteAnswer(id, 'blocked');
     await this.leaveBlockedGroup(id);
     return true;
   }
@@ -98,6 +107,7 @@ export class MessageRequestService {
     if (!this.known(id)) return false;
     if (!(await this.ask('unblock', 'blocking', () => backend.setBlocked(id, false)))) return false;
     this.markBlocked(id, false);
+    await this.noteAnswer(id, 'unblocked');
     stores.local.getState().markAccepted(id, clock.now());
     await this.sendHeldReceipts(id);
     return true;
@@ -111,6 +121,30 @@ export class MessageRequestService {
     return (
       parsed?.kind === 'direct' && stores.contacts.getState().byId[parsed.target] !== undefined
     );
+  }
+
+  /** Desktop's timeline line for the user's own answer ("You accepted the message request"), in a chat that exists. */
+  private async noteAnswer(id: ConversationId, answer: RequestAnswer): Promise<void> {
+    const { stores } = this.deps;
+    const conversation = stores.conversations.getState().byId[id];
+    const selfId = stores.session.getState().self?.id;
+    if (!conversation || !selfId) return;
+    const isGroup = conversation.kind === 'group';
+    const parsed = parseConversationId(id);
+    const person =
+      parsed?.kind === 'direct' ? stores.contacts.getState().byId[parsed.target]?.name : undefined;
+    try {
+      await appendLocalSystemLine(this.deps, {
+        conversationId: id,
+        authorId: selfId,
+        text: requestAnswerText(answer, isGroup, person ? stripBidiControls(person) : undefined),
+        tag: `request-${answer}`,
+        keepUnread: true,
+        previewless: true,
+      });
+    } catch (error) {
+      this.onError(error, 'noting a message request answer failed');
+    }
   }
 
   private async leaveBlockedGroup(id: ConversationId): Promise<void> {

@@ -423,8 +423,31 @@ describe('normaliseReceive: actions on messages', () => {
       targetSentAt: T0,
       pinned: true,
       by: BOB,
+      at: T0 + 60,
     });
     expect(only(run(fixtures.unpin).events, 'messagePinned').payload.pinned).toBe(false);
+  });
+
+  it('also shows a "Secure session reset" line for an end-session sent from our own phone', () => {
+    const { payload } = only(run(fixtures.syncEndSession).events, 'message');
+    expect(payload).toMatchObject({
+      id: systemMessageId(SELF_ACI, T0 + 72, 'end-session'),
+      conversationId: directConversationId(BOB),
+      authorId: SELF_ACI,
+      kind: 'system',
+      systemText: 'Secure session reset',
+    });
+  });
+
+  it('turns an end-session message into a "Secure session reset" line, once per envelope', () => {
+    const { payload } = only(run(fixtures.endSession).events, 'message');
+    expect(payload).toMatchObject({
+      id: systemMessageId(ALICE, T0 + 70, 'end-session'),
+      conversationId: DM_ALICE,
+      kind: 'system',
+      systemText: 'Secure session reset',
+    });
+    expect(only(run(fixtures.endSession).events, 'message').payload.id).toBe(payload.id);
   });
 });
 

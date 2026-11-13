@@ -10,6 +10,7 @@
 import {
   directConversationId,
   groupConversationId,
+  SESSION_RESET_TEXT,
   type ConversationId,
   type MessageStatus,
 } from '@/core/domain';
@@ -356,6 +357,7 @@ function fromData(
           targetSentAt: pin.targetSentTimestamp,
           pinned: data.pinMessage !== undefined,
           by: authorId,
+          at: data.timestamp,
         },
       },
     ];
@@ -431,6 +433,15 @@ function fromData(
   if (data.groupCallUpdate !== undefined) {
     const text = `${nameOf(authorId, origin.actorName)} started a group call.`;
     events.push({ kind: 'message', payload: systemMessage(meta, data.timestamp, text, 'call') });
+    return events;
+  }
+
+  // A reset of the secure session with this person: Desktop's "Secure session reset" line.
+  if (data.isEndSession === true && !data.groupInfo) {
+    events.push({
+      kind: 'message',
+      payload: systemMessage(meta, data.timestamp, SESSION_RESET_TEXT, 'end-session'),
+    });
     return events;
   }
 

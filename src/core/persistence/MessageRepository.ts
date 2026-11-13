@@ -290,3 +290,25 @@ export async function latestRealMessage(
     if (before === undefined) return undefined;
   }
 }
+
+/**
+ * The message the sidebar previews: the newest stored one that may stand as a
+ * preview (everything but a `previewless` line), paging back from the latest
+ * batch. Equals `repository.latest()` unless the newest lines are previewless.
+ */
+export async function latestPreviewMessage(
+  repository: Pick<MessageRepository, 'page' | 'latest'>,
+  conversationId: ConversationId,
+): Promise<Message | undefined> {
+  const newest = await repository.latest(conversationId);
+  if (!newest || newest.previewless !== true) return newest;
+  let before: number | undefined = newest.seq;
+  for (;;) {
+    if (before === undefined) return undefined;
+    const page = await repository.page(conversationId, { before, limit: REAL_MESSAGE_PAGE });
+    if (page.length === 0) return undefined;
+    const found = [...page].reverse().find((m) => m.previewless !== true);
+    if (found) return found;
+    before = page[0]?.seq;
+  }
+}

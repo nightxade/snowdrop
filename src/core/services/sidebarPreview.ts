@@ -1,5 +1,5 @@
 import type { ConversationId, Message } from '@/core/domain';
-import type { MessageRepository } from '@/core/persistence';
+import { latestPreviewMessage, type MessageRepository } from '@/core/persistence';
 import type { ConversationsStore } from '@/core/stores';
 
 /**
@@ -11,11 +11,11 @@ import type { ConversationsStore } from '@/core/stores';
  */
 export async function refreshPreviewAfterRemoval(
   conversations: ConversationsStore,
-  repository: Pick<MessageRepository, 'latest'>,
+  repository: Pick<MessageRepository, 'latest' | 'page'>,
   conversationId: ConversationId,
   removed: Pick<Message, 'id'>,
 ): Promise<void> {
   if (conversations.getState().lastMessage[conversationId]?.id !== removed.id) return;
-  const next = await repository.latest(conversationId);
+  const next = await latestPreviewMessage(repository, conversationId);
   conversations.getState().replaceLatest(conversationId, removed.id, next);
 }

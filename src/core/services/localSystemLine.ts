@@ -4,7 +4,13 @@
  * the chat's latest message, and read, like a message the user sends. It is
  * local only and never moves a chat up the list or lists one.
  */
-import { mergeDuplicate, systemMessageId, type ConversationId, type Message } from '@/core/domain';
+import {
+  mergeDuplicate,
+  systemMessageId,
+  type ConversationId,
+  type Message,
+  type SystemAction,
+} from '@/core/domain';
 import type { MessageRepository } from '@/core/persistence';
 import type { Stores } from '@/core/stores';
 
@@ -21,7 +27,17 @@ export interface LocalSystemLineDeps {
  */
 export async function appendLocalSystemLine(
   deps: LocalSystemLineDeps,
-  line: { conversationId: ConversationId; authorId: string; text: string; tag: string },
+  line: {
+    conversationId: ConversationId;
+    authorId: string;
+    text: string;
+    tag: string;
+    action?: SystemAction;
+    /** Leave the chat's unread messages unread (an answer given from outside the open chat). */
+    keepUnread?: true;
+    /** Never the sidebar preview (see `Message.previewless`). */
+    previewless?: true;
+  },
 ): Promise<void> {
   const { repository, stores, clock } = deps;
   const now = clock.now();
@@ -38,12 +54,15 @@ export async function appendLocalSystemLine(
     status: 'sent',
     kind: 'system',
     systemText: line.text,
+    ...(line.action ? { systemAction: line.action } : {}),
+    ...(line.previewless ? { previewless: true as const } : {}),
   };
   const { message } = await repository.upsert(draft, mergeDuplicate);
   stores.messages.getState().appendLive(message);
   stores.conversations.getState().noteLatest(message);
   // Our own action: the chat is read up to it, like a message we send.
   if (
+    !line.keepUnread &&
     message.seq !== undefined &&
     stores.conversations.getState().markRead(line.conversationId, message.seq)
   )

@@ -200,6 +200,7 @@ export function createConversationsStore(): ConversationsStore {
         });
       },
       noteLatest: (message) => {
+        if (message.previewless === true) return;
         const id = message.conversationId;
         const current = get().lastMessage[id];
         if (current === message) return;

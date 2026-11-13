@@ -634,7 +634,13 @@ describe('SyncService: events', () => {
     const id = conv('books');
     const author = memberOf(id);
     backend.deliver(incoming(id, author, NOW + 10));
-    const pin = { conversationId: id, targetAuthorId: author, targetSentAt: NOW + 10, by: author };
+    const pin = {
+      conversationId: id,
+      targetAuthorId: author,
+      targetSentAt: NOW + 10,
+      by: author,
+      at: NOW + 20,
+    };
     backend.emit('messagePinned', { ...pin, pinned: true });
     await sync.idle();
     expect((await repository.get(messageId(author, NOW + 10)))?.pinned).toBe(true);

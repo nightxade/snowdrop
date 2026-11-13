@@ -268,6 +268,18 @@ export const fixtures = {
     },
   }),
 
+  syncEndSession: receive('self', {
+    sourceDevice: 2,
+    syncMessage: {
+      sentMessage: {
+        destination: BOB_NUMBER,
+        destinationNumber: BOB_NUMBER,
+        destinationUuid: BOB,
+        ...dataMessage({ timestamp: T0 + 72, isEndSession: true }),
+      },
+    },
+  }),
+
   syncSentGroup: receive('self', {
     sourceDevice: 2,
     syncMessage: {
@@ -368,6 +380,10 @@ export const fixtures = {
       },
       groupInfo: groupInfo(),
     }),
+  }),
+
+  endSession: receive('alice', {
+    dataMessage: dataMessage({ timestamp: T0 + 70, isEndSession: true }),
   }),
 
   unpin: receive('bob', {

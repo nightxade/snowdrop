@@ -347,12 +347,11 @@ export type MessageKind = 'normal' | 'system';
 /**
  * The button a system line carries. A safety-number line ("Safety Number with
  * X has changed") opens that person's safety number; `contactId` is the person
- * (ACI when known, else number, as in `Contact.id`).
+ * (ACI when known, else number, as in `Contact.id`). A pin line ("X pinned a
+ * message") has "Go to message", which jumps to the pinned message.
  */
-export interface SystemAction {
-  kind: 'safety-number';
-  contactId: string;
-}
+export type SystemAction =
+  { kind: 'safety-number'; contactId: string } | { kind: 'go-to-message'; messageId: MessageId };
 
 /**
  * A recipient's furthest-reached receipt for one of our outgoing messages
@@ -420,6 +419,12 @@ export interface Message {
   /** A system line's button, if it has one (see `SystemAction`). */
   systemAction?: SystemAction;
   pinned?: boolean;
+  /**
+   * A system line that is never the chat's sidebar preview (Desktop's profile
+   * name change and message-request answers): it is still stored and shown in
+   * the timeline. Set when the line is created; lines without it behave as before.
+   */
+  previewless?: true;
   /** Recipients the send failed for (partial group sends); status stays 'sent'. */
   failedRecipients?: string[];
   /** Why a `failed` status happened, when it's more specific than "send failed". */
