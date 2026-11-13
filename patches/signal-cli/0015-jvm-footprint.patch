@@ -2,7 +2,7 @@ diff --git a/build.gradle.kts b/build.gradle.kts
 index db77917..5bad1a4 100644
 --- a/build.gradle.kts
 +++ b/build.gradle.kts
-@@ -46,7 +46,82 @@ java {
+@@ -46,7 +46,79 @@ java {
  
  application {
      mainClass.set("org.asamk.signal.Main")
@@ -17,20 +17,17 @@ index db77917..5bad1a4 100644
 +    // Snowdrop: footprint tuning, measured against the built dist in
 +    // jsonRpc mode, cold, throwaway config dir, median of 5 interleaved
 +    // runs, idle PSS via smaps_rollup:
-+    //   -Xmx1024m: without a cap G1 ergonomically sizes the heap off
-+    //     physical RAM (MaxHeapSize = RAM/4); idle PSS tracks live data, not
-+    //     the cap, so this doesn't move the idle number — it only bounds
-+    //     worst-case growth. 1024m was sized against the one path that
-+    //     buffers a whole attachment on-heap (AttachmentHelper.
-+    //     retrieveBackfilledHistoryAttachment's ByteArrayOutputStream, used
-+    //     only when a history attachment's pointer has expired and needs a
-+    //     backfill re-download): a 150 MB attachment (ServiceConfig.
-+    //     MAX_ATTACHMENT_SIZE) through a doubling ByteArrayOutputStream plus
-+    //     its toByteArray() copy needs >384m and comfortably fits in 512m in
-+    //     isolation; 1024m adds headroom on top of that for whatever else is
-+    //     live at the time. Ordinary attachment upload/download
-+    //     (AttachmentHelper.uploadAttachment/retrieveAttachment) streams to
-+    //     files and isn't affected either way.
++    //   -XX:MaxRAMPercentage=50: a heap cap that follows the machine's RAM
++    //     (G1's own default is a quarter of it). Idle PSS tracks live data,
++    //     not the cap, so this doesn't move the idle number; it only bounds
++    //     worst-case growth. A fixed -Xmx1024m was too low: getAttachment
++    //     (GetAttachmentCommand) reads the whole attachment into a byte[],
++    //     Base64-encodes it to a String and Jackson writes that again, so one
++    //     150 MB attachment (ServiceConfig.MAX_ATTACHMENT_SIZE) holds roughly
++    //     750 MB live and two at once ran out of heap, which kills the whole
++    //     daemon. The backfill re-download path
++    //     (AttachmentHelper.retrieveBackfilledHistoryAttachment) also buffers
++    //     a whole attachment on-heap.
 +    //   -XX:+UseCompactObjectHeaders: ~2-3% lower idle PSS, no measured CPU
 +    //     cost (checked against a 150 MB AES-GCM+SHA-256 throughput
 +    //     benchmark) — kept.
@@ -77,7 +74,7 @@ index db77917..5bad1a4 100644
 +    applicationDefaultJvmArgs = listOf(
 +        "--enable-native-access=ALL-UNNAMED",
 +        "--sun-misc-unsafe-memory-access=allow",
-+        "-Xmx1024m",
++        "-XX:MaxRAMPercentage=50",
 +        "-XX:+UseCompactObjectHeaders",
 +        "-XX:G1PeriodicGCInterval=120000",
 +        "-XX:MinHeapFreeRatio=10",

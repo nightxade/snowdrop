@@ -598,24 +598,24 @@ checking the process still started and exited 0. That path does still log
 an `[error][aot]` line to stderr on every launch, though, so shipping it
 would also need `-Xlog:aot=off` to keep it from spamming the log.
 
-The second part adds `-Xmx1024m`,
+The second part adds `-XX:MaxRAMPercentage=50`,
 `-XX:+UseCompactObjectHeaders`, `-XX:G1PeriodicGCInterval=120000`,
 `-XX:MinHeapFreeRatio=10` and `-XX:MaxHeapFreeRatio=30` to the same
 `applicationDefaultJvmArgs`.
 Measured against the built dist in `jsonRpc`
 mode (cold, throwaway config dir, no account, median of 5 interleaved runs,
 idle PSS via `/proc/<pid>/smaps_rollup`): idle PSS didn't move measurably
-either way (G1 already shrinks committed regions back down to the live set
-regardless of the cap) — `-Xmx1024m` is a safety bound, not an idle-PSS
-win. It was sized against `AttachmentHelper.
-retrieveBackfilledHistoryAttachment`'s `ByteArrayOutputStream`, the one path
-that buffers a whole attachment on-heap (used only when a history
-attachment's archived pointer has expired and needs a backfill
-re-download): a 150 MB attachment (`ServiceConfig.MAX_ATTACHMENT_SIZE`)
-through that doubling buffer plus its `toByteArray()` copy needs more than
-384m and comfortably fits in 512m on its own; 1024m leaves headroom on top
-of that for whatever else is live. Ordinary attachment upload/download
-streams to files and isn't affected by the cap either way.
+with a heap cap either way (G1 already shrinks committed regions back down
+to the live set regardless of the cap), so the cap is a safety bound, not an
+idle-PSS win. It follows the machine's RAM rather than a fixed size: an
+earlier fixed `-Xmx1024m` was too low, because `getAttachment`
+(`GetAttachmentCommand`) reads the whole attachment into a `byte[]`,
+Base64-encodes it to a `String` and Jackson writes that again. One 150 MB
+attachment (`ServiceConfig.MAX_ATTACHMENT_SIZE`) holds roughly 750 MB live,
+two at once ran out of heap, and an `OutOfMemoryError` kills the whole
+daemon. `AttachmentHelper.retrieveBackfilledHistoryAttachment` (a history
+attachment whose archived pointer expired) also buffers a whole attachment
+on-heap.
 `-XX:+UseCompactObjectHeaders` shaved a noisy ~2-3% off idle PSS with no
 measured CPU cost (checked against a 150 MB AES-GCM+SHA-256 throughput
 benchmark run under the jlinked runtime) — kept regardless, since it's
