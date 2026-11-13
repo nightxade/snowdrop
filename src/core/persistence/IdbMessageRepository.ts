@@ -26,6 +26,7 @@
 import { openDB, type DBSchema, type IDBPDatabase, type IDBPTransaction } from 'idb';
 import type { OutgoingAttachment, SendInput } from '@/core/backend';
 import {
+  GALLERY_KINDS,
   hasGalleryItems,
   mentionsOf,
   pendingMessageId,
@@ -34,7 +35,7 @@ import {
   type Message,
   type MessageId,
 } from '@/core/domain';
-import { createLogger, yieldToEventLoop, ignored } from '@/core/lib';
+import { createLogger, yieldToEventLoop, ignore, ignored } from '@/core/lib';
 import { plaintextCipher, utf8Decode, utf8Encode, type RecordCipher } from './crypto';
 import {
   droppedOriginals,
@@ -54,7 +55,7 @@ import {
   type UpsertResult,
 } from './MessageRepository';
 
-const DB_VERSION = 6;
+const DB_VERSION = 7;
 /** Rows read per slice of a search: decrypted together, then the event loop gets a turn. */
 const SEARCH_SLICE = 500;
 const SEQ_KEY = 'seq';
@@ -78,6 +79,75 @@ interface MessageRow {
   mentionIds: string[];
   /** AES-GCM of the full `Message` JSON, AAD = `id`. */
   payload: Uint8Array;
+}
+
+/**
+ * One encrypted side index: which messages belong to a set that is otherwise
+ * only visible once rows are decrypted (imported timers still waiting to
+ * start, a conversation's pins, a gallery tab's items). The key is
+ * `cipher.blindId` of the index's label, so it names nothing; the member list
+ * is inside the payload, like the message bodies. No plaintext flag marks a
+ * message row.
+ */
+interface SideRow {
+  /** `cipher.blindId(`side:${label}`)` — the primary key, and the AAD for `payload`. */
+  id: string;
+  /** AES-GCM of a `SidePayload`, AAD = `id`. */
+  payload: Uint8Array;
+}
+
+interface SideEntry {
+  id: MessageId;
+  seq: number;
+}
+
+/** `built` tells "built, and empty" from a row that was never filled in. */
+interface SidePayload {
+  built: true;
+  entries: SideEntry[];
+}
+
+/** A message row's change within one write: what it was, and what it becomes. */
+interface SideChange {
+  before?: Message | undefined;
+  after?: Message | undefined;
+}
+
+const SIDE_PENDING = 'pending-timers';
+const pinnedLabel = (conversationId: ConversationId): string => `pinned:${conversationId}`;
+const mediaLabel = (kind: GalleryKind, conversationId: ConversationId): string =>
+  `media:${kind}:${conversationId}`;
+
+/** Every side index this message belongs to; the single definition of membership. */
+function sideLabels(message: Message): string[] {
+  const labels: string[] = [];
+  if (message.historyCursor && message.expiresAfterReadMs && message.expiresAt === undefined) {
+    labels.push(SIDE_PENDING);
+  }
+  if (message.pinned === true && !message.deleted) labels.push(pinnedLabel(message.conversationId));
+  for (const kind of GALLERY_KINDS) {
+    if (hasGalleryItems(message, kind)) labels.push(mediaLabel(kind, message.conversationId));
+  }
+  return labels;
+}
+
+/** The index rows a write stores (`put`) or invalidates (`remove`, so they rebuild on next use). */
+interface SidePlan {
+  put: SideRow[];
+  remove: string[];
+}
+
+/** A lazy build in flight: the ids written since it started, so its scan can be corrected. */
+interface Build {
+  touched: Set<MessageId>;
+  /** A whole conversation or the database was wiped: the scan is not worth storing. */
+  reset: boolean;
+}
+
+interface SideQuery {
+  order: 'newest' | 'oldest';
+  before?: number | undefined;
+  limit?: number;
 }
 
 interface CursorRow {
@@ -154,6 +224,7 @@ interface SnowdropDB extends DBSchema {
   outbox: { key: string; value: OutboxRow };
   outboxAttachments: { key: string; value: OutboxAttachmentRow };
   sentMedia: { key: string; value: SentMediaRow; indexes: { byConversation: string } };
+  sideIndex: { key: string; value: SideRow };
 }
 
 /** The message with `original` cleared on the attachments `drop` picks (their copy is not kept). */
@@ -185,6 +256,12 @@ export class IdbMessageRepository implements MessageRepository {
    */
   private writeQueue: Promise<unknown> = Promise.resolve();
 
+  /** Side-index builds in flight, per label (see `openBuild`). */
+  private readonly builds = new Map<string, Set<Build>>();
+  /** Membership changes of the mutation now running, handed to the builds when it ends. */
+  private recentTouches: { label: string; id: MessageId }[] = [];
+  private recentReset = false;
+
   private constructor(
     private readonly db: IDBPDatabase<SnowdropDB>,
     private readonly cipher: RecordCipher,
@@ -192,7 +269,14 @@ export class IdbMessageRepository implements MessageRepository {
 
   /** Runs `fn` only after every previously queued mutation has settled. */
   private mutate<T>(fn: () => Promise<T>): Promise<T> {
-    const run = this.writeQueue.then(fn, fn);
+    const wrapped = async (): Promise<T> => {
+      try {
+        return await fn();
+      } finally {
+        this.flushTouches();
+      }
+    };
+    const run = this.writeQueue.then(wrapped, wrapped);
     // Keep the chain alive even if this mutation rejects; the rejection
     // still propagates to this call's own caller via `run`.
     this.writeQueue = run.then(
@@ -264,6 +348,11 @@ export class IdbMessageRepository implements MessageRepository {
           const media = database.createObjectStore('sentMedia', { keyPath: 'id' });
           media.createIndex('byConversation', 'conversationKey');
         }
+        if (oldVersion < 7) {
+          // Additive: encrypted side indexes (see `SideRow`). They start out
+          // absent, which means "not built": each is filled lazily on first use.
+          database.createObjectStore('sideIndex', { keyPath: 'id' });
+        }
         if (oldVersion < 5) {
           // Search across every conversation walks newest first and stops
           // at its limit. `seq` is already plaintext, so this adds no leak.
@@ -319,13 +408,392 @@ export class IdbMessageRepository implements MessageRepository {
   }
 
   async pendingHistoryTimers(): Promise<Message[]> {
-    // These fields remain inside the encrypted payload. Reconcile once at
-    // startup, without adding a plaintext index exposing which rows were read.
-    const messages = await this.fromRows(await this.db.getAll('messages'));
-    return messages.filter(
-      (message) =>
-        message.historyCursor && message.expiresAfterReadMs && message.expiresAt === undefined,
+    // These fields remain inside the encrypted payload, so the rows are listed
+    // by an encrypted side index rather than a plaintext one that would expose
+    // which rows were read. The first call after an upgrade builds it with one
+    // full scan; after that only the listed rows are decrypted.
+    return this.readSide(SIDE_PENDING, () => this.scanSide(undefined, SIDE_PENDING), {
+      order: 'oldest',
+    });
+  }
+
+  // --- Side indexes -------------------------------------------------------
+  //
+  // Every write that can change membership computes the affected index rows
+  // (`sideWrites`, before its transaction: crypto stays outside) and puts them
+  // in the same transaction as the message rows, so they commit or abort
+  // together. All mutations run on the write queue, so nothing changes an
+  // index between the read that feeds a write and that write. A failure while
+  // planning index rows never fails the write: the rows are deleted instead,
+  // which makes them "not built" again.
+  //
+  // A lazy build scans OUTSIDE the queue (as the old full scans did), so it
+  // never delays writes. While it runs, every mutation that changes
+  // membership of its label leaves the message id with the build
+  // (`flushTouches`); when the scan ends, the build takes the queue briefly,
+  // re-reads just those rows, corrects its result and stores it.
+  //
+  // Not handled, by design (the desktop app is a single window): two windows
+  // each have their own queue, and ciphertext length shows how many members an
+  // index has.
+
+  private sideKey(label: string): Promise<string> {
+    return this.cipher.blindId(`side:${label}`);
+  }
+
+  /** The index's entries, or undefined when it was never built (or can't be read). */
+  private async loadSide(label: string): Promise<SideEntry[] | undefined> {
+    const id = await this.sideKey(label);
+    const row = await this.db.get('sideIndex', id);
+    if (!row) return undefined;
+    try {
+      const plain = await this.cipher.decrypt(row.payload, row.id);
+      const parsed = JSON.parse(utf8Decode(plain)) as Partial<SidePayload>;
+      return parsed.built === true && Array.isArray(parsed.entries) ? parsed.entries : undefined;
+    } catch {
+      return undefined; // Treated as not built: the next use rebuilds it.
+    }
+  }
+
+  private async sealSide(label: string, entries: readonly SideEntry[]): Promise<SideRow> {
+    const id = await this.sideKey(label);
+    const payload: SidePayload = { built: true, entries: [...entries] };
+    return { id, payload: await this.cipher.encrypt(encodeJson(payload), id) };
+  }
+
+  /**
+   * The labels a change adds the message to or removes it from. A label whose
+   * membership and seq are unchanged is not listed: its row is never read.
+   */
+  private static sideDiff({ before, after }: SideChange): {
+    removed: { label: string; id: MessageId }[];
+    added: { label: string; id: MessageId; seq: number }[];
+  } {
+    const beforeLabels = before ? sideLabels(before) : [];
+    const afterLabels = after ? sideLabels(after) : [];
+    const same = before !== undefined && after !== undefined && before.id === after.id;
+    const removed = before
+      ? beforeLabels
+          .filter((label) => !(same && afterLabels.includes(label)))
+          .map((label) => ({ label, id: before.id }))
+      : [];
+    const added = after
+      ? afterLabels
+          .filter(
+            (label) =>
+              !(same && beforeLabels.includes(label) && (before.seq ?? 0) === (after.seq ?? 0)),
+          )
+          .map((label) => ({ label, id: after.id, seq: after.seq ?? 0 }))
+      : [];
+    return { removed, added };
+  }
+
+  /**
+   * The index rows to store alongside these message changes. An index that was
+   * never built is left alone (its build corrects itself from what was written).
+   * If planning fails, the touched rows are deleted instead, never left stale.
+   */
+  private async sideWrites(changes: readonly SideChange[]): Promise<SidePlan> {
+    const diffs = changes.map((change) => IdbMessageRepository.sideDiff(change));
+    const labels = new Set<string>();
+    for (const { removed, added } of diffs) {
+      for (const { label, id } of [...removed, ...added]) {
+        labels.add(label);
+        this.recentTouches.push({ label, id });
+      }
+    }
+    if (labels.size === 0) return { put: [], remove: [] };
+    try {
+      const work = new Map<string, Map<string, SideEntry> | undefined>();
+      const dirty = new Set<string>();
+      const open = async (label: string): Promise<Map<string, SideEntry> | undefined> => {
+        if (!work.has(label)) {
+          const entries = await this.loadSide(label);
+          work.set(label, entries && new Map(entries.map((e) => [e.id, e])));
+        }
+        return work.get(label);
+      };
+      for (const { removed, added } of diffs) {
+        for (const { label, id } of removed) {
+          if ((await open(label))?.delete(id)) dirty.add(label);
+        }
+        for (const { label, id, seq } of added) {
+          const entries = await open(label);
+          if (!entries || entries.get(id)?.seq === seq) continue;
+          entries.set(id, { id, seq });
+          dirty.add(label);
+        }
+      }
+      const put = await Promise.all(
+        [...dirty].map((label) => this.sealSide(label, [...(work.get(label)?.values() ?? [])])),
+      );
+      return { put, remove: [] };
+    } catch {
+      log.warn('side index update failed; its lists will be rebuilt');
+      return { put: [], remove: await this.sideKeys([...labels]) };
+    }
+  }
+
+  /** The keys of these labels' rows; none when even the keys can't be made. */
+  private async sideKeys(labels: readonly string[]): Promise<string[]> {
+    try {
+      return await Promise.all(labels.map((label) => this.sideKey(label)));
+    } catch {
+      log.warn('side index rows could not be invalidated');
+      return [];
+    }
+  }
+
+  /** Issues a plan's requests on the transaction's `sideIndex` store. */
+  private static applySide(
+    store: { put(row: SideRow): Promise<unknown>; delete(key: string): Promise<unknown> },
+    plan: SidePlan,
+  ): Promise<unknown>[] {
+    return [
+      ...plan.put.map((row) => store.put(row)),
+      ...plan.remove.map((key) => store.delete(key)),
+    ];
+  }
+
+  /** Hands the membership changes of the mutation that just ran to the builds in flight. */
+  private flushTouches(): void {
+    for (const { label, id } of this.recentTouches) {
+      for (const build of this.builds.get(label) ?? []) build.touched.add(id);
+    }
+    if (this.recentReset) {
+      for (const set of this.builds.values()) for (const build of set) build.reset = true;
+    }
+    this.recentTouches = [];
+    this.recentReset = false;
+  }
+
+  /** Starts watching writes for a lazy build of `label`; call right before its scan starts. */
+  private openBuild(label: string): Build {
+    const build: Build = { touched: new Set(), reset: false };
+    const set = this.builds.get(label) ?? new Set<Build>();
+    set.add(build);
+    this.builds.set(label, set);
+    return build;
+  }
+
+  private dropBuild(label: string, build: Build): void {
+    const set = this.builds.get(label);
+    set?.delete(build);
+    if (set?.size === 0) this.builds.delete(label);
+  }
+
+  /**
+   * Ends a build: under the queue, corrects the scanned entries with the rows
+   * written meanwhile and stores the list (an empty one too: that is what
+   * stops rescans). If storing fails nothing is stored and the index stays
+   * not built. Returns the entries to answer from either way.
+   */
+  private async finishBuild(
+    label: string,
+    build: Build,
+    scanned: SideEntry[],
+  ): Promise<SideEntry[]> {
+    try {
+      return await this.mutate(async () => {
+        try {
+          const existing = await this.loadSide(label);
+          if (existing) return existing; // another build finished first
+          if (build.reset) return scanned;
+          const entries = new Map(scanned.map((e) => [e.id, e]));
+          for (const id of build.touched) {
+            entries.delete(id);
+            const message = await this.tryFromRow(
+              await this.db.get('messages', await this.cipher.blindId(id)),
+            );
+            if (message && sideLabels(message).includes(label)) {
+              entries.set(id, { id, seq: message.seq ?? 0 });
+            }
+          }
+          const list = [...entries.values()];
+          await this.db.put('sideIndex', await this.sealSide(label, list));
+          return list;
+        } finally {
+          this.dropBuild(label, build);
+        }
+      });
+    } catch {
+      this.dropBuild(label, build);
+      log.warn('side index not stored; it will be built on next use');
+      return scanned;
+    }
+  }
+
+  /**
+   * Waits for a transaction whose requests are issued by `requests`. Any
+   * failure while issuing them aborts it, so message and index rows never
+   * commit one without the other.
+   */
+  private async commit(
+    tx: { abort(): void; done: Promise<void> },
+    issue: (add: (request: Promise<unknown>) => void) => void,
+  ): Promise<void> {
+    const requests: Promise<unknown>[] = [];
+    const done = tx.done;
+    done.catch(ignored('the failure is thrown to the caller below'));
+    try {
+      issue((request) => requests.push(request));
+      await Promise.all([...requests, done]);
+    } catch (error) {
+      try {
+        tx.abort();
+      } catch (abortError) {
+        ignore(abortError, 'the transaction had already finished');
+      }
+      // Requests already issued reject with the abort; nothing else observes them.
+      for (const request of requests) request.catch(ignored('the abort is thrown to the caller'));
+      throw error;
+    }
+  }
+
+  /** The members of an index, building it by `scan` the first time it's used. */
+  private async sideEntries(label: string, scan: () => Promise<SideEntry[]>): Promise<SideEntry[]> {
+    const existing = await this.loadSide(label);
+    if (existing) return existing;
+    const build = this.openBuild(label);
+    let scanned: SideEntry[];
+    try {
+      scanned = await scan();
+    } catch (error) {
+      this.dropBuild(label, build);
+      throw error;
+    }
+    return this.finishBuild(label, build, scanned);
+  }
+
+  /** The members of a label found by decrypting the rows (all of them, or one conversation's). */
+  private async scanSide(conversationKey: string | undefined, label: string): Promise<SideEntry[]> {
+    const found: SideEntry[] = [];
+    let upper = Infinity;
+    let tail = new Set<string>();
+    for (;;) {
+      const slice = await this.readSearchSlice(conversationKey, upper, tail);
+      if (slice.length === 0) break;
+      const last = slice[slice.length - 1] as MessageRow;
+      tail = new Set([
+        ...(last.seq === upper ? tail : []),
+        ...slice.filter((row) => row.seq === last.seq).map((row) => row.id),
+      ]);
+      upper = last.seq;
+      for (const message of await this.fromRows(slice)) {
+        if (sideLabels(message).includes(label))
+          found.push({ id: message.id, seq: message.seq ?? 0 });
+      }
+      if (slice.length < SEARCH_SLICE) break;
+      await yieldToEventLoop();
+    }
+    return found;
+  }
+
+  /**
+   * Up to `limit` messages of an index with `seq < before`, newest first (or
+   * all of them, oldest first). Only the listed rows are decrypted, and each
+   * must still belong: one that doesn't (or whose row is gone) is dropped from
+   * the result and from the index.
+   */
+  private async readSide(
+    label: string,
+    scan: () => Promise<SideEntry[]>,
+    query: SideQuery,
+  ): Promise<Message[]> {
+    return this.readEntries(label, await this.sideEntries(label, scan), query);
+  }
+
+  /**
+   * Sorted by seq; rows sharing a seq follow the stored order the full scan
+   * used (the blinded id, descending for newest first).
+   */
+  private async orderEntries(
+    entries: SideEntry[],
+    order: 'newest' | 'oldest',
+  ): Promise<SideEntry[]> {
+    const sign = order === 'newest' ? -1 : 1;
+    const sorted = [...entries].sort((x, y) => sign * (x.seq - y.seq));
+    const out: SideEntry[] = [];
+    for (let i = 0; i < sorted.length;) {
+      let j = i + 1;
+      while (j < sorted.length && sorted[j]?.seq === sorted[i]?.seq) j++;
+      const group = sorted.slice(i, j);
+      if (group.length > 1) {
+        const keyed = await Promise.all(
+          group.map(async (e) => ({ e, key: await this.cipher.blindId(e.id) })),
+        );
+        keyed.sort((x, y) => sign * (x.key < y.key ? -1 : x.key > y.key ? 1 : 0));
+        out.push(...keyed.map((k) => k.e));
+      } else out.push(...group);
+      i = j;
+    }
+    return out;
+  }
+
+  /** `readSide` for entries already in hand. */
+  private async readEntries(
+    label: string,
+    listed: readonly SideEntry[],
+    { order, before, limit = Infinity }: SideQuery,
+  ): Promise<Message[]> {
+    const entries = await this.orderEntries(
+      listed.filter((e) => before === undefined || e.seq < before),
+      order,
     );
+    const found: Message[] = [];
+    const stale: MessageId[] = [];
+    let next = 0;
+    while (found.length < limit && next < entries.length) {
+      const chunk = entries.slice(next, next + Math.min(limit - found.length, SEARCH_SLICE));
+      next += chunk.length;
+      const settled = await Promise.allSettled(
+        chunk.map(async (entry) => {
+          const row = await this.db.get('messages', await this.cipher.blindId(entry.id));
+          if (!row) return null;
+          return this.fromRow(row);
+        }),
+      );
+      let unreadable = 0;
+      for (const [i, result] of settled.entries()) {
+        if (result.status === 'rejected') unreadable++;
+        else if (result.value && sideLabels(result.value).includes(label)) found.push(result.value);
+        else stale.push((chunk[i] as SideEntry).id);
+      }
+      if (unreadable > 0) log.warn(`dropped ${unreadable} unreadable message row(s)`);
+    }
+    if (stale.length > 0) {
+      await this.repairSide(label, stale).catch(
+        ignored('a repair that fails is retried by the next query that finds the drift'),
+      );
+    }
+    return found;
+  }
+
+  /** Removes entries that no longer belong, re-checking each under the write queue. */
+  private repairSide(label: string, ids: readonly MessageId[]): Promise<void> {
+    return this.mutate(async () => {
+      const entries = await this.loadSide(label);
+      if (!entries) return;
+      const drop = new Set<string>();
+      for (const id of ids) {
+        const row = await this.db.get('messages', await this.cipher.blindId(id));
+        if (!row) {
+          drop.add(id);
+          continue;
+        }
+        try {
+          if (!sideLabels(await this.fromRow(row)).includes(label)) drop.add(id);
+        } catch (unreadable) {
+          ignore(unreadable, 'unreadable rows stay listed; only a readable mismatch is drift');
+        }
+      }
+      if (drop.size === 0) return;
+      const row = await this.sealSide(
+        label,
+        entries.filter((e) => !drop.has(e.id)),
+      );
+      await this.db.put('sideIndex', row);
+    });
   }
 
   private async toRow(message: Message): Promise<MessageRow> {
@@ -418,22 +886,27 @@ export class IdbMessageRepository implements MessageRepository {
       const existing = await this.tryFromRow(await this.db.get('messages', key));
       if (existing) {
         const merged = merge(existing, message);
-        await this.writeDropping([await this.toRow(merged)], droppedOriginals(existing, merged));
+        await this.writeDropping([await this.toRow(merged)], droppedOriginals(existing, merged), [
+          { before: existing, after: merged },
+        ]);
         return { message: merged, created: false };
       }
       const seq = await this.seqStateOnce();
       const stored = { ...message, seq: message.seq ?? seq.max + 1 };
       const row = await this.toRow(stored);
-      const tx = this.db.transaction(['messages', 'meta'], 'readwrite');
-      await Promise.all([
-        tx.objectStore('messages').put(row),
-        tx.objectStore('meta').put({
-          ...seq,
-          max: Math.max(seq.max, stored.seq),
-          min: Math.min(seq.min, stored.seq),
-        }),
-        tx.done,
-      ]);
+      const side = await this.sideWrites([{ after: stored }]);
+      const tx = this.db.transaction(['messages', 'meta', 'sideIndex'], 'readwrite');
+      await this.commit(tx, (add) => {
+        add(tx.objectStore('messages').put(row));
+        add(
+          tx.objectStore('meta').put({
+            ...seq,
+            max: Math.max(seq.max, stored.seq),
+            min: Math.min(seq.min, stored.seq),
+          }),
+        );
+        IdbMessageRepository.applySide(tx.objectStore('sideIndex'), side).forEach(add);
+      });
       return { message: stored, created: true };
     });
   }
@@ -452,8 +925,12 @@ export class IdbMessageRepository implements MessageRepository {
       // The same id twice in one batch folds like two upserts in a row: the
       // second is merged into what the first stored.
       const latest = new Map<string, Message | undefined>();
+      const initial = new Map<string, Message | undefined>();
       keys.forEach((key, i) => {
-        if (!latest.has(key)) latest.set(key, existing[i]);
+        if (!latest.has(key)) {
+          latest.set(key, existing[i]);
+          initial.set(key, existing[i]);
+        }
       });
       const final = new Map<string, Message>();
       const freshCount = [...latest.values()].filter((e) => e === undefined).length;
@@ -477,13 +954,20 @@ export class IdbMessageRepository implements MessageRepository {
       }
       const rows = await Promise.all([...final.values()].map((m) => this.toRow(m)));
       const dropKeys = await this.mediaKeys(dropped);
-      const tx = this.db.transaction(['messages', 'meta', 'sentMedia'], 'readwrite');
-      await Promise.all([
-        ...rows.map((row) => tx.objectStore('messages').put(row)),
-        tx.objectStore('meta').put({ key: SEQ_KEY, min, max }),
-        ...dropKeys.map((key) => tx.objectStore('sentMedia').delete(key)),
-        tx.done,
-      ]);
+      const side = await this.sideWrites(
+        [...final].map(([key, after]) => ({ before: initial.get(key), after })),
+      );
+      const tx = this.db.transaction(['messages', 'meta', 'sentMedia', 'sideIndex'], 'readwrite');
+      await this.commit(tx, (add) => {
+        rows.forEach((row) => {
+          add(tx.objectStore('messages').put(row));
+        });
+        add(tx.objectStore('meta').put({ key: SEQ_KEY, min, max }));
+        dropKeys.forEach((key) => {
+          add(tx.objectStore('sentMedia').delete(key));
+        });
+        IdbMessageRepository.applySide(tx.objectStore('sideIndex'), side).forEach(add);
+      });
       return out;
     });
   }
@@ -496,7 +980,9 @@ export class IdbMessageRepository implements MessageRepository {
       // Updates never move a message in the timeline.
       const next: Message =
         before.seq === undefined ? fn(before) : { ...fn(before), seq: before.seq };
-      await this.writeDropping([await this.toRow(next)], droppedOriginals(before, next));
+      await this.writeDropping([await this.toRow(next)], droppedOriginals(before, next), [
+        { before, after: next },
+      ]);
       return next;
     });
   }
@@ -506,12 +992,15 @@ export class IdbMessageRepository implements MessageRepository {
       const key = await this.cipher.blindId(id);
       const before = await this.tryFromRow(await this.db.get('messages', key));
       const dropKeys = await this.mediaKeys(droppedOriginals(before, undefined));
-      const tx = this.db.transaction(['messages', 'sentMedia'], 'readwrite');
-      await Promise.all([
-        tx.objectStore('messages').delete(key),
-        ...dropKeys.map((k) => tx.objectStore('sentMedia').delete(k)),
-        tx.done,
-      ]);
+      const side = await this.sideWrites([{ before }]);
+      const tx = this.db.transaction(['messages', 'sentMedia', 'sideIndex'], 'readwrite');
+      await this.commit(tx, (add) => {
+        add(tx.objectStore('messages').delete(key));
+        dropKeys.forEach((k) => {
+          add(tx.objectStore('sentMedia').delete(k));
+        });
+        IdbMessageRepository.applySide(tx.objectStore('sideIndex'), side).forEach(add);
+      });
     });
   }
 
@@ -526,14 +1015,20 @@ export class IdbMessageRepository implements MessageRepository {
   private async writeDropping(
     rows: readonly MessageRow[],
     droppedAttachmentIds: readonly string[],
+    changes: readonly SideChange[],
   ): Promise<void> {
     const dropKeys = await this.mediaKeys(droppedAttachmentIds);
-    const tx = this.db.transaction(['messages', 'sentMedia'], 'readwrite');
-    await Promise.all([
-      ...rows.map((row) => tx.objectStore('messages').put(row)),
-      ...dropKeys.map((key) => tx.objectStore('sentMedia').delete(key)),
-      tx.done,
-    ]);
+    const side = await this.sideWrites(changes);
+    const tx = this.db.transaction(['messages', 'sentMedia', 'sideIndex'], 'readwrite');
+    await this.commit(tx, (add) => {
+      rows.forEach((row) => {
+        add(tx.objectStore('messages').put(row));
+      });
+      dropKeys.forEach((key) => {
+        add(tx.objectStore('sentMedia').delete(key));
+      });
+      IdbMessageRepository.applySide(tx.objectStore('sideIndex'), side).forEach(add);
+    });
   }
 
   async readSentMedia(id: string, type: string): Promise<Blob | undefined> {
@@ -583,7 +1078,7 @@ export class IdbMessageRepository implements MessageRepository {
         const size = await this.originalsSize(ids);
         // The copies and the flags go in one transaction: no flag outlives its copy.
         const next = withoutOriginals(message, () => true);
-        await this.writeDropping([await this.toRow(next)], ids);
+        await this.writeDropping([await this.toRow(next)], ids, [{ before: message, after: next }]);
         dropped.photos += size.photos;
         dropped.bytes += size.bytes;
         dropped.attachmentIds.push(...ids);
@@ -776,17 +1271,50 @@ export class IdbMessageRepository implements MessageRepository {
   ): Promise<Message[]> {
     if (limit <= 0) return [];
     signal?.throwIfAborted();
+    const label = mediaLabel(kind, conversationId);
+    const listed = await this.loadSide(label);
+    if (listed) {
+      signal?.throwIfAborted();
+      return this.readEntries(label, listed, { order: 'newest', before, limit });
+    }
+    // Not built yet: the walk is the old one (newest first, outside the write
+    // queue, stopping at `limit`). Only a walk that reached the very start of
+    // the history has seen every item, and then it stores the list.
+    const build = this.openBuild(label);
+    let walked: { found: Message[]; everything: SideEntry[] | undefined };
+    try {
+      walked = await this.walkMedia(conversationId, kind, before, limit, signal);
+    } catch (error) {
+      this.dropBuild(label, build);
+      throw error;
+    }
+    if (walked.everything) await this.finishBuild(label, build, walked.everything);
+    else this.dropBuild(label, build);
+    return walked.found;
+  }
+
+  private async walkMedia(
+    conversationId: ConversationId,
+    kind: GalleryKind,
+    before: number | undefined,
+    limit: number,
+    signal: AbortSignal | undefined,
+  ): Promise<{ found: Message[]; everything: SideEntry[] | undefined }> {
     const key = await this.cipher.blindId(conversationId);
     const found: Message[] = [];
-    // The same sliced newest-first walk as `search`, since what an attachment
-    // is only shows once its row is decrypted. `before` is exclusive; the
-    // slice reader's bound is inclusive, so the row at `before` itself is
-    // skipped by id when it comes back.
+    const everything: SideEntry[] = [];
+    let reachedStart = false;
+    // The sliced newest-first walk, since what an attachment is only shows once
+    // its row is decrypted. `before` is exclusive; the slice reader's bound is
+    // inclusive, so the row at `before` itself is skipped by id when it comes back.
     let upper = before ?? Infinity;
     let tail = new Set<string>();
     for (;;) {
       const slice = await this.readSearchSlice(key, upper, tail);
-      if (slice.length === 0) break;
+      if (slice.length === 0) {
+        reachedStart = true;
+        break;
+      }
       const last = slice[slice.length - 1] as MessageRow;
       tail = new Set([
         ...(last.seq === upper ? tail : []),
@@ -795,18 +1323,20 @@ export class IdbMessageRepository implements MessageRepository {
       upper = last.seq;
       signal?.throwIfAborted();
       for (const message of await this.fromRows(slice)) {
-        if (
-          found.length < limit &&
-          (before === undefined || (message.seq ?? 0) < before) &&
-          hasGalleryItems(message, kind)
-        )
+        if (!hasGalleryItems(message, kind)) continue;
+        everything.push({ id: message.id, seq: message.seq ?? 0 });
+        if (found.length < limit && (before === undefined || (message.seq ?? 0) < before))
           found.push(message);
       }
-      if (found.length >= limit || slice.length < SEARCH_SLICE) break;
+      if (slice.length < SEARCH_SLICE) {
+        reachedStart = true;
+        break;
+      }
+      if (found.length >= limit) break;
       await yieldToEventLoop();
       signal?.throwIfAborted();
     }
-    return found;
+    return { found, everything: reachedStart && before === undefined ? everything : undefined };
   }
 
   /** The next SEARCH_SLICE rows at or below `upper`, newest first, minus `skip`. */
@@ -844,19 +1374,11 @@ export class IdbMessageRepository implements MessageRepository {
   }
 
   async pinned(conversationId: ConversationId, limit: number): Promise<Message[]> {
-    // Pins are rare and there's no index for them: one reverse scan of the conversation.
+    // Pins are rare: an encrypted side index lists them (built by one scan of
+    // the conversation the first time).
     const key = await this.cipher.blindId(conversationId);
-    const rows: MessageRow[] = [];
-    let cursor = await this.db
-      .transaction('messages')
-      .store.index('byConversationSeq')
-      .openCursor(this.range(key, -Infinity, Infinity, false, false), 'prev');
-    while (cursor) {
-      rows.push(cursor.value);
-      cursor = await cursor.continue();
-    }
-    const messages = await this.fromRows(rows);
-    return messages.filter((m) => m.pinned === true && !m.deleted).slice(0, limit);
+    const label = pinnedLabel(conversationId);
+    return this.readSide(label, () => this.scanSide(key, label), { order: 'newest', limit });
   }
 
   async expired(now: number, limit: number): Promise<Message[]> {
@@ -918,12 +1440,20 @@ export class IdbMessageRepository implements MessageRepository {
         this.toRow(pending),
         this.toOutboxRow(entry),
       ]);
-      const tx = this.db.transaction(['messages', 'outbox', 'outboxAttachments'], 'readwrite');
-      await tx.objectStore('messages').put(messageRow);
-      await tx.objectStore('outbox').put(outboxRow);
-      const attachments = tx.objectStore('outboxAttachments');
-      for (const row of attachmentRows) await attachments.put(row);
-      await tx.done;
+      const before = await this.tryFromRow(await this.db.get('messages', messageRow.id));
+      const side = await this.sideWrites([{ before, after: pending }]);
+      const tx = this.db.transaction(
+        ['messages', 'outbox', 'outboxAttachments', 'sideIndex'],
+        'readwrite',
+      );
+      await this.commit(tx, (add) => {
+        add(tx.objectStore('messages').put(messageRow));
+        add(tx.objectStore('outbox').put(outboxRow));
+        attachmentRows.forEach((row) => {
+          add(tx.objectStore('outboxAttachments').put(row));
+        });
+        IdbMessageRepository.applySide(tx.objectStore('sideIndex'), side).forEach(add);
+      });
     });
   }
 
@@ -953,8 +1483,14 @@ export class IdbMessageRepository implements MessageRepository {
       const keep = stored.deleted === true ? [] : media;
       if (stored.deleted === true) stored = withoutOriginals(stored, () => true);
       const finalRow = await this.toRow(stored);
+      const pending = await this.tryFromRow(await this.db.get('messages', pendingId));
+      const side = await this.sideWrites([
+        { before: pending },
+        { before: existing, after: stored },
+      ]);
+      const committed = stored;
       const tx = this.db.transaction(
-        ['messages', 'meta', 'outbox', 'outboxAttachments'],
+        ['messages', 'meta', 'outbox', 'outboxAttachments', 'sideIndex'],
         'readwrite',
       );
       const messages = tx.objectStore('messages');
@@ -975,13 +1511,18 @@ export class IdbMessageRepository implements MessageRepository {
           min: Math.min(seq.min, stored.seq as number),
         });
       }
+      await Promise.all(IdbMessageRepository.applySide(tx.objectStore('sideIndex'), side));
       await tx.done;
       // The originals come after, one at a time and outside that transaction: a full disk
       // or a refused write must never undo recording a message that was already sent.
       const failed = await this.keepMedia(finalRow.conversationKey, keep);
       if (failed.size > 0) {
         stored = withoutOriginals(stored, (id) => failed.has(id));
-        await this.db.put('messages', await this.toRow(stored));
+        await this.writeDropping(
+          [await this.toRow(stored)],
+          [],
+          [{ before: committed, after: stored }],
+        );
       }
       return { message: stored, created };
     });
@@ -1012,8 +1553,14 @@ export class IdbMessageRepository implements MessageRepository {
   discardOutgoing(nonce: string): Promise<void> {
     return this.mutate(async () => {
       const pendingId = await this.cipher.blindId(pendingMessageId(nonce));
-      const tx = this.db.transaction(['messages', 'outbox', 'outboxAttachments'], 'readwrite');
+      const pending = await this.tryFromRow(await this.db.get('messages', pendingId));
+      const side = await this.sideWrites([{ before: pending }]);
+      const tx = this.db.transaction(
+        ['messages', 'outbox', 'outboxAttachments', 'sideIndex'],
+        'readwrite',
+      );
       const outboxRow = await tx.objectStore('outbox').get(nonce);
+      await Promise.all(IdbMessageRepository.applySide(tx.objectStore('sideIndex'), side));
       await tx.objectStore('messages').delete(pendingId);
       await tx.objectStore('outbox').delete(nonce);
       const attachments = tx.objectStore('outboxAttachments');
@@ -1169,10 +1716,33 @@ export class IdbMessageRepository implements MessageRepository {
           }),
         )
       ).filter((row): row is OutboxRow => row !== undefined);
+      // Its pins and gallery lists go with it; the other conversations' imported
+      // timers listed in the shared index are the ones whose rows are in it.
+      this.recentReset = true;
+      const own = [
+        pinnedLabel(conversationId),
+        ...GALLERY_KINDS.map((k) => mediaLabel(k, conversationId)),
+      ];
+      const side: SidePlan = { put: [], remove: await this.sideKeys(own) };
+      try {
+        const timers = await this.loadSide(SIDE_PENDING);
+        if (timers) {
+          const keep: SideEntry[] = [];
+          for (const entry of timers) {
+            const row = await this.db.get('messages', await this.cipher.blindId(entry.id));
+            if (row && row.conversationKey !== key) keep.push(entry);
+          }
+          if (keep.length !== timers.length) side.put.push(await this.sealSide(SIDE_PENDING, keep));
+        }
+      } catch {
+        log.warn('side index update failed; its lists will be rebuilt');
+        side.remove.push(...(await this.sideKeys([SIDE_PENDING])));
+      }
       const tx = this.db.transaction(
-        ['messages', 'readCursors', 'sentMedia', 'outbox', 'outboxAttachments'],
+        ['messages', 'readCursors', 'sentMedia', 'outbox', 'outboxAttachments', 'sideIndex'],
         'readwrite',
       );
+      await Promise.all(IdbMessageRepository.applySide(tx.objectStore('sideIndex'), side));
       for (const row of queued) {
         await tx.objectStore('outbox').delete(row.nonce);
         for (let i = 0; i < (row.attachmentCount ?? 0); i++) {
@@ -1197,11 +1767,21 @@ export class IdbMessageRepository implements MessageRepository {
 
   clear(): Promise<void> {
     return this.mutate(async () => {
+      this.recentReset = true;
       const tx = this.db.transaction(
-        ['messages', 'readCursors', 'meta', 'outbox', 'outboxAttachments', 'sentMedia'],
+        [
+          'messages',
+          'readCursors',
+          'meta',
+          'outbox',
+          'outboxAttachments',
+          'sentMedia',
+          'sideIndex',
+        ],
         'readwrite',
       );
       await Promise.all([
+        tx.objectStore('sideIndex').clear(),
         tx.objectStore('sentMedia').clear(),
         tx.objectStore('messages').clear(),
         tx.objectStore('readCursors').clear(),
