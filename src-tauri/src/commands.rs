@@ -36,7 +36,8 @@ const MAX_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 /// actually called from src/core/backend/signal-cli or src/platform/tauri,
 /// and everything else — known-dangerous or simply unrecognised — is
 /// rejected before it reaches signal-cli. Keep this in sync with those call
-/// sites; if the UI needs a new method, add it here deliberately.
+/// sites; if the UI needs a new method, add it here deliberately. A test
+/// checks both ways: every call is listed, and every entry is still called.
 const ALLOWED_METHODS: &[&str] = &[
     // Sending messages and conversation actions (SignalCliBackend.ts).
     "send",
@@ -703,7 +704,10 @@ pub fn is_external_url(url: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{bound_frontend_message, is_allowed_method, is_external_url, valid_log_scope, MAX_FRONTEND_LOG_CHARS};
+    use super::{
+        bound_frontend_message, is_allowed_method, is_external_url, valid_log_scope, ALLOWED_METHODS,
+        MAX_FRONTEND_LOG_CHARS,
+    };
 
     #[test]
     fn opens_only_web_and_mail_links() {
@@ -725,7 +729,9 @@ mod tests {
 
     /// Every `.call('method', …)` in the signal-cli backend's non-test sources
     /// must be on the allow-list, or that feature fails in the desktop app
-    /// only (the browser mock and the unit tests never go through here).
+    /// only (the browser mock and the unit tests never go through here). And
+    /// every entry must still be called, so the list never keeps a permission
+    /// the UI stopped using.
     #[test]
     fn allows_every_method_the_ui_actually_calls() {
         fn visit(dir: &std::path::Path, out: &mut Vec<(String, String)>) {
@@ -736,14 +742,17 @@ mod tests {
                     visit(&path, out);
                 } else if name.ends_with(".ts") && !name.contains(".test.") {
                     let text = std::fs::read_to_string(&path).expect("readable source");
-                    // `rpc.call('method', …)` and the backend's own `command('method', …)` helper.
+                    // `rpc.call('method', …)` and the backend's own `command('method', …)` helper,
+                    // including a choice in the first argument (`blocked ? 'block' : 'unblock'`):
+                    // every quoted name before the first comma counts.
                     for opener in [".call(", ".command("] {
                         for (i, _) in text.match_indices(opener) {
-                            let rest = text[i + opener.len()..].trim_start();
-                            if let Some(quoted) = rest.strip_prefix('\'') {
-                                let method: String = quoted.chars().take_while(char::is_ascii_alphanumeric).collect();
-                                if !method.is_empty() && quoted[method.len()..].starts_with('\'') {
-                                    out.push((method, path.display().to_string()));
+                            let rest = &text[i + opener.len()..];
+                            let first_arg = rest.split([',', ')']).next().unwrap_or_default();
+                            for (j, piece) in first_arg.split('\'').enumerate() {
+                                // Odd pieces sit between a pair of quotes.
+                                if j % 2 == 1 && !piece.is_empty() && piece.chars().all(|c| c.is_ascii_alphanumeric()) {
+                                    out.push((piece.to_owned(), path.display().to_string()));
                                 }
                             }
                         }
@@ -755,8 +764,16 @@ mod tests {
         let mut calls = Vec::new();
         visit(&src, &mut calls);
         assert!(calls.iter().any(|(m, _)| m == "getAttachment"), "the scan found no calls; did the layout change?");
-        for (method, file) in calls {
-            assert!(is_allowed_method(&method), "{file} calls {method}, which ALLOWED_METHODS rejects");
+        for (method, file) in &calls {
+            assert!(is_allowed_method(method), "{file} calls {method}, which ALLOWED_METHODS rejects");
+        }
+        // And the other way: an entry nothing calls any more is a permission the
+        // UI no longer needs, so it comes off the list.
+        for allowed in ALLOWED_METHODS {
+            assert!(
+                calls.iter().any(|(m, _)| m == allowed),
+                "ALLOWED_METHODS has {allowed}, but nothing in src/core/backend/signal-cli calls it"
+            );
         }
     }
 
