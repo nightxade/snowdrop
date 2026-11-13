@@ -14,9 +14,9 @@ describe('BottomPin (stick / followOutput rules)', () => {
     expect(pin.shouldRepin()).toBe(false);
   });
 
-  it('being scrolled up 120px survives a new message and a row resize', () => {
+  it('being scrolled up past the slack survives a new message and a row resize', () => {
     const pin = new BottomPin(true);
-    pin.onScroll(120);
+    pin.onScroll(PIN_SLACK_PX + 1);
     // A new message arrives / an image above finishes loading:
     expect(pin.shouldRepin()).toBe(false);
     expect(pin.isStuck).toBe(false);
@@ -28,6 +28,15 @@ describe('BottomPin (stick / followOutput rules)', () => {
     const pin = new BottomPin(true);
     pin.onScroll(PIN_SLACK_PX - 30);
     expect(pin.shouldRepin()).toBe(true);
+  });
+
+  it('the slack boundary: at it the new message is followed, one px beyond it is not', () => {
+    const at = new BottomPin(true);
+    at.onScroll(PIN_SLACK_PX);
+    expect(at.shouldRepin()).toBe(true);
+    const beyond = new BottomPin(true);
+    beyond.onScroll(PIN_SLACK_PX + 1);
+    expect(beyond.shouldRepin()).toBe(false);
   });
 
   it('re-pins when the composer grows only if it was holding the bottom', () => {

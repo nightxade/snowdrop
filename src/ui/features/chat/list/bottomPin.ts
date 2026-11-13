@@ -10,7 +10,12 @@
  *
  * Kept free of React and the virtualiser so the rules are unit-testable.
  */
-export const PIN_SLACK_PX = 64;
+/**
+ * How far from the bottom still counts as "at the bottom" (about one short message): a reader this
+ * close is followed to a new message, one further up is never moved. Also the list's at-bottom
+ * threshold, so "stuck", "follows a new message" and the jump pill agree on the same distance.
+ */
+export const PIN_SLACK_PX = 120;
 
 export class BottomPin {
   private stuck: boolean;

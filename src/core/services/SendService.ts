@@ -74,7 +74,7 @@ import {
 } from '@/core/lib';
 import type { MessageRepository, OutboxEntry, SentMedia } from '@/core/persistence';
 import { effectivePrivacy, selectMessageRequestState, type Stores } from '@/core/stores';
-import { refreshPreviewAfterRemoval } from './sidebarPreview';
+import { refreshPreviewAfterRemoval, settlePreviewAfterSend } from './sidebarPreview';
 import {
   finalPreview,
   keepOriginals,
@@ -725,6 +725,9 @@ export class SendService {
     const shown = out.queue.reduce((m, op) => op.apply(m), stored);
     stores.messages.getState().reconcile(out.conversationId, nonce, shown);
     stores.conversations.getState().noteLatest(shown);
+    await settlePreviewAfterSend(stores.conversations, repository, shown).catch(
+      ignored('the preview stays as it is'),
+    );
     if (stored.expiresAt !== undefined) this.deps.onExpiry?.(stored.expiresAt);
     // Replying means you've seen everything before it. That is a read like
     // any other, so it goes through the read path (which tells the senders
@@ -894,6 +897,9 @@ export class SendService {
     const shown = out.queue.reduce((m, op) => op.apply(m), settled);
     stores.messages.getState().reconcile(out.conversationId, nonce, shown);
     stores.conversations.getState().noteLatest(shown);
+    await settlePreviewAfterSend(stores.conversations, repository, shown).catch(
+      ignored('the preview stays as it is'),
+    );
     if (final.expiresAt !== undefined) this.deps.onExpiry?.(final.expiresAt);
     // Queued edits and deletes go out against the real id now.
     for (const op of out.queue) await this.commitQueued(out.conversationId, settled, op);

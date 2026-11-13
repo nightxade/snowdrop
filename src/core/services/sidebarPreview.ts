@@ -19,3 +19,21 @@ export async function refreshPreviewAfterRemoval(
   const next = await latestPreviewMessage(repository, conversationId);
   conversations.getState().replaceLatest(conversationId, removed.id, next);
 }
+
+/**
+ * A send just settled under its real seq, which can differ from the one a
+ * sync echo of it was stored under (the echo may have taken a later seq
+ * than a reply that arrived meanwhile). If the message now previewed is
+ * that one but the stored newest is another, the newest takes over; a
+ * preview that has already moved on is untouched.
+ */
+export async function settlePreviewAfterSend(
+  conversations: ConversationsStore,
+  repository: Pick<MessageRepository, 'latest' | 'page'>,
+  sent: Pick<Message, 'id' | 'conversationId'>,
+): Promise<void> {
+  if (conversations.getState().lastMessage[sent.conversationId]?.id !== sent.id) return;
+  const newest = await latestPreviewMessage(repository, sent.conversationId);
+  if (newest && newest.id !== sent.id)
+    conversations.getState().replaceLatest(sent.conversationId, sent.id, newest);
+}

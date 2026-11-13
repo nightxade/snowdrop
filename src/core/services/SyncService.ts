@@ -24,6 +24,7 @@ import {
   applyReaction,
   applyRecipientReceipt,
   mergeDuplicate,
+  isPendingMessageId,
   messageId,
   pinnedText,
   pollEndedText,
@@ -1113,7 +1114,11 @@ export class SyncService {
         stores.conversations.getState().bumpActivity(id, message.sentAt);
         this.directory.noteReal(id);
       }
-      stores.conversations.getState().noteLatest(message);
+      // Our own message echoed back while one of our sends in this chat is still unsettled: the
+      // echo is stored under a fresh, later seq than the one the send reserved, so it would read as
+      // newer than a reply that arrived meanwhile. The send notes it itself once it has settled.
+      if (!(created && message.authorId === this.selfId() && hasPendingRow(stores, id)))
+        stores.conversations.getState().noteLatest(message);
       stores.typing.getState().setTyping(id, message.authorId, false, this.deps.clock.now());
       if (message.kind === 'normal' && !stores.conversations.getState().byId[id])
         this.directory.ensureConversation(message);
@@ -1511,4 +1516,15 @@ function hasOthersActivity(message: Message, selfId: string): boolean {
     message.reactions.some((r) => r.authorId !== selfId) ||
     (message.poll?.votes.some((v) => v.voterId !== selfId && v.optionIndexes.length > 0) ?? false)
   );
+}
+
+/**
+ * Whether the conversation's open window shows a send of ours still in flight. A failed row
+ * doesn't count: it never settles by itself, and messages sent from the phone meanwhile must
+ * still move the preview.
+ */
+function hasPendingRow(stores: Stores, conversationId: ConversationId): boolean {
+  const window = stores.messages.getState().windows[conversationId];
+  if (!window) return false;
+  return window.ids.some((id) => isPendingMessageId(id) && window.byId[id]?.status === 'pending');
 }

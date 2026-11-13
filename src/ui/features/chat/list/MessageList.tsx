@@ -12,12 +12,12 @@ import {
 import { Virtuoso, type Components, type VirtuosoHandle } from 'react-virtuoso';
 import { useStore } from 'zustand';
 import type { ConversationId, MessageId, RenderItem } from '@/core/domain';
-import { conversationsSelectors } from '@/core/stores';
+import { conversationsSelectors, sessionSelectors } from '@/core/stores';
 import { setConversationListFocusResolver, useShellStyle, useSnowdrop } from '@/ui/hooks';
 import { useChatController } from '../ChatController';
 import { MessageItem } from '../message/MessageItem';
 import { useRenderProbe } from '../lib/useRenderProbe';
-import { BottomPin } from './bottomPin';
+import { BottomPin, PIN_SLACK_PX } from './bottomPin';
 import { ConversationIntro } from './ConversationIntro';
 import { DayDivider } from './DayDivider';
 import { HistorySkeleton } from './HistorySkeleton';
@@ -32,6 +32,7 @@ import { useListItems } from './useListItems';
 import { useJumpTarget } from './useJumpTarget';
 import { useListNavigation } from './useListNavigation';
 import { useReadTracking } from './useReadTracking';
+import { useArrivalsBelow } from './useArrivalsBelow';
 import { useFollowOwnSend } from './useFollowOwnSend';
 import { useScrollerBinding } from './useScrollerBinding';
 import { useUnreadDivider } from './useUnreadDivider';
@@ -168,6 +169,17 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
   });
 
   useFollowOwnSend({ items, epoch, anchoredToPresent, pin, scrollTopNow, scrollToBottom });
+  // Someone else's message never moves a reader who has scrolled up; the pill says it is there.
+  const selfId = useStore(stores.session, sessionSelectors.selfId);
+  const readerAtBottom = useCallback(() => pin.isStuck, [pin]);
+  const { below: newBelow, clear: clearNewBelow } = useArrivalsBelow({
+    items,
+    epoch,
+    anchoredToPresent,
+    selfId: selfId ?? undefined,
+    readerAtBottom,
+    atBottom,
+  });
 
   const atPresent = loaded && anchoredToPresent && atBottom;
   useReadTracking(conversationId, atPresent);
@@ -201,9 +213,10 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
   const jumpToPresent = useCallback(async () => {
     const w = stores.messages.getState().windows[conversationId];
     if (w && !w.anchoredToPresent) await history.jumpToPresent(conversationId);
+    clearNewBelow();
     pin.beginFollow(scrollTopNow());
     requestAnimationFrame(scrollToBottom);
-  }, [stores, history, conversationId, scrollToBottom, pin, scrollTopNow]);
+  }, [stores, history, conversationId, scrollToBottom, pin, scrollTopNow, clearNewBelow]);
 
   const reveal = useCallback(
     async (id: MessageId, options?: { flash?: boolean; focus?: boolean }) => {
@@ -335,7 +348,7 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
           initialTopMostItemIndex={initialIndex}
           computeItemKey={(_, item) => item.key}
           alignToBottom
-          atBottomThreshold={48}
+          atBottomThreshold={PIN_SLACK_PX}
           increaseViewportBy={{ top: 800, bottom: 400 }}
           defaultItemHeight={compact ? ROW_HEIGHT.compact : ROW_HEIGHT.comfortable}
           skipAnimationFrameInResizeObserver
@@ -374,7 +387,7 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
           itemContent={(_, item, ctx) => <Row item={item} context={ctx} />}
         />
         <JumpToPresent
-          visible={loaded && (!anchoredToPresent || farFromBottom)}
+          visible={loaded && (!anchoredToPresent || farFromBottom || newBelow)}
           count={atPresent ? 0 : unread.count}
           onJump={() => {
             void jumpToPresent();
