@@ -998,8 +998,7 @@ showing had been answered elsewhere.
     `SPAM`, `BLOCK_AND_SPAM` or `UNKNOWN`.
   - `threadAci` and `threadE164` are present when the stored recipient has them; `groupId` is base64, like
     every other group id in the JSON.
-- Nothing else changes. signal-cli does not act on this message itself (the `blocked` list sync is what
-  updates its block state), and it still does not.
+- Nothing else changes here; 0026 makes signal-cli act on the message.
 - No `Manager`, storage or `DATABASE_VERSION` change.
 
 Verification: `JsonSyncMessageRequestResponseTest` (the exact JSON for a person with and without a number, a
@@ -1085,6 +1084,23 @@ response line from `GetAttachmentCommand` and the error path), `TempFileInputStr
 created 0700 and swept, files are staged in it), and in `JsonStreamedAttachmentDataTest` a stream that fails
 mid-way leaves a terminated line and the next message intact, and an unreadable stream is refused up front.
 First shipped as build `0.14.8-snowdrop-history.25`.
+
+## 0026: apply synced message-request answers
+
+Upstream signal-cli ignores `SyncMessage.messageRequestResponse`; only the `blocked` list sync updates its
+block state, and that only ever blocks. So after the user unblocked or accepted someone on their phone,
+this device kept dropping that person's messages (`IncomingMessageHandler` skips blocked senders), and a
+block given on the phone took effect here only if the phone also sent a blocked-list sync.
+
+`IncomingMessageHandler` now applies the answer to the local stores, as Signal's own clients do:
+
+- `BLOCK`, `BLOCK_AND_DELETE` and `BLOCK_AND_SPAM` block the contact or group.
+- `ACCEPT` and `UNBLOCK_AND_ACCEPT` unblock it if it was blocked; for a person they also turn on profile
+  sharing.
+- `DELETE`, `SPAM` and `UNKNOWN` change nothing here (deleting a chat is the client's business).
+
+Nothing is sent: the phone has already done its part. No `DATABASE_VERSION` change. Not verified against a
+real phone. First shipped as build `0.14.8-snowdrop-history.25`.
 
 ## The native build
 

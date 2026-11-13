@@ -1,0 +1,66 @@
+diff --git a/lib/src/main/java/org/asamk/signal/manager/helper/IncomingMessageHandler.java b/lib/src/main/java/org/asamk/signal/manager/helper/IncomingMessageHandler.java
+index b21b557..5b1e428 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/helper/IncomingMessageHandler.java
++++ b/lib/src/main/java/org/asamk/signal/manager/helper/IncomingMessageHandler.java
+@@ -65,6 +65,7 @@ import org.whispersystems.signalservice.api.messages.SignalServicePniSignatureMe
+ import org.whispersystems.signalservice.api.messages.SignalServiceReceiptMessage;
+ import org.whispersystems.signalservice.api.messages.SignalServiceStoryMessage;
+ import org.whispersystems.signalservice.api.messages.calls.SignalServiceCallMessage;
++import org.whispersystems.signalservice.api.messages.multidevice.MessageRequestResponseMessage;
+ import org.whispersystems.signalservice.api.messages.multidevice.SignalServiceSyncMessage;
+ import org.whispersystems.signalservice.api.messages.multidevice.StickerPackOperationMessage;
+ import org.whispersystems.signalservice.api.push.ServiceIdType;
+@@ -670,6 +671,12 @@ public final class IncomingMessageHandler {
+                 }
+             }
+         }
++        if (syncMessage.getMessageRequestResponse().isPresent()) {
++            // Snowdrop: a message request answered on the phone. Apply its block or unblock (and, for an
++            // accept, profile sharing) to the local stores the way Signal's own clients do, so this device
++            // stops or resumes dropping that sender's messages. Nothing is sent: the phone already did.
++            applyMessageRequestResponse(syncMessage.getMessageRequestResponse().get());
++        }
+         if (syncMessage.getContacts().isPresent()) {
+             try {
+                 final var contactsMessage = syncMessage.getContacts().get();
+@@ -1191,4 +1198,40 @@ public final class IncomingMessageHandler {
+     }
+ 
+     private record DeviceAddress(RecipientId recipientId, ServiceId serviceId, int deviceId) {}
++
++    private void applyMessageRequestResponse(final MessageRequestResponseMessage response) {
++        final var type = response.getType();
++        final var block = type == MessageRequestResponseMessage.Type.BLOCK
++                || type == MessageRequestResponseMessage.Type.BLOCK_AND_DELETE
++                || type == MessageRequestResponseMessage.Type.BLOCK_AND_SPAM;
++        final var accept = type == MessageRequestResponseMessage.Type.ACCEPT
++                || type == MessageRequestResponseMessage.Type.UNBLOCK_AND_ACCEPT;
++        if (!block && !accept) {
++            return;
++        }
++        if (response.getPerson().isPresent()) {
++            final var recipientId = account.getRecipientResolver().resolveRecipient(response.getPerson().get());
++            final var contact = account.getContactStore().getContact(recipientId);
++            if (block) {
++                context.getContactHelper().setContactBlocked(recipientId, true);
++                return;
++            }
++            if (contact != null && contact.isBlocked()) {
++                context.getContactHelper().setContactBlocked(recipientId, false);
++            }
++            context.getContactHelper().setContactProfileSharing(recipientId, true);
++        } else if (response.getGroupId().isPresent()) {
++            final var groupId = GroupId.unknownVersion(response.getGroupId().get());
++            try {
++                final var group = context.getGroupHelper().getGroup(groupId);
++                if (block) {
++                    context.getGroupHelper().setGroupBlocked(groupId, true);
++                } else if (group != null && group.isBlocked()) {
++                    context.getGroupHelper().setGroupBlocked(groupId, false);
++                }
++            } catch (GroupNotFoundException e) {
++                logger.debug("Message request response for a group that is not in the GroupStore");
++            }
++        }
++    }
+ }
