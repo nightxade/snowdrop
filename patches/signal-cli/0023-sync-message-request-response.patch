@@ -1,0 +1,154 @@
+diff --git a/src/main/java/org/asamk/signal/json/JsonSyncMessage.java b/src/main/java/org/asamk/signal/json/JsonSyncMessage.java
+index e4b1242..cd83a08 100644
+--- a/src/main/java/org/asamk/signal/json/JsonSyncMessage.java
++++ b/src/main/java/org/asamk/signal/json/JsonSyncMessage.java
+@@ -24,7 +24,8 @@ record JsonSyncMessage(
+         @JsonInclude(JsonInclude.Include.NON_NULL) List<String> blockedNumbers,
+         @JsonInclude(JsonInclude.Include.NON_NULL) List<String> blockedGroupIds,
+         @JsonInclude(JsonInclude.Include.NON_NULL) List<JsonSyncReadMessage> readMessages,
+-        @JsonInclude(JsonInclude.Include.NON_NULL) JsonSyncMessageType type
++        @JsonInclude(JsonInclude.Include.NON_NULL) JsonSyncMessageType type,
++        @JsonInclude(JsonInclude.Include.NON_NULL) JsonSyncMessageRequestResponse messageRequestResponse
+ ) {
+ 
+     static JsonSyncMessage from(MessageEnvelope.Sync syncMessage, Manager m) {
+@@ -62,6 +63,15 @@ record JsonSyncMessage(
+         } else {
+             type = null;
+         }
+-        return new JsonSyncMessage(sentMessage, sentStoryMessage, blockedNumbers, blockedGroupIds, readMessages, type);
++        final var messageRequestResponse = syncMessage.messageRequestResponse()
++                .map(JsonSyncMessageRequestResponse::from)
++                .orElse(null);
++        return new JsonSyncMessage(sentMessage,
++                sentStoryMessage,
++                blockedNumbers,
++                blockedGroupIds,
++                readMessages,
++                type,
++                messageRequestResponse);
+     }
+ }
+diff --git a/src/main/java/org/asamk/signal/json/JsonSyncMessageRequestResponse.java b/src/main/java/org/asamk/signal/json/JsonSyncMessageRequestResponse.java
+new file mode 100644
+index 0000000..fe3f4f4
+--- /dev/null
++++ b/src/main/java/org/asamk/signal/json/JsonSyncMessageRequestResponse.java
+@@ -0,0 +1,25 @@
++package org.asamk.signal.json;
++
++import com.fasterxml.jackson.annotation.JsonInclude;
++
++import org.asamk.signal.manager.api.GroupId;
++import org.asamk.signal.manager.api.MessageEnvelope;
++
++import io.micronaut.jsonschema.JsonSchema;
++
++@JsonSchema(title = "SyncMessageRequestResponse")
++record JsonSyncMessageRequestResponse(
++        String type,
++        @JsonInclude(JsonInclude.Include.NON_NULL) String threadAci,
++        @JsonInclude(JsonInclude.Include.NON_NULL) String threadE164,
++        @JsonInclude(JsonInclude.Include.NON_NULL) String groupId
++) {
++
++    static JsonSyncMessageRequestResponse from(MessageEnvelope.Sync.MessageRequestResponse response) {
++        final var person = response.person();
++        return new JsonSyncMessageRequestResponse(response.type().name(),
++                person.flatMap(a -> a.aci()).orElse(null),
++                person.flatMap(a -> a.number()).orElse(null),
++                response.groupId().map(GroupId::toBase64).orElse(null));
++    }
++}
+diff --git a/src/test/java/org/asamk/signal/json/JsonSyncMessageRequestResponseTest.java b/src/test/java/org/asamk/signal/json/JsonSyncMessageRequestResponseTest.java
+new file mode 100644
+index 0000000..1010cbe
+--- /dev/null
++++ b/src/test/java/org/asamk/signal/json/JsonSyncMessageRequestResponseTest.java
+@@ -0,0 +1,86 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.json;
++
++import com.fasterxml.jackson.databind.JsonNode;
++
++import org.asamk.signal.manager.api.GroupId;
++import org.asamk.signal.manager.api.MessageEnvelope;
++import org.asamk.signal.manager.api.MessageEnvelope.Sync.MessageRequestResponse;
++import org.asamk.signal.manager.api.RecipientAddress;
++import org.asamk.signal.util.Util;
++import org.junit.jupiter.api.Test;
++
++import java.util.List;
++import java.util.Optional;
++
++import static org.junit.jupiter.api.Assertions.assertEquals;
++import static org.junit.jupiter.api.Assertions.assertFalse;
++import static org.junit.jupiter.api.Assertions.assertTrue;
++
++class JsonSyncMessageRequestResponseTest {
++
++    private static final String ACI = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
++
++    private static JsonNode json(MessageRequestResponse response) throws Exception {
++        final var sync = new MessageEnvelope.Sync(Optional.empty(),
++                Optional.empty(),
++                List.of(),
++                List.of(),
++                Optional.empty(),
++                Optional.empty(),
++                Optional.empty(),
++                Optional.of(response));
++        final var mapper = Util.createJsonObjectMapper();
++        return mapper.readTree(mapper.writeValueAsString(JsonSyncMessage.from(sync, null)));
++    }
++
++    @Test
++    void individualWithAciAndNumber() throws Exception {
++        final var node = json(new MessageRequestResponse(MessageRequestResponse.Type.ACCEPT,
++                Optional.empty(),
++                Optional.of(new RecipientAddress(ACI, null, "+15551234567", null))));
++
++        assertEquals("{\"messageRequestResponse\":{\"type\":\"ACCEPT\",\"threadAci\":\"" + ACI
++                + "\",\"threadE164\":\"+15551234567\"}}", node.toString());
++    }
++
++    @Test
++    void individualWithAciOnly() throws Exception {
++        final var node = json(new MessageRequestResponse(MessageRequestResponse.Type.BLOCK_AND_DELETE,
++                Optional.empty(),
++                Optional.of(new RecipientAddress(ACI, null, null, null))));
++
++        final var response = node.get("messageRequestResponse");
++        assertEquals("BLOCK_AND_DELETE", response.get("type").asText());
++        assertEquals(ACI, response.get("threadAci").asText());
++        assertFalse(response.has("threadE164"));
++        assertFalse(response.has("groupId"));
++    }
++
++    @Test
++    void groupIdIsBase64() throws Exception {
++        final var groupId = GroupId.unknownVersion(new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16});
++        final var node = json(new MessageRequestResponse(MessageRequestResponse.Type.SPAM,
++                Optional.of(groupId),
++                Optional.empty()));
++
++        assertEquals("{\"messageRequestResponse\":{\"type\":\"SPAM\",\"groupId\":\"" + groupId.toBase64() + "\"}}",
++                node.toString());
++        assertEquals("AQIDBAUGBwgJCgsMDQ4PEA==", groupId.toBase64());
++    }
++
++    @Test
++    void absentWhenTheSyncHasNoResponse() throws Exception {
++        final var sync = new MessageEnvelope.Sync(Optional.empty(),
++                Optional.empty(),
++                List.of(),
++                List.of(),
++                Optional.empty(),
++                Optional.empty(),
++                Optional.empty(),
++                Optional.empty());
++        final var mapper = Util.createJsonObjectMapper();
++        final var node = mapper.readTree(mapper.writeValueAsString(JsonSyncMessage.from(sync, null)));
++        assertTrue(node.isEmpty());
++    }
++}

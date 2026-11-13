@@ -1,0 +1,944 @@
+diff --git a/lib/src/main/java/org/asamk/signal/manager/SignalAccountFiles.java b/lib/src/main/java/org/asamk/signal/manager/SignalAccountFiles.java
+index d5856d9..67e988b 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/SignalAccountFiles.java
++++ b/lib/src/main/java/org/asamk/signal/manager/SignalAccountFiles.java
+@@ -14,6 +14,7 @@ import org.asamk.signal.manager.internal.ProvisioningManagerImpl;
+ import org.asamk.signal.manager.internal.RegistrationManagerImpl;
+ import org.asamk.signal.manager.storage.SignalAccount;
+ import org.asamk.signal.manager.storage.accounts.AccountsStore;
++import org.asamk.signal.manager.util.IOUtils;
+ import org.asamk.signal.manager.util.KeyUtils;
+ import org.signal.core.models.ServiceId.ACI;
+ import org.slf4j.Logger;
+@@ -44,6 +45,8 @@ public class SignalAccountFiles {
+             final Settings settings
+     ) throws IOException {
+         this.pathConfig = PathConfig.createDefault(settingsPath);
++        // Decrypted attachment data is staged here, in the config directory, not in the system temp dir.
++        IOUtils.setPrivateTempDir(new File(settingsPath, "snowdrop-tmp"));
+         this.serviceEnvironment = serviceEnvironment;
+         this.serviceEnvironmentConfig = ServiceConfig.getServiceEnvironmentConfig(this.serviceEnvironment, userAgent);
+         this.userAgent = userAgent;
+diff --git a/lib/src/main/java/org/asamk/signal/manager/helper/AttachmentHelper.java b/lib/src/main/java/org/asamk/signal/manager/helper/AttachmentHelper.java
+index 39665b1..07a93c5 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/helper/AttachmentHelper.java
++++ b/lib/src/main/java/org/asamk/signal/manager/helper/AttachmentHelper.java
+@@ -107,23 +107,30 @@ public class AttachmentHelper {
+      *
+      * @throws FileNotFoundException if no backfilled pointer was ever stored for this id.
+      */
+-    public byte[] retrieveBackfilledHistoryAttachment(final String id) throws IOException {
++    public InputStream retrieveBackfilledHistoryAttachment(final String id) throws IOException {
+         final var pointer = attachmentPointerStore.get(id)
+                 .orElseThrow(() -> new FileNotFoundException("Could not find attachment with ID: " + id));
+-        final var output = new java.io.ByteArrayOutputStream();
++        // Into a temporary file that the returned stream deletes on close, not into memory: the
++        // download is complete and verified before anything is handed on.
++        final var file = IOUtils.createPrivateTempFile();
+         try {
+-            retrieveAttachment(pointer, output);
+-        } catch (NonSuccessfulResponseCodeException e) {
+-            if (e.code == 404 || e.code == 410) {
+-                throw new AttachmentNotAvailableException(id, e);
++            try (var output = new java.io.FileOutputStream(file)) {
++                retrieveAttachment(pointer, output);
++            } catch (NonSuccessfulResponseCodeException e) {
++                if (e.code == 404 || e.code == 410) {
++                    throw new AttachmentNotAvailableException(id, e);
++                }
++                throw e;
+             }
++        } catch (IOException | RuntimeException e) {
++            Files.deleteIfExists(file.toPath());
+             throw e;
+         }
+-        return output.toByteArray();
++        return new org.asamk.signal.manager.util.TempFileInputStream(file);
+     }
+ 
+-    public byte[] retrieveHistoryAttachment(org.thoughtcrime.securesms.backup.v2.proto.Backups.FilePointer file) throws IOException {
+-        return org.asamk.signal.manager.history.HistoryAttachment.download(file, (request, temporary) -> {
++    public InputStream retrieveHistoryAttachment(org.thoughtcrime.securesms.backup.v2.proto.Backups.FilePointer file) throws IOException {
++        return org.asamk.signal.manager.history.HistoryAttachment.downloadStream(file, (request, temporary) -> {
+             try {
+                 return dependencies.getMessageReceiver().retrieveAttachment(request.pointer(), temporary,
+                         ServiceConfig.MAX_ATTACHMENT_SIZE, request.integrity());
+diff --git a/lib/src/main/java/org/asamk/signal/manager/history/HistoryAttachment.java b/lib/src/main/java/org/asamk/signal/manager/history/HistoryAttachment.java
+index 31f984b..69c86d7 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/history/HistoryAttachment.java
++++ b/lib/src/main/java/org/asamk/signal/manager/history/HistoryAttachment.java
+@@ -45,22 +45,51 @@ public final class HistoryAttachment {
+         return new Request(pointer, integrity);
+     }
+ 
+-    public static byte[] download(Backups.FilePointer file, Downloader downloader) throws IOException {
++    /**
++     * Downloads and fully verifies the attachment (size and integrity hash), into a temporary file
++     * rather than memory, and returns a stream over the verified plaintext that deletes the file when
++     * closed. Nothing is returned for an attachment that fails either check.
++     */
++    public static java.io.InputStream downloadStream(Backups.FilePointer file, Downloader downloader) throws IOException {
+         var request = request(file);
++        long expected = request.pointer().getSize().orElseThrow();
+         var temporary = org.asamk.signal.manager.util.IOUtils.createTempFile();
++        var verified = org.asamk.signal.manager.util.IOUtils.createPrivateTempFile();
++        boolean handedOver = false;
+         try {
+-            try (var input = downloader.open(request, temporary)) {
+-                var bytes = input.readNBytes(MAX_BYTES + 1);
+-                if (bytes.length != request.pointer().getSize().orElseThrow()) {
++            try (var input = downloader.open(request, temporary);
++                 var output = new java.io.FileOutputStream(verified)) {
++                var buffer = new byte[64 * 1024];
++                long total = 0;
++                int read;
++                while ((read = input.read(buffer)) != -1) {
++                    total += read;
++                    if (total > expected) {
++                        break;
++                    }
++                    output.write(buffer, 0, read);
++                }
++                if (total != expected) {
+                     throw new IOException("History attachment size does not match its metadata");
+                 }
+-                return bytes;
++            } catch (org.signal.libsignal.protocol.InvalidMessageException e) {
++                // Kotlin's digest stream can throw this while reading, not only while opening.
++                throw new IOException("Could not verify history attachment", e);
+             }
+-        } catch (org.signal.libsignal.protocol.InvalidMessageException e) {
+-            // Kotlin's digest stream can throw this while reading, not only while opening.
+-            throw new IOException("Could not verify history attachment", e);
++            var stream = new org.asamk.signal.manager.util.TempFileInputStream(verified);
++            handedOver = true;
++            return stream;
+         } finally {
+             java.nio.file.Files.deleteIfExists(temporary.toPath());
++            if (!handedOver) {
++                java.nio.file.Files.deleteIfExists(verified.toPath());
++            }
++        }
++    }
++
++    public static byte[] download(Backups.FilePointer file, Downloader downloader) throws IOException {
++        try (var input = downloadStream(file, downloader)) {
++            return input.readAllBytes();
+         }
+     }
+ }
+diff --git a/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java b/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
+index 13fd81c..76a1cd2 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
++++ b/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
+@@ -2104,18 +2104,26 @@ public class ManagerImpl implements Manager {
+             try {
+                 var store = getHistoryStore();
+                 var pointer = store.attachment(id, System.currentTimeMillis());
+-                var bytes = context.getAttachmentHelper().retrieveHistoryAttachment(pointer);
++                var stream = context.getAttachmentHelper().retrieveHistoryAttachment(pointer);
+                 // A download may outlast the message's timer or an archive replacement.
+-                store.attachment(id, System.currentTimeMillis());
+-                return new java.io.ByteArrayInputStream(bytes);
++                try {
++                    store.attachment(id, System.currentTimeMillis());
++                } catch (IOException | RuntimeException e) {
++                    try {
++                        stream.close();
++                    } catch (IOException closeError) {
++                        e.addSuppressed(closeError);
++                    }
++                    throw e;
++                }
++                return stream;
+             } catch (IOException historyError) {
+                 // The archived transit pointer is expired/absent: a backfilled pointer (requested
+                 // via requestAttachmentBackfill, patch 0014) is the only other way back to it.
+                 // Only fall back when one actually exists — otherwise the original error, which
+                 // names the real cause, is more useful than a generic "not found".
+                 try {
+-                    var bytes = context.getAttachmentHelper().retrieveBackfilledHistoryAttachment(id);
+-                    return new java.io.ByteArrayInputStream(bytes);
++                    return context.getAttachmentHelper().retrieveBackfilledHistoryAttachment(id);
+                 } catch (FileNotFoundException noBackfill) {
+                     throw historyError;
+                 }
+diff --git a/lib/src/main/java/org/asamk/signal/manager/util/IOUtils.java b/lib/src/main/java/org/asamk/signal/manager/util/IOUtils.java
+index 0061e0d..ea38377 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/util/IOUtils.java
++++ b/lib/src/main/java/org/asamk/signal/manager/util/IOUtils.java
+@@ -7,6 +7,7 @@ import java.io.IOException;
+ import java.io.InputStream;
+ import java.io.OutputStream;
+ import java.nio.file.Files;
++import java.nio.file.Path;
+ import java.nio.file.attribute.BasicFileAttributes;
+ import java.nio.file.attribute.FileTime;
+ import java.nio.file.attribute.PosixFilePermission;
+@@ -36,6 +37,59 @@ public class IOUtils {
+         }
+     }
+ 
++    private static volatile Path privateTempDir;
++
++    /**
++     * Sets, creates (mode 0700) and sweeps the directory {@link #createPrivateTempFile()} uses. Whatever
++     * a previous run left there (it is only ever filled with temporary files) is deleted, so nothing
++     * survives a crash. {@code null} unsets it. Call once at start-up, before any file is created.
++     */
++    public static void setPrivateTempDir(final File dir) throws IOException {
++        if (dir == null) {
++            privateTempDir = null;
++            return;
++        }
++        final var path = dir.toPath();
++        try {
++            Files.createDirectories(path,
++                    PosixFilePermissions.asFileAttribute(EnumSet.of(OWNER_READ, OWNER_WRITE, OWNER_EXECUTE)));
++            Files.setPosixFilePermissions(path, EnumSet.of(OWNER_READ, OWNER_WRITE, OWNER_EXECUTE));
++        } catch (UnsupportedOperationException e) {
++            Files.createDirectories(path);
++        }
++        try (var entries = Files.newDirectoryStream(path)) {
++            for (final var entry : entries) {
++                if (Files.isRegularFile(entry, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
++                    Files.deleteIfExists(entry);
++                }
++            }
++        }
++        privateTempDir = path;
++    }
++
++    /**
++     * A temporary file for <em>decrypted</em> data, in the directory set by {@link #setPrivateTempDir},
++     * inside signal-cli's own config directory rather than the system temp directory. Unlike
++     * {@link #createTempFile()} it is not registered for delete-on-exit: the owner deletes it when done, and
++     * the start-up sweep removes what a crash left. Without a configured directory (library use, tests) it
++     * falls back to the system temp directory.
++     */
++    public static File createPrivateTempFile() throws IOException {
++        final var dir = privateTempDir;
++        final var prefix = "snowdrop_plain_";
++        final var suffix = ".tmp";
++        try {
++            final var attribute = PosixFilePermissions.asFileAttribute(EnumSet.of(OWNER_READ, OWNER_WRITE));
++            return (dir == null
++                    ? Files.createTempFile(prefix, suffix, attribute)
++                    : Files.createTempFile(dir, prefix, suffix, attribute)).toFile();
++        } catch (UnsupportedOperationException e) {
++            return (dir == null
++                    ? Files.createTempFile(prefix, suffix)
++                    : Files.createTempFile(dir, prefix, suffix)).toFile();
++        }
++    }
++
+     public static byte[] readFully(InputStream in) throws IOException {
+         var baos = new ByteArrayOutputStream();
+         IOUtils.copyStream(in, baos);
+diff --git a/lib/src/main/java/org/asamk/signal/manager/util/TempFileInputStream.java b/lib/src/main/java/org/asamk/signal/manager/util/TempFileInputStream.java
+new file mode 100644
+index 0000000..2b33c2e
+--- /dev/null
++++ b/lib/src/main/java/org/asamk/signal/manager/util/TempFileInputStream.java
+@@ -0,0 +1,40 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.manager.util;
++
++import java.io.File;
++import java.io.FileInputStream;
++import java.io.FilterInputStream;
++import java.io.IOException;
++import java.nio.file.Files;
++
++/**
++ * Reads a temporary file and deletes it when closed, so a large download can be handed on as a
++ * stream (and verified before it is) without being held in memory.
++ */
++public final class TempFileInputStream extends FilterInputStream {
++
++    private final File file;
++
++    public TempFileInputStream(final File file) throws IOException {
++        super(open(file));
++        this.file = file;
++    }
++
++    private static FileInputStream open(final File file) throws IOException {
++        try {
++            return new FileInputStream(file);
++        } catch (IOException | RuntimeException e) {
++            Files.deleteIfExists(file.toPath());
++            throw e;
++        }
++    }
++
++    @Override
++    public void close() throws IOException {
++        try {
++            super.close();
++        } finally {
++            Files.deleteIfExists(file.toPath());
++        }
++    }
++}
+diff --git a/lib/src/test/java/org/asamk/signal/manager/history/HistoryAttachmentTest.java b/lib/src/test/java/org/asamk/signal/manager/history/HistoryAttachmentTest.java
+index 41f4441..228e592 100644
+--- a/lib/src/test/java/org/asamk/signal/manager/history/HistoryAttachmentTest.java
++++ b/lib/src/test/java/org/asamk/signal/manager/history/HistoryAttachmentTest.java
+@@ -75,6 +75,19 @@ class HistoryAttachmentTest {
+         }
+     }
+ 
++    @Test void streamsAVerifiedFileAndRefusesAWrongSize() throws Exception {
++        var plain = new byte[] {1, 2, 3, 4};
++        try (var stream = HistoryAttachment.downloadStream(pointer(), (request, target) ->
++                new java.io.ByteArrayInputStream(plain))) {
++            assertFalse(stream instanceof java.io.ByteArrayInputStream);
++            assertArrayEquals(plain, stream.readAllBytes());
++        }
++        assertThrows(IOException.class, () -> HistoryAttachment.downloadStream(pointer(), (request, target) ->
++                new java.io.ByteArrayInputStream(new byte[] {1, 2, 3})));
++        assertThrows(IOException.class, () -> HistoryAttachment.downloadStream(pointer(), (request, target) ->
++                new java.io.ByteArrayInputStream(new byte[] {1, 2, 3, 4, 5})));
++    }
++
+     @TempDir Path directory;
+     private HistoryStore store() throws Exception {
+         return new HistoryStore(() -> DriverManager.getConnection("jdbc:sqlite:" + directory.resolve("account.db")));
+diff --git a/lib/src/test/java/org/asamk/signal/manager/util/PrivateTempFileTest.java b/lib/src/test/java/org/asamk/signal/manager/util/PrivateTempFileTest.java
+new file mode 100644
+index 0000000..75f6077
+--- /dev/null
++++ b/lib/src/test/java/org/asamk/signal/manager/util/PrivateTempFileTest.java
+@@ -0,0 +1,57 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.manager.util;
++
++import org.junit.jupiter.api.AfterEach;
++import org.junit.jupiter.api.Test;
++import org.junit.jupiter.api.io.TempDir;
++
++import java.nio.file.Files;
++import java.nio.file.Path;
++import java.nio.file.attribute.PosixFilePermission;
++import java.util.Set;
++
++import static org.junit.jupiter.api.Assertions.assertEquals;
++import static org.junit.jupiter.api.Assertions.assertFalse;
++import static org.junit.jupiter.api.Assertions.assertTrue;
++
++class PrivateTempFileTest {
++
++    @TempDir
++    Path base;
++
++    @AfterEach
++    void unset() throws Exception {
++        IOUtils.setPrivateTempDir(null);
++    }
++
++    @Test
++    void createsTheDirectoryPrivatelySweepsStaleFilesAndStagesFilesInIt() throws Exception {
++        final var dir = base.resolve("snowdrop-tmp");
++        Files.createDirectory(dir);
++        final var stale = Files.write(dir.resolve("snowdrop_plain_old.tmp"), new byte[]{1});
++
++        IOUtils.setPrivateTempDir(dir.toFile());
++
++        assertFalse(Files.exists(stale));
++        assertEquals(Set.of(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE,
++                PosixFilePermission.OWNER_EXECUTE), Files.getPosixFilePermissions(dir));
++        final var file = IOUtils.createPrivateTempFile().toPath();
++        assertEquals(dir, file.getParent());
++        assertEquals(Set.of(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE),
++                Files.getPosixFilePermissions(file));
++    }
++
++    @Test
++    void createsMissingParentDirectoriesAndNeedsNoDeleteOnExit() throws Exception {
++        final var dir = base.resolve("a").resolve("snowdrop-tmp");
++
++        IOUtils.setPrivateTempDir(dir.toFile());
++
++        assertTrue(Files.isDirectory(dir));
++        final var stream = new TempFileInputStream(IOUtils.createPrivateTempFile());
++        stream.close();
++        try (var entries = Files.list(dir)) {
++            assertEquals(0, entries.count());
++        }
++    }
++}
+diff --git a/lib/src/test/java/org/asamk/signal/manager/util/TempFileInputStreamTest.java b/lib/src/test/java/org/asamk/signal/manager/util/TempFileInputStreamTest.java
+new file mode 100644
+index 0000000..8c57eec
+--- /dev/null
++++ b/lib/src/test/java/org/asamk/signal/manager/util/TempFileInputStreamTest.java
+@@ -0,0 +1,43 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.manager.util;
++
++import org.junit.jupiter.api.Test;
++import org.junit.jupiter.api.io.TempDir;
++
++import java.io.IOException;
++import java.nio.file.Files;
++import java.nio.file.Path;
++
++import static org.junit.jupiter.api.Assertions.assertArrayEquals;
++import static org.junit.jupiter.api.Assertions.assertFalse;
++import static org.junit.jupiter.api.Assertions.assertThrows;
++import static org.junit.jupiter.api.Assertions.assertTrue;
++
++class TempFileInputStreamTest {
++
++    @TempDir
++    Path directory;
++
++    @Test
++    void readsTheFileAndDeletesItOnClose() throws Exception {
++        final var file = directory.resolve("a.tmp");
++        Files.write(file, new byte[]{1, 2, 3});
++
++        final var stream = new TempFileInputStream(file.toFile());
++        assertTrue(Files.exists(file));
++        assertArrayEquals(new byte[]{1, 2, 3}, stream.readAllBytes());
++        stream.close();
++        stream.close();
++
++        assertFalse(Files.exists(file));
++    }
++
++    @Test
++    void deletesAFileThatCannotBeOpened() throws Exception {
++        // A directory can't be read as a file, but is still removed rather than left behind.
++        final var dir = Files.createDirectory(directory.resolve("d.tmp"));
++
++        assertThrows(IOException.class, () -> new TempFileInputStream(dir.toFile()));
++        assertFalse(Files.exists(dir));
++    }
++}
+diff --git a/src/main/java/org/asamk/signal/commands/GetAttachmentCommand.java b/src/main/java/org/asamk/signal/commands/GetAttachmentCommand.java
+index 1b9bfeb..8cfa9d9 100644
+--- a/src/main/java/org/asamk/signal/commands/GetAttachmentCommand.java
++++ b/src/main/java/org/asamk/signal/commands/GetAttachmentCommand.java
+@@ -6,7 +6,7 @@ import net.sourceforge.argparse4j.inf.Subparser;
+ import org.asamk.signal.commands.exceptions.CommandException;
+ import org.asamk.signal.commands.exceptions.IOErrorException;
+ import org.asamk.signal.commands.exceptions.UserErrorException;
+-import org.asamk.signal.json.JsonAttachmentData;
++import org.asamk.signal.json.JsonStreamedAttachmentData;
+ import org.asamk.signal.manager.Manager;
+ import org.asamk.signal.manager.api.AttachmentNotAvailableException;
+ import org.asamk.signal.output.JsonWriter;
+@@ -15,7 +15,6 @@ import org.asamk.signal.output.PlainTextWriter;
+ 
+ import java.io.FileNotFoundException;
+ import java.io.IOException;
+-import java.io.InputStream;
+ import java.util.Base64;
+ 
+ public class GetAttachmentCommand implements JsonRpcLocalCommand {
+@@ -46,12 +45,16 @@ public class GetAttachmentCommand implements JsonRpcLocalCommand {
+             throw new UserErrorException("Missing attachment id parameter");
+         }
+ 
+-        try (InputStream attachment = m.retrieveAttachment(id)) {
+-            final var bytes = attachment.readAllBytes();
+-            final var base64 = Base64.getEncoder().encodeToString(bytes);
++        try {
++            final var attachment = m.retrieveAttachment(id);
+             switch (outputWriter) {
+-                case PlainTextWriter writer -> writer.println(base64);
+-                case JsonWriter writer -> writer.write(new JsonAttachmentData(base64));
++                case PlainTextWriter writer -> {
++                    try (attachment) {
++                        writer.println(Base64.getEncoder().encodeToString(attachment.readAllBytes()));
++                    }
++                }
++                // Ownership of the stream passes to the result, which closes it once written.
++                case JsonWriter writer -> writer.write(JsonStreamedAttachmentData.of(attachment));
+             }
+         } catch (FileNotFoundException ex) {
+             throw new UserErrorException("Could not find attachment with ID: " + id, ex);
+diff --git a/src/main/java/org/asamk/signal/http/HttpServerHandler.java b/src/main/java/org/asamk/signal/http/HttpServerHandler.java
+index 11dd447..64be721 100644
+--- a/src/main/java/org/asamk/signal/http/HttpServerHandler.java
++++ b/src/main/java/org/asamk/signal/http/HttpServerHandler.java
+@@ -140,6 +140,7 @@ public class HttpServerHandler implements AutoCloseable {
+             final Object[] result = {null};
+             final var jsonRpcSender = new JsonRpcSender(s -> {
+                 if (result[0] != null) {
++                    JsonRpcReader.closeResult(s);
+                     throw new AssertionError("There should only be a single JSON-RPC response");
+                 }
+ 
+@@ -151,7 +152,11 @@ public class HttpServerHandler implements AutoCloseable {
+                     response -> logger.debug("Received unexpected response for id {}", response.getId()));
+ 
+             if (result[0] != null) {
+-                sendResponse(200, result[0], httpExchange);
++                try {
++                    sendResponse(200, result[0], httpExchange);
++                } finally {
++                    JsonRpcReader.closeResult(result[0]);
++                }
+             } else {
+                 sendResponse(201, null, httpExchange);
+             }
+diff --git a/src/main/java/org/asamk/signal/json/JsonStreamedAttachmentData.java b/src/main/java/org/asamk/signal/json/JsonStreamedAttachmentData.java
+new file mode 100644
+index 0000000..134b471
+--- /dev/null
++++ b/src/main/java/org/asamk/signal/json/JsonStreamedAttachmentData.java
+@@ -0,0 +1,75 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.json;
++
++import com.fasterxml.jackson.core.Base64Variants;
++import com.fasterxml.jackson.core.JsonGenerator;
++import com.fasterxml.jackson.databind.SerializerProvider;
++import com.fasterxml.jackson.databind.jsontype.TypeSerializer;
++import com.fasterxml.jackson.databind.JsonSerializable;
++
++import java.io.BufferedInputStream;
++import java.io.Closeable;
++import java.io.IOException;
++import java.io.InputStream;
++
++/**
++ * The same JSON as {@link JsonAttachmentData} ({@code {"data":"<standard base64>"}}), but the bytes
++ * are Base64-encoded straight from {@code input} into the output while it is written, so neither
++ * the raw bytes nor the encoded String are ever held whole. Owns {@code input}: it is closed once
++ * written, or by {@link #close()} if the result is never written.
++ */
++public final class JsonStreamedAttachmentData extends JsonSerializable.Base implements Closeable {
++
++    private final InputStream input;
++
++    public JsonStreamedAttachmentData(final InputStream input) {
++        this.input = input;
++    }
++
++    /**
++     * Checks cheaply that {@code input} can be read (its first byte) before a response is begun, so an
++     * unreadable file is still an ordinary error. Closes {@code input} if it cannot.
++     */
++    public static JsonStreamedAttachmentData of(final InputStream input) throws IOException {
++        final var buffered = new BufferedInputStream(input);
++        try {
++            buffered.mark(1);
++            buffered.read();
++            buffered.reset();
++        } catch (IOException | RuntimeException e) {
++            try {
++                buffered.close();
++            } catch (IOException closeError) {
++                e.addSuppressed(closeError);
++            }
++            throw e;
++        }
++        return new JsonStreamedAttachmentData(buffered);
++    }
++
++    @Override
++    public void serialize(final JsonGenerator gen, final SerializerProvider serializers) throws IOException {
++        try (input) {
++            gen.writeStartObject();
++            gen.writeFieldName("data");
++            // Length -1: read to the end. MIME_NO_LINEFEEDS is Jackson's default variant, the
++            // standard alphabet with padding and no line breaks, as java.util.Base64's basic encoder.
++            gen.writeBinary(Base64Variants.MIME_NO_LINEFEEDS, input, -1);
++            gen.writeEndObject();
++        }
++    }
++
++    @Override
++    public void serializeWithType(
++            final JsonGenerator gen,
++            final SerializerProvider serializers,
++            final TypeSerializer typeSer
++    ) throws IOException {
++        serialize(gen, serializers);
++    }
++
++    @Override
++    public void close() throws IOException {
++        input.close();
++    }
++}
+diff --git a/src/main/java/org/asamk/signal/jsonrpc/JsonRpcReader.java b/src/main/java/org/asamk/signal/jsonrpc/JsonRpcReader.java
+index 2d1509c..f61dbff 100644
+--- a/src/main/java/org/asamk/signal/jsonrpc/JsonRpcReader.java
++++ b/src/main/java/org/asamk/signal/jsonrpc/JsonRpcReader.java
+@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.JsonNode;
+ import com.fasterxml.jackson.databind.ObjectMapper;
+ import com.fasterxml.jackson.databind.node.ContainerNode;
+ import com.fasterxml.jackson.databind.node.ObjectNode;
++import com.fasterxml.jackson.databind.node.POJONode;
+ import com.fasterxml.jackson.databind.node.ValueNode;
+ 
+ import org.asamk.signal.util.Util;
+@@ -84,7 +85,11 @@ public class JsonRpcReader {
+                 logger.debug("Received json rpc request, method: " + jsonRpcRequest.getMethod());
+                 final var response = handleRequest(requestHandler, jsonRpcRequest);
+                 if (response != null) {
+-                    jsonRpcSender.sendResponse(response);
++                    try {
++                        jsonRpcSender.sendResponse(response);
++                    } finally {
++                        closeResult(response);
++                    }
+                 }
+             }
+             case JsonRpcResponse jsonRpcResponse -> responseHandler.accept(jsonRpcResponse);
+@@ -123,18 +128,43 @@ public class JsonRpcReader {
+                 }
+ 
+                 if (!responseList.isEmpty()) {
+-                    jsonRpcSender.sendBatchResponses(responseList);
++                    try {
++                        jsonRpcSender.sendBatchResponses(responseList);
++                    } finally {
++                        responseList.forEach(JsonRpcReader::closeResult);
++                    }
+                 }
+             }
+         }
+     }
+ 
++    /** Closes the stream of a streamed result, whether or not its response was written; idempotent. */
++    public static void closeResult(final Object response) {
++        if (response instanceof JsonRpcResponse r && r.getResult() instanceof POJONode pojo) {
++            closeQuietly(pojo.getPojo());
++        }
++    }
++
++    static void closeQuietly(final Object value) {
++        if (value instanceof AutoCloseable closeable) {
++            try {
++                closeable.close();
++            } catch (Exception e) {
++                logger.debug("Failed to close an unsent result: {}", e.getMessage());
++            }
++        }
++    }
++
+     private JsonRpcResponse handleRequest(final RequestHandler requestHandler, final JsonRpcRequest request) {
+         try {
+             final var result = requestHandler.apply(request.getMethod(), request.getParams());
+             if (request.getId() != null) {
+                 return JsonRpcResponse.forSuccess(result, request.getId());
+             } else {
++                // A streamed result owns an open stream that only writing the response closes.
++                if (result instanceof POJONode pojo) {
++                    closeQuietly(pojo.getPojo());
++                }
+                 logger.debug("Command '{}' succeeded but client didn't specify an id, dropping response",
+                         request.getMethod());
+             }
+diff --git a/src/main/java/org/asamk/signal/jsonrpc/SignalJsonRpcCommandHandler.java b/src/main/java/org/asamk/signal/jsonrpc/SignalJsonRpcCommandHandler.java
+index 5ce6c6c..887a29a 100644
+--- a/src/main/java/org/asamk/signal/jsonrpc/SignalJsonRpcCommandHandler.java
++++ b/src/main/java/org/asamk/signal/jsonrpc/SignalJsonRpcCommandHandler.java
+@@ -4,9 +4,11 @@ import com.fasterxml.jackson.core.TreeNode;
+ import com.fasterxml.jackson.core.type.TypeReference;
+ import com.fasterxml.jackson.databind.JsonMappingException;
+ import com.fasterxml.jackson.databind.JsonNode;
++import com.fasterxml.jackson.databind.JsonSerializable;
+ import com.fasterxml.jackson.databind.ObjectMapper;
+ import com.fasterxml.jackson.databind.node.ContainerNode;
+ import com.fasterxml.jackson.databind.node.ObjectNode;
++import com.fasterxml.jackson.databind.node.POJONode;
+ 
+ import org.asamk.signal.commands.Command;
+ import org.asamk.signal.commands.JsonRpcMultiCommand;
+@@ -279,6 +281,10 @@ public class SignalJsonRpcCommandHandler {
+         }
+ 
+         Object output = result[0] == null ? Map.of() : result[0];
++        if (output instanceof JsonSerializable) {
++            // Written straight into the response when it is serialized; valueToTree would buffer it.
++            return new POJONode(output);
++        }
+         return objectMapper.valueToTree(output);
+     }
+ 
+@@ -286,6 +292,11 @@ public class SignalJsonRpcCommandHandler {
+         if (result[0] == null) {
+             return null;
+         }
++        if (result[0] instanceof JsonSerializable) {
++            // A streamed result is never put in an error's data: it would have to be buffered.
++            JsonRpcReader.closeQuietly(result[0]);
++            return null;
++        }
+         return objectMapper.valueToTree(Map.of("response", result[0]));
+     }
+ 
+diff --git a/src/main/java/org/asamk/signal/output/JsonWriterImpl.java b/src/main/java/org/asamk/signal/output/JsonWriterImpl.java
+index 46e3078..4f0816c 100644
+--- a/src/main/java/org/asamk/signal/output/JsonWriterImpl.java
++++ b/src/main/java/org/asamk/signal/output/JsonWriterImpl.java
+@@ -1,6 +1,5 @@
+ package org.asamk.signal.output;
+ 
+-import com.fasterxml.jackson.core.JsonProcessingException;
+ import com.fasterxml.jackson.databind.ObjectMapper;
+ 
+ import org.asamk.signal.util.Util;
+@@ -22,8 +21,19 @@ public class JsonWriterImpl implements JsonWriter {
+         try {
+             try {
+                 objectMapper.writeValue(writer, object);
+-            } catch (JsonProcessingException e) {
+-                // Some issue with json serialization, probably caused by a bug
++            } catch (IOException | RuntimeException e) {
++                // Whatever was written is a broken line. Terminate it, so the next message starts on a
++                // line of its own instead of being spliced onto it (a reader frames by newline).
++                try {
++                    writer.write(System.lineSeparator());
++                    writer.flush();
++                } catch (IOException terminateError) {
++                    e.addSuppressed(terminateError);
++                }
++                if (e instanceof RuntimeException runtime) {
++                    throw runtime;
++                }
++                // Some issue with json serialization (probably a bug), or a stream that failed mid-way
+                 throw new AssertionError(e);
+             }
+             writer.write(System.lineSeparator());
+diff --git a/src/test/java/org/asamk/signal/json/JsonStreamedAttachmentDataTest.java b/src/test/java/org/asamk/signal/json/JsonStreamedAttachmentDataTest.java
+new file mode 100644
+index 0000000..6c5b79c
+--- /dev/null
++++ b/src/test/java/org/asamk/signal/json/JsonStreamedAttachmentDataTest.java
+@@ -0,0 +1,228 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.json;
++
++import com.fasterxml.jackson.databind.node.JsonNodeFactory;
++import com.fasterxml.jackson.databind.node.ObjectNode;
++import com.fasterxml.jackson.databind.node.TextNode;
++
++import org.asamk.signal.commands.GetAttachmentCommand;
++import org.asamk.signal.jsonrpc.JsonRpcException;
++import org.asamk.signal.jsonrpc.JsonRpcResponse;
++import org.asamk.signal.jsonrpc.SignalJsonRpcCommandHandler;
++import org.asamk.signal.manager.Manager;
++import org.asamk.signal.output.JsonWriterImpl;
++import org.asamk.signal.util.Util;
++import org.junit.jupiter.api.Test;
++
++import java.io.ByteArrayInputStream;
++import java.io.FileNotFoundException;
++import java.io.FilterInputStream;
++import java.io.IOException;
++import java.io.InputStream;
++import java.io.StringWriter;
++import java.io.Writer;
++import java.lang.reflect.Proxy;
++import java.util.Arrays;
++import java.util.Base64;
++import java.util.Random;
++import java.util.concurrent.atomic.AtomicBoolean;
++import java.util.concurrent.atomic.AtomicLong;
++
++import static org.junit.jupiter.api.Assertions.assertEquals;
++import static org.junit.jupiter.api.Assertions.assertFalse;
++import static org.junit.jupiter.api.Assertions.assertThrows;
++import static org.junit.jupiter.api.Assertions.assertTrue;
++
++class JsonStreamedAttachmentDataTest {
++
++    private static final class Tracked extends FilterInputStream {
++
++        final AtomicBoolean closed = new AtomicBoolean();
++
++        Tracked(final InputStream in) {
++            super(in);
++        }
++
++        @Override
++        public void close() throws IOException {
++            closed.set(true);
++            super.close();
++        }
++    }
++
++    private static byte[] bytes(final int n) {
++        final var b = new byte[n];
++        new Random(n).nextBytes(b);
++        return b;
++    }
++
++    private static String write(final Object value) {
++        final var out = new StringWriter();
++        new JsonWriterImpl(out).write(value);
++        return out.toString();
++    }
++
++    @Test
++    void producesTheSameJsonAsTheBufferedType() {
++        // Every padding case, and sizes above Jackson's internal read buffer.
++        for (final var n : new int[]{0, 1, 2, 3, 4, 100, 1000, 65536, 100_001}) {
++            final var data = bytes(n);
++            final var base64 = Base64.getEncoder().encodeToString(data);
++            final var in = new Tracked(new ByteArrayInputStream(data));
++
++            final var streamed = write(new JsonStreamedAttachmentData(in));
++
++            assertEquals(write(new JsonAttachmentData(base64)), streamed, "size " + n);
++            assertTrue(in.closed.get());
++        }
++        assertEquals("{\"data\":\"AQID\"}" + System.lineSeparator(),
++                write(new JsonStreamedAttachmentData(new ByteArrayInputStream(new byte[]{1, 2, 3}))));
++    }
++
++    @Test
++    void writesALargeAttachmentWithoutBufferingIt() {
++        final var size = 96L * 1024 * 1024;
++        final var written = new AtomicLong();
++        final var counting = new Writer() {
++            @Override
++            public void write(final char[] c, final int off, final int len) {
++                written.addAndGet(len);
++            }
++
++            @Override
++            public void flush() {
++            }
++
++            @Override
++            public void close() {
++            }
++        };
++        final var zeros = new InputStream() {
++            long left = size;
++
++            @Override
++            public int read() {
++                return left-- > 0 ? 0 : -1;
++            }
++
++            @Override
++            public int read(final byte[] b, final int off, final int len) {
++                if (left <= 0) {
++                    return -1;
++                }
++                final var n = (int) Math.min(len, left);
++                Arrays.fill(b, off, off + n, (byte) 0);
++                left -= n;
++                return n;
++            }
++        };
++
++        new JsonWriterImpl(counting).write(new JsonStreamedAttachmentData(zeros));
++
++        // {"data":"..."} plus the line separator.
++        assertEquals(4 * ((size + 2) / 3) + "{\"data\":\"\"}".length() + System.lineSeparator().length(),
++                written.get());
++    }
++
++    private static InputStream failingAfter(final int good, final Tracked[] holder) {
++        final var in = new Tracked(new InputStream() {
++            int left = good;
++
++            @Override
++            public int read() throws IOException {
++                if (left-- <= 0) {
++                    throw new IOException("disk error");
++                }
++                return 'A';
++            }
++        });
++        if (holder != null) {
++            holder[0] = in;
++        }
++        return in;
++    }
++
++    @Test
++    void aStreamThatFailsMidWayLeavesATerminatedLineAndTheNextMessageIntact() throws Exception {
++        final var out = new StringWriter();
++        final var writer = new JsonWriterImpl(out);
++        final var holder = new Tracked[1];
++
++        assertThrows(AssertionError.class,
++                () -> writer.write(new JsonStreamedAttachmentData(failingAfter(20000, holder))));
++        writer.write(java.util.Map.of("ok", 1));
++
++        final var lines = out.toString().split("\\R");
++        assertEquals(2, lines.length);
++        // The broken line is cut off (never a complete object) and ends where the next message starts.
++        assertTrue(lines[0].isEmpty() || lines[0].startsWith("{\"data\":\""));
++        assertFalse(lines[0].endsWith("}"));
++        assertEquals("{\"ok\":1}", lines[1]);
++        assertTrue(holder[0].closed.get());
++    }
++
++    @Test
++    void anUnreadableStreamIsRefusedBeforeAnythingIsWritten() {
++        final var holder = new Tracked[1];
++
++        assertThrows(IOException.class, () -> JsonStreamedAttachmentData.of(failingAfter(0, holder)));
++        assertTrue(holder[0].closed.get());
++    }
++
++    @Test
++    void aReadableStreamKeepsItsFirstByte() throws Exception {
++        final var out = new StringWriter();
++
++        new JsonWriterImpl(out).write(JsonStreamedAttachmentData.of(new ByteArrayInputStream(new byte[]{1, 2, 3})));
++
++        assertEquals("{\"data\":\"AQID\"}" + System.lineSeparator(), out.toString());
++    }
++
++    private static Manager managerReturning(final Tracked stream) {
++        return (Manager) Proxy.newProxyInstance(Manager.class.getClassLoader(),
++                new Class<?>[]{Manager.class},
++                (proxy, method, args) -> {
++                    if (method.getName().equals("retrieveAttachment")) {
++                        if (stream == null) {
++                            throw new FileNotFoundException("gone");
++                        }
++                        return stream;
++                    }
++                    throw new UnsupportedOperationException(method.getName());
++                });
++    }
++
++    private static ObjectNode params() {
++        final var params = JsonNodeFactory.instance.objectNode();
++        params.set("id", TextNode.valueOf("abc"));
++        return params;
++    }
++
++    @Test
++    void jsonRpcResponseKeepsTheWireFormat() throws Exception {
++        final var data = bytes(5000);
++        final var stream = new Tracked(new ByteArrayInputStream(data));
++        final var handler = new SignalJsonRpcCommandHandler(managerReturning(stream),
++                name -> new GetAttachmentCommand());
++
++        final var result = handler.handleRequest(Util.createJsonObjectMapper(), "getAttachment", params());
++        assertFalse(stream.closed.get(), "the stream stays open until the response is written");
++        final var out = new StringWriter();
++        new JsonWriterImpl(out).write(JsonRpcResponse.forSuccess(result, TextNode.valueOf("1")));
++
++        assertEquals("{\"jsonrpc\":\"2.0\",\"result\":{\"data\":\"" + Base64.getEncoder().encodeToString(data)
++                + "\"},\"id\":\"1\"}" + System.lineSeparator(), out.toString());
++        assertTrue(stream.closed.get());
++    }
++
++    @Test
++    void errorsStillComeBackAsJsonRpcErrors() {
++        final var handler = new SignalJsonRpcCommandHandler(managerReturning(null),
++                name -> new GetAttachmentCommand());
++
++        final var e = assertThrows(JsonRpcException.class,
++                () -> handler.handleRequest(Util.createJsonObjectMapper(), "getAttachment", params()));
++        assertEquals(-1, e.getError().getCode());
++        assertEquals("Could not find attachment with ID: abc", e.getError().getMessage());
++    }
++}

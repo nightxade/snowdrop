@@ -65,8 +65,9 @@ regression tests. The second patch adds protobuf decoding and JSON conversion
 that preserve expiration fields and exact 64-bit IDs, plus an official Signal
 fixture test. The third patch adds transactional storage in the account database
 and a `getHistory` CLI/JSON-RPC command. The build version
-(`0.14.8-snowdrop-history.N`, currently `.24`, the first build with the backfill, link-import,
-listener, custom-emoji and multi-account fixes described below) is set in this one place, a single
+(`0.14.8-snowdrop-history.N`, currently `.25`, the first build with the synced message-request answer, synced verification and streamed
+`getAttachment` described below, on top of the backfill, link-import, listener, custom-emoji and
+multi-account fixes) is set in this one place, a single
 `build.gradle.kts` hunk, and recorded in PROVENANCE; raise `N` there whenever the patch set
 changes in a way installs must pick up (Snowdrop gates features on it, see the "First shipped"
 notes below). The fourth patch advertises history-transfer
@@ -980,6 +981,110 @@ On the native build, `-vv` shows the old sequence (`JVM is shutting down`, `Trig
 the abort) replaced by `JVM is shutting down`, `Waiting for app to shut down`, `Exiting`, and exit status
 0 with and without a pending `startLink`. `scripts/build-signal-cli.sh` smoke-tests both builds with a
 `version` round trip over `jsonRpc` that must end with exit status 0 once stdin closes.
+
+## 0023: synced message-request answers
+
+When the user accepts, deletes, blocks or reports a message request on their phone, the phone sends a
+`SyncMessage.messageRequestResponse`. libsignal-service parses it and `MessageEnvelope.Sync` already
+carried it as `messageRequestResponse`, but upstream's `JsonSyncMessage` has no field for it, so it never
+reached a JSON-RPC client. A client linked to the same account could not tell that a request it was still
+showing had been answered elsewhere.
+
+- `JsonSyncMessage` gains `messageRequestResponse` (omitted when the sync carries none), built by the new
+  `JsonSyncMessageRequestResponse`:
+  `{"type":"ACCEPT","threadAci":"a1b2c3d4-e5f6-7890-abcd-ef1234567890","threadE164":"+15551234567"}` for a
+  person, `{"type":"SPAM","groupId":"AQIDBAUGBwgJCgsMDQ4PEA=="}` for a group.
+  - `type` is the protobuf enum name: `ACCEPT`, `DELETE`, `BLOCK`, `BLOCK_AND_DELETE`, `UNBLOCK_AND_ACCEPT`,
+    `SPAM`, `BLOCK_AND_SPAM` or `UNKNOWN`.
+  - `threadAci` and `threadE164` are present when the stored recipient has them; `groupId` is base64, like
+    every other group id in the JSON.
+- Nothing else changes. signal-cli does not act on this message itself (the `blocked` list sync is what
+  updates its block state), and it still does not.
+- No `Manager`, storage or `DATABASE_VERSION` change.
+
+Verification: `JsonSyncMessageRequestResponseTest` (the exact JSON for a person with and without a number, a
+group, and a sync without one). Not verified against a real phone. First shipped as build
+`0.14.8-snowdrop-history.25`.
+
+## 0024: synced verification changes
+
+Marking a safety number verified or unverified on the phone sends a `SyncMessage.verified`.
+`IncomingMessageHandler` already applies it to the identity store, but, as for message requests, upstream
+never put it in the JSON.
+
+- `MessageEnvelope.Sync` gains `verified` (`Verified(destination, state)`, `state` is `DEFAULT`, `VERIFIED`
+  or `UNVERIFIED`), and `JsonSyncMessage` gains `verified` (omitted when absent), built by `JsonSyncVerified`:
+  `{"destinationAci":"a1b2c3d4-e5f6-7890-abcd-ef1234567890","destinationNumber":"+15551234567","state":"VERIFIED"}`.
+- The identity key in the message is deliberately not exposed, in the API record or the JSON.
+- `DbusManagerImpl`, the only other place that builds a `Sync`, passes an empty value.
+- The identity store handling is unchanged. No storage or `DATABASE_VERSION` change.
+
+Verification: `JsonSyncVerifiedTest` (the exact JSON, all three states, no key or identity field, absent when
+not sent). Not verified against a real phone. First shipped as build `0.14.8-snowdrop-history.25`.
+
+## 0025: `getAttachment` without whole-file copies
+
+`getAttachment` did `readAllBytes()`, `Base64.encodeToString` and then put the String in a Jackson tree
+(`valueToTree`), which the writer serialised again. For a 150 MB attachment that is the 150 MB of bytes, the
+200 MB encoded String, and the transient copies the encoder and the serialiser make of it: about 750 MB at
+the peak (an estimate, not measured), all of it for a payload that sits in a file.
+
+- The JSON-RPC layer already writes each response straight to the output `Writer` (`JsonWriterImpl` calls
+  `writeValue(writer, response)`), so only the result had to stop being materialised. The new
+  `JsonStreamedAttachmentData` implements Jackson's `JsonSerializable`: when it is serialised it writes
+  `{"data":` and then `JsonGenerator.writeBinary` Base64-encodes the attachment stream directly into the
+  output in small chunks. The wire format is unchanged: the same `data` field, standard Base64 with padding
+  and no line breaks (`JsonAttachmentData` is still used by `getAvatar` and `getSticker`).
+- `SignalJsonRpcCommandHandler.runCommand` wraps such a result in a `POJONode` instead of `valueToTree`, so
+  the stream is only read when the response is written. The result owns the stream and closes it once
+  written; it is also closed if the command fails afterwards (an error's `data` never carries a streamed
+  result) or when a request without an `id` drops its response (`JsonRpcReader`).
+- The plain-text output of `getAttachment` keeps the old read-then-encode path, it is only for the CLI.
+- A streamed response keeps `JsonWriterImpl`'s lock while it is written, so notifications wait for it; this
+  was already the case for the big String, but the lock is now held for the read as well.
+- A read error part-way through a file-backed attachment can no longer become a JSON-RPC error, because the
+  response line has begun. Two things limit the damage. `getAttachment` reads the first byte before it
+  starts (`JsonStreamedAttachmentData.of`), so an unreadable file is still an ordinary error. And if a
+  write does fail part-way, `JsonWriterImpl` ends the broken line with a newline and flushes, so the next
+  message (a `receive` notification, say) is on a line of its own and only the broken line is lost.
+- A streamed result is closed in a `finally` whenever its response is not written: on the single, batch and
+  HTTP paths, for a request without an `id`, and when an error replaces it.
+- Ordinary attachments already come back from `Manager.retrieveAttachment` as a `FileInputStream`.
+  The two history paths did not: `HistoryAttachment.download` and `retrieveBackfilledHistoryAttachment` read the
+  whole attachment (up to 100 MiB) into a `byte[]` and returned a `ByteArrayInputStream`. They now download
+  and verify (size and integrity hash) into a temporary file, exactly as before, and return a
+  `TempFileInputStream` over it that deletes the file on close. Nothing is returned for an attachment that
+  fails a check, and a failure leaves no file behind. This costs temporary disk (the plaintext, next to the
+  ciphertext the downloader already wrote) instead of heap. `HistoryAttachment.download` still returns bytes
+  for its tests.
+- **Where the plaintext lives.** These two files hold decrypted data, so they are not created in
+  `java.io.tmpdir` (`/tmp`, possibly on disk). `IOUtils.createPrivateTempFile()` creates them in
+  `<config dir>/snowdrop-tmp/` (the directory signal-cli is given with `--config`), mode 0700, files 0600.
+  `SignalAccountFiles` sets the directory when it is constructed and deletes everything left in it by an
+  earlier run, so a crash or SIGKILL leaves no plaintext behind after the next start. These files have no
+  delete-on-exit registration (which also grew without bound); the stream deletes its file when closed. When
+  Snowdrop's vault is on, the config dir is the tmpfs runtime dir, so the plaintext stays in RAM and goes
+  with it. `snowdrop-tmp` is not one of the vault's synced top-level directories (`data`, `attachments`,
+  `avatars`, `stickers`), so it is never synced. Without a configured directory (library use, tests) the
+  system temp directory is used.
+- Upstream's own temporary files (`IOUtils.createTempFile()`, in `java.io.tmpdir`, with delete-on-exit) are left
+  alone: the download target for an attachment (`AttachmentHelper.retrieveAttachment`) and for a group or
+  profile avatar (`GroupHelper`, `ProfileHelper`) hold the encrypted CDN bytes, but `SyncHelper.sendGroups`
+  and `sendContacts` write the plaintext group and contact lists to one before uploading them. Those two are
+  upstream behaviour and not changed here.
+- No storage or `DATABASE_VERSION` change.
+
+Peak memory for a 150 MB ordinary attachment, estimated: before about 750 MB on top of the process
+baseline, after the fixed-size buffers of the encoder and the output writer (well under 1 MB). For a 100 MiB
+history attachment: before the whole `byte[]`, after a 64 KiB copy buffer.
+
+Verification: `JsonStreamedAttachmentDataTest` (the same bytes as `JsonAttachmentData` for every padding case
+and sizes above the encoder's buffer, a 96 MiB stream written to a counting writer, the full JSON-RPC
+response line from `GetAttachmentCommand` and the error path), `TempFileInputStreamTest`,
+`HistoryAttachmentTest.streamsAVerifiedFileAndRefusesAWrongSize`, `PrivateTempFileTest` (the directory is
+created 0700 and swept, files are staged in it), and in `JsonStreamedAttachmentDataTest` a stream that fails
+mid-way leaves a terminated line and the next message intact, and an unreadable stream is refused up front.
+First shipped as build `0.14.8-snowdrop-history.25`.
 
 ## The native build
 

@@ -1,0 +1,244 @@
+diff --git a/lib/src/main/java/org/asamk/signal/manager/api/MessageEnvelope.java b/lib/src/main/java/org/asamk/signal/manager/api/MessageEnvelope.java
+index 130c1fd..c0b00fe 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/api/MessageEnvelope.java
++++ b/lib/src/main/java/org/asamk/signal/manager/api/MessageEnvelope.java
+@@ -34,6 +34,7 @@ import org.whispersystems.signalservice.api.messages.multidevice.MessageRequestR
+ import org.whispersystems.signalservice.api.messages.multidevice.ReadMessage;
+ import org.whispersystems.signalservice.api.messages.multidevice.SentTranscriptMessage;
+ import org.whispersystems.signalservice.api.messages.multidevice.SignalServiceSyncMessage;
++import org.whispersystems.signalservice.api.messages.multidevice.VerifiedMessage;
+ import org.whispersystems.signalservice.api.messages.multidevice.ViewOnceOpenMessage;
+ import org.whispersystems.signalservice.api.messages.multidevice.ViewedMessage;
+ 
+@@ -696,7 +697,8 @@ public record MessageEnvelope(
+             Optional<ViewOnceOpen> viewOnceOpen,
+             Optional<Contacts> contacts,
+             Optional<Groups> groups,
+-            Optional<MessageRequestResponse> messageRequestResponse
++            Optional<MessageRequestResponse> messageRequestResponse,
++            Optional<Verified> verified
+     ) {
+ 
+         public static Sync from(
+@@ -721,7 +723,8 @@ public record MessageEnvelope(
+                     syncMessage.getContacts().map(Contacts::from),
+                     syncMessage.getGroups().map(Groups::from),
+                     syncMessage.getMessageRequestResponse()
+-                            .map(m -> MessageRequestResponse.from(m, recipientResolver, addressResolver)));
++                            .map(m -> MessageRequestResponse.from(m, recipientResolver, addressResolver)),
++                    syncMessage.getVerified().map(v -> Verified.from(v, recipientResolver, addressResolver)));
+         }
+ 
+         public record Sent(
+@@ -837,6 +840,36 @@ public record MessageEnvelope(
+             }
+         }
+ 
++        /**
++         * A verification change made on another device. Deliberately carries no identity key.
++         */
++        public record Verified(RecipientAddress destination, State state) {
++
++            static Verified from(
++                    VerifiedMessage verifiedMessage,
++                    RecipientResolver recipientResolver,
++                    RecipientAddressResolver addressResolver
++            ) {
++                return new Verified(addressResolver.resolveRecipientAddress(recipientResolver.resolveRecipient(
++                        verifiedMessage.getDestination())).toApiRecipientAddress(),
++                        State.from(verifiedMessage.getVerified()));
++            }
++
++            public enum State {
++                DEFAULT,
++                VERIFIED,
++                UNVERIFIED;
++
++                static State from(VerifiedMessage.VerifiedState state) {
++                    return switch (state) {
++                        case DEFAULT -> DEFAULT;
++                        case VERIFIED -> VERIFIED;
++                        case UNVERIFIED -> UNVERIFIED;
++                    };
++                }
++            }
++        }
++
+         public record MessageRequestResponse(Type type, Optional<GroupId> groupId, Optional<RecipientAddress> person) {
+ 
+             static MessageRequestResponse from(
+diff --git a/src/main/java/org/asamk/signal/dbus/DbusManagerImpl.java b/src/main/java/org/asamk/signal/dbus/DbusManagerImpl.java
+index 802605d..c0e92fb 100644
+--- a/src/main/java/org/asamk/signal/dbus/DbusManagerImpl.java
++++ b/src/main/java/org/asamk/signal/dbus/DbusManagerImpl.java
+@@ -1326,6 +1326,7 @@ public class DbusManagerImpl implements Manager {
+                                 Optional.empty(),
+                                 Optional.empty(),
+                                 Optional.empty(),
++                                Optional.empty(),
+                                 Optional.empty())),
+                         Optional.empty(),
+                         Optional.empty());
+diff --git a/src/main/java/org/asamk/signal/json/JsonSyncMessage.java b/src/main/java/org/asamk/signal/json/JsonSyncMessage.java
+index cd83a08..69da898 100644
+--- a/src/main/java/org/asamk/signal/json/JsonSyncMessage.java
++++ b/src/main/java/org/asamk/signal/json/JsonSyncMessage.java
+@@ -25,7 +25,8 @@ record JsonSyncMessage(
+         @JsonInclude(JsonInclude.Include.NON_NULL) List<String> blockedGroupIds,
+         @JsonInclude(JsonInclude.Include.NON_NULL) List<JsonSyncReadMessage> readMessages,
+         @JsonInclude(JsonInclude.Include.NON_NULL) JsonSyncMessageType type,
+-        @JsonInclude(JsonInclude.Include.NON_NULL) JsonSyncMessageRequestResponse messageRequestResponse
++        @JsonInclude(JsonInclude.Include.NON_NULL) JsonSyncMessageRequestResponse messageRequestResponse,
++        @JsonInclude(JsonInclude.Include.NON_NULL) JsonSyncVerified verified
+ ) {
+ 
+     static JsonSyncMessage from(MessageEnvelope.Sync syncMessage, Manager m) {
+@@ -66,12 +67,14 @@ record JsonSyncMessage(
+         final var messageRequestResponse = syncMessage.messageRequestResponse()
+                 .map(JsonSyncMessageRequestResponse::from)
+                 .orElse(null);
++        final var verified = syncMessage.verified().map(JsonSyncVerified::from).orElse(null);
+         return new JsonSyncMessage(sentMessage,
+                 sentStoryMessage,
+                 blockedNumbers,
+                 blockedGroupIds,
+                 readMessages,
+                 type,
+-                messageRequestResponse);
++                messageRequestResponse,
++                verified);
+     }
+ }
+diff --git a/src/main/java/org/asamk/signal/json/JsonSyncVerified.java b/src/main/java/org/asamk/signal/json/JsonSyncVerified.java
+new file mode 100644
+index 0000000..b7145b0
+--- /dev/null
++++ b/src/main/java/org/asamk/signal/json/JsonSyncVerified.java
+@@ -0,0 +1,25 @@
++package org.asamk.signal.json;
++
++import com.fasterxml.jackson.annotation.JsonInclude;
++
++import org.asamk.signal.manager.api.MessageEnvelope;
++
++import io.micronaut.jsonschema.JsonSchema;
++
++/**
++ * A safety number marked verified or unverified on another device. The identity key is never included.
++ */
++@JsonSchema(title = "SyncVerified")
++record JsonSyncVerified(
++        @JsonInclude(JsonInclude.Include.NON_NULL) String destinationAci,
++        @JsonInclude(JsonInclude.Include.NON_NULL) String destinationNumber,
++        String state
++) {
++
++    static JsonSyncVerified from(MessageEnvelope.Sync.Verified verified) {
++        final var destination = verified.destination();
++        return new JsonSyncVerified(destination.aci().orElse(null),
++                destination.number().orElse(null),
++                verified.state().name());
++    }
++}
+diff --git a/src/test/java/org/asamk/signal/json/JsonSyncMessageRequestResponseTest.java b/src/test/java/org/asamk/signal/json/JsonSyncMessageRequestResponseTest.java
+index 1010cbe..9cab20c 100644
+--- a/src/test/java/org/asamk/signal/json/JsonSyncMessageRequestResponseTest.java
++++ b/src/test/java/org/asamk/signal/json/JsonSyncMessageRequestResponseTest.java
+@@ -29,7 +29,8 @@ class JsonSyncMessageRequestResponseTest {
+                 Optional.empty(),
+                 Optional.empty(),
+                 Optional.empty(),
+-                Optional.of(response));
++                Optional.of(response),
++                Optional.empty());
+         final var mapper = Util.createJsonObjectMapper();
+         return mapper.readTree(mapper.writeValueAsString(JsonSyncMessage.from(sync, null)));
+     }
+@@ -78,6 +79,7 @@ class JsonSyncMessageRequestResponseTest {
+                 Optional.empty(),
+                 Optional.empty(),
+                 Optional.empty(),
++                Optional.empty(),
+                 Optional.empty());
+         final var mapper = Util.createJsonObjectMapper();
+         final var node = mapper.readTree(mapper.writeValueAsString(JsonSyncMessage.from(sync, null)));
+diff --git a/src/test/java/org/asamk/signal/json/JsonSyncVerifiedTest.java b/src/test/java/org/asamk/signal/json/JsonSyncVerifiedTest.java
+new file mode 100644
+index 0000000..6e51f5a
+--- /dev/null
++++ b/src/test/java/org/asamk/signal/json/JsonSyncVerifiedTest.java
+@@ -0,0 +1,74 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.json;
++
++import com.fasterxml.jackson.databind.JsonNode;
++
++import org.asamk.signal.manager.api.MessageEnvelope;
++import org.asamk.signal.manager.api.MessageEnvelope.Sync.Verified;
++import org.asamk.signal.manager.api.RecipientAddress;
++import org.asamk.signal.util.Util;
++import org.junit.jupiter.api.Test;
++
++import java.util.List;
++import java.util.Optional;
++
++import static org.junit.jupiter.api.Assertions.assertEquals;
++import static org.junit.jupiter.api.Assertions.assertFalse;
++import static org.junit.jupiter.api.Assertions.assertTrue;
++
++class JsonSyncVerifiedTest {
++
++    private static final String ACI = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
++
++    private static JsonNode json(Optional<Verified> verified) throws Exception {
++        final var sync = new MessageEnvelope.Sync(Optional.empty(),
++                Optional.empty(),
++                List.of(),
++                List.of(),
++                Optional.empty(),
++                Optional.empty(),
++                Optional.empty(),
++                Optional.empty(),
++                verified);
++        final var mapper = Util.createJsonObjectMapper();
++        return mapper.readTree(mapper.writeValueAsString(JsonSyncMessage.from(sync, null)));
++    }
++
++    @Test
++    void verifiedWithAciAndNumber() throws Exception {
++        final var node = json(Optional.of(new Verified(new RecipientAddress(ACI, null, "+15551234567", null),
++                Verified.State.VERIFIED)));
++
++        assertEquals("{\"verified\":{\"destinationAci\":\"" + ACI
++                + "\",\"destinationNumber\":\"+15551234567\",\"state\":\"VERIFIED\"}}", node.toString());
++    }
++
++    @Test
++    void everyStateAndAciOnly() throws Exception {
++        for (final var state : Verified.State.values()) {
++            final var node = json(Optional.of(new Verified(new RecipientAddress(ACI, null, null, null), state)));
++            final var verified = node.get("verified");
++            assertEquals(state.name(), verified.get("state").asText());
++            assertEquals(ACI, verified.get("destinationAci").asText());
++            assertFalse(verified.has("destinationNumber"));
++        }
++        assertEquals(List.of("DEFAULT", "VERIFIED", "UNVERIFIED"),
++                java.util.Arrays.stream(Verified.State.values()).map(Enum::name).toList());
++    }
++
++    @Test
++    void neverCarriesAnIdentityKey() throws Exception {
++        final var node = json(Optional.of(new Verified(new RecipientAddress(ACI, null, null, null),
++                Verified.State.UNVERIFIED)));
++
++        final var text = node.toString().toLowerCase();
++        assertFalse(text.contains("identity"));
++        assertFalse(text.contains("key"));
++        assertEquals(2, node.get("verified").size());
++    }
++
++    @Test
++    void absentWhenTheSyncHasNoVerification() throws Exception {
++        assertTrue(json(Optional.empty()).isEmpty());
++    }
++}
