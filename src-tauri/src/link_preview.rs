@@ -31,6 +31,7 @@ use std::time::Duration;
 
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
+use encoding_rs::{Encoding, UTF_8};
 use html5gum::{StartTag, Token, Tokenizer};
 use serde::Serialize;
 use url::Url;
@@ -118,8 +119,15 @@ impl fmt::Display for FetchError {
     }
 }
 
+/// At most this many previews fetch at once; more wait their turn, so a
+/// burst of links (a long paste) can't open dozens of connections.
+const MAX_CONCURRENT_PREVIEWS: usize = 4;
+static PREVIEW_SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(MAX_CONCURRENT_PREVIEWS);
+
 async fn fetch_preview(input: &str) -> Result<Option<FetchedPreview>, FetchError> {
     let start = validate_url(input, "https")?;
+    // The semaphore is never closed, so acquiring can't fail.
+    let _slot = PREVIEW_SLOTS.acquire().await.map_err(|_| FetchError::Timeout)?;
     let page = fetch_capped_https(
         start,
         MAX_HTML_BYTES,
@@ -127,7 +135,7 @@ async fn fetch_preview(input: &str) -> Result<Option<FetchedPreview>, FetchError
         Some(b"</head"),
     )
     .await?;
-    let html = String::from_utf8_lossy(&page.body);
+    let html = decode_html(&page.body, &page.content_type);
     let meta = parse_meta(&html);
     let Some(title) = meta.title else {
         return Err(FetchError::NoTitle);
@@ -139,6 +147,63 @@ async fn fetch_preview(input: &str) -> Result<Option<FetchedPreview>, FetchError
     };
 
     Ok(Some(FetchedPreview { url: input.to_string(), title, description: meta.description, image }))
+}
+
+/// The page's text in its declared encoding, in the order browsers use: a
+/// byte-order mark, then the Content-Type `charset`, then a `<meta>`
+/// charset near the top of the page; UTF-8 when none is given or the label
+/// is unknown. Malformed bytes become U+FFFD, as before.
+fn decode_html(body: &[u8], content_type: &str) -> String {
+    let declared = charset_param(content_type)
+        .and_then(|label| Encoding::for_label(label.as_bytes()))
+        .or_else(|| {
+            meta_charset(&body[..body.len().min(META_PRESCAN_BYTES)])
+                .and_then(|label| Encoding::for_label(label.as_bytes()))
+                // A page can't really be UTF-16 if its own ASCII `<meta>` was readable.
+                .map(Encoding::output_encoding)
+        })
+        .unwrap_or(UTF_8);
+    // `decode` lets a byte-order mark override the declared encoding.
+    let (text, _, _) = declared.decode(body);
+    text.into_owned()
+}
+
+/// How far into the page a `<meta>` charset is looked for (the HTML
+/// standard's prescan reads the first 1024 bytes).
+const META_PRESCAN_BYTES: usize = 1024;
+
+fn charset_param(content_type: &str) -> Option<String> {
+    content_type.split(';').skip(1).find_map(|param| {
+        let (name, value) = param.split_once('=')?;
+        name.trim().eq_ignore_ascii_case("charset").then(|| value.trim().trim_matches(['"', '\'']).to_string())
+    })
+}
+
+/// The label from `<meta charset="…">` or `<meta http-equiv="Content-Type"
+/// content="…; charset=…">`, whichever comes first.
+fn meta_charset(head: &[u8]) -> Option<String> {
+    let text = String::from_utf8_lossy(head).to_ascii_lowercase();
+    let mut rest = text.as_str();
+    while let Some(at) = rest.find("<meta") {
+        let tag = &rest[at..];
+        let tag = &tag[..tag.find('>').unwrap_or(tag.len())];
+        if let Some(pos) = tag.find("charset") {
+            let after = tag[pos + "charset".len()..].trim_start();
+            if let Some(value) = after.strip_prefix('=') {
+                let label: String = value
+                    .trim_start()
+                    .trim_start_matches(['"', '\''])
+                    .chars()
+                    .take_while(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ':'))
+                    .collect();
+                if !label.is_empty() {
+                    return Some(label);
+                }
+            }
+        }
+        rest = &rest[at + "<meta".len()..];
+    }
+    None
 }
 
 /// Raster types only — notably not `image/svg+xml`, which the frontend
@@ -631,6 +696,33 @@ mod tests {
             let addr: IpAddr = ip.parse().unwrap();
             assert!(is_disallowed_ip(&addr), "{ip} should be disallowed");
         }
+    }
+
+    #[test]
+    fn decodes_the_page_in_its_declared_charset() {
+        // "Café" in windows-1252, declared three ways.
+        let body = b"<html><head><title>Caf\xe9</title></head>";
+        assert!(decode_html(body, "text/html; charset=windows-1252").contains("Café"));
+        assert!(decode_html(body, "text/html; charset=\"ISO-8859-1\"").contains("Café"));
+        let meta = b"<html><head><meta charset=\"windows-1252\"><title>Caf\xe9</title>";
+        assert!(decode_html(meta, "text/html").contains("Café"));
+        let http_equiv =
+            b"<head><META HTTP-EQUIV=\"Content-Type\" CONTENT=\"text/html; charset=windows-1252\"><title>Caf\xe9</title>";
+        assert!(decode_html(http_equiv, "text/html").contains("Café"));
+        // Shift_JIS: "日本" (0x93fa 0x967b).
+        let sjis = b"<meta charset=shift_jis><title>\x93\xfa\x96\x7b</title>";
+        assert!(decode_html(sjis, "text/html").contains("日本"));
+    }
+
+    #[test]
+    fn decoding_defaults_to_utf8_and_lets_a_bom_win() {
+        assert!(decode_html("<title>Café</title>".as_bytes(), "text/html").contains("Café"));
+        assert!(decode_html("<title>Café</title>".as_bytes(), "text/html; charset=bogus").contains("Café"));
+        let bom = [b"\xef\xbb\xbf".as_slice(), "<title>Café</title>".as_bytes()].concat();
+        assert!(decode_html(&bom, "text/html; charset=windows-1252").contains("Café"));
+        // The header outranks a contradicting <meta>.
+        let body = b"<meta charset=utf-8><title>Caf\xe9</title>";
+        assert!(decode_html(body, "text/html; charset=windows-1252").contains("Café"));
     }
 
     #[test]

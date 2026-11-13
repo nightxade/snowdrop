@@ -43,6 +43,9 @@ futures-util = { version = "0.3", default-features = false, features = ["std"] }
 # Parses the fetched page's `<title>`/Open Graph/Twitter-card tags for link
 # previews with a real HTML5 tokenizer (never regex) — see link_preview.rs.
 html5gum = "0.8"
+# Decodes a fetched page in its declared charset (Content-Type, BOM or
+# `<meta>`), as browsers do, so non-UTF-8 titles aren't garbled.
+encoding_rs = "0.8"
 # The preview image's pixel size, read from its header only (no full decode).
 imagesize = "0.15"
 # Decodes the embedded tray icon (`tray.rs`) into raw RGBA so the badge
