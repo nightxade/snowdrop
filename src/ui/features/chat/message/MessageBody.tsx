@@ -10,7 +10,7 @@ import {
 import { MENTION_PLACEHOLDER, rangesToSegments, type BodyRange, type Segment } from '@/core/domain';
 import { CUSTOM_EMOJI_TOKEN } from '@/core/stores/customEmoji';
 import { splitGraphemes } from '@/ui/lib/graphemes';
-import { findLinks } from '../lib/links';
+import { findLinks, type FoundLink } from '../lib/links';
 import styles from './MessageBody.module.css';
 
 export interface MessageBodyProps {
@@ -54,10 +54,39 @@ export interface MessageBodyProps {
   linksEnabled?: boolean;
 }
 
+/**
+ * Whether this piece of text runs straight into its neighbours (a custom
+ * emoji, a mention, a bold run…) with no space between, at its start and end.
+ */
+interface Glued {
+  before: boolean;
+  after: boolean;
+}
+const NOT_GLUED: Glued = { before: false, after: false };
+
+/**
+ * A bare domain is only a link when it is whole: one that runs into a custom
+ * emoji or a formatting change at either end (`pay:emoji:pal.com`,
+ * `pay**pal.com**`) is part of a longer word, so none of it links. A full
+ * `http(s)://` address carries its own start and stays a link.
+ */
+function isWholeLink(link: FoundLink, text: string, glued: Glued): boolean {
+  if (/^https?:\/\//iu.test(link.text)) return true;
+  return !(glued.before && link.start === 0) && !(glued.after && link.end === text.length);
+}
+
 /** Plain text with http(s) links, and bare domains, made clickable (opened in a new tab, no referrer). */
-function Linkified({ text, enabled = true }: { text: string; enabled?: boolean }) {
+function Linkified({
+  text,
+  enabled = true,
+  glued = NOT_GLUED,
+}: {
+  text: string;
+  enabled?: boolean;
+  glued?: Glued;
+}) {
   if (!enabled) return text;
-  const links = findLinks(text);
+  const links = findLinks(text).filter((link) => isWholeLink(link, text, glued));
   if (links.length === 0) return text;
   const parts: ReactNode[] = [];
   let last = 0;
@@ -86,11 +115,13 @@ function EmojiAndLinks({
   resolve,
   wrap,
   links,
+  glued,
 }: {
   text: string;
   resolve: (name: string) => string | undefined;
   wrap?: ((name: string, image: ReactElement) => ReactNode) | undefined;
   links: boolean;
+  glued: Glued;
 }) {
   const parts: ReactNode[] = [];
   let last = 0;
@@ -99,7 +130,15 @@ function EmojiAndLinks({
     const dataUrl = name && resolve(name);
     if (!dataUrl) continue;
     const at = match.index;
-    if (at > last) parts.push(<Linkified key={at} text={text.slice(last, at)} enabled={links} />);
+    if (at > last)
+      parts.push(
+        <Linkified
+          key={at}
+          text={text.slice(last, at)}
+          enabled={links}
+          glued={{ before: last > 0 || glued.before, after: true }}
+        />,
+      );
     const image = <img className={styles.customEmoji} src={dataUrl} alt={match[0]} />;
     parts.push(
       wrap && name ? (
@@ -110,9 +149,16 @@ function EmojiAndLinks({
     );
     last = at + match[0].length;
   }
-  if (last === 0) return <Linkified text={text} enabled={links} />;
+  if (last === 0) return <Linkified text={text} enabled={links} glued={glued} />;
   if (last < text.length)
-    parts.push(<Linkified key={last} text={text.slice(last)} enabled={links} />);
+    parts.push(
+      <Linkified
+        key={last}
+        text={text.slice(last)}
+        enabled={links}
+        glued={{ before: true, after: glued.after }}
+      />,
+    );
   return parts;
 }
 
@@ -162,9 +208,27 @@ function plainText(segments: readonly Segment[]): string {
     .join('');
 }
 
-function render(segments: readonly Segment[], props: MessageBodyProps, path: string): ReactNode[] {
+/** Whether a segment's rendered text starts (or ends) with something other than whitespace. */
+function edgeIsText(s: Segment, end: 'start' | 'end'): boolean {
+  const text = s.type === 'mention' ? '@' : s.type === 'text' ? s.text : plainText(s.children);
+  const ch = end === 'start' ? text.at(0) : text.at(-1);
+  return ch !== undefined && !/\s/u.test(ch);
+}
+
+function render(
+  segments: readonly Segment[],
+  props: MessageBodyProps,
+  path: string,
+  outer: Glued = NOT_GLUED,
+): ReactNode[] {
   return segments.map((s, i) => {
     const key = `${path}.${i}`;
+    const prev = segments[i - 1];
+    const next = segments[i + 1];
+    const glued: Glued = {
+      before: prev ? edgeIsText(prev, 'end') : outer.before,
+      after: next ? edgeIsText(next, 'start') : outer.after,
+    };
     if (s.type === 'text') {
       // Stray placeholders (a mention without its range) carry no meaning.
       const text = s.text.replaceAll(MENTION_PLACEHOLDER, '');
@@ -176,9 +240,10 @@ function render(segments: readonly Segment[], props: MessageBodyProps, path: str
           resolve={props.resolveCustomEmoji}
           wrap={props.renderCustomEmoji}
           links={props.linksEnabled !== false}
+          glued={glued}
         />
       ) : (
-        <Linkified key={key} text={text} enabled={props.linksEnabled !== false} />
+        <Linkified key={key} text={text} enabled={props.linksEnabled !== false} glued={glued} />
       );
     }
     if (s.type === 'mention') {
@@ -207,22 +272,22 @@ function render(segments: readonly Segment[], props: MessageBodyProps, path: str
     }
     switch (s.style) {
       case 'bold':
-        return <strong key={key}>{render(s.children, props, key)}</strong>;
+        return <strong key={key}>{render(s.children, props, key, glued)}</strong>;
       case 'italic':
-        return <em key={key}>{render(s.children, props, key)}</em>;
+        return <em key={key}>{render(s.children, props, key, glued)}</em>;
       case 'strikethrough':
-        return <s key={key}>{render(s.children, props, key)}</s>;
+        return <s key={key}>{render(s.children, props, key, glued)}</s>;
       case 'spoiler':
         if (props.preview)
           return (
             <span key={key} className={styles.spoiler}>
               {/* inert: hidden content can't be focused or clicked (a link under the bar would follow). */}
               <span aria-hidden inert className={styles.spoilerText}>
-                {render(s.children, props, key)}
+                {render(s.children, props, key, glued)}
               </span>
             </span>
           );
-        return <Spoiler key={key}>{render(s.children, props, key)}</Spoiler>;
+        return <Spoiler key={key}>{render(s.children, props, key, glued)}</Spoiler>;
       case 'monospace': {
         const code = plainText(s.children);
         if (code.includes('\n')) {

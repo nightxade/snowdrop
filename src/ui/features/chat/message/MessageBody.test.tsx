@@ -106,6 +106,36 @@ describe('MessageBody', () => {
     expect(links[0]?.getAttribute('href')).toBe('https://en.wikipedia.org/wiki/Foo');
   });
 
+  it('never links a domain split by a custom emoji or by formatting', () => {
+    const resolve = (name: string) => (name === 'blob' ? 'data:image/png;base64,AA==' : undefined);
+    render(
+      <MessageBody
+        body="pay:blob:pal.com and example.org:blob: and :blob: ok.net"
+        ranges={[]}
+        selfId={null}
+        nameFor={nameFor}
+        resolveCustomEmoji={resolve}
+      />,
+    );
+    expect(screen.getAllByRole('link').map((l) => l.textContent)).toEqual(['ok.net']);
+    cleanup();
+    const bold = parseMarkdownToRanges('pay**pal.com** and **bold** x.org');
+    renderBody(bold.body, bold.ranges);
+    expect(screen.getAllByRole('link').map((l) => l.textContent)).toEqual(['x.org']);
+  });
+
+  it('keeps a whole domain or a full address a link next to an emoji or formatting', () => {
+    const body = 'example.com see https://x.org/a';
+    renderBody(body, [
+      { start: 0, length: 11, style: 'bold' },
+      { start: body.length - 1, length: 1, style: 'bold' },
+    ]);
+    expect(screen.getAllByRole('link').map((l) => l.textContent)).toEqual([
+      'example.com',
+      'https://x.org/',
+    ]);
+  });
+
   it('leaves links as plain text when disabled', () => {
     render(
       <MessageBody
