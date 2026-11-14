@@ -1,4 +1,8 @@
 fn main() {
+    // See src/gtk_clipboard_guard.rs: WebKitGTK's call must resolve to the binary's definition.
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux") {
+        println!("cargo:rustc-link-arg-bins=-Wl,--export-dynamic-symbol=gtk_clipboard_request_targets");
+    }
     // An app manifest makes the app's own commands permission-gated like
     // plugin commands: only those listed in capabilities/main.json are callable.
     tauri_build::try_build(

@@ -14,6 +14,8 @@ pub mod error;
 pub mod export_crypto;
 pub mod events;
 pub mod external;
+#[cfg(target_os = "linux")]
+pub mod gtk_clipboard_guard;
 pub mod jsonrpc;
 pub mod keyslots;
 pub mod link_preview;
@@ -143,6 +145,8 @@ pub fn run() {
     {
         appimage::fix_gstreamer_scanner();
         appimage::fix_gstreamer_registry();
+        // Referenced so the linker keeps it; build.rs exports it from the binary.
+        std::hint::black_box(gtk_clipboard_guard::gtk_clipboard_request_targets as *const ());
     }
     let app = tauri::Builder::default()
         // First, so a second launch hands over before anything else starts.
