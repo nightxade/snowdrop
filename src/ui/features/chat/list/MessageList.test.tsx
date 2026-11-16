@@ -189,7 +189,7 @@ describe('jump to message', () => {
 
 describe('focus() vs focusLatest()', () => {
   /** A deterministic two-message window, rendered and settled, with the chat controller. */
-  async function openTwoMessages(snowdrop: Snowdrop) {
+  async function openTwoMessages(snowdrop: Snowdrop, { moveTabStop = true } = {}) {
     const conv = Object.values(snowdrop.stores.conversations.getState().byId).find(
       (c) => c.title === 'Orchard · Engineering',
     )!;
@@ -237,6 +237,7 @@ describe('focus() vs focusLatest()', () => {
       },
       { timeout: 3000 },
     );
+    if (!moveTabStop) return { conv, chat, olderId, newerId, author };
     // Move the roving tab stop to the older message (e.g. a quote jump) and
     // off it again, the way leaving the composer would find it.
     await act(async () => {
@@ -248,7 +249,7 @@ describe('focus() vs focusLatest()', () => {
     });
     expect(document.activeElement?.getAttribute('data-message-id')).toBe(olderId);
     (document.activeElement as HTMLElement | null)?.blur();
-    return { conv, chat, olderId, newerId };
+    return { conv, chat, olderId, newerId, author };
   }
 
   it('focus() keeps using the last tab stop (e.g. the "Focus the message list" command)', async () => {
@@ -276,6 +277,70 @@ describe('focus() vs focusLatest()', () => {
     });
     expect(document.activeElement?.getAttribute('data-message-id')).toBe(newerId);
     expect(scrollIntoView).toHaveBeenCalledWith(expect.objectContaining({ block: 'end' }));
+  });
+
+  /** A message arriving in the open window, after the two above. */
+  async function arrive(
+    snowdrop: Snowdrop,
+    conv: { id: Message['conversationId'] },
+    author: Message['authorId'],
+  ) {
+    const id = messageId(author, 3_000_120);
+    await act(async () => {
+      snowdrop.stores.messages.getState().appendLive({
+        id,
+        conversationId: conv.id,
+        authorId: author,
+        sentAt: 3_000_120,
+        receivedAt: 3_000_120,
+        body: 'focus-latest message 2',
+        ranges: [],
+        attachments: [],
+        reactions: [],
+        status: 'read',
+        kind: 'normal',
+      });
+      await new Promise((r) => requestAnimationFrame(r));
+    });
+    await waitFor(() => {
+      expect(document.querySelector(`[data-message-id="${id}"]`)).toBeTruthy();
+    });
+    return id;
+  }
+
+  it('an untouched tab stop follows new messages, so focus() lands on the newest', async () => {
+    const snowdrop = await bootSnowdrop();
+    snowdrops.push(snowdrop);
+    const { conv, chat, author } = await openTwoMessages(snowdrop, { moveTabStop: false });
+    const newestId = await arrive(snowdrop, conv, author);
+    act(() => {
+      chat.navigation?.focus();
+    });
+    expect(document.activeElement?.getAttribute('data-message-id')).toBe(newestId);
+  });
+
+  it('a tab stop the user moved stays put when a new message arrives', async () => {
+    const snowdrop = await bootSnowdrop();
+    snowdrops.push(snowdrop);
+    const { conv, chat, olderId, author } = await openTwoMessages(snowdrop);
+    await arrive(snowdrop, conv, author);
+    act(() => {
+      chat.navigation?.focus();
+    });
+    expect(document.activeElement?.getAttribute('data-message-id')).toBe(olderId);
+  });
+
+  it('the focused newest row keeps its marker when a new message arrives', async () => {
+    const snowdrop = await bootSnowdrop();
+    snowdrops.push(snowdrop);
+    const { conv, chat, newerId, author } = await openTwoMessages(snowdrop, { moveTabStop: false });
+    act(() => {
+      chat.navigation?.focus();
+    });
+    expect(document.activeElement?.getAttribute('data-message-id')).toBe(newerId);
+    await arrive(snowdrop, conv, author);
+    expect(document.activeElement?.getAttribute('data-message-id')).toBe(newerId);
+    expect(document.activeElement?.hasAttribute('data-current')).toBe(true);
   });
 });
 

@@ -212,13 +212,25 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
     pin.reset(initialIndex.index === 'LAST');
   }, [pin, initialIndex]);
 
-  // The roving tab stop defaults to the newest message.
+  // The roving tab stop defaults to the newest message, and follows newer
+  // ones until the user moves it, so leaving the composer lands on the
+  // latest row. Never while that row has focus: the marker would leave it.
+  const newestId = useRef<MessageId | null>(null);
   useEffect(() => {
-    const active = rows.activeId;
-    if (active !== null && items.some((it) => 'id' in it && it.id === active)) return;
     const last = items.findLast((it) => it.type === 'message');
-    if (last && 'id' in last) rows.setActive(last.id);
-  }, [items, rows]);
+    const lastId = last && 'id' in last ? last.id : null;
+    const previous = newestId.current;
+    newestId.current = lastId;
+    const active = rows.activeId;
+    if (active !== null && items.some((it) => 'id' in it && it.id === active)) {
+      const following = active === previous && lastId !== null && lastId !== active;
+      const focused = scroller.current
+        ?.querySelector(`[data-message-id="${CSS.escape(active)}"]`)
+        ?.contains(document.activeElement);
+      if (!following || focused) return;
+    }
+    if (lastId !== null) rows.setActive(lastId);
+  }, [items, rows, scroller]);
 
   const jumpToPresent = useCallback(async () => {
     const w = stores.messages.getState().windows[conversationId];
