@@ -7,6 +7,7 @@ import { Button } from '@/ui/primitives';
 import { CodeEditor } from '@/ui/primitives/CodeEditor';
 import { SettingRow } from '../rows/SettingRow';
 import { SettingsSection } from '../rows/SettingsSection';
+import { SafeModeHint } from './SafeModeHint';
 import styles from './customcss.module.css';
 
 const APPLY_DELAY_MS = 300;
@@ -61,14 +62,19 @@ export function CustomCssPage() {
       {safeMode && (
         <p className={styles.safe} role="status">
           <ShieldAlert size={16} aria-hidden />
-          Safe mode is on: this CSS isn’t applied until you reload Snowdrop normally.
+          Safe mode is on: this CSS isn’t applied until you open Snowdrop normally again.
         </p>
       )}
       <SettingsSection>
         <SettingRow
           id="custom-css.editor"
           label="Editor"
-          description="Applied live, a moment after you stop typing. Tab indents; press Esc to Tab out. If something makes Snowdrop unusable, reload with Shift held (or add ?safe=1 to the address) to start without your CSS and themes."
+          description={
+            <>
+              Applied live, a moment after you stop typing. Tab indents; press Esc to Tab out.{' '}
+              <SafeModeHint cause="something here" without="your CSS and themes" />
+            </>
+          }
           stacked
           control={
             <div className={styles.editorWrap}>

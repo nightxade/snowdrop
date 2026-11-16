@@ -28,7 +28,7 @@ describe('installBootHelpers', () => {
     const toasts = snowdrop.stores.ui.getState().toasts;
     expect(toasts).toHaveLength(1);
     expect(toasts[0]?.message).toBe(
-      'Safe mode: imported themes and Custom CSS are off until you reload.',
+      'Safe mode: imported themes and Custom CSS are off until you open Snowdrop normally again.',
     );
   });
 

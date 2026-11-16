@@ -14,6 +14,7 @@ import { downloadText } from '../download';
 import { SettingRow } from '../rows/SettingRow';
 import { SettingsSection } from '../rows/SettingsSection';
 import { ThemeCards } from './ThemeCards';
+import { SafeModeHint } from './SafeModeHint';
 import styles from './themes.module.css';
 
 const MAX_FILE = 200_000;
@@ -162,8 +163,8 @@ export function ThemesPage() {
               A JSON file with <code>name</code>, <code>tokens</code> (design token names such as{' '}
               <code>accent</code> or <code>bg-chat</code>, with CSS values) and optional{' '}
               <code>css</code>. Tokens you leave out keep Dusk’s values. A theme with CSS applies
-              for {TRIAL_SECONDS} seconds first, so you can back out. If one ever makes Snowdrop
-              unusable, reload with Shift held (or add <code>?safe=1</code>) to start without it.
+              for {TRIAL_SECONDS} seconds first, so you can back out.{' '}
+              <SafeModeHint cause="one" without="your themes and CSS" />
             </>
           }
           control={
@@ -206,7 +207,8 @@ export function ThemesPage() {
       {safeMode && (
         <p className={styles.safe} role="status">
           <ShieldAlert size={16} aria-hidden />
-          Safe mode is on: imported themes and Custom CSS aren’t applied until you reload Snowdrop.
+          Safe mode is on: imported themes and Custom CSS aren’t applied until you open Snowdrop
+          normally again.
         </p>
       )}
       {trial && (

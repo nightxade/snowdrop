@@ -23,7 +23,8 @@ export function installBootHelpers({ snowdrop, safeMode }: InstallBootHelpersOpt
 
   if (safeMode) {
     snowdrop.stores.ui.getState().pushToast({
-      message: 'Safe mode: imported themes and Custom CSS are off until you reload.',
+      message:
+        'Safe mode: imported themes and Custom CSS are off until you open Snowdrop normally again.',
       kind: 'info',
       source: 'core',
     });

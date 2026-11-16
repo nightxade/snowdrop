@@ -132,7 +132,7 @@ export interface SnowdropOptions {
   /** Desktop notifications (tests inject a fake); defaults to the browser's (native in the desktop app). */
   notificationApi?: NotificationApi;
   /**
-   * Safe mode (`?safe=1`, or Shift held while loading): imported themes and
+   * Safe mode (`?safe=1`; `snowdrop --safe` in the desktop app): imported themes and
    * Custom CSS are not applied, so a broken one can always be removed.
    */
   safeMode?: boolean;

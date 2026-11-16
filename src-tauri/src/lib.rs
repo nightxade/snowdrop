@@ -111,6 +111,38 @@ pub(crate) fn focus_main(app: &AppHandle) {
     }
 }
 
+/// `snowdrop --safe`: start without imported themes and Custom CSS, so a
+/// broken one can always be removed. The page reads it as `?safe=1`, the
+/// same switch the browser build uses.
+pub const SAFE_MODE_FLAG: &str = "--safe";
+
+/// Whether `args` (the process arguments) ask for safe mode.
+pub fn wants_safe_mode<S: AsRef<str>>(args: &[S]) -> bool {
+    args.iter().any(|a| a.as_ref() == SAFE_MODE_FLAG)
+}
+
+/// `url` with its query replaced by `safe=1`.
+fn safe_mode_url(mut url: url::Url) -> url::Url {
+    url.set_query(Some("safe=1"));
+    url
+}
+
+/// Loads the main window's page again in safe mode (unsaved state is
+/// flushed on `pagehide`, as on any reload).
+fn open_in_safe_mode(app: &AppHandle) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    match window.url() {
+        Ok(url) => {
+            if let Err(e) = window.navigate(safe_mode_url(url)) {
+                log::warn!("couldn't open safe mode: {e}");
+            }
+        }
+        Err(e) => log::warn!("couldn't open safe mode: {e}"),
+    }
+}
+
 /// Starts the close handshake (docs/ENCRYPTION.md, "signal-cli vault"):
 /// emits [`EVENT_FLUSH_BEFORE_CLOSE`] and arms [`CLOSE_FALLBACK`], same as a
 /// normal window close. Also used by the tray menu's "Quit Snowdrop"
@@ -152,7 +184,11 @@ pub fn run() {
         // First, so a second launch hands over before anything else starts.
         // A relaunch shows the window, unless it too asked to start in the
         // tray (e.g. an autostart entry firing while Snowdrop already runs).
+        // A relaunch with `--safe` reloads the running window in safe mode.
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            if wants_safe_mode(&argv) {
+                open_in_safe_mode(app);
+            }
             if !tray::wants_start_in_tray(&argv) {
                 focus_main(app);
             }
@@ -281,7 +317,11 @@ pub fn run() {
             app.manage(Arc::new(tray::CloseToTray::new()));
             // The window is created hidden (tauri.conf.json) and shown here,
             // unless started with `--start-in-tray` and a tray exists.
-            let start_in_tray = tray::wants_start_in_tray(&std::env::args().collect::<Vec<_>>());
+            let args = std::env::args().collect::<Vec<_>>();
+            if wants_safe_mode(&args) {
+                open_in_safe_mode(app.handle());
+            }
+            let start_in_tray = tray::wants_start_in_tray(&args);
             if tray::show_at_launch(start_in_tray, tray::available(app.handle())) {
                 if start_in_tray {
                     log::warn!("snowdrop: --start-in-tray ignored: there is no system tray to start in.");
@@ -408,3 +448,27 @@ pub fn run() {
 /// period plus the kill and reap waits fit inside it). The vault's final sync
 /// that follows is bounded separately, by `vault_bridge`'s shutdown budget.
 const EXIT_BACKEND_BUDGET: std::time::Duration = std::time::Duration::from_secs(10);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn safe_mode_only_with_the_exact_flag() {
+        assert!(wants_safe_mode(&["snowdrop", "--safe"]));
+        assert!(wants_safe_mode(&["snowdrop", "--start-in-tray", "--safe"]));
+        assert!(!wants_safe_mode(&["snowdrop"]));
+        assert!(!wants_safe_mode(&["snowdrop", "--safe=1", "safe"]));
+    }
+
+    #[test]
+    fn safe_mode_url_replaces_the_query_and_keeps_the_page() {
+        let url = url::Url::parse("http://tauri.localhost/index.html?x=1#top").unwrap();
+        assert_eq!(
+            safe_mode_url(url).as_str(),
+            "http://tauri.localhost/index.html?safe=1#top"
+        );
+        let plain = url::Url::parse("tauri://localhost").unwrap();
+        assert_eq!(safe_mode_url(plain).query(), Some("safe=1"));
+    }
+}
