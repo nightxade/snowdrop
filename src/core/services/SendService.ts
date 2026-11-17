@@ -63,6 +63,7 @@ import {
   type StickerContent,
 } from '@/core/domain';
 import {
+  createLogger,
   createNonce,
   pollDraftProblem,
   tidyPollDraft,
@@ -103,6 +104,8 @@ import {
  */
 export type PollActionResult = 'done' | 'ignored' | 'failed';
 
+const log = createLogger('send');
+
 /** Signal clients resend "typing" about every 10 s; more often is noise. */
 export const TYPING_REFRESH_MS = 10_000;
 
@@ -128,6 +131,8 @@ export interface SendServiceDeps {
   readConversation?: (conversationId: ConversationId) => Promise<void>;
   /** A message just sent will disappear at this time (epoch ms): the sync engine purges it on schedule. */
   onExpiry?: (at: number) => void;
+  /** A message deleted for the user alone is remembered as gone, so a replay of it does not bring it back (the sync engine's tombstones). */
+  rememberPurged?: (id: MessageId) => void;
   /**
    * A send stopped because someone's safety number changed (the message is now
    * `failed` and lists them in `blockedByIdentity`): the app opens the review
@@ -1289,7 +1294,9 @@ export class SendService {
 
   /**
    * Removes a message from this device only. Unsent messages are discarded
-   * (nothing to keep); everything else is dropped from history and the view.
+   * (nothing to keep); everything else is dropped from history and the view,
+   * and then removed on the user's other devices too (see `syncDeleteForMe`).
+   * The removal here is immediate and does not wait for that.
    */
   async deleteForMe(conversationId: ConversationId, target: Message): Promise<void> {
     const nonce = target.nonce;
@@ -1298,6 +1305,7 @@ export class SendService {
       return;
     }
     this.deps.stores.messages.getState().remove(conversationId, target.id);
+    this.deps.rememberPurged?.(target.id);
     await this.deps.repository.delete(target.id);
     await refreshPreviewAfterRemoval(
       this.deps.stores.conversations,
@@ -1305,6 +1313,27 @@ export class SendService {
       conversationId,
       target,
     );
+    void this.syncDeleteForMe(conversationId, target);
+  }
+
+  /**
+   * Tells the user's other devices a message was removed here, for a backend
+   * that can (`deleteSync`). Only a message that was sent (an unsent one only
+   * ever existed here) and a real one (not a system line). A background step
+   * after the local delete: a failure never brings the message back and is
+   * never shown to the user, only logged with its kind (no ids, no content).
+   * Each call syncs its own message.
+   */
+  private async syncDeleteForMe(conversationId: ConversationId, target: Message): Promise<void> {
+    if (!this.has('deleteSync') || isPendingMessageId(target.id) || target.kind !== 'normal')
+      return;
+    try {
+      await this.deps.backend.syncDeleteForMe(conversationId, [
+        { authorId: target.authorId, sentAt: target.sentAt },
+      ]);
+    } catch (error) {
+      log.warn('delete sync failed', { kind: toAppError(error).kind });
+    }
   }
 
   // ─── Conversation settings ─────────────────────────────────────────────

@@ -65,8 +65,9 @@ regression tests. The second patch adds protobuf decoding and JSON conversion
 that preserve expiration fields and exact 64-bit IDs, plus an official Signal
 fixture test. The third patch adds transactional storage in the account database
 and a `getHistory` CLI/JSON-RPC command. The build version
-(`0.14.8-snowdrop-history.N`, currently `.26`, the first build with the synced message-request answer, synced verification and streamed
-`getAttachment` described below (`.26` also carries the signal-service-java `0003` fix that lets SPAM and BLOCK_AND_SPAM reach them), on top of the backfill, link-import, listener, custom-emoji and
+(`0.14.8-snowdrop-history.N`, currently `.27`, the first build with "delete for me" sync in both directions (`sendDeleteForMeSync` and the
+`deleteForMe` field of a received sync message, both described below, with the signal-service-java `0004` patch) on top of the synced message-request answer, synced verification and streamed
+`getAttachment` described below (`.26` also carries the signal-service-java `0003` fix that lets SPAM and BLOCK_AND_SPAM reach them), and the backfill, link-import, listener, custom-emoji and
 multi-account fixes) is set in this one place, a single
 `build.gradle.kts` hunk, and recorded in PROVENANCE; raise `N` there whenever the patch set
 changes in a way installs must pick up (Snowdrop gates features on it, see the "First shipped"
@@ -1118,6 +1119,55 @@ store is skipped. The call is wrapped so that an error while applying (logged as
 class only) cannot abort handling of the rest of the sync message. No `DATABASE_VERSION` change. Not verified
 against a real phone. First shipped as build `0.14.8-snowdrop-history.25`; `SPAM` and `BLOCK_AND_SPAM` and the
 group change arrived in `.26`.
+
+## 0027: delete for me, synced both ways
+
+Upstream signal-cli never sends or surfaces `SyncMessage.deleteForMe`. Needs `patches/signal-service-java`
+`0004` (the library had no factory, sender branch or parser for it), which is why the library version is
+`snowdrop.3`. No account capability is involved (see that README).
+
+**Sending: `sendDeleteForMeSync`.** A JSON-RPC command (also a CLI command) that tells the user's other
+devices that messages were deleted here only. Parameters: `recipient` or `groupId` (the same as
+`requestAttachmentBackfill`; exactly one) and `messages`, a list of `{ "author": ..., "targetTimestamp": ... }`
+(author an ACI, PNI or phone number; the timestamp a number or a decimal string). On the command line each
+message is `--message AUTHOR:TIMESTAMP`. It sends one `DeleteForMe` with one `MessageDeletes` entry for that
+conversation, built by `DeleteForMeBuilder` the way Signal clients identify things: a person by service id
+string (the ACI; the PNI only without an ACI), a group by its group id bytes, and the E164 only when there is
+no service id at all; a message by its author the same way plus its sent timestamp. A recipient known only
+by username cannot be addressed and is refused. Result: `{ "sent": true }`, or `{ "sent": false }` when the
+account has no other linked device (nothing is sent, and it is not an error). A send failure is an error
+(`UnexpectedErrorException`, without ids in its message). Over DBus it is not supported.
+
+**Receiving.** A `deleteForMe` in a sync message is surfaced only when it came from another device of the
+user's own account (`IncomingMessageHandler.isOwnOtherDevice`: the sender's ACI or PNI is ours and the device
+id is not this one); from anyone else it is dropped before it reaches the JSON. (The library already builds a
+sync message only for our own address; this is a second check on the handler's side.) Nothing is applied
+here: signal-cli keeps no messages. The JSON receive output gets, under `syncMessage`:
+
+```json
+"deleteForMe": {
+  "messageDeletes": [{ "conversation": { "threadServiceId": "..." },
+                       "messages": [{ "authorServiceId": "...", "sentTimestamp": 123 }] }],
+  "conversationDeletes": [{ "conversation": { "threadGroupId": "base64" },
+                            "mostRecentMessages": [...], "mostRecentNonExpiringMessages": [...],
+                            "isFullDelete": true }],
+  "localOnlyConversationDeletes": [{ "conversation": { "threadE164": "+..." } }]
+}
+```
+
+A conversation is exactly one of `threadServiceId` (an ACI, or `PNI:` plus a PNI; the binary form on the
+wire is read too), `threadGroupId` (base64) or `threadE164`; an author is `authorServiceId` or `authorE164`.
+Identifiers are passed as the protocol states them, not resolved against the recipient store. Entries the
+protocol leaves incomplete (no conversation, no usable message, a conversation delete naming no message that
+is not a full delete) are dropped. `attachmentDeletes` are not passed through: Snowdrop has nothing to do
+with them. `mostRecentNonExpiringMessages` is passed because Signal Desktop falls back to it when none of
+`mostRecentMessages` exists locally.
+
+Tests: `DeleteForMeBuilderTest` (identifier choice, group bytes, wire round trip), `DeleteForMeMessageTest`
+(decoding, binary ids, dropped entries), `MessageEnvelopeDeleteForMeTest` and
+`IncomingMessageHandlerOwnDeviceTest` (own-device filtering), `JsonSyncDeleteForMeTest` (JSON shape),
+`SendDeleteForMeSyncCommandTest` (parameter parsing, no linked device, errors, registration). Not verified
+against a real phone. First shipped as build `0.14.8-snowdrop-history.27`.
 
 ## The native build
 

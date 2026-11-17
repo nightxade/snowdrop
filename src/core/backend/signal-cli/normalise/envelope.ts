@@ -15,7 +15,13 @@ import {
   type MessageStatus,
 } from '@/core/domain';
 import { stripBidiControls } from '@/core/lib';
-import type { ReceiptType, SyncedRequestAnswer } from '../../types';
+import type {
+  BackendEvents,
+  DeletedForMeConversation,
+  MessageRef,
+  ReceiptType,
+  SyncedRequestAnswer,
+} from '../../types';
 import { noteServerReceived } from '../../serverTime';
 import { decode } from '../validate';
 import {
@@ -24,6 +30,7 @@ import {
   type WireDataMessage,
   type WireEditMessage,
   type WireEnvelope,
+  type WireSyncDeleteForMe,
 } from '../wire';
 import { buildMessage, systemMessage, toLinkPreviews } from './content';
 import { timerSentence } from './directory';
@@ -221,6 +228,16 @@ export function normaliseEnvelope(envelope: WireEnvelope, ctx: NormaliseContext)
         },
       });
     }
+    if (sync.deleteForMe) {
+      // Only the user's own devices send one; anything else is not acted on.
+      const deleted = source === ctx.selfId ? deleteForMeEvent(sync.deleteForMe, resolve) : null;
+      if (deleted) events.push({ kind: 'deleteForMe', payload: deleted });
+      else
+        ctx.debug(
+          'ignored a synced delete',
+          source === ctx.selfId ? 'nothing to apply' : 'not ours',
+        );
+    }
     const answer = sync.messageRequestResponse;
     if (answer) {
       const kind = SYNCED_ANSWERS.get(answer.type ?? '');
@@ -309,6 +326,81 @@ export function normaliseEnvelope(envelope: WireEnvelope, ctx: NormaliseContext)
   else if (envelope.storyMessage !== undefined) ctx.debug('ignored story');
   else ctx.debug('ignored empty envelope', envelope.timestamp);
   return [];
+}
+
+/**
+ * A service id as signal-cli prints it (a PNI carries a `PNI:` prefix),
+ * as the plain uuid every other sender or peer id arrives as, so it folds
+ * to the same local id.
+ */
+const plainServiceId = (id: string): string => (id.startsWith('PNI:') ? id.slice(4) : id);
+
+/**
+ * The conversation a "delete for me" names, in Snowdrop's ids (the same
+ * folding as any other sender or peer); undefined when it names none.
+ */
+function deletedConversationId(
+  c: {
+    threadServiceId?: string | undefined;
+    threadE164?: string | undefined;
+    threadGroupId?: string | undefined;
+  },
+  resolve: (id: string) => string,
+): ConversationId | undefined {
+  if (c.threadGroupId) return groupConversationId(c.threadGroupId);
+  const person = c.threadServiceId ? plainServiceId(c.threadServiceId) : c.threadE164;
+  return person ? directConversationId(resolve(person)) : undefined;
+}
+
+/** A message a "delete for me" names, as author and sent time; undefined without an author. */
+function deletedMessageRef(
+  m: {
+    authorServiceId?: string | undefined;
+    authorE164?: string | undefined;
+    sentTimestamp: number;
+  },
+  resolve: (id: string) => string,
+): MessageRef | undefined {
+  const author = m.authorServiceId ? plainServiceId(m.authorServiceId) : m.authorE164;
+  return author ? { authorId: resolve(author), sentAt: m.sentTimestamp } : undefined;
+}
+
+/**
+ * A synced "delete for me" as one event: the single messages, and the chats
+ * cleared (a "local only" delete is a full delete that names no message).
+ * Entries naming no chat or message are dropped; null when nothing is left.
+ */
+function deleteForMeEvent(
+  deleted: WireSyncDeleteForMe,
+  resolve: (id: string) => string,
+): BackendEvents['deleteForMe'] | null {
+  const refs = (list: readonly Parameters<typeof deletedMessageRef>[0][]): MessageRef[] =>
+    list.flatMap((m) => deletedMessageRef(m, resolve) ?? []);
+  const messages = deleted.messageDeletes.flatMap((d) => {
+    const conversationId = d.conversation && deletedConversationId(d.conversation, resolve);
+    return conversationId ? refs(d.messages).map((ref) => ({ ...ref, conversationId })) : [];
+  });
+  const conversations: DeletedForMeConversation[] = [
+    ...deleted.conversationDeletes.flatMap((d) => {
+      const conversationId = d.conversation && deletedConversationId(d.conversation, resolve);
+      if (!conversationId) return [];
+      return [
+        {
+          conversationId,
+          mostRecent: refs(d.mostRecentMessages),
+          mostRecentNonExpiring: refs(d.mostRecentNonExpiringMessages),
+          isFullDelete: d.isFullDelete === true,
+        },
+      ];
+    }),
+    ...deleted.localOnlyConversationDeletes.flatMap((d) => {
+      const conversationId = d.conversation && deletedConversationId(d.conversation, resolve);
+      return conversationId
+        ? [{ conversationId, mostRecent: [], mostRecentNonExpiring: [], isFullDelete: true }]
+        : [];
+    }),
+  ];
+  return messages.length > 0 || conversations.length > 0 ? { messages, conversations } : null;
 }
 
 function fromEdit(

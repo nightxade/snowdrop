@@ -1,0 +1,432 @@
+diff --git a/lib/libsignal-service/src/main/java/org/whispersystems/signalservice/api/SignalServiceMessageSender.java b/lib/libsignal-service/src/main/java/org/whispersystems/signalservice/api/SignalServiceMessageSender.java
+index 5f43c18b..212945db 100644
+--- a/lib/libsignal-service/src/main/java/org/whispersystems/signalservice/api/SignalServiceMessageSender.java
++++ b/lib/libsignal-service/src/main/java/org/whispersystems/signalservice/api/SignalServiceMessageSender.java
+@@ -787,6 +787,8 @@ public class SignalServiceMessageSender {
+     } else if (message.getAttachmentBackfillRequest().isPresent()) {
+       content = createAttachmentBackfillRequestContent(message.getAttachmentBackfillRequest().get());
+       urgent = true;
++    } else if (message.getDeleteForMe().isPresent()) {
++      content = createDeleteForMeContent(message.getDeleteForMe().get());
+     } else {
+       throw new IOException("Unsupported sync message!");
+     }
+@@ -1918,6 +1920,13 @@ public class SignalServiceMessageSender {
+     return container.syncMessage(builder.build()).build();
+   }
+ 
++  private Content createDeleteForMeContent(SyncMessage.DeleteForMe proto) {
++    Content.Builder     container = new Content.Builder();
++    SyncMessage.Builder builder   = createSyncMessageBuilder().deleteForMe(proto);
++
++    return container.syncMessage(builder.build()).build();
++  }
++
+   private SyncMessage.Builder createSyncMessageBuilder() {
+     byte[]       padding = Util.getRandomLengthSecretBytes(512);
+ 
+diff --git a/lib/libsignal-service/src/main/java/org/whispersystems/signalservice/api/messages/SignalServiceContent.kt b/lib/libsignal-service/src/main/java/org/whispersystems/signalservice/api/messages/SignalServiceContent.kt
+index f7b431a7..9cfc1034 100644
+--- a/lib/libsignal-service/src/main/java/org/whispersystems/signalservice/api/messages/SignalServiceContent.kt
++++ b/lib/libsignal-service/src/main/java/org/whispersystems/signalservice/api/messages/SignalServiceContent.kt
+@@ -1229,6 +1229,10 @@ class SignalServiceContent {
+       if (content.deviceNameChange != null) {
+         return SignalServiceSyncMessage.forDeviceNameChange(content.deviceNameChange)
+       }
++      // Snowdrop: the stock parser dropped DeleteForMe into SignalServiceSyncMessage.empty().
++      if (content.deleteForMe != null) {
++        return SignalServiceSyncMessage.forDeleteForMe(content.deleteForMe)
++      }
+       return if (content.callEvent != null) {
+         SignalServiceSyncMessage.forCallEvent(content.callEvent)
+       } else {
+diff --git a/lib/libsignal-service/src/main/java/org/whispersystems/signalservice/api/messages/multidevice/SignalServiceSyncMessage.java b/lib/libsignal-service/src/main/java/org/whispersystems/signalservice/api/messages/multidevice/SignalServiceSyncMessage.java
+index 3743a8b3..80882097 100644
+--- a/lib/libsignal-service/src/main/java/org/whispersystems/signalservice/api/messages/multidevice/SignalServiceSyncMessage.java
++++ b/lib/libsignal-service/src/main/java/org/whispersystems/signalservice/api/messages/multidevice/SignalServiceSyncMessage.java
+@@ -11,6 +11,7 @@ import org.whispersystems.signalservice.internal.push.SyncMessage.AttachmentBack
+ import org.whispersystems.signalservice.internal.push.SyncMessage.CallEvent;
+ import org.whispersystems.signalservice.internal.push.SyncMessage.CallLinkUpdate;
+ import org.whispersystems.signalservice.internal.push.SyncMessage.CallLogEvent;
++import org.whispersystems.signalservice.internal.push.SyncMessage.DeleteForMe;
+ import org.whispersystems.signalservice.internal.push.SyncMessage.DeviceNameChange;
+ import org.whispersystems.signalservice.internal.push.SyncMessage.PniChangeNumber;
+ import org.whispersystems.signalservice.api.messages.SignalServiceAttachment;
+@@ -45,6 +46,7 @@ public class SignalServiceSyncMessage {
+   private final Optional<DeviceNameChange>                  deviceNameChange;
+   private final Optional<AttachmentBackfillResponse>        attachmentBackfillResponse;
+   private final Optional<AttachmentBackfillRequest>         attachmentBackfillRequest;
++  private final Optional<DeleteForMe>                       deleteForMe;
+ 
+   private SignalServiceSyncMessage(Optional<SentTranscriptMessage> sent,
+                                    Optional<ContactsMessage> contacts,
+@@ -67,7 +69,8 @@ public class SignalServiceSyncMessage {
+                                    Optional<DeviceNameChange> deviceNameChange,
+                                    Optional<AttachmentBackfillResponse> attachmentBackfillResponse,
+                                    Optional<AttachmentBackfillRequest> attachmentBackfillRequest,
+-                                   Optional<PniChangeNumber> pniChangeNumber)
++                                   Optional<PniChangeNumber> pniChangeNumber,
++                                   Optional<DeleteForMe> deleteForMe)
+   {
+     this.sent                       = sent;
+     this.contacts                   = contacts;
+@@ -91,6 +94,7 @@ public class SignalServiceSyncMessage {
+     this.attachmentBackfillResponse = attachmentBackfillResponse;
+     this.attachmentBackfillRequest  = attachmentBackfillRequest;
+     this.pniChangeNumber            = pniChangeNumber;
++    this.deleteForMe                = deleteForMe;
+   }
+ 
+   public static SignalServiceSyncMessage forSentTranscript(SentTranscriptMessage sent) {
+@@ -115,6 +119,7 @@ public class SignalServiceSyncMessage {
+                                         Optional.empty(),
+                                         Optional.empty(),
+                                         Optional.empty(),
++                                        Optional.empty(),
+                                         Optional.empty());
+   }
+ 
+@@ -140,6 +145,7 @@ public class SignalServiceSyncMessage {
+                                         Optional.empty(),
+                                         Optional.empty(),
+                                         Optional.empty(),
++                                        Optional.empty(),
+                                         Optional.empty());
+   }
+ 
+@@ -165,6 +171,7 @@ public class SignalServiceSyncMessage {
+                                         Optional.empty(),
+                                         Optional.empty(),
+                                         Optional.empty(),
++                                        Optional.empty(),
+                                         Optional.empty());
+   }
+ 
+@@ -190,6 +197,7 @@ public class SignalServiceSyncMessage {
+                                         Optional.empty(),
+                                         Optional.empty(),
+                                         Optional.empty(),
++                                        Optional.empty(),
+                                         Optional.empty());
+   }
+ 
+@@ -215,6 +223,7 @@ public class SignalServiceSyncMessage {
+                                         Optional.empty(),
+                                         Optional.empty(),
+                                         Optional.empty(),
++                                        Optional.empty(),
+                                         Optional.empty());
+   }
+ 
+@@ -240,6 +249,7 @@ public class SignalServiceSyncMessage {
+                                         Optional.empty(),
+                                         Optional.empty(),
+                                         Optional.empty(),
++                                        Optional.empty(),
+                                         Optional.empty());
+   }
+ 
+@@ -265,6 +275,7 @@ public class SignalServiceSyncMessage {
+                                         Optional.empty(),
+                                         Optional.empty(),
+                                         Optional.empty(),
++                                        Optional.empty(),
+                                         Optional.empty());
+   }
+ 
+@@ -293,6 +304,7 @@ public class SignalServiceSyncMessage {
+                                         Optional.empty(),
+                                         Optional.empty(),
+                                         Optional.empty(),
++                                        Optional.empty(),
+                                         Optional.empty());
+   }
+ 
+@@ -318,6 +330,7 @@ public class SignalServiceSyncMessage {
+                                         Optional.empty(),
+                                         Optional.empty(),
+                                         Optional.empty(),
++                                        Optional.empty(),
+                                         Optional.empty());
+   }
+ 
+@@ -343,6 +356,7 @@ public class SignalServiceSyncMessage {
+                                         Optional.empty(),
+                                         Optional.empty(),
+                                         Optional.empty(),
++                                        Optional.empty(),
+                                         Optional.empty());
+   }
+ 
+@@ -368,6 +382,7 @@ public class SignalServiceSyncMessage {
+                                         Optional.empty(),
+                                         Optional.empty(),
+                                         Optional.empty(),
++                                        Optional.empty(),
+                                         Optional.empty());
+   }
+ 
+@@ -393,6 +408,7 @@ public class SignalServiceSyncMessage {
+                                         Optional.empty(),
+                                         Optional.empty(),
+                                         Optional.empty(),
++                                        Optional.empty(),
+                                         Optional.empty());
+   }
+ 
+@@ -418,6 +434,7 @@ public class SignalServiceSyncMessage {
+                                         Optional.empty(),
+                                         Optional.empty(),
+                                         Optional.empty(),
++                                        Optional.empty(),
+                                         Optional.empty());
+   }
+ 
+@@ -443,6 +460,7 @@ public class SignalServiceSyncMessage {
+                                         Optional.empty(),
+                                         Optional.empty(),
+                                         Optional.empty(),
++                                        Optional.empty(),
+                                         Optional.empty());
+   }
+ 
+@@ -468,6 +486,7 @@ public class SignalServiceSyncMessage {
+                                         Optional.empty(),
+                                         Optional.empty(),
+                                         Optional.empty(),
++                                        Optional.empty(),
+                                         Optional.empty());
+   }
+ 
+@@ -493,6 +512,7 @@ public class SignalServiceSyncMessage {
+                                         Optional.empty(),
+                                         Optional.empty(),
+                                         Optional.empty(),
++                                        Optional.empty(),
+                                         Optional.empty());
+   }
+ 
+@@ -518,6 +538,7 @@ public class SignalServiceSyncMessage {
+                                         Optional.empty(),
+                                         Optional.empty(),
+                                         Optional.empty(),
++                                        Optional.empty(),
+                                         Optional.empty());
+   }
+ 
+@@ -543,6 +564,7 @@ public class SignalServiceSyncMessage {
+                                         Optional.empty(),
+                                         Optional.empty(),
+                                         Optional.empty(),
++                                        Optional.empty(),
+                                         Optional.empty());
+   }
+ 
+@@ -568,6 +590,7 @@ public class SignalServiceSyncMessage {
+                                         Optional.empty(),
+                                         Optional.empty(),
+                                         Optional.empty(),
++                                        Optional.empty(),
+                                         Optional.empty());
+   }
+ 
+@@ -593,6 +616,7 @@ public class SignalServiceSyncMessage {
+                                         Optional.of(deviceNameChange),
+                                         Optional.empty(),
+                                         Optional.empty(),
++                                        Optional.empty(),
+                                         Optional.empty());
+   }
+ 
+@@ -618,10 +642,37 @@ public class SignalServiceSyncMessage {
+                                         Optional.empty(),
+                                         Optional.of(backfillResponse),
+                                         Optional.empty(),
++                                        Optional.empty(),
+                                         Optional.empty());
+   }
+ 
+ 
++  public static SignalServiceSyncMessage forDeleteForMe(@Nonnull DeleteForMe deleteForMe) {
++    return new SignalServiceSyncMessage(Optional.empty(),
++                                        Optional.empty(),
++                                        Optional.empty(),
++                                        Optional.empty(),
++                                        Optional.empty(),
++                                        Optional.empty(),
++                                        Optional.empty(),
++                                        Optional.empty(),
++                                        Optional.empty(),
++                                        Optional.empty(),
++                                        Optional.empty(),
++                                        Optional.empty(),
++                                        Optional.empty(),
++                                        Optional.empty(),
++                                        Optional.empty(),
++                                        Optional.empty(),
++                                        Optional.empty(),
++                                        Optional.empty(),
++                                        Optional.empty(),
++                                        Optional.empty(),
++                                        Optional.empty(),
++                                        Optional.empty(),
++                                        Optional.of(deleteForMe));
++  }
++
+   public static SignalServiceSyncMessage forAttachmentBackfillRequest(@Nonnull AttachmentBackfillRequest backfillRequest) {
+       return new SignalServiceSyncMessage(Optional.empty(),
+                                           Optional.empty(),
+@@ -644,6 +695,7 @@ public class SignalServiceSyncMessage {
+                                           Optional.empty(),
+                                           Optional.empty(),
+                                           Optional.of(backfillRequest),
++                                          Optional.empty(),
+                                           Optional.empty());
+     }
+ 
+@@ -669,7 +721,8 @@ public class SignalServiceSyncMessage {
+                                         Optional.empty(),
+                                         Optional.empty(),
+                                         Optional.empty(),
+-                                        Optional.of(pniChangeNumber));
++                                        Optional.of(pniChangeNumber),
++                                        Optional.empty());
+   }
+ 
+   public static SignalServiceSyncMessage empty() {
+@@ -694,6 +747,7 @@ public class SignalServiceSyncMessage {
+                                         Optional.empty(),
+                                         Optional.empty(),
+                                         Optional.empty(),
++                                        Optional.empty(),
+                                         Optional.empty());
+   }
+ 
+@@ -781,6 +835,10 @@ public class SignalServiceSyncMessage {
+     return attachmentBackfillRequest;
+   }
+ 
++  public Optional<DeleteForMe> getDeleteForMe() {
++    return deleteForMe;
++  }
++
+   public Optional<PniChangeNumber> getPniChangeNumber() {
+     return pniChangeNumber;
+   }
+diff --git a/lib/libsignal-service/src/test/java/org/whispersystems/signalservice/api/messages/SignalServiceContentDeleteForMeTest.kt b/lib/libsignal-service/src/test/java/org/whispersystems/signalservice/api/messages/SignalServiceContentDeleteForMeTest.kt
+new file mode 100644
+index 00000000..4add7a0b
+--- /dev/null
++++ b/lib/libsignal-service/src/test/java/org/whispersystems/signalservice/api/messages/SignalServiceContentDeleteForMeTest.kt
+@@ -0,0 +1,111 @@
++/*
++ * Licensed according to the LICENSE file in this repository.
++ */
++
++package org.whispersystems.signalservice.api.messages
++
++import assertk.assertThat
++import assertk.assertions.isEqualTo
++import assertk.assertions.isFalse
++import assertk.assertions.isTrue
++import okio.ByteString.Companion.toByteString
++import org.junit.Test
++import org.signal.core.models.ServiceId.ACI
++import org.whispersystems.signalservice.api.crypto.EnvelopeMetadata
++import org.whispersystems.signalservice.api.messages.multidevice.SignalServiceSyncMessage
++import org.whispersystems.signalservice.internal.push.AddressableMessage
++import org.whispersystems.signalservice.internal.push.ConversationIdentifier
++import org.whispersystems.signalservice.internal.push.Content
++import org.whispersystems.signalservice.internal.push.Envelope
++import org.whispersystems.signalservice.internal.push.SyncMessage
++import java.util.UUID
++
++/**
++ * A synced DeleteForMe is kept when it is decoded from the wire: the stock parser turned it into
++ * an empty sync message, so a delete made on another device never reached the application.
++ */
++class SignalServiceContentDeleteForMeTest {
++
++  private val self = ACI.from(UUID.fromString("11111111-2222-3333-4444-555555555555"))
++  private val other = UUID.fromString("66666666-7777-8888-9999-000000000000")
++
++  private fun decode(deleteForMe: SyncMessage.DeleteForMe): SignalServiceSyncMessage {
++    // Round-trip through the wire format, as a received envelope would be.
++    val content = Content.ADAPTER.decode(Content(syncMessage = SyncMessage(deleteForMe = deleteForMe)).encode())
++    val metadata = EnvelopeMetadata(
++      sourceServiceId = self,
++      sourceE164 = null,
++      sourceDeviceId = 2,
++      sealedSender = false,
++      groupId = null,
++      destinationServiceId = self,
++      ciphertextMessageType = 0
++    )
++    val decoded = SignalServiceContent.createFrom(null, Envelope(), metadata, content, 0)!!
++    assertThat(decoded.syncMessage.isPresent).isTrue()
++    return decoded.syncMessage.get()
++  }
++
++  @Test
++  fun `message deletes are decoded`() {
++    val sync = decode(
++      SyncMessage.DeleteForMe(
++        messageDeletes = listOf(
++          SyncMessage.DeleteForMe.MessageDeletes(
++            conversation = ConversationIdentifier(threadServiceId = other.toString()),
++            messages = listOf(AddressableMessage(authorServiceId = self.toString(), sentTimestamp = 1234L))
++          )
++        )
++      )
++    )
++    assertThat(sync.deleteForMe.isPresent).isTrue()
++    val deletes = sync.deleteForMe.get().messageDeletes
++    assertThat(deletes.size).isEqualTo(1)
++    assertThat(deletes[0].conversation!!.threadServiceId).isEqualTo(other.toString())
++    assertThat(deletes[0].messages[0].authorServiceId).isEqualTo(self.toString())
++    assertThat(deletes[0].messages[0].sentTimestamp).isEqualTo(1234L)
++  }
++
++  @Test
++  fun `conversation deletes and local-only deletes are decoded`() {
++    val sync = decode(
++      SyncMessage.DeleteForMe(
++        conversationDeletes = listOf(
++          SyncMessage.DeleteForMe.ConversationDelete(
++            conversation = ConversationIdentifier(threadGroupId = byteArrayOf(1, 2, 3, 4).toByteString()),
++            mostRecentMessages = listOf(AddressableMessage(authorE164 = "+15550001111", sentTimestamp = 99L)),
++            isFullDelete = true
++          )
++        ),
++        localOnlyConversationDeletes = listOf(
++          SyncMessage.DeleteForMe.LocalOnlyConversationDelete(conversation = ConversationIdentifier(threadE164 = "+15550002222"))
++        )
++      )
++    )
++    val deleteForMe = sync.deleteForMe.get()
++    assertThat(deleteForMe.conversationDeletes[0].conversation!!.threadGroupId!!.toByteArray().toList()).isEqualTo(listOf<Byte>(1, 2, 3, 4))
++    assertThat(deleteForMe.conversationDeletes[0].isFullDelete).isEqualTo(true)
++    assertThat(deleteForMe.conversationDeletes[0].mostRecentMessages[0].authorE164).isEqualTo("+15550001111")
++    assertThat(deleteForMe.localOnlyConversationDeletes[0].conversation!!.threadE164).isEqualTo("+15550002222")
++  }
++
++  @Test
++  fun `a sync message without deleteForMe has none`() {
++    val content = Content.ADAPTER.decode(Content(syncMessage = SyncMessage(deviceNameChange = SyncMessage.DeviceNameChange(deviceId = 3))).encode())
++    val metadata = EnvelopeMetadata(self, null, 2, false, null, self, 0)
++    val decoded = SignalServiceContent.createFrom(null, Envelope(), metadata, content, 0)!!
++    assertThat(decoded.syncMessage.get().deleteForMe.isPresent).isFalse()
++  }
++
++  @Test
++  fun `forDeleteForMe carries the proto and leaves the other fields empty`() {
++    val proto = SyncMessage.DeleteForMe(
++      messageDeletes = listOf(SyncMessage.DeleteForMe.MessageDeletes(conversation = ConversationIdentifier(threadServiceId = other.toString())))
++    )
++    val sync = SignalServiceSyncMessage.forDeleteForMe(proto)
++    assertThat(sync.deleteForMe.get()).isEqualTo(proto)
++    assertThat(sync.read.isPresent).isFalse()
++    assertThat(sync.sent.isPresent).isFalse()
++    assertThat(sync.attachmentBackfillRequest.isPresent).isFalse()
++  }
++}

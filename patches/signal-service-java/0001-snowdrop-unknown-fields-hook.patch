@@ -9,7 +9,7 @@ index 80107d7..150e996 100644
 +// Snowdrop: bump only this module's own published version. Its sibling modules
 +// (core:network, core:util-jvm, core:models-jvm) keep the stock upstream version, so this
 +// patch only needs to republish the one jar this hook actually touches.
-+version = "2.15.3_unofficial_153-snowdrop.2"
++version = "2.15.3_unofficial_153-snowdrop.3"
 +
  java {
    withJavadocJar()

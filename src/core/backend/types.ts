@@ -290,6 +290,31 @@ export interface MessageRef {
   sentAt: number;
 }
 
+/** One message removed "for me" on another device: `MessageRef` plus where it was. */
+export interface DeletedForMeMessage extends MessageRef {
+  conversationId: ConversationId;
+}
+
+/**
+ * A chat cleared "for me" on another device. The messages the other device
+ * still held when it cleared the chat (its newest ones, the way Signal sends
+ * them) say how far back to delete: everything up to and including the newest
+ * of them that exists here. A chat none of them exists in is left alone.
+ */
+export interface DeletedForMeConversation {
+  conversationId: ConversationId;
+  /** The chat's newest messages on that device. */
+  mostRecent: MessageRef[];
+  /** Its newest messages that don't disappear; used only when none of `mostRecent` exists here. */
+  mostRecentNonExpiring: MessageRef[];
+  /**
+   * The chat itself was deleted (not just a stretch of it cleared): whatever
+   * is left, system lines included, goes too, unless a real message remains.
+   * Also true for a "local only" delete, which names no messages.
+   */
+  isFullDelete: boolean;
+}
+
 export interface PinInput {
   conversationId: ConversationId;
   targetAuthorId: string;
@@ -484,6 +509,17 @@ export interface BackendEvents {
   };
   /** The user marked a person's safety number verified (or not) on the phone; `at` is when. */
   identityVerified: { contactId: string; verified: boolean; at: number };
+  /**
+   * Messages were removed "for me" on another of the user's own devices
+   * (Signal's `DeleteForMe` sync): already done there, so apply it here and
+   * send nothing back. Only emitted where the `deleteSync` feature is present.
+   */
+  deleteForMe: {
+    /** Single messages, each named by author and sent time in its conversation. */
+    messages: DeletedForMeMessage[];
+    /** Whole chats cleared on that device. */
+    conversations: DeletedForMeConversation[];
+  };
   conversationUpdated: Conversation;
   contactUpdated: Contact;
   /**
@@ -622,6 +658,9 @@ export interface ReadSummary {
  *   disables Install otherwise.
  * - `attachmentBackfill`: `requestAttachmentBackfill` is answered at all
  *   ("0014"; an older patched build or upstream signal-cli advertises none).
+ * - `deleteSync`: `syncDeleteForMe` tells the user's other devices about a
+ *   "delete for me", and the `deleteForMe` event reports theirs ("0027",
+ *   build 27+).
  */
 export type Feature =
   | 'history'
@@ -650,7 +689,8 @@ export type Feature =
   | 'catchingUpSignal'
   | 'orderedCatchingUp'
   | 'stickerPackInstall'
-  | 'attachmentBackfill';
+  | 'attachmentBackfill'
+  | 'deleteSync';
 
 /** A changing set of `Feature`s. `features` is a new set on every change, and `subscribe` fires once per change. */
 export interface BackendCapabilities {
@@ -958,6 +998,16 @@ export interface ChatBackend {
     targetSentAt: number,
     attachmentIds: readonly string[],
   ): Promise<void>;
+
+  /**
+   * Tells the user's other devices that these messages of a conversation were
+   * deleted "for me" here, so they remove them too (Signal's `DeleteForMe`
+   * sync). Nothing goes to anyone else. Needs the `deleteSync` feature, and
+   * does nothing without it or with no messages. Resolves once it was handed
+   * on, or at once when the user has no other device; rejects if it could not
+   * be sent (the local delete stands either way).
+   */
+  syncDeleteForMe(conversationId: ConversationId, messages: readonly MessageRef[]): Promise<void>;
 
   /**
    * Marks transport position `cursor` (from a `checkpoint` event) as durably

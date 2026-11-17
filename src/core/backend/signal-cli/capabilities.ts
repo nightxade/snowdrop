@@ -147,6 +147,23 @@ export function supportsCatchingUpSignal(version: string | undefined): boolean {
   return Number(match[1]) >= MIN_CATCHING_UP_SIGNAL_PATCH_LEVEL;
 }
 
+/**
+ * Whether a running signal-cli build implements `sendDeleteForMeSync` and
+ * reports a `deleteForMe` in received sync messages (patches/signal-cli,
+ * "0027: delete for me"), so a message deleted for the user alone is
+ * removed on their other devices too, and the reverse. Same
+ * `snowdrop-history.N` scheme as the other capabilities. No account
+ * capability is involved (see patches/signal-service-java, "0004").
+ */
+export const MIN_DELETE_SYNC_PATCH_LEVEL = 27;
+
+export function supportsDeleteSync(version: string | undefined): boolean {
+  if (!version) return false;
+  const match = SNOWDROP_PATCH_LEVEL.exec(version);
+  if (!match?.[1]) return false;
+  return Number(match[1]) >= MIN_DELETE_SYNC_PATCH_LEVEL;
+}
+
 /** Every version-dependent `Feature` the given signal-cli build has (none for an unknown version). */
 export function featuresForVersion(version: string | undefined): Set<Feature> {
   const decided: Array<[Feature, (version: string | undefined) => boolean]> = [
@@ -157,6 +174,7 @@ export function featuresForVersion(version: string | undefined): Set<Feature> {
     ['readSync', supportsReadSync],
     ['catchingUpSignal', supportsCatchingUpSignal],
     ['orderedCatchingUp', supportsOrderedCatchingUp],
+    ['deleteSync', supportsDeleteSync],
   ];
   return new Set(decided.filter(([, supported]) => supported(version)).map(([feature]) => feature));
 }

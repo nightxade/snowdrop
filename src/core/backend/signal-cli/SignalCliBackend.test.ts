@@ -2062,6 +2062,98 @@ describe('SignalCliBackend installing a sticker pack from a sticker', () => {
   });
 });
 
+describe('SignalCliBackend: delete for me sync (patches/signal-cli 0027)', () => {
+  const connectedWith = async (version: string | null) => {
+    const { daemon } = daemonWithAccount();
+    daemon.reply('sendDeleteForMeSync', {});
+    if (version) daemon.reply('version', { version });
+    const { backend } = await connected({ daemon });
+    return { daemon, backend };
+  };
+
+  it('is a feature from build 27 only', async () => {
+    const old = await connectedWith('0.14.8-snowdrop-history.26');
+    expect(old.backend.capabilities.features.has('deleteSync')).toBe(false);
+    await old.backend.disconnect();
+    const current = await connectedWith('0.14.8-snowdrop-history.27');
+    expect(current.backend.capabilities.features.has('deleteSync')).toBe(true);
+    await current.backend.disconnect();
+  });
+
+  it('sends the chat and each message as author and sent time', async () => {
+    const { daemon, backend } = await connectedWith('0.14.8-snowdrop-history.27');
+    await backend.syncDeleteForMe(directConversationId(ALICE), [
+      { authorId: ALICE, sentAt: T0 },
+      { authorId: SELF_ACI, sentAt: T0 + 1 },
+    ]);
+    expect(daemon.callsTo('sendDeleteForMeSync')).toEqual([
+      {
+        recipient: ALICE,
+        messages: [
+          { author: ALICE, targetTimestamp: T0 },
+          { author: SELF_ACI, targetTimestamp: T0 + 1 },
+        ],
+        account: SELF_ACI,
+      },
+    ]);
+    await backend.disconnect();
+  });
+
+  it('addresses a group by its group id', async () => {
+    const { daemon, backend } = await connectedWith('0.14.8-snowdrop-history.27');
+    await backend.syncDeleteForMe(GROUP, [{ authorId: BOB, sentAt: T0 }]);
+    const [call] = daemon.callsTo('sendDeleteForMeSync');
+    expect(call).toMatchObject({ groupId: GROUP_ID });
+    expect(call).not.toHaveProperty('recipient');
+    await backend.disconnect();
+  });
+
+  it('does nothing against a daemon without it, or with no messages', async () => {
+    const old = await connectedWith(null);
+    await old.backend.syncDeleteForMe(directConversationId(ALICE), [
+      { authorId: ALICE, sentAt: T0 },
+    ]);
+    expect(old.daemon.callsTo('sendDeleteForMeSync')).toEqual([]);
+    await old.backend.disconnect();
+    const current = await connectedWith('0.14.8-snowdrop-history.27');
+    await current.backend.syncDeleteForMe(directConversationId(ALICE), []);
+    expect(current.daemon.callsTo('sendDeleteForMeSync')).toEqual([]);
+    await current.backend.disconnect();
+  });
+
+  it('reports a deleteForMe from the user’s own device as a backend event', async () => {
+    const { backend, daemon } = await connected();
+    const events = collect(backend, 'deleteForMe');
+    daemon.lastStream!.push(
+      `id:run-20\nevent:receive\ndata:${JSON.stringify(
+        receive('self', {
+          syncMessage: {
+            deleteForMe: {
+              messageDeletes: [
+                {
+                  conversation: { threadServiceId: ALICE },
+                  messages: [{ authorServiceId: ALICE, sentTimestamp: T0 }],
+                },
+              ],
+              conversationDeletes: [],
+              localOnlyConversationDeletes: [],
+            },
+          },
+        }),
+      )}\n\n`,
+    );
+    await flush();
+    await backend.idle();
+    expect(events).toEqual([
+      {
+        messages: [{ conversationId: directConversationId(ALICE), authorId: ALICE, sentAt: T0 }],
+        conversations: [],
+      },
+    ]);
+    await backend.disconnect();
+  });
+});
+
 describe('SignalCliBackend + SyncService', () => {
   it('delivers streamed envelopes into the stores end to end', async () => {
     const { backend, daemon, scheduler, storage } = setup();

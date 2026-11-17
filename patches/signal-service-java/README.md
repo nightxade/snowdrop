@@ -48,7 +48,7 @@ unknown-field slot before this patch.
 Files touched:
 
 - `lib/libsignal-service/build.gradle.kts` — bumps only this module's own published version to
-  `2.15.3_unofficial_153-snowdrop.2`. Its sibling modules (`core:network`, `core:util-jvm`,
+  `2.15.3_unofficial_153-snowdrop.3`. Its sibling modules (`core:network`, `core:util-jvm`,
   `core:models-jvm`), which this module depends on, keep the stock upstream version and are
   resolved from the normal `com.github.turasa` Maven coordinates — this patch republishes only
   the one jar it actually touches.
@@ -91,7 +91,7 @@ export SNOWDROP_SIGNAL_SERVICE_REPO=/path/to/a/local/maven/repo/dir
 ```
 
 This publishes the jar, sources, javadoc and Gradle module metadata to
-`$SNOWDROP_SIGNAL_SERVICE_REPO/com/github/turasa/signal-service-java/2.15.3_unofficial_153-snowdrop.2/`
+`$SNOWDROP_SIGNAL_SERVICE_REPO/com/github/turasa/signal-service-java/2.15.3_unofficial_153-snowdrop.3/`
 — a plain directory repo under this patch set's own work tree
 (`patches/signal-service-java/.work/m2repo` when driven by `scripts/build-signal-cli.sh`), never
 the shared `~/.m2` (`mavenLocal()`), so this never leaks into unrelated Gradle/Maven builds on the
@@ -100,7 +100,7 @@ target — it's Snowdrop build plumbing, kept out of the semantic patch, since i
 `PublishingExtension` from the outside rather than editing this module's own `build.gradle.kts`.
 
 `patches/signal-cli`'s own `lib/build.gradle.kts` patch then points at this jar: set
-`SNOWDROP_SIGNAL_SERVICE_VERSION=2.15.3_unofficial_153-snowdrop.2` and
+`SNOWDROP_SIGNAL_SERVICE_VERSION=2.15.3_unofficial_153-snowdrop.3` and
 `SNOWDROP_SIGNAL_SERVICE_REPO` (the same directory) when building signal-cli, and its Gradle
 dependency substitution does the rest. See `patches/signal-cli/README.md`.
 
@@ -134,6 +134,33 @@ types keep their mapping.
 
 The wire enum has no `UNBLOCK_AND_ACCEPT` (values 0 to 6 only), so that library value is never produced
 by decoding: an unblock made on the phone arrives as `ACCEPT`.
+
+### Delete for me: send and receive `SyncMessage.DeleteForMe` (`0004`)
+
+The generated proto classes already carry `SyncMessage.DeleteForMe` (`messageDeletes`,
+`conversationDeletes`, `localOnlyConversationDeletes`, `attachmentDeletes`), but the library had no way to
+send one and threw an incoming one away. `0004-delete-for-me-sync.patch` wires it exactly like
+`AttachmentBackfillRequest`:
+
+- `SignalServiceSyncMessage`: a `deleteForMe` field (the last constructor argument), the
+  `forDeleteForMe(DeleteForMe)` factory and `getDeleteForMe()`.
+- `SignalServiceMessageSender.sendSyncMessage`: a branch and `createDeleteForMeContent`, built on
+  `createSyncMessageBuilder()` so the sync is padded like the others. Like every sync message it is a
+  no-op (success, nothing sent) when the account has no linked devices.
+- `SignalServiceContent.kt`: an incoming sync with `deleteForMe` now reaches the application as
+  `getDeleteForMe()`. The stock parser fell through to `SignalServiceSyncMessage.empty()`.
+
+Files touched: the three classes above and the new `SignalServiceContentDeleteForMeTest.kt`, which
+decodes message deletes, conversation deletes and local-only deletes from wire bytes through
+`SignalServiceContent.createFrom`, and checks `forDeleteForMe` and a sync message without the field.
+This is why the published version is `snowdrop.3`.
+
+No account capability is needed. `AccountAttributes.Capabilities` here has `storage`,
+`versionedExpirationTimer`, `attachmentBackfill`, `spqr`, `usernameChangeSyncMessage` and
+`optionalPhoneNumber`, and the registration and linking payloads of the current Signal Desktop build
+send the same set (`attachmentBackfill`, `spqr`, `usernameChangeSyncMessage`, `optionalPhoneNumber`),
+while that client sends and applies `DeleteForMe` syncs. The old `deleteSync` capability no longer
+exists in this tree or in Desktop's capability list; the word survives only in Desktop's UI strings.
 
 ## Verification performed
 

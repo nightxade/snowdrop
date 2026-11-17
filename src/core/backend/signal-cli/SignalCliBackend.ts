@@ -1108,6 +1108,46 @@ export class SignalCliBackend implements ChatBackend {
   }
 
   /**
+   * See `ChatBackend.syncDeleteForMe`. A no-op against a daemon that doesn't
+   * implement it (no `deleteSync` feature): an older build would answer
+   * "method not found", and the local delete has already happened.
+   */
+  async syncDeleteForMe(
+    conversationId: ConversationId,
+    messages: readonly MessageRef[],
+  ): Promise<void> {
+    this.assertAccount();
+    if (!this.capabilities.features.has('deleteSync') || messages.length === 0) return;
+    const parsed = parseConversationId(conversationId);
+    if (!parsed) throw new SignalCliError('user', `Not a conversation id: ${conversationId}`);
+    let conversation: RpcParams;
+    if (parsed.kind === 'group') {
+      conversation = { groupId: parsed.target };
+    } else {
+      // The chat with oneself is addressed by the user's own id; a number
+      // that now belongs to someone else is never addressed.
+      const address = this.identity.aliases.has(parsed.target)
+        ? this.selfId
+        : this.peers
+          ? this.peers.addressFor(parsed.target)
+          : parsed.target;
+      if (!address) throw new SignalCliError('user', 'This chat can no longer be addressed.');
+      conversation = { recipient: address };
+    }
+    await this.rpc.call(
+      'sendDeleteForMeSync',
+      {
+        ...conversation,
+        messages: messages.map((m) => ({
+          author: this.identity.isSelf(m.authorId) ? this.selfId : m.authorId,
+          targetTimestamp: m.sentAt,
+        })),
+      },
+      ignoreResult,
+    );
+  }
+
+  /**
    * Asks the primary device to resend contacts, groups and the block list
    * (Settings → Connection → "Sync contacts and groups"), then force-re-lists
    * both so anything already known lands immediately; anything the phone

@@ -5,7 +5,7 @@ index 0085c59..db77917 100644
 @@ -11,6 +11,26 @@ plugins {
  allprojects {
      group = "org.asamk"
-     version = "0.14.8-snowdrop-history.26"
+     version = "0.14.8-snowdrop-history.27"
 +
 +    // Snowdrop: substitute a locally-built, patched signal-service-java
 +    // (snowdrop/patches/signal-service-java) for the stock turasa jar, when

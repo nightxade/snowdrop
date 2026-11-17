@@ -1,0 +1,1436 @@
+diff --git a/lib/src/main/java/org/asamk/signal/manager/Manager.java b/lib/src/main/java/org/asamk/signal/manager/Manager.java
+index 2ce073c..6868878 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/Manager.java
++++ b/lib/src/main/java/org/asamk/signal/manager/Manager.java
+@@ -10,6 +10,7 @@ import org.asamk.signal.manager.api.CallOffer;
+ import org.asamk.signal.manager.api.CaptchaRejectedException;
+ import org.asamk.signal.manager.api.CaptchaRequiredException;
+ import org.asamk.signal.manager.api.Configuration;
++import org.asamk.signal.manager.api.DeleteForMeTarget;
+ import org.asamk.signal.manager.api.Device;
+ import org.asamk.signal.manager.api.DeviceLimitExceededException;
+ import org.asamk.signal.manager.api.DeviceLinkUrl;
+@@ -455,6 +456,19 @@ public interface Manager extends Closeable {
+             List<String> attachmentIds
+     ) throws IOException;
+ 
++    /**
++     * Tells our own other devices that these messages were deleted on this device only ("delete for me"), so
++     * they remove them too. One {@code SyncMessage.deleteForMe} with one {@code MessageDeletes} entry for the
++     * conversation is sent.
++     *
++     * @param conversation the chat the messages belong to: a person or a group.
++     * @param messages     the messages to delete: at least one; each as its author and sent timestamp.
++     * @return true if the sync was sent; false if this account has no other linked device, so nothing was sent.
++     * @throws IOException if the sync could not be sent.
++     * @throws IllegalArgumentException if no message is given.
++     */
++    boolean syncDeleteForMe(RecipientIdentifier conversation, List<DeleteForMeTarget> messages) throws IOException;
++
+     /** Notified once per {@code SyncMessage.attachmentBackfillResponse} our primary answers with. */
+     void addAttachmentBackfillListener(AttachmentBackfillListener listener);
+ 
+diff --git a/lib/src/main/java/org/asamk/signal/manager/api/DeleteForMeMessage.java b/lib/src/main/java/org/asamk/signal/manager/api/DeleteForMeMessage.java
+new file mode 100644
+index 0000000..6cdd224
+--- /dev/null
++++ b/lib/src/main/java/org/asamk/signal/manager/api/DeleteForMeMessage.java
+@@ -0,0 +1,110 @@
++package org.asamk.signal.manager.api;
++
++import org.whispersystems.signalservice.internal.push.AddressableMessage;
++import org.whispersystems.signalservice.internal.push.ConversationIdentifier;
++import org.whispersystems.signalservice.internal.push.SyncMessage;
++import org.signal.core.models.ServiceId;
++
++import java.util.List;
++import java.util.Optional;
++
++/**
++ * A "delete for me" made on one of our own other devices ({@code SyncMessage.deleteForMe}): messages or whole
++ * conversations the user removed from that device only. Identifiers are carried as the protocol states them
++ * (service id string or E164, group id bytes) and are not resolved against the recipient store. Entries the
++ * protocol leaves incomplete (no conversation, no author, no timestamp) are dropped. Attachment deletes are not
++ * carried.
++ */
++public record DeleteForMeMessage(
++        List<MessageDeletes> messageDeletes,
++        List<ConversationDelete> conversationDeletes,
++        List<Conversation> localOnlyConversationDeletes
++) {
++
++    public record Conversation(Optional<String> serviceId, Optional<String> e164, Optional<GroupId> groupId) {
++
++        static Optional<Conversation> from(final ConversationIdentifier identifier) {
++            if (identifier == null) {
++                return Optional.empty();
++            }
++            final var serviceId = ServiceId.parseOrNull(identifier.threadServiceId, identifier.threadServiceIdBinary);
++            if (serviceId != null) {
++                return Optional.of(new Conversation(Optional.of(serviceId.toString()),
++                        Optional.empty(),
++                        Optional.empty()));
++            }
++            if (identifier.threadGroupId != null) {
++                try {
++                    return Optional.of(new Conversation(Optional.empty(),
++                            Optional.empty(),
++                            Optional.of(GroupId.unknownVersion(identifier.threadGroupId.toByteArray()))));
++                } catch (RuntimeException e) {
++                    return Optional.empty();
++                }
++            }
++            if (identifier.threadE164 != null && !identifier.threadE164.isEmpty()) {
++                return Optional.of(new Conversation(Optional.empty(),
++                        Optional.of(identifier.threadE164),
++                        Optional.empty()));
++            }
++            return Optional.empty();
++        }
++    }
++
++    public record Message(Optional<String> authorServiceId, Optional<String> authorE164, long sentTimestamp) {
++
++        static Optional<Message> from(final AddressableMessage message) {
++            if (message == null || message.sentTimestamp == null) {
++                return Optional.empty();
++            }
++            final var serviceId = ServiceId.parseOrNull(message.authorServiceId, message.authorServiceIdBinary);
++            if (serviceId != null) {
++                return Optional.of(new Message(Optional.of(serviceId.toString()),
++                        Optional.empty(),
++                        message.sentTimestamp));
++            }
++            if (message.authorE164 != null && !message.authorE164.isEmpty()) {
++                return Optional.of(new Message(Optional.empty(), Optional.of(message.authorE164), message.sentTimestamp));
++            }
++            return Optional.empty();
++        }
++    }
++
++    public record MessageDeletes(Conversation conversation, List<Message> messages) {}
++
++    public record ConversationDelete(
++            Conversation conversation,
++            List<Message> mostRecentMessages,
++            List<Message> mostRecentNonExpiringMessages,
++            boolean isFullDelete
++    ) {}
++
++    public static DeleteForMeMessage from(final SyncMessage.DeleteForMe deleteForMe) {
++        final var messageDeletes = deleteForMe.messageDeletes.stream().<MessageDeletes>mapMulti((d, out) -> {
++            final var conversation = Conversation.from(d.conversation);
++            final var messages = messages(d.messages);
++            if (conversation.isPresent() && !messages.isEmpty()) {
++                out.accept(new MessageDeletes(conversation.get(), messages));
++            }
++        }).toList();
++        final var conversationDeletes = deleteForMe.conversationDeletes.stream().<ConversationDelete>mapMulti((d, out) -> {
++            final var conversation = Conversation.from(d.conversation);
++            final var recent = messages(d.mostRecentMessages);
++            final var nonExpiring = messages(d.mostRecentNonExpiringMessages);
++            final var full = Boolean.TRUE.equals(d.isFullDelete);
++            // A delete that names no message and is not a full delete clears nothing.
++            if (conversation.isPresent() && (full || !recent.isEmpty() || !nonExpiring.isEmpty())) {
++                out.accept(new ConversationDelete(conversation.get(), recent, nonExpiring, full));
++            }
++        }).toList();
++        final var localOnly = deleteForMe.localOnlyConversationDeletes.stream()
++                .map(d -> Conversation.from(d.conversation))
++                .flatMap(Optional::stream)
++                .toList();
++        return new DeleteForMeMessage(messageDeletes, conversationDeletes, localOnly);
++    }
++
++    private static List<Message> messages(final List<AddressableMessage> messages) {
++        return messages.stream().map(Message::from).flatMap(Optional::stream).toList();
++    }
++}
+diff --git a/lib/src/main/java/org/asamk/signal/manager/api/DeleteForMeTarget.java b/lib/src/main/java/org/asamk/signal/manager/api/DeleteForMeTarget.java
+new file mode 100644
+index 0000000..7cd6144
+--- /dev/null
++++ b/lib/src/main/java/org/asamk/signal/manager/api/DeleteForMeTarget.java
+@@ -0,0 +1,7 @@
++package org.asamk.signal.manager.api;
++
++/**
++ * One message to delete on our other devices: its author and its sent timestamp, the pair Signal uses to address a
++ * message across devices.
++ */
++public record DeleteForMeTarget(RecipientIdentifier.Single author, long sentTimestamp) {}
+diff --git a/lib/src/main/java/org/asamk/signal/manager/api/MessageEnvelope.java b/lib/src/main/java/org/asamk/signal/manager/api/MessageEnvelope.java
+index c0b00fe..5b065ac 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/api/MessageEnvelope.java
++++ b/lib/src/main/java/org/asamk/signal/manager/api/MessageEnvelope.java
+@@ -698,7 +698,8 @@ public record MessageEnvelope(
+             Optional<Contacts> contacts,
+             Optional<Groups> groups,
+             Optional<MessageRequestResponse> messageRequestResponse,
+-            Optional<Verified> verified
++            Optional<Verified> verified,
++            Optional<DeleteForMeMessage> deleteForMe
+     ) {
+ 
+         public static Sync from(
+@@ -706,7 +707,8 @@ public record MessageEnvelope(
+                 Map<String, String> longTexts,
+                 RecipientResolver recipientResolver,
+                 RecipientAddressResolver addressResolver,
+-                final AttachmentFileProvider fileProvider
++                final AttachmentFileProvider fileProvider,
++                final boolean surfaceDeleteForMe
+         ) {
+             return new Sync(syncMessage.getSent()
+                     .map(s -> Sent.from(s, longTexts, recipientResolver, addressResolver, fileProvider)),
+@@ -724,7 +726,8 @@ public record MessageEnvelope(
+                     syncMessage.getGroups().map(Groups::from),
+                     syncMessage.getMessageRequestResponse()
+                             .map(m -> MessageRequestResponse.from(m, recipientResolver, addressResolver)),
+-                    syncMessage.getVerified().map(v -> Verified.from(v, recipientResolver, addressResolver)));
++                    syncMessage.getVerified().map(v -> Verified.from(v, recipientResolver, addressResolver)),
++                    surfaceDeleteForMe ? syncMessage.getDeleteForMe().map(DeleteForMeMessage::from) : Optional.empty());
+         }
+ 
+         public record Sent(
+@@ -1104,7 +1107,8 @@ public record MessageEnvelope(
+             final AttachmentFileProvider fileProvider,
+             Exception exception,
+             List<SnowdropCustomEmojiCodec.Entry> dataMessageEmoji,
+-            List<SnowdropCustomEmojiCodec.Entry> editMessageEmoji
++            List<SnowdropCustomEmojiCodec.Entry> editMessageEmoji,
++            boolean syncFromOwnOtherDevice
+     ) {
+         final var serviceId = envelope.getSourceServiceId();
+         final var source = !envelope.isUnidentifiedSender() && serviceId != null
+@@ -1140,7 +1144,12 @@ public record MessageEnvelope(
+             edit = content.getEditMessage()
+                     .map(s -> Edit.from(s, longTexts, recipientResolver, addressResolver, fileProvider, editMessageEmoji));
+             sync = content.getSyncMessage()
+-                    .map(s -> Sync.from(s, longTexts, recipientResolver, addressResolver, fileProvider));
++                    .map(s -> Sync.from(s,
++                            longTexts,
++                            recipientResolver,
++                            addressResolver,
++                            fileProvider,
++                            syncFromOwnOtherDevice));
+             call = content.getCallMessage().map(Call::from);
+             story = content.getStoryMessage().map(s -> Story.from(s, fileProvider));
+         } else {
+diff --git a/lib/src/main/java/org/asamk/signal/manager/helper/DeleteForMeBuilder.java b/lib/src/main/java/org/asamk/signal/manager/helper/DeleteForMeBuilder.java
+new file mode 100644
+index 0000000..7c54c1d
+--- /dev/null
++++ b/lib/src/main/java/org/asamk/signal/manager/helper/DeleteForMeBuilder.java
+@@ -0,0 +1,67 @@
++package org.asamk.signal.manager.helper;
++
++import okio.ByteString;
++
++import org.asamk.signal.manager.api.GroupId;
++import org.asamk.signal.manager.api.RecipientAddress;
++import org.whispersystems.signalservice.internal.push.AddressableMessage;
++import org.whispersystems.signalservice.internal.push.ConversationIdentifier;
++import org.whispersystems.signalservice.internal.push.SyncMessage;
++
++import java.util.List;
++
++/**
++ * Builds the {@code SyncMessage.DeleteForMe} for messages the user removed on this device only, the way Signal's own
++ * clients identify them: a service id (the ACI; the PNI only if there is no ACI) for a person, the group id bytes for
++ * a group, and the E164 only when there is no service id at all.
++ */
++public final class DeleteForMeBuilder {
++
++    private DeleteForMeBuilder() {}
++
++    public static ConversationIdentifier conversation(final RecipientAddress person) {
++        final var serviceId = serviceId(person);
++        if (serviceId != null) {
++            return new ConversationIdentifier.Builder().threadServiceId(serviceId).build();
++        }
++        return new ConversationIdentifier.Builder().threadE164(e164(person)).build();
++    }
++
++    public static ConversationIdentifier conversation(final GroupId groupId) {
++        return new ConversationIdentifier.Builder().threadGroupId(ByteString.of(groupId.serialize())).build();
++    }
++
++    public static AddressableMessage message(final RecipientAddress author, final long sentTimestamp) {
++        final var builder = new AddressableMessage.Builder().sentTimestamp(sentTimestamp);
++        final var serviceId = serviceId(author);
++        if (serviceId != null) {
++            builder.authorServiceId(serviceId);
++        } else {
++            builder.authorE164(e164(author));
++        }
++        return builder.build();
++    }
++
++    /** One {@code MessageDeletes} entry, for one conversation. */
++    public static SyncMessage.DeleteForMe messageDeletes(
++            final ConversationIdentifier conversation,
++            final List<AddressableMessage> messages
++    ) {
++        if (messages.isEmpty()) {
++            throw new IllegalArgumentException("No messages to delete");
++        }
++        return new SyncMessage.DeleteForMe.Builder().messageDeletes(List.of(new SyncMessage.DeleteForMe.MessageDeletes.Builder()
++                .conversation(conversation)
++                .messages(messages)
++                .build())).build();
++    }
++
++    private static String serviceId(final RecipientAddress address) {
++        return address.aci().or(address::pni).orElse(null);
++    }
++
++    private static String e164(final RecipientAddress address) {
++        return address.number()
++                .orElseThrow(() -> new IllegalArgumentException("A recipient needs an ACI, a PNI or a phone number"));
++    }
++}
+diff --git a/lib/src/main/java/org/asamk/signal/manager/helper/IncomingMessageHandler.java b/lib/src/main/java/org/asamk/signal/manager/helper/IncomingMessageHandler.java
+index 819276e..0d3a14e 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/helper/IncomingMessageHandler.java
++++ b/lib/src/main/java/org/asamk/signal/manager/helper/IncomingMessageHandler.java
+@@ -341,7 +341,12 @@ public final class IncomingMessageHandler {
+                     context.getAttachmentHelper()::getAttachmentFile,
+                     exception,
+                     dataMessageEmoji,
+-                    editMessageEmoji), exception);
++                    editMessageEmoji,
++                    content != null && isOwnOtherDevice(content.getSender().getServiceId(),
++                            content.getSenderDevice(),
++                            account.getAci(),
++                            account.getPni(),
++                            account.getDeviceId())), exception);
+             return actions;
+         }
+     }
+@@ -1204,6 +1209,20 @@ public final class IncomingMessageHandler {
+ 
+     private record DeviceAddress(RecipientId recipientId, ServiceId serviceId, int deviceId) {}
+ 
++    /**
++     * Whether a message came from another device of our own account. A "delete for me" is only surfaced from
++     * there: it removes the user's own copy of a message, and nobody else may make that call.
++     */
++    static boolean isOwnOtherDevice(
++            final ServiceId sender,
++            final int senderDevice,
++            final ServiceId ownAci,
++            final ServiceId ownPni,
++            final int ownDevice
++    ) {
++        return sender != null && (sender.equals(ownAci) || sender.equals(ownPni)) && senderDevice != ownDevice;
++    }
++
+     private void applyMessageRequestResponse(final MessageRequestResponseMessage response) {
+         final var type = response.getType();
+         final var block = type == MessageRequestResponseMessage.Type.BLOCK
+diff --git a/lib/src/main/java/org/asamk/signal/manager/helper/SyncHelper.java b/lib/src/main/java/org/asamk/signal/manager/helper/SyncHelper.java
+index 2a042b7..07f4be6 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/helper/SyncHelper.java
++++ b/lib/src/main/java/org/asamk/signal/manager/helper/SyncHelper.java
+@@ -424,6 +424,11 @@ public class SyncHelper {
+         return context.getSendHelper().sendSyncMessage(SignalServiceSyncMessage.forMessageRequestResponse(response));
+     }
+ 
++    /** Sends a {@code SyncMessage.deleteForMe}; a no-op success when there is no other linked device. */
++    public SendMessageResult sendDeleteForMe(final SyncMessage.DeleteForMe deleteForMe) {
++        return context.getSendHelper().sendSyncMessage(SignalServiceSyncMessage.forDeleteForMe(deleteForMe));
++    }
++
+     public SendMessageResult sendDeviceNameChange(final int deviceId) {
+         final var deviceNameChange = new SyncMessage.DeviceNameChange(deviceId, ByteString.EMPTY);
+         return context.getSendHelper().sendSyncMessage(SignalServiceSyncMessage.forDeviceNameChange(deviceNameChange));
+diff --git a/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java b/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
+index 76a1cd2..b51d221 100644
+--- a/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
++++ b/lib/src/main/java/org/asamk/signal/manager/internal/ManagerImpl.java
+@@ -24,6 +24,7 @@ import org.asamk.signal.manager.api.CallOffer;
+ import org.asamk.signal.manager.api.CaptchaRejectedException;
+ import org.asamk.signal.manager.api.CaptchaRequiredException;
+ import org.asamk.signal.manager.api.Configuration;
++import org.asamk.signal.manager.api.DeleteForMeTarget;
+ import org.asamk.signal.manager.api.Device;
+ import org.asamk.signal.manager.api.DeviceLimitExceededException;
+ import org.asamk.signal.manager.api.DeviceLinkUrl;
+@@ -78,6 +79,7 @@ import org.asamk.signal.manager.api.VerificationMethodNotAvailableException;
+ import org.asamk.signal.manager.config.ServiceEnvironmentConfig;
+ import org.asamk.signal.manager.helper.AccountFileUpdater;
+ import org.asamk.signal.manager.helper.Context;
++import org.asamk.signal.manager.helper.DeleteForMeBuilder;
+ import org.asamk.signal.manager.helper.RecipientHelper.RegisteredUser;
+ import org.asamk.signal.manager.helper.SnowdropCustomEmojiCodec;
+ import org.asamk.signal.manager.jobs.RefreshRecipientsJob;
+@@ -129,6 +131,7 @@ import org.whispersystems.signalservice.api.push.ServiceIdType;
+ import org.whispersystems.signalservice.api.push.exceptions.CdsiResourceExhaustedException;
+ import org.whispersystems.signalservice.api.util.AttachmentPointerUtil;
+ import org.whispersystems.signalservice.api.util.StreamDetails;
++import org.whispersystems.signalservice.internal.push.AddressableMessage;
+ import org.whispersystems.signalservice.internal.util.Util;
+ 
+ import java.io.ByteArrayInputStream;
+@@ -2078,6 +2081,45 @@ public class ManagerImpl implements Manager {
+                 .request(targetConversation, targetAuthor, targetTimestamp, attachmentIds);
+     }
+ 
++    @Override
++    public boolean syncDeleteForMe(
++            final RecipientIdentifier conversation,
++            final List<DeleteForMeTarget> messages
++    ) throws IOException {
++        if (messages.isEmpty()) {
++            throw new IllegalArgumentException("No messages to delete");
++        }
++        if (!account.isMultiDevice()) {
++            return false;
++        }
++        final var conversationId = switch (conversation) {
++            case RecipientIdentifier.Group group -> DeleteForMeBuilder.conversation(group.groupId());
++            case RecipientIdentifier.NoteToSelf ignored ->
++                    DeleteForMeBuilder.conversation(account.getSelfRecipientAddress().toApiRecipientAddress());
++            case RecipientIdentifier.Single single -> DeleteForMeBuilder.conversation(resolveAddress(single));
++        };
++        final var addressable = new ArrayList<AddressableMessage>(messages.size());
++        for (final var target : messages) {
++            addressable.add(DeleteForMeBuilder.message(resolveAddress(target.author()), target.sentTimestamp()));
++        }
++        final var result = context.getSyncHelper()
++                .sendDeleteForMe(DeleteForMeBuilder.messageDeletes(conversationId, addressable));
++        if (!result.isSuccess()) {
++            // The kind only: no ids, numbers or timestamps.
++            throw new IOException("The delete could not be synced to the other devices");
++        }
++        return true;
++    }
++
++    private org.asamk.signal.manager.api.RecipientAddress resolveAddress(final RecipientIdentifier.Single identifier) {
++        try {
++            final var recipientId = context.getRecipientHelper().resolveRecipient(identifier);
++            return account.getRecipientAddressResolver().resolveRecipientAddress(recipientId).toApiRecipientAddress();
++        } catch (UnregisteredRecipientException e) {
++            return identifier.toPartialRecipientAddress();
++        }
++    }
++
+     @Override
+     public void addAttachmentBackfillListener(final AttachmentBackfillListener listener) {
+         context.getAttachmentBackfillHelper().addListener(listener);
+diff --git a/lib/src/test/java/org/asamk/signal/manager/api/DeleteForMeMessageTest.java b/lib/src/test/java/org/asamk/signal/manager/api/DeleteForMeMessageTest.java
+new file mode 100644
+index 0000000..a8f70e8
+--- /dev/null
++++ b/lib/src/test/java/org/asamk/signal/manager/api/DeleteForMeMessageTest.java
+@@ -0,0 +1,132 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.manager.api;
++
++import okio.ByteString;
++
++import org.junit.jupiter.api.Test;
++import org.whispersystems.signalservice.internal.push.AddressableMessage;
++import org.whispersystems.signalservice.internal.push.ConversationIdentifier;
++import org.whispersystems.signalservice.internal.push.SyncMessage;
++
++import java.nio.ByteBuffer;
++import java.util.List;
++import java.util.Optional;
++import java.util.UUID;
++
++import static org.junit.jupiter.api.Assertions.assertEquals;
++import static org.junit.jupiter.api.Assertions.assertFalse;
++import static org.junit.jupiter.api.Assertions.assertTrue;
++
++class DeleteForMeMessageTest {
++
++    private static final UUID ACI = UUID.fromString("a1b2c3d4-e5f6-7890-abcd-ef1234567890");
++    private static final byte[] GROUP = new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
++
++    private static ConversationIdentifier person() {
++        return new ConversationIdentifier.Builder().threadServiceId(ACI.toString()).build();
++    }
++
++    private static AddressableMessage message(final String author, final Long timestamp) {
++        return new AddressableMessage.Builder().authorServiceId(author).sentTimestamp(timestamp).build();
++    }
++
++    private static DeleteForMeMessage from(final SyncMessage.DeleteForMe proto) {
++        return DeleteForMeMessage.from(proto);
++    }
++
++    @Test
++    void messageDeletesKeepTheConversationAndEveryMessage() {
++        final var result = from(new SyncMessage.DeleteForMe.Builder().messageDeletes(List.of(new SyncMessage.DeleteForMe.MessageDeletes.Builder()
++                .conversation(person())
++                .messages(List.of(message(ACI.toString(), 10L),
++                        new AddressableMessage.Builder().authorE164("+15551234567").sentTimestamp(11L).build()))
++                .build())).build());
++
++        assertEquals(1, result.messageDeletes().size());
++        final var deletes = result.messageDeletes().getFirst();
++        assertEquals(Optional.of(ACI.toString()), deletes.conversation().serviceId());
++        assertEquals(List.of(new DeleteForMeMessage.Message(Optional.of(ACI.toString()), Optional.empty(), 10L),
++                new DeleteForMeMessage.Message(Optional.empty(), Optional.of("+15551234567"), 11L)), deletes.messages());
++    }
++
++    @Test
++    void binaryServiceIdsAreReadToo() {
++        final var bytes = ByteBuffer.allocate(16).putLong(ACI.getMostSignificantBits()).putLong(ACI.getLeastSignificantBits()).array();
++        final var result = from(new SyncMessage.DeleteForMe.Builder().messageDeletes(List.of(new SyncMessage.DeleteForMe.MessageDeletes.Builder()
++                .conversation(new ConversationIdentifier.Builder().threadServiceIdBinary(ByteString.of(bytes)).build())
++                .messages(List.of(new AddressableMessage.Builder().authorServiceIdBinary(ByteString.of(bytes))
++                        .sentTimestamp(3L)
++                        .build()))
++                .build())).build());
++
++        final var deletes = result.messageDeletes().getFirst();
++        assertEquals(Optional.of(ACI.toString()), deletes.conversation().serviceId());
++        assertEquals(Optional.of(ACI.toString()), deletes.messages().getFirst().authorServiceId());
++    }
++
++    @Test
++    void conversationDeletesCarryTheFullDeleteFlagAndBothMessageLists() {
++        final var result = from(new SyncMessage.DeleteForMe.Builder().conversationDeletes(List.of(new SyncMessage.DeleteForMe.ConversationDelete.Builder()
++                .conversation(new ConversationIdentifier.Builder().threadGroupId(ByteString.of(GROUP)).build())
++                .mostRecentMessages(List.of(message(ACI.toString(), 20L)))
++                .mostRecentNonExpiringMessages(List.of(message(ACI.toString(), 19L)))
++                .isFullDelete(true)
++                .build())).build());
++
++        final var delete = result.conversationDeletes().getFirst();
++        assertEquals(Optional.of(GroupId.unknownVersion(GROUP)), delete.conversation().groupId());
++        assertTrue(delete.isFullDelete());
++        assertEquals(20L, delete.mostRecentMessages().getFirst().sentTimestamp());
++        assertEquals(19L, delete.mostRecentNonExpiringMessages().getFirst().sentTimestamp());
++    }
++
++    @Test
++    void anUnsetFullDeleteFlagIsFalse() {
++        final var result = from(new SyncMessage.DeleteForMe.Builder().conversationDeletes(List.of(new SyncMessage.DeleteForMe.ConversationDelete.Builder()
++                .conversation(person())
++                .mostRecentMessages(List.of(message(ACI.toString(), 20L)))
++                .build())).build());
++        assertFalse(result.conversationDeletes().getFirst().isFullDelete());
++    }
++
++    @Test
++    void localOnlyDeletesKeepTheConversation() {
++        final var result = from(new SyncMessage.DeleteForMe.Builder().localOnlyConversationDeletes(List.of(new SyncMessage.DeleteForMe.LocalOnlyConversationDelete.Builder()
++                .conversation(new ConversationIdentifier.Builder().threadE164("+15551234567").build())
++                .build())).build());
++        assertEquals(Optional.of("+15551234567"), result.localOnlyConversationDeletes().getFirst().e164());
++    }
++
++    @Test
++    void incompleteEntriesAreDropped() {
++        final var result = from(new SyncMessage.DeleteForMe.Builder()
++                // no conversation
++                .messageDeletes(List.of(new SyncMessage.DeleteForMe.MessageDeletes.Builder()
++                                .messages(List.of(message(ACI.toString(), 10L)))
++                                .build(),
++                        // no usable message: no timestamp, no author
++                        new SyncMessage.DeleteForMe.MessageDeletes.Builder().conversation(person())
++                                .messages(List.of(message(ACI.toString(), null),
++                                        new AddressableMessage.Builder().sentTimestamp(5L).build()))
++                                .build()))
++                // names no message and is not a full delete
++                .conversationDeletes(List.of(new SyncMessage.DeleteForMe.ConversationDelete.Builder().conversation(person())
++                        .build()))
++                .localOnlyConversationDeletes(List.of(new SyncMessage.DeleteForMe.LocalOnlyConversationDelete.Builder().build()))
++                .build());
++
++        assertTrue(result.messageDeletes().isEmpty());
++        assertTrue(result.conversationDeletes().isEmpty());
++        assertTrue(result.localOnlyConversationDeletes().isEmpty());
++    }
++
++    @Test
++    void aFullDeleteWithoutMessagesIsKept() {
++        final var result = from(new SyncMessage.DeleteForMe.Builder().conversationDeletes(List.of(new SyncMessage.DeleteForMe.ConversationDelete.Builder()
++                .conversation(person())
++                .isFullDelete(true)
++                .build())).build());
++        assertEquals(1, result.conversationDeletes().size());
++        assertTrue(result.conversationDeletes().getFirst().mostRecentMessages().isEmpty());
++    }
++}
+diff --git a/lib/src/test/java/org/asamk/signal/manager/api/MessageEnvelopeDeleteForMeTest.java b/lib/src/test/java/org/asamk/signal/manager/api/MessageEnvelopeDeleteForMeTest.java
+new file mode 100644
+index 0000000..0fb3a8f
+--- /dev/null
++++ b/lib/src/test/java/org/asamk/signal/manager/api/MessageEnvelopeDeleteForMeTest.java
+@@ -0,0 +1,35 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.manager.api;
++
++import org.junit.jupiter.api.Test;
++import org.whispersystems.signalservice.api.messages.multidevice.SignalServiceSyncMessage;
++import org.whispersystems.signalservice.internal.push.ConversationIdentifier;
++import org.whispersystems.signalservice.internal.push.SyncMessage;
++
++import java.util.List;
++import java.util.Map;
++
++import static org.junit.jupiter.api.Assertions.assertEquals;
++import static org.junit.jupiter.api.Assertions.assertTrue;
++
++class MessageEnvelopeDeleteForMeTest {
++
++    private static SignalServiceSyncMessage sync() {
++        return SignalServiceSyncMessage.forDeleteForMe(new SyncMessage.DeleteForMe.Builder().localOnlyConversationDeletes(
++                List.of(new SyncMessage.DeleteForMe.LocalOnlyConversationDelete.Builder()
++                        .conversation(new ConversationIdentifier.Builder().threadE164("+15551234567").build())
++                        .build())).build());
++    }
++
++    @Test
++    void surfacedWhenItCameFromOneOfOurOwnOtherDevices() {
++        final var result = MessageEnvelope.Sync.from(sync(), Map.of(), null, null, null, true);
++        assertEquals(1, result.deleteForMe().orElseThrow().localOnlyConversationDeletes().size());
++    }
++
++    @Test
++    void ignoredWhenItDidNotComeFromOneOfOurOwnOtherDevices() {
++        final var result = MessageEnvelope.Sync.from(sync(), Map.of(), null, null, null, false);
++        assertTrue(result.deleteForMe().isEmpty());
++    }
++}
+diff --git a/lib/src/test/java/org/asamk/signal/manager/helper/DeleteForMeBuilderTest.java b/lib/src/test/java/org/asamk/signal/manager/helper/DeleteForMeBuilderTest.java
+new file mode 100644
+index 0000000..2d2c8f8
+--- /dev/null
++++ b/lib/src/test/java/org/asamk/signal/manager/helper/DeleteForMeBuilderTest.java
+@@ -0,0 +1,106 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.manager.helper;
++
++import org.asamk.signal.manager.api.GroupId;
++import org.asamk.signal.manager.api.RecipientAddress;
++import org.junit.jupiter.api.Test;
++import org.whispersystems.signalservice.internal.push.SyncMessage;
++
++import java.util.List;
++
++import static org.junit.jupiter.api.Assertions.assertArrayEquals;
++import static org.junit.jupiter.api.Assertions.assertEquals;
++import static org.junit.jupiter.api.Assertions.assertNull;
++import static org.junit.jupiter.api.Assertions.assertThrows;
++
++class DeleteForMeBuilderTest {
++
++    private static final String ACI = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
++    private static final String PNI = "PNI:11111111-2222-3333-4444-555555555555";
++
++    @Test
++    void aPersonIsIdentifiedByTheAciEvenWithANumber() {
++        final var conversation = DeleteForMeBuilder.conversation(new RecipientAddress(ACI, PNI, "+15551234567", null));
++        assertEquals(ACI, conversation.threadServiceId);
++        assertNull(conversation.threadE164);
++        assertNull(conversation.threadGroupId);
++    }
++
++    @Test
++    void thePniIsUsedOnlyWithoutAnAci() {
++        assertEquals(PNI,
++                DeleteForMeBuilder.conversation(new RecipientAddress(null, PNI, "+15551234567", null)).threadServiceId);
++    }
++
++    @Test
++    void theNumberIsUsedOnlyWithoutAnyServiceId() {
++        final var conversation = DeleteForMeBuilder.conversation(new RecipientAddress("+15551234567"));
++        assertEquals("+15551234567", conversation.threadE164);
++        assertNull(conversation.threadServiceId);
++    }
++
++    @Test
++    void aGroupIsIdentifiedByItsIdBytes() {
++        final var bytes = new byte[32];
++        for (int i = 0; i < bytes.length; i++) {
++            bytes[i] = (byte) i;
++        }
++        final var conversation = DeleteForMeBuilder.conversation(GroupId.unknownVersion(bytes));
++        assertArrayEquals(bytes, conversation.threadGroupId.toByteArray());
++        assertNull(conversation.threadServiceId);
++        assertNull(conversation.threadE164);
++    }
++
++    @Test
++    void aMessageIsAddressedByAuthorAndSentTimestamp() {
++        final var withAci = DeleteForMeBuilder.message(new RecipientAddress(ACI, null, "+15551234567", null),
++                1_700_000_000_123L);
++        assertEquals(ACI, withAci.authorServiceId);
++        assertNull(withAci.authorE164);
++        assertEquals(1_700_000_000_123L, withAci.sentTimestamp);
++
++        final var withNumber = DeleteForMeBuilder.message(new RecipientAddress("+15551234567"), 5L);
++        assertEquals("+15551234567", withNumber.authorE164);
++        assertNull(withNumber.authorServiceId);
++    }
++
++    @Test
++    void aUsernameOnlyRecipientCannotBeAddressed() {
++        final var usernameOnly = new RecipientAddress(null, null, null, "alice.01");
++        assertThrows(IllegalArgumentException.class, () -> DeleteForMeBuilder.conversation(usernameOnly));
++        assertThrows(IllegalArgumentException.class, () -> DeleteForMeBuilder.message(usernameOnly, 1L));
++    }
++
++    @Test
++    void oneMessageDeletesEntryForTheConversation() {
++        final var conversation = DeleteForMeBuilder.conversation(new RecipientAddress(ACI, null, null, null));
++        final var messages = List.of(DeleteForMeBuilder.message(new RecipientAddress(ACI, null, null, null), 10L),
++                DeleteForMeBuilder.message(new RecipientAddress("+15551234567"), 11L));
++
++        final SyncMessage.DeleteForMe deleteForMe = DeleteForMeBuilder.messageDeletes(conversation, messages);
++
++        assertEquals(1, deleteForMe.messageDeletes.size());
++        assertEquals(conversation, deleteForMe.messageDeletes.getFirst().conversation);
++        assertEquals(messages, deleteForMe.messageDeletes.getFirst().messages);
++        assertEquals(0, deleteForMe.conversationDeletes.size());
++        assertEquals(0, deleteForMe.localOnlyConversationDeletes.size());
++        assertEquals(0, deleteForMe.attachmentDeletes.size());
++    }
++
++    @Test
++    void noMessagesIsRefused() {
++        assertThrows(IllegalArgumentException.class,
++                () -> DeleteForMeBuilder.messageDeletes(DeleteForMeBuilder.conversation(new RecipientAddress(ACI,
++                        null,
++                        null,
++                        null)), List.of()));
++    }
++
++    @Test
++    void theBuiltMessageSurvivesTheWireFormat() throws Exception {
++        final var built = DeleteForMeBuilder.messageDeletes(DeleteForMeBuilder.conversation(GroupId.unknownVersion(new byte[32])),
++                List.of(DeleteForMeBuilder.message(new RecipientAddress(ACI, null, null, null), 77L)));
++        final var decoded = SyncMessage.DeleteForMe.ADAPTER.decode(SyncMessage.DeleteForMe.ADAPTER.encode(built));
++        assertEquals(built, decoded);
++    }
++}
+diff --git a/lib/src/test/java/org/asamk/signal/manager/helper/IncomingMessageHandlerOwnDeviceTest.java b/lib/src/test/java/org/asamk/signal/manager/helper/IncomingMessageHandlerOwnDeviceTest.java
+new file mode 100644
+index 0000000..66e203a
+--- /dev/null
++++ b/lib/src/test/java/org/asamk/signal/manager/helper/IncomingMessageHandlerOwnDeviceTest.java
+@@ -0,0 +1,40 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.manager.helper;
++
++import org.junit.jupiter.api.Test;
++import org.signal.core.models.ServiceId;
++
++import java.util.UUID;
++
++import static org.junit.jupiter.api.Assertions.assertFalse;
++import static org.junit.jupiter.api.Assertions.assertTrue;
++
++class IncomingMessageHandlerOwnDeviceTest {
++
++    private static final ServiceId.ACI OWN_ACI = ServiceId.ACI.from(new UUID(1, 2));
++    private static final ServiceId.PNI OWN_PNI = ServiceId.PNI.from(new UUID(3, 4));
++    private static final ServiceId.ACI SOMEONE_ELSE = ServiceId.ACI.from(new UUID(5, 6));
++
++    @Test
++    void anotherDeviceOfOurOwnAccountCounts() {
++        assertTrue(IncomingMessageHandler.isOwnOtherDevice(OWN_ACI, 1, OWN_ACI, OWN_PNI, 2));
++        assertTrue(IncomingMessageHandler.isOwnOtherDevice(OWN_PNI, 3, OWN_ACI, OWN_PNI, 2));
++    }
++
++    @Test
++    void thisDeviceDoesNotCount() {
++        assertFalse(IncomingMessageHandler.isOwnOtherDevice(OWN_ACI, 2, OWN_ACI, OWN_PNI, 2));
++    }
++
++    @Test
++    void anotherPersonNeverCounts() {
++        assertFalse(IncomingMessageHandler.isOwnOtherDevice(SOMEONE_ELSE, 1, OWN_ACI, OWN_PNI, 2));
++        assertFalse(IncomingMessageHandler.isOwnOtherDevice(null, 1, OWN_ACI, OWN_PNI, 2));
++    }
++
++    @Test
++    void anAccountWithoutAPniIsHandled() {
++        assertTrue(IncomingMessageHandler.isOwnOtherDevice(OWN_ACI, 1, OWN_ACI, null, 2));
++        assertFalse(IncomingMessageHandler.isOwnOtherDevice(SOMEONE_ELSE, 1, OWN_ACI, null, 2));
++    }
++}
+diff --git a/src/main/java/org/asamk/signal/commands/Commands.java b/src/main/java/org/asamk/signal/commands/Commands.java
+index 959fd78..9051982 100644
+--- a/src/main/java/org/asamk/signal/commands/Commands.java
++++ b/src/main/java/org/asamk/signal/commands/Commands.java
+@@ -53,6 +53,7 @@ public class Commands {
+         addCommand(new SendAdminDeleteCommand());
+         addCommand(new SendCommand());
+         addCommand(new SendContactsCommand());
++        addCommand(new SendDeleteForMeSyncCommand());
+         addCommand(new SendMessageRequestResponseCommand());
+         addCommand(new SendPaymentNotificationCommand());
+         addCommand(new SendPinMessageCommand());
+diff --git a/src/main/java/org/asamk/signal/commands/SendDeleteForMeSyncCommand.java b/src/main/java/org/asamk/signal/commands/SendDeleteForMeSyncCommand.java
+new file mode 100644
+index 0000000..5876e20
+--- /dev/null
++++ b/src/main/java/org/asamk/signal/commands/SendDeleteForMeSyncCommand.java
+@@ -0,0 +1,132 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.commands;
++
++import net.sourceforge.argparse4j.inf.Namespace;
++import net.sourceforge.argparse4j.inf.Subparser;
++
++import org.asamk.signal.commands.exceptions.CommandException;
++import org.asamk.signal.commands.exceptions.UnexpectedErrorException;
++import org.asamk.signal.commands.exceptions.UserErrorException;
++import org.asamk.signal.manager.Manager;
++import org.asamk.signal.manager.api.DeleteForMeTarget;
++import org.asamk.signal.manager.api.RecipientIdentifier;
++import org.asamk.signal.output.JsonWriter;
++import org.asamk.signal.output.OutputWriter;
++import org.asamk.signal.output.PlainTextWriter;
++import org.asamk.signal.util.CommandUtil;
++
++import java.io.IOException;
++import java.util.ArrayList;
++import java.util.List;
++import java.util.Map;
++
++/**
++ * Tells our own other devices that messages were deleted here only ("delete for me"): one {@code
++ * SyncMessage.deleteForMe} with one {@code MessageDeletes} entry for one conversation. Over JSON-RPC the messages are
++ * a list of {@code {author, targetTimestamp}}; on the command line each one is {@code AUTHOR:TIMESTAMP}. See
++ * patches/signal-cli/README.md "0027: delete for me".
++ */
++public class SendDeleteForMeSyncCommand implements JsonRpcLocalCommand {
++
++    @Override
++    public String getName() {
++        return "sendDeleteForMeSync";
++    }
++
++    @Override
++    public void attachToSubparser(final Subparser subparser) {
++        subparser.help("Tell our other devices that messages were deleted here only (delete for me).");
++        var mut = subparser.addMutuallyExclusiveGroup().required(true);
++        mut.addArgument("--recipient").help("DM peer the messages belong to.");
++        mut.addArgument("-g", "--group-id").help("Group the messages belong to.");
++        subparser.addArgument("--message")
++                .required(true)
++                .nargs("+")
++                .help("A message to delete, as AUTHOR:SENT_TIMESTAMP (author is an ACI, PNI or phone number).");
++    }
++
++    @Override
++    public void handleCommand(
++            final Namespace ns,
++            final Manager m,
++            final OutputWriter outputWriter
++    ) throws CommandException {
++        final var recipientString = ns.getString("recipient");
++        final var groupIdString = ns.getString("group-id");
++        if ((recipientString == null) == (groupIdString == null)) {
++            throw new UserErrorException("Specify exactly one of recipient and group-id");
++        }
++        final RecipientIdentifier conversation = groupIdString != null
++                ? new RecipientIdentifier.Group(CommandUtil.getGroupId(groupIdString))
++                : CommandUtil.getSingleRecipientIdentifier(recipientString, m.getSelfNumber());
++
++        final List<?> rawMessages = ns.getList("message");
++        final var messages = parseMessages(rawMessages, m.getSelfNumber());
++
++        final boolean sent;
++        try {
++            sent = m.syncDeleteForMe(conversation, messages);
++        } catch (IllegalArgumentException e) {
++            throw new UserErrorException(e.getMessage(), e);
++        } catch (IOException e) {
++            throw new UnexpectedErrorException("Failed to sync the delete: " + e.getMessage(), e);
++        }
++
++        switch (outputWriter) {
++            case PlainTextWriter writer ->
++                    writer.println(sent ? "Sent" : "Nothing to sync (no other linked device)");
++            case JsonWriter writer -> writer.write(Map.of("sent", sent));
++        }
++    }
++
++    /**
++     * The messages from either JSON ({@code {author, targetTimestamp}} objects; the timestamp a number or a decimal
++     * string) or the command line ({@code AUTHOR:TIMESTAMP} strings).
++     */
++    static List<DeleteForMeTarget> parseMessages(
++            final List<?> raw,
++            final String selfNumber
++    ) throws UserErrorException {
++        if (raw == null || raw.isEmpty()) {
++            throw new UserErrorException("Missing messages parameter");
++        }
++        final var targets = new ArrayList<DeleteForMeTarget>(raw.size());
++        for (final var item : raw) {
++            final Object author;
++            final Object timestamp;
++            if (item instanceof Map<?, ?> map) {
++                author = map.get("author");
++                timestamp = map.containsKey("targetTimestamp") ? map.get("targetTimestamp") : map.get("target-timestamp");
++            } else if (item instanceof String string && string.lastIndexOf(':') > 0) {
++                final var split = string.lastIndexOf(':');
++                author = string.substring(0, split);
++                timestamp = string.substring(split + 1);
++            } else {
++                throw new UserErrorException("Invalid message: expected {author, targetTimestamp}");
++            }
++            if (!(author instanceof String authorString) || authorString.isEmpty()) {
++                throw new UserErrorException("Invalid message: missing author");
++            }
++            targets.add(new DeleteForMeTarget(CommandUtil.getSingleRecipientIdentifier(authorString, selfNumber),
++                    parseTimestamp(timestamp)));
++        }
++        return targets;
++    }
++
++    private static long parseTimestamp(final Object timestamp) throws UserErrorException {
++        try {
++            final long value = switch (timestamp) {
++                case Long l -> l;
++                case Integer i -> i;
++                case String s -> Long.parseLong(s);
++                case null, default -> throw new NumberFormatException();
++            };
++            if (value <= 0) {
++                throw new NumberFormatException();
++            }
++            return value;
++        } catch (NumberFormatException e) {
++            throw new UserErrorException("Invalid message: invalid targetTimestamp");
++        }
++    }
++}
+diff --git a/src/main/java/org/asamk/signal/dbus/DbusManagerImpl.java b/src/main/java/org/asamk/signal/dbus/DbusManagerImpl.java
+index c0e92fb..fe55892 100644
+--- a/src/main/java/org/asamk/signal/dbus/DbusManagerImpl.java
++++ b/src/main/java/org/asamk/signal/dbus/DbusManagerImpl.java
+@@ -9,6 +9,7 @@ import org.asamk.signal.manager.api.CallOffer;
+ import org.asamk.signal.manager.api.CaptchaRequiredException;
+ import org.asamk.signal.manager.api.Configuration;
+ import org.asamk.signal.manager.api.Contact;
++import org.asamk.signal.manager.api.DeleteForMeTarget;
+ import org.asamk.signal.manager.api.Device;
+ import org.asamk.signal.manager.api.DeviceLinkUrl;
+ import org.asamk.signal.manager.api.Group;
+@@ -772,6 +773,15 @@ public class DbusManagerImpl implements Manager {
+         return false;
+     }
+ 
++    @Override
++    public boolean syncDeleteForMe(
++            final RecipientIdentifier conversation,
++            final List<DeleteForMeTarget> messages
++    ) {
++        // Not supported over DBus
++        return false;
++    }
++
+     @Override
+     public void addAttachmentBackfillListener(final AttachmentBackfillListener listener) {
+         // Not supported over DBus
+@@ -1327,6 +1337,7 @@ public class DbusManagerImpl implements Manager {
+                                 Optional.empty(),
+                                 Optional.empty(),
+                                 Optional.empty(),
++                                Optional.empty(),
+                                 Optional.empty())),
+                         Optional.empty(),
+                         Optional.empty());
+diff --git a/src/main/java/org/asamk/signal/json/JsonSyncDeleteForMe.java b/src/main/java/org/asamk/signal/json/JsonSyncDeleteForMe.java
+new file mode 100644
+index 0000000..a5b14e6
+--- /dev/null
++++ b/src/main/java/org/asamk/signal/json/JsonSyncDeleteForMe.java
+@@ -0,0 +1,30 @@
++package org.asamk.signal.json;
++
++import org.asamk.signal.manager.api.DeleteForMeMessage;
++
++import java.util.List;
++
++import io.micronaut.jsonschema.JsonSchema;
++
++/**
++ * Messages or conversations deleted "for me" on one of our own other devices. Attachment deletes are not carried.
++ */
++@JsonSchema(title = "SyncDeleteForMe")
++record JsonSyncDeleteForMe(
++        List<JsonSyncDeleteForMeMessageDeletes> messageDeletes,
++        List<JsonSyncDeleteForMeConversationDelete> conversationDeletes,
++        List<JsonSyncDeleteForMeLocalOnlyConversationDelete> localOnlyConversationDeletes
++) {
++
++    static JsonSyncDeleteForMe from(DeleteForMeMessage deleteForMe) {
++        return new JsonSyncDeleteForMe(deleteForMe.messageDeletes()
++                .stream()
++                .map(JsonSyncDeleteForMeMessageDeletes::from)
++                .toList(),
++                deleteForMe.conversationDeletes().stream().map(JsonSyncDeleteForMeConversationDelete::from).toList(),
++                deleteForMe.localOnlyConversationDeletes()
++                        .stream()
++                        .map(JsonSyncDeleteForMeLocalOnlyConversationDelete::from)
++                        .toList());
++    }
++}
+diff --git a/src/main/java/org/asamk/signal/json/JsonSyncDeleteForMeConversation.java b/src/main/java/org/asamk/signal/json/JsonSyncDeleteForMeConversation.java
+new file mode 100644
+index 0000000..e46c2a4
+--- /dev/null
++++ b/src/main/java/org/asamk/signal/json/JsonSyncDeleteForMeConversation.java
+@@ -0,0 +1,22 @@
++package org.asamk.signal.json;
++
++import com.fasterxml.jackson.annotation.JsonInclude;
++
++import org.asamk.signal.manager.api.DeleteForMeMessage;
++import org.asamk.signal.manager.api.GroupId;
++
++import io.micronaut.jsonschema.JsonSchema;
++
++@JsonSchema(title = "SyncDeleteForMeConversation")
++record JsonSyncDeleteForMeConversation(
++        @JsonInclude(JsonInclude.Include.NON_NULL) String threadServiceId,
++        @JsonInclude(JsonInclude.Include.NON_NULL) String threadE164,
++        @JsonInclude(JsonInclude.Include.NON_NULL) String threadGroupId
++) {
++
++    static JsonSyncDeleteForMeConversation from(DeleteForMeMessage.Conversation conversation) {
++        return new JsonSyncDeleteForMeConversation(conversation.serviceId().orElse(null),
++                conversation.e164().orElse(null),
++                conversation.groupId().map(GroupId::toBase64).orElse(null));
++    }
++}
+diff --git a/src/main/java/org/asamk/signal/json/JsonSyncDeleteForMeConversationDelete.java b/src/main/java/org/asamk/signal/json/JsonSyncDeleteForMeConversationDelete.java
+new file mode 100644
+index 0000000..73f663c
+--- /dev/null
++++ b/src/main/java/org/asamk/signal/json/JsonSyncDeleteForMeConversationDelete.java
+@@ -0,0 +1,23 @@
++package org.asamk.signal.json;
++
++import org.asamk.signal.manager.api.DeleteForMeMessage;
++
++import java.util.List;
++
++import io.micronaut.jsonschema.JsonSchema;
++
++@JsonSchema(title = "SyncDeleteForMeConversationDelete")
++record JsonSyncDeleteForMeConversationDelete(
++        JsonSyncDeleteForMeConversation conversation,
++        List<JsonSyncDeleteForMeMessage> mostRecentMessages,
++        List<JsonSyncDeleteForMeMessage> mostRecentNonExpiringMessages,
++        boolean isFullDelete
++) {
++
++    static JsonSyncDeleteForMeConversationDelete from(DeleteForMeMessage.ConversationDelete delete) {
++        return new JsonSyncDeleteForMeConversationDelete(JsonSyncDeleteForMeConversation.from(delete.conversation()),
++                delete.mostRecentMessages().stream().map(JsonSyncDeleteForMeMessage::from).toList(),
++                delete.mostRecentNonExpiringMessages().stream().map(JsonSyncDeleteForMeMessage::from).toList(),
++                delete.isFullDelete());
++    }
++}
+diff --git a/src/main/java/org/asamk/signal/json/JsonSyncDeleteForMeLocalOnlyConversationDelete.java b/src/main/java/org/asamk/signal/json/JsonSyncDeleteForMeLocalOnlyConversationDelete.java
+new file mode 100644
+index 0000000..0b8133b
+--- /dev/null
++++ b/src/main/java/org/asamk/signal/json/JsonSyncDeleteForMeLocalOnlyConversationDelete.java
+@@ -0,0 +1,13 @@
++package org.asamk.signal.json;
++
++import org.asamk.signal.manager.api.DeleteForMeMessage;
++
++import io.micronaut.jsonschema.JsonSchema;
++
++@JsonSchema(title = "SyncDeleteForMeLocalOnlyConversationDelete")
++record JsonSyncDeleteForMeLocalOnlyConversationDelete(JsonSyncDeleteForMeConversation conversation) {
++
++    static JsonSyncDeleteForMeLocalOnlyConversationDelete from(DeleteForMeMessage.Conversation conversation) {
++        return new JsonSyncDeleteForMeLocalOnlyConversationDelete(JsonSyncDeleteForMeConversation.from(conversation));
++    }
++}
+diff --git a/src/main/java/org/asamk/signal/json/JsonSyncDeleteForMeMessage.java b/src/main/java/org/asamk/signal/json/JsonSyncDeleteForMeMessage.java
+new file mode 100644
+index 0000000..ad5ee4a
+--- /dev/null
++++ b/src/main/java/org/asamk/signal/json/JsonSyncDeleteForMeMessage.java
+@@ -0,0 +1,21 @@
++package org.asamk.signal.json;
++
++import com.fasterxml.jackson.annotation.JsonInclude;
++
++import org.asamk.signal.manager.api.DeleteForMeMessage;
++
++import io.micronaut.jsonschema.JsonSchema;
++
++@JsonSchema(title = "SyncDeleteForMeMessage")
++record JsonSyncDeleteForMeMessage(
++        @JsonInclude(JsonInclude.Include.NON_NULL) String authorServiceId,
++        @JsonInclude(JsonInclude.Include.NON_NULL) String authorE164,
++        long sentTimestamp
++) {
++
++    static JsonSyncDeleteForMeMessage from(DeleteForMeMessage.Message message) {
++        return new JsonSyncDeleteForMeMessage(message.authorServiceId().orElse(null),
++                message.authorE164().orElse(null),
++                message.sentTimestamp());
++    }
++}
+diff --git a/src/main/java/org/asamk/signal/json/JsonSyncDeleteForMeMessageDeletes.java b/src/main/java/org/asamk/signal/json/JsonSyncDeleteForMeMessageDeletes.java
+new file mode 100644
+index 0000000..22ba49e
+--- /dev/null
++++ b/src/main/java/org/asamk/signal/json/JsonSyncDeleteForMeMessageDeletes.java
+@@ -0,0 +1,18 @@
++package org.asamk.signal.json;
++
++import org.asamk.signal.manager.api.DeleteForMeMessage;
++
++import java.util.List;
++
++import io.micronaut.jsonschema.JsonSchema;
++
++@JsonSchema(title = "SyncDeleteForMeMessageDeletes")
++record JsonSyncDeleteForMeMessageDeletes(
++        JsonSyncDeleteForMeConversation conversation, List<JsonSyncDeleteForMeMessage> messages
++) {
++
++    static JsonSyncDeleteForMeMessageDeletes from(DeleteForMeMessage.MessageDeletes deletes) {
++        return new JsonSyncDeleteForMeMessageDeletes(JsonSyncDeleteForMeConversation.from(deletes.conversation()),
++                deletes.messages().stream().map(JsonSyncDeleteForMeMessage::from).toList());
++    }
++}
+diff --git a/src/main/java/org/asamk/signal/json/JsonSyncMessage.java b/src/main/java/org/asamk/signal/json/JsonSyncMessage.java
+index 69da898..117e06a 100644
+--- a/src/main/java/org/asamk/signal/json/JsonSyncMessage.java
++++ b/src/main/java/org/asamk/signal/json/JsonSyncMessage.java
+@@ -26,7 +26,8 @@ record JsonSyncMessage(
+         @JsonInclude(JsonInclude.Include.NON_NULL) List<JsonSyncReadMessage> readMessages,
+         @JsonInclude(JsonInclude.Include.NON_NULL) JsonSyncMessageType type,
+         @JsonInclude(JsonInclude.Include.NON_NULL) JsonSyncMessageRequestResponse messageRequestResponse,
+-        @JsonInclude(JsonInclude.Include.NON_NULL) JsonSyncVerified verified
++        @JsonInclude(JsonInclude.Include.NON_NULL) JsonSyncVerified verified,
++        @JsonInclude(JsonInclude.Include.NON_NULL) JsonSyncDeleteForMe deleteForMe
+ ) {
+ 
+     static JsonSyncMessage from(MessageEnvelope.Sync syncMessage, Manager m) {
+@@ -68,6 +69,7 @@ record JsonSyncMessage(
+                 .map(JsonSyncMessageRequestResponse::from)
+                 .orElse(null);
+         final var verified = syncMessage.verified().map(JsonSyncVerified::from).orElse(null);
++        final var deleteForMe = syncMessage.deleteForMe().map(JsonSyncDeleteForMe::from).orElse(null);
+         return new JsonSyncMessage(sentMessage,
+                 sentStoryMessage,
+                 blockedNumbers,
+@@ -75,6 +77,7 @@ record JsonSyncMessage(
+                 readMessages,
+                 type,
+                 messageRequestResponse,
+-                verified);
++                verified,
++                deleteForMe);
+     }
+ }
+diff --git a/src/test/java/org/asamk/signal/commands/SendDeleteForMeSyncCommandTest.java b/src/test/java/org/asamk/signal/commands/SendDeleteForMeSyncCommandTest.java
+new file mode 100644
+index 0000000..9ba34ee
+--- /dev/null
++++ b/src/test/java/org/asamk/signal/commands/SendDeleteForMeSyncCommandTest.java
+@@ -0,0 +1,171 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.commands;
++
++import org.asamk.signal.commands.exceptions.UserErrorException;
++import org.asamk.signal.manager.Manager;
++import org.asamk.signal.manager.api.DeleteForMeTarget;
++import org.asamk.signal.manager.api.GroupId;
++import org.asamk.signal.manager.api.RecipientIdentifier;
++import org.junit.jupiter.api.Test;
++
++import java.io.IOException;
++import java.lang.reflect.Proxy;
++import java.util.ArrayList;
++import java.util.HashMap;
++import java.util.List;
++import java.util.Map;
++import java.util.UUID;
++import java.util.concurrent.atomic.AtomicReference;
++
++import static org.junit.jupiter.api.Assertions.assertEquals;
++import static org.junit.jupiter.api.Assertions.assertInstanceOf;
++import static org.junit.jupiter.api.Assertions.assertNotNull;
++import static org.junit.jupiter.api.Assertions.assertThrows;
++import static org.junit.jupiter.api.Assertions.assertTrue;
++
++class SendDeleteForMeSyncCommandTest {
++
++    private static final String PEER = "11111111-1111-1111-1111-111111111111";
++    private static final String AUTHOR = "22222222-2222-2222-2222-222222222222";
++    private record Call(RecipientIdentifier conversation, List<DeleteForMeTarget> messages) {}
++
++    private static Manager recordingManager(final List<Call> calls, final boolean linkedDevices) {
++        return (Manager) Proxy.newProxyInstance(Manager.class.getClassLoader(),
++                new Class<?>[]{Manager.class},
++                (proxy, method, args) -> {
++                    switch (method.getName()) {
++                        case "getSelfNumber":
++                            return "+15550000000";
++                        case "syncDeleteForMe":
++                            @SuppressWarnings("unchecked") final var messages = (List<DeleteForMeTarget>) args[1];
++                            calls.add(new Call((RecipientIdentifier) args[0], messages));
++                            return linkedDevices;
++                        default:
++                            throw new AssertionError("unexpected call " + method.getName());
++                    }
++                });
++    }
++
++    private static Map<String, Object> message(final String author, final Object timestamp) {
++        final var map = new HashMap<String, Object>();
++        map.put("author", author);
++        map.put("targetTimestamp", timestamp);
++        return map;
++    }
++
++    private static Map<String, Object> args(final String recipient, final String groupId, final Object messages) {
++        final var map = new HashMap<String, Object>();
++        map.put("recipient", recipient);
++        map.put("groupId", groupId);
++        map.put("messages", messages);
++        return map;
++    }
++
++    @Test
++    @SuppressWarnings("unchecked")
++    void syncsEveryMessageOfADirectChat() throws Exception {
++        final var calls = new ArrayList<Call>();
++        final var output = new AtomicReference<Object>();
++        new SendDeleteForMeSyncCommand().handleCommand(args(PEER,
++                null,
++                List.of(message(AUTHOR, 1700000000123L), message("+15551234567", "42"), message(PEER, 7))),
++                recordingManager(calls, true),
++                output::set);
++
++        assertEquals(1, calls.size());
++        assertEquals(new RecipientIdentifier.Uuid(UUID.fromString(PEER)), calls.getFirst().conversation());
++        assertEquals(List.of(new DeleteForMeTarget(new RecipientIdentifier.Uuid(UUID.fromString(AUTHOR)),
++                        1700000000123L),
++                new DeleteForMeTarget(new RecipientIdentifier.Number("+15551234567"), 42L),
++                new DeleteForMeTarget(new RecipientIdentifier.Uuid(UUID.fromString(PEER)), 7L)),
++                calls.getFirst().messages());
++        assertEquals(Map.of("sent", true), output.get());
++    }
++
++    @Test
++    void aGroupIsTheConversation() throws Exception {
++        final var calls = new ArrayList<Call>();
++        final var groupId = GroupId.unknownVersion(new byte[32]);
++        new SendDeleteForMeSyncCommand().handleCommand(args(null, groupId.toBase64(), List.of(message(AUTHOR, 5L))),
++                recordingManager(calls, true),
++                o -> {});
++        assertEquals(new RecipientIdentifier.Group(groupId), calls.getFirst().conversation());
++    }
++
++    @Test
++    void reportsNotSentWhenThereIsNoOtherDevice() throws Exception {
++        final var output = new AtomicReference<Object>();
++        new SendDeleteForMeSyncCommand().handleCommand(args(PEER, null, List.of(message(AUTHOR, 5L))),
++                recordingManager(new ArrayList<>(), false),
++                output::set);
++        assertEquals(Map.of("sent", false), output.get());
++    }
++
++    @Test
++    void commandLineMessagesAreAuthorColonTimestamp() throws Exception {
++        final var targets = SendDeleteForMeSyncCommand.parseMessages(List.of(AUTHOR + ":9", "PNI:" + AUTHOR + ":10"),
++                "+15550000000");
++        assertEquals(new RecipientIdentifier.Uuid(UUID.fromString(AUTHOR)), targets.get(0).author());
++        assertEquals(9L, targets.get(0).sentTimestamp());
++        assertEquals(new RecipientIdentifier.Pni(UUID.fromString(AUTHOR)), targets.get(1).author());
++        assertEquals(10L, targets.get(1).sentTimestamp());
++    }
++
++    @Test
++    void needsExactlyOneConversation() {
++        final var calls = new ArrayList<Call>();
++        final var messages = List.of(message(AUTHOR, 5L));
++        final var command = new SendDeleteForMeSyncCommand();
++        assertThrows(UserErrorException.class,
++                () -> command.handleCommand(args(null, null, messages), recordingManager(calls, true), o -> {}));
++        assertThrows(UserErrorException.class,
++                () -> command.handleCommand(args(PEER, GroupId.unknownVersion(new byte[32]).toBase64(), messages),
++                        recordingManager(calls, true),
++                        o -> {}));
++        assertTrue(calls.isEmpty());
++    }
++
++    @Test
++    void refusesMissingOrBrokenMessages() {
++        final var calls = new ArrayList<Call>();
++        final var command = new SendDeleteForMeSyncCommand();
++        for (final Object bad : new Object[]{
++                null,
++                List.of(),
++                List.of(message(AUTHOR, null)),
++                List.of(message(AUTHOR, "abc")),
++                List.of(message(AUTHOR, -1L)),
++                List.of(message(null, 5L)),
++                List.of(message("", 5L)),
++                List.of(5),
++                List.of("nocolon"),
++        }) {
++            assertThrows(UserErrorException.class,
++                    () -> command.handleCommand(args(PEER, null, bad), recordingManager(calls, true), o -> {}),
++                    String.valueOf(bad));
++        }
++        assertTrue(calls.isEmpty());
++    }
++
++    @Test
++    void aSendFailureIsAnError() {
++        final var manager = (Manager) Proxy.newProxyInstance(Manager.class.getClassLoader(),
++                new Class<?>[]{Manager.class},
++                (proxy, method, args) -> {
++                    if (method.getName().equals("getSelfNumber")) {
++                        return "+15550000000";
++                    }
++                    throw new IOException("network");
++                });
++        final var error = assertThrows(Exception.class,
++                () -> new SendDeleteForMeSyncCommand().handleCommand(args(PEER, null, List.of(message(AUTHOR, 5L))),
++                        manager,
++                        o -> {}));
++        assertInstanceOf(org.asamk.signal.commands.exceptions.UnexpectedErrorException.class, error);
++    }
++
++    @Test
++    void theCommandIsRegistered() {
++        assertNotNull(Commands.getCommand("sendDeleteForMeSync"));
++    }
++}
+diff --git a/src/test/java/org/asamk/signal/json/JsonSyncDeleteForMeTest.java b/src/test/java/org/asamk/signal/json/JsonSyncDeleteForMeTest.java
+new file mode 100644
+index 0000000..7451017
+--- /dev/null
++++ b/src/test/java/org/asamk/signal/json/JsonSyncDeleteForMeTest.java
+@@ -0,0 +1,81 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++package org.asamk.signal.json;
++
++import com.fasterxml.jackson.databind.JsonNode;
++
++import org.asamk.signal.manager.api.DeleteForMeMessage;
++import org.asamk.signal.manager.api.DeleteForMeMessage.Conversation;
++import org.asamk.signal.manager.api.DeleteForMeMessage.Message;
++import org.asamk.signal.manager.api.GroupId;
++import org.asamk.signal.manager.api.MessageEnvelope;
++import org.asamk.signal.util.Util;
++import org.junit.jupiter.api.Test;
++
++import java.util.List;
++import java.util.Optional;
++
++import static org.junit.jupiter.api.Assertions.assertEquals;
++import static org.junit.jupiter.api.Assertions.assertTrue;
++
++class JsonSyncDeleteForMeTest {
++
++    private static final String ACI = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
++
++    private static JsonNode json(final Optional<DeleteForMeMessage> deleteForMe) throws Exception {
++        final var sync = new MessageEnvelope.Sync(Optional.empty(),
++                Optional.empty(),
++                List.of(),
++                List.of(),
++                Optional.empty(),
++                Optional.empty(),
++                Optional.empty(),
++                Optional.empty(),
++                Optional.empty(),
++                deleteForMe);
++        final var mapper = Util.createJsonObjectMapper();
++        return mapper.readTree(mapper.writeValueAsString(JsonSyncMessage.from(sync, null)));
++    }
++
++    @Test
++    void messageDeletes() throws Exception {
++        final var node = json(Optional.of(new DeleteForMeMessage(List.of(new DeleteForMeMessage.MessageDeletes(new Conversation(
++                Optional.of(ACI),
++                Optional.empty(),
++                Optional.empty()),
++                List.of(new Message(Optional.of(ACI), Optional.empty(), 1700000000123L),
++                        new Message(Optional.empty(), Optional.of("+15551234567"), 5L)))),
++                List.of(),
++                List.of())));
++
++        assertEquals("{\"deleteForMe\":{\"messageDeletes\":[{\"conversation\":{\"threadServiceId\":\"" + ACI
++                + "\"},\"messages\":[{\"authorServiceId\":\"" + ACI
++                + "\",\"sentTimestamp\":1700000000123},{\"authorE164\":\"+15551234567\",\"sentTimestamp\":5}]}],"
++                + "\"conversationDeletes\":[],\"localOnlyConversationDeletes\":[]}}", node.toString());
++    }
++
++    @Test
++    void conversationDeletesAndLocalOnlyDeletes() throws Exception {
++        final var groupId = GroupId.unknownVersion(new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16});
++        final var group = new Conversation(Optional.empty(), Optional.empty(), Optional.of(groupId));
++        final var node = json(Optional.of(new DeleteForMeMessage(List.of(),
++                List.of(new DeleteForMeMessage.ConversationDelete(group,
++                        List.of(new Message(Optional.of(ACI), Optional.empty(), 9L)),
++                        List.of(),
++                        true)),
++                List.of(new Conversation(Optional.empty(), Optional.of("+15551234567"), Optional.empty())))));
++
++        final var deleteForMe = node.get("deleteForMe");
++        final var delete = deleteForMe.get("conversationDeletes").get(0);
++        assertEquals(groupId.toBase64(), delete.get("conversation").get("threadGroupId").asText());
++        assertEquals(9L, delete.get("mostRecentMessages").get(0).get("sentTimestamp").asLong());
++        assertTrue(delete.get("isFullDelete").asBoolean());
++        assertTrue(delete.get("mostRecentNonExpiringMessages").isEmpty());
++        assertEquals("+15551234567",
++                deleteForMe.get("localOnlyConversationDeletes").get(0).get("conversation").get("threadE164").asText());
++    }
++
++    @Test
++    void absentWhenTheSyncHasNoDeleteForMe() throws Exception {
++        assertTrue(json(Optional.empty()).isEmpty());
++    }
++}
+diff --git a/src/test/java/org/asamk/signal/json/JsonSyncMessageRequestResponseTest.java b/src/test/java/org/asamk/signal/json/JsonSyncMessageRequestResponseTest.java
+index 9cab20c..d43a70a 100644
+--- a/src/test/java/org/asamk/signal/json/JsonSyncMessageRequestResponseTest.java
++++ b/src/test/java/org/asamk/signal/json/JsonSyncMessageRequestResponseTest.java
+@@ -30,6 +30,7 @@ class JsonSyncMessageRequestResponseTest {
+                 Optional.empty(),
+                 Optional.empty(),
+                 Optional.of(response),
++                Optional.empty(),
+                 Optional.empty());
+         final var mapper = Util.createJsonObjectMapper();
+         return mapper.readTree(mapper.writeValueAsString(JsonSyncMessage.from(sync, null)));
+@@ -80,6 +81,7 @@ class JsonSyncMessageRequestResponseTest {
+                 Optional.empty(),
+                 Optional.empty(),
+                 Optional.empty(),
++                Optional.empty(),
+                 Optional.empty());
+         final var mapper = Util.createJsonObjectMapper();
+         final var node = mapper.readTree(mapper.writeValueAsString(JsonSyncMessage.from(sync, null)));
+diff --git a/src/test/java/org/asamk/signal/json/JsonSyncVerifiedTest.java b/src/test/java/org/asamk/signal/json/JsonSyncVerifiedTest.java
+index 6e51f5a..f223592 100644
+--- a/src/test/java/org/asamk/signal/json/JsonSyncVerifiedTest.java
++++ b/src/test/java/org/asamk/signal/json/JsonSyncVerifiedTest.java
+@@ -29,7 +29,8 @@ class JsonSyncVerifiedTest {
+                 Optional.empty(),
+                 Optional.empty(),
+                 Optional.empty(),
+-                verified);
++                verified,
++                Optional.empty());
+         final var mapper = Util.createJsonObjectMapper();
+         return mapper.readTree(mapper.writeValueAsString(JsonSyncMessage.from(sync, null)));
+     }

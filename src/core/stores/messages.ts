@@ -72,6 +72,8 @@ export interface MessagesState {
   /** Replaces a message if it's loaded; no-op otherwise. */
   update(conversationId: ConversationId, id: MessageId, fn: (m: Message) => Message): void;
   remove(conversationId: ConversationId, id: MessageId): void;
+  /** Removes several messages of one conversation in a single store update (none loaded: no update). */
+  removeMany(conversationId: ConversationId, ids: readonly MessageId[]): void;
   /**
    * Drops a conversation's window entirely (an
    * LRU over open conversations, owned by HistoryService, calls this on the
@@ -220,6 +222,15 @@ export function createMessagesStore(cap = WINDOW_CAP): MessagesStore {
       },
       remove: (conversationId, id) => {
         put(conversationId, removeFrom(windowOf(conversationId), id));
+      },
+      removeMany: (conversationId, ids) => {
+        const w = windowOf(conversationId);
+        const gone = new Set(ids.filter((id) => id in w.byId));
+        if (gone.size === 0) return;
+        const byId = Object.fromEntries(
+          Object.entries(w.byId).filter(([id]) => !gone.has(id as MessageId)),
+        );
+        put(conversationId, { ...w, ids: w.ids.filter((x) => !gone.has(x)), byId });
       },
       closeWindow: (conversationId) => {
         if (!(conversationId in get().windows)) return;

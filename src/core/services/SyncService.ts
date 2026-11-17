@@ -69,6 +69,7 @@ import { PendingOpsBuffer, PENDING_OPS_MAX, PENDING_OPS_TTL_MS } from './Pending
 import { ReactionWatch } from './ReactionWatch';
 import { PhonePrivacyService } from './PhonePrivacyService';
 import { ProfileService } from './ProfileService';
+import { DeleteSyncService } from './DeleteSyncService';
 import { ReadStateService } from './ReadStateService';
 import { ReceiptBuffer } from './ReceiptBuffer';
 import type { PostConnectRunner } from './PostConnect';
@@ -217,6 +218,7 @@ export class SyncService {
   private readonly readState: ReadStateService;
   private readonly phonePrivacy: PhonePrivacyService;
   private readonly profile: ProfileService;
+  private readonly deleteSync: DeleteSyncService;
   private readonly expiry: ExpiryService;
   private readonly directory: ConversationDirectory;
   private readonly onError: ErrorReporter;
@@ -336,6 +338,17 @@ export class SyncService {
     this.profile =
       deps.profile ??
       new ProfileService({ backend: deps.backend, stores: deps.stores, onError: this.onError });
+    this.deleteSync = new DeleteSyncService({
+      repository: deps.repository,
+      stores: deps.stores,
+      announceRemoved: (message) => {
+        this.announceRemoved(message);
+      },
+      rememberPurged: (id) => {
+        this.expiry.rememberPurged(id);
+      },
+      onError: this.onError,
+    });
     this.catchUpTracker = new CatchUpTracker({
       clock: deps.clock,
       scheduler: deps.scheduler,
@@ -1041,6 +1054,8 @@ export class SyncService {
     on('pollTerminate', (e, live) => this.onPollTerminate(e, live));
     on('receipt', (e) => this.onReceipt(e));
     on('readSync', (e) => this.readState.applyReadSync(e));
+    // Applied in the queue, behind the messages it may name; nothing is sent back.
+    on('deleteForMe', (e) => this.deleteSync.apply(e));
     // Quiet state changes (no notification, nothing sent), so they neither hold nor
     // wait for the notification machinery: only the queue, so the chats they name exist.
     on('messageRequestResponse', (e) => this.deps.onRequestAnswered?.(e));

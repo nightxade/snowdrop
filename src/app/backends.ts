@@ -155,6 +155,7 @@ const mockBackend: BackendRegistration = {
     'readSync',
     'stickerPackInstall',
     'attachmentBackfill',
+    'deleteSync',
   ]),
   // The world is regenerated relative to "now" on each launch; persisting it would mix timelines.
   history: { kind: 'memory' },

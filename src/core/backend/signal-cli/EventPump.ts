@@ -364,6 +364,9 @@ export class EventPump {
       case 'identityVerified':
         this.emitter.emit('identityVerified', event.payload);
         return;
+      case 'deleteForMe':
+        this.emitter.emit('deleteForMe', event.payload);
+        return;
     }
   }
 

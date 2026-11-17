@@ -3,14 +3,17 @@ import {
   MIN_ATTACHMENT_BACKFILL_PATCH_LEVEL,
   MIN_CATCHING_UP_SIGNAL_PATCH_LEVEL,
   MIN_CUSTOM_EMOJI_PATCH_LEVEL,
+  MIN_DELETE_SYNC_PATCH_LEVEL,
   MIN_HISTORY_STICKER_PACK_PATCH_LEVEL,
   MIN_ORDERED_CATCHING_UP_PATCH_LEVEL,
   MIN_PHONE_PRIVACY_PATCH_LEVEL,
   MIN_READ_SYNC_PATCH_LEVEL,
   MIN_STICKER_PACK_INSTALL_PATCH_LEVEL,
+  featuresForVersion,
   supportsAttachmentBackfill,
   supportsCatchingUpSignal,
   supportsCustomEmojiDelivery,
+  supportsDeleteSync,
   supportsHistoryStickerPack,
   supportsOrderedCatchingUp,
   supportsPhonePrivacy,
@@ -177,5 +180,28 @@ describe('supportsOrderedCatchingUp', () => {
     expect(supportsOrderedCatchingUp('0.14.8-snowdrop-history.23')).toBe(true);
     expect(supportsOrderedCatchingUp('0.14.8-snowdrop-history.40')).toBe(true);
     expect(supportsOrderedCatchingUp('0.14.8-some-other-fork.30')).toBe(false);
+  });
+});
+
+describe('supportsDeleteSync', () => {
+  it('is false for undefined, empty, upstream and unrelated versions', () => {
+    expect(supportsDeleteSync(undefined)).toBe(false);
+    expect(supportsDeleteSync('')).toBe(false);
+    expect(supportsDeleteSync('0.14.8')).toBe(false);
+    expect(supportsDeleteSync('0.14.8-snowdrop-history.')).toBe(false);
+    expect(supportsDeleteSync('0.14.8-some-other-fork.30')).toBe(false);
+  });
+
+  it('is false below patch level 27 and true from it', () => {
+    expect(MIN_DELETE_SYNC_PATCH_LEVEL).toBe(27);
+    expect(supportsDeleteSync('0.14.8-snowdrop-history.26')).toBe(false);
+    expect(supportsDeleteSync('0.14.8-snowdrop-history.27')).toBe(true);
+    expect(supportsDeleteSync('0.14.8-snowdrop-history.100')).toBe(true);
+  });
+
+  it('is reported as the deleteSync feature', () => {
+    expect(featuresForVersion('0.14.8-snowdrop-history.27').has('deleteSync')).toBe(true);
+    expect(featuresForVersion('0.14.8-snowdrop-history.26').has('deleteSync')).toBe(false);
+    expect(featuresForVersion(undefined).has('deleteSync')).toBe(false);
   });
 });

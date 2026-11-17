@@ -536,6 +536,9 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     onExpiry: (at) => {
       expiry.noteExpiry(at);
     },
+    rememberPurged: (id) => {
+      expiry.rememberPurged(id);
+    },
     onIdentityBlocked: ({ conversationId, nonce, contactIds }) => {
       identity.noteUntrusted(contactIds);
       // The dialog only for the chat on screen; elsewhere the failed message

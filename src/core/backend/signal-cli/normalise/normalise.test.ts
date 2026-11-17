@@ -11,6 +11,7 @@ import {
   ALICE,
   ALICE_NUMBER,
   BOB,
+  BOB_NUMBER,
   dataMessage,
   fixtures,
   GROUP_ID,
@@ -607,6 +608,155 @@ describe('normaliseReceive: ephemeral events', () => {
         { authorId: '+15550002222', sentAt: T0 + 5 },
       ],
     });
+  });
+});
+
+describe('normaliseReceive: delete for me synced from the phone', () => {
+  const deleteForMe = (body: object) =>
+    receive('self', {
+      syncMessage: {
+        deleteForMe: {
+          messageDeletes: [],
+          conversationDeletes: [],
+          localOnlyConversationDeletes: [],
+          ...body,
+        },
+      },
+    });
+  const GROUP_THREAD = { threadGroupId: GROUP_ID };
+  const msg = (authorServiceId: string, sentTimestamp: number) => ({
+    authorServiceId,
+    sentTimestamp,
+  });
+
+  it('maps single message deletes, by conversation, author and sent time', () => {
+    const { events } = run(
+      deleteForMe({
+        messageDeletes: [
+          {
+            conversation: { threadServiceId: ALICE },
+            messages: [msg(ALICE, T0), msg(SELF_ACI, T0 + 1)],
+          },
+          {
+            conversation: GROUP_THREAD,
+            messages: [{ authorE164: BOB_NUMBER, sentTimestamp: T0 + 2 }],
+          },
+        ],
+      }),
+    );
+    expect(only(events, 'deleteForMe').payload).toEqual({
+      messages: [
+        { conversationId: DM_ALICE, authorId: ALICE, sentAt: T0 },
+        { conversationId: DM_ALICE, authorId: SELF_ACI, sentAt: T0 + 1 },
+        { conversationId: GROUP, authorId: BOB_NUMBER, sentAt: T0 + 2 },
+      ],
+      conversations: [],
+    });
+  });
+
+  it('folds a PNI-addressed chat and author like any other id (the prefix is dropped)', () => {
+    const { events } = run(
+      deleteForMe({
+        messageDeletes: [
+          {
+            conversation: { threadServiceId: `PNI:${ALICE}` },
+            messages: [msg(`PNI:${ALICE}`, T0)],
+          },
+        ],
+      }),
+    );
+    expect(only(events, 'deleteForMe').payload.messages).toEqual([
+      { conversationId: DM_ALICE, authorId: ALICE, sentAt: T0 },
+    ]);
+  });
+
+  it('folds an E.164 chat and author to the ids the local messages are keyed by', () => {
+    const { events } = run(
+      deleteForMe({
+        messageDeletes: [
+          {
+            conversation: { threadE164: ALICE_NUMBER },
+            messages: [{ authorE164: ALICE_NUMBER, sentTimestamp: T0 }],
+          },
+        ],
+      }),
+      { resolvePeer: (id) => (id === ALICE_NUMBER ? ALICE : id) },
+    );
+    expect(only(events, 'deleteForMe').payload.messages).toEqual([
+      { conversationId: DM_ALICE, authorId: ALICE, sentAt: T0 },
+    ]);
+  });
+
+  it('maps conversation deletes and local-only deletes (a full delete naming no message)', () => {
+    const { events } = run(
+      deleteForMe({
+        conversationDeletes: [
+          {
+            conversation: { threadE164: ALICE_NUMBER },
+            mostRecentMessages: [msg(ALICE, T0 + 3)],
+            mostRecentNonExpiringMessages: [msg(ALICE, T0 + 1)],
+            isFullDelete: true,
+          },
+          { conversation: GROUP_THREAD, mostRecentMessages: [msg(BOB, T0 + 4)] },
+        ],
+        localOnlyConversationDeletes: [{ conversation: { threadServiceId: BOB } }],
+      }),
+      { resolvePeer: (id) => (id === ALICE_NUMBER ? ALICE : id) },
+    );
+    expect(only(events, 'deleteForMe').payload.conversations).toEqual([
+      {
+        conversationId: DM_ALICE,
+        mostRecent: [{ authorId: ALICE, sentAt: T0 + 3 }],
+        mostRecentNonExpiring: [{ authorId: ALICE, sentAt: T0 + 1 }],
+        isFullDelete: true,
+      },
+      {
+        conversationId: GROUP,
+        mostRecent: [{ authorId: BOB, sentAt: T0 + 4 }],
+        mostRecentNonExpiring: [],
+        isFullDelete: false,
+      },
+      {
+        conversationId: directConversationId(BOB),
+        mostRecent: [],
+        mostRecentNonExpiring: [],
+        isFullDelete: true,
+      },
+    ]);
+  });
+
+  it('drops entries that name no chat or no author, and says nothing is applied', () => {
+    const { events, debug } = run(
+      deleteForMe({
+        messageDeletes: [
+          { messages: [msg(ALICE, T0)] },
+          { conversation: { threadServiceId: ALICE }, messages: [{ sentTimestamp: T0 }] },
+        ],
+        conversationDeletes: [{ mostRecentMessages: [msg(ALICE, T0)] }],
+        localOnlyConversationDeletes: [{}],
+      }),
+    );
+    expect(events.map((e) => e.kind)).not.toContain('deleteForMe');
+    expect(debug).toContain('ignored a synced delete');
+  });
+
+  it('is not acted on when it does not come from the user’s own device', () => {
+    const { events, debug } = run(
+      receive('alice', {
+        syncMessage: {
+          deleteForMe: {
+            messageDeletes: [
+              { conversation: { threadServiceId: ALICE }, messages: [msg(ALICE, T0)] },
+            ],
+            conversationDeletes: [],
+            localOnlyConversationDeletes: [],
+          },
+        },
+      }),
+    );
+    expect(events.map((e) => e.kind)).not.toContain('deleteForMe');
+    expect(debug).toContain('ignored a synced delete');
+    expect(JSON.stringify(debug)).not.toContain(ALICE);
   });
 });
 

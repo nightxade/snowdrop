@@ -227,8 +227,48 @@ export const wireSyncVerified = object({
   state: optStr,
 });
 
+/**
+ * A conversation or message named by a "delete for me" (patches/signal-cli
+ * "0027"). Exactly one of the thread fields, and one of the author fields,
+ * is present.
+ */
+export const wireDeleteForMeConversation = object({
+  /** An ACI, or `PNI:` plus a PNI. */
+  threadServiceId: optStr,
+  threadE164: optStr,
+  /** Base64 group id. */
+  threadGroupId: optStr,
+});
+
+export const wireDeleteForMeMessage = object({
+  authorServiceId: optStr,
+  authorE164: optStr,
+  sentTimestamp: num,
+});
+
+/** Messages or chats deleted "for me" on one of the user's other devices. */
+export const wireSyncDeleteForMe = object({
+  messageDeletes: list(
+    object({
+      conversation: maybe(wireDeleteForMeConversation),
+      messages: list(wireDeleteForMeMessage),
+    }),
+  ),
+  conversationDeletes: list(
+    object({
+      conversation: maybe(wireDeleteForMeConversation),
+      mostRecentMessages: list(wireDeleteForMeMessage),
+      mostRecentNonExpiringMessages: list(wireDeleteForMeMessage),
+      isFullDelete: optBool,
+    }),
+  ),
+  localOnlyConversationDeletes: list(object({ conversation: maybe(wireDeleteForMeConversation) })),
+});
+export type WireSyncDeleteForMe = Infer<typeof wireSyncDeleteForMe>;
+
 export const wireSyncMessage = object({
   messageRequestResponse: maybe(wireSyncRequestResponse),
+  deleteForMe: maybe(wireSyncDeleteForMe),
   verified: maybe(wireSyncVerified),
   sentMessage: maybe(wireSentTranscript),
   sentStoryMessage: opt(unknownValue),

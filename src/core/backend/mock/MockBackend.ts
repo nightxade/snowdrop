@@ -136,9 +136,9 @@ function demoSafetyDigits(selfId: string, contactId: string, generation: number)
 
 export class MockBackend implements ChatBackend {
   /**
-   * What the demo supports. `readSync`, `stickerPackInstall` and
-   * `attachmentBackfill` are the demo's stand-ins for the version-dependent
-   * ones, on from the start.
+   * What the demo supports. `readSync`, `stickerPackInstall`,
+   * `attachmentBackfill` and `deleteSync` are the demo's stand-ins for the
+   * version-dependent ones, on from the start.
    */
   static readonly FEATURES: ReadonlySet<Feature> = new Set<Feature>([
     'history',
@@ -157,6 +157,7 @@ export class MockBackend implements ChatBackend {
     'readSync',
     'stickerPackInstall',
     'attachmentBackfill',
+    'deleteSync',
   ]);
 
   readonly kind = 'mock' as const;
@@ -174,6 +175,10 @@ export class MockBackend implements ChatBackend {
   readonly typingSent: { conversationId: ConversationId; typing: boolean }[] = [];
   /** What `markRead` resolves with (tests set it to simulate a failed receipt or sync). */
   readSummary: ReadSummary | undefined = undefined;
+  /** Every `syncDeleteForMe` call, for tests asserting what was (not) sent. */
+  readonly deleteSyncs: { conversationId: ConversationId; messages: MessageRef[] }[] = [];
+  /** Errors the next `syncDeleteForMe` calls reject with, oldest first (tests simulate a failed sync). */
+  readonly deleteSyncFailures: Error[] = [];
   /** Every `markRead` call, for tests asserting what was (not) sent. */
   readonly readReceiptsSent: {
     conversationId: ConversationId;
@@ -756,6 +761,18 @@ export class MockBackend implements ChatBackend {
     }, 1_500);
   }
 
+  /** The demo has no other device to tell: the call is recorded and resolves. */
+  async syncDeleteForMe(
+    conversationId: ConversationId,
+    messages: readonly MessageRef[],
+  ): Promise<void> {
+    await this.delay();
+    if (!this.capabilities.features.has('deleteSync') || messages.length === 0) return;
+    const failure = this.deleteSyncFailures.shift();
+    if (failure) throw failure;
+    this.deleteSyncs.push({ conversationId, messages: messages.map((m) => ({ ...m })) });
+  }
+
   async updateProfile(update: ProfileUpdate): Promise<Contact> {
     await this.delay();
     this.assertOnline();
@@ -979,6 +996,11 @@ export class MockBackend implements ChatBackend {
   /** Makes the next command reject, to exercise failure/retry paths. */
   failNext(error: Error = new MockBackendError('Simulated network failure')): void {
     this.failures.push(error);
+  }
+
+  /** Injects a "delete for me" made on another of the user's devices, as if it arrived from the network. */
+  deliverDeleteForMe(event: BackendEvents['deleteForMe']): void {
+    this.emitter.emit('deleteForMe', event);
   }
 
   /** Injects an incoming message as if it arrived from the network. */

@@ -93,6 +93,7 @@ export const FORWARDING: Record<Keys, Forwarding> = {
   getStickerPack: 'async',
   installStickerPack: 'async',
   requestAttachmentBackfill: 'async',
+  syncDeleteForMe: 'async',
   readPhonePrivacy: 'async',
   updatePhonePrivacy: 'async',
   updateProfile: 'async',
