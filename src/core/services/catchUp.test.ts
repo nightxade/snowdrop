@@ -7,7 +7,7 @@ import { createStores } from '@/core/stores';
 import {
   CATCH_UP_CEILING_MS,
   CATCH_UP_QUIET_MS,
-  NOTIFICATION_HOLD_CEILING_MS,
+  SIGNALLED_CATCH_UP_CEILING_MS,
 } from './CatchUpTracker';
 import { SyncService } from './SyncService';
 
@@ -107,7 +107,7 @@ describe('the hold on the first connect', () => {
       await sync.start();
       await sync.idle();
     });
-    const starts = log.filter((l) => l.includes('notification hold started'));
+    const starts = log.filter((l) => l.includes('catch-up started'));
     return { backend, scheduler, sync, session: () => stores.session.getState(), starts };
   }
 
@@ -117,11 +117,13 @@ describe('the hold on the first connect', () => {
       starts.map((l) => /"strict":(true|false),"restarted":(true|false)/u.exec(l)?.[0]),
     ).toEqual(['"strict":false,"restarted":false', '"strict":true,"restarted":true']);
     expect(session().notificationsHeld).toBe(true);
-    // Neither the quiet period nor the short ceiling ends it.
+    // Neither the quiet period nor the short ceiling ends it, for the sidebar either.
     scheduler.advance(CATCH_UP_CEILING_MS + CATCH_UP_QUIET_MS);
+    expect(session().catchingUp).toBe(true);
     expect(session().notificationsHeld).toBe(true);
     backend.emit('caughtUp', undefined);
     await sync.idle();
+    expect(session().catchingUp).toBe(false);
     expect(session().notificationsHeld).toBe(false);
   });
 
@@ -179,30 +181,33 @@ describe('catching up after signal-cli reconnects by itself', () => {
     expect(session().notificationsHeld).toBe(false);
   });
 
-  it('with the capability the hold outlasts the sidebar ceiling, up to the long one', async () => {
+  it('with the capability the sidebar and the hold both last past the short ceiling, up to the long one', async () => {
     const ctx = await setup({ catchingUpSignal: true });
     ctx.backend.emit('catchingUp', undefined);
 
     // A long backlog: messages keep coming, so only the ceilings can end it.
+    // The sidebar stays frozen ("Loading…") for as long as notifications are held.
     await drainFor(ctx, CATCH_UP_CEILING_MS / 1_000 + 1);
-    expect(ctx.session().catchingUp).toBe(false);
+    expect(ctx.session().catchingUp).toBe(true);
     expect(ctx.session().notificationsHeld).toBe(true);
     expect(ctx.arrivals.every((a) => a.held)).toBe(true);
 
-    await drainFor(ctx, NOTIFICATION_HOLD_CEILING_MS / 1_000 - CATCH_UP_CEILING_MS / 1_000 - 2);
+    await drainFor(ctx, SIGNALLED_CATCH_UP_CEILING_MS / 1_000 - CATCH_UP_CEILING_MS / 1_000 - 2);
+    expect(ctx.session().catchingUp).toBe(true);
     expect(ctx.session().notificationsHeld).toBe(true);
     await drainFor(ctx, 3);
+    expect(ctx.session().catchingUp).toBe(false);
     expect(ctx.session().notificationsHeld).toBe(false);
     expect(ctx.arrivals.at(-1)!.held).toBe(false);
   });
 
-  it('a capable backend that goes offline and comes back also gets the long hold', async () => {
+  it('a capable backend that goes offline and comes back also gets the long ceiling, sidebar included', async () => {
     const ctx = await setup({ catchingUpSignal: true });
     ctx.backend.emit('status', 'offline');
     ctx.backend.emit('status', 'online');
     expect(ctx.session().notificationsHeld).toBe(true);
     await drainFor(ctx, CATCH_UP_CEILING_MS / 1_000 + 1);
-    expect(ctx.session().catchingUp).toBe(false);
+    expect(ctx.session().catchingUp).toBe(true);
     expect(ctx.session().notificationsHeld).toBe(true);
   });
 
@@ -251,11 +256,12 @@ describe('a backend that orders catchingUp before every message of the connectio
     ctx.scheduler.advance(CATCH_UP_QUIET_MS * 4);
     await ctx.arrive();
     expect(ctx.session().notificationsHeld).toBe(true);
-    // The sidebar tracker keeps its own quiet behaviour: it ended long ago.
-    expect(ctx.session().catchingUp).toBe(false);
+    // The sidebar stays frozen through the same silences: previews never cycle mid-drain.
+    expect(ctx.session().catchingUp).toBe(true);
 
     ctx.backend.emit('caughtUp', undefined);
     await ctx.sync.idle();
+    expect(ctx.session().catchingUp).toBe(false);
     expect(ctx.session().notificationsHeld).toBe(false);
     expect(ctx.arrivals.map((a) => a.held)).toEqual([true, true]);
     await ctx.arrive();
@@ -276,14 +282,14 @@ describe('a backend that orders catchingUp before every message of the connectio
     const ctx = await setup({ ordered: true });
     const lines = await captureSyncLog(() => {
       ctx.backend.emit('catchingUp', undefined);
-      ctx.scheduler.advance(NOTIFICATION_HOLD_CEILING_MS - 1);
+      ctx.scheduler.advance(SIGNALLED_CATCH_UP_CEILING_MS - 1);
       expect(ctx.session().notificationsHeld).toBe(true);
       ctx.scheduler.advance(1);
     });
     expect(ctx.session().notificationsHeld).toBe(false);
     expect(lines).toEqual([
-      'info notification hold started {"strict":true,"restarted":false}',
-      'warn notification hold ended by its ceiling before caughtUp {"reason":"ceiling","strict":true,"messages":0}',
+      'info catch-up started {"strict":true,"restarted":false}',
+      'warn catch-up ended by its ceiling before caughtUp {"reason":"ceiling","strict":true,"messages":0}',
     ]);
   });
 
@@ -297,8 +303,8 @@ describe('a backend that orders catchingUp before every message of the connectio
       await ctx.sync.idle();
     });
     expect(lines).toEqual([
-      'info notification hold started {"strict":true,"restarted":false}',
-      'info notification hold ended {"reason":"caughtUp","strict":true,"messages":2}',
+      'info catch-up started {"strict":true,"restarted":false}',
+      'info catch-up ended {"reason":"caughtUp","strict":true,"messages":2}',
     ]);
   });
 
@@ -307,13 +313,13 @@ describe('a backend that orders catchingUp before every message of the connectio
     ctx.backend.emit('catchingUp', undefined);
     // The computer sleeps with the hold still open; on wake its clock is far ahead
     // and the new connection announces itself again before anything else.
-    ctx.scheduler.advance(NOTIFICATION_HOLD_CEILING_MS - 1_000);
+    ctx.scheduler.advance(SIGNALLED_CATCH_UP_CEILING_MS - 1_000);
     expect(ctx.session().notificationsHeld).toBe(true);
     const lines = await captureSyncLog(() => {
       ctx.backend.emit('catchingUp', undefined);
     });
-    expect(lines).toEqual(['info notification hold started {"strict":true,"restarted":true}']);
-    ctx.scheduler.advance(NOTIFICATION_HOLD_CEILING_MS - 1);
+    expect(lines).toEqual(['info catch-up started {"strict":true,"restarted":true}']);
+    ctx.scheduler.advance(SIGNALLED_CATCH_UP_CEILING_MS - 1);
     expect(ctx.session().notificationsHeld).toBe(true);
     ctx.scheduler.advance(1);
     expect(ctx.session().notificationsHeld).toBe(false);
@@ -323,7 +329,7 @@ describe('a backend that orders catchingUp before every message of the connectio
     const ctx = await setup({ ordered: true });
     ctx.backend.emit('catchingUp', undefined);
     // The ceiling timer runs first on wake...
-    ctx.scheduler.advance(NOTIFICATION_HOLD_CEILING_MS);
+    ctx.scheduler.advance(SIGNALLED_CATCH_UP_CEILING_MS);
     expect(ctx.session().notificationsHeld).toBe(false);
     // ...and the new connection's catchingUp comes before any of its messages.
     ctx.backend.emit('catchingUp', undefined);
@@ -402,8 +408,8 @@ describe('older builds keep the quiet-period fallback', () => {
     });
     expect(ctx.session().notificationsHeld).toBe(false);
     expect(lines).toEqual([
-      'info notification hold started {"strict":false,"restarted":false}',
-      'info notification hold ended {"reason":"quiet","strict":false,"messages":0}',
+      'info catch-up started {"strict":false,"restarted":false}',
+      'info catch-up ended {"reason":"quiet","strict":false,"messages":0}',
     ]);
   });
 

@@ -228,14 +228,16 @@ Adapters translate protocol quirks into the domain-level `BackendEvents`
   signal-cli reports it reconnected to the server by itself) until the backend
   reports it caught up with the server's queue, a quiet period with no
   processed messages (measured where notifications are decided; it never ends
-  while events are still waiting in the adapter's or the sync engine's queue), or a ~20s ceiling, whichever comes first. The sidebar freezes
+  while events are still waiting in the adapter's or the sync engine's queue), or a ceiling, whichever comes first. The sidebar freezes
   order/badges and shows "Loading…" previews while it's true
-  (`useSidebarModel`, `useRowState`). A second tracker in lockstep drives
-  `stores.session.notificationsHeld`, which `NotificationService` checks: the
-  same, except that with a backend that sends `catchingUp` (so `caughtUp` is
-  reliable) its ceiling is 2 minutes, so a long backlog after waking from sleep
-  never notifies. With a backend that also orders `catchingUp` before every
-  message of the new connection (patch 0020, from build 23), a hold started by it has no
+  (`useSidebarModel`, `useRowState`). The same tracker also sets
+  `stores.session.notificationsHeld`, which `NotificationService` checks, so
+  the two always end together; they were once separate trackers, and the
+  sidebar's ending first brought back previews cycling through a backlog. The
+  ceiling is ~20s, or 2 minutes with a backend that sends `catchingUp` (so
+  `caughtUp` is reliable), so a long backlog after waking from sleep neither
+  cycles the previews nor notifies. With a backend that also orders `catchingUp` before every
+  message of the new connection (patch 0020, from build 23), a run started by it has no
   quiet period at all: it ends only on `caughtUp` or that ceiling (logged at
   warn), because silence right after a wake is not an end. A `caughtUp` that
   was already queued when a newer catch-up began is ignored. If our own stream

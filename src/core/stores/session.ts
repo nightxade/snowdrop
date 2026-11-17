@@ -94,9 +94,8 @@ export interface SessionState {
   catchingUp: boolean;
   /**
    * True while messages processed now are old ones being replayed, so
-   * NotificationService must not announce them. It starts and ends with
-   * `catchingUp`, except that with a backend that reliably sends `caughtUp`
-   * it outlasts `catchingUp`'s short ceiling (see `NOTIFICATION_HOLD_CEILING_MS`).
+   * NotificationService must not announce them. Always equal to
+   * `catchingUp`: one tracker sets both (SyncService's `catchUp`).
    */
   notificationsHeld: boolean;
   /** See `HistoryImportProgress`. */

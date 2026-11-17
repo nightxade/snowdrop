@@ -24,12 +24,13 @@ export const CATCH_UP_QUIET_MS = 1_500;
 /** Catching up never lasts longer than this, no matter what. */
 export const CATCH_UP_CEILING_MS = 20_000;
 /**
- * The ceiling for holding back notifications while a backend that reliably
- * sends `caughtUp` drains (see `start`). Much longer than the sidebar's: a
- * queue built up over a long sleep can take minutes, and what is left when the
- * short ceiling ends would otherwise all notify.
+ * The ceiling instead of `CATCH_UP_CEILING_MS` while a backend that reliably
+ * sends `caughtUp` drains (see `start`): there the ceiling is only a safety
+ * net. A queue built up over a long sleep can take minutes, and whatever is
+ * left when a short ceiling ends would cycle through the sidebar's previews
+ * and all notify.
  */
-export const NOTIFICATION_HOLD_CEILING_MS = 120_000;
+export const SIGNALLED_CATCH_UP_CEILING_MS = 120_000;
 
 /** Why a run ended. `caughtUp` is whatever called `finish()` without a reason. */
 export type CatchUpEndReason = 'caughtUp' | 'quiet' | 'ceiling';
