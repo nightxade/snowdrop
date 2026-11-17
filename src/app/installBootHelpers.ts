@@ -37,6 +37,13 @@ export function installBootHelpers({ snowdrop, safeMode }: InstallBootHelpersOpt
     });
   }
 
+  if (import.meta.env.MODE === 'journey') {
+    // The journey build's test driver (src/app/journeyDriver.ts); no other build has it.
+    void import('./journeyDriver').then(({ installJourneyDriver }) => {
+      installJourneyDriver(snowdrop);
+    });
+  }
+
   // Debounced state (drafts) must reach storage even if the window/tab closes mid-burst.
   const onHide = () => {
     snowdrop.flush();

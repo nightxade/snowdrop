@@ -654,6 +654,74 @@ npx vitest run -t "checkpoint"             # tests whose name matches
 npm run typecheck && npm run lint && npm test && npm run build   # the full gate
 ```
 
-Happy-dom has no layout, so scrolling, virtualisation jumps and focus after a
-scroll were verified manually with browser screenshots during development;
-they are not part of the automated suites.
+Happy-dom has no layout, so scrolling, virtualisation jumps, focus after a
+scroll and anything that depends on real key or pointer input are covered by
+the journeys below instead.
+
+### Journeys
+
+`npm run journeys` runs scripted user journeys (`journeys/test_*.py`) in real
+WebKitGTK, the engine of the desktop app, with real key, pointer and scroll
+events and a frozen `Object.prototype` like the desktop webview. They exist for
+the bugs the jsdom suites can't see: those that depend on layout, scrolling,
+focus, timing or real input, or on events arriving in the middle of what the user
+is doing. Run it before every commit (about a minute).
+
+```sh
+npm run journeys                        # build the journey bundle, serve it, run every journey
+npm run journeys -- esc_from_the_composer send_a_message   # only these
+npm run journeys -- --no-build          # reuse dist-journey/
+```
+
+It needs the system PyGObject with WebKit2 4.1 and Gtk 3 (no pip packages). The
+script (`scripts/journeys.mjs`) builds `vite build --mode journey` into the
+git-ignored `dist-journey/`, starts `vite preview` on a free port, runs
+`journeys/run.py`, and stops everything it started (the build, the preview and the
+runner with its WebKit processes) by PID, each in its own process group, however
+the run ends, including SIGINT, SIGTERM and SIGHUP at any point. It needs an X
+display (X11, or XWayland on a Wayland desktop) and says so when there is none;
+`GDK_BACKEND` and the WebKit rendering variables are defaults an inherited value
+overrides.
+A failed journey prints the line of the journey that failed and saves a
+screenshot under `journeys/shots/` (git-ignored).
+
+The journey bundle is the production build plus `window.__journey`
+(`src/app/journeyDriver.ts`): small controls over the demo backend that reuse
+its own hooks, namely live arrivals (`deliver`), a catch-up replayed the way the
+patched signal-cli does it (`startCatchUp`, `caughtUp`), receipts, typing and a
+few read-only queries. `?journeyCatchUp=held` makes the demo act like a patched
+signal-cli (`catchingUpSignal`, `orderedCatchingUp`), holding its first
+`caughtUp` back until the journey sends it. The driver is imported only behind
+`import.meta.env.MODE === 'journey'`, so no other build contains it; a unit test
+(`src/app/journeyDriver.test.ts`) pins that, and the script refuses to run if an
+existing `dist/` has it. The test reads the import graph (every import, however
+its specifier is spelt, must be a dynamic import inside that exact condition),
+not the built output: a fresh production build per run would cost more than the
+run itself.
+
+A journey is a function in a `journeys/test_*.py` file, registered with
+`@journey()`, that drives a `Page` (`journeys/harness.py`) and reads like the
+behaviour it protects:
+
+| `Page` method                      | What it does                                                                                                          |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `key(name, mods=[])`, `type(text)` | Real GDK key events; `key_down` / `key_up` hold a key across steps (Shift).                                           |
+| `click(sel)`, `hover(sel)`         | Real pointer motion and button events at the element's centre; held modifiers ride along.                             |
+| `scroll(sel, dy)`                  | Real wheel events until the element's `scrollTop` has moved by `dy` px.                                               |
+| `eval(js)`, `expect(js)`           | Run an expression (or a body starting with `return`/`const`/...) in the page.                                         |
+| `wait_for(js, timeout)`            | Poll until truthy (a throwing expression is retried). Use it instead of sleeping.                                     |
+| `expect_stays(js, duration)`       | The condition must hold on every poll (about 50 ms) for `duration`: "never changes". A throw fails, with its message. |
+| `shot(path)`                       | A screenshot (a failed journey saves one by itself).                                                                  |
+
+Each journey runs in a fresh webview with an ephemeral data store, and fails if
+the page reports an uncaught error, an unhandled rejection or a `console.error`
+(or does not answer at the end). Pick selectors from the `data-snowdrop`
+hooks (docs/THEMING.md) and ARIA roles; a CSS-module class only by its stable
+prefix, and only where no hook exists (the sidebar preview). When a
+journey describes behaviour the app doesn't have yet, mark it
+`@journey(known_bug='why', fails_at='page.expect_stays(is_current(0)')`, naming
+the text of the journey line whose expectation is expected not to hold: it is
+reported as a known bug without failing the run only while it fails there, by an
+expectation. Any other failure (a script error, a missing element, a page error,
+a timeout elsewhere) fails the run, and so does the day it starts passing, so the
+marker gets removed with the fix.

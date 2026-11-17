@@ -125,19 +125,22 @@ const mockBackend: BackendRegistration = {
   kind: 'mock',
   label: 'Demo',
   description: 'A simulated community, no account needed.',
-  load: () =>
-    import('@/core/backend/mock').then(
-      ({ MockBackend }) =>
-        (env) =>
-          new MockBackend({
-            clock: env.clock,
-            scheduler: env.scheduler,
-            latencyMs: env.overrides.mockLatencyMs ?? 120,
-            ...(env.overrides.mockBulkMessages
-              ? { bulkMessages: env.overrides.mockBulkMessages }
-              : {}),
-          }),
-    ),
+  load: async () => {
+    const { MockBackend } = await import('@/core/backend/mock');
+    // Journey build only (src/app/journeyDriver.ts): dead code everywhere else.
+    const journey =
+      import.meta.env.MODE === 'journey' ? await import('./journeyDriver') : undefined;
+    return (env) => {
+      const backend = new MockBackend({
+        clock: env.clock,
+        scheduler: env.scheduler,
+        latencyMs: env.overrides.mockLatencyMs ?? 120,
+        ...(env.overrides.mockBulkMessages ? { bulkMessages: env.overrides.mockBulkMessages } : {}),
+      });
+      journey?.prepareJourneyBackend(backend);
+      return backend;
+    };
+  },
   features: new Set<Feature>([
     'history',
     'pins',

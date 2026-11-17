@@ -195,6 +195,7 @@ export default tseslint.config(
   {
     ignores: [
       'dist',
+      'dist-journey',
       'coverage',
       'node_modules',
       'src-tauri/target',

@@ -1,5 +1,8 @@
 node_modules/
 dist/
+dist-journey/
+journeys/shots/
+__pycache__/
 coverage/
 *.log
 .env

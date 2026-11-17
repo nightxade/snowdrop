@@ -1,5 +1,7 @@
 node_modules
 dist
+dist-journey
+journeys/shots
 coverage
 package-lock.json
 docs/PLAN.md

@@ -9,6 +9,9 @@ import { checkSignalCliRequest } from './devserver/signalCliGuard.ts';
 
 const PROXY_PATH = '/signal-cli';
 
+/** Where `vite build --mode journey` writes (git-ignored). */
+const JOURNEY_OUT_DIR = 'dist-journey';
+
 /**
  * Same-origin path to the signal-cli HTTP daemon. The browser can't call the
  * daemon directly: it sends no CORS headers and only accepts requests whose
@@ -76,6 +79,9 @@ export default defineConfig(({ mode }) => {
     clearScreen: false,
     // WebKitGTK (the Linux webview) is Safari-class; the browser build keeps Vite's defaults.
     ...(desktop ? { build: { target: ['es2022', 'safari16'] } } : {}),
+    // The journey build (`npm run journeys`) is the production build plus a
+    // test driver, kept apart from `dist/`.
+    ...(mode === 'journey' ? { build: { outDir: JOURNEY_OUT_DIR, emptyOutDir: true } } : {}),
     resolve: {
       alias: {
         '@': fileURLToPath(new URL('./src', import.meta.url)),
