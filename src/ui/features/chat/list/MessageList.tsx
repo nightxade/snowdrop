@@ -223,38 +223,55 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
   const newestId = useRef<MessageId | null>(null);
   const keysById = useRef<ReadonlyMap<MessageId, string>>(new Map());
   const focusedRowId = useRef<MessageId | null>(null);
-  const restoring = useRef<{ id: MessageId; frame: number } | null>(null);
-  // The sent row is rendered (and settled) a few frames after the swap, so
-  // for a short while focus that has dropped to the page goes to it. Focus
-  // that is anywhere else is never taken.
-  const restoreFocus = useCallback(
-    (id: MessageId) => {
-      let frames = 0;
-      const tick = () => {
-        frames += 1;
-        const here = document.activeElement;
-        const row = scroller.current?.querySelector<HTMLElement>(
-          `[data-message-id="${CSS.escape(id)}"]`,
-        );
-        const lost = !here || here === document.body;
-        if ((!lost && here !== row) || frames > RESTORE_FOCUS_FRAMES) {
-          restoring.current = null;
-          return;
-        }
-        if (lost && row) row.focus({ preventScroll: true });
-        restoring.current = { id, frame: requestAnimationFrame(tick) };
-      };
-      if (restoring.current) cancelAnimationFrame(restoring.current.frame);
-      restoring.current = { id, frame: requestAnimationFrame(tick) };
-    },
-    [scroller],
-  );
+  // Whether focus is in this list (a row, or the scroller's own tab stop). It survives the focused
+  // element being removed, which is what lets a remount hand focus on to the new list.
+  const listHasFocus = useRef(false);
+  const restoring = useRef<{ frame: number } | null>(null);
+  // Focus that has dropped to the page (its row was swapped, or the scroller was remounted) goes
+  // to `find()` for a short while, counted from when it dropped: the new element is rendered and
+  // settled a few frames later. Focus that is anywhere else is never taken.
+  const restoreFocus = useCallback((find: () => HTMLElement | null | undefined) => {
+    let frames = 0;
+    const tick = () => {
+      frames += 1;
+      const here = document.activeElement;
+      const target = find();
+      const lost = !here || here === document.body;
+      if ((!lost && here !== target) || frames > RESTORE_FOCUS_FRAMES) {
+        restoring.current = null;
+        return;
+      }
+      if (lost && target) target.focus({ preventScroll: true });
+      restoring.current = { frame: requestAnimationFrame(tick) };
+    };
+    if (restoring.current) cancelAnimationFrame(restoring.current.frame);
+    restoring.current = { frame: requestAnimationFrame(tick) };
+  }, []);
   useEffect(
     () => () => {
       if (restoring.current) cancelAnimationFrame(restoring.current.frame);
     },
     [],
   );
+  // The list remounts when its window is replaced (epoch): messages arriving in a chat that had
+  // none, a jump outside the window, a reload. A focused scroller or row goes with it and focus
+  // falls to the page: hand it to the new tab stop.
+  const seenEpoch = useRef(epoch);
+  useEffect(() => {
+    if (seenEpoch.current === epoch) return;
+    seenEpoch.current = epoch;
+    const here = document.activeElement;
+    if (!listHasFocus.current || (here && here !== document.body)) return;
+    restoreFocus(() => {
+      const el = scroller.current;
+      const active = rows.activeId;
+      const row =
+        active === null
+          ? null
+          : el?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(active)}"]`);
+      return row ?? el;
+    });
+  }, [epoch, rows, scroller, restoreFocus]);
   useEffect(() => {
     const last = items.findLast((it) => it.type === 'message');
     const lastId = last && 'id' in last ? last.id : null;
@@ -271,7 +288,11 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
         rows.setActive(successor.id);
         if (focusedRowId.current === active) {
           focusedRowId.current = successor.id;
-          restoreFocus(successor.id);
+          restoreFocus(() =>
+            scroller.current?.querySelector<HTMLElement>(
+              `[data-message-id="${CSS.escape(successor.id)}"]`,
+            ),
+          );
         }
         return;
       }
@@ -397,11 +418,16 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
         onFocus={(e) => {
           const row =
             e.target instanceof HTMLElement ? e.target.closest('[data-message-id]') : null;
+          listHasFocus.current =
+            e.target instanceof Node && scroller.current?.contains(e.target) === true;
           focusedRowId.current = (row?.getAttribute('data-message-id') as MessageId | null) ?? null;
         }}
         onBlur={(e) => {
           // A row that is taken out of the page while focused is not the user leaving it.
-          if (e.target instanceof HTMLElement && e.target.isConnected) focusedRowId.current = null;
+          if (e.target instanceof HTMLElement && e.target.isConnected) {
+            focusedRowId.current = null;
+            listHasFocus.current = false;
+          }
         }}
         onPointerLeave={() => {
           rows.setHovered(null);

@@ -238,8 +238,12 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   the ends; orders Home first, then spaces in rail order; wraps around, skips the current one and
   switches spaces; muted conversations only count when they mention you; test/shell.test.tsx ::
   Alt+↓ and Alt+Shift+↓ from the composer land on the new message list; Alt+↓ from a sidebar row moves
-  focus to the next row; app/App.test.tsx :: navigates by keyboard.
-- **Not pinned**: real focus movement in WebKitGTK; a journey would pin it.
+  focus to the next row; app/App.test.tsx :: navigates by keyboard; ui/hooks/focusTargets.test.ts ::
+  the "while the new view settles" tests (lands on the list once it exists, upgrading from the
+  sidebar row; never taken from an input, a dialog or a trigger the user is still typing in; bounded
+  frames); journeys/test_keyboard.py :: alt_arrow_from_the_composer_into_a_new_chat,
+  alt_arrow_into_a_slow_loading_chat (a 2.5 s load); the journey random walks. A list that remounts
+  after the keys landed (see C11) hands focus on itself, so a slow load is covered.
 
 ### S19. Clicked conversation rows take focus (WebKitGTK)
 
@@ -266,10 +270,12 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 - **Rule**: Mod+K opens it. Prefixes: `>` commands, `@` DMs, `#` groups, `*` spaces. An empty query
   shows unread chats (mentions first) then recent ones. Archived chats are findable but rank after
   live ones of equal score and are hidden from empty lists; weak tail matches (under 40% of the best)
-  are dropped. Enter opens the chat and focuses the message list; Escape returns focus.
+  are dropped. Enter opens the chat and focuses the message list (it stays there when the list
+  remounts as the chat's messages load, see C11); Escape returns focus.
 - **Why**: User request; archived search added later.
 - **Pinned by**: ui/features/switcher/model.test.ts (all); test/shell.test.tsx :: highlights matches,
-  opens with Enter and focuses the message list; returns focus to where it was when dismissed.
+  opens with Enter and focuses the message list; returns focus to where it was when dismissed;
+  journeys/test_keyboard.py :: switcher_enter_into_a_new_chat, switcher_enter_into_a_slow_loading_chat.
 
 ### S22. Spaces and the rail
 
@@ -418,13 +424,21 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   messages until the user moves it, never while that row has focus. Leaving the composer with Esc
   lands on the newest message, not a row that has scrolled away. When a sent message replaces its
   pending row, the tab stop and focus move to the sent row, so Esc right after Enter still works.
+  The same when the list remounts because its window was replaced (messages arriving in a chat that
+  had none, a jump outside the window, a reload): if focus was in the list (a row or the scroller)
+  and falls to the page, it goes to the new current row, else the scroller, for about 20 frames
+  counted from the remount, and never when focus is anywhere else.
 - **Why**: Bug reports: Esc from the composer scrolled then snapped back; Esc right after sending
-  selected nothing.
+  selected nothing; Alt+Up/Down or the switcher into a chat whose messages loaded late left focus on
+  the page.
 - **Pinned by**: ui/features/chat/list/MessageList.test.tsx :: an untouched tab stop follows new
   messages, so focus() lands on the newest; a tab stop the user moved stays put when a new message
   arrives; the focused newest row keeps its marker when a new message arrives; focusLatest() always
   lands on the newest message and scrolls it into view; ui/features/chat/list/
   MessageList.sendSwap.test.tsx :: keeps the tab stop and focus on the message when its id changes;
+  ui/features/chat/list/MessageList.remountFocus.test.tsx (focus follows a remount long after the
+  list opened; not taken from another field); journeys/test_keyboard.py ::
+  alt_arrow_into_a_slow_loading_chat;
   ui/plugins/vim/vim.integration.test.tsx :: returns to the newest message, not wherever the list was
   last left, when leaving an empty composer; journeys/test_keyboard.py :: esc_from_the_composer;
   journeys/test_keyboard.py :: esc_right_after_sending.
@@ -841,7 +855,11 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 - **Pinned by**: ui/features/chat/composer/Composer.test.tsx :: edits the last own message with Up in
   an empty composer; opens the newest message that can be edited, skipping stickers and ones too old;
   opens nothing on ArrowUp when every own message is past the window; does not start editing when
-  there is text; journeys/test_keyboard.py :: reply_then_edit (reply, then Up to edit it).
+  there is text; journeys/test_keyboard.py :: reply_then_edit (reply, then Up to edit it);
+  edit_the_same_message_twice (the editor takes focus every time, also for the same message);
+  core/stores/ui.test.ts :: gives every edit of the same message a session of its own;
+  ui/features/chat/message/MessageEditor.test.tsx :: takes focus each time the same message is
+  edited again.
 
 ### P5. A failed send restores the draft
 

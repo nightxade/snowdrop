@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { MessageId } from '@/core/domain';
 import { conversationIdFor } from '@/core/domain/testing';
 import { createUiStore, HOME, MAX_TOASTS, uiSelectors } from './ui';
 
@@ -23,5 +24,24 @@ describe('uiStore', () => {
     expect(store.getState().toasts[0]?.message).toBe('m2');
     store.getState().dismissToast('t3');
     expect(store.getState().toasts.map((t) => t.id)).toEqual(['t4', 't5', 't6']);
+  });
+
+  it('gives every edit of the same message a session of its own', () => {
+    const ui = createUiStore();
+    const target = {
+      conversationId: conversationIdFor('a'),
+      messageId: 'm-1' as MessageId,
+    };
+    ui.getState().setEditing(target);
+    const first = ui.getState().editing?.session;
+    ui.getState().setEditing(null);
+    ui.getState().setEditing(target);
+    const second = ui.getState().editing?.session;
+    expect(first).toBeDefined();
+    expect(second).toBeDefined();
+    expect(second).not.toBe(first);
+    // A caller that passes its session keeps it.
+    ui.getState().setEditing({ ...target, session: second! });
+    expect(ui.getState().editing?.session).toBe(second);
   });
 });

@@ -165,7 +165,6 @@ class Fuzzer:
         self.keyboard = False  # the current action used the keyboard
         self.visited = set()  # chats opened so far
         self.edited = set()  # chats whose newest message was edited: known bug sidebar_preview_follows_an_edit
-        self.no_focus_check = False
         self.skips = {}  # reason -> how many times an action found nothing to do
         self.narrow_steps = 0
         self.opened_editors = set()  # message ids whose inline editor was opened in this walk
@@ -286,7 +285,6 @@ class Fuzzer:
         actions = [(w, name) for w, name, ok in self.table() if ok(snap)]
         name = self.rng.choices([a[1] for a in actions], [a[0] for a in actions])[0]
         self.keyboard = False
-        self.no_focus_check = False
         self.log_len = len(self.log)
         self.walked[name] = self.walked.get(name, 0) + 1
         getattr(self, name)()
@@ -356,38 +354,18 @@ class Fuzzer:
         self.settle(250)
         self.unseen.discard(self.snap()['st']['selected'])
 
-    def list_unrendered_after(self, before):
-        """After a key that switches chat: was the new chat's message list still empty when the focus move ran
-        (one frame after the key)? Looks right after the key and once more 25 ms later, before the list renders."""
-        unrendered = False
-        for wait in (0, 25):
-            pump(wait)
-            now = self.page.eval('({ sel: __journey.state().selected, msgs: document.querySelectorAll("[data-snowdrop=message]").length })')
-            if now['sel'] != before and now['msgs'] == 0:
-                unrendered = True
-        return unrendered
-
     def open_alt(self):
         direction = self.rng.choice(['ArrowUp', 'ArrowDown'])
         self.say(f'Alt+{direction}')
         self.keyboard = True
         not_from_row = not self.snap_['active']['row']
-        before = self.selected()
         self.page.key(direction, ['alt'])
-        # The focus move runs one frame after the key. If the new chat's message list is not rendered by
-        # then, focus ends on <body> (the recorded bug).
-        unrendered = self.list_unrendered_after(before)
         self.settle(300)
         now = self.snap()['st']['selected']
         self.say(f'  moved to {"a chat opened before" if now in self.visited else "a chat not opened before"}'
-                 f' (from {"elsewhere" if not_from_row else "a row"}); its list was {"not rendered yet" if unrendered else "rendered"} at the key')
+                 f' (from {"elsewhere" if not_from_row else "a row"})')
         if now is not None:
             self.unseen.discard(now)
-            if not_from_row and (now not in self.visited or unrendered):
-                # Known bug: alt_arrow_from_the_composer_into_a_new_chat (test_keyboard.py): a chat whose message
-                # list is not rendered when the key's focus move runs (always a chat not opened before; seen on
-                # a revisit that had to reload its messages).
-                self.no_focus_check = True
 
     def open_switcher(self):
         snap = self.snap_
@@ -400,12 +378,10 @@ class Fuzzer:
         self.page.key('k', ['ctrl'])
         self.page.wait_for('!!document.querySelector("[role=dialog]")', 4000)
         self.page.type(word)
-        before = self.selected()
         self.page.key(end)
-        unrendered = self.list_unrendered_after(before) if end == 'Enter' else False
-        self.dialog_closed(end == 'Enter', switcher=end == 'Enter', unrendered=unrendered)
+        self.dialog_closed(end == 'Enter')
 
-    def dialog_closed(self, may_open_chat=False, switcher=False, unrendered=False):
+    def dialog_closed(self, may_open_chat=False):
         """Waits for the dialog to go away (pressing Esc once more when Enter left it open)."""
         if not pump_wait(self.page, '!document.querySelector("[role=dialog]")', 1500):
             self.say('Escape (the dialog was still open)')
@@ -414,13 +390,6 @@ class Fuzzer:
         self.settle(300)
         snap = self.snap()
         a = snap['active']
-        if switcher and a['body'] and (snap['st']['selected'] not in self.visited or unrendered):
-            # Known bug: switcher_enter_into_a_new_chat (test_keyboard.py): a chat whose message list is not
-            # rendered when the focus move runs (always a chat not opened before; also a revisit that reloads).
-            self.say(f'  focus on <body> after the switcher: chat {"not opened before" if snap["st"]["selected"] not in self.visited else "opened before"}, list {"not rendered" if unrendered else "rendered"} at the key')
-            self.no_focus_check = True
-            self.unseen.discard(snap['st']['selected'])
-            return
         if snap['hadOpener']:
             ok = a['opener']  # M15: the opener gets focus back (a chat opened by Enter takes the message list)
             where = 'its opener'
@@ -628,13 +597,7 @@ class Fuzzer:
         reopened = edited_id in self.opened_editors
         self.opened_editors.add(edited_id)
         if not self.page.eval('document.activeElement?.matches("[data-snowdrop=message] textarea")'):
-            if not reopened:
-                self.fail('the inline editor opened for the first time without taking focus')
-            # Known bug: edit_the_same_message_twice (test_keyboard.py): only for a message whose editor was
-            # opened before in this walk. Click into the editor, as a user would.
-            self.say('(the editor of a message edited before did not take focus: clicking into it)')
-            self.wheel_into_view('[data-snowdrop=message] textarea')
-            self.page.click('[data-snowdrop=message] textarea')
+            self.fail(f'the inline editor opened {"again" if reopened else "for the first time"} without taking focus')
         if self.rng.random() < 0.6:
             text = self.body()
             self.page.type(' ' + text)
@@ -952,7 +915,7 @@ class Fuzzer:
             out.append(f'{s["current"]} messages are current, expected at most one')
         if not s['currentOk']:
             out.append('the current message is not a message of the list')
-        if self.keyboard and not self.no_focus_check and s['active']['body']:
+        if self.keyboard and s['active']['body']:
             out.append('focus is on <body> after a keyboard action')
         by_id = {c['id']: c for c in st['conversations']}
         if st['catchingUp']:

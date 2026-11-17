@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ConversationId } from '@/core/domain';
 import {
   conversationFocusTarget,
@@ -216,6 +216,115 @@ describe('focusTargets', () => {
       await frames(6);
       expect(document.activeElement).toBe(input);
       input.remove();
+    });
+  });
+
+  describe('while the new view settles (fake animation frames)', () => {
+    let queue: FrameRequestCallback[] = [];
+    const runFrame = (): void => {
+      const now = queue;
+      queue = [];
+      for (const cb of now) cb(0);
+    };
+    const fakeFrames = (): void => {
+      queue = [];
+      vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => queue.push(cb));
+    };
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it('retries until the new list exists, then upgrades from the sidebar row', () => {
+      fakeFrames();
+      const row = makeSidebarRow(otherId);
+      const old = makeFocusable();
+      old.focus();
+      followConversationFocus()(otherId);
+      runFrame();
+      expect(document.activeElement).toBe(row);
+      const list = makeFocusable();
+      unregisters.push(
+        setConversationListFocusResolver((i) => {
+          if (i !== otherId) return null;
+          list.focus();
+          return list;
+        }),
+      );
+      runFrame();
+      expect(document.activeElement).toBe(list);
+      runFrame();
+      expect(queue).toHaveLength(0);
+    });
+
+    it("stops once it has landed on the list: a later remount is the list's job", () => {
+      fakeFrames();
+      const list = makeFocusable();
+      unregisters.push(setConversationListFocusResolver(() => (list.focus(), list)));
+      const old = makeFocusable();
+      old.focus();
+      followConversationFocus()(otherId);
+      runFrame();
+      expect(document.activeElement).toBe(list);
+      expect(queue).toHaveLength(0);
+    });
+
+    it('never steals focus from an input the user moved to', () => {
+      fakeFrames();
+      const row = makeSidebarRow(otherId);
+      const old = makeFocusable();
+      old.focus();
+      followConversationFocus()(otherId);
+      runFrame();
+      expect(document.activeElement).toBe(row);
+      const input = document.createElement('input');
+      document.body.appendChild(input);
+      input.focus();
+      unregisters.push(setConversationListFocusResolver(() => makeFocusable()));
+      runFrame();
+      expect(document.activeElement).toBe(input);
+    });
+
+    it('does not move focus into a conversation while a dialog is open', () => {
+      fakeFrames();
+      const old = makeFocusable();
+      old.focus();
+      const dialog = document.createElement('div');
+      dialog.setAttribute('role', 'dialog');
+      const button = document.createElement('button');
+      dialog.appendChild(button);
+      document.body.appendChild(dialog);
+      button.focus();
+      makeSidebarRow(id);
+      unregisters.push(setConversationFocusPolicy(() => true));
+      followConversationOpenFocus(id);
+      for (let i = 0; i < 10; i++) runFrame();
+      expect(document.activeElement).toBe(button);
+    });
+
+    it('a trigger still focused after the first frame is not taken from (the user typing in a composer)', () => {
+      fakeFrames();
+      const trigger = document.createElement('textarea');
+      document.body.appendChild(trigger);
+      trigger.focus();
+      followConversationFocus()(otherId); // forced only on frame 1
+      runFrame();
+      const composer = document.createElement('div');
+      composer.tabIndex = 0;
+      document.body.appendChild(composer);
+      makeSidebarRow(otherId);
+      trigger.focus();
+      unregisters.push(setConversationListFocusResolver(() => composer));
+      runFrame();
+      expect(document.activeElement).toBe(trigger);
+    });
+
+    it('gives up after a bounded number of frames', () => {
+      fakeFrames();
+      const old = makeFocusable();
+      old.focus();
+      followConversationFocus()(otherId);
+      for (let i = 0; i < 200; i++) runFrame();
+      expect(queue).toHaveLength(0);
     });
   });
 });

@@ -62,6 +62,8 @@ export interface JourneyDriver {
   /** Receipts for every message the user sent in the conversation. */
   receipt(conversation: string, type: 'delivered' | 'read'): number;
   typing(conversation: string, typing: boolean, from?: string): void;
+  /** Every history load from now on takes this many ms longer (a slow real backend). */
+  setLoadDelay(ms: number): void;
   state(): JourneyState;
 }
 
@@ -152,6 +154,9 @@ function create(snowdrop: Snowdrop, backend: MockBackend): JourneyDriver {
       const authorId = sender(id, undefined);
       if (sentAts.length > 0) backend.emit('receipt', { authorId, sentAts, type });
       return sentAts.length;
+    },
+    setLoadDelay: (ms) => {
+      backend.historyDelayMs = ms;
     },
     typing: (conversation, typing, from) => {
       const id = conv(conversation);

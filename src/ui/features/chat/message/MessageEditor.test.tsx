@@ -78,6 +78,21 @@ async function editing(
 }
 
 describe('<MessageEditor />', () => {
+  it('takes focus each time the same message is edited again', async () => {
+    const { snowdrop, kit, field } = await editing({ body: 'hello' });
+    const target = { conversationId: kit.conversationId, messageId: kit.message.id };
+    expect(document.activeElement).toBe(field());
+    act(() => {
+      snowdrop.stores.ui.getState().setEditing(null);
+    });
+    expect(screen.queryByRole('textbox', { name: 'Edit message' })).toBeNull();
+    act(() => {
+      snowdrop.stores.ui.getState().setEditing(target);
+    });
+    await settle(snowdrop);
+    expect(document.activeElement).toBe(field());
+  });
+
   it('keeps a mention picked while editing when the row is virtualised away and back', async () => {
     const { snowdrop, edit, mount, field, type, save } = await editing({ body: 'hello' });
     type('hello @');

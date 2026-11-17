@@ -336,6 +336,7 @@ export class MockBackend implements ChatBackend {
     options?: AbortOptions,
   ): Promise<HistoryPage> {
     await this.delay(options?.signal);
+    if (this.historyDelayMs > 0) await this.wait(this.historyDelayMs);
     const history = this.world.histories.get(conversationId) ?? [];
     const before = query.before;
     const end =
@@ -1020,6 +1021,18 @@ export class MockBackend implements ChatBackend {
     if (this.status === status) return;
     this.status = status;
     this.emitter.emit('status', status);
+  }
+
+  /**
+   * Extra time every `fetchHistory` takes, on top of the latency (a slow real
+   * backend; set only by the journey driver).
+   */
+  historyDelayMs = 0;
+
+  private wait(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+      this.scheduler.setTimeout(resolve, ms);
+    });
   }
 
   /**

@@ -32,7 +32,7 @@ export interface EditingTarget {
   mentions?: readonly { id: string; label: string }[];
   /** The link whose preview card the user removed while editing (kept for the same reason). */
   dismissedPreview?: string;
-  /** Increments per edit started, so the editor autofocuses once per edit, not on remount. */
+  /** Unique per edit started (never reused, even after the edit closes), so the editor autofocuses once per edit, not on remount. */
   session?: number;
 }
 
@@ -125,6 +125,9 @@ export interface UiState {
 export type UiStore = StoreApi<UiState>;
 
 export function createUiStore(newId: () => string = () => createNonce('toast')): UiStore {
+  // Never reset: closing an edit must not make the next edit of the same message look like the
+  // one before it (the editor autofocuses once per session).
+  let editSessions = 0;
   return createStore<UiState>()((set, get) => ({
     selectedSpace: HOME,
     selectedConversationBySpace: {},
@@ -179,16 +182,12 @@ export function createUiStore(newId: () => string = () => createNonce('toast')):
       });
     },
     setEditing: (editing) => {
-      // A new target starts a new session (autofocus once); same target keeps its draft.
-      set((s) =>
+      // Every edit started gets a session of its own, for the app's lifetime (autofocus once per
+      // edit); a caller that passes `session` keeps its draft's session.
+      set(
         editing === null
           ? { editing: null }
-          : {
-              editing: {
-                ...editing,
-                session: editing.session ?? (s.editing?.session ?? 0) + 1,
-              },
-            },
+          : { editing: { ...editing, session: editing.session ?? ++editSessions } },
       );
     },
     setEditDraft: (draft) => {

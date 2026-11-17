@@ -69,10 +69,7 @@ def esc_right_after_sending(page):
     page.expect_stays(is_current(0), 1500)
 
 
-@journey(
-    known_bug='Alt+Up/Down from the composer or the message list into a chat whose message list is not rendered yet (a chat not opened before; also a revisit that reloads its messages) leaves focus on <body>',
-    fails_at='page.expect_stays(NOT_ON_BODY',
-)
+@journey()
 def alt_arrow_from_the_composer_into_a_new_chat(page):
     """Alt+Down from the composer steps to the next chat (never opened before): focus lands on its message list (or its row), never on <body>."""
     open_conversation(page, 'dm-priya')
@@ -83,10 +80,7 @@ def alt_arrow_from_the_composer_into_a_new_chat(page):
     page.expect_stays(NOT_ON_BODY, 1000)  # it lands somewhere real and stays there
 
 
-@journey(
-    known_bug='the quick switcher opening a chat whose message list is not rendered yet (a chat not opened before; also a revisit that reloads its messages) leaves focus on <body>',
-    fails_at='page.expect_stays(NOT_ON_BODY',
-)
+@journey()
 def switcher_enter_into_a_new_chat(page):
     """Ctrl+K, a name, Enter opens that chat (never opened before) and focus lands on its message list, never <body>."""
     open_conversation(page, 'dm-priya')
@@ -101,13 +95,43 @@ def switcher_enter_into_a_new_chat(page):
     page.expect_stays(NOT_ON_BODY, 1000)
 
 
+LOADED = f'document.querySelectorAll({MESSAGE!r}).length > 0'
+
+
+@journey()
+def alt_arrow_into_a_slow_loading_chat(page):
+    """Alt+Down from the composer into a chat whose messages take 2.5 s to load: when they arrive and the list is rebuilt, focus is still on the list, never <body>."""
+    open_conversation(page, 'dm-priya')
+    page.click(COMPOSER)
+    page.eval('__journey.setLoadDelay(2500)')
+    page.key('ArrowDown', ['alt'])
+    page.wait_for('__journey.state().selected !== __journey.conversationId("dm-priya")')
+    page.wait_for(LOADED, 8000)
+    page.wait_for(NOT_ON_BODY, 1500)
+    page.expect_stays(NOT_ON_BODY, 1000)
+
+
+@journey()
+def switcher_enter_into_a_slow_loading_chat(page):
+    """The same through the quick switcher: a chat whose messages take 2.5 s to load keeps focus on its list."""
+    open_conversation(page, 'dm-priya')
+    page.click(COMPOSER)
+    page.eval('__journey.setLoadDelay(2500)')
+    page.key('k', ['ctrl'])
+    page.wait_for('!!document.querySelector("[role=dialog]")')
+    page.type('raff')
+    page.key('Enter')
+    page.wait_for('__journey.state().selected === __journey.conversationId("dm-rafferty")')
+    page.wait_for('!document.querySelector("[role=dialog]")')
+    page.wait_for(LOADED, 8000)
+    page.wait_for(NOT_ON_BODY, 1500)
+    page.expect_stays(NOT_ON_BODY, 1000)
+
+
 IN_EDITOR = 'document.activeElement?.matches("[data-snowdrop=message] textarea")'
 
 
-@journey(
-    known_bug='editing the same message a second time opens the editor without moving focus into it',
-    fails_at='page.wait_for(IN_EDITOR, 1500)',
-)
+@journey()
 def edit_the_same_message_twice(page):
     """Up in an empty composer opens the editor with focus in it; after Esc, Up again does the same for the same message."""
     open_conversation(page, 'dm-priya')
