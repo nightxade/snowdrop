@@ -14,7 +14,8 @@
  */
 import type { MockBackend } from '@/core/backend/mock';
 import { messageId, type ConversationId, type Message } from '@/core/domain';
-import { uiSelectors } from '@/core/stores';
+import { attentionOf, isMuted, selectConversationView, uiSelectors } from '@/core/stores';
+import { previewText } from '@/ui/features/conversation';
 import type { Snowdrop } from './createSnowdrop';
 
 /** Set before the backend connects, read when the driver is installed. */
@@ -61,7 +62,32 @@ export interface JourneyDriver {
   /** Receipts for every message the user sent in the conversation. */
   receipt(conversation: string, type: 'delivered' | 'read'): number;
   typing(conversation: string, typing: boolean, from?: string): void;
-  state(): { selected: string | null; online: boolean; catchingUp: boolean };
+  state(): JourneyState;
+}
+
+/** What a conversation should show in the sidebar, worked out from the stores and the demo's history. */
+export interface JourneyConversation {
+  id: string;
+  /** The world key (`dm-priya`), usable with `deliver`, `typing` and `receipt`. */
+  key: string;
+  title: string;
+  /** The preview the newest message calls for (`previewText`), empty without one. */
+  expectedPreview: string;
+  unread: number;
+  mentions: number;
+  /** The unread marker the row should carry (`attentionOf`). */
+  hasUnread: boolean;
+  muted: boolean;
+  /** A direct chat the demo refuses to send to (a changed, unapproved key), by design. */
+  sendRefused: boolean;
+}
+
+export interface JourneyState {
+  selected: string | null;
+  online: boolean;
+  catchingUp: boolean;
+  selfId: string;
+  conversations: JourneyConversation[];
 }
 
 let lastSentAt = 0;
@@ -131,11 +157,55 @@ function create(snowdrop: Snowdrop, backend: MockBackend): JourneyDriver {
       const id = conv(conversation);
       backend.emit('typing', { conversationId: id, authorId: sender(id, from), typing });
     },
-    state: () => ({
-      selected: uiSelectors.selectedConversation(snowdrop.stores.ui.getState()) ?? null,
-      online: backend.getStatus() === 'online',
-      catchingUp: snowdrop.stores.session.getState().catchingUp,
-    }),
+    state: () => {
+      const { conversations, messages, contacts, session, local } = snowdrop.stores;
+      const selfId = session.getState().self?.id ?? world.self.id;
+      const nameFor = (contactId: string) => contacts.getState().byId[contactId]?.name ?? 'Someone';
+      const now = Date.now();
+      const keys = new Map<string, string>();
+      for (const [key, id] of world.conversationIds) keys.set(id, key);
+      const newest = (id: ConversationId): Message | undefined => {
+        const window = messages.getState().windows[id];
+        if (window?.loaded && window.anchoredToPresent) {
+          const lastId = window.ids[window.ids.length - 1];
+          return lastId === undefined ? undefined : window.byId[lastId];
+        }
+        return world.histories.get(id)?.at(-1);
+      };
+      const { byId, unread: unreadById } = conversations.getState();
+      const rows = Object.values(byId).flatMap(({ id }): JourneyConversation[] => {
+        const view = selectConversationView(byId, local.getState().conversations, id);
+        if (!view) return [];
+        const unread = unreadById[id];
+        const muted = isMuted(view.muted, now);
+        const attention = attentionOf(unread, muted, view.markedUnread === true);
+        return [
+          {
+            id,
+            key: keys.get(id) ?? '',
+            title: view.title,
+            expectedPreview: previewText(newest(id), {
+              selfId,
+              isGroup: view.kind === 'group',
+              nameFor,
+            }),
+            unread: unread?.count ?? 0,
+            mentions: unread?.mentions ?? 0,
+            hasUnread: attention.hasUnread,
+            muted,
+            sendRefused:
+              view.kind === 'direct' && view.memberIds.some((m) => world.untrustedIds.has(m)),
+          },
+        ];
+      });
+      return {
+        selected: uiSelectors.selectedConversation(snowdrop.stores.ui.getState()) ?? null,
+        online: backend.getStatus() === 'online',
+        catchingUp: session.getState().catchingUp,
+        selfId,
+        conversations: rows,
+      };
+    },
   };
 }
 

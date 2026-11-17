@@ -25,7 +25,8 @@ const VITE = path.join(root, 'node_modules/vite/bin/vite.js');
 
 const args = process.argv.slice(2);
 const noBuild = args.includes('--no-build');
-const names = args.filter((a) => a !== '--no-build');
+// Everything else goes to journeys/run.py: journey names, or `--fuzz --seed N --steps M`.
+const forwarded = args.filter((a) => a !== '--no-build');
 
 /** A failure of this script itself (not of a journey). */
 class Abort extends Error {}
@@ -182,7 +183,7 @@ async function main() {
   );
   await waitForServer(url, preview);
   if (interrupted) return 130;
-  const run = start('python3', [path.join(root, 'journeys/run.py'), '--url', url, ...names], {
+  const run = start('python3', [path.join(root, 'journeys/run.py'), '--url', url, ...forwarded], {
     stdio: 'inherit',
   });
   const code = await exited(run);

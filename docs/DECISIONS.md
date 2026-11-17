@@ -833,8 +833,11 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 ### P4. Up in an empty composer edits your newest editable message
 
 - **Rule**: Up in an empty composer edits your newest editable message, skipping stickers and
-  messages past the window; it does nothing if all are past, or if there is text.
-- **Why**: Signal parity.
+  messages past the window; it does nothing if all are past, or if there is text. A message still
+  sending is skipped too, so Up edits the one before it.
+- **Why**: Signal parity, except for the sending message: Desktop opens the editor on it; here a
+  message can't be edited until it has been sent (decided against matching Desktop).
+- **Not pinned**: skipping a message still sending.
 - **Pinned by**: ui/features/chat/composer/Composer.test.tsx :: edits the last own message with Up in
   an empty composer; opens the newest message that can be edited, skipping stickers and ones too old;
   opens nothing on ArrowUp when every own message is past the window; does not start editing when

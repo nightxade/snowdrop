@@ -64,13 +64,68 @@ def run_one(entry, base_url, shots):
     return failure
 
 
+def run_fuzz(args):
+    """`--fuzz`: seeded random walks, one fresh webview per seed. Every seed runs, even after one fails;
+    each failure is printed with its replay command. Returns 1 if any seed failed."""
+    import fuzz
+
+    seeds = list(args.seed or [])
+    if args.seeds:
+        try:
+            low, high = (int(part) for part in args.seeds.split('-'))
+        except ValueError:
+            low = high = None
+        if low is None or low > high:
+            print(f'--seeds expects a range A-B with A <= B (for example 8-12), got {args.seeds!r}')
+            return 2
+        seeds += range(low, high + 1)
+    if not seeds:
+        seeds = [1]
+    shots = HERE / 'shots'
+    failed = 0
+    for seed in seeds:
+        t0 = time.monotonic()
+        skipped = []
+        entry = {
+            'name': f'fuzz_seed_{seed}',
+            'query': 'journeyCatchUp=held',
+            'fn': lambda page, s=seed: skipped.append(fuzz.fuzz(page, s, args.steps)),
+        }
+        failure = run_one(entry, args.url, shots)
+        took = time.monotonic() - t0
+        if failure is None:
+            print(f'PASS  fuzz seed {seed}, {args.steps} steps  ({took:.1f}s)', flush=True)
+            if skipped:
+                done = skipped[0]
+                print(f'      skipped actions: {sum(done["skips"].values())}', flush=True)
+                print('      ran: ' + ', '.join(f'{k} {v}' for k, v in sorted(done['walked'].items())), flush=True)
+            continue
+        failed += 1
+        _where, why, _exc, shot = failure
+        print(f'FAIL  fuzz seed {seed}, {args.steps} steps  ({took:.1f}s)', flush=True)
+        print(f'      {why}')
+        if shot:
+            print(f'      screenshot: {shot}')
+    print(f'{len(seeds) - failed} of {len(seeds)} seeds passed', flush=True)
+    return 1 if failed else 0
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--url', required=True)
     ap.add_argument('names', nargs='*')
+    ap.add_argument('--fuzz', action='store_true', help='run the random walk (journeys/fuzz.py) instead of the journeys')
+    ap.add_argument('--seed', type=int, action='append', help='fuzz: a seed (repeat for several)')
+    ap.add_argument('--seeds', help='fuzz: a range of seeds, A-B (inclusive)')
+    ap.add_argument('--steps', type=int, default=300, help='fuzz: steps per seed (default 300)')
     args = ap.parse_args()
 
     harness.require_display()
+    if args.fuzz:
+        if args.names:
+            print(f'--fuzz runs random walks, not journeys; journey names were given: {", ".join(args.names)}')
+            return 2
+        return run_fuzz(args)
     journeys = load_journeys()
     known = {j['name'] for j in journeys}
     unknown = [n for n in args.names if n not in known]

@@ -248,6 +248,19 @@ class Page:
         self.window.show_all()
         pump(200)
 
+    # ------------------------------------------------------------ window
+
+    @_step
+    def resize(self, width, height):
+        """Resizes the window (and so the page), as a user dragging its edge would."""
+        self.webview.set_size_request(width, height)
+        self.window.set_default_size(width, height)
+        self.window.resize(width, height)
+        pump(150)
+        if not pump_until(lambda: self._run('return window.innerWidth;', 5000) == width, 3000):
+            raise JourneyFailure(f'the window did not resize to {width} x {height}')
+        pump(150)
+
     # ------------------------------------------------------------ lifecycle
 
     def open(self):

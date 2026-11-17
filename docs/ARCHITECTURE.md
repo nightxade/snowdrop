@@ -699,6 +699,18 @@ its specifier is spelt, must be a dynamic import inside that exact condition),
 not the built output: a fresh production build per run would cost more than the
 run itself.
 
+**Random walks.** `journeys/fuzz.py` plays a seeded random walk of real user
+actions (clicks, keys, wheel, resizes, dialogs, send, reply, edit, delete) mixed with live
+events (arrivals, receipts, typing, a catch-up with backlog) and checks the invariants listed
+at the top of that file after every step. `npm run journeys` runs three short fixed seeds
+(`journeys/test_fuzz.py`); `npm run journeys -- --fuzz --seed 7 --steps 300` (or `--seeds 1-30`)
+runs longer ones. A failure prints the seed, the step and the last actions, and saves a
+screenshot; the same seed and step count replays the walk (timing can still make a replay differ).
+Where the walk meets a bug that is already a `known_bug` journey, it steps around it (the places
+say which) so it can keep looking; an exemption is exactly as wide as that bug, and an action that
+finds nothing to do is logged as skipped, never silently passed. It spends most steps in a wide
+window; narrow, it checks the drawer layout instead of the sidebar rows.
+
 A journey is a function in a `journeys/test_*.py` file, registered with
 `@journey()`, that drives a `Page` (`journeys/harness.py`) and reads like the
 behaviour it protects:
