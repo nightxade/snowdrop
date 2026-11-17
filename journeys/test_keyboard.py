@@ -1,4 +1,4 @@
-from common import COMPOSER, MESSAGE, open_conversation, send
+from common import COMPOSER, LAST_MESSAGE, MESSAGE, open_conversation, send
 from harness import journey
 
 NOT_ON_BODY = 'document.activeElement !== document.body'
@@ -62,11 +62,21 @@ def esc_right_after_sending(page):
     """Esc straight after Enter, before the send has finished: the newest message stays current."""
     open_conversation(page, 'dm-priya')
     page.click(COMPOSER)
+    # The row must not leave the page (taking focus with it) while the sent message replaces the
+    # pending one: a polling check can miss a gap of a few ms, so the page itself watches for it.
+    page.eval(
+        'const _ = (window.__gone = 0);'
+        ' new MutationObserver((ms) => { for (const m of ms) for (const n of m.removedNodes)'
+        ' if (n.nodeType === 1 && (n.matches("[data-pending],[data-current]") || n.querySelector("[data-pending],[data-current]"))) window.__gone++; })'
+        '.observe(document.body, { childList: true, subtree: true }); return 1;'
+    )
     page.type('sent in a hurry')
     page.key('Enter')
     page.key('Escape')
     page.wait_for(is_current(0))
+    page.wait_for(f'!{LAST_MESSAGE}.hasAttribute("data-pending")')
     page.expect_stays(is_current(0), 1500)
+    page.expect('window.__gone === 0', 'the pending message row left the page (and its focus) when the sent message replaced it')
 
 
 @journey()

@@ -1313,6 +1313,9 @@ export class SendService {
     }
     this.deps.stores.messages.getState().remove(conversationId, target.id);
     this.deps.rememberPurged?.(target.id);
+    // A message nobody read leaves the unread count with it (else the chat keeps a ghost unread).
+    const selfId = this.deps.stores.session.getState().self?.id;
+    if (selfId) this.deps.stores.conversations.getState().applyRemoval(target, selfId);
     await this.deps.repository.delete(target.id);
     await refreshPreviewAfterRemoval(
       this.deps.stores.conversations,

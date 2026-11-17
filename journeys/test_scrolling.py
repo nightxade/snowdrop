@@ -40,3 +40,30 @@ def receive_while_scrolled_up(page):
     page.eval("__journey.deliver({ conversation: 'dm-priya', count: 2, spacingMs: 200, text: 'at the bottom' })")
     page.wait_for(f'{LAST_MESSAGE}?.textContent.includes("at the bottom 2")')
     page.expect_stays(at_bottom(), 600)
+
+
+UNREAD = "__journey.state().conversations.find((c) => c.key === 'dm-priya').unread"
+DISTANCE = f'(() => {{ const s = document.querySelector({SCROLLER!r}); return s.scrollHeight - s.scrollTop - s.clientHeight; }})()'
+
+
+@journey()
+def scrolled_part_way_back_stays_unread(page):
+    """Arrivals while scrolled up stay unread when the reader comes back near the end but the newest are still below the fold; they are read once the end is on screen."""
+    open_conversation(page, 'dm-priya')
+    page.eval("__journey.deliver({ conversation: 'dm-priya', count: 40, spacingMs: 20, text: 'filler' })")
+    page.wait_for(f'{LAST_MESSAGE}?.textContent.includes("filler 40")')
+    page.scroll(SCROLLER, -900)
+    page.wait_for(f'{DISTANCE} > 500')
+    page.eval("__journey.deliver({ conversation: 'dm-priya', count: 3, spacingMs: 100, text: 'while away' })")
+    page.wait_for(f'{UNREAD} === 3')
+
+    # Back down to just short of the end (inside the follow slack, newest messages out of view).
+    slack = page.eval(f'Math.round(document.querySelector({SCROLLER!r}).clientHeight / 2)')
+    while page.eval(DISTANCE) > slack:
+        page.scroll(SCROLLER, 80)
+    page.expect(f'{DISTANCE} > 10', 'the scroll reached the end; the journey needs to stop short of it')
+    page.expect_stays(f'{UNREAD} === 3', 1500)
+
+    page.scroll(SCROLLER, 600)
+    page.wait_for(at_bottom())
+    page.wait_for(f'{UNREAD} === 0')

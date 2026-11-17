@@ -12,9 +12,14 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import ts from 'typescript';
+import { act } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
+import type { MockBackend } from '@/core/backend/mock';
+import type { ConversationId } from '@/core/domain';
+import { bootSnowdrop } from '@/test/renderWithSnowdrop';
 import { createMemoryStorage } from '@/core/persistence';
 import { createSnowdrop } from './createSnowdrop';
+import { createJourneyDriver } from './journeyDriver';
 import { installBootHelpers } from './installBootHelpers';
 
 const SRC = join(process.cwd(), 'src');
@@ -125,5 +130,31 @@ describe('journey driver', () => {
     const stop = installBootHelpers({ snowdrop, safeMode: false });
     expect('__journey' in window).toBe(false);
     stop();
+  });
+});
+
+describe('journey driver: the preview a chat should show', () => {
+  it('leaves out a message the user deleted for themselves, in a chat that is not open', async () => {
+    const snowdrop = await bootSnowdrop();
+    try {
+      const backend = (await snowdrop.backendReady) as MockBackend;
+      const driver = createJourneyDriver(snowdrop, backend);
+      const id = driver.conversationId('crux') as ConversationId;
+      await act(async () => {
+        await driver.deliver({ conversation: 'crux', count: 3, text: 'Burst' });
+        await snowdrop.sync.idle();
+      });
+      const row = () => driver.state().conversations.find((c) => c.id === id)!;
+      expect(row().expectedPreview).toContain('Burst 3');
+      const newest = snowdrop.stores.conversations.getState().lastMessage[id]!;
+      expect(newest.body).toBe('Burst 3');
+      await act(async () => {
+        await snowdrop.send.deleteForMe(id, newest);
+      });
+      expect(snowdrop.stores.conversations.getState().lastMessage[id]?.body).toBe('Burst 2');
+      expect(row().expectedPreview).toContain('Burst 2');
+    } finally {
+      await snowdrop.dispose();
+    }
   });
 });

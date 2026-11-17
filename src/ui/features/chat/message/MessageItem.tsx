@@ -95,7 +95,14 @@ export const MessageItem = memo(function MessageItem({
   const { stores } = app;
   const hasStickers = useBackendFeature('stickers');
   const chat = useChatController();
-  const m = useStore(stores.messages, messagesSelectors.message(conversationId, id));
+  const stored = useStore(stores.messages, messagesSelectors.message(conversationId, id));
+  // A sending message is swapped for its sent version (same row key, new id). The store changes
+  // first and the virtualiser hands this row the new id a render later: for that render the old id
+  // is gone. Keep showing the last message instead of rendering nothing, which would remove the
+  // row (and the focus on it) from the page for a frame.
+  const [lastStored, setLastStored] = useState(stored);
+  if (stored && stored !== lastStored) setLastStored(stored);
+  const m = stored ?? lastStored;
   const nameFor = useMessageNames(m);
   const selfId = useStore(stores.session, sessionSelectors.selfId);
   // Re-render the row when the conversation is accepted or the user may (no longer) write in it,

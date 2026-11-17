@@ -7,10 +7,18 @@ import { useSnowdrop } from '@/ui/hooks';
 /**
  * Read state follows what's actually on screen: a conversation is marked
  * read only while its newest message is visible and the window has focus.
- * The same fact is published to the ui store, so the sync engine auto-reads
- * arrivals only then (and leaves them unread while you're scrolled up).
+ * `atPresent` (the list is at the present and within the follow slack of its
+ * end) is published to the ui store, so the sync engine auto-reads arrivals
+ * only then (and leaves them unread while you're scrolled up). Messages that
+ * are already unread additionally wait for `newestInView`: within the slack
+ * the newest ones can still be below the fold, and a reader who has scrolled
+ * up and comes back part of the way has not seen them.
  */
-export function useReadTracking(conversationId: ConversationId, atPresent: boolean): void {
+export function useReadTracking(
+  conversationId: ConversationId,
+  atPresent: boolean,
+  newestInView: boolean,
+): void {
   const { stores, sync } = useSnowdrop();
   const focused = useStore(stores.ui, (s) => s.windowFocused);
   const unread = useStore(stores.conversations, conversationsSelectors.unread(conversationId));
@@ -30,7 +38,7 @@ export function useReadTracking(conversationId: ConversationId, atPresent: boole
   );
 
   useEffect(() => {
-    if (atPresent && focused && (hasUnread || hasActivity))
+    if (atPresent && newestInView && focused && (hasUnread || hasActivity))
       void sync.markConversationRead(conversationId);
-  }, [atPresent, focused, hasUnread, hasActivity, sync, conversationId]);
+  }, [atPresent, newestInView, focused, hasUnread, hasActivity, sync, conversationId]);
 }

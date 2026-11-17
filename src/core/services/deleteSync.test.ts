@@ -152,6 +152,18 @@ describe('delete for me sync: outgoing', () => {
     expect(await t.ids(t.conv)).toEqual([]);
   });
 
+  it('takes a deleted unread message off the unread count, so reading the chat leaves none behind', async () => {
+    const t = await setup();
+    await t.arrive(t.conv, [NOW + 1, NOW + 2]);
+    const unread = () => t.stores.conversations.getState().unread[t.conv]?.count ?? 0;
+    expect(unread()).toBe(2);
+    const [first] = await t.repository.page(t.conv, { limit: 500 });
+    await t.send.deleteForMe(t.conv, first!);
+    expect(unread()).toBe(1);
+    await t.sync.markConversationRead(t.conv);
+    expect(unread()).toBe(0);
+  });
+
   it('sends nothing without the deleteSync feature, and the message is still deleted', async () => {
     const t = await setup({ deleteSync: false });
     await t.arrive(t.conv, [NOW + 1]);

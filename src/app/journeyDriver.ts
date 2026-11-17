@@ -99,7 +99,7 @@ function nextSentAt(): number {
   return lastSentAt;
 }
 
-function create(snowdrop: Snowdrop, backend: MockBackend): JourneyDriver {
+export function createJourneyDriver(snowdrop: Snowdrop, backend: MockBackend): JourneyDriver {
   const { world } = backend;
   const conv = (key: string): ConversationId => {
     const id = world.conversationIds.get(key);
@@ -175,7 +175,9 @@ function create(snowdrop: Snowdrop, backend: MockBackend): JourneyDriver {
           const lastId = window.ids[window.ids.length - 1];
           return lastId === undefined ? undefined : window.byId[lastId];
         }
-        return world.histories.get(id)?.at(-1);
+        // A chat that is not open: the demo's own history, less what the user removed on this
+        // device (deleted for me), which the repository no longer holds.
+        return world.histories.get(id)?.findLast((m) => !snowdrop.expiry.hasPurged(m.id));
       };
       const { byId, unread: unreadById } = conversations.getState();
       const rows = Object.values(byId).flatMap(({ id }): JourneyConversation[] => {
@@ -218,6 +220,6 @@ function create(snowdrop: Snowdrop, backend: MockBackend): JourneyDriver {
 export function installJourneyDriver(snowdrop: Snowdrop): void {
   void snowdrop.backendReady.then(() => {
     if (!prepared) return;
-    Object.assign(window, { __journey: create(snowdrop, prepared) });
+    Object.assign(window, { __journey: createJourneyDriver(snowdrop, prepared) });
   });
 }

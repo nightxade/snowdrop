@@ -20,6 +20,8 @@ afterEach(async () => {
   for (const h of snowdrops.splice(0)) await h.dispose();
 });
 
+// A one-to-one chat here is Beatrix Holm's: it has scripted messages, so it is always listed (a chat
+// with only random demo activity may have none on a given day, and chats with no messages are hidden).
 async function setup(title = 'Orchard · Engineering') {
   const snowdrop = await bootSnowdrop();
   snowdrops.push(snowdrop);
@@ -600,7 +602,7 @@ describe('<Composer />', () => {
     });
 
     it('offers no poll in a one-to-one chat, where Signal Desktop has none', async () => {
-      await setup('Tavi Nakamura');
+      await setup('Beatrix Holm');
       openMore();
       const items = await screen.findAllByRole('menuitem');
       expect(items.map((i) => i.textContent.replace(/\s*(Ctrl|Cmd|⌘|⌃).*$/u, ''))).toEqual([
@@ -610,7 +612,7 @@ describe('<Composer />', () => {
     });
 
     it('leaves out the voice message while there is a draft to send', async () => {
-      const { typeText } = await setup('Tavi Nakamura');
+      const { typeText } = await setup('Beatrix Holm');
       typeText('hello');
       openMore();
       const items = await screen.findAllByRole('menuitem');
@@ -618,7 +620,7 @@ describe('<Composer />', () => {
     });
 
     it('opens the file picker from Upload a file', async () => {
-      await setup('Tavi Nakamura');
+      await setup('Beatrix Holm');
       const picker = document.querySelector<HTMLInputElement>('input[type="file"]')!;
       const click = vi.spyOn(picker, 'click').mockImplementation(() => undefined);
       openMore();

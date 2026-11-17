@@ -57,6 +57,12 @@ const DIVIDER_NEAR_END = 12;
 const ROW_HEIGHT = { comfortable: 62, compact: 28 } as const;
 /** Gap above the divider / jump target, so it isn't flush with the top edge. */
 const TOP_OFFSET = -48;
+/**
+ * How close to the end of the list (px) the newest message counts as seen. "At the bottom" for
+ * following and for auto-reading arrivals is looser (the follow slack, C1); a chat that already has
+ * unread messages is marked read only once the reader has really reached its end (C7).
+ */
+const NEWEST_SEEN_PX = 4;
 /** How many animation frames after a send completes focus lost with its swapped row may be handed to the sent row. */
 const RESTORE_FOCUS_FRAMES = 20;
 
@@ -129,13 +135,23 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
   useRenderProbe(null);
   // Starts false: a list opened at the unread divider must not count as "seen to the bottom".
   const [atBottom, setAtBottom] = useState(false);
+  // Whether the end of the list is on screen (not merely within the follow slack of it). Measured
+  // afresh after a remount, like `atBottom`.
+  const [atEnd, setAtEnd] = useState(true);
   const [bottomEpoch, setBottomEpoch] = useState(epoch);
   if (bottomEpoch !== epoch) {
     // A remounted virtualiser reports its own bottom state afresh.
     setBottomEpoch(epoch);
     setAtBottom(false);
+    setAtEnd(false);
   }
   const [farFromBottom, setFarFromBottom] = useState(false);
+  // Also after the list grows, shrinks or is resized without scrolling (rows measured, a message
+  // deleted): the end can come on screen, or go off it, without a scroll event.
+  const measureEnd = () => {
+    const el = scroller.current;
+    if (el) setAtEnd(el.scrollHeight - el.scrollTop - el.clientHeight <= NEWEST_SEEN_PX);
+  };
   // Half the visible height (see `slackFor`), shared by the pin and Virtuoso's at-bottom.
   const [slack, setSlack] = useState(PIN_SLACK_PX);
   const measureSlack = (el: HTMLElement) => {
@@ -161,11 +177,13 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
       measureSlack(el);
       pin.onScroll(distance, el.scrollTop);
       setFarFromBottom(distance > el.clientHeight);
+      measureEnd();
       scheduleMeasure();
     },
     onResize: () => {
       if (scroller.current) measureSlack(scroller.current);
       repin();
+      measureEnd();
     },
   });
   const { dividerIndex, dividerPos, scheduleMeasure, rangeChanged } = useUnreadDivider({
@@ -194,7 +212,7 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
   });
 
   const atPresent = loaded && anchoredToPresent && atBottom;
-  useReadTracking(conversationId, atPresent);
+  useReadTracking(conversationId, atPresent, atEnd);
 
   // Where a freshly (re)mounted list starts: a jump target, the unread divider, or the bottom.
   const initialIndex = useMemo(() => {
@@ -472,8 +490,12 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
           atBottomStateChange={(bottom) => {
             if (bottom) pin.onReachedBottom();
             setAtBottom(bottom);
+            measureEnd();
           }}
-          totalListHeightChanged={repin}
+          totalListHeightChanged={() => {
+            repin();
+            measureEnd();
+          }}
           rangeChanged={(range) => {
             rangeChanged(range.startIndex - firstItemIndex);
             if (!loaded) return;

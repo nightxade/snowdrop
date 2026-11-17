@@ -394,12 +394,18 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 ### C7. Read tracking
 
 - **Rule**: A chat is marked read only while its bottom is visible and the window is focused;
-  arrivals while scrolled up stay unread. A reaction or vote on your own message counts as news that
-  is read only when the chat is on screen.
+  arrivals while scrolled up stay unread. Within the follow slack of the end (C1) is close enough to
+  auto-read an arrival, which is followed into view, but messages that are already unread wait until
+  the end of the list is on screen (a reader who scrolled up and came back part of the way, or Esc
+  from the composer scrolling a row into view, has not seen them). A reaction or vote on your own
+  message counts as news that is read only when the chat is on screen, and it too waits until the
+  end of the list is on screen.
 - **Why**: Signal parity; plan.
-- **Pinned by**: ui/features/chat/list/useReadTracking.test.tsx (all five); ui/features/chat/message/
+- **Pinned by**: ui/features/chat/list/useReadTracking.test.tsx (all six); ui/features/chat/message/
   useHistoryRead.test.tsx :: waits for both focus and actual intersection, and ignores stale observer
-  callbacks.
+  callbacks; ui/features/chat/list/useReadTracking.test.tsx :: waits for the newest message to be on
+  screen, not just within the follow slack of the end; journeys/test_scrolling.py ::
+  scrolled_part_way_back_stays_unread.
 - **Not pinned**: real IntersectionObserver and window focus (journey).
 
 ### C8. Unread divider and "N new messages" bar
@@ -437,7 +443,9 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 - **Rule**: The list is one tab stop. It is the newest message when the chat opens and follows newer
   messages until the user moves it, never while that row has focus. Leaving the composer with Esc
   lands on the newest message, not a row that has scrolled away. When a sent message replaces its
-  pending row, the tab stop and focus move to the sent row, so Esc right after Enter still works.
+  pending row, the tab stop and focus move to the sent row, so Esc right after Enter still works;
+  the row itself stays on the page through the swap (a row asked for an id the store has just
+  dropped keeps showing the last message), so focus never falls to the page, not even for a frame.
   The same when the list remounts because its window was replaced (messages arriving in a chat that
   had none, a jump outside the window, a reload): if focus was in the list (a row or the scroller)
   and falls to the page, it goes to the new current row, else the scroller, for about 20 frames
@@ -450,6 +458,8 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   arrives; the focused newest row keeps its marker when a new message arrives; focusLatest() always
   lands on the newest message and scrolls it into view; ui/features/chat/list/
   MessageList.sendSwap.test.tsx :: keeps the tab stop and focus on the message when its id changes;
+  ui/features/chat/message/MessageItem.swap.test.tsx :: stays on the page with its focus until it is
+  given the new id;
   ui/features/chat/list/MessageList.remountFocus.test.tsx (focus follows a remount long after the
   list opened; not taken from another field); journeys/test_keyboard.py ::
   alt_arrow_into_a_slow_loading_chat;
@@ -627,13 +637,15 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 - **Rule**: Delete for everyone is offered only within 24 hours (never in note-to-self). Delete or
   Backspace on your own message deletes for everyone, on someone else's deletes for you; it asks
   first with the destructive button focused. Holding Shift skips the question; the hover bar shows
-  the quick delete while Shift is held and keeps it across messages after a delete.
+  the quick delete while Shift is held and keeps it across messages after a delete. A message you
+  delete for yourself that nobody has read also leaves the chat's unread count.
 - **Why**: Signal parity; bug report: Shift reset after each delete.
 - **Pinned by**: ui/features/chat/message/MessageItem.test.tsx :: Delete asks first, with the
   destructive button focused so Enter confirms; ui/features/chat/message/MessageItem.rules.test.tsx ::
   offers delete for everyone only for 24 hours, where recipients still accept it; ui/features/chat/
   message/useShiftHeld.test.tsx (both); journeys/test_delete.py :: shift_delete_across_messages (three
-  messages deleted in a row with Shift held, no dialog).
+  messages deleted in a row with Shift held, no dialog); core/services/deleteSync.test.ts :: takes a
+  deleted unread message off the unread count, so reading the chat leaves none behind.
 
 ### M4. Failed and unconfirmed sends
 
