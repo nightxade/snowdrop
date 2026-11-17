@@ -219,7 +219,7 @@ describe('NotificationService', () => {
     expect(shown).toHaveLength(1);
   });
 
-  it('the sidebar catch-up flag alone does not hold notifications (its ceiling is shorter)', () => {
+  it('only the notification hold decides, not the sidebar catch-up flag', () => {
     const { stores, shown, receive } = setup();
     stores.session.getState().setNotificationsHeld(true);
     stores.session.getState().setCatchingUp(false);

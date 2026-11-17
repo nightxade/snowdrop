@@ -197,6 +197,8 @@ docs/                 documentation
   security policy, safe mode.
 - [KEYBOARD.md](docs/KEYBOARD.md) — every shortcut, and Vim mode.
 - [SIGNAL_CLI.md](docs/SIGNAL_CLI.md) — running Snowdrop against signal-cli.
+- [DECISIONS.md](docs/DECISIONS.md) — the behaviour rules the app keeps, why, and the
+  test that pins each.
 - [PLAN.md](docs/PLAN.md) — the product plan, delivery status and the
   as-built record of decisions (§8).
 
