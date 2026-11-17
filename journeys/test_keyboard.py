@@ -1,16 +1,7 @@
-from common import COMPOSER, LAST_MESSAGE, MESSAGE, open_conversation, send
+from common import COMPOSER, LAST_MESSAGE, MESSAGE, is_current, open_conversation, send
 from harness import journey
 
 NOT_ON_BODY = 'document.activeElement !== document.body'
-
-# The message at index `from_end` counting back from the newest (0 = newest).
-def is_current(from_end):
-    return f"""(() => {{
-      const m = [...document.querySelectorAll({MESSAGE!r})];
-      const e = m[m.length - 1 - {from_end}];
-      return !!e && e.hasAttribute('data-current') && document.activeElement === e;
-    }})()"""
-
 
 @journey()
 def esc_from_the_composer(page):
@@ -155,3 +146,76 @@ def edit_the_same_message_twice(page):
     page.key('ArrowUp')
     page.wait_for('!!document.querySelector("[data-snowdrop=message] textarea")')
     page.wait_for(IN_EDITOR, 1500)
+
+
+MENU = '[role=menu]'
+IN_HOVER_BAR = 'document.activeElement?.closest("[data-snowdrop=hover-bar]") !== null'
+
+
+def current_message(page):
+    """Esc from the composer leaves the newest message current and focused; returns its id."""
+    page.click(COMPOSER)
+    page.key('Escape')
+    page.wait_for(is_current(0))
+    return page.eval('document.activeElement.getAttribute("data-message-id")')
+
+
+@journey()
+def enter_steps_into_a_message_and_escape_out(page):
+    """Enter on the current message moves focus into its hover bar (Tab goes on through the controls); Esc puts it back on the message."""
+    open_conversation(page, 'dm-priya')
+    row = f'[data-message-id="{current_message(page)}"]'
+    page.key('Enter')
+    page.wait_for(IN_HOVER_BAR)
+    first = page.eval('document.activeElement.getAttribute("aria-label")')
+    page.key('Tab')
+    page.expect(f'{IN_HOVER_BAR} && document.activeElement.getAttribute("aria-label") !== {first!r}', 'Tab did not go on to the next control')
+    page.key('Escape')
+    page.wait_for(f'document.activeElement === document.querySelector({row!r})')
+    page.expect_stays(is_current(0), 500)
+
+
+@journey()
+def message_menu_keys_open_the_menu(page):
+    """Shift+F10, the Menu key and Ctrl+Enter each open the current message's menu, and closing it with Esc gives focus back to the message."""
+    open_conversation(page, 'dm-priya')
+    row = f'[data-message-id="{current_message(page)}"]'
+    for name, mods in (('F10', ['shift']), ('Menu', []), ('Enter', ['ctrl'])):
+        page.key(name, mods)
+        page.wait_for(f'!!document.querySelector({MENU!r})')
+        page.expect(f'document.querySelector({MENU!r}).contains(document.activeElement)', f'{name}: focus did not move into the menu')
+        page.key('Escape')
+        page.wait_for(f'!document.querySelector({MENU!r})')
+        page.wait_for(f'document.activeElement === document.querySelector({row!r})')
+
+
+# What a row paints: its background and shadow (the accent bar on its left edge).
+def painted(from_end):
+    return f"""(() => {{
+      const m = [...document.querySelectorAll({MESSAGE!r})];
+      const s = getComputedStyle(m[m.length - 1 - {from_end}]);
+      return {{ bg: s.backgroundColor, shadow: s.boxShadow }};
+    }})()"""
+
+
+ACCENT = """(() => { const p = document.createElement('span'); p.style.color = 'var(--snowdrop-accent)';
+  document.body.appendChild(p); const c = getComputedStyle(p).color; p.remove(); return c; })()"""
+
+
+@journey()
+def current_message_is_painted(page):
+    """The current message is painted (an accent bar and a background) while focus is on the list, in WebKitGTK where :focus-visible does not show for script focus; the row before it is not, and the paint moves with the arrows."""
+    open_conversation(page, 'dm-priya')
+    page.click(COMPOSER)
+    page.key('Escape')
+    page.wait_for(is_current(0))
+    page.wait_for(f'{painted(0)}.shadow.includes({ACCENT}) && {painted(0)}.bg !== {painted(1)}.bg')
+    page.expect(f'!{painted(1)}.shadow.includes({ACCENT})', 'the previous message is painted as current too')
+    page.key('ArrowUp')
+    page.wait_for(is_current(1))
+    page.wait_for(f'{painted(1)}.shadow.includes({ACCENT}) && !{painted(0)}.shadow.includes({ACCENT})')
+    # Focus that is not :focus-visible (a mouse click on a message) paints it too: the marker does not depend on that.
+    third = page.eval(f'[...document.querySelectorAll({MESSAGE!r})].at(-3).getAttribute("data-message-id")')
+    page.click(f'[data-message-id="{third}"]')
+    page.wait_for('document.activeElement?.matches("[data-snowdrop=message]") && !document.activeElement.matches(":focus-visible")')
+    page.wait_for(f'{painted(2)}.shadow.includes({ACCENT})')

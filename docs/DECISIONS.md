@@ -265,8 +265,13 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   frames while the list mounts and only targets rows inside the message scroller.
 - **Why**: Bug: WebKitGTK does not focus an element on click.
 - **Pinned by**: ui/hooks/focusTargets.test.ts :: retries a few frames before falling back, when the
-  list has not rendered a row yet; a pointer open moves focus to the list once a policy is active.
-- **Not pinned**: the real click focus in WebKitGTK; a journey would pin it.
+  list has not rendered a row yet; a pointer open moves focus to the list once a policy is active;
+  ui/features/sidebar/ConversationRow.focus.test.tsx (a click event leaves focus alone, as in
+  WebKitGTK, and the row still ends up focused); journeys/test_sidebar.py ::
+  arrow_keys_step_from_the_clicked_row (after a click, Down steps from that row).
+- **Not pinned**: a real WebKitGTK click that leaves a button unfocused. The journey runner's
+  synthetic click focuses buttons itself, so no journey can see the missing `focus()` call; the unit
+  test does.
 
 ### S20. Narrow-window navigation
 
@@ -335,9 +340,8 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   never less than the minimum; a reader up to half a page away keeps following; past it, never moved;
   the slack boundary: at it the new message is followed, one px beyond it is not; journeys/
   test_scrolling.py :: receive_while_scrolled_up (scrolled well up: the view does not move; at the
-  bottom: new messages are followed).
-- **Not pinned**: the half-page boundary in real scrolling; a journey scrolling to just inside and
-  just outside it would pin it.
+  bottom: new messages are followed); journeys/test_list.py :: follow_boundary_is_half_a_page (10 px
+  inside half the list's height: followed; 10 px outside: the view and the jump pill stay put).
 
 ### C2. Follow survives the list's own smooth scroll
 
@@ -347,8 +351,12 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 - **Pinned by**: ui/features/chat/list/bottomPin.test.ts :: the list's own scrolling does not release
   the pin, however far the new row put the bottom; the reader scrolling up during a follow takes the
   pin away; a long jump up right after a follow began still releases the pin.
-- **Not pinned**: the real smooth scroll; a journey delivering messages in quick succession would pin
-  it.
+- **Not pinned**: the real smooth scroll, and no journey can pin it. In the journey runner's
+  WebKitGTK the list's own scroll to a new row happens in one step (the instant re-pin follows the
+  new height before any animation), so no scroll event ever lands beyond the slack during a follow,
+  even for a row taller than half the list or a burst of them; breaking the guard in
+  `BottomPin.onScroll` leaves every journey green. The follow itself is pinned by
+  journeys/test_scrolling.py :: receive_while_scrolled_up (arrivals at the bottom are followed).
 
 ### C3. Your own send scrolls into view at once
 
@@ -377,8 +385,13 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 - **Why**: Plan (the newest message half hidden).
 - **Pinned by**: ui/features/chat/list/bottomPin.test.ts :: a list opened at the bottom holds it while
   rows settle; a list opened at the unread divider or a jump target does not; re-pins when the
-  composer grows only if it was holding the bottom.
-- **Not pinned**: real row settling (a journey with a late-loading image would pin it).
+  composer grows only if it was holding the bottom; journeys/test_list.py ::
+  opened_at_the_bottom_stays_there (the newest row grows after it was measured, and the composer
+  grows under the list: the end stays in view), opened_at_the_unread_divider_is_not_pulled_down (a
+  row below grows: the view stays at the divider).
+- **Not pinned**: a late-loading image itself. Demo images reserve their box from the attachment's
+  size, so nothing settles late by itself; the journeys grow a row from the page instead. A composer
+  growing while the reader is scrolled up (not holding the bottom) has no journey.
 
 ### C6. History prefetch
 
@@ -388,8 +401,11 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 - **Why**: Scroll stalls the user noticed.
 - **Pinned by**: ui/features/chat/list/prefetch.test.ts (all six); ui/features/chat/list/
   MessageList.test.tsx :: requests the next page before the reader reaches the physical top,
-  coalescing repeat triggers.
-- **Not pinned**: real scrolling through a long history (journey).
+  coalescing repeat triggers; journeys/test_list.py ::
+  scrolling_up_loads_older_messages_without_a_jump (a 400-message history, three pages: each loads
+  while the reader is still a screen or two from the top, and the message being read does not move
+  when it arrives).
+- **Not pinned**: loading newer pages after a jump (`loadNewer`) in real scrolling.
 
 ### C7. Read tracking
 
@@ -474,16 +490,26 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 - **Why**: Bug: WebKitGTK does not show `:focus-visible` on programmatic focus.
 - **Pinned by**: ui/plugins/vim/vim.integration.test.tsx :: marks the current row with a stable
   data-current attribute, not the previous one; journeys/test_keyboard.py :: esc_from_the_composer
-  (checks `data-current` on the focused row, stays put, arrows move it).
-- **Not pinned**: how the marker looks; a screenshot comparison journey would pin it.
+  (checks `data-current` on the focused row, stays put, arrows move it), current_message_is_painted
+  (the current row's computed accent bar and background, moving with the arrows, and a row focused by
+  a mouse click, which is not `:focus-visible`, paints too).
+- **Not pinned**: how the marker looks to the eye (a screenshot comparison would). In the runner's
+  WebKitGTK 2.54 a script-focused row after a key does match `:focus-visible`, so only the
+  click-focused row shows the original bug.
 
 ### C13. Hover and flash are exclusive across the list
 
 - **Rule**: A row scrolled out from under a still pointer never leaves a stale hover. Keyboard focus
   also activates a row; a mouse click inside does not.
 - **Why**: Plan bug (stale hover after scrolling).
-- **Not pinned**: no test drives `rowState`; a component test of two rows, or a journey that scrolls
-  under a still pointer, would pin it.
+- **Pinned by**: journeys/test_list.py :: hover_follows_a_pointer_the_list_scrolls_under (a still
+  pointer, real wheel, then the hovered row carried out of the rendered range and back: one hover bar,
+  on the row under the pointer), one_row_flashes_after_a_jump (a second quote click moves the flash:
+  never two rows); the random walk holds one flashing row and at most one hovered row (plus the
+  keyboard-focused one) at every step (journeys/fuzz.py).
+- **Not pinned**: no unit test drives `rowState`. WebKitGTK sends the leave of a row that scrolls out
+  from under the pointer, so the per-row flags this replaced are only caught once the row leaves the
+  page and returns.
 
 ### C14. Jump to a quoted, pinned or found message
 
@@ -516,8 +542,13 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   jumbo display; never shows digits, # or * large on their own, but does show keycaps and flags; does
   not show text-presentation symbols large unless they carry the emoji selector; counts a resolvable
   custom emoji as one unit for jumbo display.
-- **Not pinned**: custom emoji flowing inline in a line (CSS image reset); needs real layout, so a
-  journey would pin it.
+  journeys/test_list.py :: jumbo_exceptions_and_inline_custom_emoji (a heart with its selector is
+  large; digits and plain text are not; a custom emoji in a sentence sits in the line at the text's
+  size), jumbo_emoji_are_shown_large (**known bug**: in WebKitGTK 2.54 a plain emoji such as a smiley
+  is never large: `JUMBO_GRAPHEME`'s lookbehind `(?<=\p{Emoji_Presentation})` after a surrogate pair
+  does not match, `MessageBody.tsx:318`; the unit tests run on V8 and pass. Only emoji with U+FE0F,
+  keycaps and flags are jumbo there).
+- **Not pinned**: a custom emoji alone in a message (jumbo) in real layout.
 
 ### C17. Links
 
@@ -578,7 +609,10 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 
 - **Rule**: A pending message shows muted text and a "Sending" clock, not 60% opacity.
 - **Why**: Accessibility polish (low-opacity text failed contrast).
-- **Not pinned**: a component test of a pending `MessageItem` would pin it.
+- **Pinned by**: ui/features/chat/message/MessageItem.pending.test.tsx (the pending mark and the
+  "Sending" clock, no fade, both gone once sent); journeys/test_list.py ::
+  pending_message_is_muted_with_a_clock (the muted text colour, opacity 1, the clock, then the normal
+  colour once sent).
 
 ### C23. Disappearing timers
 
@@ -712,9 +746,14 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 - **Pinned by**: ui/features/chat/message/MessageItem.test.tsx :: is an article labelled by author and
   time, described by its body; keeps inner controls out of the tab order until the row is entered; R
   replies, E edits; + opens the reaction picker; journeys/test_keyboard.py :: reply_then_edit (arrows
-  between messages, R from the keyboard).
-- **Not pinned**: Shift+F10, the Menu key and Mod+Enter on a row, and stepping in with Enter; a
-  journey would pin them.
+  between messages, R from the keyboard), enter_steps_into_a_message_and_escape_out (Enter moves
+  focus into the hover bar, Tab goes on, Esc puts it back on the row), message_menu_keys_open_the_menu
+  (Shift+F10, the Menu key and Ctrl+Enter each open the menu; Esc returns focus to the row); the
+  random walk does the same on random rows (journeys/fuzz.py).
+- **Not pinned**: Shift+F10 and the Menu key through the app's own code: WebKitGTK turns both into a
+  `contextmenu` event itself, so the journey stays green with those two branches of
+  `isContextMenuKey` removed (Ctrl+Enter is the app's alone and is pinned). Mod+Enter with the Meta
+  key.
 
 ### M10. Vim mode is opt-in
 
@@ -787,9 +826,18 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 - **Why**: Bug reports: focus was lost to the page body.
 - **Pinned by**: ui/features/shell/ModalHost.focus.test.tsx (all); ui/primitives/Modal.test.tsx (all
   seven); ui/features/shell/ModalHost.suspense.test.tsx; journeys/test_dialogs.py ::
-  dialog_returns_focus_to_its_button (New message and Settings, closed with Esc).
-- **Not pinned**: the replaced-dialog chain, the menu and palette fallbacks and drawers in real
-  WebKitGTK; more journeys would pin them.
+  dialog_returns_focus_to_its_button (New message and Settings, closed with Esc),
+  replaced_dialog_returns_focus_to_the_first_opener (New message, then New group, then Esc: back on
+  the New message button), palette_command_dialog_returns_focus_to_what_had_it (a message, Ctrl+K,
+  Open settings, Esc: back on that message). The fallbacks overlap (the recorded opener, then the
+  focus history), so the replaced-dialog journey fails only when the whole restore breaks, not when
+  one layer does.
+- **Known bug** (journeys/test_dialogs.py :: message_menu_dialog_returns_focus_to_the_message): a
+  dialog opened from a message menu item (Delete for me, Message details) remembers the menu item as
+  its opener (`primitives/openerFocus.tsx:67`), which is gone when the dialog closes, so focus falls
+  to `<body>` instead of the message. The ModalHost fallbacks (palette, menu trigger) only serve
+  dialogs shown through `ui.modal`.
+- **Not pinned**: drawers in real WebKitGTK.
 
 ### M16. Menus and lists
 
@@ -2037,15 +2085,18 @@ shorter)` still passes but describes the old two-tracker design; the title shoul
 
 ## Not pinned yet
 
-No test at all: C13, C22, N8, H2, G3, G8.
+No test at all: N8, H2, G3, G8.
 
-Pinned, but with a part that is not: S2, S5, S13, S18, S19, S22, C1, C2, C4, C5, C6, C7, C8, C10,
-C12, C16, C19, M8, M9, M11, M12, M13, M15, M18, P2, P6, P10, P13, N1, N4, D8, D9, T1, T4, T5, T6,
+Pinned, but with a part that is not: S2, S5, S13, S18, S19, S22, C2, C4, C5, C6, C7, C8, C10, C12,
+C13, C16, C19, M8, M9, M11, M12, M13, M15, M18, P2, P6, P10, P13, N1, N4, D8, D9, T1, T4, T5, T6,
 T10, T11, T14, T16, V5, V10, H1, H3, H6, H7, G4, G5, G7, G9, R8.
+
+Known bugs with a journey that is expected to fail (`known_bug`): C16 (a plain emoji is not jumbo
+in WebKitGTK), M15 (focus after a dialog opened from a message menu).
 
 ## Next journeys
 
-Behaviour that needs real layout, focus, timing or input. Not covered by any journey yet: S18, S19,
-C2, C5, C6, C7, C12 (the paint), C13, C16, M9 (Enter, menu keys), M11, M12, M13, P2, P13, N1, N4, T4,
-T5, H1. Covered in part, worth extending: C1 (the half-page boundary), M15 (replaced dialogs,
-palette and menu fallbacks).
+Behaviour that needs real layout, focus, timing or input. Not covered by any journey yet: C2 (not
+reproducible in the runner, see its entry), C7, M11, M12, M13, P2, P13, N1, N4, T4, T5, H1. Covered
+in part, worth extending: S18 (only Down after a click), C5 (a composer growing under a reader who
+is scrolled up), C6 (newer pages after a jump), M15 (drawers).

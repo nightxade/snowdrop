@@ -21,6 +21,11 @@ Invariants (all read from the DOM and `__journey.state()`):
   - exactly one sidebar row is selected, it is the open chat, and the header names it (wide: the
     rows are on screen; narrow: they are in the drawer, and the header offers "Open navigation");
   - at most one message is `data-current`, and it is a message of the list;
+  - at most one row flashes after a jump; and, with no menu or dialog open, at most one row shows
+    hover styling, plus the one that has keyboard focus (DECISIONS C13);
+  - Enter on a message steps into it (focus inside the row) and Esc steps out (back on it); the
+    menu keys (Shift+F10, Menu, Ctrl+Enter) open its menu and Esc closes it with focus back on it
+    (M9, M15);
   - Esc from the composer lands on a message; a closed dialog gives focus back to its opener
     (what had focus before it when it had none, else the composer);
   - the composer holds the draft of the open chat (what was typed and not sent) and is
@@ -74,6 +79,7 @@ SNAP = f"""(() => {{
   const sr = scroller ? scroller.getBoundingClientRect() : null;
   const inView = messages.filter((m) => {{ const r = m.getBoundingClientRect(); return sr && r.top >= sr.top && r.bottom <= sr.bottom; }});
   const current = qa('[data-current]');
+  const log = q('[data-snowdrop=message-log]');
   const dialogs = qa('[role=dialog], [role=alertdialog]').filter(visible);
   return {{
     prevBody: window.__fz_prev === document.body,
@@ -101,6 +107,9 @@ SNAP = f"""(() => {{
     allIds: messages.map((m) => m.getAttribute('data-message-id')),
     pending: qa('[data-pending]').length,
     current: current.length,
+    hoverRows: qa('[data-message-active]').length,
+    flashRows: qa('[data-flash]').length,
+    openMenus: qa('[role=menu]').length,
     currentOk: current.every((e) => e.matches('[data-snowdrop=message]') && !!scroller && scroller.contains(e)),
     composer: composer ? composer.value : null,
     selection: composer ? [composer.selectionStart, composer.selectionEnd] : null,
@@ -115,6 +124,7 @@ SNAP = f"""(() => {{
       message: ae.matches('[data-snowdrop=message]'),
       tag: ae.tagName + (ae.getAttribute('data-snowdrop') ? '[' + ae.getAttribute('data-snowdrop') + ']' : ''),
       scroller: ae.matches('[data-virtuoso-scroller]'),
+      inList: !!log && log.contains(ae),
       hoverBar: !!ae.closest('[data-snowdrop=hover-bar]'),
       prev: ae === window.__fz_prev,
       opener: ae === window.__fz_opener,
@@ -311,6 +321,8 @@ class Fuzzer:
             (2, 'reply_hover', lambda s: has_msgs(s) and not_busy(s)),
             (3, 'edit_last', lambda s: has_chat(s) and not_busy(s) and not self.drafts.get(s['st']['selected'])),
             (2, 'react_open', lambda s: has_msgs(s)),
+            (3, 'row_keys', lambda s: has_msgs(s) and not_busy(s)),
+            (3, 'hover_then_keys', lambda s: has_msgs(s) and s['inView'] != []),
             (2, 'delete_key', lambda s: has_msgs(s) and not_busy(s)),
             (1, 'delete_shift_click', lambda s: has_msgs(s) and not_busy(s)),
             (3, 'esc_composer', lambda s: has_chat(s)),
@@ -645,6 +657,64 @@ class Fuzzer:
         if not (a['prev'] or a['message'] or a['composer'] or a['hoverBar']):
             self.fail('after the reaction picker closed, focus was not back on the message')
 
+    def row_keys(self):
+        """M9 and M15 on a message of the list: Enter steps into it and Esc out; each menu key opens its menu and Esc closes it."""
+        self.say('Esc to the list, arrows, then Enter and Esc, or a menu key and Esc')
+        self.leave_composer()
+        for _ in range(self.rng.choice([0, 1, 2])):
+            self.page.key(self.rng.choice(['ArrowUp', 'ArrowDown']))
+        target = self.page.eval('document.activeElement.getAttribute("data-message-id")')
+        if not target:
+            self.skip('focus was not on a message, so its keys had nothing to act on')
+            return
+        row = f'[data-message-id="{target}"]'
+        if self.page.eval(f'document.querySelector({row!r}).textContent.includes({DELETED_LINE!r})'):
+            self.skip('the current message is one you deleted: it has no menu to open')
+            return
+        self.keyboard = True
+        on_row = f'document.activeElement === document.querySelector({row!r})'
+        # A narrow window is a touch layout: no context menu there (an action sheet by long press instead).
+        wide = self.snap()['width'] >= DRAWER_BELOW
+        how = self.rng.choice(['Enter', 'Shift+F10', 'Menu', 'Ctrl+Enter'] if wide else ['Enter'])
+        self.say(f'on a message: {how}, then Esc')
+        if how == 'Enter':
+            self.page.key('Enter')
+            inside = f'document.querySelector({row!r}).contains(document.activeElement) && !({on_row})'
+            if not pump_wait(self.page, inside, 1500):
+                controls = self.page.eval(f'!!document.querySelector({row!r}).querySelector("button:not([disabled]), a[href], input, textarea")')
+                if controls:
+                    self.fail(f'Enter on a message did not step into it (focus on {self.snap()["active"]["tag"]})')
+                self.skip('the message has no control to step into')
+                return
+            self.page.key('Escape')
+            if not pump_wait(self.page, on_row, 1500):
+                self.fail(f'Esc did not step back out onto the message (focus on {self.snap()["active"]["tag"]})')
+            return
+        keys = {'Shift+F10': ('F10', ['shift']), 'Menu': ('Menu', []), 'Ctrl+Enter': ('Enter', ['ctrl'])}[how]
+        self.page.key(*keys)
+        if not pump_wait(self.page, '!!document.querySelector("[role=menu]")', 1500):
+            self.fail(f'{how} on a message did not open its menu')
+        self.page.key('Escape')
+        if not pump_wait(self.page, '!document.querySelector("[role=menu]")', 1500):
+            self.fail('Esc did not close the message menu')
+        if not pump_wait(self.page, on_row, 1500):
+            self.fail(f'closing the message menu did not give focus back to the message (focus on {self.snap()["active"]["tag"]})')
+
+    def hover_then_keys(self):
+        """C13: the pointer rests on a message while the keyboard moves the current row about; the walk's check holds the hover styling to its rule."""
+        snap = self.snap_
+        target = self.rng.choice(snap['inView'])
+        self.say('hover a message, then Esc/arrows (the pointer stays where it is)')
+        self.page.hover(f'[data-message-id="{target}"]')
+        self.keyboard = True
+        if self.snap()['active'].get('composer'):
+            self.press_escape_in_composer()
+            self.settle(250)
+        for _ in range(self.rng.choice([1, 2, 3])):
+            if not self.snap()['active'].get('message'):
+                break
+            self.page.key(self.rng.choice(['ArrowUp', 'ArrowDown']))
+
     def deleted_or_gone(self, target):
         return pump_wait(
             self.page,
@@ -894,6 +964,13 @@ class Fuzzer:
             out.append('the chat header does not name the open chat')
         if s['current'] > 1:
             out.append(f'{s["current"]} messages are current, expected at most one')
+        if s['flashRows'] > 1:
+            out.append(f'{s["flashRows"]} messages flash at once, expected at most one')
+        if not s['dialogs'] and not s['openMenus'] and not s['menus']:
+            # One row is hovered; keyboard focus activates one more (DECISIONS C13).
+            allowed = 2 if s['active'].get('inList') else 1
+            if s['hoverRows'] > allowed:
+                out.append(f'{s["hoverRows"]} message rows show hover styling, expected at most {allowed}')
         if not s['currentOk']:
             out.append('the current message is not a message of the list')
         if self.keyboard and s['active']['body']:

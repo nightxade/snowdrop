@@ -13,6 +13,7 @@
  * stays open until the journey calls `caughtUp()`.
  */
 import type { MockBackend } from '@/core/backend/mock';
+import { MOCK_EMOJI_PNG } from '@/core/backend/mock/content/customEmoji';
 import { messageId, type ConversationId, type Message } from '@/core/domain';
 import { attentionOf, isMuted, selectConversationView, uiSelectors } from '@/core/stores';
 import { previewText } from '@/ui/features/conversation';
@@ -46,8 +47,12 @@ export interface DeliverOptions {
   spacingMs?: number;
   /** A person key (`ines`); defaults to the conversation's first other member. */
   from?: string;
-  /** Each body reads `<text> <n>`. */
+  /** Each body reads `<text> <n>`, or exactly `<text>` with `exact`. */
   text?: string;
+  /** The body is `text` as given (a message of one emoji, say). */
+  exact?: boolean;
+  /** The message delivers a `:partyblob:` custom emoji and the body is `text` (with the token). */
+  customEmoji?: boolean;
 }
 
 export interface JourneyDriver {
@@ -64,6 +69,8 @@ export interface JourneyDriver {
   typing(conversation: string, typing: boolean, from?: string): void;
   /** Every history load from now on takes this many ms longer (a slow real backend). */
   setLoadDelay(ms: number): void;
+  /** Every send from now on takes this many ms before the backend takes it (a message stays pending). */
+  setSendDelay(ms: number): void;
   state(): JourneyState;
 }
 
@@ -113,9 +120,18 @@ export function createJourneyDriver(snowdrop: Snowdrop, backend: MockBackend): J
     if (!author) throw new Error('journey: nobody to send from');
     return author;
   };
+  let sendDelayMs: number | null = null;
   return {
     conversationId: (key) => conv(key),
-    deliver: async ({ conversation, count = 1, spacingMs = 0, from, text = 'Journey message' }) => {
+    deliver: async ({
+      conversation,
+      count = 1,
+      spacingMs = 0,
+      from,
+      text = 'Journey message',
+      exact = false,
+      customEmoji = false,
+    }) => {
       const id = conv(conversation);
       const authorId = sender(id, from);
       for (let i = 0; i < count; i++) {
@@ -127,12 +143,30 @@ export function createJourneyDriver(snowdrop: Snowdrop, backend: MockBackend): J
           authorId,
           sentAt,
           receivedAt: sentAt,
-          body: `${text} ${i + 1}`,
+          body: exact || customEmoji ? text : `${text} ${i + 1}`,
           ranges: [],
           attachments: [],
           reactions: [],
           status: 'read',
           kind: 'normal',
+          ...(customEmoji
+            ? {
+                customEmoji: [
+                  {
+                    name: 'partyblob',
+                    attachment: {
+                      id: `${sentAt.toString(36)}-e0`,
+                      contentType: 'image/png',
+                      fileName: 'partyblob.png',
+                      size: 300,
+                      width: 48,
+                      height: 48,
+                      url: MOCK_EMOJI_PNG.sunny,
+                    },
+                  },
+                ],
+              }
+            : {}),
         };
         backend.deliver(message);
       }
@@ -157,6 +191,16 @@ export function createJourneyDriver(snowdrop: Snowdrop, backend: MockBackend): J
     },
     setLoadDelay: (ms) => {
       backend.historyDelayMs = ms;
+    },
+    setSendDelay: (ms) => {
+      if (sendDelayMs === null) {
+        const send = backend.send.bind(backend);
+        backend.send = async (input, options) => {
+          await new Promise((r) => setTimeout(r, sendDelayMs ?? 0));
+          return send(input, options);
+        };
+      }
+      sendDelayMs = ms;
     },
     typing: (conversation, typing, from) => {
       const id = conv(conversation);

@@ -36,3 +36,19 @@ def sidebar_preview_follows_a_delete_for_everyone(page):
         f'(() => {{ const m = [...document.querySelectorAll({MESSAGE!r})]; return m[m.length - 1].textContent.includes("You deleted this message"); }})()'
     )
     page.wait_for(f'document.querySelector({SELECTED_PREVIEW!r})?.textContent.includes("Message deleted")', 3000)
+
+
+ROWS = '[data-snowdrop=sidebar] [data-conversation-id][data-roving-item]'
+
+
+@journey()
+def arrow_keys_step_from_the_clicked_row(page):
+    """After clicking a conversation row, focus is on it and Down moves to the row below it, not to the first row."""
+    rows = page.eval(f'[...document.querySelectorAll({ROWS!r})].map((e) => e.getAttribute("data-conversation-id"))')
+    clicked = rows[3]
+    page.click(f'[data-conversation-id="{clicked}"]')
+    page.wait_for(f'__journey.state().selected === {clicked!r}')
+    page.wait_for(f'document.activeElement === document.querySelector(\'[data-conversation-id="{clicked}"]\')')
+    page.expect_stays(f'document.activeElement === document.querySelector(\'[data-conversation-id="{clicked}"]\')', 500)
+    page.key('ArrowDown')
+    page.wait_for(f'document.activeElement === document.querySelector(\'[data-conversation-id="{rows[4]}"]\')')
