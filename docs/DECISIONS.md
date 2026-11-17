@@ -212,6 +212,20 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 - **Why**: Bug report: the preview jumped back to the user's own message.
 - **Pinned by**: core/services/sidebarPreviewOrder.test.ts (all four).
 
+### S15a. Preview follows your own edits and deletes
+
+- **Rule**: Editing or deleting for everyone the previewed message updates the preview at once, as
+  an incoming edit or delete does; a failed edit or delete that reverts the message reverts the
+  preview too, but only while it is still that message. Editing an older message leaves the preview
+  alone. Every operation on a message (reaction, pin, vote) goes through the same step; only edits
+  and deletes change what `previewText` shows.
+- **Why**: Bug report: after your own edit or delete the preview kept the old text until restart.
+- **Pinned by**: core/services/sidebarPreviewOwnOps.test.ts (all five: edit and delete with their
+  rollbacks, an older message, a preview that moved on, an edit from the user's other device);
+  journeys/test_sidebar.py :: sidebar_preview_follows_an_edit and
+  sidebar_preview_follows_a_delete_for_everyone; the journeys fuzz walk checks previews after edits
+  and deletes.
+
 ### S16. Previews that are not messages
 
 - **Rule**: Message-request answers and profile-name lines never become a chat's preview, live or

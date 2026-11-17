@@ -37,3 +37,20 @@ export async function settlePreviewAfterSend(
   if (newest && newest.id !== sent.id)
     conversations.getState().replaceLatest(sent.conversationId, sent.id, newest);
 }
+
+/**
+ * Applies a change to a message (an edit, a delete for everyone, a revert of
+ * either) to the sidebar preview too, if that message is the one previewed;
+ * a preview that has already moved on is untouched. An edited message keeps
+ * its id and seq, so the store accepts it as the same preview.
+ */
+export function followPreview(
+  conversations: ConversationsStore,
+  conversationId: ConversationId,
+  id: Message['id'],
+  change: (message: Message) => Message,
+): void {
+  const state = conversations.getState();
+  const latest = state.lastMessage[conversationId];
+  if (latest?.id === id) state.noteLatest(change(latest));
+}

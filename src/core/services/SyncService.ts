@@ -74,6 +74,7 @@ import { ReadStateService } from './ReadStateService';
 import { ReceiptBuffer } from './ReceiptBuffer';
 import type { PostConnectRunner } from './PostConnect';
 import { consoleReporter, type ErrorReporter } from './types';
+import { followPreview } from './sidebarPreview';
 
 export interface SyncServiceDeps {
   backend: ChatBackend;
@@ -1197,9 +1198,7 @@ export class SyncService {
     }
     this.deps.stores.messages.getState().update(conversationId, id, fn);
     // Keep the sidebar preview in step with edits/deletions of the newest message.
-    const conversations = this.deps.stores.conversations.getState();
-    const latest = conversations.lastMessage[conversationId];
-    if (latest?.id === id) conversations.noteLatest(fn(latest));
+    followPreview(this.deps.stores.conversations, conversationId, id, fn);
   }
 
   /**

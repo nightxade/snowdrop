@@ -164,7 +164,6 @@ class Fuzzer:
         self.snap_ = None
         self.keyboard = False  # the current action used the keyboard
         self.visited = set()  # chats opened so far
-        self.edited = set()  # chats whose newest message was edited: known bug sidebar_preview_follows_an_edit
         self.skips = {}  # reason -> how many times an action found nothing to do
         self.narrow_steps = 0
         self.opened_editors = set()  # message ids whose inline editor was opened in this walk
@@ -442,7 +441,6 @@ class Fuzzer:
         self.page.type(text)
         self.page.key('Enter')
         self.drafts[conversation] = ''
-        self.edited.discard(conversation)
         self.sent_check(text)
 
     def sent_check(self, text):
@@ -550,7 +548,6 @@ class Fuzzer:
         self.page.type(text)
         self.page.key('Enter')
         self.drafts[conversation] = ''
-        self.edited.discard(conversation)
         self.sent_check(text)
 
     def reply_hover(self):
@@ -593,7 +590,6 @@ class Fuzzer:
             self.skip('Up opened no editor (nothing of yours to edit)')
             return
         edited_id = self.page.eval('document.querySelector("[data-snowdrop=message] textarea").closest("[data-snowdrop=message]")?.getAttribute("data-message-id") ?? null')
-        was_newest = edited_id is not None and edited_id == self.page.eval(f'{LAST_MESSAGE}?.getAttribute("data-message-id") ?? null')
         reopened = edited_id in self.opened_editors
         self.opened_editors.add(edited_id)
         if not self.page.eval('document.activeElement?.matches("[data-snowdrop=message] textarea")'):
@@ -605,9 +601,6 @@ class Fuzzer:
             if not pump_wait(self.page, f'!document.querySelector("[data-snowdrop=message] textarea") && [...document.querySelectorAll({MESSAGE!r})].some((m) => m.textContent.includes({text!r}))', 5000):
                 still = self.page.eval('!!document.querySelector("[data-snowdrop=message] textarea")')
                 self.fail(f'an edit was not saved into the message (editor still open: {still}, focus on {self.snap()["active"]["tag"]})')
-            if was_newest:
-                # Known bug: sidebar_preview_follows_an_edit (test_sidebar.py): the chat's newest message only.
-                self.edited.add(self.selected())
         else:
             self.page.key('Escape')
             if not pump_wait(self.page, '!document.querySelector("[data-snowdrop=message] textarea")', 3000):
@@ -668,7 +661,6 @@ class Fuzzer:
         if not target:
             self.skip('focus was not on a message, so Delete had nothing to delete')
             return
-        was_newest = target == self.page.eval(f'{LAST_MESSAGE}?.getAttribute("data-message-id") ?? null')
         self.page.eval('(window.__fz_prev = document.activeElement, window.__fz_prevPane = !!document.activeElement?.closest?.(\'[data-snowdrop=message-pane]\'), window.__fz_opener = null, true)')
         self.page.key('Delete')
         confirm = self.rng.random() < 0.7
@@ -681,9 +673,6 @@ class Fuzzer:
         else:
             confirm = True  # deleted without asking
         self.settle(400)
-        if confirm and everyone and was_newest:
-            # Known bug: sidebar_preview_follows_a_delete_for_everyone (test_sidebar.py): the newest message only.
-            self.edited.add(self.selected())
         if confirm:
             if not self.deleted_or_gone(target):
                 self.fail('a confirmed delete left the message as it was (neither gone nor "You deleted this message")')
@@ -697,7 +686,6 @@ class Fuzzer:
             return
         target = self.rng.choice(snap['inView'])
         self.say('hold Shift, hover a message, click Delete in the hover bar (no question), release Shift')
-        was_newest = target == self.page.eval(f'{LAST_MESSAGE}?.getAttribute("data-message-id") ?? null')
         self.page.key_down('Shift')
         try:
             self.page.hover(f'[data-message-id="{target}"]')
@@ -714,10 +702,6 @@ class Fuzzer:
                 self.fail('Shift+click on Delete still asked for confirmation')
             if not self.deleted_or_gone(target):
                 self.fail('Shift+click on Delete left the message as it was (neither gone nor "You deleted this message")')
-            if was_newest:
-                # Known bug: sidebar_preview_follows_a_delete_for_everyone, when the quick delete is one.
-                if self.page.eval(f'!!document.querySelector(\'[data-message-id="{target}"]\')'):
-                    self.edited.add(self.selected())
         finally:
             self.page.key_up('Shift')
 
@@ -807,7 +791,6 @@ class Fuzzer:
             before = self.page.eval(top_of(anchor))
         self.say(f'event: {count} arrival(s) in the open chat, {spacing} ms apart' + (' (scrolled up)' if scrolled else ' (at the bottom)' if at_bottom else ''))
         text = self.body()
-        self.edited.discard(snap['st']['selected'])
         self.page.eval(f'await __journey.deliver({{ conversation: {key!r}, count: {count}, spacingMs: {spacing}, text: {text!r} }})')
         self.settle(400)
         if anchor is not None:
@@ -837,7 +820,6 @@ class Fuzzer:
         count = self.rng.choice([1, 1, 3])
         self.say(f'event: {count} arrival(s) in another chat')
         self.page.eval(f'await __journey.deliver({{ conversation: {target["key"]!r}, count: {count}, spacingMs: 40, text: {self.body()!r} }})')
-        self.edited.discard(target['id'])
         if not target['muted']:
             self.unseen.add(target['id'])
 
@@ -867,7 +849,6 @@ class Fuzzer:
         self.page.eval('__journey.startCatchUp()')
         for target in self.rng.sample(pool, min(3, len(pool))):
             self.page.eval(f'await __journey.deliver({{ conversation: {target["key"]!r}, count: 3, spacingMs: 20, text: {self.body()!r} }})')
-            self.edited.discard(target['id'])
             if target['id'] != snap['st']['selected'] and not target['muted']:
                 self.unseen.add(target['id'])
 
@@ -939,7 +920,7 @@ class Fuzzer:
                 c = by_id.get(r['id'])
                 if c is None:
                     continue
-                if r['home'] and not r['special'] and not r['typing'] and r['id'] not in self.edited and r['preview'] != c['expectedPreview']:
+                if r['home'] and not r['special'] and not r['typing'] and r['preview'] != c['expectedPreview']:
                     out.append(f'a sidebar preview does not match its chat\'s newest message (row {rows.index(r)}: shows {self.show(r["preview"])}, expected {self.show(c["expectedPreview"])})')
                     break
             for r in rows:

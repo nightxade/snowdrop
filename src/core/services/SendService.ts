@@ -75,7 +75,11 @@ import {
 } from '@/core/lib';
 import type { MessageRepository, OutboxEntry, SentMedia } from '@/core/persistence';
 import { effectivePrivacy, selectMessageRequestState, type Stores } from '@/core/stores';
-import { refreshPreviewAfterRemoval, settlePreviewAfterSend } from './sidebarPreview';
+import {
+  followPreview,
+  refreshPreviewAfterRemoval,
+  settlePreviewAfterSend,
+} from './sidebarPreview';
 import {
   finalPreview,
   keepOriginals,
@@ -873,6 +877,7 @@ export class SendService {
       stores.messages.getState().update(out.conversationId, pendingId, markSent);
       for (const op of out.queue) {
         stores.messages.getState().update(out.conversationId, pendingId, op.revert);
+        followPreview(stores.conversations, out.conversationId, pendingId, op.revert);
       }
       await repository
         .update(pendingId, markSent)
@@ -920,6 +925,7 @@ export class SendService {
       await this.deps.repository.update(target.id, op.apply);
     } catch (error) {
       this.deps.stores.messages.getState().update(conversationId, target.id, op.revert);
+      followPreview(this.deps.stores.conversations, conversationId, target.id, op.revert);
       this.onError(error, op.context);
     }
   }
@@ -938,6 +944,7 @@ export class SendService {
     const out = this.outgoing.get(nonce);
     if (!out) return false;
     this.deps.stores.messages.getState().update(conversationId, id, op.apply);
+    followPreview(this.deps.stores.conversations, conversationId, id, op.apply);
     out.queue.push(op);
     return true;
   }
@@ -1405,11 +1412,13 @@ export class SendService {
     const target = this.findLoaded(conversationId, id) ?? (await this.deps.repository.get(id));
     if (!target) return false;
     this.deps.stores.messages.getState().update(conversationId, id, op.apply);
+    followPreview(this.deps.stores.conversations, conversationId, id, op.apply);
     if (op.watchReactions) this.reactionWatch.begin(id);
     try {
       await op.commit(target);
     } catch (error) {
       this.deps.stores.messages.getState().update(conversationId, id, op.revert);
+      followPreview(this.deps.stores.conversations, conversationId, id, op.revert);
       this.reactionWatch.end(id);
       this.onError(error, op.context);
       return false;
