@@ -57,6 +57,8 @@ const DIVIDER_NEAR_END = 12;
 const ROW_HEIGHT = { comfortable: 62, compact: 28 } as const;
 /** Gap above the divider / jump target, so it isn't flush with the top edge. */
 const TOP_OFFSET = -48;
+/** How many animation frames after a send completes focus lost with its swapped row may be handed to the sent row. */
+const RESTORE_FOCUS_FRAMES = 20;
 
 function reducedMotion(): boolean {
   const attr = document.documentElement.dataset.reducedMotion;
@@ -215,13 +217,65 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
   // The roving tab stop defaults to the newest message, and follows newer
   // ones until the user moves it, so leaving the composer lands on the
   // latest row. Never while that row has focus: the marker would leave it.
+  // A message still sending is swapped for its sent version (same key, new
+  // id) when the send completes: the tab stop moves to the new id, and focus
+  // that was on the old row moves with it, so Esc right after Enter works.
   const newestId = useRef<MessageId | null>(null);
+  const keysById = useRef<ReadonlyMap<MessageId, string>>(new Map());
+  const focusedRowId = useRef<MessageId | null>(null);
+  const restoring = useRef<{ id: MessageId; frame: number } | null>(null);
+  // The sent row is rendered (and settled) a few frames after the swap, so
+  // for a short while focus that has dropped to the page goes to it. Focus
+  // that is anywhere else is never taken.
+  const restoreFocus = useCallback(
+    (id: MessageId) => {
+      let frames = 0;
+      const tick = () => {
+        frames += 1;
+        const here = document.activeElement;
+        const row = scroller.current?.querySelector<HTMLElement>(
+          `[data-message-id="${CSS.escape(id)}"]`,
+        );
+        const lost = !here || here === document.body;
+        if ((!lost && here !== row) || frames > RESTORE_FOCUS_FRAMES) {
+          restoring.current = null;
+          return;
+        }
+        if (lost && row) row.focus({ preventScroll: true });
+        restoring.current = { id, frame: requestAnimationFrame(tick) };
+      };
+      if (restoring.current) cancelAnimationFrame(restoring.current.frame);
+      restoring.current = { id, frame: requestAnimationFrame(tick) };
+    },
+    [scroller],
+  );
+  useEffect(
+    () => () => {
+      if (restoring.current) cancelAnimationFrame(restoring.current.frame);
+    },
+    [],
+  );
   useEffect(() => {
     const last = items.findLast((it) => it.type === 'message');
     const lastId = last && 'id' in last ? last.id : null;
     const previous = newestId.current;
     newestId.current = lastId;
+    const previousKeys = keysById.current;
+    const messages = items.filter((it) => it.type === 'message');
+    keysById.current = new Map(messages.map((it) => [it.id, it.key]));
     const active = rows.activeId;
+    if (active !== null && !keysById.current.has(active)) {
+      const key = previousKeys.get(active);
+      const successor = key === undefined ? undefined : messages.find((it) => it.key === key);
+      if (successor) {
+        rows.setActive(successor.id);
+        if (focusedRowId.current === active) {
+          focusedRowId.current = successor.id;
+          restoreFocus(successor.id);
+        }
+        return;
+      }
+    }
     if (active !== null && items.some((it) => 'id' in it && it.id === active)) {
       const following = active === previous && lastId !== null && lastId !== active;
       const focused = scroller.current
@@ -230,7 +284,7 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
       if (!following || focused) return;
     }
     if (lastId !== null) rows.setActive(lastId);
-  }, [items, rows, scroller]);
+  }, [items, rows, scroller, restoreFocus]);
 
   const jumpToPresent = useCallback(async () => {
     const w = stores.messages.getState().windows[conversationId];
@@ -340,6 +394,15 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
       <div
         className={styles.wrap}
         onKeyDown={onRowKeys}
+        onFocus={(e) => {
+          const row =
+            e.target instanceof HTMLElement ? e.target.closest('[data-message-id]') : null;
+          focusedRowId.current = (row?.getAttribute('data-message-id') as MessageId | null) ?? null;
+        }}
+        onBlur={(e) => {
+          // A row that is taken out of the page while focused is not the user leaving it.
+          if (e.target instanceof HTMLElement && e.target.isConnected) focusedRowId.current = null;
+        }}
         onPointerLeave={() => {
           rows.setHovered(null);
         }}

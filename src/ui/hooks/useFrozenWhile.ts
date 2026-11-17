@@ -12,12 +12,21 @@ import { useState } from 'react';
  * "adjusting state when a prop changes" pattern (calling `setState`
  * conditionally during render), which, unlike a ref write, is safe to do
  * during render.
+ *
+ * `ready` says whether `value` is worth freezing yet. A freeze that starts
+ * while it is false (the sidebar's conversations not loaded at the first
+ * catch-up) takes its snapshot from the first render where it is true, so it
+ * never freezes an empty placeholder.
  */
-export function useFrozenWhile<T>(value: T, freeze: boolean): T {
-  const [snapshot, setSnapshot] = useState<{ freeze: boolean; value: T }>({ freeze, value });
-  if (freeze !== snapshot.freeze) {
-    // Entering freeze: remember `value` now. Leaving it: nothing to remember.
-    setSnapshot({ freeze, value });
+export function useFrozenWhile<T>(value: T, freeze: boolean, ready = true): T {
+  const [snapshot, setSnapshot] = useState<{ freeze: boolean; held: boolean; value: T }>({
+    freeze,
+    held: freeze && ready,
+    value,
+  });
+  if (freeze !== snapshot.freeze || (freeze && ready && !snapshot.held)) {
+    // Entering freeze (or the value turning ready during it): remember `value` now. Leaving it: nothing to remember.
+    setSnapshot({ freeze, held: freeze && ready, value });
     return value;
   }
   return freeze ? snapshot.value : value;

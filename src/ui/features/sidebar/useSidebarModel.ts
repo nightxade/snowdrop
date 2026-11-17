@@ -61,7 +61,8 @@ function useFrozenOrder(
   live: readonly ConversationView[],
   catchingUp: boolean,
 ): readonly ConversationView[] {
-  const frozen = useFrozenWhile(live, catchingUp);
+  // Ready once conversations exist: the first catch-up can start before they have loaded.
+  const frozen = useFrozenWhile(live, catchingUp, live.length > 0);
   if (!catchingUp) return live;
   const liveIds = new Set(live.map((v) => v.id));
   const frozenIds = new Set(frozen.map((v) => v.id));
@@ -97,12 +98,12 @@ function unreadFlags(
  * are unread changes, not on every message (a joined key of flags), and the
  * flags freeze while catching up, as each row's badge does.
  */
-function useAttention(catchingUp: boolean): (id: ConversationId) => boolean {
+function useAttention(catchingUp: boolean, ready: boolean): (id: ConversationId) => boolean {
   const stores = useStores();
   const now = useNow(60_000);
   const local = useStore(stores.local, (s) => s.conversations);
   const live = useStore(stores.conversations, (s) => unreadFlags(s.unread));
-  const flags = useFrozenWhile(live, catchingUp);
+  const flags = useFrozenWhile(live, catchingUp, ready);
   const byId = useMemo(() => {
     const map = new Map<string, { count: number; mentions: number }>();
     for (const line of flags ? flags.split('\n') : []) {
@@ -139,7 +140,7 @@ export function useSidebarModel(): SidebarModel {
   const catchingUp = useStore(stores.session, sessionSelectors.catchingUp);
   const liveViews = useMemo(() => selectConversationViews(byId, local), [byId, local]);
   const views = useFrozenOrder(liveViews, catchingUp);
-  const attention = useAttention(catchingUp);
+  const attention = useAttention(catchingUp, liveViews.length > 0);
   return useMemo(() => {
     const sections =
       space === HOME

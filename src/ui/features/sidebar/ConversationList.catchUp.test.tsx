@@ -129,4 +129,61 @@ describe('ConversationList: catching up', () => {
     expect(nav().getAttribute('aria-busy')).toBe('false');
     expect(rowFor(ana).getAttribute('data-unread')).toBe('');
   });
+
+  it('freezes the order from the first conversations that load during the very first catch-up', async () => {
+    snowdrop = await bootSnowdrop();
+    const stores = snowdrop.stores;
+    const selfId = stores.session.getState().self?.id;
+    if (!selfId) throw new Error('no self id after boot');
+    // The app's first catch-up starts before any conversation has loaded.
+    act(() => {
+      stores.conversations
+        .getState()
+        .removeMany(Object.keys(stores.conversations.getState().byId) as ConversationId[]);
+      stores.session.getState().setCatchingUp(true);
+    });
+    renderWithSnowdrop(snowdrop, <ConversationList />);
+
+    const ana = directConversationId('ana');
+    const bo = directConversationId('bo');
+    for (const id of [ana, bo]) stores.local.getState().markAccepted(id, 0);
+    const order = () =>
+      screen
+        .queryAllByRole('button')
+        .map((r) => r.getAttribute('data-conversation-id'))
+        .filter((id) => id === ana || id === bo);
+    act(() => {
+      stores.conversations.getState().upsertMany([
+        makeConversation({
+          id: ana,
+          kind: 'direct',
+          title: 'Ana',
+          memberIds: [selfId, 'ana'],
+          lastActivityAt: 1000,
+        }),
+        makeConversation({
+          id: bo,
+          kind: 'direct',
+          title: 'Bo',
+          memberIds: [selfId, 'bo'],
+          lastActivityAt: 2000,
+        }),
+      ]);
+    });
+    await settle(snowdrop);
+    expect(order()).toEqual([bo, ana]);
+
+    // Old activity resurfacing during the drain must not reorder what the user sees.
+    act(() => {
+      stores.conversations.getState().bumpActivity(ana, 9000);
+    });
+    await settle(snowdrop);
+    expect(order()).toEqual([bo, ana]);
+
+    act(() => {
+      stores.session.getState().setCatchingUp(false);
+    });
+    await settle(snowdrop);
+    expect(order()).toEqual([ana, bo]);
+  });
 });
