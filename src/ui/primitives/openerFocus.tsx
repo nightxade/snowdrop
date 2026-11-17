@@ -1,5 +1,6 @@
 import { createContext, useContext, useLayoutEffect, useMemo, useRef, type ReactNode } from 'react';
 import { focusQuietly } from './focusQuietly';
+import { resolveOpener } from './menuReturn';
 
 /**
  * What the dialog host (`ModalHost`) gives the dialogs it shows. It owns the
@@ -31,8 +32,12 @@ export function OpenerReset({ children }: { children: ReactNode }) {
 function focusedElement(): HTMLElement | null {
   if (typeof document === 'undefined') return null;
   const el = document.activeElement;
-  return el instanceof HTMLElement && el !== document.body ? el : null;
+  // A menu item is gone by the time its dialog closes: the menu's own opener it is.
+  return el instanceof HTMLElement && el !== document.body ? resolveOpener(el) : null;
 }
+
+/** For `ModalHost`, which records the opener when a dialog is requested. */
+export { focusedElement as currentOpener };
 
 export interface OpenerFocus {
   /** The element to give focus back to, if any. */

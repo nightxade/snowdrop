@@ -183,6 +183,16 @@ describe('MessageBody', () => {
     expect(isJumbo('👩‍👩‍👧‍👦 🏳️‍🌈', [])).toBe(true);
   });
 
+  it('shows a plain emoji large without needing a selector, astral or not', () => {
+    for (const emoji of ['😀', '🎉', '🫶', '⌚', '✅', '⭐', '👩‍💻', '👍🏽', '🟡']) {
+      expect(isJumbo(emoji, [])).toBe(true);
+    }
+    expect(isJumbo('😀🎉😀🎉😀🎉😀🎉😀🎉', [])).toBe(true);
+    expect(isJumbo('😀🎉😀🎉😀🎉😀🎉😀🎉😀', [])).toBe(false);
+    expect(isJumbo('😀 a', [])).toBe(false);
+    expect(isJumbo('😀2', [])).toBe(false);
+  });
+
   it('does not show text-presentation symbols large unless they carry the emoji selector', () => {
     for (const symbol of ['©', '®', '™', '↔', '▶', '☺', '❤', '‼']) {
       expect(isJumbo(symbol, [])).toBe(false);

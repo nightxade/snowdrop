@@ -314,9 +314,12 @@ function render(
  * is never jumbo. Neither are the pictographs that render as text unless
  * followed by U+FE0F (©, ™, ↔, ▶, a bare ❤): without the emoji presentation
  * selector (or a skin tone) they are ordinary characters.
+ *
+ * No lookbehind: JavaScriptCore (WebKitGTK) does not match one on a property
+ * escape after a surrogate pair.
  */
 const JUMBO_GRAPHEME =
-  /^(?:\p{Extended_Pictographic}(?:(?<=\p{Emoji_Presentation})|\ufe0f|(?=\p{Emoji_Modifier}))(?:\p{Emoji_Component}|\p{Extended_Pictographic})*|\p{Regional_Indicator}{2}|[0-9#*]\ufe0f?\u20e3)$/u;
+  /^(?:(?:(?=\p{Extended_Pictographic})\p{Emoji_Presentation}|\p{Extended_Pictographic}(?:\ufe0f|(?=\p{Emoji_Modifier})))(?:\p{Emoji_Component}|\p{Extended_Pictographic})*|\p{Regional_Indicator}{2}|[0-9#*]\ufe0f?\u20e3)$/u;
 /** A standin pictographic char so a resolved `:name:` token counts as one jumbo-eligible unit. */
 const JUMBO_PLACEHOLDER = '🟡';
 

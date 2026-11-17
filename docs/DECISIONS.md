@@ -544,10 +544,8 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   custom emoji as one unit for jumbo display.
   journeys/test_list.py :: jumbo_exceptions_and_inline_custom_emoji (a heart with its selector is
   large; digits and plain text are not; a custom emoji in a sentence sits in the line at the text's
-  size), jumbo_emoji_are_shown_large (**known bug**: in WebKitGTK 2.54 a plain emoji such as a smiley
-  is never large: `JUMBO_GRAPHEME`'s lookbehind `(?<=\p{Emoji_Presentation})` after a surrogate pair
-  does not match, `MessageBody.tsx:318`; the unit tests run on V8 and pass. Only emoji with U+FE0F,
-  keycaps and flags are jumbo there).
+  size), jumbo_emoji_are_shown_large (a plain emoji is large in WebKitGTK too: `JUMBO_GRAPHEME` has no
+  lookbehind, which JavaScriptCore does not match on a property escape after a surrogate pair).
 - **Not pinned**: a custom emoji alone in a message (jumbo) in real layout.
 
 ### C17. Links
@@ -832,11 +830,12 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   Open settings, Esc: back on that message). The fallbacks overlap (the recorded opener, then the
   focus history), so the replaced-dialog journey fails only when the whole restore breaks, not when
   one layer does.
-- **Known bug** (journeys/test_dialogs.py :: message_menu_dialog_returns_focus_to_the_message): a
-  dialog opened from a message menu item (Delete for me, Message details) remembers the menu item as
-  its opener (`primitives/openerFocus.tsx:67`), which is gone when the dialog closes, so focus falls
-  to `<body>` instead of the message. The ModalHost fallbacks (palette, menu trigger) only serve
-  dialogs shown through `ui.modal`.
+- **Menu items**: a dialog opened from a menu item (Delete for me, Message details) does not
+  remember the item as its opener, which is gone when the dialog closes: it uses what the menu was
+  opened from (`primitives/menuReturn.ts`; a dropdown's trigger, or what had focus when a context
+  menu opened), so focus returns to the message or button. Pinned by primitives/menuReturn.test.tsx
+  and journeys/test_dialogs.py :: message_menu_dialog_returns_focus_to_the_message; the fuzz walk
+  has a Message details action.
 - **Not pinned**: drawers in real WebKitGTK.
 
 ### M16. Menus and lists
@@ -2088,11 +2087,8 @@ shorter)` still passes but describes the old two-tracker design; the title shoul
 No test at all: N8, H2, G3, G8.
 
 Pinned, but with a part that is not: S2, S5, S13, S18, S19, S22, C2, C4, C5, C6, C7, C8, C10, C12,
-C13, C16, C19, M8, M9, M11, M12, M13, M15, M18, P2, P6, P10, P13, N1, N4, D8, D9, T1, T4, T5, T6,
+C13, C19, M8, M9, M11, M12, M13, M15, M18, P2, P6, P10, P13, N1, N4, D8, D9, T1, T4, T5, T6,
 T10, T11, T14, T16, V5, V10, H1, H3, H6, H7, G4, G5, G7, G9, R8.
-
-Known bugs with a journey that is expected to fail (`known_bug`): C16 (a plain emoji is not jumbo
-in WebKitGTK), M15 (focus after a dialog opened from a message menu).
 
 ## Next journeys
 

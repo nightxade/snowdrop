@@ -433,6 +433,8 @@ function ComposerInner({ conversation }: { conversation: ConversationView }) {
         <PollCreateDialog
           draft={pollDraft}
           onDraftChange={setPollDraft}
+          // Opened from the More menu, but done here: back to the message box, not the menu's button.
+          returnFocus={() => textarea.current}
           onSend={(poll) => {
             setPollOpen(false);
             setPollDraft(emptyPollDraft());

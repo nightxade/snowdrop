@@ -15,7 +15,7 @@ import { BlockDialog, type GroupMemberAction } from '@/ui/features/conversation'
 import { uiSelectors } from '@/core/stores';
 import { useStores } from '@/ui/hooks';
 import { AreaErrorBoundary } from '@/ui/lib/AreaErrorBoundary';
-import { OpenerHostProvider, type OpenerHost } from '@/ui/primitives';
+import { OpenerHostProvider, currentOpener, type OpenerHost } from '@/ui/primitives';
 import { SettingsFallback } from './SettingsFallback';
 
 // The switcher (with cmdk) is its own chunk, prefetched once the app is idle so
@@ -175,8 +175,7 @@ export function ModalHost() {
       // Synchronously with the request, while the opener still has focus.
       stores.ui.subscribe((state, previous) => {
         if (state.modal && !previous.modal) {
-          const el = document.activeElement;
-          opener.current = el instanceof HTMLElement && el !== document.body ? el : null;
+          opener.current = currentOpener();
         }
       }),
     [stores],

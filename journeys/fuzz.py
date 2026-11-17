@@ -36,7 +36,7 @@ import random
 import re
 import time
 
-from common import COMPOSER, JUMP_PILL, LAST_MESSAGE, MESSAGE, SCROLLER
+from common import COMPOSER, JUMP_PILL, LAST_MESSAGE, MESSAGE, SCROLLER, click_text
 from harness import ExpectationFailed, JourneyFailure, pump
 
 NEW_MESSAGE = '[data-snowdrop=sidebar-header] button[aria-label="New message"]'
@@ -324,6 +324,7 @@ class Fuzzer:
             (3, 'row_keys', lambda s: has_msgs(s) and not_busy(s)),
             (3, 'hover_then_keys', lambda s: has_msgs(s) and s['inView'] != []),
             (2, 'delete_key', lambda s: has_msgs(s) and not_busy(s)),
+            (2, 'details_from_menu', lambda s: has_msgs(s) and not_busy(s)),
             (1, 'delete_shift_click', lambda s: has_msgs(s) and not_busy(s)),
             (3, 'esc_composer', lambda s: has_chat(s)),
             (3, 'list_arrows', lambda s: s['active'].get('row', False)),
@@ -731,6 +732,9 @@ class Fuzzer:
         if not target:
             self.skip('focus was not on a message, so Delete had nothing to delete')
             return
+        if self.page.eval(f'document.activeElement.textContent.includes({DELETED_LINE!r})'):
+            self.skip('the current message is one you deleted already')
+            return
         self.page.eval('(window.__fz_prev = document.activeElement, window.__fz_prevPane = !!document.activeElement?.closest?.(\'[data-snowdrop=message-pane]\'), window.__fz_opener = null, true)')
         self.page.key('Delete')
         confirm = self.rng.random() < 0.7
@@ -748,6 +752,34 @@ class Fuzzer:
                 self.fail('a confirmed delete left the message as it was (neither gone nor "You deleted this message")')
         elif not self.page.eval(f'!!document.querySelector(\'[data-message-id="{target}"]\') && !document.querySelector(\'[data-message-id="{target}"]\').textContent.includes({DELETED_LINE!r})'):
             self.fail('Esc on the delete confirmation still deleted the message')
+
+    def details_from_menu(self):
+        self.say('Esc to the list, Ctrl+Enter (message menu), Message details, then Esc')
+        self.leave_composer()
+        target = self.page.eval('document.activeElement.getAttribute("data-message-id")')
+        if not target:
+            self.skip('focus was not on a message, so there was no menu to open')
+            return
+        self.page.key('Enter', ['ctrl'])
+        if not pump_wait(self.page, '!!document.querySelector("[role=menu]")', 1500):
+            self.skip('Ctrl+Enter opened no menu on this message')
+            return
+        if not self.page.eval('[...document.querySelectorAll("[role=menu] [role=menuitem]")].some((e) => e.textContent.trim() === "Message details")'):
+            self.page.key('Escape')
+            self.settle(200)
+            self.skip('this message has no Message details item (only your own sent ones do)')
+            return
+        click_text(self.page, '[role=menu] [role=menuitem]', 'Message details')
+        if not pump_wait(self.page, '!!document.querySelector("[role=dialog]")', 3000):
+            self.fail('Message details did not open')
+        self.settle(300)
+        self.page.key('Escape')
+        if not pump_wait(self.page, '!document.querySelector("[role=dialog]")', 3000):
+            self.fail('Esc did not close Message details')
+        self.settle(300)
+        back = self.page.eval('document.activeElement?.closest?.("[data-message-id]")?.getAttribute("data-message-id") ?? null')
+        if back != target:
+            self.fail('after Message details closed, focus was not back on the message the menu was opened from')
 
     def delete_shift_click(self):
         snap = self.snap_

@@ -2,12 +2,14 @@ import * as RadixContext from '@radix-ui/react-context-menu';
 import * as RadixDropdown from '@radix-ui/react-dropdown-menu';
 import { Check, ChevronRight } from 'lucide-react';
 import {
+  useRef,
   useState,
   type HTMLAttributes,
   type KeyboardEvent,
   type ReactElement,
   type Ref,
 } from 'react';
+import { rememberMenuOpener } from './menuReturn';
 import { tidyMenu, type MenuEntry } from './menuModel';
 import styles from './Menu.module.css';
 
@@ -146,13 +148,26 @@ export function ContextMenu({
   onOpenChange,
   label,
   onKeyDown,
+  onContextMenu,
   ...trigger
 }: ContextMenuProps) {
+  // The element right-clicked (or keyed), for when nothing had focus as the menu opened.
+  const target = useRef<HTMLElement | null>(null);
   return (
-    <RadixContext.Root {...(onOpenChange ? { onOpenChange } : {})} modal={false}>
+    <RadixContext.Root
+      onOpenChange={(next) => {
+        if (next) rememberMenuOpener(target.current);
+        onOpenChange?.(next);
+      }}
+      modal={false}
+    >
       <RadixContext.Trigger
         asChild
         {...trigger}
+        onContextMenu={(e) => {
+          target.current = e.currentTarget;
+          onContextMenu?.(e);
+        }}
         onKeyDown={(e) => {
           onKeyDown?.(e);
           if (!e.defaultPrevented) openFromKeyboard(e);
@@ -199,6 +214,7 @@ export function DropdownMenu({
   const [ownOpen, setOwnOpen] = useState(false);
   const isOpen = open ?? ownOpen;
   const setOpen = (next: boolean) => {
+    if (next && !isOpen) rememberMenuOpener();
     if (open === undefined) setOwnOpen(next);
     onOpenChange?.(next);
   };

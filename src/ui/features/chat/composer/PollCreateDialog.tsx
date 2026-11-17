@@ -19,6 +19,8 @@ export interface PollCreateDialogProps {
   /** A valid poll, ready to send. The dialog doesn't close itself: the caller does once it has sent. */
   onSend: (poll: { question: string; options: string[]; allowMultiple: boolean }) => void;
   onClose: () => void;
+  /** Where focus goes when the dialog closes (the message box), instead of its opener. */
+  returnFocus?: () => HTMLElement | null | undefined;
 }
 
 /** Near the limit, how many characters are left shows (Signal Desktop's last 30). */
@@ -32,7 +34,13 @@ const COUNT_FROM = 30;
  * something is typed; sending an incomplete poll says what is missing and
  * puts the cursor there.
  */
-export function PollCreateDialog({ draft, onDraftChange, onSend, onClose }: PollCreateDialogProps) {
+export function PollCreateDialog({
+  draft,
+  onDraftChange,
+  onSend,
+  onClose,
+  returnFocus,
+}: PollCreateDialogProps) {
   const [problem, setProblem] = useState<PollDraftProblem | null>(null);
   const questionRef = useRef<HTMLInputElement>(null);
   const optionRefs = useRef(new Map<number, HTMLInputElement>());
@@ -79,6 +87,7 @@ export function PollCreateDialog({ draft, onDraftChange, onSend, onClose }: Poll
       onOpenChange={(open) => {
         if (!open) onClose();
       }}
+      {...(returnFocus ? { returnFocus } : {})}
       size="md"
       title="New poll"
       footer={

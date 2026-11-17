@@ -209,12 +209,7 @@ def body_of(text):
 FONT_PX = 'parseFloat(getComputedStyle(%s).fontSize)'
 
 
-@journey(
-    known_bug="a plain emoji (😀) is never shown large in this WebKitGTK: JUMBO_GRAPHEME's lookbehind"
-    ' (?<=\\p{Emoji_Presentation}) after a surrogate pair does not match (MessageBody.tsx:318), so only'
-    ' emoji that carry U+FE0F, keycaps and flags are jumbo',
-    fails_at='is not shown large',
-)
+@journey()
 def jumbo_emoji_are_shown_large(page):
     """A message of just emoji is shown large, at least twice the size of a plain line."""
     open_conversation(page, 'dm-priya')

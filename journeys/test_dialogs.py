@@ -52,11 +52,7 @@ def palette_command_dialog_returns_focus_to_what_had_it(page):
     page.expect_stays(is_current(0), 500)
 
 
-@journey(
-    known_bug='a dialog opened from a message menu item remembers the menu item as its opener (openerFocus.tsx:67),'
-    ' which is gone when the dialog closes, so focus falls to <body> instead of the message',
-    fails_at='focus back on the message',
-)
+@journey()
 def message_menu_dialog_returns_focus_to_the_message(page):
     """On a message: Ctrl+Enter, "Delete for me" from the menu, Esc on the question: focus is back on the message the menu was opened from."""
     open_conversation(page, 'dm-priya')
