@@ -249,6 +249,24 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
     pin.reset(initialIndex.index === 'LAST');
   }, [pin, initialIndex]);
 
+  // The divider sits before the first unread message that is loaded, so a page of older history can
+  // move it relative to the rows (it is the first row of the loaded unread run, not a row of its own).
+  // A list still held at the divider follows it; one the reader has moved, or that opened elsewhere, stays put.
+  const dividerAbs = dividerIndex >= 0 ? firstItemIndex + dividerIndex : -1;
+  const seenDivider = useRef({ epoch, abs: dividerAbs });
+  useLayoutEffect(() => {
+    const seen = seenDivider.current;
+    seenDivider.current = { epoch, abs: dividerAbs };
+    if (seen.epoch !== epoch || seen.abs < 0 || dividerAbs < 0 || seen.abs === dividerAbs) return;
+    if (initialIndex.index === 'LAST' || !pin.isHeldAway) return;
+    virtuoso.current?.scrollToIndex({
+      index: dividerIndex,
+      align: 'start',
+      offset: TOP_OFFSET,
+      behavior: 'auto',
+    });
+  });
+
   // A list held where it opened is not "at the bottom" for reading, however near its end it lies.
   const heldAway = initialIndex.index !== 'LAST' && releasedEpoch !== epoch;
   const atPresent = loaded && anchoredToPresent && atBottom && !heldAway;

@@ -103,6 +103,27 @@ def opened_at_the_unread_divider_is_not_pulled_down(page):
     page.expect("__journey.state().conversations.find((c) => c.key === 'dm-ines').unread >= 30", 'the unread messages were marked read unseen')
 
 
+DIVIDER_IN_VIEW = f"""(() => {{
+  const d = document.querySelector('[data-snowdrop=new-divider]');
+  const s = document.querySelector({SCROLLER!r});
+  if (!d || !s) return false;
+  const a = d.getBoundingClientRect(), b = s.getBoundingClientRect();
+  return a.bottom > b.top && a.top < b.bottom;
+}})()"""
+
+
+@journey()
+def opened_at_the_unread_divider_stays_when_older_history_loads(page):
+    """A chat with 70 unread messages and older history behind them opens at its divider and stays there when the older page loads (the divider is wherever the loaded unread run starts, so the page that loads moves it): the divider is still in view, and the messages stay unread."""
+    page.eval("__journey.deliver({ conversation: 'dm-ines', count: 70, text: 'while you were away' })")
+    page.wait_for("__journey.state().conversations.find((c) => c.key === 'dm-ines').unread >= 70")
+    open_conversation(page, 'dm-ines')
+    page.wait_for('!!document.querySelector("[data-snowdrop=new-divider]")')
+    page.eval('new Promise((r) => setTimeout(r, 1500))')  # the older page loads and the rows settle
+    page.expect(DIVIDER_IN_VIEW, 'the view is no longer at the unread divider (it is at the start of the conversation)')
+    page.expect("__journey.state().conversations.find((c) => c.key === 'dm-ines').unread >= 70", 'the unread messages were marked read unseen')
+
+
 @journey(query='mockBulkMessages=400')
 def scrolling_up_loads_older_messages_without_a_jump(page):
     """In a long chat, scrolling up to a screen or two from the top of what is loaded brings in older messages before the reader reaches it, and the message being read does not move when they arrive."""

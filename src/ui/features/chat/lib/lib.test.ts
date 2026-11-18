@@ -26,6 +26,24 @@ describe('createIndexTracker', () => {
     expect(next).toEqual({ firstItemIndex: 998, epoch: 1 });
   });
 
+  it('does not anchor on a floating item that moved when older rows were prepended', () => {
+    const track = createIndexTracker(1000);
+    track([{ key: 'd', floating: true }, ...keys('a', 'b')]);
+    // Three older rows arrive; the first unread is now the second of them, so
+    // the divider moves from index 0 to index 1, not by the rows prepended.
+    const next = track([...keys('x'), { key: 'd', floating: true }, ...keys('y', 'z', 'a', 'b')]);
+    expect(next).toEqual({ firstItemIndex: 997, epoch: 1 });
+  });
+
+  it('counts a list sharing only a floating item as replaced', () => {
+    const track = createIndexTracker(1000);
+    track([{ key: 'd', floating: true }, ...keys('a')]);
+    expect(track([{ key: 'd', floating: true }, ...keys('x')])).toEqual({
+      firstItemIndex: 1000,
+      epoch: 2,
+    });
+  });
+
   it('moves the other way when the top is evicted', () => {
     const track = createIndexTracker(1000);
     track(keys('a', 'b', 'c', 'd'));

@@ -8,7 +8,10 @@
  * identity. We find the first row of the new list that already existed and
  * shift `firstItemIndex` by how far it moved. Keys are stable per message
  * (nonce or id, ordered by `seq`), so this also survives day dividers that
- * move to a newly prepended first message.
+ * move to a newly prepended first message. Items whose place follows the
+ * loaded window rather than one message (`floating`, the unread divider)
+ * never anchor: a page of older history moves them by a different amount
+ * than the rows it prepends.
  *
  * When nothing overlaps (first load, a jump to an old message, jump to
  * present from far away) it's a new list altogether: `epoch` increments so
@@ -16,6 +19,8 @@
  */
 export interface IndexedItem {
   key: string;
+  /** Its position isn't tied to one message, so it can't anchor the shift. */
+  floating?: boolean;
 }
 
 export interface TrackedIndex {
@@ -48,10 +53,13 @@ export function advanceTrack(
 ): IndexTrack {
   if (items === previous.items) return previous;
   const oldIndex = new Map<string, number>();
-  previous.items.forEach((item, i) => oldIndex.set(item.key, i));
+  previous.items.forEach((item, i) => {
+    if (!item.floating) oldIndex.set(item.key, i);
+  });
   let shift: number | null = null;
   for (let i = 0; i < items.length; i++) {
-    const old = oldIndex.get((items[i] as IndexedItem).key);
+    const item = items[i] as IndexedItem;
+    const old = item.floating ? undefined : oldIndex.get(item.key);
     if (old !== undefined) {
       shift = i - old;
       break;

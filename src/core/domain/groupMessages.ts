@@ -19,7 +19,12 @@ export const DEFAULT_GROUP_GAP_MS = 7 * 60_000;
 
 export type RenderItem =
   | { type: 'day-divider'; key: string; at: number }
-  | { type: 'new-divider'; key: 'new-divider' }
+  | {
+      type: 'new-divider';
+      key: 'new-divider';
+      /** Its place follows the loaded unread run, not one message, so it can't anchor the list. */
+      floating: true;
+    }
   | { type: 'system'; key: string; id: MessageId }
   | {
       type: 'message';
@@ -87,7 +92,7 @@ export function groupMessages(
       message.authorId !== selfId &&
       message.kind === 'normal'
     ) {
-      items.push({ type: 'new-divider', key: 'new-divider' });
+      items.push({ type: 'new-divider', key: 'new-divider', floating: true });
       newDividerPlaced = true;
       broken = true;
     }

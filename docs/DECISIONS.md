@@ -445,7 +445,9 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 - **Pinned by**: core/domain/groupMessages.test.ts :: places the new-messages divider before the first
   unread from others; orders the new-messages divider by arrival (seq), not the sender clock;
   core/services/services.test.ts :: snapshots the unread marker on open; ui/features/chat/list/
-  MessageListHooks.test.tsx :: reports a divider above the rendered range when its row is not mounted.
+  MessageListHooks.test.tsx :: reports a divider above the rendered range when its row is not mounted;
+  ui/features/chat/lib/lib.test.ts :: counts a list sharing only a floating item as replaced (the
+  divider moves with the loaded unread run, so it never anchors the list).
 - **Not pinned**: the bar jumping to the divider, and "Mark as read" keeping the divider; a component
   test of the bar would pin them.
 
