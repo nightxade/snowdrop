@@ -9,11 +9,14 @@ from common import (
     MESSAGE,
     SCROLLER,
     SLACK,
+    deliver_and_find,
+    emit,
     fill,
     is_current,
     open_conversation,
     send,
     scroll_to_distance,
+    settle,
 )
 from harness import journey
 
@@ -304,3 +307,64 @@ def pending_message_is_muted_with_a_clock(page):
     page.expect(f'!!{LAST_MESSAGE}.querySelector(\'[class*="_pendingMark_"] svg\') && {LAST_MESSAGE}.textContent.includes("Sending")', 'a pending message has no "Sending" clock')
     page.wait_for(f'!{LAST_MESSAGE}.hasAttribute("data-pending")', 6000)
     page.expect(f'{color} === {token}("--snowdrop-text") && !{LAST_MESSAGE}.querySelector(\'[class*="_pendingMark_"]\')', 'the sent message still looks pending')
+
+
+# ------------------------------------------------------------------ live events from the network
+
+
+@journey()
+def reaction_on_a_message_above_the_view_does_not_move_the_reader(page):
+    """Reading older messages with the chat scrolled up, rows above the view change size (reactions, a tall edit, a delete): the message being read stays where it is."""
+    open_conversation(page, 'dm-priya')
+    fill(page, 'dm-priya', 60)
+    page.wait_for(AT_BOTTOM)
+    page.scroll(SCROLLER, -1500)
+    settle(page, 600)
+    reading = page.eval(f"""(() => {{
+      const top = document.querySelector({SCROLLER!r}).getBoundingClientRect().top;
+      return [...document.querySelectorAll({MESSAGE!r})].find((m) => m.getBoundingClientRect().top >= top).getAttribute('data-message-id');
+    }})()""")
+    above = page.eval(f"""(() => {{
+      const ids = [...document.querySelectorAll({MESSAGE!r})].map((m) => m.getAttribute('data-message-id'));
+      return ids.slice(0, ids.indexOf({reading!r})).slice(-3);
+    }})()""")
+    page.expect(f'{len(above)} >= 2', 'the journey needs rendered messages above the one being read')
+    before = page.eval(top_of(reading))
+    conversation = page.eval('__journey.conversationId("dm-priya")')
+    for message in above:
+        author, _, sent = message.rpartition(':')
+        emit(page, 'reaction', {'conversationId': conversation, 'targetAuthorId': author, 'targetSentAt': int(sent),
+                                'reaction': {'authorId': author, 'emoji': '🎉', 'at': int(sent) + 10}, 'remove': False})
+        settle(page, 300)
+    page.expect(f'Math.abs({top_of(reading)} - {before}) < 2', 'the message being read moved when messages above it got reactions')
+    # Two changes back to back, closer together than the list's quiet period.
+    for message in above[:2]:
+        author, _, sent = message.rpartition(':')
+        emit(page, 'reaction', {'conversationId': conversation, 'targetAuthorId': author, 'targetSentAt': int(sent),
+                                'reaction': {'authorId': author, 'emoji': '👍', 'at': int(sent) + 20}, 'remove': False})
+        settle(page, 30)
+    settle(page, 400)
+    page.expect(f'Math.abs({top_of(reading)} - {before}) < 2', 'the message being read moved when two messages above it changed in quick succession')
+    first, last = above[0].rpartition(':'), above[-1].rpartition(':')
+    emit(page, 'messageEdited', {'conversationId': conversation, 'authorId': first[0], 'targetSentAt': int(first[2]),
+                                 'body': 'a much longer edit ' * 60, 'ranges': [], 'editedAt': int(first[2]) + 1000})
+    settle(page, 300)
+    page.expect(f'Math.abs({top_of(reading)} - {before}) < 2', 'the message being read moved when a message above it was edited to a tall one')
+    emit(page, 'messageDeleted', {'conversationId': conversation, 'authorId': last[0], 'targetSentAt': int(last[2])})
+    settle(page, 300)
+    page.expect(f'Math.abs({top_of(reading)} - {before}) < 2', 'the message being read moved when a message above it was deleted')
+
+
+@journey()
+def late_reaction_does_not_show_on_a_deleted_message(page):
+    """A message is deleted for everyone and a reaction to it arrives afterwards: the deleted message carries no reaction."""
+    open_conversation(page, 'dm-priya')
+    author, sent = deliver_and_find(page, 'dm-priya', 'to be deleted')
+    row = f'[data-message-id="{author}:{sent}"]'
+    conversation = page.eval('__journey.conversationId("dm-priya")')
+    emit(page, 'messageDeleted', {'conversationId': conversation, 'authorId': author, 'targetSentAt': sent})
+    page.wait_for(f'document.querySelector({row!r}).textContent.includes("was deleted")')
+    emit(page, 'reaction', {'conversationId': conversation, 'targetAuthorId': author, 'targetSentAt': sent,
+                            'reaction': {'authorId': author, 'emoji': '🎉', 'at': sent + 10}, 'remove': False})
+    settle(page, 500)
+    page.expect(f'!document.querySelector({row!r}).querySelector("[aria-label=Reactions]")', 'a reaction is shown on a deleted message')

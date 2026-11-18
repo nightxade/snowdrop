@@ -690,7 +690,7 @@ screenshot under `journeys/shots/` (git-ignored).
 The journey bundle is the production build plus `window.__journey`
 (`src/app/journeyDriver.ts`): small controls over the demo backend that reuse
 its own hooks, namely live arrivals (`deliver`), a catch-up replayed the way the
-patched signal-cli does it (`startCatchUp`, `caughtUp`), receipts, typing, slower history loads and sends (`setLoadDelay`, `setSendDelay`), a delivered body
+patched signal-cli does it (`startCatchUp`, `caughtUp`), receipts, typing, any other backend event as if it came from the network (`emit`: an edit, a delete, a reaction, a request answered on the phone), slower history loads and sends (`setLoadDelay`, `setSendDelay`), a delivered body
 taken verbatim or with a custom emoji, and a few read-only queries. `?journeyCatchUp=held` makes the demo act like a patched
 signal-cli (`catchingUpSignal`, `orderedCatchingUp`), holding its first
 `caughtUp` back until the journey sends it. The driver is imported only behind

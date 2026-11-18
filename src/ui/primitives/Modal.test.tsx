@@ -8,6 +8,8 @@ import { FullScreenDialog } from './FullScreenDialog';
 import { Lightbox } from './Lightbox';
 import { Modal } from './Modal';
 import { modalDialogOpen } from './modalOpen';
+import { Popover } from './Popover';
+import { trackFocusHistory } from './openerFocus';
 import { TooltipProvider } from './Tooltip';
 
 afterEach(cleanup);
@@ -107,6 +109,92 @@ function withOpener() {
 }
 
 describe('the shared opener hook', () => {
+  it('a popover whose trigger is removed under it (a member leaving) hands focus to the fallback', async () => {
+    const composer = document.createElement('textarea');
+    composer.setAttribute('data-snowdrop', 'composer-input');
+    document.body.append(composer);
+    const tree = (member: boolean) =>
+      member ? (
+        <Popover open onOpenChange={vi.fn()} label="Ines's profile" trigger={<button>Ines</button>}>
+          <input aria-label="Note" />
+        </Popover>
+      ) : (
+        <p>gone</p>
+      );
+    const { rerender } = render(tree(true));
+    (await screen.findByLabelText('Note')).focus();
+    rerender(tree(false));
+    await later();
+    expect(document.activeElement).toBe(composer);
+    composer.remove();
+  });
+
+  it('when its opener went with it, falls back to what had focus before, then to the composer', async () => {
+    const stop = trackFocusHistory();
+    const before = document.createElement('button');
+    before.textContent = 'before';
+    const composer = document.createElement('textarea');
+    composer.setAttribute('data-snowdrop', 'composer-input');
+    document.body.append(before, composer);
+    const page = (stage: 'asking' | 'asked' | 'answered') =>
+      stage === 'answered' ? (
+        <p>answered</p>
+      ) : (
+        <section>
+          <button>Delete</button>
+          {stage === 'asked' && (
+            <Modal open onOpenChange={vi.fn()} title="Delete this chat?">
+              <input aria-label="Field" />
+            </Modal>
+          )}
+        </section>
+      );
+    for (const earlier of [true, false]) {
+      if (earlier) before.focus();
+      const { rerender, container, unmount } = render(page('asking'));
+      container.querySelector('button')?.focus();
+      rerender(page('asked'));
+      await later();
+      rerender(page('answered'));
+      await later();
+      expect(document.activeElement).toBe(earlier ? before : composer);
+      unmount();
+      // The second round starts with nothing focused before the opener.
+      if (earlier) {
+        stop();
+        before.remove();
+      }
+    }
+    composer.remove();
+  });
+
+  it('when its opener went with it, leaves focus where the user put it', async () => {
+    const composer = document.createElement('textarea');
+    composer.setAttribute('data-snowdrop', 'composer-input');
+    const elsewhere = document.createElement('button');
+    elsewhere.textContent = 'elsewhere';
+    document.body.append(composer, elsewhere);
+    const page = (stage: 'asking' | 'asked' | 'answered') => (
+      <section>
+        {stage !== 'answered' && <button>Delete</button>}
+        <Modal open={stage === 'asked'} onOpenChange={vi.fn()} title="Delete this chat?">
+          <input aria-label="Field" />
+        </Modal>
+      </section>
+    );
+    const { rerender, container } = render(page('asking'));
+    container.querySelector('button')?.focus();
+    rerender(page('asked'));
+    await later();
+    // The opener goes, and focus is put elsewhere before the dialog closes.
+    rerender(page('answered'));
+    elsewhere.focus();
+    await later();
+    expect(document.activeElement).toBe(elsewhere);
+    composer.remove();
+    elsewhere.remove();
+  });
+
   it('in StrictMode still returns to what opened a Modal, not to something inside it', async () => {
     const opener = withOpener();
     const tree = (open: boolean) => (

@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ContextMenu, DropdownMenu } from './Menu';
 import { Modal } from './Modal';
-import { resetMenuOpeners } from './menuReturn';
+import { rememberedMenuOpener, resetMenuOpeners } from './menuReturn';
 import { TooltipProvider } from './Tooltip';
 
 afterEach(() => {
@@ -112,5 +112,22 @@ describe('a dialog opened from a menu item', () => {
     await waitFor(() => {
       expect(document.activeElement).toBe(second);
     });
+  });
+
+  it('forgets what a menu was opened from once the menu closes', async () => {
+    const user = userEvent.setup();
+    render(<Harness kind="dropdown" />);
+    const trigger = screen.getByRole('button', { name: 'Open' });
+    act(() => {
+      trigger.focus();
+    });
+    await user.keyboard('{Enter}');
+    await screen.findByRole('menu');
+    expect(rememberedMenuOpener()).toBe(trigger);
+    await user.keyboard('{Escape}');
+    await waitFor(() => {
+      expect(screen.queryByRole('menu')).toBeNull();
+    });
+    expect(rememberedMenuOpener()).toBeNull();
   });
 });

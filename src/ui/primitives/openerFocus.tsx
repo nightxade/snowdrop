@@ -1,6 +1,6 @@
 import { createContext, useContext, useLayoutEffect, useMemo, useRef, type ReactNode } from 'react';
 import { focusQuietly } from './focusQuietly';
-import { resolveOpener } from './menuReturn';
+import { rememberedMenuOpener, resolveOpener } from './menuReturn';
 
 /**
  * What the dialog host (`ModalHost`) gives the dialogs it shows. It owns the
@@ -10,7 +10,7 @@ import { resolveOpener } from './menuReturn';
  * end of the chain returns focus.
  */
 export interface OpenerHost {
-  /** The element that opened the first dialog of the chain, if there was one. */
+  /** The element that opened the first dialog of the chain, if there was one and it is still there. */
   opener(): HTMLElement | null;
   /** True once no dialog is left, so a closing layer should hand focus back. */
   settled(): boolean;
@@ -39,8 +39,41 @@ function focusedElement(): HTMLElement | null {
 /** For `ModalHost`, which records the opener when a dialog is requested. */
 export { focusedElement as currentOpener };
 
+/** Recently focused elements, oldest first: where focus was before a menu, palette or dialog took it. */
+let history: HTMLElement[] = [];
+
+/** `ModalHost` calls this once: from then on `fallbackFocus` knows where focus has been. */
+export function trackFocusHistory(): () => void {
+  const onFocusIn = (event: FocusEvent) => {
+    const el = event.target;
+    if (!(el instanceof HTMLElement) || el === document.body) return;
+    history = [...history.filter((x) => x !== el), el].slice(-12);
+  };
+  document.addEventListener('focusin', onFocusIn, true);
+  return () => {
+    document.removeEventListener('focusin', onFocusIn, true);
+    history = [];
+  };
+}
+
+/**
+ * Where focus goes when what opened a dialog (or popover) is gone, never the page body: what had
+ * focus before (outside any dialog or menu), else the trigger of the menu that was open, else the
+ * composer, else the message list.
+ */
+export function fallbackFocus(): HTMLElement | null {
+  for (const el of [...history].reverse()) {
+    if (el.isConnected && !el.closest('[role="dialog"], [role="menu"]')) return el;
+  }
+  return (
+    rememberedMenuOpener() ??
+    document.querySelector<HTMLElement>('[data-snowdrop="composer-input"]') ??
+    document.querySelector<HTMLElement>('[data-snowdrop="message-log"]')
+  );
+}
+
 export interface OpenerFocus {
-  /** The element to give focus back to, if any. */
+  /** The element to give focus back to: the opener, or when it is gone the fallback chain (`fallbackFocus`). */
   opener(): HTMLElement | null;
   /**
    * For a layer's `onCloseAutoFocus`: takes over from Radix and puts focus
@@ -76,11 +109,20 @@ export function useOpenerFocus(open = true): OpenerFocus {
   // Stable, so an effect may list it.
   return useMemo(
     () => ({
-      opener: () => (host ? host.opener() : own.current),
+      opener: () =>
+        (host ? host.opener() : own.current?.isConnected ? own.current : null) ?? fallbackFocus(),
       closeFocus(event, fallback) {
         event.preventDefault();
         if (host && !host.settled()) return;
-        const target = fallback?.() ?? (host ? host.opener() : own.current);
+        const direct = fallback?.() ?? (host ? host.opener() : own.current);
+        if (direct?.isConnected) {
+          focusQuietly(direct);
+          return;
+        }
+        // The opener went away: the fallback chain, unless the user already put focus somewhere.
+        const active = document.activeElement;
+        if (active && active !== document.body && !active.closest('[role="dialog"]')) return;
+        const target = fallbackFocus();
         if (target?.isConnected) focusQuietly(target);
       },
     }),

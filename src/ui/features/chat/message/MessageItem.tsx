@@ -233,9 +233,46 @@ export const MessageItem = memo(function MessageItem({
     };
   }, [entered]);
 
+  // A message deleted for everyone while the reader is in its bar (or its reaction picker): the
+  // buttons go with the content, and focus goes back to the row, as Esc would, not to the page.
+  // Only when focus was in the row (or its picker) until then: not after the reader clicked or
+  // tabbed elsewhere.
+  const deleted = m?.deleted === true;
+  const focusHere = useRef(false);
+  useLayoutEffect(() => {
+    if (!(focused || entered || pickerOpen)) {
+      focusHere.current = false;
+      return undefined;
+    }
+    const inside = (n: EventTarget | null) =>
+      n instanceof Element &&
+      (!!row.current?.contains(n) || (pickerOpen && !!n.closest('[role="dialog"]')));
+    focusHere.current = inside(document.activeElement);
+    const onFocusIn = (e: FocusEvent) => {
+      focusHere.current = inside(e.target);
+    };
+    const onPointerDown = (e: Event) => {
+      if (!inside(e.target)) focusHere.current = false;
+    };
+    document.addEventListener('focusin', onFocusIn, true);
+    document.addEventListener('pointerdown', onPointerDown, true);
+    return () => {
+      document.removeEventListener('focusin', onFocusIn, true);
+      document.removeEventListener('pointerdown', onPointerDown, true);
+    };
+  }, [focused, entered, pickerOpen]);
+  useLayoutEffect(() => {
+    if (!deleted || !focusHere.current) return;
+    const at = document.activeElement;
+    if (at && at !== document.body) return;
+    rows.enter(null);
+    row.current?.focus();
+  }, [deleted, rows]);
+
   if (!m || !perms) return null;
   const name = nameFor(m.authorId);
-  const active = (hovered && !touch) || focused || menuOpen || contextOpen || pickerOpen;
+  const picker = pickerOpen && !m.deleted;
+  const active = (hovered && !touch) || focused || menuOpen || contextOpen || picker;
   const mentionsMe = selfId !== null && m.authorId !== selfId && mentionsContact(m, selfId);
   const pending = isPendingMessageId(m.id) && m.status === 'pending';
   const labelId = `${domId}-label`;
@@ -364,7 +401,7 @@ export const MessageItem = memo(function MessageItem({
         <HoverBar
           message={m}
           actions={actionContext(m, perms, { requestDelete: dialog.runDelete })}
-          pickerOpen={pickerOpen}
+          pickerOpen={picker}
           onPickerOpenChange={(open) => {
             if (open) pickerFromKey.current = false;
             setPickerOpen(open);
@@ -372,7 +409,8 @@ export const MessageItem = memo(function MessageItem({
           pickerReturnFocus={() => {
             const fromKey = pickerFromKey.current;
             pickerFromKey.current = false;
-            return fromKey ? row.current : null;
+            // A message deleted under the picker: the row, whichever of this and the effect above runs first.
+            return fromKey || (m.deleted && focusHere.current) ? row.current : null;
           }}
           menuOpen={menuOpen}
           onMenuOpenChange={setMenuOpen}
@@ -430,7 +468,7 @@ export const MessageItem = memo(function MessageItem({
     <>
       {wrapped}
       {touch && <MessageActionSheet open={sheetOpen} onOpenChange={setSheetOpen} entries={menu} />}
-      {touch && pickerOpen && (
+      {touch && picker && (
         // No hover bar to anchor to on touch: the full picker comes up as a sheet.
         <Drawer side="bottom" open onOpenChange={setPickerOpen} label="Add reaction">
           <EmojiPicker

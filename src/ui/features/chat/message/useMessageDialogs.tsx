@@ -86,9 +86,12 @@ export function useMessageDialogs(
     },
   };
 
+  // A message deleted for everyone (here or on another device) leaves nothing to delete for
+  // everyone or to give details of: those dialogs close, as any dialog whose subject goes does.
+  const gone = m?.deleted === true;
   const dialogs = m && (
     <>
-      {confirm && (
+      {confirm && !(gone && confirm !== 'me') && (
         <ConfirmDelete
           kind={confirm}
           message={m}
@@ -101,7 +104,7 @@ export function useMessageDialogs(
           }}
         />
       )}
-      {detailsOpen && <MessageDetails message={m} onOpenChange={setDetailsOpen} />}
+      {detailsOpen && !gone && <MessageDetails message={m} onOpenChange={setDetailsOpen} />}
       {votesOpen && m.poll && (
         <PollVotesDialog
           poll={m.poll}

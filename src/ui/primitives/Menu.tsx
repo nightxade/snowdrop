@@ -9,7 +9,7 @@ import {
   type ReactElement,
   type Ref,
 } from 'react';
-import { rememberMenuOpener } from './menuReturn';
+import { forgetMenuOpener, rememberMenuOpener } from './menuReturn';
 import { tidyMenu, type MenuEntry } from './menuModel';
 import styles from './Menu.module.css';
 
@@ -157,6 +157,7 @@ export function ContextMenu({
     <RadixContext.Root
       onOpenChange={(next) => {
         if (next) rememberMenuOpener(target.current);
+        else forgetMenuOpener();
         onOpenChange?.(next);
       }}
       modal={false}
@@ -215,6 +216,7 @@ export function DropdownMenu({
   const isOpen = open ?? ownOpen;
   const setOpen = (next: boolean) => {
     if (next && !isOpen) rememberMenuOpener();
+    else if (!next) forgetMenuOpener();
     if (open === undefined) setOwnOpen(next);
     onOpenChange?.(next);
   };

@@ -40,6 +40,16 @@ export function resolveOpener(focused: HTMLElement | null): HTMLElement | null {
   return target;
 }
 
+/** A menu closed: what it was opened from is no longer a place to return to from some later dialog. */
+export function forgetMenuOpener(): void {
+  opened = null;
+}
+
+/** The element the latest menu was opened from, if it is still on the page. */
+export function rememberedMenuOpener(): HTMLElement | null {
+  return opened?.isConnected ? opened : null;
+}
+
 /** For tests. */
 export function resetMenuOpeners(): void {
   opened = null;

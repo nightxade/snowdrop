@@ -2,7 +2,13 @@ import { act, cleanup, fireEvent, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Snowdrop } from '@/app/createSnowdrop';
 import { MockBackend } from '@/core/backend/mock';
-import { messageId, type ConversationId, type Message, type MessageId } from '@/core/domain';
+import {
+  applyDelete,
+  messageId,
+  type ConversationId,
+  type Message,
+  type MessageId,
+} from '@/core/domain';
 import { messagesSelectors } from '@/core/stores';
 import { bootSnowdrop, renderWithSnowdrop, settle } from '@/test/renderWithSnowdrop';
 import { ChatController, ChatControllerProvider } from '../ChatController';
@@ -122,6 +128,68 @@ describe('<MessageItem /> keyboard', () => {
     expect(document.activeElement).toBe(button);
   });
 
+  it('keeps focus on the row when the message is deleted for everyone while it is stepped into', async () => {
+    const { snowdrop, conv, own, row } = await withOwnMessage();
+    const frame = () =>
+      act(async () => {
+        await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 20)));
+      });
+    const remoteDelete = () => {
+      act(() => {
+        snowdrop.stores.messages.getState().update(conv, own.id, (m) => applyDelete(m));
+      });
+    };
+    row.focus();
+    fireEvent.keyDown(row, { key: 'Enter' });
+    await frame();
+    expect(row.contains(document.activeElement)).toBe(true);
+    expect(document.activeElement).not.toBe(row);
+    remoteDelete();
+    await frame();
+    expect(document.activeElement).toBe(row);
+  });
+
+  it('leaves focus alone when the message is deleted after the reader clicked away from its row', async () => {
+    const { snowdrop, conv, own, row } = await withOwnMessage();
+    const frame = () =>
+      act(async () => {
+        await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 20)));
+      });
+    row.focus();
+    fireEvent.keyDown(row, { key: 'Enter' });
+    await frame();
+    expect(document.activeElement).not.toBe(row);
+    // A click on the page background: the pointer goes down outside, focus falls to the body.
+    fireEvent.pointerDown(document.body);
+    act(() => {
+      (document.activeElement as HTMLElement).blur();
+    });
+    act(() => {
+      snowdrop.stores.messages.getState().update(conv, own.id, (m) => applyDelete(m));
+    });
+    await frame();
+    expect(document.activeElement).not.toBe(row);
+  });
+
+  it('keeps focus on the row when the message is deleted while a picker opened from its bar is up', async () => {
+    const { snowdrop, conv, own, row } = await withOwnMessage();
+    const frame = () =>
+      act(async () => {
+        await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 20)));
+      });
+    row.focus();
+    fireEvent.keyDown(row, { key: 'Enter' });
+    await frame();
+    fireEvent.click(within(row).getByRole('button', { name: 'Add reaction' }));
+    await screen.findByRole('dialog', { name: 'Emoji picker' });
+    act(() => {
+      snowdrop.stores.messages.getState().update(conv, own.id, (m) => applyDelete(m));
+    });
+    await frame();
+    expect(screen.queryByRole('dialog', { name: 'Emoji picker' })).toBeNull();
+    expect(document.activeElement).toBe(row);
+  });
+
   it('Delete asks first, with the destructive button focused so Enter confirms', async () => {
     const { snowdrop, conv, own, row } = await withOwnMessage();
     row.focus();
@@ -134,6 +202,34 @@ describe('<MessageItem /> keyboard', () => {
     await settle(snowdrop);
     expect(current(snowdrop, conv, own.id)?.deleted).toBe(true);
     expect(screen.getByText('You deleted this message.')).toBeTruthy();
+  });
+
+  it('closes the delete confirmation when the message is deleted for everyone meanwhile', async () => {
+    const { snowdrop, conv, own, row } = await withOwnMessage();
+    const remoteDelete = async () => {
+      act(() => {
+        snowdrop.stores.messages.getState().update(conv, own.id, (m) => applyDelete(m));
+      });
+      await settle();
+    };
+    row.focus();
+    fireEvent.keyDown(row, { key: 'Delete' });
+    await settle();
+    expect(screen.getByRole('dialog', { name: 'Delete for everyone' })).toBeTruthy();
+    await remoteDelete();
+    expect(screen.queryByRole('dialog', { name: 'Delete for everyone' })).toBeNull();
+  });
+
+  it('closes Message details when the message is deleted for everyone meanwhile', async () => {
+    const { snowdrop, conv, own, row } = await withOwnMessage();
+    fireEvent.contextMenu(row);
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Message details' }));
+    await screen.findByRole('dialog', { name: 'Message details' });
+    act(() => {
+      snowdrop.stores.messages.getState().update(conv, own.id, (m) => applyDelete(m));
+    });
+    await settle();
+    expect(screen.queryByRole('dialog', { name: 'Message details' })).toBeNull();
   });
 
   it('Shift+Delete on a focused row deletes without asking, though no hover bar is listening for Shift', async () => {

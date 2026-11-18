@@ -15,7 +15,12 @@ import { BlockDialog, type GroupMemberAction } from '@/ui/features/conversation'
 import { uiSelectors } from '@/core/stores';
 import { useStores } from '@/ui/hooks';
 import { AreaErrorBoundary } from '@/ui/lib/AreaErrorBoundary';
-import { OpenerHostProvider, currentOpener, type OpenerHost } from '@/ui/primitives';
+import {
+  OpenerHostProvider,
+  currentOpener,
+  trackFocusHistory,
+  type OpenerHost,
+} from '@/ui/primitives';
 import { SettingsFallback } from './SettingsFallback';
 
 // The switcher (with cmdk) is its own chunk, prefetched once the app is idle so
@@ -145,8 +150,6 @@ export function ModalHost() {
   const stores = useStores();
   const modal = useStore(stores.ui, uiSelectors.modal);
   const opener = useRef<HTMLElement | null>(null);
-  /** Recently focused elements, oldest first: where focus was before a menu or palette took it. */
-  const history = useRef<HTMLElement[]>([]);
   const layers = useRef(0);
   /** A Suspense fallback is showing (the dialog's layers are hidden, not gone). */
   const suspended = useRef(false);
@@ -157,15 +160,10 @@ export function ModalHost() {
   const resolvedKey = useRef<string | null>(null);
   const timers = useRef(new Set<ReturnType<typeof setTimeout>>());
   useEffect(() => {
-    const onFocusIn = (event: FocusEvent) => {
-      const el = event.target;
-      if (!(el instanceof HTMLElement) || el === document.body) return;
-      history.current = [...history.current.filter((x) => x !== el), el].slice(-12);
-    };
-    document.addEventListener('focusin', onFocusIn, true);
+    const stopTracking = trackFocusHistory();
     const pending = timers.current;
     return () => {
-      document.removeEventListener('focusin', onFocusIn, true);
+      stopTracking();
       for (const t of pending) clearTimeout(t);
       pending.clear();
     };
@@ -193,17 +191,9 @@ export function ModalHost() {
       }
     };
     return {
-      // The recorded opener, unless it is gone (a palette or menu item that opened the dialog
-      // closes with it): then what had focus before that, which is never the page body.
-      opener: () => {
-        if (opener.current?.isConnected) return opener.current;
-        for (const el of [...history.current].reverse()) {
-          if (el.isConnected && !el.closest('[role="dialog"], [role="menu"]')) return el;
-        }
-        return document.querySelector<HTMLElement>(
-          '[data-snowdrop="composer-input"], [data-snowdrop="message-log"]',
-        );
-      },
+      // The recorded opener, null once it is gone (a palette or menu item that opened the dialog
+      // closes with it): the layer then looks for what had focus before that.
+      opener: () => (opener.current?.isConnected ? opener.current : null),
       settled: () => stores.ui.getState().modal === null,
       register: () => {
         layers.current += 1;

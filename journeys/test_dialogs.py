@@ -1,4 +1,4 @@
-from common import COMPOSER, click_text, is_current, open_conversation, send, settle
+from common import COMPOSER, click_text, emit, is_current, open_conversation, send, settle
 from harness import journey
 
 NEW_MESSAGE = '[data-snowdrop=sidebar-header] button[aria-label="New message"]'
@@ -80,3 +80,40 @@ def alt_arrow_in_settings_leaves_the_open_chat(page):
     page.key('ArrowDown', ['alt'])
     settle(page, 700)
     page.expect(f'__journey.state().selected === {opened!r}', 'Alt+Down changed the chat behind Settings')
+
+
+@journey()
+def request_answered_on_the_phone_under_an_open_dialog(page):
+    """Block or Delete on a message request asks first; the phone accepts the request meanwhile: the question goes with the bar, and focus goes to the fallback (what had it before, else the composer), not the page."""
+    conversation = page.eval('__journey.conversationId("request-dm")')
+    page.click(f'[data-conversation-id="{conversation}"]')
+    page.wait_for('!!document.querySelector("[data-snowdrop=message-request]")')
+    click_text(page, '[data-snowdrop=message-request] button', 'Delete')
+    page.wait_for('!!document.querySelector("[role=alertdialog], [role=dialog]")')
+    emit(page, 'messageRequestResponse', {'conversationId': conversation, 'answer': 'accept', 'at': 4000000000000})
+    page.wait_for(f'!document.querySelector("[role=alertdialog], [role=dialog]") && !!document.querySelector({COMPOSER!r})')
+    settle(page, 500)
+    page.expect('document.activeElement !== document.body', 'focus fell to the page when the request was answered under its dialog')
+
+
+@journey()
+def dialogs_of_a_message_close_when_it_is_deleted_for_everyone(page):
+    """The delete question or Message details is open on a message; the sender deletes it for everyone from another device: the dialog goes with the message, and focus is not left on the page (M15)."""
+    open_conversation(page, 'dm-priya')
+    conversation = page.eval('__journey.conversationId("dm-priya")')
+    dialog = 'document.querySelector("[role=alertdialog], [role=dialog]")'
+    for text, open_dialog in (
+        ('delete question', lambda: page.key('Delete')),
+        ('details question', lambda: (page.key('Enter', ['ctrl']), page.wait_for('!!document.querySelector("[role=menu]")'),
+                                      click_text(page, '[role=menu] [role=menuitem]', 'Message details'))),
+    ):
+        send(page, text)
+        page.key('Escape')
+        page.wait_for(is_current(0))
+        author, _, sent = page.eval('document.activeElement.getAttribute("data-message-id")').rpartition(':')
+        open_dialog()
+        page.wait_for(f'!!{dialog}')
+        emit(page, 'messageDeleted', {'conversationId': conversation, 'authorId': author, 'targetSentAt': int(sent)})
+        page.wait_for(f'!{dialog}')
+        settle(page, 500)
+        page.expect('document.activeElement !== document.body', f'focus fell to the page when the {text} dialog closed under it')

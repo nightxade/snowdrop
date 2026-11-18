@@ -548,6 +548,15 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   instead of landing on it; says so when the quoted message is not stored locally; ui/features/chat/
   list/MessageListHooks.test.tsx :: lets a stale request clear nothing once a newer target is set;
   releases the flash timer when the list unmounts; ui/features/chat/ChatController.test.ts (3).
+- **Search results follow the chat**: the results of the chat search (Mod+F) are searched again
+  whenever the chat's loaded messages change in a way that can alter them (a message added or
+  removed, deleted, edited; not a receipt, status or reaction), without the loading skeleton: a message deleted for
+  everyone, for you or expired leaves the list, a new match joins it, and the result you are on
+  stays the same element. Pinned by ui/features/chat/header/SearchPanel.test.tsx :: follows the
+  store: a message deleted for everyone leaves the results, a new match joins them; journeys/
+  test_keyboard.py :: search_results_drop_a_message_deleted_for_everyone. Not pinned: a message
+  outside the loaded window (an old one deleted on the phone) stays listed until the search runs
+  again.
 
 ### C15. Dates follow the system locale
 
@@ -662,6 +671,28 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   once per emoji; reads a vote at once on screen, and syncs it as a read of the poll; keeps a vote
   unread while away, and never counts it as a message.
 
+### C25. A reader's place holds while rows above change size
+
+- **Rule**: A reader scrolled up stays on the message they are reading when rows above the view
+  change size: a reaction added or removed, an edit that makes a message taller or shorter, a delete,
+  the history skeleton giving way to the start of the chat. The list keeps the first message in view
+  at the same distance from the top of the list (`list/readingAnchor.ts`). It does nothing while the
+  reader is scrolling (the virtualiser looks after the rows it measures then; a scroll event within
+  100 ms; the scroll event of the list's own correction is not the reader's, so two changes less than
+  100 ms apart are both corrected), while older history is being prepended (the virtualiser keeps the view, C6), for a list
+  pinned to the bottom (C1, C5: its end stays in view) or held where it opened at the unread divider
+  or a jump target (C5: until the reader moves it).
+- **Why**: Bug found by exploring live events: the virtualiser compensates for a row changing size
+  above the view only while the reader is scrolling up (its upward compensation ends 50 ms after the
+  last scroll event), so a reaction on an older message pushed the message being read down by the
+  height of the new row.
+- **Pinned by**: ui/features/chat/list/readingAnchor.test.ts (including: does not take its own
+  correction for the reader scrolling); journeys/test_list.py ::
+  reaction_on_a_message_above_the_view_does_not_move_the_reader (reactions, two back to back, a tall
+  edit and a delete on messages above a reader who scrolled up).
+- **Not pinned**: a list held at the divider or a jump target is left to C5, so a row above it
+  changing size there still moves the view; a composer growing under a scrolled-up reader.
+
 ---
 
 ## M. Message actions and keyboard
@@ -708,6 +739,10 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   shift_delete_across_messages (three messages deleted in a row with Shift held, no dialog),
   shift_delete_on_a_message_focused_by_click; core/services/deleteSync.test.ts :: takes a
   deleted unread message off the unread count, so reading the chat leaves none behind.
+- **A deleted message stays deleted**: a message deleted for everyone takes no reaction and no pin
+  that arrives afterwards (edits and poll votes were already refused). Pinned by core/services/
+  services.test.ts :: ignores a reaction or a pin that arrives after the message was deleted for
+  everyone; journeys/test_list.py :: late_reaction_does_not_show_on_a_deleted_message.
 
 ### M4. Failed and unconfirmed sends
 
@@ -770,7 +805,10 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 - **Rule**: Up and Down move between messages. Enter steps into a message (Tab reaches its controls,
   hover bar first), Esc steps out; R replies, E edits, + (or =) reacts; Shift+F10, the Menu key and
   Mod+Enter open the menu; Esc in a reaction picker opened with + returns to the message (one opened
-  from the hover bar's button returns to that button). When the focused message scrolls out of the
+  from the hover bar's button returns to that button). When the message you stepped into (or whose
+  reaction picker you opened) is deleted for everyone meanwhile, its buttons go and focus goes back to
+  the row, as Esc would, but only when focus was in the row or its picker until then (not after the
+  reader clicked or tabbed elsewhere). When the focused message scrolls out of the
   rendered range (PageUp, the wheel), the list's scroller takes focus, unless focus went somewhere
   else, and the arrows continue from that message. A message row is an article labelled by author
   and time.
@@ -783,7 +821,9 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   (Shift+F10, the Menu key and Ctrl+Enter each open the menu; Esc returns focus to the row),
   reaction_picker_esc_returns_to_the_message, page_up_keeps_focus_on_the_list;
   ui/features/chat/message/MessageItem.test.tsx :: Esc closes a picker opened with + onto the message;
-  one opened from the bar button returns to that button; the random walk does the same on random rows (journeys/fuzz.py).
+  one opened from the bar button returns to that button; keeps focus on the row when the message is
+  deleted for everyone while it is stepped into, and leaves it alone after a click elsewhere (both); journeys/test_keyboard.py ::
+  remote_delete_of_the_message_you_stepped_into_keeps_focus; the random walk does the same on random rows (journeys/fuzz.py).
 - **Not pinned**: Shift+F10 and the Menu key through the app's own code: WebKitGTK turns both into a
   `contextmenu` event itself, so the journey stays green with those two branches of
   `isContextMenuKey` removed (Ctrl+Enter is the app's alone and is pinned). Mod+Enter with the Meta
@@ -858,8 +898,12 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 
 - **Rule**: One mechanism gives focus back when a Modal, full-screen dialog, drawer or lightbox
   closes. A dialog replaced by another keeps the chain's opener; the fallback is what had focus before
-  a palette or menu, then the menu trigger, then the composer. A dialog whose subject disappears
-  closes. Dialogs with a hidden header have no invisible Close; a drawer takes one Esc from any
+  a palette or menu, then the menu trigger, then the composer; the chain is followed whenever the
+  opener is gone and focus is on the page body, nothing or inside the closing dialog (focus the user
+  put elsewhere stays; the menu's trigger is forgotten when the menu closes), whatever opened the dialog (`fallbackFocus` in `primitives/openerFocus.tsx`: a
+  request bar that the phone answered under its question, a member removed under their profile
+  card). A dialog whose subject disappears closes: the delete-for-everyone question and Message
+  details of a message deleted for everyone meanwhile (the inline editor is a separate decision). Dialogs with a hidden header have no invisible Close; a drawer takes one Esc from any
   descendant. A panel closed by its shortcut with focus inside hands focus on as its own close does:
   the search panel (a second Mod+F) to the composer, the wide member column (Mod+Shift+M) to its
   header toggle.
@@ -878,7 +922,13 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   test/shell.test.tsx :: panels closed by their shortcut keep focus (both); Alt+Up/Down,
   Ctrl+Shift+M, Ctrl+K and Ctrl+F do nothing behind Settings; they work again once it closes;
   journeys/test_keyboard.py :: second_search_shortcut_keeps_focus, member_panel_shortcut_keeps_focus;
-  ui/primitives/Modal.test.tsx :: modalDialogOpen. The fallbacks overlap (the recorded opener, then the
+  ui/primitives/Modal.test.tsx :: modalDialogOpen; when its opener went with it, falls back to what
+  had focus before, then to the composer; a popover whose trigger is removed under it hands focus to
+  the fallback; when its opener went with it, leaves focus where the user put it; ui/primitives/
+  menuReturn.test.tsx :: forgets what a menu was opened from once the menu closes; ui/features/chat/message/MessageItem.test.tsx :: closes the delete confirmation when
+  the message is deleted for everyone meanwhile; closes Message details when the message is deleted
+  for everyone meanwhile; journeys/test_dialogs.py :: request_answered_on_the_phone_under_an_open_dialog,
+  dialogs_of_a_message_close_when_it_is_deleted_for_everyone. The fallbacks overlap (the recorded opener, then the
   focus history), so the replaced-dialog journey fails only when the whole restore breaks, not when
   one layer does.
 - **Menu items**: a dialog opened from a menu item (Delete for me, Message details) does not
@@ -2177,7 +2227,7 @@ shorter)` still passes but describes the old two-tracker design; the title shoul
 No test at all: G3, G8 (Java patch suite only; a Java test in the patch would pin each).
 
 Pinned, but with a part that is not: S2, S5, S13, S18, S19, S22, C2, C4, C5, C6, C7, C8, C10, C12,
-C13, C19, M8, M9, M13, M15, M18, P6, P10, P13, N1, N4, D8, D9, T1, T4, T5, T6,
+C13, C19, C25, M8, M9, M13, M15, M18, P6, P10, P13, N1, N4, D8, D9, T1, T4, T5, T6,
 T10, T11, T14, T16, V5, V10, H1, H3, H6, H7, G4, G5, G7, G9, R8.
 
 ## Next journeys

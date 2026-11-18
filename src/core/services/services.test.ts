@@ -629,6 +629,41 @@ describe('SyncService: events', () => {
     expect(stores.conversations.getState().unread[id]!.count).toBe(before - 1);
   });
 
+  it('ignores a reaction or a pin that arrives after the message was deleted for everyone', async () => {
+    const { backend, sync, repository, conv, memberOf } = await setup();
+    const id = conv('books');
+    const author = memberOf(id);
+    const m = incoming(id, author, NOW + 10);
+    backend.deliver(m);
+    await sync.idle();
+    backend.emit('messageDeleted', {
+      conversationId: id,
+      authorId: author,
+      targetSentAt: NOW + 10,
+    });
+    await sync.idle();
+    backend.emit('reaction', {
+      conversationId: id,
+      targetAuthorId: author,
+      targetSentAt: NOW + 10,
+      reaction: { emoji: '🎯', authorId: author, at: NOW },
+      remove: false,
+    });
+    backend.emit('messagePinned', {
+      conversationId: id,
+      targetAuthorId: author,
+      targetSentAt: NOW + 10,
+      pinned: true,
+      by: author,
+      at: NOW + 20,
+    });
+    await sync.idle();
+    const stored = await repository.get(m.id);
+    expect(stored?.deleted).toBe(true);
+    expect(stored?.reactions).toEqual([]);
+    expect(stored?.pinned).toBeUndefined();
+  });
+
   it('applies pin events', async () => {
     const { backend, sync, repository, conv, memberOf } = await setup();
     const id = conv('books');

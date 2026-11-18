@@ -91,6 +91,59 @@ describe('<SearchPanel />', () => {
     expect(screen.queryByText(/No messages match/u)).toBeNull();
   });
 
+  it('follows the store: a message deleted for everyone leaves the results, a new match joins them', async () => {
+    const gone = hit('meeting at noon');
+    const kept = hit('meeting at three');
+    const fresh = hit('meeting at five');
+    let found = [kept, gone];
+    const { snowdrop, conv, type } = await setup(() => Promise.resolve(found));
+    const flags = { hasMoreBefore: false, hasMoreAfter: false };
+    snowdrop.stores.messages.getState().replaceWindow(conv.id, [gone, kept], flags);
+    type('meeting');
+    await screen.findByText('meeting at noon');
+    screen.getByText('meeting at three').closest<HTMLElement>('[data-search-result]')?.focus();
+
+    found = [kept];
+    act(() => {
+      snowdrop.stores.messages.getState().remove(conv.id, gone.id);
+    });
+    await vi.waitFor(() => {
+      expect(screen.queryByText('meeting at noon')).toBeNull();
+    });
+    expect(screen.getByText('meeting at three')).toBeTruthy();
+    // The one being looked at is the same element, not rebuilt.
+    expect(document.activeElement).toBe(
+      screen.getByText('meeting at three').closest('[data-search-result]'),
+    );
+
+    found = [fresh, kept];
+    act(() => {
+      snowdrop.stores.messages.getState().appendLive({ ...fresh, conversationId: conv.id });
+    });
+    await screen.findByText('meeting at five');
+  });
+
+  it('does not search again for a change that cannot alter the results (a receipt, a reaction)', async () => {
+    const one = hit('meeting at noon');
+    const search = vi.fn(() => Promise.resolve([one]));
+    const { snowdrop, conv, type } = await setup(search);
+    snowdrop.stores.messages
+      .getState()
+      .replaceWindow(conv.id, [one], { hasMoreBefore: false, hasMoreAfter: false });
+    type('meeting');
+    await screen.findByText('meeting at noon');
+    const searches = search.mock.calls.length;
+    act(() => {
+      snowdrop.stores.messages.getState().update(conv.id, one.id, (m) => ({
+        ...m,
+        status: 'read',
+        reactions: [{ authorId: 'ana', emoji: '🎉', at: 1 }],
+      }));
+    });
+    await new Promise((r) => setTimeout(r, 400));
+    expect(search).toHaveBeenCalledTimes(searches);
+  });
+
   it('has no axe violations with results', async () => {
     const { view, type } = await setup(() => Promise.resolve([hit('meeting at noon')]));
     type('meeting');

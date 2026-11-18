@@ -18,7 +18,13 @@ export {
 export { EmptyState, type EmptyStateProps } from './EmptyState';
 export { focusQuietly } from './focusQuietly';
 export { modalDialogOpen } from './modalOpen';
-export { OpenerHostProvider, currentOpener, type OpenerHost } from './openerFocus';
+export {
+  OpenerHostProvider,
+  currentOpener,
+  fallbackFocus,
+  trackFocusHistory,
+  type OpenerHost,
+} from './openerFocus';
 export { FullScreenDialog, type FullScreenDialogProps } from './FullScreenDialog';
 export { IconButton, type IconButtonProps } from './IconButton';
 export { Kbd, splitCombo } from './Kbd';

@@ -1,6 +1,7 @@
 import * as RadixPopover from '@radix-ui/react-popover';
 import { useRef, type ReactElement, type ReactNode } from 'react';
 import { focusQuietly } from './focusQuietly';
+import { fallbackFocus } from './openerFocus';
 import styles from './Popover.module.css';
 
 export interface PopoverProps {
@@ -62,9 +63,13 @@ export function Popover({
           onCloseAutoFocus={(e) => {
             onCloseAutoFocus?.(e);
             if (e.defaultPrevented && onCloseAutoFocus) return;
-            // Back on the trigger without popping its tooltip.
+            // Back on the trigger without popping its tooltip; when the trigger went with what it
+            // belonged to (a member removed under their card), the fallback, unless focus is
+            // somewhere already.
             e.preventDefault();
             if (anchor.current?.isConnected) focusQuietly(anchor.current);
+            else if (!document.activeElement || document.activeElement === document.body)
+              focusQuietly(fallbackFocus());
           }}
         >
           {children}

@@ -26,6 +26,7 @@ import { LiveAnnouncer } from './LiveAnnouncer';
 import { NewDivider } from './NewDivider';
 import { NewMessagesBar } from './NewMessagesBar';
 import { prefetchEdges } from './prefetch';
+import { ReadingAnchor } from './readingAnchor';
 import { RowState, RowStateProvider } from './rowState';
 import { SystemRow } from './SystemRow';
 import { useListItems } from './useListItems';
@@ -145,6 +146,7 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
   const unread = useStore(stores.conversations, conversationsSelectors.unread(conversationId));
   const virtuoso = useRef<VirtuosoHandle>(null);
   const [pin] = useState(() => new BottomPin());
+  const [anchor] = useState(() => new ReadingAnchor());
   useRenderProbe(null);
   // Starts false: a list opened at the unread divider must not count as "seen to the bottom".
   const [atBottom, setAtBottom] = useState(false);
@@ -174,6 +176,25 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
     setSlack(pin.slackPx);
   };
   const [rows] = useState(() => new RowState());
+  // Rows above a reader who has scrolled up change size (a reaction, an edit, a delete): the
+  // message being read stays put. A list pinned to the bottom, or held where it opened, has its
+  // own rules (the pin, the divider).
+  const holdReader = () => {
+    const el = scroller.current;
+    if (!el) return;
+    if (pin.isStuck || pin.isHeldAway) {
+      anchor.rebaseSoon(el, firstItemIndex);
+      return;
+    }
+    anchor.hold(el, firstItemIndex);
+  };
+
+  useEffect(
+    () => () => {
+      anchor.dispose();
+    },
+    [anchor],
+  );
 
   const scrollToBottom = useCallback(() => {
     virtuoso.current?.scrollToIndex({ index: 'LAST', align: 'end', behavior: 'auto' });
@@ -198,6 +219,7 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
       const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
       measureSlack(el);
       pin.onScroll(distance, el.scrollTop);
+      anchor.noteScroll(el, firstItemIndex);
       if (!pin.isHeldAway) {
         setReleasedEpoch(epoch);
         loadDeferredOlder();
@@ -567,6 +589,7 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
           }}
           totalListHeightChanged={() => {
             repin();
+            holdReader();
             measureEnd();
           }}
           rangeChanged={(range) => {

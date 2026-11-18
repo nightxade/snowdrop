@@ -1,4 +1,5 @@
 """Steps and selectors shared by the journeys."""
+import json
 
 COMPOSER = '[data-snowdrop=composer-input]'
 MESSAGE = '[data-snowdrop=message]'
@@ -114,3 +115,18 @@ def fill(page, key='dm-priya', count=40):
     """A conversation long enough to scroll."""
     page.eval(f"__journey.deliver({{ conversation: {key!r}, count: {count}, spacingMs: 20, text: 'filler' }})")
     page.wait_for(f'{LAST_MESSAGE}?.textContent.includes("filler {count}")')
+
+
+# ---------------------------------------------------------------- live events from the network
+
+def emit(page, event, payload):
+    """Plays a backend event as if it came from the network (`__journey.emit`): an edit, a delete, a reaction, a request answered on the phone."""
+    page.eval(f'return (__journey.emit({event!r}, {json.dumps(payload)}), 1)')
+
+
+def deliver_and_find(page, key, text):
+    """A message from the other person arrives in the open chat; returns its (author id, sent time)."""
+    page.eval(f'__journey.deliver({{ conversation: {key!r}, count: 1, text: {text!r}, exact: true }})')
+    page.wait_for(f'{LAST_MESSAGE}?.textContent.includes({text!r})')
+    author, _, sent = page.eval(f'{LAST_MESSAGE}.getAttribute("data-message-id")').rpartition(':')
+    return author, int(sent)

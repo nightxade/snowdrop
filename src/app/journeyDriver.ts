@@ -67,6 +67,8 @@ export interface JourneyDriver {
   /** Receipts for every message the user sent in the conversation. */
   receipt(conversation: string, type: 'delivered' | 'read'): number;
   typing(conversation: string, typing: boolean, from?: string): void;
+  /** Any backend event, as if it came from the network (an edit, a delete, a reaction, a group change). */
+  emit(event: string, payload: unknown): void;
   /** Every history load from now on takes this many ms longer (a slow real backend). */
   setLoadDelay(ms: number): void;
   /** Every send from now on takes this many ms before the backend takes it (a message stays pending). */
@@ -213,6 +215,9 @@ export function createJourneyDriver(snowdrop: Snowdrop, backend: MockBackend): J
         };
       }
       sendDelayMs = ms;
+    },
+    emit: (event, payload) => {
+      backend.emit(event as 'status', payload as never);
     },
     typing: (conversation, typing, from) => {
       const id = conv(conversation);

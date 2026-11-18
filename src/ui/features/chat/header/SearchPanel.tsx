@@ -41,25 +41,45 @@ export function SearchPanel({
     input.current?.focus();
   }, []);
 
+  // What decides the results: which messages there are, whether each is deleted, and its edit
+  // count. A new message, a delete, an expiry or an edit changes it and the results follow (they
+  // are searched again, quietly); a receipt, a status or a reaction does not.
+  const messages = useStore(stores.messages, (s) => {
+    let signature = '';
+    for (const m of Object.values(s.windows[conversation.id]?.byId ?? {}))
+      signature += `${m.id}:${m.deleted ? 1 : 0}:${m.edits ?? 0};`;
+    return signature;
+  });
+  /** The query the results on screen were found for. */
+  const shown = useRef<string | null>(null);
+
   useEffect(() => {
-    if (trimmed === '') return;
+    if (trimmed === '') {
+      shown.current = null;
+      return;
+    }
     let cancelled = false;
+    const refresh = shown.current === trimmed;
     const timer = setTimeout(() => {
-      setState({ status: 'searching', query: trimmed });
+      if (!refresh) setState({ status: 'searching', query: trimmed });
       repository
         .search(trimmed, { conversationId: conversation.id, limit: LIMIT })
         .then((results) => {
-          if (!cancelled) setState({ status: 'done', query: trimmed, results });
+          if (cancelled) return;
+          shown.current = trimmed;
+          setState({ status: 'done', query: trimmed, results });
         })
         .catch(() => {
-          if (!cancelled) setState({ status: 'done', query: trimmed, results: [] });
+          if (cancelled || refresh) return;
+          shown.current = trimmed;
+          setState({ status: 'done', query: trimmed, results: [] });
         });
     }, DEBOUNCE_MS);
     return () => {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [trimmed, repository, conversation.id]);
+  }, [trimmed, repository, conversation.id, messages]);
 
   // Results (and "no match") belong to the query they were found for. While the field has moved
   // on, old results stay up until the new ones land, but an old "no match" is no answer to the

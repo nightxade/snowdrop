@@ -1,4 +1,4 @@
-from common import COMPOSER, IN_COMPOSER, LAST_MESSAGE, MESSAGE, ON_LIST, fill, is_current, open_conversation, send, settle
+from common import COMPOSER, IN_COMPOSER, LAST_MESSAGE, MESSAGE, ON_LIST, deliver_and_find, emit, fill, is_current, open_conversation, send, settle
 from harness import journey
 
 NOT_ON_BODY = 'document.activeElement !== document.body'
@@ -271,3 +271,41 @@ def member_panel_shortcut_keeps_focus(page):
     page.wait_for('!document.querySelector("[data-snowdrop=members]")')
     settle(page, 400)
     page.expect('document.activeElement === document.querySelector("[data-snowdrop=member-toggle]")', 'focus did not go to the member button')
+
+
+# ------------------------------------------------------------------ live events from the network
+
+
+@journey()
+def remote_delete_of_the_message_you_stepped_into_keeps_focus(page):
+    """Enter steps into a message (focus on its hover bar); the sender deletes it for everyone: the row stays as a deleted message, and focus stays on it rather than falling to the page (M9, Esc steps out)."""
+    open_conversation(page, 'dm-priya')
+    author, sent = deliver_and_find(page, 'dm-priya', 'about to be deleted')
+    deliver_and_find(page, 'dm-priya', 'a later message')
+    row = f'[data-message-id="{author}:{sent}"]'
+    settle(page, 500)
+    page.click(row)
+    page.wait_for(f'document.activeElement === document.querySelector({row!r})')
+    page.key('Enter')
+    page.wait_for(f'document.activeElement !== document.querySelector({row!r}) && document.querySelector({row!r}).contains(document.activeElement)')
+    emit(page, 'messageDeleted', {'conversationId': page.eval('__journey.conversationId("dm-priya")'), 'authorId': author, 'targetSentAt': sent})
+    page.wait_for(f'document.querySelector({row!r}).textContent.includes("was deleted")')
+    settle(page, 400)
+    page.expect(f'document.querySelector({row!r}).contains(document.activeElement)', 'focus fell to the page when the message it was in was deleted')
+
+
+@journey()
+def search_results_drop_a_message_deleted_for_everyone(page):
+    """Ctrl+F finds a message; its sender deletes it for everyone while the results are up: its old text is no longer listed."""
+    open_conversation(page, 'dm-priya')
+    author, sent = deliver_and_find(page, 'dm-priya', 'needle in the haystack')
+    page.click(COMPOSER)
+    page.key('f', ['ctrl'])
+    page.wait_for('document.activeElement?.closest("[data-snowdrop=search-panel]") !== null')
+    page.type('needle')
+    panel = 'document.querySelector("[data-snowdrop=search-panel]")'
+    page.wait_for(f'{panel}.textContent.includes("needle in the haystack")')
+    emit(page, 'messageDeleted', {'conversationId': page.eval('__journey.conversationId("dm-priya")'), 'authorId': author, 'targetSentAt': sent})
+    page.wait_for(f'document.querySelector(\'[data-message-id="{author}:{sent}"]\').textContent.includes("was deleted")')
+    settle(page, 600)
+    page.expect(f'!{panel}.textContent.includes("needle in the haystack")', 'the deleted message is still listed in the search results')

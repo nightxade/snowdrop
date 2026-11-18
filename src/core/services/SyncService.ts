@@ -1212,10 +1212,10 @@ export class SyncService {
     const id = messageId(e.targetAuthorId, e.targetSentAt);
     if (e.remove) this.reactionWatch.noteRemoved(id, e.reaction.authorId);
     const before = await this.deps.repository.get(id);
-    await this.updateMessage(e.conversationId, id, (m) => ({
-      ...m,
-      reactions: applyReaction(m.reactions, e.reaction, e.remove),
-    }));
+    await this.updateMessage(e.conversationId, id, (m) =>
+      // A late reaction to a message deleted for everyone has nothing to attach to.
+      m.deleted ? m : { ...m, reactions: applyReaction(m.reactions, e.reaction, e.remove) },
+    );
     const selfId = this.selfId();
     const actorId = e.reaction.authorId;
     if (!before) {
@@ -1363,7 +1363,7 @@ export class SyncService {
     const id = messageId(e.targetAuthorId, e.targetSentAt);
     const before = e.pinned ? await this.deps.repository.get(id) : undefined;
     await this.updateMessage(e.conversationId, id, (m) => {
-      if (e.pinned) return { ...m, pinned: true };
+      if (e.pinned) return m.deleted ? m : { ...m, pinned: true };
       const { pinned: _pinned, ...rest } = m;
       return rest;
     });
