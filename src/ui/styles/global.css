@@ -14,6 +14,13 @@ html {
   zoom: var(--snowdrop-zoom);
 }
 
+/*
+ * The responsive rules select on `:root[data-below-760]` and the like, not `@media` (which measures
+ * the window and so ignores the Zoom setting above: at 150% the page is laid out in a window a third
+ * narrower) and not `@container` (a container on body changes how the message list lays out).
+ * hooks/useMediaQuery.ts (`useBreakpointAttributes`) sets them, zoom-aware. Each is wrapped in
+ * `:where(…)` so a rule keeps the specificity it had inside `@media`.
+ */
 body {
   background: var(--snowdrop-bg-chat);
   color: var(--snowdrop-text);

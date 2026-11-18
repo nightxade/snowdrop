@@ -167,6 +167,7 @@ export function MessageEditor({ message, onDone }: { message: Message; onDone: (
         value={text}
         rows={1}
         aria-label="Edit message"
+        data-owns-escape=""
         {...ac.inputProps}
         onChange={(e) => {
           setText(e.target.value);

@@ -128,15 +128,13 @@
   pointer-events: none;
 }
 
-@media (max-width: 759.98px) {
-  .heading {
-    max-width: none;
-    flex: 1;
-    min-width: 0;
-  }
+:global(:where(:root[data-below-760])) .heading {
+  max-width: none;
+  flex: 1;
+  min-width: 0;
+}
 
-  .divider,
-  .topic {
-    display: none;
-  }
+:global(:where(:root[data-below-760])) .divider,
+:global(:where(:root[data-below-760])) .topic {
+  display: none;
 }

@@ -157,6 +157,14 @@ describe('VimController: Esc returns to the message list from anywhere', () => {
     expect(log).toContain(`start ${NavCommand.FocusMessages}`);
   });
 
+  it('leaves Esc to what the app marked as owning it (an emptied inline editor, the recorder)', async () => {
+    const { vim, log } = controller();
+    expect(vim.onKey(stroke('<Esc>'), { ...emptyInputCtx, escapeOwned: true })).toBe(false);
+    expect(vim.onKey(stroke('<Esc>'), { ...otherCtx, escapeOwned: true })).toBe(false);
+    await flush();
+    expect(log).toHaveLength(0);
+  });
+
   it('leaves non-Esc keys in an input field alone either way', () => {
     const { vim, log } = controller();
     expect(vim.onKey(stroke('i'), emptyInputCtx)).toBe(false);

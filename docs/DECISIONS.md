@@ -41,15 +41,19 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   row's preview and holds row order and unread badges still, for the whole catch-up however long the
   pauses between messages. It updates all at once when catch-up ends. If the very first catch-up
   starts before any conversation has loaded, the order is frozen from the first conversations that
-  load, not from an empty list.
+  load, not from an empty list. The hold belongs to the catch-up, not to the list on screen: when the
+  sidebar moves into or out of the drawer (the window narrowed or widened) or a row is scrolled out
+  and back, it still shows what it held, and nothing stays held once the catch-up ends.
 - **Why**: Bug report: previews cycled through old messages on launch and again after waking from
-  sleep.
+  sleep; a mount during the catch-up took a new snapshot of the live order and badges.
 - **Pinned by**: ui/features/sidebar/ConversationList.catchUp.test.tsx :: freezes order, badges and
   previews while catching up, then updates at once; freezes the order from the first conversations
   that load during the very first catch-up; ui/features/sidebar/ConversationList.collapsed.test.tsx ::
-  holds still while catching up, then follows the live state; journeys/test_catch_up.py ::
-  catch_up_holds_the_sidebar (bursts, pauses, no caught-up for over 20 s); journeys/test_catch_up.py ::
-  catch_up_keeps_the_order.
+  holds still while catching up, then follows the live state; ui/features/sidebar/
+  ConversationList.catchUp.test.tsx :: keeps the freeze when the list is unmounted and mounted again
+  during the catch-up; journeys/test_catch_up.py :: catch_up_holds_the_sidebar (bursts, pauses, no
+  caught-up for over 20 s); journeys/test_catch_up.py :: catch_up_keeps_the_order;
+  journeys/test_catch_up.py :: catch_up_hold_survives_a_narrow_round_trip.
 
 ### S2. One catch-up tracker for the sidebar and the notification hold
 
@@ -281,13 +285,26 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 - **Rule**: Below 760 px the navigation is a drawer, open until a conversation is picked; picking the
   conversation that is already open closes it. Widening the window past 760 px closes it, so
   narrowing again never brings it back over the chat. Below 1100 px the member list is an overlay sheet
-  that Esc closes.
-- **Why**: Responsive rules from the plan, plus a bug report (re-picking the open chat left the
-  drawer up).
+  that Esc closes. Every breakpoint (760 and 1100 here, and the smaller ones in the stylesheets) is
+  measured on the page as laid out, so it follows Zoom: at 150% a 1000 px window counts as 667 px.
+  The stylesheets ask this with root attributes (`:root[data-below-760]`, one per breakpoint, set by
+  `useBreakpointAttributes` from the same window-limit-times-zoom queries; not `@container`, whose
+  container on `body` changed how WebKit lays out the message list and so where a chat opens), the
+  code with `belowBreakpoint` / `useBelowBreakpoint`; at 100% both equal the old window-width rules. The search text typed in the chat's search panel stays when it moves
+  between the page and a sheet at either breakpoint.
+- **Why**: Responsive rules from the plan, plus bug reports (re-picking the open chat left the
+  drawer up; at 150% zoom the wide layout was used in a window too narrow for it, so header buttons
+  ran out of the window; narrowing the window emptied the search field).
 - **Pinned by**: test/shell.test.tsx :: puts navigation in a drawer below 760px, open until a
   conversation is picked; navigation drawer: tapping the conversation that is already open closes it;
   navigation drawer across resizes (all); shows the member list as a modal sheet below 1100px;
-  journeys/test_sidebar.py :: navigation_drawer_does_not_come_back_on_narrowing.
+  journeys/test_sidebar.py :: navigation_drawer_does_not_come_back_on_narrowing,
+  search_text_survives_narrowing_below_1100, search_text_survives_narrowing_below_760;
+  test/shell.test.tsx :: breakpoints follow the Zoom setting; ui/hooks/useMediaQuery.test.tsx ::
+  belowBreakpoint; journeys/test_list.py :: scrolling_up_loads_older_messages_without_a_jump (a container on body broke it); ui/features/chat/SearchSlot.test.tsx (all); journeys/test_appearance.py ::
+  zoomed_header_buttons_stay_inside_the_window.
+- **Not pinned**: the stylesheets' `data-below-*` rules themselves (only the 760 px rules show in the
+  zoom journey); a drawer left open while zooming.
 
 ### S21. Quick switcher
 
@@ -842,16 +859,24 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 - **Rule**: Every open path (sidebar click, J/K, ]u, gt, switcher, notification) lands on the message
   list. "Focus the message box" is ignored and type-to-focus is off; only i, a, I, A and gi focus the
   composer. J/K from a focused sidebar row follows to the new row. Outside Vim mode this is
-  unchanged.
+  unchanged. With the navigation keys off and modal editing on, type-to-focus stays on (letters are
+  not commands then): a letter typed away from a text field goes into the composer, which, if it
+  would open in Normal mode, switches to Insert mode with the caret at the end of the draft first, so
+  the letter is added after the draft and never replaces the character under the block cursor. A
+  composer already in Insert mode takes the letter as it is.
 - **Why**: User request and bug report.
 - **Pinned by**: ui/plugins/vim/vim.integration.test.tsx :: a sidebar click with the composer focused
   lands on the message list, not the composer; J/K from the list lands on the list; J/K from a sidebar
   row stays on the sidebar; i focuses the composer from a sidebar row; gi focuses the composer with
   the caret at the end of the draft, from anywhere; outside Vim mode, a sidebar click leaves focus on
   the clicked row; outside Vim mode, type-to-focus still sends a stray letter to the composer;
+  with only the composer half on, a letter typed from the list opens a Normal-mode composer in Insert
+  mode at the end of the draft;
   ui/hooks/focusTargets.test.ts (all); journeys/test_vim.py :: vim_every_open_path_lands_on_the_list
   (a click from the composer, J, K, ]u, gt and gT, the switcher and a clicked notification, with
-  "Focus the message box" on); the Vim random walk (`--mode vim`).
+  "Focus the message box" on); journeys/test_vim.py ::
+  vim_modal_editing_alone_keeps_the_draft_when_typing_from_the_list; the Vim random walk
+  (`--mode vim`).
 - **Not pinned**: nothing beyond the walk's coverage.
 
 ### M12. Vim: Esc returns to the message list
@@ -859,13 +884,18 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 - **Rule**: From any sidebar row, rail tile, header button or empty text field, Esc focuses the
   message list so j/k and J/K work. A non-empty field clears first; with no conversation open it
   blurs. In the composer's Normal mode Esc cancels a reply, then (empty draft) marks read and returns
-  to the list; the first Esc in Insert mode never marks anything read.
-- **Why**: Bug report.
+  to the list; the first Esc in Insert mode never marks anything read. Where the app gives Esc a
+  meaning of its own, that comes first: in the inline message editor (also when its text was cleared)
+  Esc cancels the edit, and while a voice message is being recorded Esc cancels it, wherever focus is.
+- **Why**: Bug report; Vim's Esc was consumed ahead of the editor's cancel and the recorder's.
 - **Pinned by**: ui/plugins/vim/VimController.test.ts :: runs FocusMessages on Esc from an empty input
   field; leaves Esc to a non-empty input field; blurs to the document body when no conversation is
   open; ui/plugins/vim/vim.integration.test.tsx :: keeps Escape-marks-read for Normal mode on an empty
-  draft, and returns to the messages; journeys/test_vim.py :: vim_escape_returns_to_the_list; the Vim
-  random walk (`--mode vim`).
+  draft, and returns to the messages; ui/plugins/vim/VimController.test.ts :: leaves Esc to what the
+  app marked as owning it; ui/hooks/textSurfaces.test.ts :: describeFocus escapeOwned (all);
+  journeys/test_vim.py :: vim_escape_returns_to_the_list,
+  vim_escape_in_an_emptied_message_editor_cancels_the_edit, vim_escape_cancels_a_voice_recording; the
+  Vim random walk (`--mode vim`).
 - **Not pinned**: nothing.
 
 ### M13. Vim: composer
@@ -986,7 +1016,8 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 - **Rule**: Each Esc in the composer takes the next step: close suggestions, cancel the reply, mark
   read (empty draft with something unread), otherwise move focus to the message list keeping the
   draft; it blurs if there is no list. Esc on the reply bar's Cancel button cancels the reply. While
-  recording, Esc cancels the voice message. Esc right after
+  recording, Esc cancels the voice message (with Vim mode on as well) and focus goes to the composer,
+  as the recorder's Cancel button does. Esc right after
   sending works too: the newest message becomes current.
 - **Why**: Bug report: Esc did nothing with text typed and focus got trapped.
 - **Pinned by**: ui/features/chat/composer/Composer.test.tsx :: goes autocomplete, reply, mark read,
@@ -994,7 +1025,8 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   nothing unread, without marking read; blurs the field when there is no message list to focus;
   Esc on the reply bar's Cancel button cancels the reply and returns to the field;
   ui/features/chat/composer/Composer.voice.test.tsx :: Cancel and Escape discard the recording and
-  turn the microphone off; journeys/test_composer.py ::
+  turn the microphone off, Escape too leaves focus in the composer; journeys/test_vim.py ::
+  vim_escape_cancels_a_voice_recording; journeys/test_composer.py ::
   esc_on_the_cancel_reply_button_cancels_the_reply; journeys/test_keyboard.py :: esc_from_the_composer; journeys/
   test_keyboard.py :: esc_right_after_sending.
 

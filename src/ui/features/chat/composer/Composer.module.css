@@ -81,8 +81,6 @@
   white-space: nowrap;
 }
 
-@media (max-width: 759.98px) {
-  .composer {
-    padding: 0 var(--snowdrop-space-3);
-  }
+:global(:where(:root[data-below-760])) .composer {
+  padding: 0 var(--snowdrop-space-3);
 }

@@ -360,6 +360,31 @@ describe('navigation drawer across resizes', () => {
   });
 });
 
+describe('breakpoints follow the Zoom setting', () => {
+  it('at 150% a 1000 px window is laid out like 667 px: the sidebar leaves the page for the drawer', async () => {
+    setViewport(1000);
+    const snowdrop = await bootDemo();
+    expect(sidebar()).toBeTruthy();
+    const root = document.documentElement;
+    expect(root.hasAttribute('data-below-760')).toBe(false);
+    expect(root.hasAttribute('data-below-1100')).toBe(true);
+    act(() => {
+      snowdrop.stores.settings.getState().update('appearance', { zoom: 1.5 });
+    });
+    await settle();
+    expect(document.querySelector('[data-snowdrop="sidebar"]')).toBeNull();
+    // The stylesheets' breakpoints (`:root[data-below-760]`) follow the same zoom.
+    expect(root.hasAttribute('data-below-760')).toBe(true);
+    expect(root.hasAttribute('data-below-640')).toBe(false);
+    act(() => {
+      snowdrop.stores.settings.getState().update('appearance', { zoom: 1 });
+    });
+    await settle();
+    expect(sidebar()).toBeTruthy();
+    expect(root.hasAttribute('data-below-760')).toBe(false);
+  });
+});
+
 describe('drawer focus and Escape', () => {
   const frames = () =>
     act(async () => {

@@ -13,7 +13,7 @@ import {
   type SpacesData,
   type Stores,
 } from '@/core/stores';
-import { useFrozenWhile, useNow, useStores } from '@/ui/hooks';
+import { useCatchUpShelf, useFrozenWhile, useNow, useStores } from '@/ui/hooks';
 import {
   archivedIds,
   buildHomeSections,
@@ -62,7 +62,8 @@ function useFrozenOrder(
   catchingUp: boolean,
 ): readonly ConversationView[] {
   // Ready once conversations exist: the first catch-up can start before they have loaded.
-  const frozen = useFrozenWhile(live, catchingUp, live.length > 0);
+  const shelf = useCatchUpShelf();
+  const frozen = useFrozenWhile(live, catchingUp, live.length > 0, { shelf, key: 'order' });
   if (!catchingUp) return live;
   const liveIds = new Set(live.map((v) => v.id));
   const frozenIds = new Set(frozen.map((v) => v.id));
@@ -103,7 +104,8 @@ function useAttention(catchingUp: boolean, ready: boolean): (id: ConversationId)
   const now = useNow(60_000);
   const local = useStore(stores.local, (s) => s.conversations);
   const live = useStore(stores.conversations, (s) => unreadFlags(s.unread));
-  const flags = useFrozenWhile(live, catchingUp, ready);
+  const shelf = useCatchUpShelf();
+  const flags = useFrozenWhile(live, catchingUp, ready, { shelf, key: 'flags' });
   const byId = useMemo(() => {
     const map = new Map<string, { count: number; mentions: number }>();
     for (const line of flags ? flags.split('\n') : []) {

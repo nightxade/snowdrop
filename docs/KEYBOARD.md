@@ -40,7 +40,9 @@ sidebar bottom-left, and Settings → Connection; docs/ENCRYPTION.md,
 
 - **Tab / Shift+Tab** move between regions; every list is a single tab stop.
 - **Typing** a character while nothing text-like has focus starts a message
-  in the composer (except with Vim mode on, where letters are commands).
+  in the composer (except with Vim mode's navigation keys on, where letters are
+  commands; with only its composer editing on, the letter goes in at the end of
+  the draft in Insert mode).
 - **Esc** closes the topmost menu, popover or dialog first; dialogs return
   focus to whatever opened them.
 - While a dialog is open, the shortcuts above don't run: they would act on
@@ -82,7 +84,7 @@ Clicking a quoted message (or Enter on it) jumps to the original and focuses it.
 | Enter                       | Send (Shift+Enter: new line; swap them in Settings → Behaviour)                                                              |
 | ↑ in an empty composer      | Edit your last message                                                                                                       |
 | Esc                         | Close suggestions → cancel the reply → mark read (when empty and unread) → leave the field for the message list (draft kept) |
-| Esc (while recording)       | Cancel the voice message                                                                                                     |
+| Esc (while recording)       | Cancel the voice message and return to the field (with Vim mode on too)                                                      |
 | Mod+B / Mod+I / Mod+Shift+X | Bold / italic / strikethrough the selection                                                                                  |
 | `@`, `:`, `/`               | Suggest members, emoji and slash commands                                                                                    |
 | ↑ / ↓, Tab or Enter, Esc    | Move through / accept / dismiss suggestions                                                                                  |
@@ -268,4 +270,5 @@ conversation search instead), marks, macros, named registers (`"a` acts like
 the unnamed one), Visual Block mode, `"+p` (paste with Ctrl+V in Insert
 mode), rebinding individual Vim keys (the full list is read-only under
 **Settings → From plugins → Vim keys**; the leader is configurable), and
-Vim keys inside the inline message editor (it stays a normal text field).
+Vim keys inside the inline message editor (it stays a normal text field: Esc
+cancels the edit, emptied or not).

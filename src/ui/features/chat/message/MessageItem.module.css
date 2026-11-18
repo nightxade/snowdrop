@@ -246,13 +246,11 @@
   padding-left: 20px;
 }
 
-@media (max-width: 759.98px) {
-  .row {
-    grid-template-columns: 60px minmax(0, 1fr);
-    padding-right: var(--snowdrop-space-4);
-  }
+:global(:where(:root[data-below-760])) .row {
+  grid-template-columns: 60px minmax(0, 1fr);
+  padding-right: var(--snowdrop-space-4);
+}
 
-  .row[data-compact] {
-    grid-template-columns: 52px minmax(0, 1fr);
-  }
+:global(:where(:root[data-below-760])) .row[data-compact] {
+  grid-template-columns: 52px minmax(0, 1fr);
 }

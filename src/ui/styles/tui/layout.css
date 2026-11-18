@@ -111,20 +111,16 @@
 
 /* ─── Responsive ───────────────────────────────────────────────────────── */
 
-@media (max-width: 1099.98px) {
-  :root[data-shell='tui']
-    [data-snowdrop='chat']:has([data-snowdrop='search-panel'], [data-snowdrop='gallery-panel']) {
-    grid-template-columns: minmax(0, 1fr);
-  }
+:root[data-shell='tui']:where([data-below-1100])
+  [data-snowdrop='chat']:has([data-snowdrop='search-panel'], [data-snowdrop='gallery-panel']) {
+  grid-template-columns: minmax(0, 1fr);
 }
 
-@media (max-width: 759.98px) {
-  :root[data-shell='tui'] [data-snowdrop='pane-area'] {
-    padding: var(--snowdrop-tui-gap);
-  }
+:root[data-shell='tui']:where([data-below-760]) [data-snowdrop='pane-area'] {
+  padding: var(--snowdrop-tui-gap);
+}
 
-  :root[data-shell='tui'] [data-snowdrop='drawer'] {
-    height: 100%;
-    padding: var(--snowdrop-tui-gap);
-  }
+:root[data-shell='tui']:where([data-below-760]) [data-snowdrop='drawer'] {
+  height: 100%;
+  padding: var(--snowdrop-tui-gap);
 }

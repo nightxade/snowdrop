@@ -259,8 +259,6 @@
   padding: var(--snowdrop-space-5) var(--snowdrop-space-5) var(--snowdrop-space-9);
 }
 
-@media (width < 1100px) {
-  .mainInner {
-    padding-left: var(--snowdrop-space-8);
-  }
+:global(:where(:root[data-below-1100])) .mainInner {
+  padding-left: var(--snowdrop-space-8);
 }

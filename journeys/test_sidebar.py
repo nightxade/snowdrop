@@ -90,3 +90,29 @@ def navigation_drawer_does_not_come_back_on_narrowing(page):
     settle(page, 600)
     page.expect(f'!({DRAWER})', 'the navigation drawer opened over the open chat')
     page.expect(f'document.activeElement === document.querySelector({COMPOSER!r})', 'the composer lost focus to the drawer')
+
+
+@journey(
+)
+def search_text_survives_narrowing_below_1100(page):
+    """Conversation search open with a query, the window narrowed to 1099 px (the panel becomes a sheet): the query is still in the field."""
+    open_conversation(page, 'dm-priya')
+    page.key('f', ['ctrl'])
+    page.wait_for('!!document.querySelector("[data-snowdrop=search-panel] input")')
+    page.type('lunch')
+    page.resize(1099, 800)
+    settle(page, 700)
+    page.expect('document.querySelector("[data-snowdrop=search-panel] input")?.value === "lunch"', 'the search text was lost')
+
+
+@journey()
+def search_text_survives_narrowing_below_760(page):
+    """Conversation search open with a query, the window narrowed to 700 px (the navigation becomes a drawer, the panel a sheet) and widened again: the query is still in the field each time."""
+    open_conversation(page, 'dm-priya')
+    page.key('f', ['ctrl'])
+    page.wait_for('!!document.querySelector("[data-snowdrop=search-panel] input")')
+    page.type('lunch')
+    for width in (700, 1280):
+        page.resize(width, 800)
+        settle(page, 700)
+        page.expect('document.querySelector("[data-snowdrop=search-panel] input")?.value === "lunch"', f'the search text was lost at {width} px')

@@ -53,6 +53,7 @@ export function VoiceRecorderBar({
         aria-label="Voice message recorder"
         aria-busy={phase === 'starting'}
         tabIndex={-1}
+        data-owns-escape="always"
         data-starting={phase === 'starting' ? '' : undefined}
       >
         <span className={styles.dot} aria-hidden />

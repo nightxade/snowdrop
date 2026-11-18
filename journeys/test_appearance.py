@@ -182,3 +182,15 @@ def tui_opening_an_unread_chat_reads_it(page):
     page.wait_for(f'{unread} === 3')
     open_conversation(page, 'dm-priya')
     page.wait_for(f'{unread} === 0', 3000)
+
+
+@journey(
+    settings={'appearance': {'zoom': 1.5}},
+)
+def zoomed_header_buttons_stay_inside_the_window(page):
+    """Zoom 150% and an 800 px window: every button of the chat header is inside the window."""
+    open_conversation(page, 'dm-priya')
+    page.resize(800, 800)
+    settle(page, 600)
+    inside = '[...document.querySelectorAll("[data-snowdrop=chat-header] button")].every((b) => b.getBoundingClientRect().right <= innerWidth + 1)'
+    page.expect(inside, 'a header button is outside the window')

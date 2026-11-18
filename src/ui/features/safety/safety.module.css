@@ -29,10 +29,8 @@
   font-variant-numeric: tabular-nums;
 }
 
-@media (max-width: 380px) {
-  .digits {
-    grid-template-columns: repeat(3, auto);
-  }
+:global(:where(:root[data-below-380])) .digits {
+  grid-template-columns: repeat(3, auto);
 }
 
 .state {

@@ -152,6 +152,10 @@ describe('<Composer /> voice notes', () => {
     expect(stopped()).toBe(true);
     expect(screen.getByRole('textbox')).toBeTruthy();
     expect(lastOwn(snowdrop, conv.id)?.attachments ?? []).toHaveLength(0);
+    // Escape, like Cancel, leaves the keyboard in the composer.
+    await vi.waitFor(() => {
+      expect(document.activeElement).toBe(screen.getByRole('textbox'));
+    });
   });
 
   it('switching away from the window keeps the recording as a draft to listen to, send or drop', async () => {

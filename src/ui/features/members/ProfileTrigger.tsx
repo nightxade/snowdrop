@@ -1,6 +1,6 @@
 import { cloneElement, useRef, useState, type MouseEvent, type ReactElement } from 'react';
 import type { Contact, ConversationId } from '@/core/domain';
-import { BREAKPOINTS, focusConversation, useMediaQuery, useSnowdrop } from '@/ui/hooks';
+import { focusConversation, useBelowBreakpoint, useSnowdrop } from '@/ui/hooks';
 import { Drawer, Popover } from '@/ui/primitives';
 import { ProfilePopout } from './ProfilePopout';
 
@@ -31,7 +31,7 @@ export function ProfileTrigger({
   sideOffset?: number;
 }) {
   const app = useSnowdrop();
-  const sheet = useMediaQuery(BREAKPOINTS.drawer);
+  const sheet = useBelowBreakpoint('drawer');
   const [open, setOpen] = useState(false);
   /** The chat the card opened (its "Message" button): focus goes there when the card has closed. */
   const opened = useRef<ConversationId | null>(null);

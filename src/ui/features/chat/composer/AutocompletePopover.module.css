@@ -133,8 +133,6 @@
   font-family: inherit;
 }
 
-@media (max-width: 759.98px) {
-  .footer {
-    display: none;
-  }
+:global(:where(:root[data-below-760])) .footer {
+  display: none;
 }

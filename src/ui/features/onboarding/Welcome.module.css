@@ -194,8 +194,6 @@
   text-align: center;
 }
 
-@media (max-width: 600px) {
-  .wordmark {
-    font-size: calc(var(--snowdrop-font-size-hero) * 0.8);
-  }
+:global(:where(:root[data-below-600])) .wordmark {
+  font-size: calc(var(--snowdrop-font-size-hero) * 0.8);
 }

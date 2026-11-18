@@ -186,4 +186,67 @@ describe('ConversationList: catching up', () => {
     await settle(snowdrop);
     expect(order()).toEqual([ana, bo]);
   });
+  it('keeps the freeze when the list is unmounted and mounted again during the catch-up', async () => {
+    snowdrop = await bootSnowdrop();
+    const stores = snowdrop.stores;
+    const selfId = stores.session.getState().self?.id;
+    if (!selfId) throw new Error('no self id after boot');
+    const ana = directConversationId('ana');
+    const bo = directConversationId('bo');
+    for (const id of [ana, bo]) stores.local.getState().markAccepted(id, 0);
+    act(() => {
+      stores.conversations.getState().upsertMany([
+        makeConversation({
+          id: ana,
+          kind: 'direct',
+          title: 'Ana',
+          memberIds: [selfId, 'ana'],
+          lastActivityAt: 1000,
+        }),
+        makeConversation({
+          id: bo,
+          kind: 'direct',
+          title: 'Bo',
+          memberIds: [selfId, 'bo'],
+          lastActivityAt: 2000,
+        }),
+      ]);
+    });
+    await settle(snowdrop);
+    const view = renderWithSnowdrop(snowdrop, <ConversationList />);
+    const order = () =>
+      screen
+        .getAllByRole('button')
+        .map((r) => r.getAttribute('data-conversation-id'))
+        .filter((id) => id === ana || id === bo);
+    const ownBadge = () =>
+      screen
+        .getAllByRole('button')
+        .find((r) => r.getAttribute('data-conversation-id') === ana)
+        ?.closest('li')
+        ?.getAttribute('data-unread');
+    act(() => {
+      stores.session.getState().setCatchingUp(true);
+    });
+    await settle(snowdrop);
+    expect(order()).toEqual([bo, ana]);
+
+    // The sidebar moves into the drawer (a new mount) while old activity arrives.
+    view.unmount();
+    act(() => {
+      stores.conversations.getState().bumpActivity(ana, 9000);
+      stores.conversations.getState().setUnread(ana, { count: 2, mentions: 0 });
+    });
+    renderWithSnowdrop(snowdrop, <ConversationList />);
+    await settle(snowdrop);
+    expect(order()).toEqual([bo, ana]);
+    expect(ownBadge()).toBeNull();
+
+    act(() => {
+      stores.session.getState().setCatchingUp(false);
+    });
+    await settle(snowdrop);
+    expect(order()).toEqual([ana, bo]);
+    expect(ownBadge()).toBe('');
+  });
 });

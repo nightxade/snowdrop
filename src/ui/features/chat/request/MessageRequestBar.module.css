@@ -83,16 +83,14 @@
 }
 
 /* Narrow: the three actions share the row instead of crowding it. */
-@media (max-width: 520px) {
-  .bar {
-    margin: 0 var(--snowdrop-space-3) var(--snowdrop-space-3);
-  }
+:global(:where(:root[data-below-520])) .bar {
+  margin: 0 var(--snowdrop-space-3) var(--snowdrop-space-3);
+}
 
-  .warning {
-    display: none;
-  }
+:global(:where(:root[data-below-520])) .warning {
+  display: none;
+}
 
-  .actions > * {
-    flex: 1;
-  }
+:global(:where(:root[data-below-520])) .actions > * {
+  flex: 1;
 }

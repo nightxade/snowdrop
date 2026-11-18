@@ -39,6 +39,8 @@ export interface UseVoiceRecorder {
 export interface UseVoiceRecorderOptions {
   onRecorded: (recording: VoiceRecording, outcome: VoiceOutcome, limit: boolean) => void;
   onError: (message: string) => void;
+  /** Escape threw the recording away (the Cancel button's owner moves focus itself). */
+  onEscapeCancel?: () => void;
   deps?: RecorderDeps;
 }
 
@@ -51,6 +53,7 @@ export interface UseVoiceRecorderOptions {
 export function useVoiceRecorder({
   onRecorded,
   onError,
+  onEscapeCancel,
   deps = defaultRecorderDeps,
 }: UseVoiceRecorderOptions): UseVoiceRecorder {
   const [phase, setPhase] = useState<VoicePhase>('idle');
@@ -59,9 +62,9 @@ export function useVoiceRecorder({
   const recorder = useRef<VoiceRecorder | null>(null);
   const alive = useRef(true);
   const phaseRef = useRef<VoicePhase>('idle');
-  const handlers = useRef({ onRecorded, onError });
+  const handlers = useRef({ onRecorded, onError, onEscapeCancel });
   useEffect(() => {
-    handlers.current = { onRecorded, onError };
+    handlers.current = { onRecorded, onError, onEscapeCancel };
   });
   const move = useCallback((next: VoicePhase) => {
     phaseRef.current = next;
@@ -163,6 +166,7 @@ export function useVoiceRecorder({
       if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing) return;
       event.preventDefault();
       cancel();
+      handlers.current.onEscapeCancel?.();
     };
     window.addEventListener('keydown', onKeyDown, true);
     return () => {

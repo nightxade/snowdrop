@@ -216,17 +216,15 @@
   font-size: var(--snowdrop-font-size-sm);
 }
 
-@media (width < 640px) {
-  .card {
-    padding: var(--snowdrop-space-6) var(--snowdrop-space-5);
-  }
+:global(:where(:root[data-below-640])) .card {
+  padding: var(--snowdrop-space-6) var(--snowdrop-space-5);
+}
 
-  .linkBody {
-    grid-template-columns: minmax(0, 1fr);
-    justify-items: center;
-  }
+:global(:where(:root[data-below-640])) .linkBody {
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
+}
 
-  .linkSide {
-    width: 100%;
-  }
+:global(:where(:root[data-below-640])) .linkSide {
+  width: 100%;
 }

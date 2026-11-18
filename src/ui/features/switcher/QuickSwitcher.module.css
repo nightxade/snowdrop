@@ -84,15 +84,13 @@
   font-weight: var(--snowdrop-font-weight-bold);
 }
 
-@media (width < 640px) {
-  .hints > span:not(.prefixHints) {
-    display: none;
-  }
+:global(:where(:root[data-below-640])) .hints > span:not(.prefixHints) {
+  display: none;
+}
 
-  .prefixHints {
-    margin-left: 0;
-    flex-wrap: wrap;
-  }
+:global(:where(:root[data-below-640])) .prefixHints {
+  margin-left: 0;
+  flex-wrap: wrap;
 }
 
 /* Touch: scope hints are real buttons, so give them a finger-sized target. */

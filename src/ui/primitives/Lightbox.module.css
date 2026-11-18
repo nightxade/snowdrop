@@ -112,16 +112,14 @@
   right: var(--snowdrop-space-4);
 }
 
-@media (max-width: 759.98px) {
-  .stage {
-    padding: 0 var(--snowdrop-space-3) var(--snowdrop-space-8);
-  }
+:global(:where(:root[data-below-760])) .stage {
+  padding: 0 var(--snowdrop-space-3) var(--snowdrop-space-8);
+}
 
-  .nav {
-    top: auto;
-    bottom: var(--snowdrop-space-4);
-    margin-top: 0;
-  }
+:global(:where(:root[data-below-760])) .nav {
+  top: auto;
+  bottom: var(--snowdrop-space-4);
+  margin-top: 0;
 }
 
 @keyframes fade {

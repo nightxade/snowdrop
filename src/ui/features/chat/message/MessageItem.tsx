@@ -23,13 +23,7 @@ import {
   type MessageId,
 } from '@/core/domain';
 import { messagesSelectors, sessionSelectors } from '@/core/stores';
-import {
-  BREAKPOINTS,
-  overlayOwnsKeys,
-  useBackendFeature,
-  useMediaQuery,
-  useSnowdrop,
-} from '@/ui/hooks';
+import { overlayOwnsKeys, useBackendFeature, useBelowBreakpoint, useSnowdrop } from '@/ui/hooks';
 import { ContextMenu, Drawer, EmojiPicker, VisuallyHidden } from '@/ui/primitives';
 import { useMessageRequestState } from '@/ui/features/conversation';
 import { useChatController } from '../ChatController';
@@ -76,7 +70,7 @@ const KEY_ACTIONS: Partial<Record<string, act.MessageActionId>> = {
 const MAX_TIMER_MS = 2 ** 31 - 1;
 
 /** Touch-first layouts: no hover bar on tap; long-press opens an action sheet instead. */
-const TOUCH_QUERY = `(pointer: coarse), ${BREAKPOINTS.drawer}`;
+const TOUCH_QUERY = '(pointer: coarse)';
 
 /**
  * One message row (role=article). Subscribes to its own message by id, so
@@ -112,7 +106,7 @@ export const MessageItem = memo(function MessageItem({
   const clock24h = useStore(stores.settings, (s) => s.appearance.clock24h);
   const editing = useStore(stores.ui, (s) => s.editing?.messageId === id);
   const replyTarget = useStore(stores.ui, (s) => s.replyTo[conversationId] === id);
-  const touch = useMediaQuery(TOUCH_QUERY);
+  const touch = useBelowBreakpoint('drawer', TOUCH_QUERY);
   const rows = useRowState();
   const hovered = useRowHovered(id);
   const flash = useRowFlashing(id);

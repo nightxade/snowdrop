@@ -42,3 +42,19 @@ describe('describeFocus overlay detection', () => {
     expect(describeFocus(document, true).overlay).toBe(true);
   });
 });
+
+describe('describeFocus escapeOwned', () => {
+  it('is set inside an element that marks it, and not elsewhere', () => {
+    html('<textarea id="t" data-owns-escape=""></textarea><button id="b">x</button>');
+    document.getElementById('t')!.focus();
+    expect(describeFocus(document, false).escapeOwned).toBe(true);
+    document.getElementById('b')!.focus();
+    expect(describeFocus(document, false).escapeOwned).toBeUndefined();
+  });
+
+  it('is set wherever focus is while an "always" element is on the page', () => {
+    html('<button id="b">x</button><div data-owns-escape="always"></div>');
+    document.getElementById('b')!.focus();
+    expect(describeFocus(document, false).escapeOwned).toBe(true);
+  });
+});

@@ -71,6 +71,16 @@ export function overlayOwnsKeys(
 }
 
 /**
+ * Whether the app gives Escape a meaning of its own here (`data-owns-escape`):
+ * focus is inside a marked element, or a marked element (`="always"`) owns
+ * Escape wherever focus is.
+ */
+function escapeIsOwned(doc: Document, active: Element | null): boolean {
+  if (active?.closest('[data-owns-escape]')) return true;
+  return doc.querySelector('[data-owns-escape="always"]') !== null;
+}
+
+/**
  * Where focus is and whether something modal owns the keyboard, for key
  * layers. Only overlays that contain focus, that the focused field controls
  * (the composer's suggestion list, so its Escape and arrows keep working in
@@ -91,6 +101,7 @@ export function describeFocus(doc: Document, modalOpen: boolean): KeyLayerContex
     target,
     overlay,
     surface,
+    ...(escapeIsOwned(doc, active) ? { escapeOwned: true } : {}),
     ...(target === 'input' && active ? { inputHasValue: hasEscapableValue(active) } : {}),
   };
 }

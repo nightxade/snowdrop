@@ -8,7 +8,7 @@ import {
   typingSelectors,
   type ContactsState,
 } from '@/core/stores';
-import { useFrozenWhile, useNow, useStores } from '@/ui/hooks';
+import { useCatchUpShelf, useFrozenWhile, useNow, useStores } from '@/ui/hooks';
 import { previewText, useConversationView } from '@/ui/features/conversation';
 
 const nameIn = (s: ContactsState) => (contactId: string) => s.byId[contactId]?.name ?? 'Someone';
@@ -27,7 +27,8 @@ export function useRowState(id: ConversationId, withPreview: boolean) {
   const catchingUp = useStore(stores.session, sessionSelectors.catchingUp);
   const liveUnread = useStore(stores.conversations, conversationsSelectors.unread(id));
   // Badge counts hold at their pre-catch-up value, same as the sidebar's order.
-  const unread = useFrozenWhile(liveUnread, catchingUp);
+  const shelf = useCatchUpShelf();
+  const unread = useFrozenWhile(liveUnread, catchingUp, true, { shelf, key: `unread:${id}` });
   const selfId = useStore(stores.session, sessionSelectors.selfId);
   const typers = useStore(stores.typing, typingSelectors.typers(id));
   const last = useStore(stores.conversations, (s) => (withPreview ? s.lastMessage[id] : undefined));

@@ -77,6 +77,13 @@ export interface KeyLayerContext {
    * once there's nothing left for the field to cancel.
    */
   inputHasValue?: boolean;
+  /**
+   * Set when something on screen handles Escape itself, ahead of any layer: the
+   * focused control sits inside an element that marks it (the inline message
+   * editor cancels the edit), or a marked one owns Escape wherever focus is (the
+   * voice recorder cancels the recording). A layer leaves that Escape alone.
+   */
+  escapeOwned?: boolean;
 }
 
 /** A key press as layers see it: a normalised token plus the raw event. */

@@ -3,7 +3,7 @@ A patched signal-cli replays its backlog in bursts, with pauses, and says
 "caught up" only when it is done (the demo acts like it: `journeyCatchUp=held`).
 The sidebar must hold still for the whole catch-up, however long the pauses.
 """
-from common import PREVIEW
+from common import PREVIEW, settle
 from harness import journey
 
 ROW_BUTTONS = '[data-snowdrop=conversation-row] [data-conversation-id]'
@@ -60,3 +60,20 @@ def catch_up_keeps_the_order(page):
     page.eval(f'(window.__held = {ORDER}, true)')
     page.eval("void __journey.deliver({ conversation: 'dm-ines', count: 3, spacingMs: 100, text: 'backlog' })")
     page.expect_stays(f'{ORDER} === window.__held', 2000)
+
+
+@journey(
+    query='journeyCatchUp=held',
+)
+def catch_up_hold_survives_a_narrow_round_trip(page):
+    """During the catch-up a chat receives messages and the window is made narrow (drawer) and wide again: the sidebar still shows the order and badges it held."""
+    settle(page, 1500)
+    page.eval(f'(window.__held = {ORDER}, true)')
+    page.eval("void __journey.deliver({ conversation: 'dm-ines', count: 3, spacingMs: 100, text: 'backlog' })")
+    page.expect_stays(f'{ORDER} === window.__held', 1200)
+    page.resize(700, 800)
+    settle(page, 800)
+    page.resize(1280, 800)
+    settle(page, 800)
+    page.expect('__journey.state().catchingUp', 'the catch-up ended on its own')
+    page.expect(f'{ORDER} === window.__held', 'the sidebar was not held')

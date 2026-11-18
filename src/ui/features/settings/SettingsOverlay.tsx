@@ -1,12 +1,6 @@
 import { ArrowLeft, Puzzle, X, type LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react';
-import {
-  BREAKPOINTS,
-  useMediaQuery,
-  useObservableList,
-  useRovingFocus,
-  useSnowdrop,
-} from '@/ui/hooks';
+import { useBelowBreakpoint, useObservableList, useRovingFocus, useSnowdrop } from '@/ui/hooks';
 import { AreaErrorBoundary } from '@/ui/lib/AreaErrorBoundary';
 import {
   FullScreenDialog,
@@ -57,7 +51,7 @@ export function SettingsOverlay({ onClose, initialPage }: SettingsOverlayProps) 
     (fn) => commands.subscribe(fn),
     () => commands.all(),
   );
-  const narrow = useMediaQuery(BREAKPOINTS.drawer);
+  const narrow = useBelowBreakpoint('drawer');
   const [page, setPage] = useState<string>(() =>
     initialPage && isPageId(initialPage) ? initialPage : DEFAULT_PAGE,
   );

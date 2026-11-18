@@ -2,9 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import { uiSelectors } from '@/core/stores';
 import {
-  BREAKPOINTS,
   ShellLayoutProvider,
-  useMediaQuery,
+  useBelowBreakpoint,
   useShellStyle,
   useStores,
   type ShellLayout,
@@ -27,8 +26,8 @@ import styles from './AppShell.module.css';
 export function AppShell() {
   const stores = useStores();
   const tui = useShellStyle();
-  const narrow = useMediaQuery(BREAKPOINTS.members);
-  const drawer = useMediaQuery(BREAKPOINTS.drawer);
+  const narrow = useBelowBreakpoint('members');
+  const drawer = useBelowBreakpoint('drawer');
   const selected = useStore(stores.ui, uiSelectors.selectedConversation);
   const [navOpen, setNavOpen] = useState(() => drawer && selected === null);
 

@@ -424,6 +424,29 @@ describe('Vim mode: opening a conversation never leaves focus in the composer', 
   });
 });
 
+describe('Vim mode: modal editing without the navigation keys', () => {
+  it('type-to-focus opens a Normal-mode composer in Insert mode at the end of the draft', async () => {
+    const { snowdrop } = await bootVim();
+    act(() => {
+      snowdrop.stores.settings.getState().setPluginSetting('vim-mode', 'navigation', false);
+    });
+    blur();
+    act(() => {
+      composer().focus();
+    });
+    typeIn('abc');
+    press('Escape');
+    expect(pill()).toBe('NORMAL');
+    blur();
+    // Normal mode selects the character under the block; typing into that would replace it.
+    press('z');
+    expect(focused()).toBe(composer());
+    expect(pill()).toBe('INSERT');
+    expect(composer().value).toBe('abc');
+    expect([composer().selectionStart, composer().selectionEnd]).toEqual([3, 3]);
+  });
+});
+
 describe('Vim mode: Esc returns to Normal mode from anywhere', () => {
   const railTile = () =>
     document.querySelector<HTMLElement>('[data-snowdrop="rail"] button[data-roving-item]')!;

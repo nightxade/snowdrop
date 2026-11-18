@@ -182,6 +182,14 @@ export class VimController {
       this.otherNav.reset();
       return false;
     }
+    if (ctx.escapeOwned && stroke.token === '<Esc>') {
+      // The app gives this Escape a meaning of its own (cancel the edit, the recording).
+      this.nav.reset();
+      this.composerNav.reset();
+      this.otherNav.reset();
+      return false;
+    }
+    if (!options.navigation && options.composer) this.armTypeToFocus(stroke, ctx);
     if (ctx.target === 'composer' && ctx.surface) {
       return options.composer ? this.onComposerKey(stroke, ctx.surface, ctx) : false;
     }
@@ -198,6 +206,30 @@ export class VimController {
     // theirs first, same as any other key in an input.
     if (options.navigation && ctx.target === 'input') return this.onInputKey(stroke, ctx);
     return false;
+  }
+
+  /**
+   * With the navigation keys off, a letter typed away from a text field is still sent
+   * to the composer (type-to-focus). A composer that would take it in Normal mode
+   * would overwrite the character under the block cursor, so it opens in Insert
+   * mode at the end of the draft and the letter goes in there. A composer already
+   * in Insert mode is left as it is.
+   */
+  private armTypeToFocus(stroke: KeyStroke, ctx: KeyLayerContext): void {
+    if (ctx.target === 'composer' || ctx.target === 'input' || stroke.token === ' ') return;
+    if (!isPlainPrintable(stroke)) return;
+    const id = this.host.currentConversation();
+    if (id === null) return;
+    const mode =
+      this.states.get(id)?.mode ?? (this.host.options().startInInsert ? 'insert' : 'normal');
+    if (mode === 'insert') return;
+    this.pendingInsert = 'end';
+    // The composer takes focus while this same key is still being dispatched.
+    const clear = () => {
+      this.pendingInsert = null;
+    };
+    if (this.host.scheduler) this.host.scheduler.setTimeout(clear, 0);
+    else setTimeout(clear, 0);
   }
 
   private onOtherKey(stroke: KeyStroke, ctx: KeyLayerContext): boolean {

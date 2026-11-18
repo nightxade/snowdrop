@@ -2,6 +2,7 @@
 from common import (
     COMPOSER,
     IN_COMPOSER,
+    LAST_MESSAGE,
     MESSAGE,
     MODE_PILL,
     ON_LIST,
@@ -230,3 +231,85 @@ def vim_mode_shows_on_the_tui_status_line(page):
     page.wait_for(f'{status}.includes("INSERT")')
     page.key('Escape')
     page.wait_for(f'{status}.includes("NORMAL") && !{status}.includes("INSERT")')
+
+
+# ------------------------------------------------------------------ Vim with other keys and modes
+
+RECORDER = '[aria-label="Voice message recorder"]'
+EDITOR = '[data-snowdrop=message] textarea'
+
+
+@journey(
+    settings=VIM_SETTINGS,
+)
+def vim_escape_cancels_a_voice_recording(page):
+    """Vim mode on, a voice message started with Mod+Shift+Y: one Esc cancels it, as without Vim mode."""
+    open_conversation(page, 'dm-priya')
+    page.click(COMPOSER)
+    page.key('y', ['ctrl', 'shift'])
+    page.wait_for(f'!!document.querySelector({RECORDER!r})')
+    page.key('Escape')
+    settle(page, 500)
+    page.expect(f'!document.querySelector({RECORDER!r})', 'Esc did not cancel the recording')
+    page.expect(f'document.activeElement === document.querySelector({COMPOSER!r})', 'focus did not return to the composer')
+
+
+@journey(
+    settings=VIM_SETTINGS,
+)
+def vim_escape_in_an_emptied_message_editor_cancels_the_edit(page):
+    """Vim mode on, editing your own message and clearing its text: Esc cancels the edit (the editor closes), it does not leave an editor open with focus elsewhere."""
+    open_conversation(page, 'dm-priya')
+    page.click(COMPOSER)
+    page.type('to be edited')
+    page.key('Enter')
+    page.wait_for(f'{LAST_MESSAGE}?.textContent.includes("to be edited") && !{LAST_MESSAGE}.hasAttribute("data-pending")')
+    page.key('Escape')
+    page.key('Escape')
+    page.wait_for(ON_LIST)
+    page.key('e')
+    page.wait_for(f'!!document.querySelector({EDITOR!r})')
+    page.key('a', ['ctrl'])
+    page.key('BackSpace')
+    page.expect(f'document.querySelector({EDITOR!r}).value === ""')
+    page.key('Escape')
+    settle(page, 500)
+    page.expect(f'!document.querySelector({EDITOR!r})', 'the edit was not cancelled')
+
+
+MODAL_EDITING_ONLY = {'plugins': {'vim-mode': {'enabled': True, 'settings': {'introShown': True, 'navigation': False}}}}
+
+
+@journey(
+    settings=MODAL_EDITING_ONLY,
+)
+def vim_modal_editing_alone_keeps_the_draft_when_typing_from_the_list(page):
+    """Vim mode with navigation keys off: a draft left in Normal mode, focus on a message, a letter typed: the letter goes in at the end of the draft (Insert mode), no character of the draft is replaced."""
+    open_conversation(page, 'dm-priya')
+    page.click(COMPOSER)
+    page.type('abc')
+    page.key('Escape')
+    page.wait_for(f'document.querySelector({MODE_PILL!r}).getAttribute("data-vim-mode") === "normal"')
+    page.eval(f'({LAST_MESSAGE}.focus(), true)')
+    page.wait_for(ON_LIST)
+    page.type('z')
+    settle(page, 300)
+    page.expect(f'document.querySelector({COMPOSER!r}).value === "abcz"', 'a typed letter overwrote the draft')
+    page.expect(f'document.querySelector({MODE_PILL!r}).getAttribute("data-vim-mode") === "insert"', 'the composer is not in Insert mode')
+
+
+@journey(
+    settings={**VIM_SETTINGS, 'behaviour': {'enterToSend': False}},
+    known_bug='In Normal mode Enter sends even when Settings > Behaviour says Shift+Enter sends and Enter starts a new line (P3): the engine\'s submit effect calls surface.submit() without asking the setting (VimController.runEffects). KEYBOARD.md says only "Normal mode: Enter sends". A judgment call.',
+    fails_at='Normal-mode Enter sent the draft',
+)
+def vim_normal_mode_enter_follows_the_send_key_setting(page):
+    """Vim mode with "Send with: Shift+Enter": Enter in Normal mode does not send the draft."""
+    open_conversation(page, 'dm-priya')
+    page.click(COMPOSER)
+    page.type('hello')
+    page.key('Escape')
+    page.wait_for(f'document.querySelector({MODE_PILL!r}).getAttribute("data-vim-mode") === "normal"')
+    page.key('Enter')
+    settle(page, 700)
+    page.expect(f'document.querySelector({COMPOSER!r}).value === "hello"', 'Normal-mode Enter sent the draft')

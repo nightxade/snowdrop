@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import type { ConversationId } from '@/core/domain';
 import { useConversationView } from '@/ui/features/conversation';
 import { useHandOffFocus } from '@/ui/hooks';
@@ -21,6 +21,10 @@ export function SearchSlot({
 }) {
   const chat = useChatController();
   const conversation = useConversationView(conversationId);
+  // What is typed lives here, not in the panel: the panel is a new mount when the window narrows
+  // (page to sheet) or widens, and the text goes with the conversation it was typed in.
+  const [typed, setTyped] = useState({ conversationId, query: '' });
+  const query = typed.conversationId === conversationId ? typed.query : '';
   // Closed by the shortcut (or any command) with focus in the panel: as closing it with Esc does,
   // focus goes to the composer. The narrow sheet hands focus back itself.
   useHandOffFocus(
@@ -37,7 +41,15 @@ export function SearchSlot({
   };
   const panel = (
     <Suspense fallback={null}>
-      <SearchPanel key={conversationId} conversation={conversation} onClose={close} />
+      <SearchPanel
+        key={conversationId}
+        conversation={conversation}
+        query={query}
+        onQueryChange={(next) => {
+          setTyped({ conversationId, query: next });
+        }}
+        onClose={close}
+      />
     </Suspense>
   );
   if (!narrow)

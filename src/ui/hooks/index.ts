@@ -8,13 +8,19 @@ export {
 } from './SnowdropContext';
 export { useObservableList, type ListSource } from './useObservableList';
 export { useBackendFeature } from './useBackendFeature';
-export { BREAKPOINTS, useMediaQuery } from './useMediaQuery';
+export {
+  belowBreakpoint,
+  useBelowBreakpoint,
+  useBreakpointAttributes,
+  useMediaQuery,
+  type Breakpoint,
+} from './useMediaQuery';
 export { useKeybindLabel } from './useKeybindLabel';
 export { useNow } from './useNow';
 export { useEffectivePrivacy } from './useEffectivePrivacy';
 export { useInView } from './useInView';
 export { useAvatarSrc, type AvatarSrcOptions } from './useAvatarSrc';
-export { useFrozenWhile } from './useFrozenWhile';
+export { useCatchUpShelf, useFrozenWhile } from './useFrozenWhile';
 export { useHandOffFocus } from './useHandOffFocus';
 export { useRovingFocus, type RovingOrientation } from './useRovingFocus';
 export { ShellLayoutProvider, useShellLayout, type ShellLayout } from './ShellLayout';

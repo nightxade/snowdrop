@@ -1,7 +1,7 @@
 import { act, cleanup, render } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Suspense } from 'react';
-import { sharedQueryCount, useMediaQuery } from './useMediaQuery';
+import { belowBreakpoint, sharedQueryCount, useMediaQuery } from './useMediaQuery';
 
 afterEach(() => {
   cleanup();
@@ -98,5 +98,14 @@ describe('useMediaQuery', () => {
     view.rerender(<Probe query="(x)" out={out} />);
     expect(media.list.addEventListener).toHaveBeenCalledTimes(1);
     expect(media.list.removeEventListener).not.toHaveBeenCalled();
+  });
+});
+
+describe('belowBreakpoint', () => {
+  it('is the layout limit in window px: unchanged at 100%, scaled by the zoom otherwise', () => {
+    expect(belowBreakpoint('drawer')).toBe('(max-width: 759.98px)');
+    expect(belowBreakpoint('members', 1)).toBe('(max-width: 1099.98px)');
+    expect(belowBreakpoint('drawer', 1.5)).toBe('(max-width: 1139.97px)');
+    expect(belowBreakpoint('members', 0.8)).toBe('(max-width: 879.98px)');
   });
 });

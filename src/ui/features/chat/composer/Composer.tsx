@@ -161,6 +161,9 @@ function ComposerInner({ conversation }: { conversation: ConversationView }) {
     onError: (message) => {
       state.setError(message);
     },
+    onEscapeCancel: () => {
+      requestAnimationFrame(focus);
+    },
   });
   const voiceDraft =
     state.attachments.length === 1 && state.attachments[0]?.voiceNote === true

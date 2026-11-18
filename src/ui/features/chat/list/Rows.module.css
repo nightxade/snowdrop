@@ -93,9 +93,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-@media (max-width: 759.98px) {
-  .system {
-    grid-template-columns: 60px minmax(0, 1fr) auto;
-    padding-right: var(--snowdrop-space-4);
-  }
+:global(:where(:root[data-below-760])) .system {
+  grid-template-columns: 60px minmax(0, 1fr) auto;
+  padding-right: var(--snowdrop-space-4);
 }

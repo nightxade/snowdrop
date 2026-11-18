@@ -20,9 +20,14 @@ type SearchState =
 /** Ctrl+F: search this conversation's local history; click a result to jump to it. */
 export function SearchPanel({
   conversation,
+  query,
+  onQueryChange,
   onClose,
 }: {
   conversation: ConversationView;
+  /** What is typed in the field: kept by the owner, so it survives the panel moving between page and sheet. */
+  query: string;
+  onQueryChange: (query: string) => void;
   onClose: () => void;
 }) {
   const { repository, stores } = useSnowdrop();
@@ -31,7 +36,6 @@ export function SearchPanel({
     (s) => sessionSelectors.historyImport(s).status === 'importing',
   );
   const chat = useChatController();
-  const [query, setQuery] = useState('');
   const [state, setState] = useState<SearchState>({ status: 'idle' });
   const input = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLUListElement>(null);
@@ -120,7 +124,7 @@ export function SearchPanel({
         <SearchInput
           ref={input}
           value={query}
-          onValueChange={setQuery}
+          onValueChange={onQueryChange}
           placeholder={`Search ${conversation.kind === 'group' ? '#' : '@'}${conversation.title}`}
           aria-label="Search messages"
           onKeyDown={(e) => {

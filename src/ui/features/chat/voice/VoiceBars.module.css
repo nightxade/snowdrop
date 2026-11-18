@@ -94,8 +94,6 @@
   white-space: nowrap;
 }
 
-@media (max-width: 479.98px) {
-  .hint {
-    display: none;
-  }
+:global(:where(:root[data-below-480])) .hint {
+  display: none;
 }

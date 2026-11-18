@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { act, cleanup, fireEvent, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { axe } from 'vitest-axe';
@@ -15,6 +16,18 @@ afterEach(async () => {
   for (const h of snowdrops.splice(0)) await h.dispose();
 });
 
+function Panel({ conversation }: { conversation: ConversationView }) {
+  const [query, setQuery] = useState('');
+  return (
+    <SearchPanel
+      conversation={conversation}
+      query={query}
+      onQueryChange={setQuery}
+      onClose={vi.fn()}
+    />
+  );
+}
+
 async function setup(search: (query: string) => Promise<Message[]>) {
   const snowdrop = await bootSnowdrop();
   snowdrops.push(snowdrop);
@@ -25,7 +38,7 @@ async function setup(search: (query: string) => Promise<Message[]>) {
   const view = renderWithSnowdrop(
     snowdrop,
     <ChatControllerProvider value={chat}>
-      <SearchPanel conversation={conv as unknown as ConversationView} onClose={vi.fn()} />
+      <Panel conversation={conv as unknown as ConversationView} />
     </ChatControllerProvider>,
   );
   const input = screen.getByRole<HTMLInputElement>('searchbox', { name: 'Search messages' });
