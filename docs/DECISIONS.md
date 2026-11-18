@@ -1183,11 +1183,12 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   conversation. The conversation is a click away in the app.
 - **Why**: A click-to-open implementation was added and reverted as not requested; the desktop
   adapter's own documentation says clicks are unsupported.
-- **Not pinned**: nothing asserts that the desktop adapter ignores a click; a test in
-  `platform/tauri/notifications.test.ts` asserting `show` takes no click handler would pin it.
-  `core/services/NotificationService.test.ts :: clicking focuses the window and opens the conversation
-in its space` pins the service's `onClick` hook, which the in-browser `Notification` adapter wires
-  (`n.onclick`); it is a different layer and does not conflict with this rule (see Conflicts checked).
+- **Pinned by**: platform/tauri/notifications.test.ts :: only informs: the click handler is never
+  called or passed on (N8).
+- **Not pinned**: a click on a real desktop notification. The service's `onClick` hook, which the
+  in-browser `Notification` adapter wires (`n.onclick`), is pinned by core/services/
+  NotificationService.test.ts :: clicking focuses the window and opens the conversation in its
+  space; it is a different layer and does not conflict with this rule (see Conflicts checked).
 
 ### N9. Notification permission UI
 
@@ -1724,8 +1725,9 @@ in its space` pins the service's `onClick` hook, which the in-browser `Notificat
 - **Rule**: Snowdrop does not restore the saved window state. (`tauri-plugin-window-state` was removed
   because a tiling compositor's "maximized" flag made the window come back covering other tiles.)
 - **Why**: User bug report on a tiling compositor.
-- **Not pinned**: nothing asserts the plugin stays out; a check on the Tauri plugin list or
-  `Cargo.toml` would pin it.
+- **Pinned by**: platform/tauri/windowState.test.ts (both: no window-state plugin in `Cargo.toml`,
+  `package.json`, the capabilities or `tauri.conf.json`, and none registered in the Rust sources).
+- **Not pinned**: nothing.
 
 ### H3. signal-cli is installed outside the vault's legacy folder
 
@@ -2108,7 +2110,7 @@ shorter)` still passes but describes the old two-tracker design; the title shoul
 
 ## Not pinned yet
 
-No test at all: N8, H2, G3, G8.
+No test at all: G3, G8 (Java patch suite only; a Java test in the patch would pin each).
 
 Pinned, but with a part that is not: S2, S5, S13, S18, S19, S22, C2, C4, C5, C6, C7, C8, C10, C12,
 C13, C19, M8, M9, M13, M15, M18, P6, P10, P13, N1, N4, D8, D9, T1, T4, T5, T6,

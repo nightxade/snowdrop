@@ -26,6 +26,21 @@ const flush = async () => {
 };
 
 describe('native notifications', () => {
+  it('only informs: the click handler is never called or passed on (N8)', async () => {
+    const { invoke, ipc } = setup();
+    invoke.mockResolvedValue(false); // not handled natively: the plugin's own sendNotification
+    const onClick = vi.fn();
+    const api = await tauriNotificationApi(ipc);
+    api.show(content, onClick);
+    await flush();
+    expect(invoke.mock.calls).toEqual([['notification_show', content]]);
+    expect(vi.mocked(sendNotification)).toHaveBeenLastCalledWith({
+      title: content.title,
+      body: content.body,
+    });
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
   it('reuses a conversation tag without withdrawing its previous notification', async () => {
     const { invoke, ipc } = setup();
     const api = await tauriNotificationApi(ipc);
