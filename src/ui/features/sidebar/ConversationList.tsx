@@ -44,8 +44,8 @@ export function ConversationList() {
     ids: visibleIds(section, selected, attention),
   }));
   const allIds = rows.flatMap((r) => r.ids);
-  // Alt+↑/↓ walks what is shown here (see `useRenderedOrder`).
-  useRenderedOrder(space, allIds);
+  // Alt+↑/↓ walks what is shown here (see `useRenderedOrder`): the archive's rows while it is open.
+  useRenderedOrder(space, archiveOpen ? archived : allIds);
 
   if (!ready) return <ListSkeleton />;
 

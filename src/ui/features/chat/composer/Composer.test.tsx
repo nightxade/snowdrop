@@ -463,6 +463,22 @@ describe('<Composer />', () => {
     expect(snowdrop.stores.ui.getState().editing).toBeNull();
   });
 
+  it("Esc on the reply bar's Cancel button cancels the reply and returns to the field", async () => {
+    const { snowdrop, conv, input } = await setup();
+    const target = messagesSelectors
+      .list(conv.id)(snowdrop.stores.messages.getState())
+      .findLast((m) => m.kind === 'normal' && !m.deleted)!;
+    act(() => {
+      snowdrop.stores.ui.getState().setReplyTo(conv.id, target.id);
+    });
+    const cancel = screen.getByRole('button', { name: 'Cancel reply (Esc)' });
+    cancel.focus();
+    fireEvent.keyDown(cancel, { key: 'Escape' });
+    expect(snowdrop.stores.ui.getState().replyTo[conv.id]).toBeFalsy();
+    expect(screen.queryByRole('button', { name: 'Cancel reply (Esc)' })).toBeNull();
+    expect(document.activeElement).toBe(input);
+  });
+
   it('puts the words, the files and the reply back when a send throws', async () => {
     const { snowdrop, conv, input, typeText, chat } = await setup();
     const target = messagesSelectors

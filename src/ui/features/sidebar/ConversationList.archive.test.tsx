@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { axe } from 'vitest-axe';
 import type { MockBackend } from '@/core/backend/mock';
 import { bootDemo, disposeAll, settle, setViewport } from '@/test/bootDemo';
+import { currentNavigationOrder } from './useSidebarModel';
 
 beforeEach(() => {
   setViewport(1440);
@@ -131,5 +132,15 @@ describe('archived chats in the sidebar', () => {
     });
     await settle();
     expect(screen.queryByRole('navigation', { name: 'Archived chats' })).toBeNull();
+  });
+
+  it('Alt+Up/Down walk the archive rows while the archive is open, the list rows again after', async () => {
+    const { snowdrop, mock } = await boot();
+    const tavi = mock.world.conversationIds.get('dm-tavi')!;
+    expect(currentNavigationOrder(snowdrop.stores)).not.toContain(tavi);
+    await click(entry()!);
+    expect(currentNavigationOrder(snowdrop.stores)).toEqual([tavi]);
+    await click(screen.getByRole('button', { name: 'Back to conversations' }));
+    expect(currentNavigationOrder(snowdrop.stores)).not.toContain(tavi);
   });
 });

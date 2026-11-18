@@ -126,6 +126,8 @@ export const MessageItem = memo(function MessageItem({
   const [contextOpen, setContextOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  /** The picker was opened with the + key: it closes back onto the row, not the bar's button. */
+  const pickerFromKey = useRef(false);
   const [sheetOpen, setSheetOpen] = useState(false);
   const perms = m ? act.permissionsFor(app, m) : undefined;
   const { callbacks: dialog, dialogs } = useMessageDialogs(m, row, perms);
@@ -140,10 +142,11 @@ export const MessageItem = memo(function MessageItem({
     m: msg,
     p,
     openPicker: () => {
+      pickerFromKey.current = true;
       setFocused(true);
       setPickerOpen(true);
     },
-    requestDelete: dialog.requestDelete,
+    requestDelete: dialog.confirmDelete,
     openDetails: dialog.openDetails,
     requestEndPoll: dialog.requestEndPoll,
     open: () => false,
@@ -241,9 +244,10 @@ export const MessageItem = memo(function MessageItem({
   const menu = () =>
     buildMessageMenu(app, chat, m, {
       openPicker: () => {
+        pickerFromKey.current = false;
         setPickerOpen(true);
       },
-      requestDelete: dialog.requestDelete,
+      requestDelete: dialog.confirmDelete,
       openDetails: dialog.openDetails,
       requestEndPoll: dialog.requestEndPoll,
       openStickerPack: dialog.openStickerPack,
@@ -268,7 +272,11 @@ export const MessageItem = memo(function MessageItem({
     if (e.defaultPrevented) return;
     // Decided now, not when the row last rendered: an edit window may have closed since.
     const live = act.permissionsFor(app, m);
-    const ctx = actionContext(m, live);
+    // Shift on this very key press skips the question (the key event is the one reliable source
+    // of the modifier: no listener runs for a row whose bar is not showing).
+    const ctx = actionContext(m, live, {
+      requestDelete: e.shiftKey ? dialog.runDelete : dialog.confirmDelete,
+    });
     // Enabled means handled, even if the action then declines (an edit says why not).
     const run = (action: act.MessageActionId) => {
       if (!act.messageActionEnabled(action, live, m)) return false;
@@ -357,7 +365,15 @@ export const MessageItem = memo(function MessageItem({
           message={m}
           actions={actionContext(m, perms, { requestDelete: dialog.runDelete })}
           pickerOpen={pickerOpen}
-          onPickerOpenChange={setPickerOpen}
+          onPickerOpenChange={(open) => {
+            if (open) pickerFromKey.current = false;
+            setPickerOpen(open);
+          }}
+          pickerReturnFocus={() => {
+            const fromKey = pickerFromKey.current;
+            pickerFromKey.current = false;
+            return fromKey ? row.current : null;
+          }}
           menuOpen={menuOpen}
           onMenuOpenChange={setMenuOpen}
           menu={menu}

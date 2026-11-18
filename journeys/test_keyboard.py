@@ -1,4 +1,4 @@
-from common import COMPOSER, LAST_MESSAGE, MESSAGE, is_current, open_conversation, send
+from common import COMPOSER, IN_COMPOSER, LAST_MESSAGE, MESSAGE, ON_LIST, fill, is_current, open_conversation, send, settle
 from harness import journey
 
 NOT_ON_BODY = 'document.activeElement !== document.body'
@@ -219,3 +219,55 @@ def current_message_is_painted(page):
     page.click(f'[data-message-id="{third}"]')
     page.wait_for('document.activeElement?.matches("[data-snowdrop=message]") && !document.activeElement.matches(":focus-visible")')
     page.wait_for(f'{painted(2)}.shadow.includes({ACCENT})')
+
+
+@journey()
+def page_up_keeps_focus_on_the_list(page):
+    """On the current message, PageUp a few screens up through a long chat: focus stays on the message list (a row, or the list itself), so the arrows keep working."""
+    open_conversation(page, 'dm-priya')
+    fill(page, 'dm-priya', 80)
+    current_message(page)
+    for _ in range(3):
+        page.key('PageUp')
+        settle(page, 700)
+    page.expect(ON_LIST, 'focus is not on the message list after PageUp')
+    page.key('ArrowUp')
+    settle(page, 300)
+    page.expect(ON_LIST, 'ArrowUp after PageUp left the list')
+
+
+@journey()
+def reaction_picker_esc_returns_to_the_message(page):
+    """+ on the current message opens the emoji picker; Esc closes it and focus is back on the message (as after its menu), so R, E and the arrows still work."""
+    open_conversation(page, 'dm-priya')
+    row = f'[data-message-id="{current_message(page)}"]'
+    page.key('+')
+    page.wait_for('!!document.querySelector("[role=dialog]")')
+    page.key('Escape')
+    page.wait_for('!document.querySelector("[role=dialog]")')
+    page.wait_for(f'document.activeElement === document.querySelector({row!r})', 2000)
+
+
+@journey()
+def second_search_shortcut_keeps_focus(page):
+    """Ctrl+F opens the search panel with focus in its field; Ctrl+F again closes it and focus goes to the composer, as after Esc, never <body>."""
+    open_conversation(page, 'dm-priya')
+    page.click(COMPOSER)
+    page.key('f', ['ctrl'])
+    page.wait_for('document.activeElement?.closest("[data-snowdrop=search-panel]") !== null')
+    page.key('f', ['ctrl'])
+    settle(page, 600)
+    page.expect(IN_COMPOSER, 'focus is not in the composer after the second Ctrl+F')
+
+
+@journey()
+def member_panel_shortcut_keeps_focus(page):
+    """The wide member panel is open with focus on one of its members; Ctrl+Shift+M closes it: focus goes to the header's member button, never to <body>."""
+    open_conversation(page, 'allotment')
+    page.wait_for('!!document.querySelector("[data-snowdrop=members]")')
+    page.eval('const row = document.querySelector("[data-snowdrop=members] [data-snowdrop=member-row]"); row.focus(); return 1;')
+    page.wait_for('document.activeElement?.closest("[data-snowdrop=members]") !== null')
+    page.key('M', ['ctrl', 'shift'])
+    page.wait_for('!document.querySelector("[data-snowdrop=members]")')
+    settle(page, 400)
+    page.expect('document.activeElement === document.querySelector("[data-snowdrop=member-toggle]")', 'focus did not go to the member button')

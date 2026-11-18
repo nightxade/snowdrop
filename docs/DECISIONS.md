@@ -244,7 +244,8 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 
 ### S18. Keyboard row navigation
 
-- **Rule**: Alt+Up/Down walks the rendered sidebar rows (clamped at the ends). Alt+Shift+Up/Down walks
+- **Rule**: Alt+Up/Down walks the rendered sidebar rows (clamped at the ends); in the Archived chats
+  view those are the archive's rows. Alt+Shift+Up/Down walks
   Home, then spaces in rail order, wrapping and switching space, stopping only at unread, non-muted
   (or mentioning) chats. Focus follows.
 - **Why**: User request (keyboard-first).
@@ -256,7 +257,9 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   the "while the new view settles" tests (lands on the list once it exists, upgrading from the
   sidebar row; never taken from an input, a dialog or a trigger the user is still typing in; bounded
   frames); journeys/test_keyboard.py :: alt_arrow_from_the_composer_into_a_new_chat,
-  alt_arrow_into_a_slow_loading_chat (a 2.5 s load); the journey random walks. A list that remounts
+  alt_arrow_into_a_slow_loading_chat (a 2.5 s load); ui/features/sidebar/ConversationList.archive.
+  test.tsx :: Alt+Up/Down walk the archive rows while the archive is open, the list rows again after;
+  journeys/test_sidebar.py :: archive_list_alt_arrows_stay_on_the_rows_shown; the journey random walks. A list that remounts
   after the keys landed (see C11) hands focus on itself, so a slow load is covered.
 
 ### S19. Clicked conversation rows take focus (WebKitGTK)
@@ -276,13 +279,15 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 ### S20. Narrow-window navigation
 
 - **Rule**: Below 760 px the navigation is a drawer, open until a conversation is picked; picking the
-  conversation that is already open closes it. Below 1100 px the member list is an overlay sheet
+  conversation that is already open closes it. Widening the window past 760 px closes it, so
+  narrowing again never brings it back over the chat. Below 1100 px the member list is an overlay sheet
   that Esc closes.
 - **Why**: Responsive rules from the plan, plus a bug report (re-picking the open chat left the
   drawer up).
 - **Pinned by**: test/shell.test.tsx :: puts navigation in a drawer below 760px, open until a
   conversation is picked; navigation drawer: tapping the conversation that is already open closes it;
-  shows the member list as a modal sheet below 1100px.
+  navigation drawer across resizes (all); shows the member list as a modal sheet below 1100px;
+  journeys/test_sidebar.py :: navigation_drawer_does_not_come_back_on_narrowing.
 
 ### S21. Quick switcher
 
@@ -679,15 +684,19 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 
 - **Rule**: Delete for everyone is offered only within 24 hours (never in note-to-self). Delete or
   Backspace on your own message deletes for everyone, on someone else's deletes for you; it asks
-  first with the destructive button focused. Holding Shift skips the question; the hover bar shows
-  the quick delete while Shift is held and keeps it across messages after a delete. A message you
+  first with the destructive button focused. Shift skips the question on the key (Shift+Delete, read
+  from that key press, so it works on a clicked row too) and on the hover bar, which shows the quick
+  delete while Shift is held and keeps it across messages after a delete. The message menu's Delete
+  always asks. A message you
   delete for yourself that nobody has read also leaves the chat's unread count.
 - **Why**: Signal parity; bug report: Shift reset after each delete.
 - **Pinned by**: ui/features/chat/message/MessageItem.test.tsx :: Delete asks first, with the
   destructive button focused so Enter confirms; ui/features/chat/message/MessageItem.rules.test.tsx ::
   offers delete for everyone only for 24 hours, where recipients still accept it; ui/features/chat/
-  message/useShiftHeld.test.tsx (both); journeys/test_delete.py :: shift_delete_across_messages (three
-  messages deleted in a row with Shift held, no dialog); core/services/deleteSync.test.ts :: takes a
+  message/useShiftHeld.test.tsx (both); MessageItem.test.tsx :: Shift+Delete on a focused row deletes
+  without asking, though no hover bar is listening for Shift; journeys/test_delete.py ::
+  shift_delete_across_messages (three messages deleted in a row with Shift held, no dialog),
+  shift_delete_on_a_message_focused_by_click; core/services/deleteSync.test.ts :: takes a
   deleted unread message off the unread count, so reading the chat leaves none behind.
 
 ### M4. Failed and unconfirmed sends
@@ -750,15 +759,21 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 
 - **Rule**: Up and Down move between messages. Enter steps into a message (Tab reaches its controls,
   hover bar first), Esc steps out; R replies, E edits, + (or =) reacts; Shift+F10, the Menu key and
-  Mod+Enter open the menu. A message row is an article labelled by author and time.
+  Mod+Enter open the menu; Esc in a reaction picker opened with + returns to the message (one opened
+  from the hover bar's button returns to that button). When the focused message scrolls out of the
+  rendered range (PageUp, the wheel), the list's scroller takes focus, unless focus went somewhere
+  else, and the arrows continue from that message. A message row is an article labelled by author
+  and time.
 - **Why**: User request (keyboard-first).
 - **Pinned by**: ui/features/chat/message/MessageItem.test.tsx :: is an article labelled by author and
   time, described by its body; keeps inner controls out of the tab order until the row is entered; R
   replies, E edits; + opens the reaction picker; journeys/test_keyboard.py :: reply_then_edit (arrows
   between messages, R from the keyboard), enter_steps_into_a_message_and_escape_out (Enter moves
   focus into the hover bar, Tab goes on, Esc puts it back on the row), message_menu_keys_open_the_menu
-  (Shift+F10, the Menu key and Ctrl+Enter each open the menu; Esc returns focus to the row); the
-  random walk does the same on random rows (journeys/fuzz.py).
+  (Shift+F10, the Menu key and Ctrl+Enter each open the menu; Esc returns focus to the row),
+  reaction_picker_esc_returns_to_the_message, page_up_keeps_focus_on_the_list;
+  ui/features/chat/message/MessageItem.test.tsx :: Esc closes a picker opened with + onto the message;
+  one opened from the bar button returns to that button; the random walk does the same on random rows (journeys/fuzz.py).
 - **Not pinned**: Shift+F10 and the Menu key through the app's own code: WebKitGTK turns both into a
   `contextmenu` event itself, so the journey stays green with those two branches of
   `isContextMenuKey` removed (Ctrl+Enter is the app's alone and is pinned). Mod+Enter with the Meta
@@ -835,14 +850,25 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   closes. A dialog replaced by another keeps the chain's opener; the fallback is what had focus before
   a palette or menu, then the menu trigger, then the composer. A dialog whose subject disappears
   closes. Dialogs with a hidden header have no invisible Close; a drawer takes one Esc from any
-  descendant.
+  descendant. A panel closed by its shortcut with focus inside hands focus on as its own close does:
+  the search panel (a second Mod+F) to the composer, the wide member column (Mod+Shift+M) to its
+  header toggle.
+- **Shortcuts behind a dialog**: while a Modal, full-screen dialog or lightbox is open, none of the
+  global shortcuts run (`primitives/modalOpen.ts`, `shell/useKeyboard.ts`): every one acts on the app
+  behind the dialog (switching chats, toggling panels) or opens another dialog over it, and none is
+  needed inside one. The dialog's own keys and Esc still work; drawers and popovers don't count.
+  Vim's layer decides by its own focus context.
 - **Why**: Bug reports: focus was lost to the page body.
 - **Pinned by**: ui/features/shell/ModalHost.focus.test.tsx (all); ui/primitives/Modal.test.tsx (all
   seven); ui/features/shell/ModalHost.suspense.test.tsx; journeys/test_dialogs.py ::
   dialog_returns_focus_to_its_button (New message and Settings, closed with Esc),
   replaced_dialog_returns_focus_to_the_first_opener (New message, then New group, then Esc: back on
   the New message button), palette_command_dialog_returns_focus_to_what_had_it (a message, Ctrl+K,
-  Open settings, Esc: back on that message). The fallbacks overlap (the recorded opener, then the
+  Open settings, Esc: back on that message), alt_arrow_in_settings_leaves_the_open_chat;
+  test/shell.test.tsx :: panels closed by their shortcut keep focus (both); Alt+Up/Down,
+  Ctrl+Shift+M, Ctrl+K and Ctrl+F do nothing behind Settings; they work again once it closes;
+  journeys/test_keyboard.py :: second_search_shortcut_keeps_focus, member_panel_shortcut_keeps_focus;
+  ui/primitives/Modal.test.tsx :: modalDialogOpen. The fallbacks overlap (the recorded opener, then the
   focus history), so the replaced-dialog journey fails only when the whole restore breaks, not when
   one layer does.
 - **Menu items**: a dialog opened from a menu item (Delete for me, Message details) does not
@@ -899,14 +925,17 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 
 - **Rule**: Each Esc in the composer takes the next step: close suggestions, cancel the reply, mark
   read (empty draft with something unread), otherwise move focus to the message list keeping the
-  draft; it blurs if there is no list. While recording, Esc cancels the voice message. Esc right after
+  draft; it blurs if there is no list. Esc on the reply bar's Cancel button cancels the reply. While
+  recording, Esc cancels the voice message. Esc right after
   sending works too: the newest message becomes current.
 - **Why**: Bug report: Esc did nothing with text typed and focus got trapped.
 - **Pinned by**: ui/features/chat/composer/Composer.test.tsx :: goes autocomplete, reply, mark read,
   then leaves; moves focus to the message list and keeps the draft; leaves from an empty draft with
   nothing unread, without marking read; blurs the field when there is no message list to focus;
+  Esc on the reply bar's Cancel button cancels the reply and returns to the field;
   ui/features/chat/composer/Composer.voice.test.tsx :: Cancel and Escape discard the recording and
-  turn the microphone off; journeys/test_keyboard.py :: esc_from_the_composer; journeys/
+  turn the microphone off; journeys/test_composer.py ::
+  esc_on_the_cancel_reply_button_cancels_the_reply; journeys/test_keyboard.py :: esc_from_the_composer; journeys/
   test_keyboard.py :: esc_right_after_sending.
 
 ### P2. Composer buttons sit right of the field

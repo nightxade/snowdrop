@@ -47,6 +47,10 @@ export function AppShell() {
     if (selected) setNavOpen(false);
   }
 
+  // The drawer only exists in drawer mode: leaving it closes it, so narrowing again never
+  // brings it back over the chat.
+  if (!drawer && navOpen) setNavOpen(false);
+
   const layout = useMemo<ShellLayout>(
     () => ({ narrow, drawer, navOpen, setNavOpen }),
     [narrow, drawer, navOpen],

@@ -54,8 +54,3 @@ export function useShiftHeld(): boolean {
     () => false,
   );
 }
-
-/** For event handlers: Shift state of the current pointer/keyboard event. */
-export function isShiftHeld(): boolean {
-  return held;
-}

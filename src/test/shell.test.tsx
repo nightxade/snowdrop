@@ -238,6 +238,128 @@ describe('responsive overlays', () => {
   });
 });
 
+describe('panels closed by their shortcut keep focus', () => {
+  it('a second Ctrl+F closes search from its field and focus goes to the composer', async () => {
+    const snowdrop = await bootDemo();
+    const { stores } = snowdrop;
+    const spaceId = spacesSelectors.orderedIds(stores.spaces.getState())[0]!;
+    const group = stores.spaces.getState().spaces[spaceId]!.categories[0]!.conversationIds[0]!;
+    act(() => {
+      stores.ui.getState().selectConversation(group, spaceId);
+    });
+    await settle();
+    key({ key: 'f', code: 'KeyF', ctrlKey: true });
+    const field = await screen.findByRole('searchbox', { name: 'Search messages' });
+    await settle();
+    expect(document.activeElement).toBe(field);
+    key({ key: 'f', code: 'KeyF', ctrlKey: true });
+    await settle();
+    expect(screen.queryByRole('searchbox', { name: 'Search messages' })).toBeNull();
+    expect(document.activeElement?.closest('[data-snowdrop="composer"]')).not.toBeNull();
+  });
+
+  it('Ctrl+Shift+M closes the wide member panel from inside it and focus goes to its toggle', async () => {
+    const snowdrop = await bootDemo();
+    const { stores } = snowdrop;
+    const spaceId = spacesSelectors.orderedIds(stores.spaces.getState())[0]!;
+    const group = stores.spaces.getState().spaces[spaceId]!.categories[0]!.conversationIds[0]!;
+    act(() => {
+      stores.ui.getState().selectConversation(group, spaceId);
+      stores.ui.getState().toggleMemberList(true);
+    });
+    await settle();
+    const panel = document.querySelector<HTMLElement>('[data-snowdrop="members"]')!;
+    const inside = panel.querySelector<HTMLElement>('button, [tabindex]')!;
+    act(() => {
+      inside.focus();
+    });
+    expect(panel.contains(document.activeElement)).toBe(true);
+    key({ key: 'M', code: 'KeyM', ctrlKey: true, shiftKey: true });
+    await settle();
+    expect(document.querySelector('[data-snowdrop="members"]')).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Show member list' }));
+  });
+});
+
+describe('shortcuts while a dialog is open', () => {
+  it('Alt+Up/Down, Ctrl+Shift+M, Ctrl+K and Ctrl+F do nothing behind Settings; they work again once it closes', async () => {
+    const snowdrop = await bootDemo();
+    const { stores } = snowdrop;
+    const selected = () => uiSelectors.selectedConversation(stores.ui.getState());
+    key({ key: 'ArrowDown', code: 'ArrowDown', altKey: true });
+    const open = selected();
+    expect(open).not.toBeNull();
+    const members = stores.ui.getState().memberListOpen;
+    act(() => {
+      stores.ui.getState().openModal({ type: 'settings' });
+    });
+    await screen.findByRole('dialog');
+    await settle();
+    key({ key: 'ArrowDown', code: 'ArrowDown', altKey: true });
+    key({ key: 'ArrowUp', code: 'ArrowUp', altKey: true });
+    key({ key: 'M', code: 'KeyM', ctrlKey: true, shiftKey: true });
+    key({ key: 'k', code: 'KeyK', ctrlKey: true });
+    key({ key: 'f', code: 'KeyF', ctrlKey: true });
+    await settle();
+    expect(selected()).toBe(open);
+    expect(stores.ui.getState().memberListOpen).toBe(members);
+    expect(stores.ui.getState().modal?.type).toBe('settings');
+    expect(screen.queryByRole('searchbox', { name: 'Search messages' })).toBeNull();
+    act(() => {
+      stores.ui.getState().closeModal();
+    });
+    await settle();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    key({ key: 'ArrowDown', code: 'ArrowDown', altKey: true });
+    expect(selected()).not.toBe(open);
+  });
+});
+
+/** A viewport that can be resized while mounted: `matchMedia` lists that notify their listeners. */
+function resizableViewport(initial: number): (width: number) => void {
+  let width = initial;
+  const lists = new Set<{ max: number; listeners: Set<() => void>; list: MediaQueryList }>();
+  Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
+    value: (query: string) => {
+      const max = Number(/max-width:\s*([\d.]+)px/u.exec(query)?.[1] ?? 0);
+      const listeners = new Set<() => void>();
+      const list = {
+        get matches() {
+          return width <= max;
+        },
+        media: query,
+        addEventListener: (_: string, l: () => void) => listeners.add(l),
+        removeEventListener: (_: string, l: () => void) => listeners.delete(l),
+      } as unknown as MediaQueryList;
+      lists.add({ max, listeners, list });
+      return list;
+    },
+  });
+  return (next) => {
+    width = next;
+    for (const { listeners } of lists) for (const l of listeners) l();
+  };
+}
+
+describe('navigation drawer across resizes', () => {
+  it('a drawer left open when the window is widened does not come back when it is narrowed again', async () => {
+    const resize = resizableViewport(390);
+    await bootDemo();
+    await screen.findByRole('dialog', { name: 'Navigation' });
+    act(() => {
+      resize(1440);
+    });
+    await settle();
+    expect(screen.queryByRole('dialog', { name: 'Navigation' })).toBeNull();
+    act(() => {
+      resize(390);
+    });
+    await settle();
+    expect(screen.queryByRole('dialog', { name: 'Navigation' })).toBeNull();
+  });
+});
+
 describe('drawer focus and Escape', () => {
   const frames = () =>
     act(async () => {

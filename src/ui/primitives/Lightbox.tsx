@@ -84,6 +84,7 @@ export function Lightbox({
         <RadixDialog.Overlay className={styles.overlay} />
         <RadixDialog.Content
           className={styles.content}
+          data-modal-dialog=""
           onKeyDown={onKeyDown}
           onOpenAutoFocus={(e) => {
             // Focus the viewer itself: a focused Close button would open its tooltip,

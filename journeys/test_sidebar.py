@@ -1,4 +1,4 @@
-from common import COMPOSER, MESSAGE, PREVIEW, open_conversation, send
+from common import COMPOSER, MESSAGE, PREVIEW, click_text_starting, open_conversation, send, settle
 from harness import journey
 
 SELECTED_PREVIEW = PREVIEW.replace('[data-snowdrop=conversation-row]', '[data-snowdrop=conversation-row][data-selected]')
@@ -52,3 +52,41 @@ def arrow_keys_step_from_the_clicked_row(page):
     page.expect_stays(f'document.activeElement === document.querySelector(\'[data-conversation-id="{clicked}"]\')', 500)
     page.key('ArrowDown')
     page.wait_for(f'document.activeElement === document.querySelector(\'[data-conversation-id="{rows[4]}"]\')')
+
+
+@journey()
+def archive_list_alt_arrows_stay_on_the_rows_shown(page):
+    """Archived chats open with its one chat open: Alt+Down and Alt+Up have no other row to step to there, so the chat stays open (S18, the keys walk the rendered rows and clamp)."""
+    click_text_starting(page, '[data-snowdrop=sidebar] button', 'Archived chats')
+    page.wait_for(f'document.querySelectorAll({ROWS!r}).length === 1')
+    archived = page.eval(f'document.querySelector({ROWS!r}).getAttribute("data-conversation-id")')
+    page.click(f'[data-conversation-id="{archived}"]')
+    page.wait_for(f'__journey.state().selected === {archived!r}')
+    page.wait_for(f'!!document.querySelector({COMPOSER!r})')
+    page.click(COMPOSER)
+    page.key('ArrowDown', ['alt'])
+    settle(page, 700)
+    page.expect(f'__journey.state().selected === {archived!r}', 'Alt+Down opened a chat the Archived list does not show')
+    page.key('ArrowUp', ['alt'])
+    settle(page, 700)
+    page.expect(f'__journey.state().selected === {archived!r}', 'Alt+Up opened a chat the Archived list does not show')
+
+
+HAMBURGER = '[data-snowdrop=chat-header] button[aria-label^="Open navigation"]'
+DRAWER = '!!document.querySelector("[data-snowdrop=drawer]")'
+
+
+@journey()
+def navigation_drawer_does_not_come_back_on_narrowing(page):
+    """Narrow window, drawer opened, window widened (the drawer is gone), a chat is being used, window narrowed again: the drawer stays closed, because a conversation is open (S20, "open until a conversation is picked")."""
+    open_conversation(page, 'dm-priya')
+    page.resize(700, 800)
+    page.click(HAMBURGER)
+    page.wait_for(DRAWER)
+    page.resize(1280, 800)
+    page.wait_for(f'!({DRAWER})')
+    page.click(COMPOSER)
+    page.resize(700, 800)
+    settle(page, 600)
+    page.expect(f'!({DRAWER})', 'the navigation drawer opened over the open chat')
+    page.expect(f'document.activeElement === document.querySelector({COMPOSER!r})', 'the composer lost focus to the drawer')

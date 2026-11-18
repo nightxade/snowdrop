@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { describeFocus, useSnowdrop } from '@/ui/hooks';
+import { modalDialogOpen } from '@/ui/primitives';
 
 export function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
@@ -20,8 +21,8 @@ export function isEditableTarget(target: EventTarget | null): boolean {
  * focused widget's own handlers; a consumed key is prevented and stopped.
  * With no layer installed this does nothing.
  *
- * Bubble phase: the keybind dispatcher. It ignores events something else
- * already handled (Radix layers preventDefault the Escape that closes them),
+ * Bubble phase: the keybind dispatcher. While a modal dialog is open it does nothing. It
+ * ignores events something else already handled (Radix layers preventDefault the Escape that closes them),
  * so Escape closes a menu first and only marks the conversation read when
  * nothing's open.
  */
@@ -39,8 +40,10 @@ export function useKeyboard(): void {
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing) return;
-      // Dialogs own the keyboard while open.
+      // Dialogs own the keyboard while open: nothing here acts on the app behind one (switching
+      // chats, toggling panels, opening another dialog over it). Their own keys, and Esc, are theirs.
       if (stores.ui.getState().modal && event.key === 'Escape') return;
+      if (modalDialogOpen()) return;
       const handled = keybinds.handle(event, { inEditable: isEditableTarget(event.target) });
       if (handled) event.preventDefault();
     };

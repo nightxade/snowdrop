@@ -98,6 +98,30 @@ describe('<MessageItem /> keyboard', () => {
     expect(screen.getByRole('dialog', { name: 'Emoji picker' })).toBeTruthy();
   });
 
+  it('Esc closes a picker opened with + onto the message; one opened from the bar button returns to that button', async () => {
+    const { row } = await withOwnMessage();
+    const settled = () =>
+      act(async () => {
+        await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 20)));
+      });
+    row.focus();
+    fireEvent.keyDown(row, { key: '+' });
+    await settle();
+    await screen.findByRole('dialog', { name: 'Emoji picker' });
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+    await settled();
+    expect(screen.queryByRole('dialog', { name: 'Emoji picker' })).toBeNull();
+    expect(document.activeElement).toBe(row);
+
+    const button = within(row).getByRole('button', { name: 'Add reaction' });
+    fireEvent.click(button);
+    await screen.findByRole('dialog', { name: 'Emoji picker' });
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+    await settled();
+    expect(screen.queryByRole('dialog', { name: 'Emoji picker' })).toBeNull();
+    expect(document.activeElement).toBe(button);
+  });
+
   it('Delete asks first, with the destructive button focused so Enter confirms', async () => {
     const { snowdrop, conv, own, row } = await withOwnMessage();
     row.focus();
@@ -110,6 +134,16 @@ describe('<MessageItem /> keyboard', () => {
     await settle(snowdrop);
     expect(current(snowdrop, conv, own.id)?.deleted).toBe(true);
     expect(screen.getByText('You deleted this message.')).toBeTruthy();
+  });
+
+  it('Shift+Delete on a focused row deletes without asking, though no hover bar is listening for Shift', async () => {
+    const { snowdrop, conv, own, row } = await withOwnMessage();
+    row.focus();
+    expect(screen.queryByRole('button', { name: 'Delete for everyone' })).toBeNull();
+    fireEvent.keyDown(row, { key: 'Delete', shiftKey: true });
+    await settle(snowdrop);
+    expect(screen.queryByRole('dialog', { name: 'Delete for everyone' })).toBeNull();
+    expect(current(snowdrop, conv, own.id)?.deleted).toBe(true);
   });
 });
 

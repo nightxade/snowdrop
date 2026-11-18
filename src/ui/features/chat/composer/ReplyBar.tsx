@@ -33,7 +33,18 @@ export function ReplyBar({
     authorId ? s.byId[authorId]?.color : undefined,
   );
   return (
-    <div className={styles.reply} data-snowdrop="reply-bar">
+    <div
+      className={styles.reply}
+      data-snowdrop="reply-bar"
+      // The button says "Esc": with focus on it, Esc cancels the reply, as it does in the field.
+      // Not conditional on `defaultPrevented`: the button's own tooltip claims that Esc first and
+      // must not cost a press.
+      onKeyDown={(e) => {
+        if (e.key !== 'Escape' || e.nativeEvent.isComposing) return;
+        e.preventDefault();
+        onCancel();
+      }}
+    >
       <span className={styles.replyText}>
         Replying to{' '}
         <strong

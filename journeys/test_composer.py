@@ -1,5 +1,5 @@
 """The composer's buttons (DECISIONS P2) and voice notes as far as a runner with no microphone can take them (P13)."""
-from common import COMPOSER, IN_COMPOSER, LAST_MESSAGE, TUI_SETTINGS, open_conversation, settle
+from common import COMPOSER, IN_COMPOSER, LAST_MESSAGE, TUI_SETTINGS, is_current, open_conversation, settle
 from harness import journey
 
 FIELD = f'{COMPOSER}'
@@ -113,3 +113,20 @@ def voice_message_refused_microphone_says_so(page):
     settle(page, 500)
     page.expect(f'document.querySelector({ALERT!r})?.textContent.includes("use the microphone") && !document.querySelector({RECORDER!r})')
     page.expect(f'{LAST_MESSAGE}.getAttribute("data-message-id") === {newest!r}', 'something was sent')
+
+
+@journey()
+def esc_on_the_cancel_reply_button_cancels_the_reply(page):
+    """R opens a reply bar; Shift+Tab from the composer lands on its "Cancel reply (Esc)" button: Esc there cancels the reply, as the button says."""
+    open_conversation(page, 'dm-priya')
+    page.eval('__journey.deliver({ conversation: "dm-priya", count: 1, text: "incoming" })')
+    page.wait_for(f'{LAST_MESSAGE}?.textContent.includes("incoming")')
+    page.click(COMPOSER)
+    page.key('Escape')
+    page.wait_for(is_current(0))
+    page.key('r')
+    page.wait_for('!!document.querySelector("[data-snowdrop=reply-bar]")')
+    page.key('Tab', ['shift'])
+    page.wait_for('document.activeElement?.getAttribute("aria-label") === "Cancel reply (Esc)"')
+    page.key('Escape')
+    page.wait_for('!document.querySelector("[data-snowdrop=reply-bar]")', 1500)

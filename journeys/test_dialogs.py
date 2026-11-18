@@ -1,4 +1,4 @@
-from common import COMPOSER, click_text, is_current, open_conversation, send
+from common import COMPOSER, click_text, is_current, open_conversation, send, settle
 from harness import journey
 
 NEW_MESSAGE = '[data-snowdrop=sidebar-header] button[aria-label="New message"]'
@@ -67,3 +67,16 @@ def message_menu_dialog_returns_focus_to_the_message(page):
     page.key('Escape')
     page.wait_for('!document.querySelector("[role=dialog], [role=alertdialog]")')
     page.wait_for(f'document.activeElement === document.querySelector({row!r})', 2000)  # focus back on the message
+
+
+@journey()
+def alt_arrow_in_settings_leaves_the_open_chat(page):
+    """Settings open over a chat: Alt+Down does not switch the chat behind the dialog."""
+    open_conversation(page, 'dm-priya')
+    opened = page.eval('__journey.state().selected')
+    page.key(',', ['ctrl'])
+    page.wait_for('!!document.querySelector("[role=dialog]")')
+    settle(page, 300)
+    page.key('ArrowDown', ['alt'])
+    settle(page, 700)
+    page.expect(f'__journey.state().selected === {opened!r}', 'Alt+Down changed the chat behind Settings')

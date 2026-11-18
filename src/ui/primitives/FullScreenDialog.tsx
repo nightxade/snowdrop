@@ -35,6 +35,7 @@ export function FullScreenDialog({
       <RadixDialog.Portal>
         <RadixDialog.Content
           className={[styles.content, className].filter(Boolean).join(' ')}
+          data-modal-dialog=""
           // TUI shell only (src/ui/styles/tui.css): the titled border reads this;
           // inert markup otherwise.
           data-pane-title={title.toLowerCase()}

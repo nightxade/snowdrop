@@ -10,12 +10,9 @@ import { CustomEmojiDialog } from './CustomEmojiPopover';
 import { MessageDetails } from './MessageDetails';
 import { PollVotesDialog } from './PollCard';
 import { StickerPackDialog } from './StickerPackDialog';
-import { isShiftHeld } from './useShiftHeld';
 
 export interface MessageDialogCallbacks {
-  /** Asks before deleting (skipped when Shift is held). */
-  requestDelete: (kind: act.DeleteKind) => void;
-  /** Always asks first (the command layer). */
+  /** Asks first; a surface that skips the question (Shift) calls `runDelete` instead. */
   confirmDelete: (kind: act.DeleteKind) => void;
   /** Deletes now, then settles keyboard focus. */
   runDelete: (kind: act.DeleteKind) => void;
@@ -72,10 +69,6 @@ export function useMessageDialogs(
   };
 
   const callbacks: MessageDialogCallbacks = {
-    requestDelete: (kind) => {
-      if (isShiftHeld()) runDelete(kind);
-      else setConfirm(kind);
-    },
     confirmDelete: setConfirm,
     runDelete,
     openDetails: () => {

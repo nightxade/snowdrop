@@ -293,6 +293,18 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
     },
     [],
   );
+  // The virtualiser unmounts rows that scroll far out of range (PageUp, the wheel). When that
+  // takes the focused row, focus drops to the page and the keys stop working: the scroller, the
+  // list's own tab stop, takes it instead. Focus that went anywhere else on purpose is never taken
+  // (see `restoreFocus`), nor a restoration already under way for a swapped or remounted row.
+  useEffect(
+    () =>
+      rows.subscribe(() => {
+        if (!listHasFocus.current || rows.activeMounted || restoring.current) return;
+        restoreFocus(() => scroller.current);
+      }),
+    [rows, scroller, restoreFocus],
+  );
   // The list remounts when its window is replaced (epoch): messages arriving in a chat that had
   // none, a jump outside the window, a reload. A focused scroller or row goes with it and focus
   // falls to the page: hand it to the new tab stop.
@@ -433,14 +445,18 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
     const all = [...e.currentTarget.querySelectorAll<HTMLElement>('[data-roving-item]')];
     let next: HTMLElement | undefined;
     if (e.target === scroller.current) {
-      next = e.key === 'ArrowUp' ? all.at(-1) : all[0];
+      // From the current message when it is rendered; else into the newest (↑) or first (↓) one.
+      const at = all.findIndex((el) => el.dataset.messageId === rows.activeId);
+      if (at >= 0) next = all[e.key === 'ArrowUp' ? at - 1 : at + 1];
+      else next = e.key === 'ArrowUp' ? all.at(-1) : all[0];
     } else if (e.target.hasAttribute('data-roving-item')) {
       const i = all.indexOf(e.target);
       next = all[e.key === 'ArrowUp' ? i - 1 : i + 1];
-      if (!next && e.key === 'ArrowUp') scroller.current?.scrollBy({ top: -200 });
     } else {
       return;
     }
+    // ↑ on the oldest rendered message: scroll up, which loads older history.
+    if (!next && e.key === 'ArrowUp') scroller.current?.scrollBy({ top: -200 });
     e.preventDefault();
     if (next) {
       const id = next.dataset.messageId as MessageId | undefined;

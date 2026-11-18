@@ -7,9 +7,40 @@ import { Drawer } from './Drawer';
 import { FullScreenDialog } from './FullScreenDialog';
 import { Lightbox } from './Lightbox';
 import { Modal } from './Modal';
+import { modalDialogOpen } from './modalOpen';
 import { TooltipProvider } from './Tooltip';
 
 afterEach(cleanup);
+
+describe('modalDialogOpen', () => {
+  it('is true for a Modal and a full-screen dialog, and not for a drawer or once closed', () => {
+    const none = () => modalDialogOpen();
+    expect(none()).toBe(false);
+    const modal = render(
+      <Modal open onOpenChange={vi.fn()} title="Rename">
+        <input aria-label="Name" />
+      </Modal>,
+    );
+    expect(modalDialogOpen()).toBe(true);
+    modal.unmount();
+    const full = render(
+      <FullScreenDialog open onOpenChange={vi.fn()} title="Forward">
+        <input aria-label="Name" />
+      </FullScreenDialog>,
+    );
+    expect(modalDialogOpen()).toBe(true);
+    full.unmount();
+    const drawer = render(
+      <Drawer open onOpenChange={vi.fn()} label="Navigation">
+        <input aria-label="Name" />
+      </Drawer>,
+    );
+    expect(screen.getByRole('dialog', { name: 'Navigation' })).toBeTruthy();
+    expect(modalDialogOpen()).toBe(false);
+    drawer.unmount();
+    expect(modalDialogOpen()).toBe(false);
+  });
+});
 
 describe('Modal', () => {
   it('has a labelled Close button, and axe is clean', async () => {

@@ -26,7 +26,7 @@ import { messageActionEnabled, runMessageAction, type MessageActionId } from './
 
 export interface MenuCallbacks {
   openPicker: () => void;
-  /** Asks before deleting (skipped when Shift is held). */
+  /** Asks before deleting. */
   requestDelete: (kind: act.DeleteKind) => void;
   /** Opens the "Message details" dialog (own messages only — see MessageDetails). */
   openDetails: () => void;

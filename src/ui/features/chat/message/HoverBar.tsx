@@ -27,6 +27,8 @@ export interface HoverBarProps {
   actions: ActionContext;
   pickerOpen: boolean;
   onPickerOpenChange: (open: boolean) => void;
+  /** Where the reaction picker returns focus to when the bar's button is not the place. */
+  pickerReturnFocus?: () => HTMLElement | null;
   menuOpen: boolean;
   onMenuOpenChange: (open: boolean) => void;
   menu: () => readonly MenuEntry[];
@@ -78,6 +80,7 @@ export function HoverBar(props: HoverBarProps) {
               open={props.pickerOpen}
               onOpenChange={props.onPickerOpenChange}
               onSelect={props.onReact}
+              {...(props.pickerReturnFocus ? { returnFocus: props.pickerReturnFocus } : {})}
               side="left"
               align="start"
             >

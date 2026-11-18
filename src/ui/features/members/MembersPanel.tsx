@@ -1,7 +1,8 @@
 import { X } from 'lucide-react';
 import { memo } from 'react';
 import type { ConversationId } from '@/core/domain';
-import { IconButton } from '@/ui/primitives';
+import { useHandOffFocus } from '@/ui/hooks';
+import { focusQuietly, IconButton } from '@/ui/primitives';
 import { MemberList } from './MemberList';
 import styles from './MembersPanel.module.css';
 
@@ -17,6 +18,15 @@ export const MembersPanel = memo(function MembersPanel({
   conversationId: ConversationId;
   onClose?: () => void;
 }) {
+  // The inline column closed by its shortcut with focus in it: focus goes to the header's toggle,
+  // where the sheet's close returns it. The sheet hands focus back itself.
+  useHandOffFocus(
+    '[data-snowdrop="members"]',
+    () => {
+      focusQuietly(document.querySelector<HTMLElement>('[data-snowdrop="member-toggle"]'));
+    },
+    !onClose,
+  );
   return (
     <aside
       className={styles.panel}

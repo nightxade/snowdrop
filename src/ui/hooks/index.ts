@@ -15,6 +15,7 @@ export { useEffectivePrivacy } from './useEffectivePrivacy';
 export { useInView } from './useInView';
 export { useAvatarSrc, type AvatarSrcOptions } from './useAvatarSrc';
 export { useFrozenWhile } from './useFrozenWhile';
+export { useHandOffFocus } from './useHandOffFocus';
 export { useRovingFocus, type RovingOrientation } from './useRovingFocus';
 export { ShellLayoutProvider, useShellLayout, type ShellLayout } from './ShellLayout';
 export { useShellStyle } from './useShellStyle';

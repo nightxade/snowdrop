@@ -43,6 +43,8 @@ sidebar bottom-left, and Settings → Connection; docs/ENCRYPTION.md,
   in the composer (except with Vim mode on, where letters are commands).
 - **Esc** closes the topmost menu, popover or dialog first; dialogs return
   focus to whatever opened them.
+- While a dialog is open, the shortcuts above don't run: they would act on
+  the app behind it.
 - **Shift+F10**, the **Menu** key or **Mod+Enter** opens the context menu of
   the focused item (conversation, space, message, member, category).
 
@@ -59,17 +61,17 @@ sidebar bottom-left, and Settings → Connection; docs/ENCRYPTION.md,
 
 The list is one tab stop (the newest message by default).
 
-| Keys                       | Action                                                                                                          |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| ↑ / ↓                      | Previous / next message (↑ at the top loads older history)                                                      |
-| Enter                      | Step into the message: Tab then reaches its controls (hover bar first)                                          |
-| Esc                        | Step back out of the message                                                                                    |
-| R                          | Reply                                                                                                           |
-| E                          | Edit (your own message)                                                                                         |
-| + (or =)                   | Add a reaction                                                                                                  |
-| Delete / Backspace         | Delete: for everyone on your own messages, for you on others' (asks first; hold **Shift** to skip the question) |
-| Mod+Shift+S                | Forward (Signal Desktop's shortcut): pick up to five chats, edit, send                                          |
-| Shift+F10, Menu, Mod+Enter | Message menu (copy, copy as Markdown, pin, …)                                                                   |
+| Keys                       | Action                                                                                                |
+| -------------------------- | ----------------------------------------------------------------------------------------------------- |
+| ↑ / ↓                      | Previous / next message (↑ at the top loads older history)                                            |
+| Enter                      | Step into the message: Tab then reaches its controls (hover bar first)                                |
+| Esc                        | Step back out of the message                                                                          |
+| R                          | Reply                                                                                                 |
+| E                          | Edit (your own message)                                                                               |
+| + (or =)                   | Add a reaction                                                                                        |
+| Delete / Backspace         | Delete: for everyone on your own messages, for you on others' (asks first; with **Shift** it doesn't) |
+| Mod+Shift+S                | Forward (Signal Desktop's shortcut): pick up to five chats, edit, send                                |
+| Shift+F10, Menu, Mod+Enter | Message menu (copy, copy as Markdown, pin, …)                                                         |
 
 Clicking a quoted message (or Enter on it) jumps to the original and focuses it.
 

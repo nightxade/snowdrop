@@ -38,6 +38,8 @@ export interface EmojiPickerPopoverProps extends Omit<EmojiPickerProps, 'autoFoc
   stayOpen?: boolean;
   /** Optional personal image collection, only offered when the caller can attach files. */
   customContent?: ReactNode;
+  /** Where focus goes when it closes, when not the button it opened from (read at close). */
+  returnFocus?: () => HTMLElement | null | undefined;
 }
 
 /** The picker in a popover, anchored to (and toggled by) its child. */
@@ -51,6 +53,7 @@ export function EmojiPickerPopover({
   stayOpen,
   columns,
   customContent,
+  returnFocus,
 }: EmojiPickerPopoverProps) {
   const [custom, setCustom] = useState(false);
   const trigger = useRef<HTMLButtonElement | null>(null);
@@ -68,9 +71,10 @@ export function EmojiPickerPopover({
           collisionPadding={12}
           aria-label="Emoji picker"
           onCloseAutoFocus={(e) => {
-            // Back on the button without popping its tooltip, as after a dialog.
+            // Back on the button (or where the caller says) without popping its tooltip, as after a dialog.
             e.preventDefault();
-            if (trigger.current?.isConnected) focusQuietly(trigger.current);
+            const target = returnFocus?.() ?? trigger.current;
+            if (target?.isConnected) focusQuietly(target);
           }}
         >
           {customContent && (

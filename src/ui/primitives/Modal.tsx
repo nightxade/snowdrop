@@ -72,6 +72,7 @@ export function Modal({
         <RadixDialog.Overlay className={styles.overlay} />
         <RadixDialog.Content
           className={[styles.content, className].filter(Boolean).join(' ')}
+          data-modal-dialog=""
           data-size={size}
           data-placement={placement}
           {...(description ? {} : { 'aria-describedby': undefined })}

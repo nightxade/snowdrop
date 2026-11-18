@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react';
 import type { ConversationId } from '@/core/domain';
 import { useConversationView } from '@/ui/features/conversation';
+import { useHandOffFocus } from '@/ui/hooks';
 import { Drawer } from '@/ui/primitives';
 import { useChatController } from './ChatController';
 import styles from './ConversationArea.module.css';
@@ -20,6 +21,15 @@ export function SearchSlot({
 }) {
   const chat = useChatController();
   const conversation = useConversationView(conversationId);
+  // Closed by the shortcut (or any command) with focus in the panel: as closing it with Esc does,
+  // focus goes to the composer. The narrow sheet hands focus back itself.
+  useHandOffFocus(
+    '[data-snowdrop="search-panel"]',
+    () => {
+      chat.focusComposer();
+    },
+    !narrow,
+  );
   if (!conversation) return null;
   const close = () => {
     chat.setSearchOpen(false);

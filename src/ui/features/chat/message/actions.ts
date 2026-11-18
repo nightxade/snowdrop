@@ -171,7 +171,7 @@ export interface ActionContext {
   m: Message;
   p: MessagePermissions;
   openPicker: () => void;
-  /** Asks before deleting (skipped when Shift is held), or deletes at once on the quick-delete path. */
+  /** Asks before deleting, or deletes at once on the surfaces where Shift skips the question. */
   requestDelete: (kind: DeleteKind) => void;
   openDetails: () => void;
   requestEndPoll: () => void;
