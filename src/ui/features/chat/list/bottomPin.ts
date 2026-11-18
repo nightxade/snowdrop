@@ -35,6 +35,15 @@ export class BottomPin {
   /** Where the previous scroll event left `scrollTop`, to tell moving down from moving up. */
   private lastTop: number | null = null;
   private slack = PIN_SLACK_PX;
+  /**
+   * Opened at the unread divider or a jump target. Until the reader moves the list themselves, reaches
+   * the very bottom or jumps there, the virtualiser saying "at the bottom" (its first positioning, rows
+   * settling, an end that happens to lie within the slack) neither pins the list nor counts as the
+   * reader being there.
+   */
+  private heldAway = false;
+  /** What the virtualiser last said about being within the slack of the bottom. */
+  private reportedBottom = false;
 
   constructor(initiallyStuck = false) {
     this.stuck = initiallyStuck;
@@ -42,6 +51,11 @@ export class BottomPin {
 
   get isStuck(): boolean {
     return this.stuck;
+  }
+
+  /** Whether the list is still held where it was opened (see `heldAway`). */
+  get isHeldAway(): boolean {
+    return this.heldAway;
   }
 
   /** The current slack in px (see `slackFor`). */
@@ -59,6 +73,8 @@ export class BottomPin {
     this.stuck = stuck;
     this.following = false;
     this.lastTop = null;
+    this.heldAway = !stuck;
+    this.reportedBottom = false;
   }
 
   /**
@@ -75,6 +91,10 @@ export class BottomPin {
     if (distanceFromBottom <= 1) {
       this.stuck = true;
       this.following = false;
+      this.heldAway = false;
+    } else if (!this.heldAway && this.reportedBottom && distanceFromBottom <= this.slack) {
+      // A reader released from where the list opened, within the slack: as if they had scrolled there.
+      this.stuck = true;
     } else if (distanceFromBottom > this.slack && (!this.following || movedUp)) {
       this.stuck = false;
       this.following = false;
@@ -83,8 +103,20 @@ export class BottomPin {
 
   /** The virtualiser reached the bottom (e.g. after a jump to present). */
   onReachedBottom(): void {
+    this.reportedBottom = true;
+    if (this.heldAway) return;
     this.stuck = true;
     this.following = false;
+  }
+
+  /** The virtualiser is no longer within the slack of the bottom. */
+  onLeftBottom(): void {
+    this.reportedBottom = false;
+  }
+
+  /** The reader moved the list themselves (wheel, touch, a key, the scroll bar). */
+  onReaderInput(): void {
+    this.heldAway = false;
   }
 
   /**
@@ -94,6 +126,7 @@ export class BottomPin {
   beginFollow(scrollTop?: number): void {
     this.stuck = true;
     this.following = true;
+    this.heldAway = false;
     if (scrollTop !== undefined) this.lastTop = scrollTop;
   }
 

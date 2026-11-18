@@ -93,9 +93,15 @@ def pump_until(predicate, timeout_ms):
 JOURNEYS = []
 
 
-def journey(query='', known_bug=None, fails_at=None):
+def journey(query='', known_bug=None, fails_at=None, settings=None, notifications=False, microphone=None):
     """Registers a journey: `def name(page)`. `query` is added to the app's URL
     (for example `journeyCatchUp=held`, a demo that acts like a patched signal-cli).
+
+    `settings` is merged over the stored settings the journey starts with (a mode such as
+    `{'appearance': {'shell': 'tui'}}`, or `{'plugins': {'vim-mode': {'enabled': True}}}`): the
+    state a user would have chosen before this session. `notifications=True` gives the page a
+    granted `Notification` that only records what the app shows (`page.notifications()`), since
+    a real desktop notification cannot be observed from here.
 
     `known_bug` marks a journey that describes behaviour the app does not have
     yet. It must also say where it is expected to fail: `fails_at` is text of
@@ -117,6 +123,9 @@ def journey(query='', known_bug=None, fails_at=None):
                 'doc': (fn.__doc__ or '').strip(),
                 'known_bug': known_bug,
                 'fails_at': fails_at,
+                'settings': settings,
+                'notifications': notifications,
+                'microphone': microphone,
             }
         )
         return fn
@@ -128,6 +137,7 @@ def journey(query='', known_bug=None, fails_at=None):
 
 # What the desktop app does (tauri.conf.json `freezePrototype`), and the
 # settings that make the demo open straight into the app, quiet and themed.
+# `__SETTINGS__` is the stored settings object (JSON), `__NOTIFICATIONS__` and `__MIC_DENIED__` true or false.
 PRELOAD_JS = r"""
 Object.freeze(Object.prototype);
 window.__errors = [];
@@ -148,17 +158,51 @@ window.addEventListener('unhandledrejection', function (e) { window.__errors.pus
   try {
     if (!sessionStorage.getItem('__journey_seeded')) {
       sessionStorage.setItem('__journey_seeded', '1');
-      localStorage.setItem('snowdrop.settings', JSON.stringify({
-        v: 3,
-        data: {
-          appearance: { themeId: 'dusk' },
-          connection: { backend: 'mock', mockLiveliness: false, daemonUrl: '/signal-cli', account: null },
-        },
-      }));
+      localStorage.setItem('snowdrop.settings', JSON.stringify({ v: 3, data: __SETTINGS__ }));
     }
   } catch (e) { window.__errors.push('seed failed: ' + e); }
 })();
+if (__MIC_DENIED__) {
+  // The user (or the system) said no to the microphone: what a denied permission prompt gives the page.
+  var denied = function () { return Promise.reject(new DOMException('Permission denied', 'NotAllowedError')); };
+  if (window.MediaDevices) Object.defineProperty(window.MediaDevices.prototype, 'getUserMedia', { value: denied, configurable: true, writable: true });
+  else Object.defineProperty(navigator, 'mediaDevices', { value: { getUserMedia: denied }, configurable: true });
+}
+if (__NOTIFICATIONS__) {
+  // Records what the app shows. Granted, so the app takes the same path as with a real permission.
+  window.__notified = [];
+  window.__notifiedInstances = [];
+  window.Notification = function (title, options) {
+    var record = { title: String(title), body: String((options && options.body) || ''), tag: String((options && options.tag) || ''), closed: false };
+    window.__notified.push(record);
+    window.__notifiedInstances.push(this);
+    this.close = function () { record.closed = true; };
+  };
+  window.Notification.permission = 'granted';
+  window.Notification.requestPermission = function () { return Promise.resolve('granted'); };
+}
 """
+
+BASE_SETTINGS = {
+    'appearance': {'themeId': 'dusk'},
+    'connection': {'backend': 'mock', 'mockLiveliness': False, 'daemonUrl': '/signal-cli', 'account': None},
+}
+
+
+def _merged(base, extra):
+    out = dict(base)
+    for key, value in (extra or {}).items():
+        out[key] = _merged(out[key], value) if isinstance(out.get(key), dict) and isinstance(value, dict) else value
+    return out
+
+
+def preload_js(settings=None, notifications=False, microphone=None):
+    """The script run in every page before the app: frozen prototype, error capture, seeded settings."""
+    return (
+        PRELOAD_JS.replace('__SETTINGS__', json.dumps(_merged(BASE_SETTINGS, settings)))
+        .replace('__NOTIFICATIONS__', 'true' if notifications else 'false')
+        .replace('__MIC_DENIED__', 'true' if microphone == 'denied' else 'false')
+    )
 
 # DOM-style key names (what the docs and the app say) -> GDK key names.
 KEY_NAMES = {
@@ -216,7 +260,7 @@ def _step(fn):
 class Page:
     """One webview showing the app. Everything a journey does goes through here."""
 
-    def __init__(self, base_url, query=''):
+    def __init__(self, base_url, query='', stored_settings=None, notifications=False, microphone=None):
         self.base_url = base_url
         self.query = query
         self.mods = Gdk.ModifierType(0)  # modifier keys currently held down
@@ -233,7 +277,7 @@ class Page:
         content = WebKit2.UserContentManager()
         content.add_script(
             WebKit2.UserScript.new(
-                PRELOAD_JS,
+                preload_js(stored_settings, notifications, microphone),
                 WebKit2.UserContentInjectedFrames.ALL_FRAMES,
                 WebKit2.UserScriptInjectionTime.START,
                 None,
@@ -241,6 +285,10 @@ class Page:
             )
         )
         self.webview = WebKit2.WebView(web_context=context, user_content_manager=content, settings=settings)
+        # Nothing in the runner has a microphone, camera or location to give: a permission prompt that reaches
+        # here is answered "no". (In practice a microphone request in the offscreen window is never answered at all;
+        # `microphone='denied'` gives the refusal instead.)
+        self.webview.connect('permission-request', lambda _wv, request: request.deny() or True)
         self.webview.set_size_request(WIDTH, HEIGHT)
         self.window = Gtk.OffscreenWindow()
         self.window.set_default_size(WIDTH, HEIGHT)
@@ -279,13 +327,20 @@ class Page:
         # would never count as focused and WebKit drops keyboard input.
         self.webview.grab_focus()
         pump(50)
+        self.window_focus(True)
+        self.wait_for('!!window.__journey && !!document.querySelector("[data-snowdrop=conversation-row]")', 20000)
+
+    @_step
+    def window_focus(self, focused):
+        """Gives the window focus, or takes it away (the user switching to another app and back). It is
+        the focus-change event GTK sends a real window, so the page sees what it sees there: `focus` and
+        `blur` on `window`, and `document.hasFocus()` following."""
         ev = Gdk.Event.new(Gdk.EventType.FOCUS_CHANGE)
         ev.window = self.webview.get_window()
         ev.send_event = True
-        ev.in_ = True
-        self.webview.emit('focus-in-event', ev)
-        pump(50)
-        self.wait_for('!!window.__journey && !!document.querySelector("[data-snowdrop=conversation-row]")', 20000)
+        ev.in_ = bool(focused)
+        self.webview.emit('focus-in-event' if focused else 'focus-out-event', ev)
+        pump(80)
 
     def close(self):
         self.window.destroy()
@@ -571,6 +626,39 @@ class Page:
             return False
         out['surface'].write_to_png(str(path))
         return True
+
+    def notifications(self):
+        """What the app showed through the page's recording `Notification` (`notifications=True`): a list of
+        {title, body, tag, closed}. Check counts and tags; a failure message never needs the text."""
+        return self._run('return window.__notified;', 5000)
+
+    @_step
+    def click_notification(self, index):
+        """The user clicking a shown notification: runs the `onclick` the app gave it (the same handler
+        the desktop adapter's click would reach)."""
+        self._run(f'const n = window.__notifiedInstances.at({int(index)}); if (!n || !n.onclick) throw new Error("no such notification"); n.onclick(); return 1;', 5000)
+
+    def pixel(self, x, y):
+        """The colour (r, g, b) of the window's pixel at page position (x, y), from a real snapshot of what is painted."""
+        out = {}
+
+        def cb(wv, task, _data):
+            try:
+                out['surface'] = wv.get_snapshot_finish(task)
+            except GLib.Error as e:
+                out['err'] = str(e)
+            out['done'] = True
+
+        self.webview.get_snapshot(WebKit2.SnapshotRegion.VISIBLE, WebKit2.SnapshotOptions.NONE, None, cb, None)
+        pump_until(lambda: 'done' in out, 10000)
+        if 'surface' not in out:
+            raise JourneyFailure(f'no snapshot: {out.get("err")}')
+        surface = out['surface']
+        scale = surface.get_width() / WIDTH
+        data, stride = surface.get_data(), surface.get_stride()
+        i = int(y * scale) * stride + int(x * scale) * 4
+        b, g, r = data[i], data[i + 1], data[i + 2]  # little-endian ARGB32
+        return r, g, b
 
     def page_errors(self):
         """What the page reported: uncaught errors, unhandled rejections and `console.error`

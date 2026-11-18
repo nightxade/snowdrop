@@ -112,7 +112,12 @@ describe('useScrollerBinding', () => {
   it('removes the scroll listener on unmount and when the element changes', () => {
     const onScroll = vi.fn();
     const { result, unmount } = renderHook(() =>
-      useScrollerBinding({ rows: new RowStateHolder().rows, onScroll, onResize: vi.fn() }),
+      useScrollerBinding({
+        rows: new RowStateHolder().rows,
+        onScroll,
+        onResize: vi.fn(),
+        onReaderInput: vi.fn(),
+      }),
     );
     const a = document.createElement('div');
     const b = document.createElement('div');
@@ -131,6 +136,34 @@ describe('useScrollerBinding', () => {
     unmount();
     b.dispatchEvent(new Event('scroll'));
     expect(onScroll).toHaveBeenCalledTimes(2);
+  });
+
+  it('reports the reader moving the list: wheel, touch, keys and its own scroll bar, not a press on a row', () => {
+    const onReaderInput = vi.fn();
+    const { result, unmount } = renderHook(() =>
+      useScrollerBinding({
+        rows: new RowStateHolder().rows,
+        onScroll: vi.fn(),
+        onResize: vi.fn(),
+        onReaderInput,
+      }),
+    );
+    const list = document.createElement('div');
+    const row = document.createElement('div');
+    list.appendChild(row);
+    act(() => {
+      result.current.scrollerRef(list);
+    });
+    list.dispatchEvent(new Event('wheel'));
+    list.dispatchEvent(new Event('touchstart'));
+    row.dispatchEvent(new Event('keydown', { bubbles: true }));
+    list.dispatchEvent(new Event('pointerdown'));
+    expect(onReaderInput).toHaveBeenCalledTimes(4);
+    row.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    expect(onReaderInput).toHaveBeenCalledTimes(4);
+    unmount();
+    list.dispatchEvent(new Event('wheel'));
+    expect(onReaderInput).toHaveBeenCalledTimes(4);
   });
 });
 

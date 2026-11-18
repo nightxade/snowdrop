@@ -380,15 +380,20 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 ### C5. Bottom pin while rows settle
 
 - **Rule**: A list opened at the bottom stays pinned while images and fonts settle; one opened at the
-  unread divider or a jump target does not. It re-pins when the composer grows only if it was holding
-  the bottom.
+  unread divider or a jump target does not, even when its end lies within the follow slack: until the
+  reader moves it (wheel, touch, a key in the list, its scroll bar), reaches the very bottom or jumps
+  there, it is held where it opened, and is not "at the bottom" for read tracking either (C7). It
+  re-pins when the composer grows only if it was holding the bottom.
 - **Why**: Plan (the newest message half hidden).
 - **Pinned by**: ui/features/chat/list/bottomPin.test.ts :: a list opened at the bottom holds it while
-  rows settle; a list opened at the unread divider or a jump target does not; re-pins when the
-  composer grows only if it was holding the bottom; journeys/test_list.py ::
+  rows settle; a list opened at the unread divider or a jump target does not; opened at the divider
+  with its end within the slack: settling rows do not pin it; a reader released from the divider
+  within the slack follows again; a list held at the divider is released by reaching the very bottom,
+  or by a jump there; re-pins when the composer grows only if it was holding the bottom; ui/features/
+  chat/list/MessageListWiring.test.tsx :: reports the reader moving the list; journeys/test_list.py ::
   opened_at_the_bottom_stays_there (the newest row grows after it was measured, and the composer
-  grows under the list: the end stays in view), opened_at_the_unread_divider_is_not_pulled_down (a
-  row below grows: the view stays at the divider).
+  grows under the list: the end stays in view), opened_at_the_unread_divider_is_not_pulled_down (rows
+  settling and a row below growing: the view stays at the divider, the messages stay unread).
 - **Not pinned**: a late-loading image itself. Demo images reserve their box from the attachment's
   size, so nothing settles late by itself; the journeys grow a row from the page instead. A composer
   growing while the reader is scrolled up (not holding the bottom) has no journey.
@@ -412,17 +417,20 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 - **Rule**: A chat is marked read only while its bottom is visible and the window is focused;
   arrivals while scrolled up stay unread. Within the follow slack of the end (C1) is close enough to
   auto-read an arrival, which is followed into view, but messages that are already unread wait until
-  the end of the list is on screen (a reader who scrolled up and came back part of the way, or Esc
-  from the composer scrolling a row into view, has not seen them). A reaction or vote on your own
+  the newest message is wholly on screen (a reader who scrolled up and came back part of the way, or
+  Esc from the composer scrolling a row into view, has not seen them). That is measured on the
+  newest row, not the scroll end: the list's footer and the TUI shell's padding are not messages,
+  and the list's own scroll to the end can stop short of them. A reaction or vote on your own
   message counts as news that is read only when the chat is on screen, and it too waits until the
-  end of the list is on screen.
+  newest message is on screen.
 - **Why**: Signal parity; plan.
 - **Pinned by**: ui/features/chat/list/useReadTracking.test.tsx (all six); ui/features/chat/message/
   useHistoryRead.test.tsx :: waits for both focus and actual intersection, and ignores stale observer
   callbacks; ui/features/chat/list/useReadTracking.test.tsx :: waits for the newest message to be on
   screen, not just within the follow slack of the end; journeys/test_scrolling.py ::
-  scrolled_part_way_back_stays_unread.
-- **Not pinned**: real IntersectionObserver and window focus (journey).
+  scrolled_part_way_back_stays_unread, arrivals_while_the_window_is_away_stay_unread (real window
+  focus events); journeys/test_appearance.py :: tui_opening_an_unread_chat_reads_it.
+- **Not pinned**: real IntersectionObserver for history pages (useHistoryRead).
 
 ### C8. Unread divider and "N new messages" bar
 
@@ -500,13 +508,16 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 ### C13. Hover and flash are exclusive across the list
 
 - **Rule**: A row scrolled out from under a still pointer never leaves a stale hover. Keyboard focus
-  also activates a row; a mouse click inside does not.
+  also activates a row; a mouse click inside does not. The keyboard highlight goes out as soon as
+  focus turns up anywhere else, even when WebKitGTK moved it off the row without a blur (a resize).
 - **Why**: Plan bug (stale hover after scrolling).
 - **Pinned by**: journeys/test_list.py :: hover_follows_a_pointer_the_list_scrolls_under (a still
   pointer, real wheel, then the hovered row carried out of the rendered range and back: one hover bar,
   on the row under the pointer), one_row_flashes_after_a_jump (a second quote click moves the flash:
   never two rows); the random walk holds one flashing row and at most one hovered row (plus the
-  keyboard-focused one) at every step (journeys/fuzz.py).
+  keyboard-focused one) at every step (journeys/fuzz.py); ui/features/chat/message/
+  MessageItem.focusLoss.test.tsx :: goes out when focus turns up elsewhere without the row being
+  blurred.
 - **Not pinned**: no unit test drives `rowState`. WebKitGTK sends the leave of a row that scrolls out
   from under the pointer, so the per-row flags this replaced are only caught once the row leaves the
   page and returns.
@@ -773,8 +784,10 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   row stays on the sidebar; i focuses the composer from a sidebar row; gi focuses the composer with
   the caret at the end of the draft, from anywhere; outside Vim mode, a sidebar click leaves focus on
   the clicked row; outside Vim mode, type-to-focus still sends a stray letter to the composer;
-  ui/hooks/focusTargets.test.ts (all).
-- **Not pinned**: the real focus in WebKitGTK (journey).
+  ui/hooks/focusTargets.test.ts (all); journeys/test_vim.py :: vim_every_open_path_lands_on_the_list
+  (a click from the composer, J, K, ]u, gt and gT, the switcher and a clicked notification, with
+  "Focus the message box" on); the Vim random walk (`--mode vim`).
+- **Not pinned**: nothing beyond the walk's coverage.
 
 ### M12. Vim: Esc returns to the message list
 
@@ -786,8 +799,9 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 - **Pinned by**: ui/plugins/vim/VimController.test.ts :: runs FocusMessages on Esc from an empty input
   field; leaves Esc to a non-empty input field; blurs to the document body when no conversation is
   open; ui/plugins/vim/vim.integration.test.tsx :: keeps Escape-marks-read for Normal mode on an empty
-  draft, and returns to the messages.
-- **Not pinned**: real focus in WebKitGTK (journey with Vim mode on).
+  draft, and returns to the messages; journeys/test_vim.py :: vim_escape_returns_to_the_list; the Vim
+  random walk (`--mode vim`).
+- **Not pinned**: nothing.
 
 ### M13. Vim: composer
 
@@ -801,8 +815,9 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   compositionstart; shows a block in an empty composer; turns hollow while the composer is
   unfocused; shows its NORMAL/INSERT mode on the TUI shell status line; ui/plugins/vim/caret/
   caretCell.test.ts (all); ui/features/chat/composer/Composer.voice.test.tsx :: keeps key layers (Vim
-  mode) attached to the text field across a recording.
-- **Not pinned**: the caret's real paint and blink (journey with a screenshot).
+  mode) attached to the text field across a recording; journeys/test_vim.py ::
+  vim_composer_modes_and_caret (the block's painted pixel), vim_mode_shows_on_the_tui_status_line.
+- **Not pinned**: IME input in WebKitGTK (the runner cannot compose).
 
 ### M14. Vim counts and sequences
 
@@ -904,9 +919,10 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   Stickers, Emoji, then More options last; offers a file, a poll and a voice message in a group;
   offers no poll in a one-to-one chat, where Signal Desktop has none; leaves out the voice message
   while there is a draft to send; ui/features/chat/composer/StickerPicker.test.tsx :: puts the sticker
-  button right before the emoji button.
-- **Not pinned**: the rendered order in the TUI shell's CSS (the tests check DOM order only); a
-  journey in the TUI shell would pin it.
+  button right before the emoji button; journeys/test_composer.py ::
+  composer_buttons_sit_right_of_the_field, composer_buttons_sit_right_of_the_field_in_tui (by
+  bounding boxes); every random walk checks the order after each step.
+- **Not pinned**: nothing.
 
 ### P3. Enter sends
 
@@ -1035,8 +1051,11 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 - **Why**: Signal parity.
 - **Pinned by**: ui/features/chat/composer/Composer.voice.test.tsx (all); ui/features/chat/voice/
   recorder.test.ts, useVoiceRecorder.test.tsx and mp3Encoder.test.ts.
-- **Not pinned**: the real microphone permission and AudioWorklet at runtime (`src-tauri/src/
-mic_gate.rs` has unit tests for the gate only).
+  journeys/test_composer.py :: voice_message_waits_for_the_permission_and_cancels (the recorder's
+  starting state, Send off, Esc cancels), voice_message_refused_microphone_says_so (a denied
+  permission, from the shortcut and the menu).
+- **Not pinned**: a real recording (the runner has no microphone) and the AudioWorklet at runtime;
+  `src-tauri/src/mic_gate.rs` has unit tests for the gate only.
 
 ### P14. Custom emoji and emoticons
 
@@ -1080,9 +1099,10 @@ mic_gate.rs` has unit tests for the gate only).
   notifications are held for a catch-up, then speaks again; core/services/eventPipeline.test.ts ::
   keeps holding notifications while the queue is still working through the backlog; core/backend/
   signal-cli/SignalCliBackend.test.ts (catchingUp ordering cases, see G1).
+  journeys/test_notifications.py :: notifications_wait_for_the_end_of_catch_up (a held catch-up at
+  launch and a later one: nothing shown, nothing replayed, the next message shown).
 - **Not pinned**: the real wake-from-sleep flood with a live signal-cli backlog; a journey against a
-  real signal-cli would pin it. The journey build replays a catch-up on the demo backend
-  (journeys/test_catch_up.py) but checks the sidebar, not notifications.
+  real signal-cli would pin it.
 
 ### N2. The notification hold and the sidebar freeze are one flag pair
 
@@ -1116,8 +1136,10 @@ mic_gate.rs` has unit tests for the gate only).
   messages, or without permission; respects the master switch and the "nothing" mode; stays quiet for
   the conversation you are looking at (focused + visible + at the bottom); notifies for the open
   conversation when the tab is hidden; muted conversations (with expiry) and spaces only let mentions
-  and boosts through; mentions-only mode: groups need a mention or boost; DMs still notify.
-- **Not pinned**: "looking at" with a real window focus and scroll position (journey).
+  and boosts through; mentions-only mode: groups need a mention or boost; DMs still notify;
+  journeys/test_notifications.py :: looking_at_a_chat_is_quiet (real window focus events and scroll
+  position).
+- **Not pinned**: the desktop notification itself (the journey records what the page asks for).
 
 ### N5. Notification content
 
@@ -1353,8 +1375,9 @@ in its space` pins the service's `onClick` hook, which the in-browser `Notificat
 - **Why**: Bug: a WebKitGTK repaint problem left the chat on the old theme.
 - **Pinned by**: core/themes/themes.test.ts :: does not reposition its style tags when nothing has
   displaced them.
-- **Not pinned**: the real repaint after a theme switch; a journey that switches theme and checks a
-  computed colour would pin it.
+  journeys/test_appearance.py :: theme_switch_keeps_style_tags_and_repaints (no tag moves on a
+  switch with nothing displaced; the painted pixel follows each theme).
+- **Not pinned**: the rare WebKitGTK stale paint itself, which never reproduced on demand.
 
 ### T5. TUI layout
 
@@ -1367,8 +1390,9 @@ in its space` pins the service's `onClick` hook, which the in-browser `Notificat
   app/bootAppearance.test.ts (all three); ui/features/shell/StatusLine.test.tsx (all three); core/
   stores/settings.test.ts :: defaults the TUI shell to standard; core/plugins/api.p6.test.ts ::
   registers and tears down a status-line item.
-- **Not pinned**: alignment, borders and chip placement (CSS only); a journey in the TUI shell with
-  layout measurements would pin them.
+  journeys/test_appearance.py :: tui_regions_are_boxed_and_titled, tui_messages_sit_in_aligned_columns,
+  tui_jump_chip_sits_in_the_corner; the TUI random walk (`--mode tui`).
+- **Not pinned**: the boot paint with no flash (it happens before the runner can look).
 
 ### T6. Font size
 
@@ -2087,12 +2111,12 @@ shorter)` still passes but describes the old two-tracker design; the title shoul
 No test at all: N8, H2, G3, G8.
 
 Pinned, but with a part that is not: S2, S5, S13, S18, S19, S22, C2, C4, C5, C6, C7, C8, C10, C12,
-C13, C19, M8, M9, M11, M12, M13, M15, M18, P2, P6, P10, P13, N1, N4, D8, D9, T1, T4, T5, T6,
+C13, C19, M8, M9, M13, M15, M18, P6, P10, P13, N1, N4, D8, D9, T1, T4, T5, T6,
 T10, T11, T14, T16, V5, V10, H1, H3, H6, H7, G4, G5, G7, G9, R8.
 
 ## Next journeys
 
 Behaviour that needs real layout, focus, timing or input. Not covered by any journey yet: C2 (not
-reproducible in the runner, see its entry), C7, M11, M12, M13, P2, P13, N1, N4, T4, T5, H1. Covered
+reproducible in the runner, see its entry) and H1 (needs the packaged AppImage). Covered
 in part, worth extending: S18 (only Down after a click), C5 (a composer growing under a reader who
 is scrolled up), C6 (newer pages after a jump), M15 (drawers).

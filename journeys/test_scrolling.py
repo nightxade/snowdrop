@@ -67,3 +67,18 @@ def scrolled_part_way_back_stays_unread(page):
     page.scroll(SCROLLER, 600)
     page.wait_for(at_bottom())
     page.wait_for(f'{UNREAD} === 0')
+
+
+@journey()
+def arrivals_while_the_window_is_away_stay_unread(page):
+    """At the bottom of the open chat with the window unfocused (the user in another app), arrivals stay unread; focusing the window reads them."""
+    open_conversation(page, 'dm-priya')
+    page.wait_for(at_bottom())
+    page.window_focus(False)
+    page.wait_for('!__journey.state().windowFocused')
+    page.eval("__journey.deliver({ conversation: 'dm-priya', count: 2, spacingMs: 100, text: 'while away' })")
+    page.wait_for(f'{UNREAD} === 2')
+    page.expect_stays(f'{UNREAD} === 2', 1500)
+
+    page.window_focus(True)
+    page.wait_for(f'{UNREAD} === 0')

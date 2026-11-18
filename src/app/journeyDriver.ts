@@ -95,8 +95,20 @@ export interface JourneyState {
   selected: string | null;
   online: boolean;
   catchingUp: boolean;
+  /** The notification hold (`notificationsHeld`): on from a connect until the queue is empty. */
+  notificationsHeld: boolean;
+  /** What the app believes about its window (`document.hasFocus()` at the last focus event). */
+  windowFocused: boolean;
+  /** Whether the open chat's list is scrolled away from the newest message. */
+  scrolledUp: boolean;
   selfId: string;
   conversations: JourneyConversation[];
+}
+
+function openScrolledUp(snowdrop: Snowdrop): boolean {
+  const ui = snowdrop.stores.ui.getState();
+  const open = uiSelectors.selectedConversation(ui);
+  return open !== null && ui.scrolledUp[open] === true;
 }
 
 let lastSentAt = 0;
@@ -253,6 +265,9 @@ export function createJourneyDriver(snowdrop: Snowdrop, backend: MockBackend): J
         selected: uiSelectors.selectedConversation(snowdrop.stores.ui.getState()) ?? null,
         online: backend.getStatus() === 'online',
         catchingUp: session.getState().catchingUp,
+        notificationsHeld: session.getState().notificationsHeld,
+        windowFocused: snowdrop.stores.ui.getState().windowFocused,
+        scrolledUp: openScrolledUp(snowdrop),
         selfId,
         conversations: rows,
       };

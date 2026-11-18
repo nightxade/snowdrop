@@ -8,6 +8,7 @@ from common import (
     MESSAGE,
     SCROLLER,
     SLACK,
+    fill,
     is_current,
     open_conversation,
     send,
@@ -37,12 +38,6 @@ def open_via_switcher(page, name):
     page.key('Enter')
     page.wait_for('!document.querySelector("[role=dialog]")')
     page.wait_for(f'document.querySelectorAll({MESSAGE!r}).length > 0')
-
-
-def fill(page, key='dm-priya', count=40):
-    """A conversation long enough to scroll."""
-    page.eval(f"__journey.deliver({{ conversation: {key!r}, count: {count}, spacingMs: 20, text: 'filler' }})")
-    page.wait_for(f'{LAST_MESSAGE}?.textContent.includes("filler {count}")')
 
 
 @journey()
@@ -96,7 +91,7 @@ def opened_at_the_bottom_stays_there(page):
 
 @journey()
 def opened_at_the_unread_divider_is_not_pulled_down(page):
-    """A chat opened at its first unread message, far from the end, is not pinned to the bottom: when a row below grows the view stays where it is."""
+    """A chat opened at its first unread message is not pinned to the bottom while its rows settle, even when its end lies within half a page: the view stays at the divider (also when a row below grows) and the unread messages stay unread."""
     page.eval("__journey.deliver({ conversation: 'dm-ines', count: 30, text: 'while you were away' })")
     page.wait_for("__journey.state().conversations.find((c) => c.key === 'dm-ines').unread >= 30")
     open_conversation(page, 'dm-ines')
@@ -105,6 +100,7 @@ def opened_at_the_unread_divider_is_not_pulled_down(page):
     top = page.eval(f'document.querySelector({SCROLLER!r}).scrollTop')
     page.eval(GROW_NEWEST)
     page.expect_stays(f'Math.abs(document.querySelector({SCROLLER!r}).scrollTop - {top}) < 2 && {DISTANCE} > 200', 1500)
+    page.expect("__journey.state().conversations.find((c) => c.key === 'dm-ines').unread >= 30", 'the unread messages were marked read unseen')
 
 
 @journey(query='mockBulkMessages=400')

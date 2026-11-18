@@ -702,14 +702,18 @@ run itself.
 **Random walks.** `journeys/fuzz.py` plays a seeded random walk of real user
 actions (clicks, keys, wheel, resizes, dialogs, send, reply, edit, delete) mixed with live
 events (arrivals, receipts, typing, a catch-up with backlog) and checks the invariants listed
-at the top of that file after every step. `npm run journeys` runs three short fixed seeds
-(`journeys/test_fuzz.py`); `npm run journeys -- --fuzz --seed 7 --steps 300` (or `--seeds 1-30`)
+at the top of that file after every step. `npm run journeys` runs short fixed seeds, three in the
+standard mode and one in each other mode (`journeys/test_fuzz.py`); `npm run journeys -- --fuzz --seed 7 --steps 300` (or `--seeds 1-30`)
 runs longer ones. A failure prints the seed, the step and the last actions, and saves a
 screenshot; the same seed and step count replays the walk (timing can still make a replay differ).
 Where the walk meets a bug that is already a `known_bug` journey, it steps around it (the places
 say which) so it can keep looking; an exemption is exactly as wide as that bug, and an action that
 finds nothing to do is logged as skipped, never silently passed. It spends most steps in a wide
 window; narrow, it checks the drawer layout instead of the sidebar rows.
+A walk runs in one mode, set once through the stored settings a user would have chosen:
+`--mode standard` (the default), `vim` (Vim mode with its keys and focus rules), `tui`, `compact`,
+`theme` (a light theme), or `seed` (one of them by the seed). The invariants that differ in a mode
+are listed with the modes at the top of `journeys/fuzz.py`.
 
 A journey is a function in a `journeys/test_*.py` file, registered with
 `@journey()`, that drives a `Page` (`journeys/harness.py`) and reads like the
@@ -724,6 +728,15 @@ behaviour it protects:
 | `wait_for(js, timeout)`            | Poll until truthy (a throwing expression is retried). Use it instead of sleeping.                                     |
 | `expect_stays(js, duration)`       | The condition must hold on every poll (about 50 ms) for `duration`: "never changes". A throw fails, with its message. |
 | `shot(path)`                       | A screenshot (a failed journey saves one by itself).                                                                  |
+| `pixel(x, y)`                      | The painted colour at a page position, from a real snapshot.                                                          |
+| `window_focus(focused)`            | The GTK focus change a real window gets when the user switches apps (`focus`/`blur`, `document.hasFocus()`).          |
+| `click_notification(i)`            | Runs the click handler of a shown notification (with `notifications=True`).                                           |
+
+`@journey(settings=..., notifications=True, microphone='denied')` starts a journey with stored
+settings merged over the defaults (a mode such as the TUI shell or Vim mode), a granted
+`Notification` that only records what the app shows (`window.__notified`), and a microphone the
+user refused. Without `microphone`, a microphone request is never answered in the runner (the
+recorder waits in its starting state); it has no microphone either way.
 
 Each journey runs in a fresh webview with an ephemeral data store, and fails if
 the page reports an uncaught error, an unhandled rejection or a `console.error`

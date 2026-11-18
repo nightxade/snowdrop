@@ -29,14 +29,39 @@ Invariants (all read from the DOM and `__journey.state()`):
   - Esc from the composer lands on a message; a closed dialog gives focus back to its opener
     (what had focus before it when it had none, else the composer);
   - the composer holds the draft of the open chat (what was typed and not sent) and is
-    empty after a send.
+    empty after a send;
+  - the composer's field and buttons sit left to right in one row (P2), whatever the shell.
+
+Modes (`--mode NAME`, or `--mode seed` to take one from the seed): a walk runs in one mode, set once at
+the start through the stored settings a user would have chosen (journeys/common.py):
+  standard  the default shell, comfortable density, the Dusk theme;
+  vim       Vim mode on, with "focus the message box on open" also on (Vim must ignore it). Adds the Vim keys
+            (J/K, gt and gT, ]u and [u, i, Esc from a row, a tile, a header button or a search field). Invariants
+            that differ: every open path leaves focus out of the composer (M11); a click on a row lands on the
+            message list; Esc in the composer goes Insert -> Normal first and leaves it only from Normal
+            (M12/M13); a letter typed on the list is not typed into the composer (type-to-focus is off).
+  tui       the TUI shell (the list rests a few px above its scroll end there: "at the bottom" allows 20 px);
+  compact   compact density;
+  theme     the Linen theme (light), which must stay applied throughout.
 """
 import json
 import random
 import re
 import time
 
-from common import COMPOSER, JUMP_PILL, LAST_MESSAGE, MESSAGE, SCROLLER, click_text
+from common import (
+    COMPACT_SETTINGS,
+    COMPOSER,
+    JUMP_PILL,
+    LAST_MESSAGE,
+    MESSAGE,
+    MODE_PILL,
+    OTHER_THEME_SETTINGS,
+    SCROLLER,
+    TUI_SETTINGS,
+    VIM_WITH_COMPOSER_ON_OPEN,
+    click_text,
+)
 from harness import ExpectationFailed, JourneyFailure, pump
 
 NEW_MESSAGE = '[data-snowdrop=sidebar-header] button[aria-label="New message"]'
@@ -45,9 +70,32 @@ HOVER_REPLY = '[data-snowdrop=hover-bar] button[aria-label^="Reply"]'
 HOVER_DELETE = '[data-snowdrop=hover-bar] button[aria-label^="Delete"]'
 WIDTHS = {'wide': 1280, 'medium': 900, 'narrow': 700}  # narrow is under the drawer breakpoint (760)
 DRAWER_BELOW = 760  # DECISIONS S20
+SIDE_PANELS_FROM = 1100  # the member list and the search panel sit beside the chat from this width (useMediaQuery BREAKPOINTS)
 MAX_NARROW_STEPS = 3  # the walk goes back to a wide window after this many steps (most steps are wide)
 OPEN_NAV = '[data-snowdrop=chat-header] button[aria-label^="Open navigation"]'
 DELETED_LINE = 'You deleted this message'
+
+# The stored settings of each mode (set once, before the app starts).
+MODES = {
+    'standard': None,
+    'vim': VIM_WITH_COMPOSER_ON_OPEN,
+    'tui': TUI_SETTINGS,
+    'compact': COMPACT_SETTINGS,
+    'theme': OTHER_THEME_SETTINGS,
+}
+# What the root element says in each mode: (attribute, value).
+MODE_ROOT = {'tui': ('data-shell', 'tui'), 'compact': ('data-density', 'compact'), 'theme': ('data-theme', OTHER_THEME_SETTINGS['appearance']['themeId'])}
+# How far from the end of the list still counts as "at the bottom" (the TUI list rests ~13 px short of its end).
+BOTTOM_PX = {'tui': 20}
+
+
+def mode_for(name, seed):
+    """The mode a walk runs in: its name, or `seed` to pick one by the seed (round robin over MODES)."""
+    if name == 'seed':
+        return list(MODES)[seed % len(MODES)]
+    if name not in MODES:
+        raise ValueError(f'unknown mode {name!r}; known: seed, {", ".join(MODES)}')
+    return name
 
 # How long a state that is only eventually right (a preview, a badge) may stay wrong.
 CONVERGE_S = 3.0
@@ -112,6 +160,19 @@ SNAP = f"""(() => {{
     openMenus: qa('[role=menu]').length,
     currentOk: current.every((e) => e.matches('[data-snowdrop=message]') && !!scroller && scroller.contains(e)),
     composer: composer ? composer.value : null,
+    vimMode: q({MODE_PILL!r})?.getAttribute('data-vim-mode') ?? null,
+    rootShell: document.documentElement.getAttribute('data-shell'),
+    rootDensity: document.documentElement.getAttribute('data-density'),
+    rootTheme: document.documentElement.getAttribute('data-theme'),
+    searchOpen: !!q('[data-snowdrop=search-panel]'),
+    composerOrder: (() => {{
+      if (!composer || q('[aria-label="Voice message recorder"]')) return true;
+      const f = composer.getBoundingClientRect();
+      const b = ['Stickers', 'Emoji', 'More options'].map((n) => q('[data-snowdrop=composer] button[aria-label="' + n + '"]'));
+      if (b.some((e) => !e)) return true;
+      const r = b.map((e) => e.getBoundingClientRect());
+      return f.right <= r[0].left + 1 && r[0].right <= r[1].left + 1 && r[1].right <= r[2].left + 1 && r.every((x) => x.top < f.bottom && x.bottom > f.top);
+    }})(),
     selection: composer ? [composer.selectionStart, composer.selectionEnd] : null,
     replying: !!q('[data-snowdrop=reply-bar]'),
     editing: !!q('[data-snowdrop=message] textarea'),
@@ -120,9 +181,12 @@ SNAP = f"""(() => {{
     active: ae ? {{
       body: ae === document.body || ae === document.documentElement,
       composer: ae === composer,
+      sidebar: !!ae.closest('[data-snowdrop=sidebar]'),
+      rail: !!ae.closest('[data-snowdrop=rail]'),
+      search: !!ae.closest('[data-snowdrop=search-panel]'),
       row: ae.matches('[data-conversation-id]'),
       message: ae.matches('[data-snowdrop=message]'),
-      tag: ae.tagName + (ae.getAttribute('data-snowdrop') ? '[' + ae.getAttribute('data-snowdrop') + ']' : ''),
+      tag: ae.tagName + (ae.getAttribute('data-snowdrop') ? '[' + ae.getAttribute('data-snowdrop') + ']' : ae.closest('[data-snowdrop]') ? ' in [' + ae.closest('[data-snowdrop]').getAttribute('data-snowdrop') + ']' : ''),
       scroller: ae.matches('[data-virtuoso-scroller]'),
       inList: !!log && log.contains(ae),
       hoverBar: !!ae.closest('[data-snowdrop=hover-bar]'),
@@ -158,8 +222,11 @@ class FuzzFailure(ExpectationFailed):
 
 
 class Fuzzer:
-    def __init__(self, page, seed, steps):
+    def __init__(self, page, seed, steps, mode='standard'):
         self.page = page
+        self.mode = mode
+        self.vim = mode == 'vim'
+        self.bottom_px = BOTTOM_PX.get(mode, 3)
         self.seed = seed
         self.steps = steps
         self.rng = random.Random(seed)
@@ -189,7 +256,7 @@ class Fuzzer:
         tail = '\n'.join('        ' + line for line in self.log[-20:])
         raise FuzzFailure(
             f'fuzz seed {self.seed}, step {self.step_no} of {self.steps}: {why}\n'
-            f'      last actions (replay: --fuzz --seed {self.seed} --steps {self.step_no}):\n{tail}'
+            f'      last actions (replay: --fuzz --mode {self.mode} --seed {self.seed} --steps {self.step_no}):\n{tail}'
         )
 
     def skip(self, why):
@@ -313,7 +380,7 @@ class Fuzzer:
             (4, 'open_alt', lambda s: s['st']['selected'] is not None),
             (2, 'open_switcher', lambda s: has_chat(s)),
             (5, 'scroll_list', has_msgs),
-            (3, 'jump_bottom', lambda s: has_msgs(s) and (s['pill'] or (s['dist'] or 0) > 3)),
+            (3, 'jump_bottom', lambda s: has_msgs(s) and (s['pill'] or (s['dist'] or 0) > self.bottom_px)),
             (7, 'send', lambda s: has_chat(s) and not_busy(s)),
             (3, 'type_draft', lambda s: has_chat(s)),
             (2, 'type_to_focus', lambda s: has_msgs(s)),
@@ -338,7 +405,14 @@ class Fuzzer:
             (2, 'receipt', lambda s: has_chat(s)),
             (2, 'typing', lambda s: has_chat(s)),
             (2, 'catch_up', lambda s: self.catch_up_left == 0 and has_chat(s)),
-        ]
+        ] + ([
+            (5, 'vim_switch', lambda s: has_chat(s) and s['width'] >= DRAWER_BELOW and len(s['rows']) > 1),
+            (3, 'vim_space', lambda s: has_chat(s) and s['width'] >= DRAWER_BELOW),
+            (3, 'vim_unread', lambda s: has_chat(s) and s['width'] >= DRAWER_BELOW),
+            (3, 'vim_insert', lambda s: has_chat(s)),
+            (4, 'vim_escape_from', lambda s: has_msgs(s) and s['width'] >= DRAWER_BELOW),
+            (2, 'vim_search_escape', lambda s: has_msgs(s) and s['width'] >= SIDE_PANELS_FROM),  # below that the search panel is an overlay sheet: Esc closes it
+        ] if self.vim else [])
 
     # ------------------------------------------------------------ user actions
 
@@ -360,24 +434,32 @@ class Fuzzer:
     def leave_request(self):
         self.open_click()
 
-    def after_open(self):
+    def after_open(self, strict=True):
         # A message request has no composer until it is accepted.
         self.page.wait_for(f'!!document.querySelector({COMPOSER!r}) || !!document.querySelector("[data-snowdrop=message-request]")', 5000)
         self.settle(250)
         self.unseen.discard(self.snap()['st']['selected'])
+        if self.vim:
+            self.vim_lands(strict)
 
     def open_alt(self):
         direction = self.rng.choice(['ArrowUp', 'ArrowDown'])
         self.say(f'Alt+{direction}')
         self.keyboard = True
         not_from_row = not self.snap_['active']['row']
+        before = self.snap_['st']['selected']
         self.page.key(direction, ['alt'])
         self.settle(300)
         now = self.snap()['st']['selected']
+        if now == before:
+            self.say('  stayed (no chat that way)')
+            return
         self.say(f'  moved to {"a chat opened before" if now in self.visited else "a chat not opened before"}'
                  f' (from {"elsewhere" if not_from_row else "a row"})')
         if now is not None:
             self.unseen.discard(now)
+        if self.vim:
+            self.vim_lands(False)
 
     def open_switcher(self):
         snap = self.snap_
@@ -392,6 +474,8 @@ class Fuzzer:
         self.page.type(word)
         self.page.key(end)
         self.dialog_closed(end == 'Enter')
+        if self.vim and end == 'Enter':
+            self.vim_lands(False)
 
     def dialog_closed(self, may_open_chat=False):
         """Waits for the dialog to go away (pressing Esc once more when Enter left it open)."""
@@ -433,7 +517,7 @@ class Fuzzer:
             self.say('Shift+PageDown (jump to latest)')
             self.keyboard = True
             self.page.key('PageDown', ['shift'])
-        if not pump_wait(self.page, 'document.querySelector(' + json.dumps(SCROLLER) + ').scrollHeight - document.querySelector(' + json.dumps(SCROLLER) + ').scrollTop - document.querySelector(' + json.dumps(SCROLLER) + ').clientHeight < 3', 4000):
+        if not pump_wait(self.page, 'document.querySelector(' + json.dumps(SCROLLER) + ').scrollHeight - document.querySelector(' + json.dumps(SCROLLER) + ').scrollTop - document.querySelector(' + json.dumps(SCROLLER) + f').clientHeight < {self.bottom_px}', 4000):
             self.fail('jumping to the bottom did not reach the bottom')
 
     def focus_composer(self):
@@ -444,6 +528,15 @@ class Fuzzer:
             pump(int(wait * 1000))
         self.page.click(COMPOSER)
         self.last_composer_click = time.monotonic()
+        self.ensure_insert()
+
+    def ensure_insert(self):
+        if self.vim and self.page.eval(f'document.querySelector({MODE_PILL!r})?.getAttribute("data-vim-mode") !== "insert"'):
+            # The composer remembers its mode per chat: after an Esc it is in Normal, where letters are commands.
+            self.say('  (Vim: the composer was in Normal mode; i for Insert)')
+            self.page.key('i')
+            if not pump_wait(self.page, f'document.querySelector({MODE_PILL!r})?.getAttribute("data-vim-mode") === "insert"', 1500):
+                self.fail('i in the composer\'s Normal mode did not give Insert mode (M13)')
 
     def send(self):
         conversation = self.selected()
@@ -495,7 +588,15 @@ class Fuzzer:
         snap = self.snap()
         chat = next((c for c in snap['st']['conversations'] if c['id'] == snap['st']['selected']), None)
         marks_read = snap['composer'] == '' and not snap['replying'] and chat is not None and chat['hasUnread']
+        if self.vim and snap['vimMode'] != 'normal':
+            marks_read = False  # M12: the first Esc in Insert mode never marks anything read
         self.page.key('Escape')
+        if self.vim and snap['vimMode'] == 'insert':
+            if not pump_wait(self.page, f'document.querySelector({MODE_PILL!r})?.getAttribute("data-vim-mode") === "normal" && document.activeElement === document.querySelector({COMPOSER!r})', 1500):
+                self.fail('Vim: the first Esc in the composer did not leave Insert for Normal with the composer still focused (M12/M13)')
+            now = next((c for c in self.snap()['st']['conversations'] if c['id'] == snap['st']['selected']), None)
+            if chat is not None and chat['hasUnread'] and now is not None and not now['hasUnread']:
+                self.fail('Vim: the first Esc in Insert mode marked the chat read (M12)')
         if marks_read:
             self.unseen.discard(snap['st']['selected'])
 
@@ -503,11 +604,24 @@ class Fuzzer:
         """Focus the composer, press Esc (twice when a reply was pending): focus must land on a message."""
         self.focus_composer()
         self.keyboard = True
-        for _ in range(2):
+        for _ in range(3 if self.vim else 2):
             self.press_escape_in_composer()
             self.settle(250)
             if not self.snap()['active']['composer']:
                 break
+        if self.vim and self.snap()['active']['composer'] and self.snap()['composer'] != '':
+            # M12: Normal-mode Esc leaves the composer only on an empty draft. With one, a user clicks a message.
+            self.say('  (Vim: Esc does not leave a composer holding a draft; click a message instead)')
+            in_view = self.snap()['inView']
+            target = in_view[-1] if in_view else None
+            if target is None:
+                self.skip('Vim: a draft in the composer and no message to click out to')
+                return
+            self.page.click(f'[data-message-id="{target}"]')
+            if not pump_wait(self.page, 'document.activeElement?.matches("[data-snowdrop=message]")', 1500):
+                self.skip('Vim: the click on a message did not focus it (it landed on something inside the row)')
+                self.keyboard = False
+                return
         if not pump_wait(self.page, 'document.activeElement?.matches("[data-snowdrop=message]")', 2000):
             self.fail('Esc from the composer did not land on a message')
 
@@ -525,6 +639,16 @@ class Fuzzer:
         self.leave_composer()
         snap = self.snap()
         before = snap['composer']
+        if self.vim:
+            if not snap['active']['message'] and not snap['active']['scroller']:
+                self.skip('Vim: the list did not have focus to type a letter on')
+                return
+            self.page.type('q')  # type-to-focus is off in Vim mode (M11): an unmapped letter does nothing
+            self.settle(400)
+            after = self.snap()
+            if after['active']['composer'] or after['composer'] != before:
+                self.fail('Vim: a letter typed on the message list reached the composer (type-to-focus must be off)')
+            return
         start, end = snap['selection']  # a letter typed on the list lands where the caret was left
         expected = before[:start] + 'q' + before[end:]
         self.page.type('q')
@@ -544,6 +668,11 @@ class Fuzzer:
         before = self.snap()['composer']
         self.page.key('r')
         if not pump_wait(self.page, '!!document.querySelector("[data-snowdrop=reply-bar]")', 1500):
+            if self.vim:
+                self.skip('R offered no reply on that message; in Vim mode the letter does nothing')
+                if self.snap()['composer'] != before or self.snap()['active']['composer']:
+                    self.fail('Vim: r on a message without a reply reached the composer')
+                return
             # Not a reply: the letter starts a message (typing on the list moves to the composer), as for q.
             self.skip('R offered no reply on that message, so the letter went to the composer')
             if not pump_wait(self.page, f'document.querySelector({COMPOSER!r}).value === {json.dumps(before + "r")}', 1500):
@@ -558,6 +687,7 @@ class Fuzzer:
     def finish_reply(self):
         conversation = self.selected()
         text = self.body()
+        self.ensure_insert()
         self.page.type(text)
         self.page.key('Enter')
         self.drafts[conversation] = ''
@@ -817,7 +947,7 @@ class Fuzzer:
         if self.rng.random() < 0.4:
             self.say('Enter on the focused row (open it)')
             self.page.key('Enter')
-            self.after_open()
+            self.after_open(strict=False)
 
     def dialog_settings(self):
         how = self.rng.choice(['click', 'shortcut']) if self.snap_['settingsButton'] else 'shortcut'
@@ -873,9 +1003,156 @@ class Fuzzer:
             return
         target = self.rng.choice(choices)['id']
         self.page.click(f'[data-conversation-id="{target}"]')
-        self.after_open()
+        self.after_open(strict=False)
         if not pump_wait(self.page, '!document.querySelector("[data-snowdrop=drawer]")', 3000):
             self.fail('picking a chat in the navigation drawer did not close it')
+
+    # ------------------------------------------------------------ Vim keys (mode `vim`)
+
+    def vim_lands(self, strict):
+        """M11: after any way of opening a chat focus never goes to the composer (watched for a second); after a
+        click or J/K from the list it ends on the message list (when the chat has one)."""
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            if self.snap()['active']['composer']:
+                self.fail(f'Vim: opening a chat left focus in the composer (M11); focus was: {self.focus_before}')
+            pump(100)
+        snap = self.snap()
+        if strict and snap['composer'] is not None and snap['messageCount'] > 0 and not snap['searchOpen']:
+            # (With the chat's search panel left open, the panel takes focus when the chat is shown: its own rule.)
+            if not pump_wait(self.page, 'document.activeElement?.matches("[data-snowdrop=message], [data-virtuoso-scroller]")', 3000):
+                self.fail(f'Vim: opening a chat did not leave focus on the message list (on {self.snap()["active"]["tag"]}) (M11)')
+
+    def vim_start_on_list(self):
+        """Focus on the message list, the way the Vim keys expect to find it. False when it could not be got there."""
+        self.keyboard = True
+        if self.snap()['active']['composer']:
+            self.leave_composer()
+        snap = self.snap()
+        if snap['active']['message'] or snap['active']['scroller']:
+            return True
+        if snap['inView']:
+            self.say('  (click a message to put focus on the list)')
+            self.page.click(f'[data-message-id="{snap["inView"][-1]}"]')
+            self.settle(200)
+            if self.snap()['active']['message']:
+                return True
+        self.keyboard = False  # nothing was done with the keyboard: a focus lost earlier is not this action's
+        return False
+
+    def vim_switch(self):
+        key = self.rng.choice(['J', 'K'])
+        self.say(f'Vim: {key} (next/previous chat) from the message list')
+        if not self.vim_start_on_list():
+            self.skip('Vim: could not put focus on the list for J/K')
+            return
+        before = self.selected()
+        self.page.key(key)
+        pump_wait(self.page, f'__journey.state().selected !== {before!r}', 2500)
+        now = self.snap()['st']['selected']
+        if now == before:
+            self.skip('Vim: J/K did not change the open chat')
+            return
+        self.unseen.discard(now)
+        self.vim_lands(True)
+
+    def vim_space(self):
+        self.say('Vim: gt then gT (next space, back again) from the message list')
+        if not self.vim_start_on_list():
+            self.skip('Vim: could not put focus on the list for gt')
+            return
+        before = self.selected()
+        space = self.page.eval('document.querySelector("[data-snowdrop=rail] [aria-current=page]")?.getAttribute("aria-label") ?? null')
+        self.page.key('g')
+        self.page.key('t')
+        if not pump_wait(self.page, f'(document.querySelector("[data-snowdrop=rail] [aria-current=page]")?.getAttribute("aria-label") ?? null) !== {space!r}', 2500):
+            self.skip('Vim: gt did not change the space (only one)')
+            return
+        if self.snap()['active']['composer']:
+            self.fail('Vim: gt left focus in the composer (M11)')
+        if self.snap()['st']['selected'] is not None:
+            self.unseen.discard(self.snap()['st']['selected'])  # the space showed the chat it had open: now seen
+        self.settle(300)
+        self.page.key('g')
+        self.page.key('T', ['shift'])
+        if not pump_wait(self.page, f'(document.querySelector("[data-snowdrop=rail] [aria-current=page]")?.getAttribute("aria-label") ?? null) === {space!r}', 2500):
+            self.fail('Vim: gT did not come back to the space gt left')
+        if self.snap()['st']['selected'] != before:
+            self.fail('Vim: after gt and gT the open chat is not the one it was')
+        self.vim_lands(True)
+
+    def vim_unread(self):
+        key = self.rng.choice([']', '['])
+        self.say(f'Vim: {key}u (next/previous unread chat) from the message list')
+        if not self.vim_start_on_list():
+            self.skip('Vim: could not put focus on the list for ]u')
+            return
+        before = self.selected()
+        self.page.key(key)
+        self.page.key('u')
+        pump_wait(self.page, f'__journey.state().selected !== {before!r}', 2500)
+        now = self.snap()['st']['selected']
+        if now == before:
+            self.skip('Vim: ]u/[u opened nothing (no other unread chat)')
+            return
+        self.unseen.discard(now)
+        self.vim_lands(False)
+
+    def vim_insert(self):
+        key = self.rng.choice(['i', 'a', 'A', 'I'])
+        self.say(f'Vim: {key} from the message list (focus the composer in Insert mode)')
+        if not self.vim_start_on_list():
+            self.skip('Vim: could not put focus on the list for i')
+            return
+        self.page.key(key, ['shift'] if key in 'AI' else [])
+        if not pump_wait(self.page, f'document.activeElement === document.querySelector({COMPOSER!r}) && document.querySelector({MODE_PILL!r})?.getAttribute("data-vim-mode") === "insert"', 2000):
+            self.fail(f'Vim: {key} did not focus the composer in Insert mode (M11/M13)')
+        self.last_composer_click = time.monotonic()
+        self.snap()
+        self.drafts[self.selected()] = self.snap_['composer']
+
+    def vim_escape_from(self):
+        where = self.rng.choice(['sidebar row', 'rail tile', 'header button'])
+        self.say(f'Vim: focus a {where}, then Esc (back to the message list)')
+        self.keyboard = True
+        if self.snap()['active']['composer']:
+            self.leave_composer()
+        selector = {
+            'sidebar row': '[data-snowdrop=sidebar] [data-conversation-id][data-roving-item]',
+            'rail tile': '[data-snowdrop=rail] button',
+            'header button': '[data-snowdrop=chat-header] button',
+        }[where]
+        if not self.page.eval(f'(() => {{ const e = [...document.querySelectorAll({selector!r})].find((x) => x.getBoundingClientRect().width > 0); if (!e) return false; e.focus(); return document.activeElement === e; }})()'):
+            self.skip(f'Vim: no {where} to focus')
+            return
+        self.page.key('Escape')
+        if not pump_wait(self.page, 'document.activeElement?.matches("[data-snowdrop=message], [data-virtuoso-scroller]")', 2500):
+            self.fail(f'Vim: Esc from a {where} did not return focus to the message list (on {self.snap()["active"]["tag"]}) (M12)')
+
+    def vim_search_escape(self):
+        self.say('Vim: / (search in the chat), type, Esc clears, Esc again returns to the message list')
+        if not self.vim_start_on_list():
+            self.skip('Vim: could not put focus on the list for /')
+            return
+        field = '[data-snowdrop=search-panel] input'
+        if self.snap()['searchOpen']:
+            self.skip('Vim: the search panel is already open (/ then does not move focus to its field)')
+            self.keyboard = False
+            return
+        self.page.key('/')
+        if not pump_wait(self.page, f'document.activeElement === document.querySelector({field!r})', 2000):
+            self.fail('Vim: / did not focus the chat search field')
+        self.page.type('abc')
+        self.page.key('Escape')
+        if not pump_wait(self.page, f'document.querySelector({field!r})?.value === "" && document.activeElement === document.querySelector({field!r})', 1500):
+            self.fail('Vim: the first Esc in a search field with text did not just clear it (M12)')
+        self.page.key('Escape')
+        if not pump_wait(self.page, 'document.activeElement?.matches("[data-snowdrop=message], [data-virtuoso-scroller]")', 2500):
+            self.fail(f'Vim: Esc in an empty search field did not return focus to the message list (on {self.snap()["active"]["tag"]}) (M12)')
+        # Esc in Vim mode leaves the panel open (it returns to the list); Ctrl+F toggles it shut.
+        self.page.key('f', ['ctrl'])
+        if not pump_wait(self.page, '!document.querySelector("[data-snowdrop=search-panel]")', 2000):
+            self.fail('Ctrl+F did not close the open search panel')
 
     # ------------------------------------------------------------ events
 
@@ -886,7 +1163,7 @@ class Fuzzer:
         spacing = self.rng.choice([0, 30, 120])
         dist = snap['dist']
         scrolled = dist is not None and dist > snap['slack'] + 40  # the app follows arrivals within its slack (bottomPin.ts)
-        at_bottom = dist is not None and dist < 3
+        at_bottom = dist is not None and dist < self.bottom_px
         anchor = before = None
         if scrolled and snap['messageCount'] > 0 and snap['inView']:
             anchor = self.page.eval(PICK_ANCHOR)
@@ -1047,14 +1324,26 @@ class Fuzzer:
                 if c is None or c['muted']:
                     continue
                 if cid == st['selected']:
-                    if s['dist'] is not None and s['dist'] < 3:
+                    if s['dist'] is not None and s['dist'] < self.bottom_px:
                         self.unseen.discard(cid)  # scrolled back to the bottom: read
                     elif c['unread'] == 0:
                         out.append('arrivals while scrolled up in the open chat are not counted unread')
                 elif c['unread'] == 0 and c['mentions'] == 0:
                     out.append('a chat with an arrival nobody has seen shows nothing unread')
-            if chat and s['dist'] is not None and s['dist'] < 3 and s['pending'] == 0 and chat['unread'] > 0:
+            if chat and s['dist'] is not None and s['dist'] < self.bottom_px and s['pending'] == 0 and chat['unread'] > 0:
                 out.append('the open chat, at the bottom, still has unread messages')
+        if self.mode in MODE_ROOT:
+            attr, want = MODE_ROOT[self.mode]
+            got = {'data-shell': s['rootShell'], 'data-density': s['rootDensity'], 'data-theme': s['rootTheme']}[attr]
+            if got != want:
+                out.append(f'the {self.mode} mode is not applied any more ({attr} is {got!r}, expected {want!r})')
+        if s['composer'] is not None and not s['composerOrder']:
+            out.append('the composer\'s field and buttons are not [field] [Stickers] [Emoji] [More options] from left to right (P2)')
+        if s['composer'] is not None and not s['editing']:
+            if self.vim and s['vimMode'] is None:
+                out.append('Vim mode is on but the composer shows no mode pill')
+            if not self.vim and s['vimMode'] is not None:
+                out.append('Vim mode is off but the composer shows a mode pill')
         if st['selected'] is not None and s['composer'] is not None and not s['editing']:
             expected = self.drafts.get(st['selected'], '')
             if s['composer'] != expected:
@@ -1071,8 +1360,8 @@ def pump_wait(page, js, timeout_ms):
         return False
 
 
-def fuzz(page, seed, steps):
+def fuzz(page, seed, steps, mode='standard'):
     """Runs one walk; returns what it did: how often each action ran and how often one found nothing to do."""
-    walker = Fuzzer(page, seed, steps)
+    walker = Fuzzer(page, seed, steps, mode)
     walker.run()
     return {'walked': walker.walked, 'skips': walker.skips}

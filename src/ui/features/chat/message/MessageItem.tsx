@@ -202,6 +202,20 @@ export const MessageItem = memo(function MessageItem({
     };
   });
   useLayoutEffect(() => rows.registerActions(id, (action) => actions.current(action)), [rows, id]);
+  // WebKitGTK can take focus off a row without a blur (a resize that relays the list out): the row
+  // must not keep its keyboard highlight once focus turns up anywhere else.
+  useEffect(() => {
+    if (!focused) return;
+    const onFocusIn = (e: FocusEvent) => {
+      if (e.target instanceof Node && row.current?.contains(e.target)) return;
+      setFocused(false);
+      if (entered) rows.enter(null);
+    };
+    document.addEventListener('focusin', onFocusIn, true);
+    return () => {
+      document.removeEventListener('focusin', onFocusIn, true);
+    };
+  }, [focused, entered, rows]);
   // Entering moves focus to the first control (the hover bar once it has mounted).
   useEffect(() => {
     if (!entered || !row.current) return;

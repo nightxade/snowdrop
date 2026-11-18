@@ -46,7 +46,7 @@ def is_the_known_failure(entry, exc, where):
 
 
 def run_one(entry, base_url, shots):
-    page = harness.Page(base_url, entry['query'])
+    page = harness.Page(base_url, entry['query'], entry.get('settings'), entry.get('notifications', False), entry.get('microphone'))
     failure = None
     try:
         page.open()
@@ -86,15 +86,21 @@ def run_fuzz(args):
     for seed in seeds:
         t0 = time.monotonic()
         skipped = []
+        try:
+            mode = fuzz.mode_for(args.mode, seed)
+        except ValueError as e:
+            print(e)
+            return 2
         entry = {
             'name': f'fuzz_seed_{seed}',
             'query': 'journeyCatchUp=held',
-            'fn': lambda page, s=seed: skipped.append(fuzz.fuzz(page, s, args.steps)),
+            'settings': fuzz.MODES[mode],
+            'fn': lambda page, s=seed, m=mode: skipped.append(fuzz.fuzz(page, s, args.steps, m)),
         }
         failure = run_one(entry, args.url, shots)
         took = time.monotonic() - t0
         if failure is None:
-            print(f'PASS  fuzz seed {seed}, {args.steps} steps  ({took:.1f}s)', flush=True)
+            print(f'PASS  fuzz seed {seed}, {args.steps} steps, mode {mode}  ({took:.1f}s)', flush=True)
             if skipped:
                 done = skipped[0]
                 print(f'      skipped actions: {sum(done["skips"].values())}', flush=True)
@@ -102,7 +108,7 @@ def run_fuzz(args):
             continue
         failed += 1
         _where, why, _exc, shot = failure
-        print(f'FAIL  fuzz seed {seed}, {args.steps} steps  ({took:.1f}s)', flush=True)
+        print(f'FAIL  fuzz seed {seed}, {args.steps} steps, mode {mode}  ({took:.1f}s)', flush=True)
         print(f'      {why}')
         if shot:
             print(f'      screenshot: {shot}')
@@ -117,6 +123,7 @@ def main():
     ap.add_argument('--fuzz', action='store_true', help='run the random walk (journeys/fuzz.py) instead of the journeys')
     ap.add_argument('--seed', type=int, action='append', help='fuzz: a seed (repeat for several)')
     ap.add_argument('--seeds', help='fuzz: a range of seeds, A-B (inclusive)')
+    ap.add_argument('--mode', default='standard', help='fuzz: standard, vim, tui, compact, theme, or seed (one of them by the seed)')
     ap.add_argument('--steps', type=int, default=300, help='fuzz: steps per seed (default 300)')
     args = ap.parse_args()
 

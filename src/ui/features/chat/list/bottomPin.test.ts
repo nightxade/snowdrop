@@ -14,6 +14,52 @@ describe('BottomPin (stick / followOutput rules)', () => {
     expect(pin.shouldRepin()).toBe(false);
   });
 
+  it('opened at the divider with its end within the slack: settling rows do not pin it', () => {
+    const pin = new BottomPin();
+    pin.setViewportHeight(648);
+    pin.reset(false);
+    // The virtualiser's first positioning and rows being measured, with the end 283 px away.
+    pin.onReachedBottom();
+    pin.onScroll(283, 1507);
+    pin.onScroll(240, 1550);
+    expect(pin.isHeldAway).toBe(true);
+    expect(pin.shouldRepin()).toBe(false);
+  });
+
+  it('a reader released from the divider within the slack follows again', () => {
+    const pin = new BottomPin();
+    pin.setViewportHeight(648);
+    pin.reset(false);
+    pin.onReachedBottom();
+    pin.onReaderInput();
+    expect(pin.isHeldAway).toBe(false);
+    pin.onScroll(200, 1600);
+    expect(pin.shouldRepin()).toBe(true);
+  });
+
+  it('a list held at the divider is released by reaching the very bottom, or by a jump there', () => {
+    const reached = new BottomPin();
+    reached.reset(false);
+    reached.onScroll(0, 2000);
+    expect(reached.isHeldAway).toBe(false);
+    expect(reached.shouldRepin()).toBe(true);
+
+    const jumped = new BottomPin();
+    jumped.reset(false);
+    jumped.beginFollow(500);
+    expect(jumped.isHeldAway).toBe(false);
+    expect(jumped.shouldRepin()).toBe(true);
+  });
+
+  it('a list opened at the bottom is never held', () => {
+    const pin = new BottomPin();
+    pin.reset(true);
+    expect(pin.isHeldAway).toBe(false);
+    pin.onScroll(400, 600);
+    pin.onReachedBottom();
+    expect(pin.shouldRepin()).toBe(true);
+  });
+
   it('being scrolled up past the slack survives a new message and a row resize', () => {
     const pin = new BottomPin(true);
     pin.onScroll(PIN_SLACK_PX + 1);
