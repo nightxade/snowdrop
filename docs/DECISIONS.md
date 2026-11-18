@@ -387,8 +387,11 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 - **Rule**: A list opened at the bottom stays pinned while images and fonts settle; one opened at the
   unread divider or a jump target does not, even when its end lies within the follow slack: until the
   reader moves it (wheel, touch, a key in the list, its scroll bar), reaches the very bottom or jumps
-  there, it is held where it opened, and is not "at the bottom" for read tracking either (C7). It
-  re-pins when the composer grows only if it was holding the bottom.
+  there, it is held where it opened, and is not "at the bottom" for read tracking either (C7). A list
+  held at the divider also requests no older page (C6) until it is released: the divider is the first
+  row of the loaded unread run, so an older page moves it, and putting the view back on it by
+  scrolling lands wherever the unmeasured rows above happen to settle. It re-pins when the composer
+  grows only if it was holding the bottom.
 - **Why**: Plan (the newest message half hidden).
 - **Pinned by**: ui/features/chat/list/bottomPin.test.ts :: a list opened at the bottom holds it while
   rows settle; a list opened at the unread divider or a jump target does not; opened at the divider
@@ -398,7 +401,11 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   chat/list/MessageListWiring.test.tsx :: reports the reader moving the list; journeys/test_list.py ::
   opened_at_the_bottom_stays_there (the newest row grows after it was measured, and the composer
   grows under the list: the end stays in view), opened_at_the_unread_divider_is_not_pulled_down (rows
-  settling and a row below growing: the view stays at the divider, the messages stay unread).
+  settling and a row below growing: the view stays at the divider, the messages stay unread);
+  opened_at_the_unread_divider_stays_when_older_history_loads, ..._stays_with_compact_rows,
+  opened_at_a_short_unread_run_stays_when_older_history_loads (the chat stays at its divider while
+  the older page waits, and scrolling up then loads it); ui/features/chat/list/prefetch.test.ts ::
+  defers the older page, rather than requesting it, while the list is held at the unread divider.
 - **Not pinned**: a late-loading image itself. Demo images reserve their box from the attachment's
   size, so nothing settles late by itself; the journeys grow a row from the page instead. A composer
   growing while the reader is scrolled up (not holding the bottom) has no journey.
@@ -447,7 +454,8 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   core/services/services.test.ts :: snapshots the unread marker on open; ui/features/chat/list/
   MessageListHooks.test.tsx :: reports a divider above the rendered range when its row is not mounted;
   ui/features/chat/lib/lib.test.ts :: counts a list sharing only a floating item as replaced (the
-  divider moves with the loaded unread run, so it never anchors the list).
+  divider moves with the loaded unread run, so it never anchors the list); journeys/test_list.py ::
+  opened_at_the_unread_divider_stays_when_older_history_loads (C5).
 - **Not pinned**: the bar jumping to the divider, and "Mark as read" keeping the divider; a component
   test of the bar would pin them.
 

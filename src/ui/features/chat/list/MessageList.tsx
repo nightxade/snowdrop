@@ -183,6 +183,13 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
     pin.beginFollow(scrollTopNow());
     scrollToBottom();
   };
+  // The older page a list held at the unread divider has not requested yet (see `holdsOlder`).
+  const olderDeferred = useRef(false);
+  const loadDeferredOlder = () => {
+    if (!olderDeferred.current) return;
+    olderDeferred.current = false;
+    if (loaded && hasMoreBefore) void history.loadOlder(conversationId);
+  };
   const { scroller, scrollerRef, scrollTopNow } = useScrollerBinding({
     rows,
     onScroll: () => {
@@ -191,7 +198,10 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
       const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
       measureSlack(el);
       pin.onScroll(distance, el.scrollTop);
-      if (!pin.isHeldAway) setReleasedEpoch(epoch);
+      if (!pin.isHeldAway) {
+        setReleasedEpoch(epoch);
+        loadDeferredOlder();
+      }
       setFarFromBottom(distance > el.clientHeight);
       measureEnd();
       scheduleMeasure();
@@ -204,6 +214,7 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
     onReaderInput: () => {
       pin.onReaderInput();
       setReleasedEpoch(epoch);
+      loadDeferredOlder();
     },
   });
   const { dividerIndex, dividerPos, scheduleMeasure, rangeChanged } = useUnreadDivider({
@@ -243,6 +254,11 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
     // Only consulted when the list remounts (epoch); later item changes must not move the view.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [epoch]);
+
+  // Held where it opened, at the divider: no older page until the reader moves the list (C5, C8).
+  // Read when the virtualiser reports, not at render: the reader can release the list in between.
+  const holdsOlder = () =>
+    pin.isHeldAway && initialIndex.index !== 'LAST' && initialIndex.align === 'start';
 
   // Each (re)mount decides once whether to hold the bottom — never on later renders.
   useLayoutEffect(() => {
@@ -559,7 +575,9 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
             const decision = prefetchEdges(range, firstItemIndex, items.length, {
               hasMoreBefore,
               anchoredToPresent,
+              holdOlder: holdsOlder(),
             });
+            if (decision.deferOlder) olderDeferred.current = true;
             if (decision.loadOlder) void history.loadOlder(conversationId);
             if (decision.loadNewer) void history.loadNewer(conversationId);
           }}
@@ -567,7 +585,8 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
           // straight past the threshold in one jump (both are coalescing, so
           // calling both here costs nothing extra).
           startReached={() => {
-            if (loaded && hasMoreBefore) void history.loadOlder(conversationId);
+            if (holdsOlder()) olderDeferred.current = true;
+            else if (loaded && hasMoreBefore) void history.loadOlder(conversationId);
           }}
           endReached={() => {
             if (loaded && !anchoredToPresent) void history.loadNewer(conversationId);

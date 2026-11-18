@@ -7,7 +7,7 @@ describe('prefetchEdges', () => {
       hasMoreBefore: true,
       anchoredToPresent: false,
     });
-    expect(decision).toEqual({ loadOlder: false, loadNewer: false });
+    expect(decision).toEqual({ loadOlder: false, deferOlder: false, loadNewer: false });
   });
 
   it('requests the older page once the rendered range is within the threshold of the start', () => {
@@ -61,6 +61,29 @@ describe('prefetchEdges', () => {
       hasMoreBefore: true,
       anchoredToPresent: false,
     });
-    expect(decision).toEqual({ loadOlder: true, loadNewer: true });
+    expect(decision).toEqual({ loadOlder: true, deferOlder: false, loadNewer: true });
+  });
+
+  it('defers the older page, rather than requesting it, while the list is held at the unread divider', () => {
+    const held = prefetchEdges({ startIndex: 0, endIndex: 10 }, 0, 1000, {
+      hasMoreBefore: true,
+      anchoredToPresent: true,
+      holdOlder: true,
+    });
+    expect(held).toEqual({ loadOlder: false, deferOlder: true, loadNewer: false });
+
+    const far = prefetchEdges({ startIndex: 500, endIndex: 510 }, 0, 1000, {
+      hasMoreBefore: true,
+      anchoredToPresent: true,
+      holdOlder: true,
+    });
+    expect(far.deferOlder).toBe(false);
+
+    const noHistory = prefetchEdges({ startIndex: 0, endIndex: 10 }, 0, 1000, {
+      hasMoreBefore: false,
+      anchoredToPresent: true,
+      holdOlder: true,
+    });
+    expect(noHistory.deferOlder).toBe(false);
   });
 });

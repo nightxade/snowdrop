@@ -1,6 +1,7 @@
 """The message list's own behaviour in real layout: following new messages, settling rows, history paging."""
 from common import (
     AT_BOTTOM,
+    COMPACT_SETTINGS,
     COMPOSER,
     DISTANCE,
     JUMP_PILL,
@@ -103,25 +104,50 @@ def opened_at_the_unread_divider_is_not_pulled_down(page):
     page.expect("__journey.state().conversations.find((c) => c.key === 'dm-ines').unread >= 30", 'the unread messages were marked read unseen')
 
 
-DIVIDER_IN_VIEW = f"""(() => {{
+# The unread divider is in view, near the top edge of the list (it opens a little below it, not at it).
+DIVIDER_NEAR_TOP = f"""(() => {{
   const d = document.querySelector('[data-snowdrop=new-divider]');
   const s = document.querySelector({SCROLLER!r});
   if (!d || !s) return false;
-  const a = d.getBoundingClientRect(), b = s.getBoundingClientRect();
-  return a.bottom > b.top && a.top < b.bottom;
+  const gap = d.getBoundingClientRect().top - s.getBoundingClientRect().top;
+  return gap >= 0 && gap < 100;
 }})()"""
+INTRO = '!!document.querySelector("[data-snowdrop=conversation-intro]")'
+
+
+def opened_at_the_divider_with_older_history(page, count):
+    page.eval(f"__journey.deliver({{ conversation: 'dm-ines', count: {count}, text: 'while you were away' }})")
+    page.wait_for(f"__journey.state().conversations.find((c) => c.key === 'dm-ines').unread >= {count}")
+    open_conversation(page, 'dm-ines')
+    page.wait_for('!!document.querySelector("[data-snowdrop=new-divider]")')
+    page.wait_for(DIVIDER_NEAR_TOP)
+    page.eval('new Promise((r) => setTimeout(r, 1500))')  # the rows settle, and any older page would have landed
+    page.expect(DIVIDER_NEAR_TOP, 'the view is no longer at the unread divider')
+    page.expect(f"__journey.state().conversations.find((c) => c.key === 'dm-ines').unread >= {count}", 'the unread messages were marked read unseen')
+    # The reader moves the list up: the older history loads then, and the conversation's start is reachable.
+    for _ in range(8):
+        page.scroll(SCROLLER, -3000)
+        if page.eval(INTRO):
+            break
+    page.expect(INTRO, 'the older history did not load once the reader scrolled up')
 
 
 @journey()
 def opened_at_the_unread_divider_stays_when_older_history_loads(page):
-    """A chat with 70 unread messages and older history behind them opens at its divider and stays there when the older page loads (the divider is wherever the loaded unread run starts, so the page that loads moves it): the divider is still in view, and the messages stay unread."""
-    page.eval("__journey.deliver({ conversation: 'dm-ines', count: 70, text: 'while you were away' })")
-    page.wait_for("__journey.state().conversations.find((c) => c.key === 'dm-ines').unread >= 70")
-    open_conversation(page, 'dm-ines')
-    page.wait_for('!!document.querySelector("[data-snowdrop=new-divider]")')
-    page.eval('new Promise((r) => setTimeout(r, 1500))')  # the older page loads and the rows settle
-    page.expect(DIVIDER_IN_VIEW, 'the view is no longer at the unread divider (it is at the start of the conversation)')
-    page.expect("__journey.state().conversations.find((c) => c.key === 'dm-ines').unread >= 70", 'the unread messages were marked read unseen')
+    """A chat with 70 unread messages and older history behind them opens at its divider and stays there: the divider is the first row loaded, and an older page that landed would move it (it is wherever the loaded unread run starts), so the page waits for the reader to scroll up, which then loads it."""
+    opened_at_the_divider_with_older_history(page, 70)
+
+
+@journey(settings=COMPACT_SETTINGS)
+def opened_at_the_unread_divider_stays_with_compact_rows(page):
+    """The same chat in compact density (one line per message, so every row height differs): the divider is still where the chat opened."""
+    opened_at_the_divider_with_older_history(page, 70)
+
+
+@journey()
+def opened_at_a_short_unread_run_stays_when_older_history_loads(page):
+    """With 30 unread messages the divider is not the first row, so the reader is further from the edge: the chat opens at the divider and stays there while rows settle."""
+    opened_at_the_divider_with_older_history(page, 30)
 
 
 @journey(query='mockBulkMessages=400')

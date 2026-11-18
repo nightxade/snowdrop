@@ -17,10 +17,18 @@ export const PREFETCH_ROWS = 24;
 export interface PrefetchFlags {
   hasMoreBefore: boolean;
   anchoredToPresent: boolean;
+  /**
+   * The list is held where it opened, at the unread divider (C5): the older page waits for the reader
+   * to move it. The divider is the first row of the loaded unread run, so a page of older unread
+   * messages moves it relative to the rows, and the view would have to be put back on it.
+   */
+  holdOlder?: boolean;
 }
 
 export interface PrefetchDecision {
   loadOlder: boolean;
+  /** An older page is due but held back (`holdOlder`): request it when the reader moves the list. */
+  deferOlder: boolean;
   loadNewer: boolean;
 }
 
@@ -36,8 +44,10 @@ export function prefetchEdges(
 ): PrefetchDecision {
   const remainingAbove = range.startIndex - firstItemIndex;
   const remainingBelow = firstItemIndex + itemCount - 1 - range.endIndex;
+  const olderDue = flags.hasMoreBefore && remainingAbove <= PREFETCH_ROWS;
   return {
-    loadOlder: flags.hasMoreBefore && remainingAbove <= PREFETCH_ROWS,
+    loadOlder: olderDue && !flags.holdOlder,
+    deferOlder: olderDue && flags.holdOlder === true,
     loadNewer: !flags.anchoredToPresent && remainingBelow <= PREFETCH_ROWS,
   };
 }
