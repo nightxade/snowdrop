@@ -41,8 +41,16 @@ export interface WindowFlags {
 /** Default maximum messages held per conversation window. */
 export const WINDOW_CAP = 400;
 
+/** How many removed ids are remembered (enough for a reply bar to learn its target is gone). */
+const GONE_CAP = 500;
+
 export interface MessagesState {
   windows: Record<ConversationId, ConversationWindow>;
+  /**
+   * Ids removed from a loaded window because the message was deleted or expired (not merely evicted
+   * to bound memory, or closed with its window). Bounded, oldest forgotten first.
+   */
+  gone: Record<MessageId, true>;
 
   /** Replaces a window (initial load, jump to message, jump to present). */
   replaceWindow(
@@ -170,8 +178,20 @@ export function createMessagesStore(cap = WINDOW_CAP): MessagesStore {
       set((s) => ({ windows: { ...s.windows, [id]: window } }));
     };
 
+    /** The state change for ids that were just removed from a window (one store update). */
+    const goneWith = (
+      ids: readonly MessageId[],
+      windows: Record<ConversationId, ConversationWindow>,
+    ) => {
+      const kept = Object.keys(get().gone).filter((id) => !ids.includes(id as MessageId));
+      const gone: Record<MessageId, true> = {};
+      for (const id of [...kept, ...ids].slice(-GONE_CAP)) gone[id as MessageId] = true;
+      return { windows, gone };
+    };
+
     return {
       windows: {},
+      gone: {},
 
       replaceWindow: (conversationId, messages, flags) => {
         const base: ConversationWindow = {
@@ -221,7 +241,9 @@ export function createMessagesStore(cap = WINDOW_CAP): MessagesStore {
         put(conversationId, mergeInto(w, [next]));
       },
       remove: (conversationId, id) => {
-        put(conversationId, removeFrom(windowOf(conversationId), id));
+        const w = windowOf(conversationId);
+        if (!(id in w.byId)) return;
+        set((s) => goneWith([id], { ...s.windows, [conversationId]: removeFrom(w, id) }));
       },
       removeMany: (conversationId, ids) => {
         const w = windowOf(conversationId);
@@ -230,7 +252,8 @@ export function createMessagesStore(cap = WINDOW_CAP): MessagesStore {
         const byId = Object.fromEntries(
           Object.entries(w.byId).filter(([id]) => !gone.has(id as MessageId)),
         );
-        put(conversationId, { ...w, ids: w.ids.filter((x) => !gone.has(x)), byId });
+        const next = { ...w, ids: w.ids.filter((x) => !gone.has(x)), byId };
+        set((s) => goneWith([...gone], { ...s.windows, [conversationId]: next }));
       },
       closeWindow: (conversationId) => {
         if (!(conversationId in get().windows)) return;

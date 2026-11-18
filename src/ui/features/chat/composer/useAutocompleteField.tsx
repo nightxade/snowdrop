@@ -68,6 +68,7 @@ export interface AutocompleteField {
     'aria-autocomplete': 'list';
     'aria-controls'?: string;
     'aria-activedescendant'?: string;
+    onBlur: () => void;
   };
   popover: ReactNode;
 }
@@ -86,13 +87,24 @@ export function isImeKey(e: KeyboardEvent): boolean {
  */
 export function useAutocompleteField(o: AutocompleteFieldOptions): AutocompleteField {
   const [caret, setCaret] = useState(o.text.length);
+  // Suggestions open only from the user's own typing or caret move in the focused field, never
+  // from text that was already there (a restored draft) or once focus has left.
+  const [engaged, setEngaged] = useState(false);
   const listId = useId();
   usePrefetchPopover();
-  const auto = useAutocomplete(o.text, caret, o.memberIds, o.slash, o.suggestions ?? true);
+  const auto = useAutocomplete(
+    o.text,
+    caret,
+    o.memberIds,
+    o.slash,
+    engaged && (o.suggestions ?? true),
+  );
 
   const syncCaret = () => {
     const el = o.textarea.current;
-    if (el) setCaret(el.selectionEnd);
+    if (!el) return;
+    setCaret(el.selectionEnd);
+    setEngaged(el === document.activeElement);
   };
   const replace = (
     start: number,
@@ -105,6 +117,7 @@ export function useAutocompleteField(o: AutocompleteFieldOptions): AutocompleteF
     if (!el) return;
     o.setText(replaceRange(el, start, end, insert, selStart, selEnd));
     setCaret(el.selectionEnd);
+    setEngaged(el === document.activeElement);
   };
   const accept = (index: number) => {
     const s = auto.suggestions[index];
@@ -155,6 +168,9 @@ export function useAutocompleteField(o: AutocompleteFieldOptions): AutocompleteF
     replace,
     inputProps: {
       'aria-autocomplete': 'list',
+      onBlur: () => {
+        setEngaged(false);
+      },
       ...(auto.open
         ? { 'aria-controls': listId, 'aria-activedescendant': optionId(listId, auto.active) }
         : {}),

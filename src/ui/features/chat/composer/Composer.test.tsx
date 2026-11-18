@@ -6,6 +6,7 @@ import { NavCommand } from '@/core/commands';
 import {
   MAX_ATTACHMENT_BYTES,
   MENTION_PLACEHOLDER,
+  applyDelete,
   pendingMessageId,
   type ConversationId,
 } from '@/core/domain';
@@ -700,6 +701,111 @@ describe('<Composer />', () => {
       expect(
         within(dialog).getByRole<HTMLInputElement>('textbox', { name: 'Question' }).value,
       ).toBe('Unfinished?');
+    });
+  });
+  describe('a reply whose message is gone', () => {
+    async function replying() {
+      const t = await setup();
+      const target = messagesSelectors
+        .list(t.conv.id)(t.snowdrop.stores.messages.getState())
+        .findLast((m) => m.kind === 'normal' && !m.deleted && m.authorId !== 'self')!;
+      act(() => {
+        t.snowdrop.stores.ui.getState().setReplyTo(t.conv.id, target.id);
+      });
+      const bar = () => screen.queryByRole('button', { name: 'Cancel reply (Esc)' });
+      expect(bar()).toBeTruthy();
+      return { ...t, target, bar };
+    }
+
+    it('cancels the reply, and keeps the draft, when its message is removed', async () => {
+      const { snowdrop, conv, target, typeText, input, bar } = await replying();
+      typeText('still here');
+      act(() => {
+        snowdrop.stores.messages.getState().remove(conv.id, target.id);
+      });
+      expect(bar()).toBeNull();
+      expect(snowdrop.stores.ui.getState().replyTo[conv.id]).toBeUndefined();
+      expect(input.value).toBe('still here');
+    });
+
+    it('cancels the reply when its message is deleted for everyone', async () => {
+      const { snowdrop, conv, target, bar } = await replying();
+      act(() => {
+        snowdrop.stores.messages.getState().update(conv.id, target.id, (m) => applyDelete(m));
+      });
+      expect(bar()).toBeNull();
+    });
+
+    it('keeps the reply, and its quote, when its message only leaves the loaded window', async () => {
+      const { snowdrop, conv, target, typeText, input, bar } = await replying();
+      const send = vi.spyOn(snowdrop.send, 'send');
+      await act(async () => {
+        snowdrop.stores.messages.getState().closeWindow(conv.id);
+        await Promise.resolve();
+      });
+      expect(bar()).toBeTruthy();
+      expect(screen.getByText('Replying to').textContent).not.toContain('Unknown');
+      typeText('far away');
+      fireEvent.keyDown(input, { key: 'Enter' });
+      await settle(snowdrop);
+      expect(send).toHaveBeenCalledOnce();
+      expect(send.mock.calls[0]?.[0].quote).toMatchObject({
+        authorId: target.authorId,
+        sentAt: target.sentAt,
+      });
+    });
+
+    it('never sends without its quote while the bar shows a reply', async () => {
+      const { snowdrop, conv, input, typeText } = await setup();
+      const send = vi.spyOn(snowdrop.send, 'send');
+      act(() => {
+        snowdrop.stores.ui.getState().setReplyTo(conv.id, 'unknown-message' as never);
+      });
+      typeText('to nobody');
+      fireEvent.keyDown(input, { key: 'Enter' });
+      await settle(snowdrop);
+      expect(send).not.toHaveBeenCalled();
+      expect(snowdrop.stores.ui.getState().replyTo[conv.id]).toBeUndefined();
+      expect(input.value).toBe('to nobody');
+      expect(screen.getByRole('alert').textContent).toContain('cancelled');
+    });
+  });
+
+  describe('suggestions follow the focused field', () => {
+    it('closes when focus leaves the field, and waits for typing or the caret before reopening', async () => {
+      const { input, typeText } = await setup();
+      input.focus();
+      typeText('@');
+      expect(await screen.findByRole('listbox')).toBeTruthy();
+      act(() => {
+        input.blur();
+      });
+      expect(screen.queryByRole('listbox')).toBeNull();
+      input.focus();
+      expect(screen.queryByRole('listbox')).toBeNull();
+      fireEvent.select(input);
+      expect(screen.getByRole('listbox')).toBeTruthy();
+    });
+
+    it('stays shut for a draft that ends in a trigger until the user types', async () => {
+      const { snowdrop, conv, chat, input, view } = await setup();
+      snowdrop.stores.local.getState().setDraft(conv.id, 'hi @');
+      view.unmount();
+      renderWithSnowdrop(
+        snowdrop,
+        <ChatControllerProvider value={chat}>
+          <Composer conversationId={conv.id} />
+        </ChatControllerProvider>,
+      );
+      const back = screen.getByRole<HTMLTextAreaElement>('textbox');
+      expect(back).not.toBe(input);
+      expect(back.value).toBe('hi @');
+      await settle(snowdrop);
+      expect(screen.queryByRole('listbox')).toBeNull();
+      back.focus();
+      expect(screen.queryByRole('listbox')).toBeNull();
+      fireEvent.change(back, { target: { value: 'hi @a' } });
+      expect(await screen.findByRole('listbox')).toBeTruthy();
     });
   });
 });

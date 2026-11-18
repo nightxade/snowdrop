@@ -130,3 +130,79 @@ def esc_on_the_cancel_reply_button_cancels_the_reply(page):
     page.wait_for('document.activeElement?.getAttribute("aria-label") === "Cancel reply (Esc)"')
     page.key('Escape')
     page.wait_for('!document.querySelector("[data-snowdrop=reply-bar]")', 1500)
+
+
+# ------------------------------------------------------------------ known bugs found by exploring
+
+LISTBOX = '!!document.querySelector("[role=listbox]")'
+
+
+def last_message_selector(page):
+    return '[data-message-id="%s"]' % page.eval(f'{LAST_MESSAGE}.getAttribute("data-message-id")')
+
+
+@journey()
+def reply_bar_goes_when_its_message_is_deleted(page):
+    """Reply to a message, delete that message for yourself, then write the reply: the bar must not go on replying to a message that is no longer there."""
+    open_conversation(page, 'dm-priya')
+    page.eval('__journey.deliver({ conversation: "dm-priya", count: 1, text: "the original", exact: true })')
+    page.wait_for(f'{LAST_MESSAGE}?.textContent.includes("the original")')
+    row = last_message_selector(page)
+    page.click(row)
+    page.key('r')
+    page.wait_for('!!document.querySelector("[data-snowdrop=reply-bar]")')
+    page.click(row)
+    page.key('Delete')
+    page.wait_for('!!document.querySelector("[role=alertdialog], [role=dialog]")')
+    page.key('Enter')
+    page.wait_for(f'!document.querySelector({row!r})')
+    settle(page, 300)
+    page.expect('!document.querySelector("[data-snowdrop=reply-bar]")', 'the reply bar is still up for a message that is gone')
+
+
+@journey()
+def suggestions_close_when_focus_leaves_the_composer(page):
+    """"@" opens the member list; clicking a message moves focus out of the field, and the list must close with it."""
+    open_conversation(page, 'allotment')
+    page.click(COMPOSER)
+    page.type('@')
+    page.wait_for(LISTBOX)
+    page.click(last_message_selector(page))
+    page.wait_for(f'!({IN_COMPOSER})')
+    settle(page, 300)
+    page.expect(f'!({LISTBOX})', 'the suggestions stayed open after focus left the composer')
+
+
+@journey()
+def suggestions_stay_shut_when_a_draft_comes_back(page):
+    """A draft "hi @" in a group, switch away and back: the chat opens with the draft, but no suggestion list until the user is typing in it."""
+    open_conversation(page, 'allotment')
+    page.click(COMPOSER)
+    page.type('hi @')
+    page.wait_for(LISTBOX)
+    open_conversation(page, 'dm-priya')
+    open_conversation(page, 'allotment')
+    settle(page, 500)
+    page.expect(f'document.querySelector({COMPOSER!r}).value === "hi @"', 'the draft did not come back')
+    page.expect(f'!({IN_COMPOSER}) && !({LISTBOX})', 'the suggestions opened on their own')
+
+
+@journey(
+    known_bug='Files staged in the composer are dropped when you switch chats, though the typed draft is kept (attachments live in the composer component only, useAttachments). A judgment call: DECISIONS P7 says only that drafts persist.',
+    fails_at='the staged file was dropped',
+)
+def staged_file_survives_a_chat_switch(page):
+    """A file staged next to a draft is still staged when the user comes back to the chat, as the text is."""
+    open_conversation(page, 'dm-priya')
+    page.click(COMPOSER)
+    page.type('with a file')
+    page.eval(
+        "(() => { const dt = new DataTransfer(); dt.items.add(new File(['abc'], 'a.txt', { type: 'text/plain' }));"
+        " const i = document.querySelector('[data-snowdrop=composer] input[type=file]'); i.files = dt.files;"
+        " i.dispatchEvent(new Event('change', { bubbles: true })); return 1; })()"
+    )
+    page.wait_for('!!document.querySelector("[data-snowdrop=attachment-tray]")')
+    open_conversation(page, 'allotment')
+    open_conversation(page, 'dm-priya')
+    page.expect(f'document.querySelector({COMPOSER!r}).value === "with a file"', 'the draft did not come back')
+    page.expect('!!document.querySelector("[data-snowdrop=attachment-tray]")', 'the staged file was dropped')

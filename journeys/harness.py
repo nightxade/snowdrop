@@ -139,6 +139,26 @@ def journey(query='', known_bug=None, fails_at=None, settings=None, notification
 # settings that make the demo open straight into the app, quiet and themed.
 # `__SETTINGS__` is the stored settings object (JSON), `__NOTIFICATIONS__` and `__MIC_DENIED__` true or false.
 PRELOAD_JS = r"""
+(function () {
+  // A fixed clock: the demo world is built from the current time, so without this the chats hold
+  // different messages at different hours and dates. Every run starts at the same local moment
+  // (Wednesday 10 June 2026, 15:00) and time then runs normally, across reloads too.
+  var Real = Date;
+  var offset;
+  try { offset = Number(sessionStorage.getItem('__journey_clock')); } catch (e) { offset = 0; }
+  if (!offset) {
+    offset = new Real(2026, 5, 10, 15, 0, 0).getTime() - Real.now();
+    try { sessionStorage.setItem('__journey_clock', String(offset)); } catch (e) { /* per page then */ }
+  }
+  class JourneyDate extends Real {
+    constructor(...args) {
+      if (args.length === 0) super(Real.now() + offset);
+      else super(...args);
+    }
+    static now() { return Real.now() + offset; }
+  }
+  window.Date = JourneyDate;
+})();
 Object.freeze(Object.prototype);
 window.__errors = [];
 window.addEventListener('error', function (e) { window.__errors.push(String(e.message)); });

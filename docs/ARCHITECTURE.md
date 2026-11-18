@@ -665,7 +665,9 @@ WebKitGTK, the engine of the desktop app, with real key, pointer and scroll
 events and a frozen `Object.prototype` like the desktop webview. They exist for
 the bugs the jsdom suites can't see: those that depend on layout, scrolling,
 focus, timing or real input, or on events arriving in the middle of what the user
-is doing. Run it before every commit (about a minute).
+is doing. The page clock starts at the same local moment on every run (10 June 2026, 15:00) and
+then runs normally, because the demo world is built from the current time: without it the chats
+hold different messages at different hours. Run it before every commit (about six minutes).
 
 ```sh
 npm run journeys                        # build the journey bundle, serve it, run every journey

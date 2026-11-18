@@ -114,6 +114,23 @@ describe('<MessageEditor />', () => {
     expect(edit.mock.calls[0]?.[3]).toHaveLength(1);
   });
 
+  it('opens suggestions only from typing in the focused field', async () => {
+    const { snowdrop, mount, field, type } = await editing({ body: 'hi @' });
+    // The text it starts with ends in a trigger, but nothing has been typed.
+    await settle(snowdrop);
+    expect(screen.queryByRole('listbox')).toBeNull();
+    type('hi @');
+    expect(await screen.findByRole('listbox')).toBeTruthy();
+    act(() => {
+      field().blur();
+    });
+    expect(screen.queryByRole('listbox')).toBeNull();
+    cleanup();
+    mount();
+    await settle(snowdrop);
+    expect(screen.queryByRole('listbox')).toBeNull();
+  });
+
   describe('a save that cannot go through', () => {
     it('keeps the editor and the text open, and says why, when the edit is refused', async () => {
       const { edit, field, type, save } = await editing({ body: 'hello' });

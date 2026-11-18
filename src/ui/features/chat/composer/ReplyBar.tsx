@@ -22,10 +22,16 @@ export function ReplyBar({
   onCancel: () => void;
 }) {
   const stores = useStores();
-  const authorId = useStore(
+  const live = useStore(
     stores.messages,
     (s) => messagesSelectors.message(conversationId, messageId)(s)?.authorId,
   );
+  // The message may have left the loaded window (scrolled far away); the reply keeps its author.
+  const kept = useStore(stores.ui, (s) => {
+    const source = s.replySource[conversationId];
+    return source?.id === messageId ? source.authorId : undefined;
+  });
+  const authorId = live ?? kept;
   const name = useStore(stores.contacts, (s: ContactsState) =>
     authorId ? contactsSelectors.displayName(authorId)(s) : UNKNOWN_CONTACT_NAME,
   );

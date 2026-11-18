@@ -16,6 +16,7 @@ import type { PendingAttachment } from './AttachmentTray';
 import { encodeMentions, type MentionToken } from './mentionTokens';
 import { useAttachments, voicePending } from './useAttachments';
 import { useDraft } from './useDraft';
+import { replyTargetOf, useReplyGuard } from './useReplyTarget';
 import { useLinkPreview, type LinkPreviewView } from './useLinkPreview';
 import type { VoiceRecording } from '../voice/recorder';
 import { rememberWaveform } from '../voice/waveformCache';
@@ -91,6 +92,7 @@ export function useComposer(conversation: ConversationView): ComposerState {
   // until it has been read).
   const linkPreviewsEnabled = useEffectivePrivacy().linkPreviews && app.linkPreviewFetch !== null;
   const linkPreview = useLinkPreview(text, linkPreviewsEnabled);
+  useReplyGuard(conversationId);
 
   const clear = () => {
     setText('');
@@ -108,9 +110,23 @@ export function useComposer(conversation: ConversationView): ComposerState {
     );
 
   /** Puts a spent reply back (never over a reply picked meanwhile). */
-  const restoreReply = (replyId: Message['id'] | undefined) => {
+  const restoreReply = (replyId: Message['id'] | undefined, target: Message | undefined) => {
     if (replyId && stores.ui.getState().replyTo[conversationId] === undefined)
-      stores.ui.getState().setReplyTo(conversationId, replyId);
+      stores.ui.getState().setReplyTo(conversationId, replyId, target);
+  };
+
+  /**
+   * The message being replied to, or undefined with no reply. When a reply is up but its message
+   * is gone (deleted since), the reply is cancelled, nothing is sent and the draft stays.
+   */
+  const takeReply = (): { id: Message['id']; target: Message } | undefined | 'gone' => {
+    const id = stores.ui.getState().replyTo[conversationId];
+    if (!id) return undefined;
+    const target = replyTargetOf(stores, conversationId);
+    if (target) return { id, target };
+    stores.ui.getState().setReplyTo(conversationId, null);
+    setError('The message you were replying to is gone. Your reply was cancelled.');
+    return 'gone';
   };
 
   /**
@@ -146,10 +162,10 @@ export function useComposer(conversation: ConversationView): ComposerState {
     outgoing: readonly PendingAttachment[] = attachments,
   ) => {
     const encoded = encodeMentions(raw, tokens);
-    const replyId = stores.ui.getState().replyTo[conversationId];
-    const replyTarget = replyId
-      ? stores.messages.getState().windows[conversationId]?.byId[replyId]
-      : undefined;
+    const reply = takeReply();
+    if (reply === 'gone') return;
+    const replyId = reply?.id;
+    const replyTarget = reply?.target;
     const files = outgoing.map((a) => {
       // A fresh URL for the sent message (the tray's own is released below);
       // SendService releases it once the transport supplies its own.
@@ -210,7 +226,7 @@ export function useComposer(conversation: ConversationView): ComposerState {
     if (notSent) {
       restoreDraft(draft);
       restoreAttachments(draft.attachments);
-      restoreReply(replyId);
+      restoreReply(replyId, replyTarget);
     }
   };
 
@@ -255,10 +271,10 @@ export function useComposer(conversation: ConversationView): ComposerState {
   };
 
   const sendSticker = async (sticker: StickerContent) => {
-    const replyId = stores.ui.getState().replyTo[conversationId];
-    const replyTarget = replyId
-      ? stores.messages.getState().windows[conversationId]?.byId[replyId]
-      : undefined;
+    const reply = takeReply();
+    if (reply === 'gone') return;
+    const replyId = reply?.id;
+    const replyTarget = reply?.target;
     // The draft (and any attachments) stay as they are; only the reply is spent.
     if (replyId) stores.ui.getState().setReplyTo(conversationId, null);
     setError(null);
@@ -272,7 +288,7 @@ export function useComposer(conversation: ConversationView): ComposerState {
         }),
       'Could not send the sticker',
     );
-    if (notSent) restoreReply(replyId);
+    if (notSent) restoreReply(replyId, replyTarget);
   };
 
   const sendPoll = async (poll: OutgoingPoll) => {

@@ -993,15 +993,40 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   composer/StickerPicker.test.tsx :: puts the reply back when the sticker send throws before anything
   is staged.
 
+### P5a. A reply follows its message
+
+- **Rule**: A reply ends when its message is deleted (for you, for everyone, expired, here or from
+  another device): the bar goes, the draft stays. A message that only leaves the loaded window
+  (scrolled far away, or its chat's window closed) keeps the reply and its quote: the bar and the
+  quote use the copy kept when the reply began. A reply is never sent without its quote while the bar
+  shows one; if the message is gone at send time, nothing is sent, the reply is cancelled and the
+  draft stays.
+- **Why**: Bug report: "Replying to Unknown contact", and the reply went out with no quote.
+- **Pinned by**: ui/features/chat/composer/Composer.test.tsx :: cancels the reply, and keeps the draft,
+  when its message is removed; cancels the reply when its message is deleted for everyone; keeps the
+  reply, and its quote, when its message only leaves the loaded window; never sends without its quote
+  while the bar shows a reply; journeys/test_composer.py ::
+  reply_bar_goes_when_its_message_is_deleted.
+- **Not pinned**: a message deleted on another device while its chat's window is closed (nothing here
+  sees that delete; the reply stays and sends its kept quote).
+
 ### P6. Suggestions
 
 - **Rule**: `@` suggests members, `:` emoji, `/` commands. Tab or Enter accepts, but Ctrl+Tab does not;
   Esc dismisses and it stays closed while typing on; in Vim mode suggestions show only in Insert.
+  They open only from the user's own typing or caret move in the focused field (the composer and the
+  inline editor alike): never for text that was already there, such as a restored draft ending in
+  `@`, and they close when the field loses focus, staying shut until the next typing or caret move.
+  Clicking an option does not count as leaving.
 - **Why**: Bug report.
 - **Pinned by**: ui/features/chat/composer/Composer.test.tsx :: accepts a member mention with Tab and
   sends it as a mention range; does not accept a suggestion on Ctrl+Tab, only on a plain Tab; dismisses
   autocomplete with Escape and keeps it closed while typing on; suggests slash commands from the
-  registry.
+  registry; closes when focus leaves the field, and waits for typing or the caret before reopening;
+  stays shut for a draft that ends in a trigger until the user types; ui/features/chat/message/
+  MessageEditor.test.tsx :: opens suggestions only from typing in the focused field; journeys/
+  test_composer.py :: suggestions_close_when_focus_leaves_the_composer;
+  suggestions_stay_shut_when_a_draft_comes_back.
 - **Not pinned**: Ctrl, Cmd and Alt+Enter not accepting a suggestion; a case in `Composer.test.tsx`
   would pin it.
 

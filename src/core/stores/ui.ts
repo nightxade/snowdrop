@@ -3,7 +3,7 @@
  * keybinds and plugins can drive navigation without touching React.
  */
 import { createStore, type StoreApi } from 'zustand/vanilla';
-import type { ConversationId, MessageId } from '@/core/domain';
+import type { ConversationId, Message, MessageId } from '@/core/domain';
 import { createNonce } from '@/core/lib';
 import type { SpaceId } from './spaces';
 
@@ -69,6 +69,11 @@ export interface UiState {
   memberListOpen: boolean;
   modal: ModalState | null;
   replyTo: Record<ConversationId, MessageId>;
+  /**
+   * The message each reply is to, as it was when last seen: the quote and the reply bar need it
+   * after the message has left the loaded window (scrolled far away, or its window closed).
+   */
+  replySource: Record<ConversationId, Message>;
   editing: EditingTarget | null;
   scrollAnchors: Record<ConversationId, ScrollAnchor>;
   windowFocused: boolean;
@@ -105,7 +110,7 @@ export interface UiState {
   /** Opens the conversation (in `space`) and asks its list to scroll to the message. */
   requestReveal(request: RevealRequest, space?: SpaceSelection): void;
   clearRevealRequest(): void;
-  setReplyTo(conversationId: ConversationId, messageId: MessageId | null): void;
+  setReplyTo(conversationId: ConversationId, messageId: MessageId | null, source?: Message): void;
   setEditing(target: EditingTarget | null): void;
   /** Updates the open editor's text (no-op when nothing is being edited). */
   setEditDraft(draft: string): void;
@@ -135,6 +140,7 @@ export function createUiStore(newId: () => string = () => createNonce('toast')):
     modal: null,
     revealRequest: null,
     replyTo: {},
+    replySource: {},
     editing: null,
     scrollAnchors: {},
     windowFocused: true,
@@ -175,10 +181,17 @@ export function createUiStore(newId: () => string = () => createNonce('toast')):
     clearRevealRequest: () => {
       set({ revealRequest: null });
     },
-    setReplyTo: (conversationId, messageId) => {
+    setReplyTo: (conversationId, messageId, source) => {
       set((s) => {
         const { [conversationId]: _previous, ...rest } = s.replyTo;
-        return { replyTo: messageId === null ? rest : { ...rest, [conversationId]: messageId } };
+        const { [conversationId]: _previousSource, ...restSource } = s.replySource;
+        return {
+          replyTo: messageId === null ? rest : { ...rest, [conversationId]: messageId },
+          replySource:
+            messageId !== null && source?.id === messageId
+              ? { ...restSource, [conversationId]: source }
+              : restSource,
+        };
       });
     },
     setEditing: (editing) => {

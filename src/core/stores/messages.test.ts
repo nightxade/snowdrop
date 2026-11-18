@@ -12,6 +12,25 @@ const seqs = (store: ReturnType<typeof createMessagesStore>) =>
     .map((x) => x.seq);
 
 describe('messagesStore windows', () => {
+  it('remembers removed ids as gone, but not ids that were only evicted or closed', () => {
+    const store = createMessagesStore(2);
+    const [a, b, c, d] = [m('a', 10), m('a', 20), m('a', 30), m('a', 40)] as [
+      Message,
+      Message,
+      Message,
+      Message,
+    ];
+    store.getState().replaceWindow(conv, [a, b], { hasMoreBefore: false, hasMoreAfter: false });
+    expect(store.getState().appendLive(c)).toBe(true); // evicts a
+    expect(store.getState().gone).toEqual({});
+    store.getState().remove(conv, b.id);
+    expect(store.getState().gone).toEqual({ [b.id]: true });
+    store.getState().removeMany(conv, [c.id, d.id]);
+    expect(Object.keys(store.getState().gone).sort()).toEqual([b.id, c.id].sort());
+    store.getState().closeWindow(conv);
+    expect(Object.keys(store.getState().gone)).toHaveLength(2);
+  });
+
   it('orders by seq across pages and live appends', () => {
     const store = createMessagesStore();
     store
