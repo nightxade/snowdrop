@@ -183,6 +183,23 @@ describe('CommandRegistry', () => {
 });
 
 describe('KeybindDispatcher', () => {
+  it("hands a matched command to the context's defer, which decides when it runs", () => {
+    const reg = new CommandRegistry();
+    const run = vi.fn();
+    reg.register({ id: 'toggle', title: 'Toggle', keybind: 'Mod+K', run });
+    const d = new KeybindDispatcher(reg, () => ({}), false);
+    let later: (() => void) | null = null;
+    const defer = (fn: () => void) => {
+      later = fn;
+    };
+    expect(d.handle(ev('x', {}), { inEditable: false, defer })).toBeNull();
+    expect(later).toBeNull();
+    expect(d.handle(ev('k', { ctrlKey: true }), { inEditable: false, defer })).toBe('toggle');
+    expect(run).not.toHaveBeenCalled();
+    later!();
+    expect(run).toHaveBeenCalledOnce();
+  });
+
   it('dispatches matching commands, honouring editable focus', () => {
     const reg = new CommandRegistry();
     const run = vi.fn();

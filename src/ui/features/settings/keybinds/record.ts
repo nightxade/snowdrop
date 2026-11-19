@@ -30,7 +30,7 @@ export function recordKey(event: KeyEventLike, isMac: boolean): RecordOutcome | 
 /** Why a binding can't be used for this command, or null if it's fine. */
 export function keybindProblem(
   keybind: string,
-  command: Pick<Command, 'allowInInputs'>,
+  command: Pick<Command, 'allowInInputs' | 'keybind'>,
 ): string | null {
   const kb = parseKeybind(keybind);
   if (!kb) return 'That key can’t be used as a shortcut.';
@@ -39,6 +39,12 @@ export function keybindProblem(
   // Works even while typing, so a bare letter would eat that letter in the composer.
   if (command.allowInInputs && printable && !hasModifier)
     return 'Add Ctrl, Alt or Cmd: this shortcut also works while typing, so a plain key would get in the way of writing.';
+  // A global shortcut on Enter, Space or a letter would stop buttons activating and the typed
+  // character starting a message. The command's own default stays allowed, whatever it is.
+  const own = command.keybind ? parseKeybind(command.keybind) : null;
+  const isDefault = own !== null && serializeKeybind(own) === serializeKeybind(kb);
+  if (!hasModifier && (printable || kb.key === 'enter') && !isDefault)
+    return 'Add Ctrl, Alt or Cmd: Enter, Space and plain keys are for pressing buttons and typing.';
   return null;
 }
 

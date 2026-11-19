@@ -91,6 +91,21 @@ describe('useVoiceRecorder', () => {
     expect(later).toHaveReturnedWith(true);
   });
 
+  it("Escape inside an open menu is the menu's: the recording goes on", async () => {
+    const { hook, recording } = setup();
+    await recording();
+    const menu = document.createElement('div');
+    menu.setAttribute('role', 'menu');
+    document.body.append(menu);
+    act(() => {
+      menu.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      );
+    });
+    menu.remove();
+    expect(hook.result.current.phase).toBe('recording');
+  });
+
   it('other keys do not cancel', async () => {
     const { hook, recording } = setup();
     await recording();

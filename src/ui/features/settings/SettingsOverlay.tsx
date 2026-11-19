@@ -25,6 +25,7 @@ import {
   type SettingsPageId,
 } from './pages';
 import { usePlugins } from './plugins/usePlugins';
+import { keepFocusOnPage } from './keepFocusOnPage';
 import { SettingsFilterProvider, type SettingsFilter } from './rows/SettingsFilter';
 import { searchSettings, type SettingsPageMeta } from './search';
 import { SettingsPage } from './SettingsPage';
@@ -280,6 +281,8 @@ export function SettingsOverlay({ onClose, initialPage }: SettingsOverlayProps) 
           </div>
           <div
             id="snowdrop-settings-main"
+            // A control on a page that goes while it has focus hands focus to the nearest one that stays.
+            ref={keepFocusOnPage}
             className={styles.main}
             role="region"
             aria-label="Settings content"

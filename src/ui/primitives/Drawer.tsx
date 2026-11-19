@@ -114,6 +114,7 @@ export function Drawer({
           }}
           className={styles.content}
           data-side={side}
+          data-drawer-layer=""
           aria-describedby={undefined}
           onOpenAutoFocus={(e) => {
             // Focus the panel itself rather than its first button, so opening

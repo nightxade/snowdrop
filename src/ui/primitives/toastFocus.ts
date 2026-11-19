@@ -26,7 +26,9 @@ function focusFell(): boolean {
  * Esc returns it to where it was before, and when the focused toast goes (it expired, or was
  * dismissed) it moves to the next toast, else back to where it was before, never the page.
  * "Where it was before" is the last element focused outside the list, else the shared fallback
- * (`fallbackFocus`).
+ * (`fallbackFocus`). Focus that leaves the list any other way (a shortcut opened a dialog, a
+ * click, Shift+Tab) stays where it went: sonner would give the element from before Alt+T focus
+ * back whatever took it, so it is never told where that was (its focus-in sees no related target).
  */
 export function useToastFocus(): void {
   useEffect(() => {
@@ -53,6 +55,8 @@ export function useToastFocus(): void {
     const onFocusIn = (event: FocusEvent): void => {
       const { target } = event;
       if (inToasts(target)) {
+        // Sonner remembers `relatedTarget` to refocus on blur; with none it leaves focus alone.
+        Object.defineProperty(event, 'relatedTarget', { value: null, configurable: true });
         if (!watch) {
           origin = outside?.isConnected ? outside : null;
           watch = new MutationObserver(onChange);

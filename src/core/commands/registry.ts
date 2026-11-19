@@ -114,6 +114,11 @@ export function findKeybindConflicts(bindings: ReadonlyMap<string, Keybind>): st
 export interface DispatchContext {
   /** True when focus is in an input/textarea/contenteditable. */
   inEditable: boolean;
+  /**
+   * How a matched command is run (the UI closes any open menu first, then runs it). Without it
+   * the command runs at once.
+   */
+  defer?: (run: () => void) => void;
 }
 
 /**
@@ -136,7 +141,9 @@ export class KeybindDispatcher {
       if (!kb || !matchesKeybind(event, kb, this.isMac)) continue;
       if (context.inEditable && !command.allowInInputs) continue;
       if (command.enabled?.() === false) continue;
-      void this.registry.execute(command.id);
+      const run = () => void this.registry.execute(command.id);
+      if (context.defer) context.defer(run);
+      else run();
       return command.id;
     }
     return null;

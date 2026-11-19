@@ -1,5 +1,6 @@
 import * as RadixSwitch from '@radix-ui/react-switch';
 import { useId, type ReactNode } from 'react';
+import { useSoftDisabled } from './useSoftDisabled';
 import styles from './Switch.module.css';
 
 export interface SwitchProps {
@@ -27,13 +28,21 @@ export function Switch({
 }: SwitchProps) {
   const autoId = useId();
   const id = externalId ?? autoId;
+  // A switch that goes inert while it has focus (its own change pending) keeps focus.
+  const soft = useSoftDisabled(disabled);
   const control = (
     <RadixSwitch.Root
       id={id}
       className={styles.root}
       checked={checked}
       onCheckedChange={onCheckedChange}
-      disabled={disabled ?? false}
+      disabled={soft.hard}
+      {...(soft.soft ? { 'aria-disabled': true, 'data-soft-disabled': '' } : {})}
+      onFocus={soft.onFocus}
+      onBlur={soft.onBlur}
+      onClick={(event) => {
+        if (soft.soft) event.preventDefault();
+      }}
       {...(ariaLabel ? { 'aria-label': ariaLabel } : {})}
       {...(describedBy ? { 'aria-describedby': describedBy } : {})}
     >

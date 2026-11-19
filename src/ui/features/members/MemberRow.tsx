@@ -7,7 +7,7 @@ import {
 } from '@/core/domain';
 import { useSnowdrop } from '@/ui/hooks';
 import { PersonAvatar } from '@/ui/features/conversation';
-import { ContextMenu } from '@/ui/primitives';
+import { afterMenusClosed, ContextMenu } from '@/ui/primitives';
 import { memberMenu } from './memberMenu';
 import { ProfileTrigger } from './ProfileTrigger';
 import styles from './MemberRow.module.css';
@@ -32,8 +32,8 @@ export const MemberRow = memo(function MemberRow({
   const menu = useCallback(
     () =>
       memberMenu(app, contact, conversationId, () => {
-        // After the menu has closed and handed focus back to the row.
-        requestAnimationFrame(() => button.current?.click());
+        // After the menu has closed and handed focus back to the row, so the card keeps its focus.
+        afterMenusClosed(() => button.current?.click());
       }),
     [app, contact, conversationId],
   );

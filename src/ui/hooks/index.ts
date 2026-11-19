@@ -39,6 +39,7 @@ export {
   focusConversation,
   followConversationFocus,
   followConversationOpenFocus,
+  followSpaceFocus,
   setConversationFocusPolicy,
   setConversationFocusResolver,
   setConversationListFocusResolver,

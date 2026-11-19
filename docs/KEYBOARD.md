@@ -11,7 +11,9 @@ the composer and dialogs, and the optional **Vim mode** plugin.
 ## Default shortcuts (rebindable)
 
 Change or remove any of these in **Settings → Keybinds** (click a shortcut,
-press the new keys; Esc or Tab cancels, Backspace or Delete removes it).
+press the new keys; Esc or Tab cancels, Backspace or Delete removes it). A plain Enter, Space or
+letter is refused (a short message says so): it would stop buttons activating and the typed
+character starting a message; add Ctrl, Alt or Cmd.
 
 | Action                              | Keys                               |
 | ----------------------------------- | ---------------------------------- |
@@ -31,7 +33,8 @@ press the new keys; Esc or Tab cancels, Backspace or Delete removes it).
 These have no default keys but are in the quick switcher (type `>`) and can
 be bound in Settings → Keybinds: create a space, toggle compact mode, toggle
 desktop notifications, open plugins / themes / appearance / keybinds,
-**next / previous space**, **focus the composer**, **focus the message list**,
+**next / previous space** (focus in the sidebar or on the rail follows to the new space's list or
+tile), **focus the composer**, **focus the message list**,
 **open the command palette**, **sign out…** (also in the user panel's menu,
 sidebar bottom-left, and Settings → Connection; docs/ENCRYPTION.md,
 "Sign out"), and one **Theme: …** command per built-in theme (type `>theme`).
@@ -47,14 +50,22 @@ sidebar bottom-left, and Settings → Connection; docs/ENCRYPTION.md,
   focus to whatever opened them.
 - **Alt+T** moves focus into the toast list; **Esc** there returns focus to where it was before. When
   the focused toast expires or is dismissed, focus goes to the next toast, else back to where it was
-  before, never the page.
+  before, never the page. Focus that leaves the list another way (a shortcut, a click, Shift+Tab)
+  stays where it went.
 - A row that has focus and disappears (archived, deleted on the phone, a member
   removed) passes focus to the next row, else the one before; focus never falls
   to the page.
 - While a dialog is open, the shortcuts above don't run: they would act on
-  the app behind it.
+  the app behind it. With a menu open (a dropdown, a context menu), a shortcut closes the menu
+  first and then runs.
+- A button that disables itself when you use it (Reset all, Save, Reset to defaults) keeps focus
+  until you move away; inside Settings, a control that goes (a reset, the shortcut conflict
+  prompt, Remove emoji, a plugin card filtered away) hands focus to the nearest control that stays.
+- With the navigation drawer and the member drawer both open (narrow windows), a closing dialog
+  returns focus inside the member drawer on top, not the drawer behind it.
 - **Shift+F10**, the **Menu** key or **Mod+Enter** opens the context menu of
-  the focused item (conversation, space, message, member, category).
+  the focused item (conversation, space, message, member, category). A member's **Profile** item
+  opens the card with focus inside it.
 
 ## Lists (rail, sidebar, member list)
 

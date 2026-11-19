@@ -13,9 +13,9 @@ describe('RestartRequiredScreen', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Restart Snowdrop' }));
     });
     expect(onRestart).toHaveBeenCalledTimes(1);
-    expect(
-      screen.getByRole<HTMLButtonElement>('button', { name: 'Restart Snowdrop' }).disabled,
-    ).toBe(true);
+    // Inert: `disabled`, or `aria-disabled` while it still has focus (a focused button keeps it).
+    const button = screen.getByRole<HTMLButtonElement>('button', { name: 'Restart Snowdrop' });
+    expect(button.disabled || button.getAttribute('aria-disabled') === 'true').toBe(true);
   });
 
   it('shows why a failed restart failed and lets the user try again', async () => {

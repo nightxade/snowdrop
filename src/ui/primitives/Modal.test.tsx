@@ -9,7 +9,7 @@ import { Lightbox } from './Lightbox';
 import { Modal } from './Modal';
 import { modalDialogOpen } from './modalOpen';
 import { Popover } from './Popover';
-import { fallbackFocus, trackFocusHistory } from './openerFocus';
+import { fallbackFocus, topLayer, trackFocusHistory } from './openerFocus';
 import { TooltipProvider } from './Tooltip';
 
 afterEach(cleanup);
@@ -298,6 +298,55 @@ describe('fallbackFocus behind an open modal dialog', () => {
         search.focus();
       });
       expect(fallbackFocus()).toBe(search);
+    } finally {
+      stop();
+    }
+  });
+});
+
+describe('the layer that owns focus', () => {
+  it('is the topmost open modal dialog, else the topmost open drawer, else none', () => {
+    expect(topLayer()).toBeNull();
+    render(
+      <>
+        <Drawer open onOpenChange={vi.fn()} label="Navigation">
+          <button type="button">in navigation</button>
+        </Drawer>
+        <Drawer open onOpenChange={vi.fn()} label="Members" side="right">
+          <button type="button">in members</button>
+        </Drawer>
+      </>,
+    );
+    const members = document.querySelectorAll('[data-drawer-layer]')[1];
+    expect(topLayer()).toBe(members);
+    render(
+      <Modal open onOpenChange={vi.fn()} title="Block">
+        <button type="button">Confirm</button>
+      </Modal>,
+    );
+    expect(topLayer()).toBe(document.querySelector('[data-modal-dialog]'));
+  });
+
+  it('keeps fallbackFocus inside the topmost drawer, not the drawer behind it', () => {
+    const stop = trackFocusHistory();
+    try {
+      render(
+        <>
+          <Drawer open onOpenChange={vi.fn()} label="Navigation">
+            <button type="button">in navigation</button>
+          </Drawer>
+          <Drawer open onOpenChange={vi.fn()} label="Members" side="right">
+            <button type="button">in members</button>
+          </Drawer>
+        </>,
+      );
+      // Focus was in the members drawer, then (last) in the navigation drawer behind it.
+      fireEvent.focusIn(screen.getByText('in members'));
+      fireEvent.focusIn(screen.getByText('in navigation'));
+      expect(fallbackFocus()).toBe(screen.getByText('in members'));
+      // A drawer's own panel, focused as it opened, is not a place to hand focus back to.
+      fireEvent.focusIn(topLayer()!);
+      expect(fallbackFocus()).toBe(screen.getByText('in members'));
     } finally {
       stop();
     }

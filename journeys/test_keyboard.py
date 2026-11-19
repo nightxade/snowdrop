@@ -1,4 +1,4 @@
-from common import COMPOSER, IN_COMPOSER, LAST_MESSAGE, MESSAGE, ON_LIST, deliver_and_find, emit, fill, is_current, open_conversation, send, settle
+from common import COMPOSER, IN_COMPOSER, LAST_MESSAGE, MESSAGE, ON_LIST, deliver_and_find, emit, fill, is_current, open_conversation, quiet, send, settle
 from harness import journey
 
 NOT_ON_BODY = 'document.activeElement !== document.body'
@@ -558,3 +558,32 @@ def the_connection_banners_retry_hands_focus_on_when_it_goes(page):
     page.wait_for(f'!document.querySelector({BANNER!r})', 5000)
     page.wait_for(NOT_ON_BODY, 2000)
     page.expect_stays(NOT_ON_BODY, 300)
+
+
+@journey()
+def a_dialog_opened_from_the_toast_list_takes_focus(page):
+    """Alt+T moves focus into the toast list; Ctrl+K opens the switcher: focus must be in the switcher, not back on the message behind it (M15, shortcuts open dialogs that own the keyboard)."""
+    open_conversation(page, 'dm-priya')
+    page.click(COMPOSER)
+    page.key('Escape')
+    page.eval('const _id = __journey.toast("a toast"); return 1')
+    page.wait_for('!!document.querySelector("[data-sonner-toast]")')
+    page.key('t', ['alt'])
+    page.wait_for('document.activeElement?.closest("[data-sonner-toaster]") !== null')
+    page.key('k', ['ctrl'])
+    page.wait_for('!!document.querySelector("[data-modal-dialog][data-state=open]")')
+    quiet(page)
+    page.expect('!!document.querySelector("[data-modal-dialog][data-state=open]")?.contains(document.activeElement)', 'focus is not in the open dialog')
+
+
+@journey(
+    settings={'keybinds': {'core.nextSpace': 'Ctrl+Alt+J'}},
+)
+def next_space_key_from_a_sidebar_row_keeps_focus_off_the_page(page):
+    """Next space bound to a key (it has none by default): pressed with focus on a sidebar row, the list shows another space's chats; focus goes to one of them or the fallback, never the page (KEYBOARD.md, a focused row that goes hands focus on)."""
+    open_conversation(page, 'dm-priya')
+    page.eval('const r = document.querySelector("[data-snowdrop=sidebar] [data-conversation-id][tabindex=\\"0\\"]"); r.focus(); return 1')
+    page.key('j', ['ctrl', 'alt'])
+    page.wait_for('document.querySelector("[data-snowdrop=rail] button[aria-label^=\\"Home\\"]")?.getAttribute("aria-current") !== "true"')
+    quiet(page)
+    page.expect(NOT_ON_BODY, 'focus fell to the page when the space changed under the focused row')

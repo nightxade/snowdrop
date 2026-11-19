@@ -13,7 +13,8 @@
   background: var(--snowdrop-accent);
 }
 
-.root:disabled {
+.root:disabled,
+.root[data-soft-disabled] {
   opacity: 0.5;
   cursor: not-allowed;
 }

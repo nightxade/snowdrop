@@ -164,6 +164,8 @@ export function useVoiceRecorder({
     if (phase === 'idle') return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing) return;
+      // An open menu's Escape closes the menu (also the one a shortcut sends to close it first).
+      if (event.target instanceof Element && event.target.closest('[role="menu"]')) return;
       event.preventDefault();
       cancel();
       handlers.current.onEscapeCancel?.();

@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
 import { toast } from 'sonner';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Snowdrop } from '@/app/createSnowdrop';
 import { bootSnowdrop, renderWithSnowdrop } from '@/test/renderWithSnowdrop';
 import { dismissToast, showToast, Toaster } from '@/ui/primitives';
@@ -115,5 +115,20 @@ describe('focus in the toast list', () => {
     await waitFor(() => {
       expect(document.activeElement).toBe(composer);
     });
+  });
+
+  it('focus that leaves the list any other way stays where it went: nothing gives it back to the old place', async () => {
+    const composer = await setup();
+    const other = screen.getByRole('button', { name: 'Other' });
+    const refocus = vi.spyOn(composer, 'focus');
+    altT();
+    expect(list().contains(document.activeElement)).toBe(true);
+    // A shortcut, a click or Shift+Tab moved focus to another control.
+    act(() => {
+      other.focus();
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(document.activeElement).toBe(other);
+    expect(refocus).not.toHaveBeenCalled();
   });
 });

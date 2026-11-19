@@ -872,12 +872,18 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 
 - **Rule**: The defaults are those in [KEYBOARD.md](KEYBOARD.md), all rebindable. Mod+F searches the
   chat and Mod+Shift+F searches all chats, the reverse of Signal Desktop, so existing bindings don't
-  move. Tab or Esc cancels a keybind recording; Backspace or Delete removes the binding.
+  move. Tab or Esc cancels a keybind recording; Backspace or Delete removes the binding. The
+  recorder refuses an unmodified Enter, Space or printable key (Shift alone does not count) for any
+  command, with a short message under the row: such a shortcut would stop buttons activating and the
+  typed character starting a message. A command's own default is exempt (none of the shipped ones is
+  a plain key but Esc, which cannot be recorded), and Vim mode's keys are a key layer, not bindings.
 - **Why**: User request; the Mod+F deviation was decided explicitly.
 - **Pinned by**: core/commands/commands.test.ts :: parses every default keybind; ui/features/search/
   GlobalSearch.test.tsx :: opens from Mod+Shift+F with focus in the field, and leaves Mod+F for the
   chat; ui/features/newChat/NewMessageDialog.test.tsx :: opens from Ctrl+N; ui/features/settings/
-  keybinds/record.test.ts (all); ui/features/settings/keybinds/KeybindRecorder.test.tsx :: lets Tab
+  keybinds/record.test.ts (all, including that a global shortcut refuses unmodified Enter, Space and
+  printable keys); journeys/test_dialogs.py :: the_shortcut_recorder_refuses_a_plain_enter_key;
+  ui/features/settings/keybinds/KeybindRecorder.test.tsx :: lets Tab
   move focus on, ending the recording without a binding.
 - **Not pinned**: that each default key is the one KEYBOARD.md lists (the test only checks they
   parse); a test comparing the defaults to a table would pin it.
@@ -1043,14 +1049,21 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   conversation list, as a phone-side delete does (`ChatColumn`: the next row, else the previous,
   else the fallback).
 - **Behind an open modal dialog the fallback stays inside it** (Settings, a confirmation): the
-  fallback chain (`fallbackFocus`) only offers places inside the topmost open modal, and a closing
-  dialog does not move focus that already sits inside another open dialog. Unblocking in Settings >
+  fallback chain (`fallbackFocus`) only offers places inside the topmost open layer (`topLayer`: the
+  topmost modal dialog, else the topmost open drawer: the member drawer over the navigation drawer
+  at narrow width, never the drawer behind it), and a closing dialog does not move focus that already
+  sits inside another open dialog. Unblocking in Settings >
   Privacy hands focus to the next entry's Unblock, else the previous, else the empty state, never a
   row of the list behind Settings.
 - **A working button keeps focus**: `Button` takes `busy` (`aria-disabled` and `aria-busy`, ignoring
   activation) instead of `disabled` for a button that is working, since WebKit drops focus to the
   page when the focused button becomes `disabled`; the dialogs' buttons (`ConfirmDialog`, Safety
   Number, Safety Number Changes, sign-out, the request bar) keep focus while busy and after a failure.
+  The same for a button or switch that goes inert by its own action (Keybinds' Reset all, Save and
+  Discard on My profile, a plugin's Reset to defaults, a setting switch while its change is pending):
+  `Button` and `Switch` stay focusable, `aria-disabled` and ignoring activation, while they are
+  disabled and have focus, and become `disabled` once focus leaves (`useSoftDisabled`). A disabled
+  one without focus is `disabled` as ever.
 - **A group dialog whose action became impossible closes** with a short toast ("You can no longer
   change this group.", "You are no longer in this group." for Leave group), focus handed on as for
   any closing dialog: Edit group, Add members, Permissions, Group link and a member action after
@@ -1063,15 +1076,46 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   taken away.
 - **The toast list** (Alt+T moves focus into it): Esc returns focus to where it was before Alt+T;
   when the focused toast expires or is dismissed, focus goes to the next toast, else back to where it
-  was before (the fallback when that is gone), never the page (`primitives/toastFocus.ts`). Pinned by
+  was before (the fallback when that is gone), never the page (`primitives/toastFocus.ts`). Focus
+  that leaves the list any other way (a shortcut that opens a dialog, a click, Shift+Tab) stays where
+  it went: sonner would give the element from before Alt+T focus back whatever took it, so it is never
+  told where that was. Pinned by
   ui/features/shell/ToastFocus.test.tsx (all); journeys/test_keyboard.py ::
   esc_in_the_toast_list_returns_focus_to_where_it_was,
   esc_in_the_toast_list_never_leaves_focus_on_the_page,
-  a_focused_toast_that_goes_hands_focus_to_the_next_toast_else_back. The fallback skips toasts: it is
-  never a toast the user has left.
+  a_focused_toast_that_goes_hands_focus_to_the_next_toast_else_back,
+  a_dialog_opened_from_the_toast_list_takes_focus. The fallback skips toasts: it is never a toast the
+  user has left.
+- **Next / Previous space by a bound key** (`stepSpace`, `followSpaceFocus`): focus that was in the
+  sidebar (a row, New message, a heading) goes to the new space's list tab stop, focus on the rail to
+  the new space's tile, and focus that would fall to the page lands on the list's tab stop; focus
+  elsewhere stays. Outside Vim too; with Vim's navigation keys on, its own landing wins (M11).
+  Pinned by ui/hooks/focusTargets.test.ts :: describe "followSpaceFocus"; journeys/test_keyboard.py ::
+  next_space_key_from_a_sidebar_row_keeps_focus_off_the_page.
+- **A control that goes inside Settings hands focus to the nearest one that stays**
+  (`settings/keepFocusOnPage.ts`, on the pages' region): a "Reset to default" that has nothing left to
+  reset, Reassign or Cancel in the conflict prompt, "Remove emoji", a plugin card filtered away.
+  Within the closest ancestor that still holds a control: one marked as the row's anchor (the
+  shortcut button), else one of the same kind (a button for a button, a switch for a switch), else the
+  closest in DOM order, the one before on a tie; none left near it, focus stays where it fell
+  (the dialog). Focus the user put elsewhere is never taken. Pinned by
+  ui/features/settings/keepFocusOnPage.test.tsx (all); journeys/test_dialogs.py ::
+  a_keybind_reset_or_conflict_prompt_hands_focus_to_the_recorder.
+- **A member menu's Profile item moves focus into the card**, as a click or Enter on the row does:
+  the row is clicked once the menu has closed and handed focus back (`afterMenusClosed`), so the
+  menu's focus return no longer lands after the card's. Pinned by journeys/test_dialogs.py ::
+  a_member_menus_profile_item_moves_focus_into_the_card.
 - **The search panel owns Esc**: Esc anywhere in it closes it, a field with text and a result
   included, and so does Esc on the message that Enter (or a click on a result) moved focus to, until
   focus goes elsewhere; focus then goes to the composer (the list in Vim mode).
+- **Shortcuts behind a menu**: a global shortcut pressed with a menu open (a dropdown, a context
+  menu, a submenu) closes the menu first, the way Esc does, then runs once the menu has handed focus
+  back to its trigger, so the command's own focus is the last word (`primitives/menuClose.ts`,
+  `shell/useKeyboard.ts`; the dispatcher's `defer`). A dialog it opens therefore never sits over a
+  menu, and Esc on it returns focus to the menu's trigger. Pinned by ui/primitives/menuClose.test.tsx
+  (all); core/commands/commands.test.ts :: hands a matched command to the context's defer;
+  journeys/test_dialogs.py :: dialog_opened_over_a_dropdown_menu_leaves_no_menu_open_behind_focus,
+  a_shortcut_pressed_with_a_dropdown_menu_open_closes_it_and_acts.
 - **Shortcuts behind a dialog**: while a Modal, full-screen dialog or lightbox is open, none of the
   global shortcuts run (`primitives/modalOpen.ts`, `shell/useKeyboard.ts`): every one acts on the app
   behind the dialog (switching chats, toggling panels) or opens another dialog over it, and none is
@@ -1079,7 +1123,11 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   Vim's layer decides by its own focus context.
 - **Why**: Bug reports: focus was lost to the page body.
 - **Pinned by**: ui/features/shell/ModalHost.focus.test.tsx (all); ui/primitives/Modal.test.tsx (all
-  seven); ui/features/shell/ModalHost.suspense.test.tsx; journeys/test_dialogs.py ::
+  seven, and describe "the layer that owns focus"); ui/primitives/Button.test.tsx (disabled while it
+  has focus, a Switch that goes inert); journeys/test_dialogs.py ::
+  reset_all_keybinds_keeps_focus_off_the_page, saving_the_profile_keeps_focus_off_the_page,
+  resetting_plugin_settings_keeps_focus_off_the_page,
+  dialog_closing_over_two_drawers_keeps_focus_in_the_top_one; ui/features/shell/ModalHost.suspense.test.tsx; journeys/test_dialogs.py ::
   dialog_returns_focus_to_its_button (New message and Settings, closed with Esc),
   replaced_dialog_returns_focus_to_the_first_opener (New message, then New group, then Esc: back on
   the New message button), palette_command_dialog_returns_focus_to_what_had_it (a message, Ctrl+K,

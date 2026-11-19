@@ -69,9 +69,11 @@ describe('StorageSetup: keyring detected', () => {
     await screen.findByText(/The key is kept in/u);
     fireEvent.click(screen.getAllByRole('button', { name: 'Continue' })[0]!);
     expect(screen.getByRole('status').textContent).toContain('keyring unlock prompt');
-    expect(
-      screen.getAllByRole('button', { name: 'Setting up…' })[0]?.hasAttribute('disabled'),
-    ).toBe(true);
+    // Inert: `disabled`, or `aria-disabled` while it still has focus (a focused button keeps it).
+    const busy = screen.getAllByRole('button', { name: 'Setting up…' })[0];
+    expect(busy?.hasAttribute('disabled') || busy?.getAttribute('aria-disabled') === 'true').toBe(
+      true,
+    );
     act(() => {
       finish(unlocked);
     });

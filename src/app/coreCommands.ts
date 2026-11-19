@@ -3,7 +3,7 @@ import { type CommandRegistry, CoreCommand, DEFAULT_KEYBINDS, NavCommand } from 
 import type { SyncService } from '@/core/services';
 import { HOME, spacesSelectors, uiSelectors, type Stores } from '@/core/stores';
 import { BUILTIN_THEMES } from '@/core/themes';
-import { followConversationOpenFocus } from '@/ui/hooks';
+import { followConversationOpenFocus, followSpaceFocus } from '@/ui/hooks';
 
 /**
  * The core commands that need no view state: switcher, palette, settings
@@ -96,7 +96,10 @@ export function registerCoreCommands(
     const i = order.indexOf(ui().selectedSpace);
     const next = order[(Math.max(0, i) + delta + order.length) % order.length];
     if (next === undefined) return;
+    const landed = followSpaceFocus();
     ui().selectSpace(next);
+    // Focus from the sidebar or the rail follows to the new space's list or tile.
+    landed();
     // A no-op unless a plugin's focus policy is active (Vim mode's gt/gT).
     const id = uiSelectors.selectedConversation(ui());
     if (id) followConversationOpenFocus(id);

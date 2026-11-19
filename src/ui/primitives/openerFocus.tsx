@@ -58,7 +58,7 @@ export function trackFocusHistory(): () => void {
 }
 
 const COMPOSER = '[data-snowdrop="composer-input"]';
-const NAV_DRAWER = '[data-snowdrop="drawer"]';
+const DRAWER_LAYER = '[data-drawer-layer][data-state="open"]';
 
 /** The message list's own tab stop: its current row, else the scroller. */
 export function messageListStop(): HTMLElement | null {
@@ -82,9 +82,21 @@ export function composerOrMessageList(): HTMLElement | null {
 }
 
 /** The topmost open modal dialog (Settings, a confirmation), if any. */
-function openModal(): HTMLElement | null {
-  const open = document.querySelectorAll<HTMLElement>('[data-modal-dialog][data-state="open"]');
+function openModal(doc: Document = document): HTMLElement | null {
+  const open = doc.querySelectorAll<HTMLElement>('[data-modal-dialog][data-state="open"]');
   return open.item(open.length - 1);
+}
+
+/**
+ * The layer that owns focus: the topmost open modal dialog, else the topmost open drawer (the
+ * navigation drawer, the member drawer over it; layers mount in the order they opened), else none.
+ * What is behind it is not a place focus can go.
+ */
+export function topLayer(doc: Document = document): HTMLElement | null {
+  const dialog = openModal(doc);
+  if (dialog) return dialog;
+  const drawers = doc.querySelectorAll<HTMLElement>(DRAWER_LAYER);
+  return drawers.item(drawers.length - 1);
 }
 
 const FOCUSABLE =
@@ -96,27 +108,28 @@ const FOCUSABLE =
  * any dialog or menu), else the trigger of the menu that was open, else the composer, else the
  * message list, else the conversation list's tab stop. While a focus policy is active (Vim's
  * navigation keys) the message list stands in for the composer, which only its own keys reach (M11).
- * Behind an open modal dialog nothing outside it is a place focus can go, so the choice stays
- * inside it (what had focus there, else its first control, else the dialog itself).
+ * Behind an open modal dialog (or, with none, the topmost open drawer) nothing outside it is a
+ * place focus can go, so the choice stays inside it (what had focus there, else its first
+ * control, else the layer itself).
  */
 export function fallbackFocus(): HTMLElement | null {
   const policy = conversationFocusPolicyActive();
-  // The navigation drawer is modal: while it is open, what is behind it (the header button, the
-  // composer) is not a place focus can go; it stays in the drawer's rail or list.
-  const drawer = document.querySelector<HTMLElement>(NAV_DRAWER);
+  // A drawer is modal: while one is open, what is behind it (the header button, the composer, the
+  // navigation drawer under the member drawer) is not a place focus can go.
+  const layer = topLayer();
   const modal = openModal();
   const reachable = (el: HTMLElement | null): el is HTMLElement =>
-    el !== null &&
-    (drawer === null || drawer.contains(el)) &&
-    (modal === null || modal.contains(el));
+    el !== null && (layer === null || layer.contains(el));
   for (const el of [...history].reverse()) {
     if (policy && el.matches(COMPOSER)) continue;
     // A dialog's own controls only count while that dialog is the one that stays open.
-    const layer = el.closest('[role="dialog"]');
+    const own = el.closest('[role="dialog"]');
     if (
       el.isConnected &&
       reachable(el) &&
-      (layer === null || layer === modal) &&
+      (own === null || own === layer) &&
+      // A drawer's own panel (focused as it opened) is not a place to hand focus back to.
+      !(el === layer && modal === null) &&
       !el.closest('[role="menu"], [data-sonner-toaster]')
     )
       return el;
@@ -129,11 +142,14 @@ export function fallbackFocus(): HTMLElement | null {
       return reachable(place) ? place : null;
     })() ??
     (modal === null
-      ? document.querySelector<HTMLElement>(
-          '[data-snowdrop="sidebar"] [data-roving-item][tabindex="0"]',
-        )
+      ? (() => {
+          const row = document.querySelector<HTMLElement>(
+            '[data-snowdrop="sidebar"] [data-roving-item][tabindex="0"]',
+          );
+          return reachable(row) ? row : null;
+        })()
       : null);
-  return found ?? (modal === null ? null : (modal.querySelector<HTMLElement>(FOCUSABLE) ?? modal));
+  return found ?? (layer === null ? null : (layer.querySelector<HTMLElement>(FOCUSABLE) ?? layer));
 }
 
 export interface OpenerFocus {

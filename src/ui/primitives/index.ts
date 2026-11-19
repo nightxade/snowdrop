@@ -18,6 +18,7 @@ export {
 export { EmptyState, type EmptyStateProps } from './EmptyState';
 export { focusQuietly } from './focusQuietly';
 export { modalDialogOpen } from './modalOpen';
+export { afterMenusClosed, runWithMenusClosed } from './menuClose';
 export {
   OpenerHostProvider,
   composerOrMessageList,

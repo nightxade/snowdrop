@@ -45,6 +45,8 @@ export function KeybindRecorder({ value, onRecord, label, id, ...rest }: Keybind
       type="button"
       id={id}
       className={styles.recorder}
+      // Where focus goes when a neighbour in the row goes (its reset, the conflict prompt's buttons).
+      data-focus-anchor=""
       data-recording={recording ? '' : undefined}
       data-owns-escape={recording ? '' : undefined}
       aria-label={

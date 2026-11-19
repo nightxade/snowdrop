@@ -210,3 +210,33 @@ export function followConversationOpenFocus(id: ConversationId): void {
     { upgradeFromSidebar: true, startFreeFrames: FOCUS_RETRY_FRAMES },
   );
 }
+
+/**
+ * Call just before a command switches space (Next / Previous space), then call the returned
+ * function once the space is selected. Focus that was in the sidebar (a row, New message, a
+ * heading) goes to the new space's list tab stop, and focus that was on the rail goes to the new
+ * space's tile, so stepping goes on from there. Focus elsewhere stays, unless it would fall to
+ * the page, when it lands on the list's tab stop. A plugin's focus policy has its own landing
+ * (`followConversationOpenFocus`), which wins.
+ */
+export function followSpaceFocus(): () => void {
+  const before = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  const fromRail = before?.closest('[data-snowdrop="rail"]') != null;
+  const fromSidebar = before?.closest('[data-snowdrop="sidebar"]') != null;
+  const listStop = () =>
+    document.querySelector<HTMLElement>(
+      '[data-snowdrop="sidebar"] [data-roving-item][tabindex="0"]',
+    );
+  const railTile = () =>
+    document.querySelector<HTMLElement>(
+      '[data-snowdrop="rail"] [data-roving-item][aria-current="page"]',
+    );
+  return () => {
+    if (conversationFocusPolicyActive()) return;
+    const moves = fromRail || fromSidebar;
+    settleFocus(() => (fromRail ? (railTile() ?? listStop()) : listStop()), {
+      force: moves,
+      startFreeFrames: moves ? FOCUS_RETRY_FRAMES : 0,
+    });
+  };
+}

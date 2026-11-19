@@ -49,9 +49,21 @@ describe('keybind recorder', () => {
 
   it('rejects plain keys for commands that also run while typing', () => {
     expect(keybindProblem('K', { allowInInputs: true })).toMatch(/Ctrl, Alt or Cmd/u);
-    expect(keybindProblem('K', {})).toBeNull();
+    expect(keybindProblem('Mod+K', {})).toBeNull();
     expect(keybindProblem('Mod+K', { allowInInputs: true })).toBeNull();
     expect(keybindProblem('F2', { allowInInputs: true })).toBeNull();
+  });
+
+  it('rejects unmodified Enter, Space and printable keys for any command, except its own default', () => {
+    for (const plain of ['K', 'Shift+K', '/', '1', 'Enter', 'Shift+Enter', 'Space'])
+      expect(keybindProblem(plain, {})).toMatch(/Enter, Space and plain keys/u);
+    expect(keybindProblem('Shift+PageDown', {})).toBeNull();
+    expect(keybindProblem('F2', {})).toBeNull();
+    expect(keybindProblem('Alt+Enter', {})).toBeNull();
+    expect(keybindProblem('Mod+Space', {})).toBeNull();
+    expect(keybindProblem('Enter', { keybind: 'Enter' })).toBeNull();
+    expect(keybindProblem('J', { keybind: 'j' })).toBeNull();
+    expect(keybindProblem('J', { keybind: 'K' })).not.toBeNull();
   });
 
   it('reports conflicts after overrides, both ways', () => {

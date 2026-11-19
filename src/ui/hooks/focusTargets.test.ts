@@ -5,6 +5,7 @@ import {
   focusConversation,
   followConversationFocus,
   followConversationOpenFocus,
+  followSpaceFocus,
   setConversationFocusPolicy,
   setConversationFocusResolver,
   setConversationListFocusResolver,
@@ -153,6 +154,69 @@ describe('focusTargets', () => {
       await nextFrame();
       expect(document.activeElement).not.toBe(document.body);
       expect(document.activeElement).toBe(listEl);
+    });
+  });
+
+  describe('followSpaceFocus', () => {
+    function stop(region: 'sidebar' | 'rail', attrs: Record<string, string> = {}): HTMLElement {
+      const host =
+        document.querySelector<HTMLElement>(`[data-snowdrop="${region}"]`) ??
+        (() => {
+          const el = document.createElement('div');
+          el.setAttribute('data-snowdrop', region);
+          document.body.appendChild(el);
+          return el;
+        })();
+      const button = document.createElement('button');
+      button.setAttribute('data-roving-item', '');
+      for (const [k, v] of Object.entries(attrs)) button.setAttribute(k, v);
+      host.appendChild(button);
+      return button;
+    }
+
+    it('from a sidebar row that went with the old space, lands on the new list tab stop', async () => {
+      const old = stop('sidebar', { tabindex: '0' });
+      old.focus();
+      const landed = followSpaceFocus();
+      old.remove();
+      const next = stop('sidebar', { tabindex: '0' });
+      landed();
+      await nextFrame();
+      expect(document.activeElement).toBe(next);
+    });
+
+    it('from a sidebar control that stays (New message), still moves to the list tab stop', async () => {
+      const button = stop('sidebar', { tabindex: '-1' });
+      const next = stop('sidebar', { tabindex: '0' });
+      button.focus();
+      followSpaceFocus()();
+      await nextFrame();
+      expect(document.activeElement).toBe(next);
+    });
+
+    it('from the rail, lands on the new space tile', async () => {
+      const old = stop('rail', { tabindex: '0' });
+      old.focus();
+      const landed = followSpaceFocus();
+      old.removeAttribute('aria-current');
+      const tile = stop('rail', { 'aria-current': 'page' });
+      stop('sidebar', { tabindex: '0' });
+      landed();
+      await nextFrame();
+      expect(document.activeElement).toBe(tile);
+    });
+
+    it('from anywhere else, focus stays; fallen to the page, it lands on the list tab stop', async () => {
+      const elsewhere = makeFocusable();
+      elsewhere.focus();
+      const next = stop('sidebar', { tabindex: '0' });
+      followSpaceFocus()();
+      await nextFrame();
+      expect(document.activeElement).toBe(elsewhere);
+      elsewhere.blur();
+      followSpaceFocus()();
+      await nextFrame();
+      expect(document.activeElement).toBe(next);
     });
   });
 

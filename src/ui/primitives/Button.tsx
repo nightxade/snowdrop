@@ -1,4 +1,5 @@
 import type { ButtonHTMLAttributes, ReactNode, Ref } from 'react';
+import { useSoftDisabled } from './useSoftDisabled';
 import styles from './Button.module.css';
 
 export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
@@ -12,7 +13,9 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   fullWidth?: boolean;
   /**
    * Working: looks disabled and ignores activation, but is not `disabled`, so a focused button
-   * keeps focus (WebKit drops focus to the page when the focused button becomes disabled).
+   * keeps focus (WebKit drops focus to the page when the focused button becomes disabled). A
+   * `disabled` button that has focus when it goes inert does the same until focus leaves it
+   * (`useSoftDisabled`).
    */
   busy?: boolean | undefined;
   ref?: Ref<HTMLButtonElement> | undefined;
@@ -27,10 +30,16 @@ export function Button({
   children,
   type = 'button',
   busy,
+  disabled,
   onClick,
+  onFocus,
+  onBlur,
   ref,
   ...rest
 }: ButtonProps) {
+  // A button that goes inert while it has focus (its own action used up) keeps focus.
+  const soft = useSoftDisabled(disabled);
+  const inert = busy || soft.soft;
   return (
     <button
       ref={ref}
@@ -40,9 +49,18 @@ export function Button({
       data-size={size}
       data-full={fullWidth ? '' : undefined}
       aria-busy={busy ? true : undefined}
-      aria-disabled={busy ? true : undefined}
+      aria-disabled={inert ? true : undefined}
+      disabled={soft.hard}
+      onFocus={(event) => {
+        soft.onFocus(event);
+        onFocus?.(event);
+      }}
+      onBlur={(event) => {
+        soft.onBlur(event);
+        onBlur?.(event);
+      }}
       onClick={
-        busy
+        inert
           ? (event) => {
               event.preventDefault();
             }
