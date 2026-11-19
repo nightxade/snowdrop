@@ -17,11 +17,12 @@
     transform var(--snowdrop-duration-fast) var(--snowdrop-ease);
 }
 
-.button:active:not(:disabled) {
+.button:active:not(:disabled):not([aria-disabled='true']) {
   transform: translateY(1px);
 }
 
-.button:disabled {
+.button:disabled,
+.button[aria-disabled='true'] {
   opacity: 0.5;
   cursor: not-allowed;
 }
@@ -47,7 +48,7 @@
   color: var(--snowdrop-text-on-accent);
 }
 
-.button[data-variant='primary']:hover:not(:disabled) {
+.button[data-variant='primary']:hover:not(:disabled):not([aria-disabled='true']) {
   background: var(--snowdrop-accent-hover);
 }
 
@@ -56,7 +57,7 @@
   color: var(--snowdrop-text-strong);
 }
 
-.button[data-variant='secondary']:hover:not(:disabled) {
+.button[data-variant='secondary']:hover:not(:disabled):not([aria-disabled='true']) {
   background: var(--snowdrop-bg-selected);
 }
 
@@ -64,7 +65,7 @@
   color: var(--snowdrop-text);
 }
 
-.button[data-variant='ghost']:hover:not(:disabled) {
+.button[data-variant='ghost']:hover:not(:disabled):not([aria-disabled='true']) {
   background: var(--snowdrop-bg-hover);
   color: var(--snowdrop-text-strong);
 }
@@ -74,7 +75,7 @@
   color: var(--snowdrop-text-on-danger);
 }
 
-.button[data-variant='danger']:hover:not(:disabled) {
+.button[data-variant='danger']:hover:not(:disabled):not([aria-disabled='true']) {
   filter: brightness(1.08);
 }
 

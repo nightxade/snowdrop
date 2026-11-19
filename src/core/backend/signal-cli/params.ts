@@ -112,8 +112,9 @@ function groupAvatarParam(dataUri: string): string {
   return toDataUri(match[1], 'avatar', match[2]);
 }
 
-function checkGroupText(text: string, max: number, what: string): void {
-  if (graphemes(text).length > max) throw new SignalCliError('user', `That ${what} is too long.`);
+function checkGroupText(text: string, max: number, maxBytes: number, what: string): void {
+  if (graphemes(text).length > max || utf8Length(text) > maxBytes)
+    throw new SignalCliError('user', `That ${what} is too long.`);
 }
 
 /**
@@ -125,11 +126,16 @@ export function groupChangeParams(groupId: string, change: GroupChange): RpcPara
   if (change.title !== undefined) {
     const title = change.title.trim();
     if (!title) throw new SignalCliError('user', 'A group needs a name.');
-    checkGroupText(title, GROUP_LIMITS.title, 'group name');
+    checkGroupText(title, GROUP_LIMITS.title, GROUP_LIMITS.titleBytes, 'group name');
     params.name = title;
   }
   if (change.description !== undefined) {
-    checkGroupText(change.description, GROUP_LIMITS.description, 'group description');
+    checkGroupText(
+      change.description,
+      GROUP_LIMITS.description,
+      GROUP_LIMITS.descriptionBytes,
+      'group description',
+    );
     params.description = change.description;
   }
   if (change.avatar !== undefined) params.avatar = groupAvatarParam(change.avatar);
@@ -157,7 +163,7 @@ export function groupChangeParams(groupId: string, change: GroupChange): RpcPara
 export function newGroupParams(input: NewGroupInput): RpcParams {
   const title = input.title.trim();
   if (!title) throw new SignalCliError('user', 'A group needs a name.');
-  checkGroupText(title, GROUP_LIMITS.title, 'group name');
+  checkGroupText(title, GROUP_LIMITS.title, GROUP_LIMITS.titleBytes, 'group name');
   const params: RpcParams = { name: title };
   if (input.memberIds.length > 0) params.member = [...input.memberIds];
   if (input.avatar !== undefined) params.avatar = groupAvatarParam(input.avatar);

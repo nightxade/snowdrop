@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { ConversationId, GroupPermission, GroupPermissions } from '@/core/domain';
 import { useSnowdrop } from '@/ui/hooks';
 import { Button, Modal, Select } from '@/ui/primitives';
+import { useCloseWhenImpossible } from './useCloseWhenImpossible';
 import { useGroup } from './useGroup';
 import styles from './groups.module.css';
 
@@ -46,6 +47,7 @@ export function PermissionsDialog({
 }) {
   const app = useSnowdrop();
   const { group, canManage } = useGroup(conversationId);
+  useCloseWhenImpossible(canManage, onClose);
   const [pending, setPending] = useState<keyof GroupPermissions | null>(null);
   const [error, setError] = useState<string | null>(null);
   if (!group) return null;

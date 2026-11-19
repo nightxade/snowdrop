@@ -56,3 +56,12 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.empty:focus {
+  outline: none;
+}
+
+.empty:focus-visible {
+  outline: 2px solid var(--snowdrop-accent);
+  outline-offset: 2px;
+}

@@ -10,6 +10,11 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   /** Icon before the label. */
   icon?: ReactNode;
   fullWidth?: boolean;
+  /**
+   * Working: looks disabled and ignores activation, but is not `disabled`, so a focused button
+   * keeps focus (WebKit drops focus to the page when the focused button becomes disabled).
+   */
+  busy?: boolean | undefined;
   ref?: Ref<HTMLButtonElement> | undefined;
 }
 
@@ -21,6 +26,8 @@ export function Button({
   className,
   children,
   type = 'button',
+  busy,
+  onClick,
   ref,
   ...rest
 }: ButtonProps) {
@@ -32,6 +39,15 @@ export function Button({
       data-variant={variant}
       data-size={size}
       data-full={fullWidth ? '' : undefined}
+      aria-busy={busy ? true : undefined}
+      aria-disabled={busy ? true : undefined}
+      onClick={
+        busy
+          ? (event) => {
+              event.preventDefault();
+            }
+          : onClick
+      }
       {...rest}
     >
       {icon && (

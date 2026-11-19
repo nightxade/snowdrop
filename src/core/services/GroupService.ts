@@ -23,7 +23,7 @@ import {
   type Conversation,
   type ConversationId,
 } from '@/core/domain';
-import { graphemes, toAppError } from '@/core/lib';
+import { graphemes, toAppError, utf8Length } from '@/core/lib';
 import type { MessageRepository } from '@/core/persistence';
 import type { Stores } from '@/core/stores';
 import { consoleReporter, type ErrorReporter } from './types';
@@ -40,6 +40,11 @@ export interface GroupServiceDeps {
 export type CreateGroupResult = { ok: true; id: ConversationId } | { ok: false; message: string };
 
 const NOT_ALLOWED = "You can't make that change in this group.";
+
+/** Past the character limit, or the byte limit that bounds a single character's growth. */
+function tooLong(text: string, max: number, maxBytes: number): boolean {
+  return graphemes(text).length > max || utf8Length(text) > maxBytes;
+}
 const CONNECTION = 'Check your connection and try again.';
 
 /** The sentence for a failed group call, from the error's transport `kind` (when it has one). */
@@ -121,11 +126,12 @@ export class GroupService {
     if (change.title !== undefined) {
       const title = normalizeGroupTitle(change.title);
       if (!title) return 'A group needs a name.';
-      if (graphemes(title).length > GROUP_LIMITS.title) return 'That group name is too long.';
+      if (tooLong(title, GROUP_LIMITS.title, GROUP_LIMITS.titleBytes))
+        return 'That group name is too long.';
     }
     if (
       change.description !== undefined &&
-      graphemes(change.description).length > GROUP_LIMITS.description
+      tooLong(change.description, GROUP_LIMITS.description, GROUP_LIMITS.descriptionBytes)
     ) {
       return 'That description is too long.';
     }
@@ -155,7 +161,7 @@ export class GroupService {
       return { ok: false, message: `Groups can't be made with this connection.` };
     const title = normalizeGroupTitle(input.title);
     if (!title) return { ok: false, message: 'A group needs a name.' };
-    if (graphemes(title).length > GROUP_LIMITS.title) {
+    if (tooLong(title, GROUP_LIMITS.title, GROUP_LIMITS.titleBytes)) {
       return { ok: false, message: 'That group name is too long.' };
     }
     try {

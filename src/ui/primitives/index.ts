@@ -20,8 +20,10 @@ export { focusQuietly } from './focusQuietly';
 export { modalDialogOpen } from './modalOpen';
 export {
   OpenerHostProvider,
+  composerOrMessageList,
   currentOpener,
   fallbackFocus,
+  messageListStop,
   trackFocusHistory,
   type OpenerHost,
 } from './openerFocus';

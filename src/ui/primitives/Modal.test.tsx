@@ -9,7 +9,7 @@ import { Lightbox } from './Lightbox';
 import { Modal } from './Modal';
 import { modalDialogOpen } from './modalOpen';
 import { Popover } from './Popover';
-import { trackFocusHistory } from './openerFocus';
+import { fallbackFocus, trackFocusHistory } from './openerFocus';
 import { TooltipProvider } from './Tooltip';
 
 afterEach(cleanup);
@@ -261,5 +261,45 @@ describe('the shared opener hook', () => {
     await later();
     expect(document.activeElement).toBe(opener);
     opener.remove();
+  });
+});
+
+describe('fallbackFocus behind an open modal dialog', () => {
+  it('never leaves the dialog: what had focus there, else its first control, not the page behind', () => {
+    const stop = trackFocusHistory();
+    try {
+      render(
+        <>
+          <nav data-snowdrop="sidebar">
+            <button type="button" data-roving-item tabIndex={0}>
+              row
+            </button>
+          </nav>
+          <textarea data-snowdrop="composer-input" aria-label="Message" />
+        </>,
+      );
+      const row = screen.getByRole('button', { name: 'row' });
+      act(() => {
+        row.focus();
+      });
+      // No dialog: what had focus before, as ever.
+      expect(fallbackFocus()).toBe(row);
+      render(
+        <Modal open onOpenChange={vi.fn()} title="Settings">
+          <input aria-label="Search settings" />
+          <button type="button">Unblock</button>
+        </Modal>,
+      );
+      const inside = fallbackFocus();
+      expect(inside).not.toBeNull();
+      expect(screen.getByRole('dialog').contains(inside)).toBe(true);
+      const search = screen.getByRole('textbox', { name: 'Search settings' });
+      act(() => {
+        search.focus();
+      });
+      expect(fallbackFocus()).toBe(search);
+    } finally {
+      stop();
+    }
   });
 });

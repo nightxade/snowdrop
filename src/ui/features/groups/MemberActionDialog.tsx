@@ -5,6 +5,7 @@ import { stripBidiControls } from '@/core/lib';
 import type { GroupMemberAction } from '@/ui/features/conversation';
 import { useSnowdrop } from '@/ui/hooks';
 import { ConfirmDialog } from '@/ui/primitives';
+import { useCloseWhenImpossible } from './useCloseWhenImpossible';
 import { nameOf, useGroup } from './useGroup';
 
 interface Copy {
@@ -81,6 +82,7 @@ export function MemberActionDialog({
 }) {
   const app = useSnowdrop();
   const { group, canManage } = useGroup(conversationId);
+  useCloseWhenImpossible(canManage, onClose);
   const contacts = useStore(app.stores.contacts, (s) => s.byId);
   if (!group) return null;
   const copy = COPY[action];

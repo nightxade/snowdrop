@@ -5,6 +5,7 @@ import { stripBidiControls } from '@/core/lib';
 import { useSnowdrop } from '@/ui/hooks';
 import { Button, Modal } from '@/ui/primitives';
 import { ContactChecklist } from './ContactChecklist';
+import { useCloseWhenImpossible } from './useCloseWhenImpossible';
 import { useGroup } from './useGroup';
 import styles from './groups.module.css';
 
@@ -18,6 +19,7 @@ export function AddMembersDialog({
 }) {
   const app = useSnowdrop();
   const { group, selfId, canAdd } = useGroup(conversationId);
+  useCloseWhenImpossible(canAdd, onClose);
   const contactsById = useStore(app.stores.contacts, (s) => s.byId);
   const [picked, setPicked] = useState<Set<string>>(() => new Set());
   const [busy, setBusy] = useState(false);

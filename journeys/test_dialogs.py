@@ -1,4 +1,6 @@
-from common import COMPOSER, IN_COMPOSER, click_text, emit, forget_expected_send_failures, is_current, open_conversation, quiet, select_space, send, settle
+import json
+
+from common import COMPOSER, IN_COMPOSER, click_menu_item, click_text, emit, forget_expected_send_failures, is_current, open_conversation, open_menu, quiet, select_space, send, settle
 from harness import journey
 
 NEW_MESSAGE = '[data-snowdrop=sidebar-header] button[aria-label="New message"]'
@@ -185,3 +187,206 @@ def new_group_made_inside_a_space_opens_in_home(page):
     quiet(page)
     page.expect('document.querySelector("[data-snowdrop=rail] [aria-current=page]")?.getAttribute("aria-label").startsWith("Home")', 'the new group did not open in Home')
     page.expect('document.querySelector("[data-snowdrop=sidebar] [data-selected] [data-conversation-id]")?.getAttribute("aria-label").startsWith("Weekend plans")', 'the new group is not the selected chat')
+
+
+REQUEST_BAR = '[data-snowdrop=message-request]'
+FOCUS_ON_PAGE = 'document.activeElement !== document.body'
+
+
+def open_request(page):
+    conversation = page.eval('__journey.conversationId("request-dm")')
+    page.click(f'[data-conversation-id="{conversation}"]')
+    page.wait_for(f'!!document.querySelector({REQUEST_BAR!r})')
+    return conversation
+
+
+def focus_bar_button(page, text):
+    page.eval(f'([...document.querySelectorAll("{REQUEST_BAR} button")].find((b) => b.textContent.trim() === {text!r}).focus(), 1)')
+    page.wait_for(f'document.activeElement.textContent.trim() === {text!r}')
+
+
+@journey()
+def request_accepted_on_the_phone_under_its_focused_accept_button(page):
+    """Tab has put focus on Accept in a message request; the phone accepts it meanwhile: the bar goes, and focus is not left on the page (M15)."""
+    conversation = open_request(page)
+    focus_bar_button(page, 'Accept')
+    emit(page, 'messageRequestResponse', {'conversationId': conversation, 'answer': 'accept', 'at': 4000000000000})
+    page.wait_for(f'!document.querySelector({REQUEST_BAR!r})')
+    quiet(page)
+    page.expect(FOCUS_ON_PAGE, 'focus fell to the page when the phone accepted the request under its focused Accept button')
+
+
+@journey()
+def request_blocked_on_the_phone_under_its_focused_block_button(page):
+    """Focus is on Block in a message request; the phone blocks it meanwhile (the bar becomes the blocked bar, which has no Block): focus is not left on the page (M15)."""
+    conversation = open_request(page)
+    focus_bar_button(page, 'Block')
+    emit(page, 'messageRequestResponse', {'conversationId': conversation, 'answer': 'block', 'at': 4000000000000})
+    page.wait_for(f'document.querySelector({REQUEST_BAR!r})?.getAttribute("data-state") === "blocked"')
+    quiet(page)
+    page.expect(FOCUS_ON_PAGE, 'focus fell to the page when the phone blocked the request under its focused Block button')
+
+
+@journey()
+def deleting_a_request_from_its_bar_keeps_focus_off_the_page(page):
+    """Delete on a message request, confirmed: the chat is gone and unselected; focus goes to the neighbouring row of the conversation list, as when the phone deletes it, not the page (M15)."""
+    conversation = open_request(page)
+    rows = 'JSON.stringify([...document.querySelectorAll("[data-snowdrop=conversation-list] [data-row-id]")].map((r) => r.getAttribute("data-row-id")))'
+    before = json.loads(page.eval(rows))
+    click_text(page, f'{REQUEST_BAR} button', 'Delete')
+    page.wait_for('!!document.querySelector("[role=alertdialog], [role=dialog]")')
+    click_text(page, '[role=alertdialog] button, [role=dialog] button', 'Delete')
+    page.wait_for(f'!document.querySelector({REQUEST_BAR!r})')
+    quiet(page)
+    after = [r for r in before if r != conversation]
+    at = before.index(conversation)
+    neighbour = before[at + 1] if at + 1 < len(before) else before[at - 1]
+    assert neighbour in after
+    page.expect(f'document.activeElement?.closest("[data-snowdrop=conversation-list] [data-row-id]")?.getAttribute("data-row-id") === {neighbour!r}', 'focus is not on the row next to the deleted request after Delete was confirmed')
+
+
+def group_details(page, key):
+    """Opens a group and returns what a phone-side update of it has to repeat: its id, title, members and our id."""
+    conversation = open_conversation(page, key)
+    if not page.eval('!!document.querySelector("[data-snowdrop=members]")'):
+        page.click('[data-snowdrop=member-toggle]')
+    page.wait_for('!!document.querySelector("[data-snowdrop=member-row]")')
+    members = page.eval('[...document.querySelectorAll("[data-snowdrop=member-row]")].map((e) => e.getAttribute("data-member-id"))')
+    me = page.eval('__journey.state().selfId')
+    title = page.eval(f'__journey.state().conversations.find((c) => c.key === {key!r}).title')
+    return conversation, title, members, me
+
+
+def update_group(page, details, admins, rules, **more):
+    """The phone changes the group: who its admins are, its rules, and anything else (`left`)."""
+    conversation, title, members, _ = details
+    emit(page, 'conversationUpdated', {
+        'id': conversation, 'kind': 'group', 'title': title, 'memberIds': members, 'adminIds': admins,
+        'expireTimerSec': 0, 'lastActivityAt': 4000000000000,
+        'permissions': {'addMember': 'every-member', 'editDetails': 'every-member', 'sendMessages': 'every-member', **rules}, **more,
+    })
+
+
+@journey()
+def group_made_admin_only_under_a_focused_composer(page):
+    """Typing in a group's composer; another admin makes the group admins-only (you are not one): the composer gives way to the notice, and focus is not left on the page (M15)."""
+    details = group_details(page, 'allotment')
+    members, me = details[2], details[3]
+    page.click(COMPOSER)
+    page.type('half a thought')
+    update_group(page, details, [m for m in members if m != me][:1], {'sendMessages': 'only-admins'})
+    page.wait_for('!!document.querySelector("[data-state=announcement]")')
+    quiet(page)
+    page.expect(FOCUS_ON_PAGE, 'focus fell to the page when the composer was replaced by the announcement notice')
+
+
+@journey()
+def group_left_on_another_device_under_a_focused_composer(page):
+    """Typing in a group's composer; you leave the group on the phone: the composer gives way to the left notice, and focus is not left on the page (M15)."""
+    details = group_details(page, 'allotment')
+    page.click(COMPOSER)
+    page.type('half a thought')
+    update_group(page, details, [], {}, left=True)
+    page.wait_for('!!document.querySelector("[data-state=left]")')
+    quiet(page)
+    page.expect(FOCUS_ON_PAGE, 'focus fell to the page when the composer was replaced by the left notice')
+
+
+@journey()
+def chat_blocked_on_the_phone_under_a_focused_composer(page):
+    """Typing in a direct chat's composer; the phone blocks that person: the composer gives way to the blocked bar, and focus is not left on the page (M15)."""
+    conversation = open_conversation(page, 'dm-priya')
+    page.click(COMPOSER)
+    page.type('half a thought')
+    emit(page, 'messageRequestResponse', {'conversationId': conversation, 'answer': 'block', 'at': 4000000000000})
+    page.wait_for(f'document.querySelector({REQUEST_BAR!r})?.getAttribute("data-state") === "blocked"')
+    quiet(page)
+    page.expect(FOCUS_ON_PAGE, 'focus fell to the page when the composer was replaced by the blocked bar')
+
+
+def open_group_dialog(page, action, dialog):
+    """From the group's details popover (its name in the chat header), the action that opens `dialog`."""
+    page.click('[data-snowdrop=chat-header] h1 button')
+    page.wait_for('!!document.querySelector("[role=dialog]")')
+    click_text(page, '[role=dialog] button', action)
+    page.wait_for(f'[...document.querySelectorAll("[role=dialog]")].some((d) => d.textContent.includes({dialog!r}))')
+
+
+TOAST = '[data-sonner-toast]'
+
+
+@journey()
+def edit_group_closes_when_you_lose_the_right_to_change_it(page):
+    """Edit group is open; meanwhile you stop being an admin of a group only admins may edit: the dialog closes with a short notice instead of refusing later, and focus is not left on the page (M15)."""
+    details = group_details(page, 'allotment')
+    members, me = details[2], details[3]
+    update_group(page, details, [me], {})
+    open_group_dialog(page, 'Edit group', 'Group name')
+    update_group(page, details, [m for m in members if m != me][:1], {'editDetails': 'only-admins'})
+    page.wait_for('!document.querySelector("[role=dialog]")')
+    page.wait_for(f'document.querySelector({TOAST!r})?.textContent.includes("You can no longer change this group")')
+    quiet(page)
+    page.expect(FOCUS_ON_PAGE, 'focus fell to the page when the Edit group dialog closed under the user')
+
+
+@journey()
+def leave_group_closes_when_you_already_left_on_the_phone(page):
+    """Leave group is asking; meanwhile you leave on the phone: the dialog closes with a short notice (there is nothing left to leave), and focus is not left on the page (M15)."""
+    details = group_details(page, 'allotment')
+    open_group_dialog(page, 'Leave group', 'You will no longer be able to send')
+    update_group(page, details, [], {}, left=True)
+    page.wait_for('!document.querySelector("[role=dialog]")')
+    page.wait_for(f'document.querySelector({TOAST!r})?.textContent.includes("no longer in this group")')
+    quiet(page)
+    page.expect(FOCUS_ON_PAGE, 'focus fell to the page when the Leave group dialog closed under the user')
+
+
+def open_annika_safety_number(page):
+    open_conversation(page, 'dm-annika')
+    page.wait_for('[...document.querySelectorAll("button")].some((b) => b.textContent.trim() === "View Safety Number")')
+    click_text(page, 'button', 'View Safety Number')
+    page.wait_for('[...document.querySelectorAll("[role=dialog] button")].some((b) => b.textContent.trim() === "Mark as verified")')
+
+
+@journey()
+def marking_verified_keeps_focus_in_the_safety_number_dialog(page):
+    """Verify Safety Number open on Annika (whose key changed), Mark as verified: the dialog stays and focus stays inside it, on its button, not on the page."""
+    open_annika_safety_number(page)
+    click_text(page, '[role=dialog] button', 'Mark as verified')
+    page.wait_for('[...document.querySelectorAll("[role=dialog] button")].some((b) => b.textContent.trim() === "Clear verification")')
+    quiet(page)
+    page.expect('document.activeElement?.closest("[role=dialog]") !== null', 'focus left the dialog when the safety number was marked verified')
+
+
+@journey()
+def verified_safety_number_stops_saying_it_is_not_approved(page):
+    """Annika's new key is untrusted, so the viewer says it is not approved yet; once marked verified it must not still say messages don't go through until you mark it verified."""
+    open_annika_safety_number(page)
+    page.expect('/isn.t approved yet/.test(document.querySelector("[role=dialog]").textContent)', 'an untrusted key does not say so')
+    click_text(page, '[role=dialog] button', 'Mark as verified')
+    page.wait_for('[...document.querySelectorAll("[role=dialog] button")].some((b) => b.textContent.trim() === "Clear verification")')
+    quiet(page)
+    page.expect('!/isn.t approved yet/.test(document.querySelector("[role=dialog]").textContent)', 'the viewer still says the verified key is not approved')
+
+
+@journey()
+def unblocking_in_settings_keeps_focus_inside_settings(page):
+    """A chat blocked from its row menu; Settings > Privacy, Unblock and confirm: the entry goes and Settings stays open, so focus stays inside it, not on a row of the list behind it."""
+    conversation = open_conversation(page, 'dm-priya')
+    open_menu(page, f'[data-conversation-id="{conversation}"]')
+    click_menu_item(page, 'Block')
+    page.wait_for('!!document.querySelector("[role=alertdialog], [role=dialog]")')
+    click_text(page, '[role=alertdialog] button, [role=dialog] button', 'Block')
+    page.wait_for(f'document.querySelector({REQUEST_BAR!r})?.getAttribute("data-state") === "blocked"')
+    page.key(',', ['ctrl'])
+    page.wait_for('!!document.querySelector("[role=dialog]")')
+    click_text(page, '[role=dialog] button', 'Privacy & security')
+    page.wait_for('[...document.querySelectorAll("[role=dialog] button")].some((b) => /^Unblock/.test(b.getAttribute("aria-label") || ""))')
+    page.eval('([...document.querySelectorAll("[role=dialog] button")].find((b) => /^Unblock/.test(b.getAttribute("aria-label") || "")).focus(), 1)')
+    page.key('Enter')
+    page.wait_for('!!document.querySelector("[role=alertdialog]") || document.querySelectorAll("[role=dialog]").length > 1')
+    page.key('Enter')
+    page.wait_for(f'!!document.querySelector({COMPOSER!r})')
+    quiet(page)
+    page.expect('!!document.querySelector("[role=dialog]")', 'Settings closed')
+    page.expect('document.activeElement?.closest("[role=dialog]") !== null', 'focus left Settings for the list behind it after Unblock')

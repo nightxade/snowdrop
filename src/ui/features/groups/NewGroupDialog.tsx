@@ -172,7 +172,9 @@ export function NewGroupDialog({ onClose }: { onClose: () => void }) {
               ) : null
             }
             onChange={(e) => {
-              setTitle(truncateToLimits(e.target.value, 8192, GROUP_LIMITS.title));
+              setTitle(
+                truncateToLimits(e.target.value, GROUP_LIMITS.titleBytes, GROUP_LIMITS.title),
+              );
               setError(null);
             }}
           />

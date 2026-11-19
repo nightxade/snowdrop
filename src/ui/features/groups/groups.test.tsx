@@ -144,6 +144,26 @@ describe('Edit group', () => {
     expect(within(d).getByRole<HTMLButtonElement>('button', { name: 'Save' }).disabled).toBe(true);
   });
 
+  it('bounds a name typed a code unit at a time, even when its last character keeps growing', async () => {
+    const { snowdrop, admin } = await boot();
+    await openModal(snowdrop, 'editGroup', { conversationId: admin.id });
+    const d = await dialog();
+    const name = within(d).getByRole<HTMLInputElement>('textbox', { name: 'Group name' });
+    act(() => {
+      fireEvent.change(name, { target: { value: 'x'.repeat(31) } });
+    });
+    // A joiner and an emoji after the 32nd character extend it: still one grapheme, ever longer.
+    const typed = ['\uD83D', '\uDC68', '\u200D', '\uD83D', '\uDC69', '\u200D'];
+    for (let i = 0; i < 4000; i += 1) {
+      const unit = typed[i % typed.length]!;
+      act(() => {
+        fireEvent.change(name, { target: { value: name.value + unit } });
+      });
+    }
+    expect(new TextEncoder().encode(name.value).length).toBeLessThanOrEqual(1024);
+    expect(name.value.startsWith('x'.repeat(31))).toBe(true);
+  });
+
   it('shows the refusal and keeps the dialog open when Signal says no', async () => {
     const { snowdrop, admin } = await boot();
     const mock = (await snowdrop.backendReady) as unknown as { failNext(): void };
@@ -159,6 +179,76 @@ describe('Edit group', () => {
     expect((await within(d).findByRole('alert')).textContent).toMatch(/Check your connection/u);
     expect(current(snowdrop, admin).title).not.toBe('Will fail');
     await noAxe(d);
+  });
+});
+
+describe('a group dialog whose action became impossible', () => {
+  const toasts = (s: Snowdrop) => s.stores.ui.getState().toasts.map((t) => t.message);
+  const demote = (s: Snowdrop, c: Conversation) => {
+    act(() => {
+      s.stores.conversations.getState().upsert({
+        ...current(s, c),
+        adminIds: [],
+        permissions: {
+          addMember: 'only-admins',
+          editDetails: 'only-admins',
+          sendMessages: 'every-member',
+        },
+      });
+    });
+  };
+
+  it.each(['editGroup', 'addMembers', 'groupPermissions', 'groupLink'])(
+    '%s closes with a short notice when you stop being allowed to use it',
+    async (type) => {
+      const { snowdrop, admin } = await boot();
+      await openModal(snowdrop, type, { conversationId: admin.id });
+      await dialog();
+      demote(snowdrop, admin);
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog')).toBeNull();
+      });
+      expect(toasts(snowdrop)).toEqual(['You can no longer change this group.']);
+    },
+  );
+
+  it('a read-only Group link opened by a plain member stays open', async () => {
+    const { snowdrop, member } = await boot();
+    await openModal(snowdrop, 'groupLink', { conversationId: member.id });
+    await dialog();
+    act(() => {
+      snowdrop.stores.conversations
+        .getState()
+        .upsert({ ...current(snowdrop, member), adminIds: [] });
+    });
+    await settle();
+    expect(screen.queryByRole('dialog')).not.toBeNull();
+    expect(toasts(snowdrop)).toEqual([]);
+  });
+
+  it('Leave group closes with a notice when you left on another device, but not when you leave here', async () => {
+    const { snowdrop, admin } = await boot();
+    await openModal(snowdrop, 'leaveGroup', { conversationId: admin.id });
+    await dialog();
+    act(() => {
+      snowdrop.stores.conversations.getState().upsert({ ...current(snowdrop, admin), left: true });
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+    expect(toasts(snowdrop)).toEqual(['You are no longer in this group.']);
+  });
+
+  it('leaving from the dialog itself closes it without that notice', async () => {
+    const { snowdrop, member } = await boot();
+    await openModal(snowdrop, 'leaveGroup', { conversationId: member.id });
+    const d = await dialog();
+    await click(within(d).getByRole('button', { name: 'Leave group' }));
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+    expect(current(snowdrop, member).left).toBe(true);
+    expect(toasts(snowdrop)).toEqual([]);
   });
 });
 

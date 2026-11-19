@@ -14,6 +14,8 @@ export interface ConfirmDialogProps {
   /** Resolves to null when done, else the sentence to show. */
   run: () => Promise<string | null>;
   onClose: () => void;
+  /** Where focus goes on close, when not back on the opener (`Modal`'s `returnFocus`). */
+  returnFocus?: () => HTMLElement | null | undefined;
   children?: ReactNode;
 }
 
@@ -32,6 +34,7 @@ export function ConfirmDialog({
   disabled,
   run,
   onClose,
+  returnFocus,
   children,
 }: ConfirmDialogProps) {
   const [busy, setBusy] = useState(false);
@@ -53,12 +56,13 @@ export function ConfirmDialog({
         if (!open && !busy) onClose();
       }}
       title={title}
+      {...(returnFocus ? { returnFocus } : {})}
       {...(description ? { description } : {})}
       footer={
         <>
           <Button
             variant="ghost"
-            disabled={busy}
+            busy={busy}
             {...(danger ? { 'data-autofocus': '' } : {})}
             onClick={onClose}
           >
@@ -66,8 +70,8 @@ export function ConfirmDialog({
           </Button>
           <Button
             variant={danger ? 'danger' : 'primary'}
-            disabled={busy || disabled}
-            aria-busy={busy}
+            busy={busy}
+            disabled={disabled}
             {...(danger ? {} : { 'data-autofocus': '' })}
             onClick={() => void confirm()}
           >

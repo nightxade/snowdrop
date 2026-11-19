@@ -11,10 +11,9 @@ import { colorForId } from '@/core/domain';
 import { useSnowdrop } from '@/ui/hooks';
 import { Button, Modal, TextInput } from '@/ui/primitives';
 import { GroupPhotoField, type StagedPhoto } from './GroupPhotoField';
+import { useCloseWhenImpossible } from './useCloseWhenImpossible';
 import { useGroup } from './useGroup';
 import styles from './groups.module.css';
-
-const BYTES = 8192;
 
 function Counter({ text, max }: { text: string; max: number }) {
   const remaining = max - graphemes(text).length;
@@ -36,6 +35,7 @@ export function EditGroupDialog({
 }) {
   const app = useSnowdrop();
   const { group, canEdit } = useGroup(conversationId);
+  useCloseWhenImpossible(canEdit, onClose);
   const [title, setTitle] = useState(group?.title ?? '');
   const [description, setDescription] = useState(group?.description ?? '');
   const [photo, setPhoto] = useState<StagedPhoto | null>(null);
@@ -114,7 +114,7 @@ export function EditGroupDialog({
           aria-required="true"
           trailing={<Counter text={title} max={GROUP_LIMITS.title} />}
           onChange={(e) => {
-            setTitle(truncateToLimits(e.target.value, BYTES, GROUP_LIMITS.title));
+            setTitle(truncateToLimits(e.target.value, GROUP_LIMITS.titleBytes, GROUP_LIMITS.title));
             setError(null);
           }}
         />
@@ -130,7 +130,13 @@ export function EditGroupDialog({
             disabled={busy}
             aria-describedby="edit-group-about-note"
             onChange={(e) => {
-              setDescription(truncateToLimits(e.target.value, BYTES, GROUP_LIMITS.description));
+              setDescription(
+                truncateToLimits(
+                  e.target.value,
+                  GROUP_LIMITS.descriptionBytes,
+                  GROUP_LIMITS.description,
+                ),
+              );
               setError(null);
             }}
           />

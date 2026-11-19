@@ -15,6 +15,7 @@ export function BlockDialog({
   unblock,
   onClose,
   onDone,
+  returnFocus,
 }: {
   conversationId: ConversationId;
   /** Fixed when the dialog opens, so the wording doesn't flip while it closes. */
@@ -22,6 +23,8 @@ export function BlockDialog({
   onClose: () => void;
   /** Called once it went through, just before `onClose`. */
   onDone?: () => void;
+  /** Where focus goes on close, when not back on the opener. */
+  returnFocus?: () => HTMLElement | null | undefined;
 }) {
   const { requests } = useSnowdrop();
   const target = useBlockTarget(conversationId);
@@ -54,6 +57,7 @@ export function BlockDialog({
       disabled={blockedByAdminRole}
       run={run}
       onClose={onClose}
+      {...(returnFocus ? { returnFocus } : {})}
     />
   );
 }

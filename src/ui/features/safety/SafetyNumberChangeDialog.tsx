@@ -120,19 +120,13 @@ export function SafetyNumberChangeDialog({
       description={description}
       footer={
         <>
-          <Button
-            ref={cancelRef}
-            variant="ghost"
-            disabled={busy}
-            data-autofocus=""
-            onClick={onClose}
-          >
+          <Button ref={cancelRef} variant="ghost" busy={busy} data-autofocus="" onClick={onClose}>
             Cancel
           </Button>
           {many && (
             <Button
               variant="secondary"
-              disabled={busy}
+              busy={busy}
               onClick={() => {
                 setStep('review');
               }}
@@ -150,12 +144,7 @@ export function SafetyNumberChangeDialog({
               Done
             </Button>
           ) : (
-            <Button
-              variant="primary"
-              disabled={busy}
-              aria-busy={busy}
-              onClick={() => void sendNow()}
-            >
+            <Button variant="primary" busy={busy} onClick={() => void sendNow()}>
               {busy ? 'Sending…' : sendLabel}
             </Button>
           )}

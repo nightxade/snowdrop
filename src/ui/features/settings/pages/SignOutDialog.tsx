@@ -88,7 +88,7 @@ export function SignOutDialog({ onClose }: SignOutDialogProps) {
             variant="primary"
             icon={busy ? <RotateCw size={16} className={styles.spin} /> : <RotateCw size={16} />}
             autoFocus
-            disabled={busy}
+            busy={busy}
             onClick={() => void retryRestart()}
           >
             Restart Snowdrop
@@ -119,14 +119,10 @@ export function SignOutDialog({ onClose }: SignOutDialogProps) {
         description="Snowdrop goes back to the Welcome screen. Your settings, themes and spaces are kept."
         footer={
           <>
-            <Button variant="ghost" data-autofocus disabled={busy} onClick={close}>
+            <Button variant="ghost" data-autofocus busy={busy} onClick={close}>
               Cancel
             </Button>
-            <Button
-              variant="primary"
-              disabled={busy}
-              onClick={() => void run(() => leaveDemo(app))}
-            >
+            <Button variant="primary" busy={busy} onClick={() => void run(() => leaveDemo(app))}>
               {busy ? 'Leaving…' : 'Leave demo'}
             </Button>
           </>
@@ -153,12 +149,12 @@ export function SignOutDialog({ onClose }: SignOutDialogProps) {
         description="Snowdrop goes back to the Welcome screen. It never owned this daemon's data, so nothing about it changes."
         footer={
           <>
-            <Button variant="ghost" data-autofocus disabled={busy} onClick={close}>
+            <Button variant="ghost" data-autofocus busy={busy} onClick={close}>
               Cancel
             </Button>
             <Button
               variant="danger"
-              disabled={busy}
+              busy={busy}
               onClick={() => void run(() => disconnectExternalDaemon(app))}
             >
               {busy ? 'Disconnecting…' : 'Disconnect'}
@@ -186,14 +182,10 @@ export function SignOutDialog({ onClose }: SignOutDialogProps) {
       description="This removes this computer's Signal keys, contacts and message history, and this account's contact notes, pins and drafts. Your Snowdrop settings, themes and spaces stay."
       footer={
         <>
-          <Button variant="ghost" data-autofocus disabled={busy} onClick={close}>
+          <Button variant="ghost" data-autofocus busy={busy} onClick={close}>
             Cancel
           </Button>
-          <Button
-            variant="danger"
-            disabled={busy}
-            onClick={() => void run(() => signOutDesktop(app))}
-          >
+          <Button variant="danger" busy={busy} onClick={() => void run(() => signOutDesktop(app))}>
             {busy ? 'Signing out…' : 'Sign out'}
           </Button>
         </>

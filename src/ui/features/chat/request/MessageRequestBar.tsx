@@ -68,7 +68,7 @@ export function MessageRequestBar({
         chat.focusComposer();
       }, 0);
   };
-  const disabled = busy !== null;
+  const working = busy !== null;
 
   const copy =
     state === 'blocked'
@@ -113,7 +113,7 @@ export function MessageRequestBar({
           <Button
             variant="ghost"
             className={styles.danger}
-            disabled={disabled}
+            busy={working}
             onClick={() => {
               setConfirm('block');
             }}
@@ -124,7 +124,7 @@ export function MessageRequestBar({
         <Button
           variant="ghost"
           className={styles.danger}
-          disabled={disabled}
+          busy={working}
           onClick={() => {
             setConfirm('delete');
           }}
@@ -134,7 +134,7 @@ export function MessageRequestBar({
         {state === 'request' ? (
           <Button
             variant="primary"
-            disabled={disabled}
+            busy={working}
             onClick={() => {
               void run('accept');
             }}
@@ -144,7 +144,7 @@ export function MessageRequestBar({
         ) : (
           <Button
             variant="primary"
-            disabled={disabled}
+            busy={working}
             onClick={() => {
               setConfirm('unblock');
             }}

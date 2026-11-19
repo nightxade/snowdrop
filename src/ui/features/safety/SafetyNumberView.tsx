@@ -26,6 +26,7 @@ export function SafetyNumberView({
     stripBidiControls(s.byId[contactId]?.name ?? 'this person'),
   );
   const verified = useStore(stores.identities, identitiesSelectors.verified(contactId));
+  const liveTrust = useStore(stores.identities, identitiesSelectors.trust(contactId));
   const { state, reload } = useSafetyNumber(contactId);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<'changed' | 'failed' | null>(null);
@@ -63,6 +64,8 @@ export function SafetyNumberView({
     );
 
   const { number } = state;
+  // What the store says now (marking verified changes it), not what was read when this opened.
+  const trust = liveTrust ?? number.trust;
   const blocks = safetyBlocks(number.digits);
   const toggle = async () => {
     if (busy) return;
@@ -98,17 +101,12 @@ export function SafetyNumberView({
           ))}
         </div>
         <p className={styles.state}>
-          {verified
-            ? 'Verified'
-            : number.trust === 'untrusted'
-              ? 'Not approved yet'
-              : 'Not verified'}
+          {verified ? 'Verified' : trust === 'untrusted' ? 'Not approved yet' : 'Not verified'}
         </p>
         <Button
           ref={primary}
           variant={verified ? 'secondary' : 'primary'}
-          aria-busy={busy}
-          disabled={busy}
+          busy={busy}
           data-autofocus=""
           onClick={() => void toggle()}
         >
@@ -122,7 +120,7 @@ export function SafetyNumberView({
             ? `Couldn’t ${verified ? 'clear the verification' : 'mark it as verified'}. Check the connection and try again.`
             : null}
       </p>
-      {number.trust === 'untrusted' && (
+      {trust === 'untrusted' && (
         <p className={styles.hint}>
           Their new safety number isn’t approved yet, so messages with {name} don’t go through until
           you mark it verified, or choose Send anyway after a message fails to send.

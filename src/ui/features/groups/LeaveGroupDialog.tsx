@@ -1,10 +1,17 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useStore } from 'zustand';
-import { colorForId, mustChooseNewAdmin, type Contact, type ConversationId } from '@/core/domain';
+import {
+  colorForId,
+  isGroupMember,
+  mustChooseNewAdmin,
+  type Contact,
+  type ConversationId,
+} from '@/core/domain';
 import { stripBidiControls } from '@/core/lib';
 import { useSnowdrop } from '@/ui/hooks';
 import { ConfirmDialog } from '@/ui/primitives';
 import { ContactChecklist } from './ContactChecklist';
+import { useCloseWhenImpossible } from './useCloseWhenImpossible';
 import { nameOf, useGroup } from './useGroup';
 
 /**
@@ -21,6 +28,12 @@ export function LeaveGroupDialog({
   const app = useSnowdrop();
   const { group, selfId } = useGroup(conversationId);
   const contactsById = useStore(app.stores.contacts, (s) => s.byId);
+  // Our own leaving is what makes it impossible: that is no reason to close with a notice.
+  const leaving = useRef(false);
+  useCloseWhenImpossible(isGroupMember(group, selfId), onClose, {
+    message: 'You are no longer in this group.',
+    acting: leaving,
+  });
   const [picked, setPicked] = useState<Set<string>>(() => new Set());
   const others = useMemo<Contact[]>(
     () =>
@@ -46,7 +59,14 @@ export function LeaveGroupDialog({
       busyLabel="Leaving…"
       danger
       disabled={needsAdmin && picked.size === 0}
-      run={() => app.groups.leave(conversationId, [...picked])}
+      run={async () => {
+        leaving.current = true;
+        try {
+          return await app.groups.leave(conversationId, [...picked]);
+        } finally {
+          leaving.current = false;
+        }
+      }}
       onClose={onClose}
     >
       {needsAdmin && (

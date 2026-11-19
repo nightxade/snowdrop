@@ -227,6 +227,24 @@ describe('a changed safety number', () => {
     expect((await mock.getSafetyNumber(annika))?.trust).toBe('untrusted');
   });
 
+  it('stops saying the key is not approved once it is marked verified, and keeps focus on its button', async () => {
+    const { snowdrop, person } = await boot();
+    const dialog = await openViewer(snowdrop, person('annika'));
+    const mark = await within(dialog).findByRole('button', { name: 'Mark as verified' });
+    act(() => {
+      mark.focus();
+    });
+    expect(within(dialog).getByText(/isn’t approved yet/u)).toBeTruthy();
+    await click(mark);
+    const clear = await within(dialog).findByRole('button', { name: 'Clear verification' });
+    expect(within(dialog).queryByText(/isn’t approved yet/u)).toBeNull();
+    expect(within(dialog).queryByText('Not approved yet')).toBeNull();
+    expect(within(dialog).getByText('Verified')).toBeTruthy();
+    expect(clear.hasAttribute('disabled')).toBe(false);
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    expect(document.activeElement).not.toBe(document.body);
+  });
+
   it('adds one line for a burst of held-back messages, a new one after a real message', async () => {
     const { snowdrop, mock, person } = await boot();
     const ines = person('ines');

@@ -1,9 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import { CoreCommand } from '@/core/commands';
 import type { ConversationId } from '@/core/domain';
 import { uiSelectors } from '@/core/stores';
-import { useHandOffWhenGone, useKeybindLabel, useShellLayout, useStores } from '@/ui/hooks';
+import {
+  neighbourOf,
+  useHandOffWhenGone,
+  useKeybindLabel,
+  useShellLayout,
+  useStores,
+} from '@/ui/hooks';
 import { MembersPanel } from '@/ui/features/members';
 import { AreaErrorBoundary } from '@/ui/lib/AreaErrorBoundary';
 import { Drawer, Kbd, SnowdropMark } from '@/ui/primitives';
@@ -23,6 +29,22 @@ import { MiniPlayer } from './voice/MiniPlayer';
 import { useChatCommands } from './useChatCommands';
 import { useReleaseMarkedUnread } from './useReleaseMarkedUnread';
 import styles from './ChatColumn.module.css';
+
+const LISTED_ROW = '[data-snowdrop="conversation-list"] [data-row-id]';
+
+/** The conversation list's rows as shown now, in order. */
+function listedRowIds(): string[] {
+  return [...document.querySelectorAll(LISTED_ROW)].flatMap((row) => {
+    const id = row.getAttribute('data-row-id');
+    return id === null ? [] : [id];
+  });
+}
+
+function listedRow(id: string): HTMLElement | null {
+  return document.querySelector<HTMLElement>(
+    `${LISTED_ROW}[data-row-id="${CSS.escape(id)}"] [data-roving-item]`,
+  );
+}
 
 /**
  * Header across the top; below it the conversation (messages + composer)
@@ -67,11 +89,20 @@ function ChatColumnInner() {
   const membersOpen = useStore(stores.ui, uiSelectors.memberListOpen);
   const column = useRef<HTMLElement | null>(null);
   useReleaseMarkedUnread(column, selected);
-  // The open conversation went (deleted on the phone) with focus in its pane: focus goes to the
-  // fallback (M15), not the page.
+  // The open conversation went (deleted on the phone, or from its request bar) with focus in its
+  // pane: focus goes to the row beside its own in the conversation list, as when a focused row
+  // goes, else the fallback (M15), not the page.
+  const rowsBefore = useRef<string[]>([]);
   useHandOffWhenGone({
     identify: (el) => (el.closest('[data-snowdrop="chat"]') ? (selected ?? null) : null),
     stillThere: (id) => stores.conversations.getState().byId[id as ConversationId] !== undefined,
+    replacement: (gone) => {
+      const next = neighbourOf(rowsBefore.current, listedRowIds(), gone);
+      return next === undefined ? undefined : listedRow(next);
+    },
+  });
+  useLayoutEffect(() => {
+    rowsBefore.current = listedRowIds();
   });
 
   const showSearch = searchOpen && kind !== undefined && selected !== null;

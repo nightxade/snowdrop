@@ -5,6 +5,7 @@ import { copyText } from '@/ui/features/conversation';
 import { useSnowdrop } from '@/ui/hooks';
 import { Button, ConfirmDialog, Modal, Switch } from '@/ui/primitives';
 import { QrCode } from '@/ui/primitives/QrCode';
+import { useCloseWhenImpossible } from './useCloseWhenImpossible';
 import { useGroup } from './useGroup';
 import styles from './groups.module.css';
 
@@ -25,6 +26,8 @@ export function GroupLinkDialog({
 }) {
   const app = useSnowdrop();
   const { group, canManage } = useGroup(conversationId);
+  // A non-admin can read the link; losing the admin role under an open dialog closes it.
+  useCloseWhenImpossible(canManage, onClose);
   const [mode, setMode] = useState<GroupLinkMode | null>(null);
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);

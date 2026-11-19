@@ -410,6 +410,50 @@ describe('mock message requests', () => {
     ).toBeUndefined();
   });
 
+  it('drops a message from a blocked contact or in a blocked group, as signal-cli does', async () => {
+    const backend = await make();
+    const dm = backend.world.conversationIds.get('request-dm')!;
+    const group = backend.world.conversationIds.get('request-group')!;
+    const stranger = backend.world.conversations
+      .get(dm)!
+      .memberIds.find((id) => id !== backend.world.self.id)!;
+    const heard = collect(backend, 'message');
+    const say = (
+      conversationId: Message['conversationId'],
+      authorId: string,
+      sentAt: number,
+    ): Message => ({
+      id: messageId(authorId, sentAt),
+      conversationId,
+      authorId,
+      sentAt,
+      receivedAt: sentAt,
+      body: 'hello',
+      ranges: [],
+      attachments: [],
+      reactions: [],
+      status: 'read',
+      kind: 'normal',
+    });
+    await backend.setBlocked(dm, true);
+    backend.deliver(say(dm, stranger, 1));
+    expect(heard).toHaveLength(0);
+    // Not stored either: it is not in the history it would be fetched from.
+    expect(backend.world.histories.get(dm)?.some((m) => m.sentAt === 1)).toBe(false);
+    // The user's own message from another device is not from the blocked contact.
+    backend.deliver(say(dm, backend.world.self.id, 2));
+    expect(heard).toHaveLength(1);
+    await backend.setBlocked(dm, false);
+    backend.deliver(say(dm, stranger, 3));
+    expect(heard).toHaveLength(2);
+    await backend.setBlocked(group, true);
+    const member = backend.world.conversations
+      .get(group)!
+      .memberIds.find((id) => id !== backend.world.self.id)!;
+    backend.deliver(say(group, member, 4));
+    expect(heard).toHaveLength(2);
+  });
+
   it('records read receipts for tests', async () => {
     const backend = await make();
     const dm = backend.world.conversationIds.get('request-dm')!;

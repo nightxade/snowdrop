@@ -61,7 +61,7 @@ const COMPOSER = '[data-snowdrop="composer-input"]';
 const NAV_DRAWER = '[data-snowdrop="drawer"]';
 
 /** The message list's own tab stop: its current row, else the scroller. */
-function messageListStop(): HTMLElement | null {
+export function messageListStop(): HTMLElement | null {
   return (
     document.querySelector<HTMLElement>(
       '[data-message-scroller] [data-roving-item][tabindex="0"]',
@@ -70,40 +70,70 @@ function messageListStop(): HTMLElement | null {
 }
 
 /**
+ * The composer, else the message list: where focus goes when what had it at the bottom of the
+ * chat (a request bar's button, the composer) is replaced. While a focus policy is active
+ * (Vim's navigation keys) the list comes first, as the composer only its own keys reach (M11).
+ */
+export function composerOrMessageList(): HTMLElement | null {
+  const composer = document.querySelector<HTMLElement>(COMPOSER);
+  return conversationFocusPolicyActive()
+    ? (messageListStop() ?? composer)
+    : (composer ?? messageListStop());
+}
+
+/** The topmost open modal dialog (Settings, a confirmation), if any. */
+function openModal(): HTMLElement | null {
+  const open = document.querySelectorAll<HTMLElement>('[data-modal-dialog][data-state="open"]');
+  return open.item(open.length - 1);
+}
+
+const FOCUSABLE =
+  'button:not([disabled]), [href], input:not([disabled]):not([type=hidden]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/**
  * Where focus goes when what opened a dialog (or popover) is gone, or the thing that had it left
  * the page (a row removed, a pane that went): never the page body. What had focus before (outside
  * any dialog or menu), else the trigger of the menu that was open, else the composer, else the
  * message list, else the conversation list's tab stop. While a focus policy is active (Vim's
  * navigation keys) the message list stands in for the composer, which only its own keys reach (M11).
+ * Behind an open modal dialog nothing outside it is a place focus can go, so the choice stays
+ * inside it (what had focus there, else its first control, else the dialog itself).
  */
 export function fallbackFocus(): HTMLElement | null {
   const policy = conversationFocusPolicyActive();
   // The navigation drawer is modal: while it is open, what is behind it (the header button, the
   // composer) is not a place focus can go; it stays in the drawer's rail or list.
   const drawer = document.querySelector<HTMLElement>(NAV_DRAWER);
+  const modal = openModal();
   const reachable = (el: HTMLElement | null): el is HTMLElement =>
-    el !== null && (drawer === null || drawer.contains(el));
+    el !== null &&
+    (drawer === null || drawer.contains(el)) &&
+    (modal === null || modal.contains(el));
   for (const el of [...history].reverse()) {
     if (policy && el.matches(COMPOSER)) continue;
+    // A dialog's own controls only count while that dialog is the one that stays open.
+    const layer = el.closest('[role="dialog"]');
     if (
       el.isConnected &&
       reachable(el) &&
-      !el.closest('[role="dialog"], [role="menu"], [data-sonner-toaster]')
+      (layer === null || layer === modal) &&
+      !el.closest('[role="menu"], [data-sonner-toaster]')
     )
       return el;
   }
-  const composer = document.querySelector<HTMLElement>(COMPOSER);
   const opener = rememberedMenuOpener();
-  return (
+  const found =
     (reachable(opener) ? opener : null) ??
     (() => {
-      const place = policy ? (messageListStop() ?? composer) : (composer ?? messageListStop());
+      const place = composerOrMessageList();
       return reachable(place) ? place : null;
     })() ??
-    document.querySelector<HTMLElement>(
-      '[data-snowdrop="sidebar"] [data-roving-item][tabindex="0"]',
-    )
-  );
+    (modal === null
+      ? document.querySelector<HTMLElement>(
+          '[data-snowdrop="sidebar"] [data-roving-item][tabindex="0"]',
+        )
+      : null);
+  return found ?? (modal === null ? null : (modal.querySelector<HTMLElement>(FOCUSABLE) ?? modal));
 }
 
 export interface OpenerFocus {
@@ -156,6 +186,8 @@ export function useOpenerFocus(open = true): OpenerFocus {
         // The opener went away: the fallback chain, unless the user already put focus somewhere.
         const active = document.activeElement;
         if (active && active !== document.body && !active.closest('[role="dialog"]')) return;
+        // Focus already inside a dialog that stays open (one that replaced this): not this one's to move.
+        if (active && openModal()?.contains(active)) return;
         const target = fallbackFocus();
         if (target?.isConnected) focusQuietly(target);
       },

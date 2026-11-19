@@ -1,5 +1,5 @@
 import { Ban } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import { directConversationId, initialsFor, type ConversationId } from '@/core/domain';
 import { stripBidiControls } from '@/core/lib';
@@ -9,7 +9,7 @@ import {
   formatPhone,
   PersonAvatar,
 } from '@/ui/features/conversation';
-import { useStores } from '@/ui/hooks';
+import { neighbourOf, useStores } from '@/ui/hooks';
 import { Button, EmptyState } from '@/ui/primitives';
 import styles from './BlockedList.module.css';
 
@@ -33,6 +33,8 @@ export function BlockedList() {
   const contactsById = useStore(contacts, (s) => s.byId);
   const byId = useStore(conversations, (s) => s.byId);
   const [confirming, setConfirming] = useState<ConversationId | null>(null);
+  /** The entries as they were when Unblock was chosen: where its neighbours were. */
+  const asked = useRef<{ id: ConversationId; order: ConversationId[] } | null>(null);
 
   const { people, groups } = useMemo(() => {
     const people: Entry[] = Object.values(contactsById)
@@ -56,6 +58,23 @@ export function BlockedList() {
     return { people, groups };
   }, [contactsById, byId]);
 
+  // Unblocking takes the entry (and its button, which had focus) away: focus goes to the next
+  // entry's button, else the previous, else the empty state, so it stays in Settings (M15).
+  const focusAfterUnblock = () => {
+    const was = asked.current;
+    if (!was) return null;
+    const now = [...document.querySelectorAll('[data-blocked-id]')].map((e) =>
+      e.getAttribute('data-blocked-id'),
+    );
+    if (now.includes(was.id)) return null;
+    const next = neighbourOf<string | null>(was.order, now, was.id);
+    return (
+      (next
+        ? document.querySelector<HTMLElement>(`[data-blocked-id="${CSS.escape(next)}"] button`)
+        : null) ?? document.querySelector<HTMLElement>('[data-blocked-empty]')
+    );
+  };
+
   const section = (label: string, entries: Entry[]) =>
     entries.length === 0 ? null : (
       <div className={styles.group}>
@@ -64,7 +83,7 @@ export function BlockedList() {
         </p>
         <ul className={styles.list} aria-labelledby={`blocked-${label}`}>
           {entries.map((entry) => (
-            <li key={entry.id} className={styles.item}>
+            <li key={entry.id} className={styles.item} data-blocked-id={entry.id}>
               {entry.contactId ? (
                 <PersonAvatar
                   contactId={entry.contactId}
@@ -87,6 +106,7 @@ export function BlockedList() {
                 variant="secondary"
                 aria-label={`Unblock ${entry.name}`}
                 onClick={() => {
+                  asked.current = { id: entry.id, order: [...people, ...groups].map((e) => e.id) };
                   setConfirming(entry.id);
                 }}
               >
@@ -101,9 +121,12 @@ export function BlockedList() {
   return (
     <>
       {people.length === 0 && groups.length === 0 ? (
-        <EmptyState size="sm" icon={<Ban />} title="No one is blocked">
-          Block someone from their profile or a chat menu. They can’t call you or send you messages.
-        </EmptyState>
+        <div tabIndex={-1} data-blocked-empty="" className={styles.empty}>
+          <EmptyState size="sm" icon={<Ban />} title="No one is blocked">
+            Block someone from their profile or a chat menu. They can’t call you or send you
+            messages.
+          </EmptyState>
+        </div>
       ) : (
         <>
           {section('People', people)}
@@ -114,6 +137,7 @@ export function BlockedList() {
         <BlockDialog
           conversationId={confirming}
           unblock
+          returnFocus={focusAfterUnblock}
           onClose={() => {
             setConfirming(null);
           }}

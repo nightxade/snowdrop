@@ -1004,8 +1004,19 @@ export class MockBackend implements ChatBackend {
     this.emitter.emit('deleteForMe', event);
   }
 
-  /** Injects an incoming message as if it arrived from the network. */
+  /**
+   * Injects an incoming message as if it arrived from the network. Like signal-cli (its incoming
+   * message handler ignores a message from a blocked contact, or in a blocked group, before
+   * anything is stored or emitted), a message from someone blocked never arrives. The user's own
+   * messages (another device, local system lines) are not "from" anyone blocked.
+   */
   deliver(message: Message): void {
+    const selfId = this.world.self.id;
+    if (message.authorId !== selfId) {
+      const conv = this.world.conversations.get(message.conversationId);
+      if (this.world.contacts.get(message.authorId)?.blocked === true) return;
+      if (conv?.kind === 'group' && conv.blocked === true) return;
+    }
     this.append(message);
     this.emitter.emit('message', structuredClone(message));
   }

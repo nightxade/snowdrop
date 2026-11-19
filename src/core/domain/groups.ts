@@ -5,8 +5,18 @@
  */
 import type { Conversation, GroupPermission } from './types';
 
-/** Longest group name and description, in characters (Desktop's limits). */
-export const GROUP_LIMITS = { title: 32, description: 480 } as const;
+/**
+ * Longest group name and description, in characters (Desktop's limits), and in UTF-8 bytes. The
+ * byte caps bound what one "character" can grow to: a ZWJ sequence can be extended without end
+ * and stays one grapheme, so typing it a code unit at a time would never reach the character cap.
+ * A name of 32 ordinary graphemes (even 32 family emoji, about 800 bytes) is far below its cap.
+ */
+export const GROUP_LIMITS = {
+  title: 32,
+  description: 480,
+  titleBytes: 1024,
+  descriptionBytes: 8192,
+} as const;
 
 type GroupRole = Pick<Conversation, 'kind' | 'adminIds' | 'memberIds'> &
   Partial<Pick<Conversation, 'permissions' | 'left'>>;

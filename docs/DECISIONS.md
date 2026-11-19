@@ -1033,6 +1033,30 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   previous, else the list's tab stop. While the navigation drawer is open, the fallback stays inside
   it (its rail or list), never on the header button behind it: a space deleted in the drawer leaves
   focus there.
+- **What had focus at the bottom of the chat is replaced** (`ConversationArea`): a request bar's
+  button taken away (the request answered on the phone under a focused Accept or Block, Accept
+  taken away by the composer, Block by the blocked bar) hands focus to the composer if one now
+  shows, else the message list; the composer replaced by a notice or a bar (the group made
+  admins-only, left, the chat blocked on the phone) hands focus to the message list, not to the
+  bar's own buttons (nothing takes focus by itself there, so a stray Enter can't answer it).
+  Confirming Delete on a request from its bar goes to the row next to the chat's own in the
+  conversation list, as a phone-side delete does (`ChatColumn`: the next row, else the previous,
+  else the fallback).
+- **Behind an open modal dialog the fallback stays inside it** (Settings, a confirmation): the
+  fallback chain (`fallbackFocus`) only offers places inside the topmost open modal, and a closing
+  dialog does not move focus that already sits inside another open dialog. Unblocking in Settings >
+  Privacy hands focus to the next entry's Unblock, else the previous, else the empty state, never a
+  row of the list behind Settings.
+- **A working button keeps focus**: `Button` takes `busy` (`aria-disabled` and `aria-busy`, ignoring
+  activation) instead of `disabled` for a button that is working, since WebKit drops focus to the
+  page when the focused button becomes `disabled`; the dialogs' buttons (`ConfirmDialog`, Safety
+  Number, Safety Number Changes, sign-out, the request bar) keep focus while busy and after a failure.
+- **A group dialog whose action became impossible closes** with a short toast ("You can no longer
+  change this group.", "You are no longer in this group." for Leave group), focus handed on as for
+  any closing dialog: Edit group, Add members, Permissions, Group link and a member action after
+  you were demoted or left on another device (`useCloseWhenImpossible`). A dialog opened read-only
+  (a plain member's Group link) stays, and leaving from the Leave dialog itself closes it without
+  the notice.
 - **The connection banner's Retry**: activating it takes the button away (the banner turns to
   "Reconnecting"); focus goes to what had it before, else the composer, never the page. Pinned by
   ui/features/chat/ConnectionBanner.test.tsx :: hands focus on, never to the page, when Retry is
@@ -1083,7 +1107,21 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   menuReturn.test.tsx :: forgets what a menu was opened from once the menu closes; ui/features/chat/message/MessageItem.test.tsx :: closes the delete confirmation when
   the message is deleted for everyone meanwhile; closes Message details when the message is deleted
   for everyone meanwhile; journeys/test_dialogs.py :: request_answered_on_the_phone_under_an_open_dialog,
-  dialogs_of_a_message_close_when_it_is_deleted_for_everyone. The fallbacks overlap (the recorded opener, then the
+  dialogs_of_a_message_close_when_it_is_deleted_for_everyone,
+  request_accepted_on_the_phone_under_its_focused_accept_button,
+  request_blocked_on_the_phone_under_its_focused_block_button,
+  deleting_a_request_from_its_bar_keeps_focus_off_the_page,
+  group_made_admin_only_under_a_focused_composer,
+  group_left_on_another_device_under_a_focused_composer,
+  chat_blocked_on_the_phone_under_a_focused_composer,
+  marking_verified_keeps_focus_in_the_safety_number_dialog,
+  unblocking_in_settings_keeps_focus_inside_settings,
+  edit_group_closes_when_you_lose_the_right_to_change_it,
+  leave_group_closes_when_you_already_left_on_the_phone; ui/features/chat/request/
+  MessageRequestBar.test.tsx :: what had focus at the bottom of the chat is replaced (all five);
+  ui/primitives/Button.test.tsx (all three); ui/primitives/Modal.test.tsx :: fallbackFocus behind an
+  open modal dialog; ui/features/settings/pages/BlockedList.test.tsx :: unblocking inside an open
+  dialog; ui/features/groups/groups.test.tsx :: a group dialog whose action became impossible. The fallbacks overlap (the recorded opener, then the
   focus history), so the replaced-dialog journey fails only when the whole restore breaks, not when
   one layer does.
 - **Menu items**: a dialog opened from a menu item (Delete for me, Message details) does not
@@ -1872,10 +1910,15 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 - **Rule**: Available from the conversation, header, member and profile menus with Desktop's
   confirmations. Blocking a group also leaves it, keeping history (not when you are the only admin:
   choose a successor first). A blocked chat's composer shows a notice; Settings > Privacy lists the
-  blocked with an Unblock that asks first; blocking syncs to the phone.
+  blocked with an Unblock that asks first; blocking syncs to the phone. A message from a blocked
+  contact, or in a blocked group, never arrives: signal-cli drops it before storing or reporting it
+  (`IncomingMessageHandler.isMessageBlocked`, in every configuration), and the demo backend does the
+  same, so the app has nothing of its own to drop.
 - **Why**: Signal Desktop parity.
 - **Pinned by**: ui/features/conversation/blocking.test.tsx (all seven); ui/features/settings/pages/
-  BlockedList.test.tsx (all three); core/services/messageRequests.test.ts (block cases).
+  BlockedList.test.tsx (all four); core/services/messageRequests.test.ts (block cases);
+  core/backend/mock/MockBackend.test.ts :: drops a message from a blocked contact or in a blocked
+  group.
 
 ### V5. Phone-side answers and verifications apply here
 
@@ -1907,13 +1950,17 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   retries); it never verifies over an untrusted key. The dialog opens by itself only when that chat
   is still open and the user has pressed no key or pointer button since they sent (or retried) the
   message: it would take focus from what they are doing. Otherwise the failed message's own "Failed
-  to send" line, with Review safety number and Retry, is the way in.
+  to send" line, with Review safety number and Retry, is the way in. The viewer's "Not approved yet"
+  and its hint follow the live trust state, so they go once the number is marked verified, and the
+  Mark as verified button keeps focus while it works.
 - **Why**: Signal Desktop parity; bug: the dialog opened asynchronously and took focus mid-typing.
 - **Pinned by**: ui/features/safety/safety.test.tsx (all); ui/features/chat/message/
   MessageNotes.safety.test.tsx; app/userInput.test.ts; app/createSnowdrop.test.ts :: a send refused
   over a changed safety number (all three); journeys/test_dialogs.py ::
   a_failed_send_opens_the_safety_number_dialog_when_the_user_is_idle,
-  a_failed_send_does_not_take_focus_from_typing; ui/features/chat/list/SystemRow.test.tsx :: shows View Safety Number;
+  a_failed_send_does_not_take_focus_from_typing,
+  verified_safety_number_stops_saying_it_is_not_approved; ui/features/safety/safety.test.tsx ::
+  stops saying the key is not approved once it is marked verified; ui/features/chat/list/SystemRow.test.tsx :: shows View Safety Number;
   src-tauri/src/rpc_guard.rs :: list_identities_takes_exactly_one_person;
   trust_takes_one_person_and_one_selector.
 
@@ -1964,7 +2011,10 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 - **Rule**: Edit name, description and photo; add and remove members; admins, join requests, invite
   links, permissions and announcement groups (a notice instead of the composer); leave (choose a
   successor if last admin; a left group stays read-only with history). Everything is gated by role
-  and group permissions; "You added…" lines.
+  and group permissions; "You added…" lines. A group name is at most 32 characters and 1024 bytes
+  (a description 480 and 8192): the byte cap keeps one character, a ZWJ sequence that can be
+  extended without end, from growing without limit when typed a code unit at a time. A group
+  dialog open when its action stops being possible closes (M15).
 - **Why**: Signal Desktop parity.
 - **Pinned by**: ui/features/groups/groups.test.tsx (all); test/groupService.test.ts (all);
   core/domain/groups.test.ts (all six).

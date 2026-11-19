@@ -14,7 +14,7 @@ afterEach(async () => {
   snowdrop = null;
 });
 
-async function open(key: 'request-dm' | 'request-group' | 'crux') {
+async function open(key: 'request-dm' | 'request-group' | 'crux' | 'dm-priya' | 'allotment') {
   snowdrop = await bootSnowdrop();
   const mock = (await snowdrop.backendReady) as MockBackend;
   const conversationId = mock.world.conversationIds.get(key)!;
@@ -78,6 +78,84 @@ describe('MessageRequestBar in the conversation', () => {
       await new Promise((r) => setTimeout(r, 5));
     });
     expect(document.activeElement).toBe(field);
+  });
+
+  describe('what had focus at the bottom of the chat is replaced', () => {
+    const lost = () => document.activeElement === document.body;
+    const inList = () => !!document.activeElement?.closest('[data-message-scroller]');
+    const focus = (el: HTMLElement) => {
+      act(() => {
+        el.focus();
+      });
+      expect(document.activeElement).toBe(el);
+    };
+
+    it('a request answered on the phone under its focused Accept: focus goes to the composer', async () => {
+      const { snowdrop: app, conversationId } = await open('request-dm');
+      focus(screen.getByRole('button', { name: 'Accept' }));
+      await act(async () => {
+        await app.requests.applySynced({ conversationId, answer: 'accept', at: 4_000_000_000_000 });
+      });
+      await settle(app);
+      expect(bar()).toBeNull();
+      expect(lost()).toBe(false);
+      expect(document.activeElement).toBe(
+        document.querySelector('[data-snowdrop="composer-input"]'),
+      );
+    });
+
+    it('a request blocked on the phone under its focused Block: focus goes to the message list', async () => {
+      const { snowdrop: app, conversationId } = await open('request-dm');
+      focus(screen.getByRole('button', { name: 'Block' }));
+      await act(async () => {
+        await app.requests.applySynced({ conversationId, answer: 'block', at: 4_000_000_000_000 });
+      });
+      await settle(app);
+      expect(bar()?.getAttribute('data-state')).toBe('blocked');
+      expect(lost()).toBe(false);
+      expect(inList()).toBe(true);
+    });
+
+    it('a chat blocked on the phone under its focused composer: focus goes to the message list', async () => {
+      const { snowdrop: app, conversationId } = await open('dm-priya');
+      focus(document.querySelector<HTMLElement>('[data-snowdrop="composer-input"]')!);
+      await act(async () => {
+        await app.requests.applySynced({ conversationId, answer: 'block', at: 4_000_000_000_000 });
+      });
+      await settle(app);
+      expect(bar()?.getAttribute('data-state')).toBe('blocked');
+      expect(lost()).toBe(false);
+      expect(inList()).toBe(true);
+    });
+
+    it.each([
+      [
+        'made admins-only',
+        {
+          permissions: {
+            addMember: 'every-member' as const,
+            editDetails: 'every-member' as const,
+            sendMessages: 'only-admins' as const,
+          },
+          adminIds: [],
+        },
+      ],
+      ['left', { left: true as const }],
+    ])(
+      'a group %s under its focused composer: focus goes to the message list',
+      async (_, change) => {
+        const { snowdrop: app, conversationId } = await open('allotment');
+        focus(document.querySelector<HTMLElement>('[data-snowdrop="composer-input"]')!);
+        const conversation = app.stores.conversations.getState().byId[conversationId]!;
+        await act(async () => {
+          app.stores.conversations.getState().upsert({ ...conversation, ...change });
+          await Promise.resolve();
+        });
+        expect(composer()).toBeNull();
+        expect(lost()).toBe(false);
+        expect(inList()).toBe(true);
+      },
+    );
   });
 
   it('Delete asks first, then deletes and leaves nothing open', async () => {
