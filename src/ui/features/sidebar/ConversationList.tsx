@@ -65,11 +65,31 @@ export function ConversationList() {
       ),
   });
 
+  // A list with no row showing (every category collapsed, nothing unread) has its first header as the tab stop.
+  useHandOffRow({
+    ids: archiveOpen ? [] : sections.map((section) => section.id),
+    scope: `${space}:${archiveOpen ? 'archive' : 'headings'}`,
+    identify: (el) =>
+      el
+        .closest('[data-snowdrop="section-header"]')
+        ?.closest('[data-snowdrop="conversation-list"] [data-section-id]')
+        ?.getAttribute('data-section-id') ?? null,
+    find: (id) =>
+      document.querySelector<HTMLElement>(
+        `[data-snowdrop="conversation-list"] [data-section-id="${CSS.escape(id)}"] [data-snowdrop="section-header"] [data-roving-item]`,
+      ),
+    tabStop: () =>
+      document.querySelector<HTMLElement>(
+        '[data-snowdrop="conversation-list"] [data-roving-item][tabindex="0"]',
+      ),
+  });
+
   if (!ready) return <ListSkeleton />;
 
   // Exactly one row is reachable by Tab: the open conversation, else the first row.
 
   const tabStop = selected && allIds.includes(selected) ? selected : allIds[0];
+  const headerStop = tabStop === undefined ? rows[0]?.section.id : undefined;
 
   const toggle = (sectionId: string) => {
     if (space === HOME) stores.spaces.getState().toggleHomeSection(sectionId as HomeSection);
@@ -148,6 +168,7 @@ export function ConversationList() {
             <section
               key={section.id}
               className={styles.section}
+              data-section-id={section.id}
               aria-label={section.title}
               data-drop-active={line !== -1 ? '' : undefined}
               {...(inSpace ? drop.handlers(section.id, ids) : {})}
@@ -159,6 +180,7 @@ export function ConversationList() {
                   title={section.title}
                   collapsed={section.collapsed}
                   controls={listId}
+                  tabStop={section.id === headerStop}
                   onToggle={() => {
                     toggle(section.id);
                   }}
@@ -168,6 +190,7 @@ export function ConversationList() {
                   title={section.title}
                   collapsed={section.collapsed}
                   controls={listId}
+                  tabStop={section.id === headerStop}
                   onToggle={() => {
                     toggle(section.id);
                   }}
@@ -207,7 +230,7 @@ export function ConversationList() {
             type="button"
             className={styles.archiveEntry}
             data-roving-item
-            tabIndex={allIds.length === 0 ? 0 : -1}
+            tabIndex={allIds.length === 0 && rows.length === 0 ? 0 : -1}
             onClick={() => {
               focusAfterSwitch.current = 'back';
               setArchiveOpenIn(space);

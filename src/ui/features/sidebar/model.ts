@@ -22,7 +22,7 @@ export interface SidebarSection {
   collapsed: boolean;
   /** Everything in the section, in display order. */
   ids: ConversationId[];
-  /** How many of the leading `ids` are pinned (0 outside Home). */
+  /** How many of the leading `ids` are pinned: they lead the section and stay when it is collapsed (S5). */
   pinnedCount?: number;
 }
 
@@ -112,23 +112,32 @@ function assignedIds(spaces: Pick<SpacesData, 'spaces'>): Set<string> {
   return assigned;
 }
 
-/** A space's categories in user order, hiding unknown and archived conversations. */
+/**
+ * A space's categories in user order, hiding unknown and archived conversations. Pinned rows lead
+ * their category (in the category's own order among themselves), then the rest.
+ */
 export function buildSpaceSections(
   spaceId: string,
   spaces: Pick<SpacesData, 'spaces'>,
-  known: Readonly<Record<string, { archived?: boolean } | undefined>>,
+  known: Readonly<Record<string, { archived?: boolean; pinned?: boolean } | undefined>>,
 ): SidebarSection[] {
   const space = spaces.spaces[spaceId];
   if (!space) return [];
-  return space.categories.map((category) => ({
-    id: category.id,
-    title: category.name,
-    collapsed: category.collapsed,
-    ids: category.conversationIds.filter((id) => {
+  return space.categories.map((category) => {
+    const shown = category.conversationIds.filter((id) => {
       const view = known[id];
       return view !== undefined && !view.archived;
-    }),
-  }));
+    });
+    const pinned = shown.filter((id) => known[id]?.pinned === true);
+    const rest = shown.filter((id) => known[id]?.pinned !== true);
+    return {
+      id: category.id,
+      title: category.name,
+      collapsed: category.collapsed,
+      ids: [...pinned, ...rest],
+      pinnedCount: pinned.length,
+    };
+  });
 }
 
 /**
@@ -181,7 +190,7 @@ export interface Location {
 export function globalOrder(
   homeSections: readonly SidebarSection[],
   spaces: Pick<SpacesData, 'spaces' | 'rail'>,
-  known: Readonly<Record<string, { archived?: boolean } | undefined>>,
+  known: Readonly<Record<string, { archived?: boolean; pinned?: boolean } | undefined>>,
 ): Location[] {
   const out: Location[] = homeSections.flatMap((s) => s.ids.map((id) => ({ space: HOME, id })));
   for (const spaceId of flattenRail(spaces.rail)) {

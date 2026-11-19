@@ -8,6 +8,7 @@ import {
   type ConversationId,
 } from '@/core/domain';
 import { graphemes, truncateToLimits } from '@/core/lib';
+import { HOME } from '@/core/stores';
 import { conversationFocusTarget, useSnowdrop } from '@/ui/hooks';
 import { openConversation } from '@/ui/features/conversation';
 import { Button, Modal, TextInput } from '@/ui/primitives';
@@ -62,7 +63,8 @@ export function NewGroupDialog({ onClose }: { onClose: () => void }) {
       return;
     }
     target.current = result.id;
-    openConversation(app, result.id);
+    // A new group lives in Home, so it opens there (as the switcher would open it).
+    openConversation(app, result.id, { space: HOME });
     onClose();
   };
 

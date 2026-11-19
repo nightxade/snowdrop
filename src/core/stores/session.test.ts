@@ -72,3 +72,18 @@ describe('session phase', () => {
     expect(store.getState()).toMatchObject({ phase: 'idle', error: null });
   });
 });
+
+describe('badges held for a catch-up', () => {
+  it('releases the chats the user marked as read during the hold, and forgets them when it ends', () => {
+    const store = createSessionStore();
+    // Outside a hold nothing is held, so nothing is released.
+    store.getState().releaseHeld(['a']);
+    expect(store.getState().heldReleased).toEqual([]);
+    store.getState().setCatchingUp(true);
+    store.getState().releaseHeld(['a', 'b']);
+    store.getState().releaseHeld(['b', 'c']);
+    expect(store.getState().heldReleased).toEqual(['a', 'b', 'c']);
+    store.getState().setCatchingUp(false);
+    expect(store.getState().heldReleased).toEqual([]);
+  });
+});

@@ -47,10 +47,16 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   for what arrives live; what the user does here applies at once: Pin to top, Unpin, Archive,
   Unarchive and mute move a row to or from Pinned, or take it out of or back into the view, while
   recency order and badges stay held. A chat that comes back from the archive because something
-  arrived in it stays held like any other arrival.
+  arrived in it stays held like any other arrival. The rail follows the same hold: a space's, a
+  folder's and Home's tile do not light for what arrives while the held list shows nothing new, and
+  light with it when the catch-up ends. Mark as read (a chat's menu, Mark all as read on a space or
+  folder, the command, the new-messages bar) is the user's own action and applies at once: the
+  chats marked have their held badges cleared immediately, on rows and rail alike, and what arrives
+  in them afterwards is held like any other arrival.
 - **Why**: Bug report: previews cycled through old messages on launch and again after waking from
   sleep; a mount during the catch-up took a new snapshot of the live order and badges. Own actions
-  waiting for the end of the catch-up looked like they had not worked.
+  waiting for the end of the catch-up looked like they had not worked. The rail lit for chats the
+  held list did not show.
 - **Pinned by**: ui/features/sidebar/ConversationList.catchUp.test.tsx :: freezes order, badges and
   previews while catching up, then updates at once; freezes the order from the first conversations
   that load during the very first catch-up; ui/features/sidebar/ConversationList.collapsed.test.tsx ::
@@ -61,7 +67,11 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   journeys/test_catch_up.py :: catch_up_hold_survives_a_narrow_round_trip;
   ui/features/sidebar/ConversationList.catchUp.test.tsx :: applies what the user does here at once
   while catching up, and holds what arrives; journeys/test_sidebar.py ::
-  archiving_a_chat_while_catching_up_takes_effect_at_once.
+  archiving_a_chat_while_catching_up_takes_effect_at_once;
+  ui/features/rail/useUnread.catchUp.test.tsx (both); core/stores/session.test.ts :: badges held for
+  a catch-up; journeys/test_catch_up.py ::
+  rail_tile_stays_dark_while_the_catch_up_holds_a_new_message,
+  mark_as_read_during_the_catch_up_clears_the_held_badge_at_once.
 
 ### S2. One catch-up tracker for the sidebar and the notification hold
 
@@ -103,11 +113,13 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 
 ### S5. Pinned rows lead their section
 
-- **Rule**: There is no separate Pinned section. Pinned rows sit first in their section, stay visible
-  when the section is collapsed, and carry a small pin icon that is announced as pinned.
+- **Rule**: There is no separate Pinned section. Pinned rows sit first in their section (a space's
+  category too, in the category's own order among themselves), stay visible when the section is
+  collapsed, and carry a small pin icon that is announced as pinned.
 - **Why**: User request.
 - **Pinned by**: ui/features/sidebar/model.test.ts :: also shows the pinned rows of a collapsed
-  section, even unselected and read.
+  section, even unselected and read; leads each category with its pinned rows, which stay visible
+  when it is collapsed (S5); journeys/test_sidebar.py :: pinned_row_stays_when_its_category_collapses.
 - **Not pinned**: the pin icon and its screen-reader announcement; a component test on the row would
   pin them.
 
@@ -342,12 +354,23 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 - **Rule**: Spaces are per-account local state: the demo's seeded spaces never appear in a real
   account; a chat lives in at most one space; DMs show in Home even when assigned, groups only when
   unassigned; deleting a space returns its chats to Home; a space the user deleted is not
-  re-seeded. Dragging onto a tile merges into a folder only over the middle half.
-- **Why**: Bug report: demo spaces showed in a real account.
+  re-seeded. Dragging onto a tile merges into a folder only over the middle half. Dropping a chat
+  on the tile of the space it is already in changes nothing (it keeps its category, no toast), and
+  a chat already in Home dropped on Home likewise. A conversation that is deleted (on the phone, or
+  as a message request) loses its space and category with it, so the counts a space tells the user
+  (Delete space, the checklist) match what it lists, and a group that messages again starts in Home,
+  not in its old space. Moving a chat out of a space and back puts it at the end of the first
+  category.
+- **Why**: Bug report: demo spaces showed in a real account. A drop on the chat's own space sent it
+  to the first category; a space counted chats the phone had deleted.
 - **Pinned by**: app/createSnowdrop.signalCli.test.ts :: never shows the demo’s seeded spaces under a
   signal-cli scope; app/createSnowdrop.test.ts :: does not re-seed spaces the user deleted;
   core/stores/spaces.test.ts and spaces.p4.test.ts; ui/features/rail/railDrop.test.ts;
-  app/dataScope.test.ts.
+  app/dataScope.test.ts; core/services/messageRequests.test.ts :: delete drops where the chat was
+  filed, so a group that comes back starts in Home; journeys/test_sidebar.py ::
+  dropping_a_chat_on_its_own_space_leaves_it_in_its_category,
+  dropping_a_group_on_home_while_already_in_home_does_nothing,
+  delete_space_dialog_counts_only_the_chats_it_has.
 - **Not pinned**: the space menu's Move up / Move down for keyboard reordering; a component test of
   the menu would pin it.
 
@@ -367,6 +390,22 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 - **Pinned by**: ui/features/sidebar/UserPanel.test.tsx (three); ui/features/sidebar/
   ListSkeleton.test.tsx :: marks the shimmer off while not intersecting; ui/features/chat/list/
   HistorySkeleton.test.tsx.
+
+### S25. The open chat and its space
+
+- **Rule**: A chat opens in the space it lives in (Home for a direct chat and an unfiled group): from
+  the Mentions inbox as from search, the switcher and a notification, and a new group, which lives in
+  Home, opens in Home even when it was made while a space was shown. The open chat stays open when it
+  is moved to another space or taken out of its space (the pane keeps showing it where the user is),
+  and going to the space it now lives in (or Home) shows it selected there, not "Pick a
+  conversation". Deleting the space that is shown keeps its open chat open, now in Home and selected.
+- **Why**: The Mentions inbox opened a chat in a space that does not list it; a moved chat was gone
+  from the pane's list and its new space showed nothing open.
+- **Pinned by**: app/openChatFollowsSpace.test.ts (all three); journeys/test_sidebar.py ::
+  mention_from_the_inbox_opens_the_chat_in_its_space,
+  moving_the_open_chat_to_a_space_keeps_it_open_and_selected_there,
+  deleting_the_viewed_space_keeps_its_open_chat_open_in_home; journeys/test_dialogs.py ::
+  new_group_made_inside_a_space_opens_in_home.
 
 ---
 
@@ -984,7 +1023,16 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   never the page. The same for a pane that leaves: the open chat deleted on the phone is unselected
   (the pane shows what it shows with nothing open), the sidebar leaving for the closed drawer below
   760 px (S20), and Settings' nav narrowed below 760 px (focus goes to the page's heading). Only focus
-  that was on the thing that left moves; focus the user put elsewhere is never taken.
+  that was on the thing that left moves; focus the user put elsewhere is never taken. The same
+  mechanism covers a row whose menu had focus (a menu opened from a row by Shift+F10 or a right
+  click: Archive, Move to space, Remove from space, Move to category): focus in the menu counts as
+  focus on the row it was opened from, and the hand-off acts once the menu has closed; a thing that
+  stays but is mounted anew (a row filed under another category, a rail tile that goes into or out
+  of a folder, a folder tile that collapses or expands) gets focus back on its new element. A
+  category deleted from its header menu hands focus to the next category's header, else the
+  previous, else the list's tab stop. While the navigation drawer is open, the fallback stays inside
+  it (its rail or list), never on the header button behind it: a space deleted in the drawer leaves
+  focus there.
 - **The connection banner's Retry**: activating it takes the button away (the banner turns to
   "Reconnecting"); focus goes to what had it before, else the composer, never the page. Pinned by
   ui/features/chat/ConnectionBanner.test.tsx :: hands focus on, never to the page, when Retry is
@@ -1020,7 +1068,14 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   search_esc_closes_the_panel_with_text_in_the_field_and_on_a_result,
   search_esc_closes_the_panel_after_enter_moved_focus_to_the_match; journeys/test_sidebar.py ::
   archived_focused_row_hands_focus_to_the_next_row_else_the_previous,
-  deleted_on_the_phone_open_chat_is_unselected; journeys/test_dialogs.py ::
+  deleted_on_the_phone_open_chat_is_unselected, folder_collapse_by_keyboard_keeps_focus_off_the_page,
+  folder_menu_actions_keep_focus_on_the_tiles, deleting_a_category_keeps_focus_off_the_page,
+  row_menu_move_to_space_keeps_focus_off_the_page, row_menu_archive_keeps_focus_off_the_page,
+  row_menu_remove_from_space_keeps_focus_off_the_page,
+  row_menu_move_to_category_keeps_focus_on_the_chat,
+  deleting_a_space_in_the_drawer_keeps_focus_in_the_drawer; ui/hooks/useHandOffWhenGone.test.tsx ::
+  a row whose menu had focus (both), a thing that stays but is mounted anew (both);
+  journeys/test_dialogs.py ::
   settings_nav_item_with_focus_hides_when_the_window_narrows; ui/hooks/useHandOffWhenGone.test.tsx;
   ui/primitives/Modal.test.tsx :: modalDialogOpen; when its opener went with it, falls back to what
   had focus before, then to the composer; a popover whose trigger is removed under it hands focus to
@@ -1043,12 +1098,16 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 
 - **Rule**: Menu entries keep submenus, checks and disabled state in the profile card and the action
   sheet. Shift+F10, the Menu key and Mod+Enter open the focused item's menu. Every list is one tab
-  stop. Long pickers (over 80 rows) are windowed and Enter always picks the highlighted row, even
+  stop; in the sidebar it is a row, or, when no row shows (every category collapsed with nothing
+  pinned, unread or open), the first section header, so the category can be expanded by keyboard. Long pickers (over 80 rows) are windowed and Enter always picks the highlighted row, even
   after it scrolls out; member lists keep one tab stop on a mounted row.
 - **Why**: Bug report (long lists) and plan.
 - **Pinned by**: ui/features/newChat/longLists.test.tsx (all); ui/features/groups/
   ContactChecklist.test.tsx; ui/features/members/MemberList.test.tsx (all); ui/features/members/
-  MenuEntryButtons.test.tsx; ui/features/chat/message/MessageActionSheet.test.tsx.
+  MenuEntryButtons.test.tsx; ui/features/chat/message/MessageActionSheet.test.tsx;
+  ui/features/sidebar/ConversationList.collapsed.test.tsx :: has its first heading as the one tab
+  stop while no row shows; journeys/test_sidebar.py ::
+  collapsed_category_with_nothing_showing_can_be_reached_by_tab.
 
 ### M17. "Message" in a profile card focuses the opened chat
 

@@ -1,7 +1,7 @@
 import { AtSign, Inbox } from 'lucide-react';
 import { useState } from 'react';
 import { useStore } from 'zustand';
-import { sessionSelectors } from '@/core/stores';
+import { HOME, sessionSelectors, spacesSelectors } from '@/core/stores';
 import { useSnowdrop } from '@/ui/hooks';
 import { IconButton, Popover } from '@/ui/primitives';
 import { useChatController } from '../ChatController';
@@ -53,7 +53,12 @@ export function MentionsInbox() {
                 : {})}
               onOpen={() => {
                 setOpen(false);
-                stores.ui.getState().selectConversation(m.conversationId);
+                // Where the chat lives, as search, the switcher and notifications open it.
+                const space =
+                  conversation?.kind === 'group'
+                    ? spacesSelectors.spaceOf(m.conversationId)(stores.spaces.getState())
+                    : null;
+                stores.ui.getState().selectConversation(m.conversationId, space ?? HOME);
                 void chat.reveal(m.conversationId, m.id);
               }}
             />

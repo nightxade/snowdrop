@@ -10,6 +10,7 @@ export function SectionHeader({
   controls,
   trailing,
   entries,
+  tabStop = false,
 }: {
   title: string;
   collapsed: boolean;
@@ -19,6 +20,8 @@ export function SectionHeader({
   trailing?: ReactNode;
   /** Category menu (spaces): right-click / Shift+F10 on the header, plus a hover button. */
   entries?: () => readonly MenuEntry[];
+  /** The list's one tab stop, when it shows no row (otherwise Tab goes to a row, never a header). */
+  tabStop?: boolean;
 }) {
   return (
     <div className={styles.header} data-snowdrop="section-header">
@@ -30,7 +33,7 @@ export function SectionHeader({
             aria-expanded={!collapsed}
             aria-controls={controls}
             data-roving-item
-            tabIndex={-1}
+            tabIndex={tabStop ? 0 : -1}
             onClick={onToggle}
           >
             <ChevronDown className={styles.chevron} size={12} strokeWidth={2.5} aria-hidden />
@@ -44,7 +47,7 @@ export function SectionHeader({
           aria-expanded={!collapsed}
           aria-controls={controls}
           data-roving-item
-          tabIndex={-1}
+          tabIndex={tabStop ? 0 : -1}
           onClick={onToggle}
         >
           <ChevronDown className={styles.chevron} size={12} strokeWidth={2.5} aria-hidden />

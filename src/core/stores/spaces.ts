@@ -502,10 +502,11 @@ export const spacesSelectors = {
     (s: SpacesState): SpaceId | null =>
       spaceIndex(s.spaces).get(conversationId) ?? null,
   /**
-   * Category entries whose conversation is currently known. Assignments are
-   * never pruned automatically — a partial conversation list (still syncing,
-   * backend hiccup) must not wipe the user's organisation — orphans are just
-   * hidden until the conversation reappears.
+   * Category entries whose conversation is currently known. A conversation
+   * that is removed on purpose (deleted on the phone) is unassigned then; a
+   * partial conversation list (still syncing, backend hiccup) never wipes the
+   * user's organisation — orphans are just hidden until the conversation
+   * reappears.
    */
   visibleConversationIds: (
     category: Category,

@@ -10,7 +10,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useCallback } from 'react';
-import { HOME, unreadConversationIds, type SpaceId } from '@/core/stores';
+import { HOME, uiSelectors, unreadConversationIds, type SpaceId } from '@/core/stores';
 import { useSnowdrop, type AppServices } from '@/ui/hooks';
 import { pluginMenuEntries } from '@/ui/features/conversation';
 import type { MenuEntry } from '@/ui/primitives';
@@ -37,7 +37,10 @@ export function unreadInSpace(app: AppServices, spaceId: SpaceId, counted = true
 }
 
 export function markSpaceRead(app: AppServices, spaceId: SpaceId): void {
-  for (const id of unreadInSpace(app, spaceId, false)) void app.sync.markConversationRead(id);
+  const ids = unreadInSpace(app, spaceId, false);
+  // The user's own action: badges held for a catch-up clear at once (S1).
+  app.stores.session.getState().releaseHeld(ids);
+  for (const id of ids) void app.sync.markConversationRead(id);
 }
 
 /** Space context/dropdown menu (PLAN §4.2): mark read, mute, edit, delete + plugin items. */
@@ -198,9 +201,16 @@ export function useSpaceMenu(spaceId: SpaceId): () => MenuEntry[] {
   }, [app, spaceId]);
 }
 
-/** Deleting returns the space's conversations to Home; leave the view if it was open. */
+/**
+ * Deleting returns the space's conversations to Home; leave the view if it was open, with the
+ * chat that was open there still open, now in Home.
+ */
 export function deleteSpace(app: AppServices, spaceId: SpaceId): void {
   const ui = app.stores.ui.getState();
-  if (ui.selectedSpace === spaceId) ui.selectSpace(HOME);
+  if (ui.selectedSpace === spaceId) {
+    const open = uiSelectors.selectedConversation(ui);
+    if (open) ui.selectConversation(open, HOME);
+    else ui.selectSpace(HOME);
+  }
   app.stores.spaces.getState().deleteSpace(spaceId);
 }

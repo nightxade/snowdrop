@@ -90,6 +90,8 @@ export class MessageRequestService {
     // Hidden first: nothing the backend or the history archive still names may bring it back.
     stores.local.getState().markDeleted(id, at);
     stores.conversations.getState().removeMany([id]);
+    // Where the user had filed it goes too: a group that messages again starts in Home, not its old space.
+    stores.spaces.getState().unassign(id);
     stores.conversations.getState().setUnread(id, NO_UNREAD);
     stores.messages.getState().closeWindow(id);
     this.deps.onConversationDeleted?.(id);

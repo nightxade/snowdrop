@@ -1,4 +1,4 @@
-from common import COMPOSER, IN_COMPOSER, click_text, emit, forget_expected_send_failures, is_current, open_conversation, quiet, send, settle
+from common import COMPOSER, IN_COMPOSER, click_text, emit, forget_expected_send_failures, is_current, open_conversation, quiet, select_space, send, settle
 from harness import journey
 
 NEW_MESSAGE = '[data-snowdrop=sidebar-header] button[aria-label="New message"]'
@@ -163,3 +163,25 @@ def a_failed_send_does_not_take_focus_from_typing(page):
     page.expect_stays('!document.querySelector("[role=dialog]")', 800)
     page.expect(f'{IN_COMPOSER} && document.querySelector({COMPOSER!r}).value === "and more"', 'focus or the typed text was taken')
     forget_expected_send_failures(page)
+
+
+@journey()
+def new_group_made_inside_a_space_opens_in_home(page):
+    """In the Family space, New message (from the palette) then New group (no members, a name): the group is made in Home, so Home is shown with the new group open and selected."""
+    select_space(page, 'Family')
+    page.wait_for('!!document.querySelector("[data-snowdrop=sidebar] [data-conversation-id]")')
+    page.key('k', ['ctrl'])
+    page.wait_for('!!document.querySelector("[role=dialog]")')
+    page.type('>new message')
+    page.key('Enter')
+    page.wait_for('[...document.querySelectorAll("[role=dialog] [role=option], [role=dialog] [cmdk-item]")].some((e) => e.textContent.trim() === "New group")', 5000)
+    click_text(page, '[role=dialog] [role=option], [role=dialog] [cmdk-item]', 'New group')
+    page.wait_for('[...document.querySelectorAll("[role=dialog] button")].some((b) => b.textContent.trim() === "Next without members")')
+    click_text(page, '[role=dialog] button', 'Next without members')
+    page.wait_for('document.activeElement?.matches("[role=dialog] input")')
+    page.type('Weekend plans')
+    page.key('Enter')
+    page.wait_for('!document.querySelector("[role=dialog]")')
+    quiet(page)
+    page.expect('document.querySelector("[data-snowdrop=rail] [aria-current=page]")?.getAttribute("aria-label").startsWith("Home")', 'the new group did not open in Home')
+    page.expect('document.querySelector("[data-snowdrop=sidebar] [data-selected] [data-conversation-id]")?.getAttribute("aria-label").startsWith("Weekend plans")', 'the new group is not the selected chat')

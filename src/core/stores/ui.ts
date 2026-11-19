@@ -109,6 +109,8 @@ export interface UiState {
 
   selectSpace(space: SpaceSelection): void;
   selectConversation(conversationId: ConversationId, space?: SpaceSelection): void;
+  /** Makes `space` show the conversation as its open one, without going there. */
+  rememberConversation(conversationId: ConversationId, space: SpaceSelection): void;
   /** The conversation is gone (deleted on the phone): no space has it open any more. */
   deselectConversation(conversationId: ConversationId): void;
   toggleMemberList(open?: boolean): void;
@@ -184,6 +186,18 @@ export function createUiStore(newId: () => string = () => createNonce('toast')):
           editing,
         };
       });
+    },
+    rememberConversation: (conversationId, space) => {
+      set((s) =>
+        s.selectedConversationBySpace[space] === conversationId
+          ? s
+          : {
+              selectedConversationBySpace: {
+                ...s.selectedConversationBySpace,
+                [space]: conversationId,
+              },
+            },
+      );
     },
     deselectConversation: (conversationId) => {
       set((s) => {

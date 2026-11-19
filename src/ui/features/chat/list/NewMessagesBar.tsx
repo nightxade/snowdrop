@@ -96,6 +96,7 @@ export function NewMessagesBar({
         onClick={() => {
           setDismissed(true);
           setReleased(true);
+          stores.session.getState().releaseHeld([conversationId]);
           void sync.markConversationRead(conversationId);
         }}
       >

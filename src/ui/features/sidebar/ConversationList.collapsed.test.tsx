@@ -108,6 +108,24 @@ describe('Collapsed section: what stays visible', () => {
     expect(currentNavigationOrder(stores)).toEqual([idOf('eli')]);
   });
 
+  it('has its first heading as the one tab stop while no row shows, and a row once one does', async () => {
+    const { stores, shown } = await boot();
+    expect(shown()).toEqual([]);
+    const heading = () => screen.getByRole('button', { name: /^Conversations/ });
+    const stops = () =>
+      [
+        ...document.querySelectorAll('[data-snowdrop="conversation-list"] [data-roving-item]'),
+      ].filter((el) => el.getAttribute('tabindex') === '0');
+    expect(stops()).toEqual([heading()]);
+    act(() => {
+      stores.conversations.getState().setUnread(idOf('cass'), { count: 1, mentions: 0 });
+    });
+    await settle(snowdrop!);
+    expect(shown()).toEqual(['cass']);
+    expect(stops()).toHaveLength(1);
+    expect(stops()[0]?.getAttribute('data-conversation-id')).toBe(idOf('cass'));
+  });
+
   it('keyboard stepping walks the rendered rows, and falls back to the same rule when no list is mounted', async () => {
     const { stores } = await boot();
     act(() => {

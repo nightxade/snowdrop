@@ -3,7 +3,7 @@ A patched signal-cli replays its backlog in bursts, with pauses, and says
 "caught up" only when it is done (the demo acts like it: `journeyCatchUp=held`).
 The sidebar must hold still for the whole catch-up, however long the pauses.
 """
-from common import PREVIEW, quiet, settle
+from common import PREVIEW, click_menu_item, open_menu, quiet, select_space, settle
 from harness import journey
 
 ROW_BUTTONS = '[data-snowdrop=conversation-row] [data-conversation-id]'
@@ -91,3 +91,50 @@ def a_brief_drop_starts_a_catch_up_too(page):
     page.eval("__journey.emit('status', 'online')")
     page.wait_for(ALL_LOADING, 1000)
     page.wait_for(NONE_LOADING, 5000)
+
+
+
+RAIL_TILE = '[data-snowdrop=rail] button[aria-label^="{}"]'
+
+
+def tile_label(page, name):
+    return page.eval(f'document.querySelector({RAIL_TILE.format(name)!r})?.getAttribute("aria-label")')
+
+
+def unread_of(key):
+    return f'__journey.state().conversations.find((c) => c.key === {key!r}).unread'
+
+
+@journey(query='journeyCatchUp=held')
+def rail_tile_stays_dark_while_the_catch_up_holds_a_new_message(page):
+    """During the catch-up a space is marked all read and one of its chats then receives a message: its rail tile stays dark, as the held list shows nothing new in it, and lights when the catch-up ends (S1)."""
+    tile = RAIL_TILE.format('Climbing Club')
+    open_menu(page, tile)
+    click_menu_item(page, 'Mark all as read')
+    page.wait_for(f'document.querySelector({tile!r}).getAttribute("aria-label") === "Climbing Club"')
+    page.eval("void __journey.deliver({ conversation: 'crux', count: 1, spacingMs: 0, text: 'held for later' })")
+    page.wait_for(f'{unread_of("crux")} >= 1')
+    quiet(page)
+    page.expect(f'document.querySelector({tile!r}).getAttribute("aria-label") === "Climbing Club"', 'the rail lit for a message the held list does not show')
+    page.eval('__journey.caughtUp()')
+    page.wait_for(f'document.querySelector({tile!r}).getAttribute("aria-label").startsWith("Climbing Club, ")')
+
+
+@journey(query='journeyCatchUp=held')
+def mark_as_read_during_the_catch_up_clears_the_held_badge_at_once(page):
+    """During the catch-up a chat with a held unread badge is marked as read from its menu, and a space is marked all read from its tile: the row's badge, the space's rows and the tile clear at once, though the hold goes on (S1, the user's own action)."""
+    ines = page.eval('__journey.conversationId("dm-ines")')
+    row = f'[data-snowdrop=sidebar] [data-conversation-id="{ines}"]'
+    page.expect(f'document.querySelector({row!r}).getAttribute("aria-label").includes("unread")', 'the row has no held badge to begin with')
+    open_menu(page, row)
+    click_menu_item(page, 'Mark as read')
+    page.wait_for(f'!document.querySelector({row!r}).getAttribute("aria-label").includes("unread")')
+    tile = RAIL_TILE.format('Family')
+    page.expect(f'document.querySelector({tile!r}).getAttribute("aria-label").startsWith("Family, ")', 'the Family tile is not lit to begin with')
+    open_menu(page, tile)
+    click_menu_item(page, 'Mark all as read')
+    page.wait_for(f'document.querySelector({tile!r}).getAttribute("aria-label") === "Family"')
+    select_space(page, 'Family')
+    page.wait_for('!!document.querySelector("[data-snowdrop=sidebar] [data-conversation-id]")')
+    page.expect('[...document.querySelectorAll("[data-snowdrop=sidebar] [data-conversation-id]")].every((r) => !/unread|mention/.test(r.getAttribute("aria-label")))', 'a Family row still shows its held badge')
+    page.expect('__journey.state().catchingUp', 'the catch-up ended')

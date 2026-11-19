@@ -118,6 +118,15 @@ function unreadFlags(
     .join('\n');
 }
 
+function parseFlags(text: string): Map<string, { count: number; mentions: number }> {
+  const map = new Map<string, { count: number; mentions: number }>();
+  for (const line of text ? text.split('\n') : []) {
+    const [id = '', bits = ''] = line.split('\t');
+    map.set(id, { count: bits.startsWith('1') ? 1 : 0, mentions: bits.endsWith('1') ? 1 : 0 });
+  }
+  return map;
+}
+
 /**
  * `SidebarModel.attention`. The list re-renders when *which* conversations
  * are unread changes, not on every message (a joined key of flags), and the
@@ -130,14 +139,13 @@ function useAttention(catchingUp: boolean, ready: boolean): (id: ConversationId)
   const live = useStore(stores.conversations, (s) => unreadFlags(s.unread));
   const shelf = useCatchUpShelf();
   const flags = useFrozenWhile(live, catchingUp, ready, { shelf, key: 'flags' });
+  // Marked as read here during the hold: those chats are held at nothing unread at once (S1).
+  const released = useStore(stores.session, (s) => s.heldReleased);
   const byId = useMemo(() => {
-    const map = new Map<string, { count: number; mentions: number }>();
-    for (const line of flags ? flags.split('\n') : []) {
-      const [id = '', bits = ''] = line.split('\t');
-      map.set(id, { count: bits.startsWith('1') ? 1 : 0, mentions: bits.endsWith('1') ? 1 : 0 });
-    }
+    const map = parseFlags(flags);
+    for (const id of released) map.delete(id);
     return map;
-  }, [flags]);
+  }, [flags, released]);
   return useCallback(
     (id) => {
       const state = local[id];

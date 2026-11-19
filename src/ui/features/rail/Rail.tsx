@@ -1,9 +1,9 @@
 import { lazy, Suspense } from 'react';
 import { Plus } from 'lucide-react';
 import { useStore } from 'zustand';
-import { HOME, spacesSelectors } from '@/core/stores';
+import { flattenRail, HOME, spacesSelectors } from '@/core/stores';
 import type { ConversationId } from '@/core/domain';
-import { useConversationDrop, useRovingFocus, useStores } from '@/ui/hooks';
+import { useConversationDrop, useHandOffWhenGone, useRovingFocus, useStores } from '@/ui/hooks';
 import { Scroller, SnowdropMark } from '@/ui/primitives';
 import { HealthDot } from './HealthDot';
 import { RailTile } from './RailTile';
@@ -24,8 +24,25 @@ export function Rail() {
   const selectedSpace = useStore(stores.ui, (s) => s.selectedSpace);
   const home = useHomeUnread();
   const onKeyDown = useRovingFocus('vertical');
+  // A tile that is mounted anew while it keeps its place on the rail (a folder collapsing into one
+  // tile, a space filed into a folder or taken out) gets the focus it had back (M15).
+  const tiles = new Set([
+    ...flattenRail(rail).map((id) => `space:${id}`),
+    ...rail.flatMap((e) => (e.type === 'folder' ? [`folder:${e.id}`] : [])),
+  ]);
+  useHandOffWhenGone({
+    identify: (el) =>
+      el.closest('[data-snowdrop="rail"] [data-rail-id]')?.getAttribute('data-rail-id') ?? null,
+    stillThere: (id) => tiles.has(id),
+    again: (id) =>
+      document.querySelector<HTMLElement>(
+        `[data-snowdrop="rail"] [data-rail-id="${CSS.escape(id)}"]`,
+      ),
+  });
   // Dropping a conversation on Home takes it out of its space.
+  // A chat that is already in Home stays as it is: no move, no toast.
   const homeDrop = useConversationDrop((id) => {
+    if (spacesSelectors.spaceOf(id as ConversationId)(stores.spaces.getState()) === null) return;
     stores.spaces.getState().unassign(id as ConversationId);
     stores.ui
       .getState()

@@ -1,6 +1,6 @@
 import { useStore } from 'zustand';
 import { initialsFor } from '@/core/domain';
-import { uiSelectors, type SpaceId } from '@/core/stores';
+import { spacesSelectors, uiSelectors, type SpaceId } from '@/core/stores';
 import type { ConversationId } from '@/core/domain';
 import { useConversationDrop, useStores } from '@/ui/hooks';
 import { useSpaceMenu } from '@/ui/features/spaces';
@@ -24,7 +24,9 @@ export function SpaceTile({ spaceId, mergeTarget, className, ...rest }: SpaceTil
   const { hasUnread, mentions } = useSpacesUnread([spaceId]);
   const menu = useSpaceMenu(spaceId);
   // Drop a conversation from the sidebar onto the tile to move it into this space.
+  // Dropping it on the space it is already in changes nothing (it keeps its category).
   const drop = useConversationDrop((id) => {
+    if (spacesSelectors.spaceOf(id as ConversationId)(stores.spaces.getState()) === spaceId) return;
     stores.spaces.getState().assign(id as ConversationId, spaceId);
     stores.ui.getState().pushToast({
       message: `Moved to ${stores.spaces.getState().spaces[spaceId]?.name ?? 'space'}`,
@@ -45,6 +47,7 @@ export function SpaceTile({ spaceId, mergeTarget, className, ...rest }: SpaceTil
         stores.ui.getState().selectSpace(spaceId);
       }}
       className={[styles.target, className].filter(Boolean).join(' ')}
+      data-rail-id={`space:${spaceId}`}
       data-drop={drop.active || mergeTarget ? '' : undefined}
       {...drop.handlers}
       {...rest}

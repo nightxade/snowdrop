@@ -59,6 +59,7 @@ export function FolderEntry({
         wrapperStyle={wrapperStyle}
         dragging={dragging ?? false}
         className={styles.collapsed}
+        data-rail-id={`folder:${folder.id}`}
         data-drop={mergeTarget ? '' : undefined}
         menu={menu}
         {...(hue ? { hue } : {})}
@@ -99,6 +100,7 @@ export function FolderEntry({
         aria-expanded
         tone="accent"
         className={styles.header}
+        data-rail-id={`folder:${folder.id}`}
         data-drop={mergeTarget ? '' : undefined}
         menu={menu}
         onClick={toggle}

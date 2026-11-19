@@ -76,6 +76,8 @@ export function openDirectConversation(app: AppServices, contact: Contact): Conv
 }
 
 export function markRead(app: AppServices, id: ConversationId): void {
+  // The user's own action: a badge held for a catch-up clears at once (S1).
+  app.stores.session.getState().releaseHeld([id]);
   void app.sync.markConversationRead(id);
 }
 

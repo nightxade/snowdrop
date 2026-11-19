@@ -148,3 +148,22 @@ def forget_expected_send_failures(page):
         'const keep = window.__errors.filter((e) => !e.includes("[send] send failed"));'
         ' window.__errors.length = 0; window.__errors.push(...keep); return 1'
     )
+
+
+# ---------------------------------------------------------------- menus
+
+def open_menu(page, selector):
+    """Focuses the element and opens its context menu from the keyboard (Shift+F10)."""
+    page.eval(f'(document.querySelector({selector!r}).focus(), 1)')
+    page.key('F10', ['shift'])
+    page.wait_for('!!document.querySelector("[role=menu]")')
+
+
+def click_menu_item(page, text):
+    """Clicks the open menu's item whose text contains `text` (a space's item starts with its emoji)."""
+    page.eval(
+        'for (const e of document.querySelectorAll("[data-journey-pick]")) e.removeAttribute("data-journey-pick");'
+        f' const hit = [...document.querySelectorAll("[role^=menuitem]")].find((e) => e.textContent.trim().includes({text!r}));'
+        ' if (!hit) throw new Error("no such menu item"); hit.setAttribute("data-journey-pick", ""); return 1;'
+    )
+    page.click('[data-journey-pick]')

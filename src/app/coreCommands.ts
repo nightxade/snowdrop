@@ -194,7 +194,9 @@ export function registerCoreCommands(
     enabled: () => uiSelectors.selectedConversation(ui()) !== null,
     run: async () => {
       const id = uiSelectors.selectedConversation(ui());
-      if (id) await sync.markConversationRead(id);
+      if (!id) return;
+      stores.session.getState().releaseHeld([id]);
+      await sync.markConversationRead(id);
     },
   });
 }

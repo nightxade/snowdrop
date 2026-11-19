@@ -4,6 +4,7 @@ import {
   conversationsSelectors,
   describeTypers,
   isMuted,
+  NO_UNREAD,
   sessionSelectors,
   typingSelectors,
   type ContactsState,
@@ -28,7 +29,10 @@ export function useRowState(id: ConversationId, withPreview: boolean) {
   const liveUnread = useStore(stores.conversations, conversationsSelectors.unread(id));
   // Badge counts hold at their pre-catch-up value, same as the sidebar's order.
   const shelf = useCatchUpShelf();
-  const unread = useFrozenWhile(liveUnread, catchingUp, true, { shelf, key: `unread:${id}` });
+  const heldUnread = useFrozenWhile(liveUnread, catchingUp, true, { shelf, key: `unread:${id}` });
+  // Marked as read here during the hold: held at nothing unread at once (S1).
+  const released = useStore(stores.session, (s) => s.heldReleased.includes(id));
+  const unread = released ? NO_UNREAD : heldUnread;
   const selfId = useStore(stores.session, sessionSelectors.selfId);
   const typers = useStore(stores.typing, typingSelectors.typers(id));
   const last = useStore(stores.conversations, (s) => (withPreview ? s.lastMessage[id] : undefined));

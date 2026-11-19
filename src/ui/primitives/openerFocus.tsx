@@ -58,6 +58,7 @@ export function trackFocusHistory(): () => void {
 }
 
 const COMPOSER = '[data-snowdrop="composer-input"]';
+const NAV_DRAWER = '[data-snowdrop="drawer"]';
 
 /** The message list's own tab stop: its current row, else the scroller. */
 function messageListStop(): HTMLElement | null {
@@ -77,15 +78,28 @@ function messageListStop(): HTMLElement | null {
  */
 export function fallbackFocus(): HTMLElement | null {
   const policy = conversationFocusPolicyActive();
+  // The navigation drawer is modal: while it is open, what is behind it (the header button, the
+  // composer) is not a place focus can go; it stays in the drawer's rail or list.
+  const drawer = document.querySelector<HTMLElement>(NAV_DRAWER);
+  const reachable = (el: HTMLElement | null): el is HTMLElement =>
+    el !== null && (drawer === null || drawer.contains(el));
   for (const el of [...history].reverse()) {
     if (policy && el.matches(COMPOSER)) continue;
-    if (el.isConnected && !el.closest('[role="dialog"], [role="menu"], [data-sonner-toaster]'))
+    if (
+      el.isConnected &&
+      reachable(el) &&
+      !el.closest('[role="dialog"], [role="menu"], [data-sonner-toaster]')
+    )
       return el;
   }
   const composer = document.querySelector<HTMLElement>(COMPOSER);
+  const opener = rememberedMenuOpener();
   return (
-    rememberedMenuOpener() ??
-    (policy ? (messageListStop() ?? composer) : (composer ?? messageListStop())) ??
+    (reachable(opener) ? opener : null) ??
+    (() => {
+      const place = policy ? (messageListStop() ?? composer) : (composer ?? messageListStop());
+      return reachable(place) ? place : null;
+    })() ??
     document.querySelector<HTMLElement>(
       '[data-snowdrop="sidebar"] [data-roving-item][tabindex="0"]',
     )

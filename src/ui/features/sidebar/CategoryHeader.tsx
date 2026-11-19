@@ -12,6 +12,7 @@ export function CategoryHeader({
   title: string;
   collapsed: boolean;
   controls: string;
+  tabStop?: boolean;
   onToggle: () => void;
 }) {
   const entries = useCategoryMenu(spaceId, categoryId);

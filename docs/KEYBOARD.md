@@ -65,6 +65,12 @@ sidebar bottom-left, and Settings → Connection; docs/ENCRYPTION.md,
 | Enter / Space              | Open / activate                       |
 | Shift+F10, Menu, Mod+Enter | Item menu (move, mute, pin, archive…) |
 
+The sidebar is one tab stop: a row, or, when no row shows (every category collapsed with nothing
+pinned, unread or open), the first section header, so a collapsed category can be expanded from the
+keyboard. Section headers are otherwise reached with ↑ / ↓ from a row. Focus stays on the thing you
+act on when it is replaced (a folder collapsing, a space filed into a folder, a chat moved to another
+category) and goes to a neighbour when it leaves (a category deleted).
+
 ## Message list
 
 The list is one tab stop (the newest message by default).

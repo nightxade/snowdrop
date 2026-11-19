@@ -86,6 +86,7 @@ import {
   scopedSchema,
   scopeFor,
 } from './dataScope';
+import { openChatFollowsSpace } from './openChatFollowsSpace';
 import { installStallDetector } from './perf';
 import { createPluginHost } from './pluginHost';
 import { registerCoreStatusItems } from './statusItems';
@@ -353,6 +354,9 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
       if (s.appearance !== prev.appearance) writeAppearanceBoot(s.appearance);
     }),
   );
+
+  // A chat moved to another space (or out of its space) while open stays open and is found open there.
+  cleanups.push(openChatFollowsSpace(stores));
 
   // Settings → Data & storage → Diagnostics: desktop-only (null in the
   // browser, where there's no on-disk log or Rust-side verbose floor).

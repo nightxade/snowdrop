@@ -15,6 +15,7 @@ import {
   createStores,
   defaultLocalData,
   selectMessageRequestState,
+  spacesSelectors,
   type Stores,
 } from '@/core/stores';
 import { MessageRequestService } from './MessageRequestService';
@@ -302,6 +303,21 @@ describe('answering a request', () => {
     expect(stores.local.getState().deletedChats[dm]).toBeUndefined();
     expect(stores.conversations.getState().byId[dm]).toBeDefined();
     expect(state(dm)).toBe('request');
+  });
+
+  it('delete drops where the chat was filed, so a group that comes back starts in Home', async () => {
+    const { stores, requests, group } = await setup();
+    const conversation = stores.conversations.getState().byId[group]!;
+    const space = stores.spaces
+      .getState()
+      .createSpace({ name: 'Elsewhere', conversationIds: [group] });
+    expect(spacesSelectors.spaceOf(group)(stores.spaces.getState())).toBe(space);
+    expect(await requests.remove(group)).toBe(true);
+    expect(stores.spaces.getState().spaces[space]?.categories[0]?.conversationIds).toEqual([]);
+    expect(spacesSelectors.spaceOf(group)(stores.spaces.getState())).toBeNull();
+    // It lists again (it messaged, or the phone listed it): not in its old space, but in Home.
+    stores.conversations.getState().upsert(conversation);
+    expect(spacesSelectors.isInHome(group, 'group')(stores.spaces.getState())).toBe(true);
   });
 
   it('block tells the backend and shows the chat as blocked; unblock accepts it', async () => {

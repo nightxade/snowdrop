@@ -93,6 +93,11 @@ export interface SessionState {
    */
   catchingUp: boolean;
   /**
+   * Chats the user marked as read while the hold lasts: their held badges clear at once, on rows
+   * and rail alike (S1). Emptied when the catch-up ends.
+   */
+  heldReleased: readonly string[];
+  /**
    * True while messages processed now are old ones being replayed, so
    * NotificationService must not announce them. Always equal to
    * `catchingUp`: one tracker sets both (SyncService's `catchUp`).
@@ -128,6 +133,8 @@ export interface SessionState {
   markStopped(): void;
   setSelf(self: Contact): void;
   setCatchingUp(catchingUp: boolean): void;
+  /** The user marked these chats as read: during a catch-up their badges stop being held. */
+  releaseHeld(ids: readonly string[]): void;
   setNotificationsHeld(held: boolean): void;
   setHistoryImport(patch: Partial<HistoryImportProgress>): void;
   setAttachmentBackfill(key: string, status: AttachmentBackfillStatus): void;
@@ -151,6 +158,7 @@ export function createSessionStore(): SessionStore {
     self: null,
     error: null,
     catchingUp: false,
+    heldReleased: [],
     notificationsHeld: false,
     historyImport: IDLE_HISTORY_IMPORT,
     attachmentBackfills: {},
@@ -188,7 +196,10 @@ export function createSessionStore(): SessionStore {
       set({ self });
     },
     setCatchingUp: (catchingUp) => {
-      set({ catchingUp });
+      set((s) => ({ catchingUp, heldReleased: catchingUp ? s.heldReleased : [] }));
+    },
+    releaseHeld: (ids) => {
+      set((s) => (s.catchingUp ? { heldReleased: [...new Set([...s.heldReleased, ...ids])] } : s));
     },
     setNotificationsHeld: (notificationsHeld) => {
       set({ notificationsHeld });

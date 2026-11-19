@@ -104,6 +104,18 @@ describe('buildSpaceSections', () => {
     expect(buildSpaceSections('work', data, known)[0]?.ids).toEqual([id('g1')]);
     expect(buildSpaceSections('missing', data, known)).toEqual([]);
   });
+
+  it('leads each category with its pinned rows, which stay visible when it is collapsed (S5)', () => {
+    const data = spaces({ work: ['g1', 'g2', 'g3'] });
+    data.spaces.work!.categories[0]!.collapsed = true;
+    const known = { [id('g1')]: view('g1'), [id('g2')]: view('g2'), [id('g3')]: view('g3') };
+    const pinned = { ...known, [id('g3')]: view('g3', { pinned: true }) };
+    const [section] = buildSpaceSections('work', data, pinned);
+    expect(section?.ids).toEqual([id('g3'), id('g1'), id('g2')]);
+    expect(section?.pinnedCount).toBe(1);
+    expect(visibleIds(section!, null, () => false)).toEqual([id('g3')]);
+    expect(buildSpaceSections('work', data, known)[0]?.pinnedCount).toBe(0);
+  });
 });
 
 describe('visibility and navigation order', () => {

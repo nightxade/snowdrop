@@ -120,6 +120,8 @@ def journey(query='', known_bug=None, fails_at=None, settings=None, notification
     smooth scrolling cost no waiting. `motion=True` runs the journey with it off, as most users have it:
     for the journeys about scrolling, jumps and anything that animates.
     """
+    if callable(query):
+        raise TypeError('write @journey() with parentheses: a bare @journey registers nothing')
     if known_bug is not None and not fails_at:
         raise ValueError('a known_bug journey must say where it fails (fails_at=...)')
 
