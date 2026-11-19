@@ -160,6 +160,11 @@ PRELOAD_JS = r"""
   window.Date = JourneyDate;
 })();
 Object.freeze(Object.prototype);
+// Input the page has received (see Page._input_barrier): a step returns once its own events arrived.
+window.__inputSeen = 0;
+['keydown', 'keyup', 'pointerdown', 'pointerup'].forEach(function (type) {
+  window.addEventListener(type, function () { window.__inputSeen++; }, true);
+});
 window.__errors = [];
 window.addEventListener('error', function (e) { window.__errors.push(String(e.message)); });
 window.addEventListener('unhandledrejection', function (e) { window.__errors.push('rejection: ' + String(e.reason)); });
@@ -474,6 +479,22 @@ class Page:
         r = self.rect(selector)
         return r['x'] + r['w'] / 2.0, r['y'] + r['h'] / 2.0
 
+    # ------------------------------------------------------------ input barrier
+
+    def _input_seen(self):
+        return self._run('return window.__inputSeen || 0;', 10000)
+
+    def _input_barrier(self, base, sent):
+        """Waits until the page has received the `sent` key or pointer events this step synthesised
+        (counted since `base`). WebKit takes them asynchronously, so under load a step could otherwise
+        return with keys still queued and the next step (a script, a click elsewhere) overtake them.
+        A reload resets the page's count: then it gives up after a few seconds and goes on."""
+        if sent == 0:
+            return
+        deadline = time.monotonic() + 3.0
+        while self._input_seen() < base + sent and time.monotonic() < deadline:
+            pump(5)
+
     # ------------------------------------------------------------ keyboard
 
     def _key_event(self, keyval, etype, state, keycode=None, group=None):
@@ -503,26 +524,31 @@ class Page:
         self._key_event(keyval, Gdk.EventType.KEY_RELEASE, self.mods)
         if needs_shift:
             self.key_up('Shift')
+        return 2
 
     @_step
     def key_down(self, name):
         """Presses a key and leaves it down (hold Shift across several steps)."""
         kv = _keyval(name)
+        base = self._input_seen()
         self._key_event(kv, Gdk.EventType.KEY_PRESS, self.mods)
         gdk_name = Gdk.keyval_name(kv)
         if gdk_name in KEY_MOD_BITS:
             self.mods |= KEY_MOD_BITS[gdk_name]
         pump(40)
+        self._input_barrier(base, 1)
 
     @_step
     def key_up(self, name):
         """Releases a key. A modifier's own release still carries its bit, as on a keyboard."""
         kv = _keyval(name)
+        base = self._input_seen()
         self._key_event(kv, Gdk.EventType.KEY_RELEASE, self.mods)
         gdk_name = Gdk.keyval_name(kv)
         if gdk_name in KEY_MOD_BITS:
             self.mods &= ~KEY_MOD_BITS[gdk_name]
         pump(40)
+        self._input_barrier(base, 1)
 
     @_step
     def key(self, name, mods=()):
@@ -535,7 +561,8 @@ class Page:
             chord.append(MOD_BITS[m])
         for _bit, mod_key in chord:
             self.key_down(mod_key)
-        self._tap(_keyval(name))
+        base = self._input_seen()
+        self._input_barrier(base, self._tap(_keyval(name)))
         for _bit, mod_key in reversed(chord):
             self.key_up(mod_key)
         pump(60)
@@ -543,9 +570,12 @@ class Page:
     @_step
     def type(self, text):
         """Types text one key at a time."""
+        base = self._input_seen()
+        sent = 0
         for ch in text:
-            self._tap(_keyval('Return' if ch == '\n' else ch))
+            sent += self._tap(_keyval('Return' if ch == '\n' else ch))
             pump(8)
+        self._input_barrier(base, sent)
         pump(60)
 
     # ------------------------------------------------------------ pointer
@@ -582,12 +612,14 @@ class Page:
         """Moves to the element's centre and clicks the left button."""
         x, y = self._centre(selector)
         self._move_to(x, y)
+        base = self._input_seen()
         self._pointer_event(Gdk.EventType.BUTTON_PRESS, x, y, button=1)
         pump(30)
         self._pointer_event(
             Gdk.EventType.BUTTON_RELEASE, x, y, button=1, state=self.mods | Gdk.ModifierType.BUTTON1_MASK
         )
         pump(80)
+        self._input_barrier(base, 2)
 
     @_step
     def scroll(self, selector, dy):

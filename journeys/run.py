@@ -6,10 +6,15 @@ Runs the user journeys (journeys/test_*.py) against a served journey build.
 
 Each journey gets a fresh webview. One line per journey; a failure prints the
 journeys/ line that failed and saves a screenshot under journeys/shots/.
+`--jobs N` (default 4) runs N journeys at once, each worker its own WebKit.
 Exit status is non-zero if any journey failed.
 """
 import argparse
 import importlib.util
+import json
+import os
+import selectors
+import subprocess
 import sys
 import time
 import traceback
@@ -62,6 +67,123 @@ def run_one(entry, base_url, shots):
     finally:
         page.close()
     return failure
+
+
+def timed(entry, base_url, shots):
+    t0 = time.monotonic()
+    failure = run_one(entry, base_url, shots)
+    return failure, time.monotonic() - t0
+
+
+def outcome(entry, failure, took):
+    """(name, 'pass' | 'fail' | 'known', seconds, the lines to print) for one journey run."""
+    name, known = entry['name'], entry['known_bug']
+    if failure is None and known is None:
+        return name, 'pass', took, [f'PASS  {name}  ({took:.1f}s)']
+    if failure is None:
+        return name, 'fail', took, [f'FAIL  {name}  ({took:.1f}s)', f'      it passes now: remove its known_bug marker ({known})']
+    where, why, exc, shot = failure
+    if known is not None and is_the_known_failure(entry, exc, where):
+        return name, 'known', took, [f'KNOWN {name}  ({took:.1f}s)  {known}', f'      still failing at {where}']
+    lines = [f'FAIL  {name}  ({took:.1f}s)']
+    if known is not None:
+        lines += [f'      a known bug ({known}), but not failing the way it is known to:',
+                  f'      expected an expectation failing at a line with {entry["fails_at"]!r}']
+    lines += [f'      at {where}', f'      {why}']
+    if shot:
+        lines.append(f'      screenshot: {shot}')
+    return name, 'fail', took, lines
+
+
+# ---------------------------------------------------------------- parallel runs
+
+TIMINGS = HERE / 'shots' / 'timings.json'
+RESULT = '@@journey-result '
+
+
+def remember_timings(took_by_name):
+    """Keeps how long each journey took, so the next parallel run starts the slow ones first."""
+    try:
+        known = json.loads(TIMINGS.read_text()) if TIMINGS.exists() else {}
+        known.update({name: round(took, 1) for name, took in took_by_name.items()})
+        TIMINGS.parent.mkdir(parents=True, exist_ok=True)
+        TIMINGS.write_text(json.dumps(known, indent=1, sort_keys=True))
+    except (OSError, ValueError):
+        pass
+
+
+def slowest_first(selected):
+    try:
+        known = json.loads(TIMINGS.read_text())
+    except (OSError, ValueError):
+        known = {}
+    return sorted(selected, key=lambda entry: -known.get(entry['name'], 5.0))
+
+
+def run_parallel(selected, base_url, jobs):
+    """`jobs` worker processes (each its own WebKit, pages ephemeral as always) take journeys from one
+    queue, slowest first; results are yielded as they finish."""
+    queue = [entry['name'] for entry in slowest_first(selected)]
+    workers = []
+    for _ in range(jobs):
+        proc = subprocess.Popen(
+            [sys.executable, str(Path(__file__).resolve()), '--url', base_url, '--worker'],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True,
+        )
+        workers.append(proc)
+    busy = {}
+    selector = selectors.DefaultSelector()
+
+    def hand_out(proc):
+        if queue:
+            busy[proc] = queue.pop(0)
+            proc.stdin.write(busy[proc] + '\n')
+            proc.stdin.flush()
+        else:
+            busy.pop(proc, None)
+            proc.stdin.close()
+            selector.unregister(proc.stdout)
+
+    for proc in workers:
+        selector.register(proc.stdout, selectors.EVENT_READ, proc)
+        hand_out(proc)
+    pending = {proc: b'' for proc in workers}
+    try:
+        while busy:
+            for key, _ in selector.select():
+                proc = key.data
+                chunk = os.read(proc.stdout.fileno(), 65536)
+                if not chunk:
+                    name = busy.pop(proc, None)
+                    selector.unregister(proc.stdout)
+                    if name:
+                        yield name, 'fail', 0.0, [f'FAIL  {name}', '      the worker running it exited']
+                    continue
+                *lines, pending[proc] = (pending[proc] + chunk).split(b'\n')
+                for raw in lines:
+                    line = raw.decode()
+                    if line.startswith(RESULT):
+                        yield tuple(json.loads(line[len(RESULT):]))
+                        hand_out(proc)
+                    else:
+                        print(line, flush=True)
+    finally:
+        for proc in workers:
+            if proc.stdin and not proc.stdin.closed:
+                proc.stdin.close()
+            proc.wait()
+
+
+def worker(base_url):
+    """`--worker`: runs the journeys named on stdin, one per line, and reports each on stdout."""
+    by_name = {entry['name']: entry for entry in load_journeys()}
+    shots = HERE / 'shots'
+    for line in sys.stdin:
+        entry = by_name[line.strip()]
+        result = outcome(entry, *timed(entry, base_url, shots))
+        print(RESULT + json.dumps(result), flush=True)
+    return 0
+
 
 
 def run_fuzz(args):
@@ -125,9 +247,14 @@ def main():
     ap.add_argument('--seeds', help='fuzz: a range of seeds, A-B (inclusive)')
     ap.add_argument('--mode', default='standard', help='fuzz: standard, vim, tui, compact, theme, or seed (one of them by the seed)')
     ap.add_argument('--steps', type=int, default=300, help='fuzz: steps per seed (default 300)')
+    ap.add_argument('--jobs', type=int, default=int(os.environ.get('JOURNEY_JOBS', '4')),
+                    help='journeys run at once, each in its own WebKit (default 4, or $JOURNEY_JOBS; 1 runs them in turn)')
+    ap.add_argument('--worker', action='store_true', help=argparse.SUPPRESS)
     args = ap.parse_args()
 
     harness.require_display()
+    if args.worker:
+        return worker(args.url)
     if args.fuzz:
         if args.names:
             print(f'--fuzz runs random walks, not journeys; journey names were given: {", ".join(args.names)}')
@@ -142,37 +269,21 @@ def main():
     selected = [j for j in journeys if not args.names or j['name'] in args.names]
 
     shots = HERE / 'shots'
-    failed = 0
-    still_known = 0
     started = time.monotonic()
-    for entry in selected:
-        t0 = time.monotonic()
-        failure = run_one(entry, args.url, shots)
-        took = time.monotonic() - t0
-        known = entry['known_bug']
-        if failure is not None:
-            where, why, exc, shot = failure
-        if failure is None and known is None:
-            print(f'PASS  {entry["name"]}  ({took:.1f}s)', flush=True)
-        elif failure is None:
-            failed += 1
-            print(f'FAIL  {entry["name"]}  ({took:.1f}s)', flush=True)
-            print(f'      it passes now: remove its known_bug marker ({known})')
-        elif known is not None and is_the_known_failure(entry, exc, where):
-            still_known += 1
-            print(f'KNOWN {entry["name"]}  ({took:.1f}s)  {known}', flush=True)
-            print(f'      still failing at {where}')
-        else:
-            failed += 1
-            print(f'FAIL  {entry["name"]}  ({took:.1f}s)', flush=True)
-            if known is not None:
-                print(f'      a known bug ({known}), but not failing the way it is known to:')
-                print(f'      expected an expectation failing at a line with {entry["fails_at"]!r}')
-            print(f'      at {where}')
-            print(f'      {why}')
-            if shot:
-                print(f'      screenshot: {shot}')
+    jobs = max(1, min(args.jobs, len(selected)))
+    if jobs > 1:
+        results = run_parallel(selected, args.url, jobs)
+    else:
+        results = (outcome(entry, *timed(entry, args.url, shots)) for entry in selected)
+    failed = still_known = 0
+    took_by_name = {}
+    for name, kind, took, lines in results:
+        took_by_name[name] = took
+        failed += kind == 'fail'
+        still_known += kind == 'known'
+        print('\n'.join(lines), flush=True)
     total = time.monotonic() - started
+    remember_timings(took_by_name)
     passed = len(selected) - failed - still_known
     print(f'{passed} passed, {failed} failed, {still_known} known bugs in {total:.1f}s', flush=True)
     return 1 if failed else 0

@@ -204,5 +204,5 @@ def staged_file_survives_a_chat_switch(page):
     page.wait_for('!!document.querySelector("[data-snowdrop=attachment-tray]")')
     open_conversation(page, 'allotment')
     open_conversation(page, 'dm-priya')
-    page.expect(f'document.querySelector({COMPOSER!r}).value === "with a file"', 'the draft did not come back')
+    page.wait_for(f'document.querySelector({COMPOSER!r})?.value === "with a file"')  # the draft is back
     page.expect('!!document.querySelector("[data-snowdrop=attachment-tray]")', 'the staged file was dropped')

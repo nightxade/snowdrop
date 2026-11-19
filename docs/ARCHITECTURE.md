@@ -667,12 +667,20 @@ the bugs the jsdom suites can't see: those that depend on layout, scrolling,
 focus, timing or real input, or on events arriving in the middle of what the user
 is doing. The page clock starts at the same local moment on every run (10 June 2026, 15:00) and
 then runs normally, because the demo world is built from the current time: without it the chats
-hold different messages at different hours. Run it before every commit (about six minutes).
+hold different messages at different hours. Run it before every commit (about two and a half
+minutes).
+
+Journeys run four at a time (`--jobs N`, or `JOURNEY_JOBS`; `--jobs 1` runs them in turn): each
+worker is its own WebKit process with ephemeral pages, taking journeys from one queue, slowest
+first by the last run's times (`journeys/shots/timings.json`). Every input step waits until the page
+has received its own key and pointer events (the page counts them), so under load a step never
+returns with keys still queued for the next step to overtake.
 
 ```sh
 npm run journeys                        # build the journey bundle, serve it, run every journey
 npm run journeys -- esc_from_the_composer send_a_message   # only these
 npm run journeys -- --no-build          # reuse dist-journey/
+npm run journeys -- --jobs 1            # one at a time
 ```
 
 It needs the system PyGObject with WebKit2 4.1 and Gtk 3 (no pip packages). The
