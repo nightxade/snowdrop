@@ -90,6 +90,7 @@ import { installStallDetector } from './perf';
 import { createPluginHost } from './pluginHost';
 import { registerCoreStatusItems } from './statusItems';
 import { UnreadSync } from './unreadSync';
+import { trackUserInput } from './userInput';
 import {
   desktopAdmin,
   desktopLogAdmin,
@@ -522,6 +523,10 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
       syncLog.error(context, error);
     },
   });
+  const userInput = trackUserInput(clock);
+  cleanups.push(() => {
+    userInput.stop();
+  });
   const send = new SendService({
     sentMarkers: new SentMarkers(storage, accountScope),
     backend,
@@ -539,11 +544,13 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     rememberPurged: (id) => {
       expiry.rememberPurged(id);
     },
-    onIdentityBlocked: ({ conversationId, nonce, contactIds }) => {
+    onIdentityBlocked: ({ conversationId, nonce, contactIds, startedAt }) => {
       identity.noteUntrusted(contactIds);
-      // The dialog only for the chat on screen; elsewhere the failed message
-      // carries a "Review safety number" action of its own.
+      // The dialog only for the chat on screen, and only if the user has not pressed a key or
+      // a pointer button since the send went out (it would take focus from what they are doing);
+      // otherwise the failed message's own "Review safety number" action is the way in.
       if (uiSelectors.selectedConversation(stores.ui.getState()) !== conversationId) return;
+      if (userInput.since(startedAt)) return;
       stores.ui
         .getState()
         .openModal({ type: 'safetyNumberChange', props: { conversationId, nonce, contactIds } });

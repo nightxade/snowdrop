@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { useStore } from 'zustand';
 import { ignored } from '@/core/lib';
 import { sessionSelectors } from '@/core/stores';
-import { useSnowdrop } from '@/ui/hooks';
+import { useHandOffWhenGone, useSnowdrop } from '@/ui/hooks';
 import { friendlyAppError } from '@/ui/lib/connectionErrors';
 import styles from './ConnectionBanner.module.css';
 
@@ -24,7 +24,15 @@ export function ConnectionBanner() {
   const [retrying, setRetrying] = useState(false);
 
   // Before the first sync, "offline"/"connecting" is just booting; the shell shows skeletons.
-  if (status === 'online' || (!ready && status !== 'error')) return null;
+  const shown = status !== 'online' && (ready || status === 'error');
+  const retryShown = shown && status !== 'connecting';
+  // Activating Retry takes the button away (the banner turns to "Reconnecting"): focus goes on to
+  // where it was before, or the composer, never the page (M15).
+  useHandOffWhenGone({
+    identify: (el) => (el.closest('[data-snowdrop="connection-banner"] button') ? 'retry' : null),
+    stillThere: () => retryShown,
+  });
+  if (!shown) return null;
 
   const daemon = backend === 'signal-cli' ? 'the signal-cli daemon' : 'the demo backend';
   const message =
@@ -32,7 +40,7 @@ export function ConnectionBanner() {
       ? `Reconnecting to ${daemon}…`
       : status === 'error'
         ? `Can't reach ${daemon}: ${friendlyAppError(error)}`
-        : `You're offline. Messages you send will go out when ${daemon} is back.`;
+        : `You're offline. A message that fails to send can be retried once ${daemon} is back.`;
 
   const retry = () => {
     setRetrying(true);

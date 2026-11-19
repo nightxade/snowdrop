@@ -43,9 +43,14 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   starts before any conversation has loaded, the order is frozen from the first conversations that
   load, not from an empty list. The hold belongs to the catch-up, not to the list on screen: when the
   sidebar moves into or out of the drawer (the window narrowed or widened) or a row is scrolled out
-  and back, it still shows what it held, and nothing stays held once the catch-up ends.
+  and back, it still shows what it held, and nothing stays held once the catch-up ends. The hold is
+  for what arrives live; what the user does here applies at once: Pin to top, Unpin, Archive,
+  Unarchive and mute move a row to or from Pinned, or take it out of or back into the view, while
+  recency order and badges stay held. A chat that comes back from the archive because something
+  arrived in it stays held like any other arrival.
 - **Why**: Bug report: previews cycled through old messages on launch and again after waking from
-  sleep; a mount during the catch-up took a new snapshot of the live order and badges.
+  sleep; a mount during the catch-up took a new snapshot of the live order and badges. Own actions
+  waiting for the end of the catch-up looked like they had not worked.
 - **Pinned by**: ui/features/sidebar/ConversationList.catchUp.test.tsx :: freezes order, badges and
   previews while catching up, then updates at once; freezes the order from the first conversations
   that load during the very first catch-up; ui/features/sidebar/ConversationList.collapsed.test.tsx ::
@@ -53,7 +58,10 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   ConversationList.catchUp.test.tsx :: keeps the freeze when the list is unmounted and mounted again
   during the catch-up; journeys/test_catch_up.py :: catch_up_holds_the_sidebar (bursts, pauses, no
   caught-up for over 20 s); journeys/test_catch_up.py :: catch_up_keeps_the_order;
-  journeys/test_catch_up.py :: catch_up_hold_survives_a_narrow_round_trip.
+  journeys/test_catch_up.py :: catch_up_hold_survives_a_narrow_round_trip;
+  ui/features/sidebar/ConversationList.catchUp.test.tsx :: applies what the user does here at once
+  while catching up, and holds what arrives; journeys/test_sidebar.py ::
+  archiving_a_chat_while_catching_up_takes_effect_at_once.
 
 ### S2. One catch-up tracker for the sidebar and the notification hold
 
@@ -779,6 +787,12 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   whose answer couldn't be read is "May have sent" with "Send again" and a warning on every retry
   surface. A send cut off by quit comes back as "May have sent" with its outbox entry kept. Retry is
   single-flight.
+- **A change made to a message that is still sending**: if its send then fails, nothing went out.
+  A delete discards the message (no row, no outbox entry, no failure dialog, no safety-number
+  prompt); an edit rewrites what a retry will send, and the failed row shows the new text; a reaction
+  is dropped, as there is nothing to react to. Pinned by core/services/services.test.ts :: changes
+  queued on a message whose send then fails (all three); journeys/test_delete.py ::
+  deleting_a_message_that_is_sending_discards_it_when_the_send_fails.
 - **Why**: Data safety: never double-send silently.
 - **Pinned by**: ui/features/chat/message/MessageNotes.test.tsx (all); core/services/services.test.ts
   :: a send that timed out is marked unconfirmed, and a retry clears that; marks a send aborted by
@@ -971,6 +985,18 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   (the pane shows what it shows with nothing open), the sidebar leaving for the closed drawer below
   760 px (S20), and Settings' nav narrowed below 760 px (focus goes to the page's heading). Only focus
   that was on the thing that left moves; focus the user put elsewhere is never taken.
+- **The connection banner's Retry**: activating it takes the button away (the banner turns to
+  "Reconnecting"); focus goes to what had it before, else the composer, never the page. Pinned by
+  ui/features/chat/ConnectionBanner.test.tsx :: hands focus on, never to the page, when Retry is
+  taken away.
+- **The toast list** (Alt+T moves focus into it): Esc returns focus to where it was before Alt+T;
+  when the focused toast expires or is dismissed, focus goes to the next toast, else back to where it
+  was before (the fallback when that is gone), never the page (`primitives/toastFocus.ts`). Pinned by
+  ui/features/shell/ToastFocus.test.tsx (all); journeys/test_keyboard.py ::
+  esc_in_the_toast_list_returns_focus_to_where_it_was,
+  esc_in_the_toast_list_never_leaves_focus_on_the_page,
+  a_focused_toast_that_goes_hands_focus_to_the_next_toast_else_back. The fallback skips toasts: it is
+  never a toast the user has left.
 - **The search panel owns Esc**: Esc anywhere in it closes it, a field with text and a result
   included, and so does Esc on the message that Enter (or a click on a result) moved focus to, until
   focus goes elsewhere; focus then goes to the composer (the list in Vim mode).
@@ -1320,7 +1346,9 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 ### N1. Hold notifications during catch-up
 
 - **Rule**: From each server connect (initial, reconnect, wake) until the queue is empty, no
-  notification is shown. When the backend sends `caughtUp` (builds 21 and later, ordered from 23) the
+  notification is shown. Every move into online from any other state (after the first connect) is a
+  connect, whether the stream was offline, reconnecting or in error; the first connect starts one
+  catch-up, not two. When the backend sends `caughtUp` (builds 21 and later, ordered from 23) the
   hold ends only on `caughtUp` or a 2-minute ceiling (no quiet period), and a `caughtUp` from an
   earlier connection or a timer from before a sleep cannot end a newer hold. Hold starts and ends are
   logged with reason and counts only.
@@ -1331,7 +1359,10 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   keeps holding notifications while the queue is still working through the backlog; core/backend/
   signal-cli/SignalCliBackend.test.ts (catchingUp ordering cases, see G1).
   journeys/test_notifications.py :: notifications_wait_for_the_end_of_catch_up (a held catch-up at
-  launch and a later one: nothing shown, nothing replayed, the next message shown).
+  launch and a later one: nothing shown, nothing replayed, the next message shown);
+  core/services/catchUp.test.ts :: a brief drop that only reports connecting before coming back holds
+  notifications too; the first connect starts one catch-up, not a second one when the stream reports
+  online; journeys/test_catch_up.py :: a_brief_drop_starts_a_catch_up_too.
 - **Not pinned**: the real wake-from-sleep flood with a live signal-cli backlog; a journey against a
   real signal-cli would pin it.
 
@@ -1814,10 +1845,16 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 - **Rule**: View a contact's number (QR and 60 digits); mark or clear verified, with a badge and
   lines. A changed key shows "Safety Number with X has changed" with View Safety Number; a send
   stopped by one opens Safety Number Changes (review, or Send anyway approves the new key and
-  retries); it never verifies over an untrusted key.
-- **Why**: Signal Desktop parity.
+  retries); it never verifies over an untrusted key. The dialog opens by itself only when that chat
+  is still open and the user has pressed no key or pointer button since they sent (or retried) the
+  message: it would take focus from what they are doing. Otherwise the failed message's own "Failed
+  to send" line, with Review safety number and Retry, is the way in.
+- **Why**: Signal Desktop parity; bug: the dialog opened asynchronously and took focus mid-typing.
 - **Pinned by**: ui/features/safety/safety.test.tsx (all); ui/features/chat/message/
-  MessageNotes.safety.test.tsx; ui/features/chat/list/SystemRow.test.tsx :: shows View Safety Number;
+  MessageNotes.safety.test.tsx; app/userInput.test.ts; app/createSnowdrop.test.ts :: a send refused
+  over a changed safety number (all three); journeys/test_dialogs.py ::
+  a_failed_send_opens_the_safety_number_dialog_when_the_user_is_idle,
+  a_failed_send_does_not_take_focus_from_typing; ui/features/chat/list/SystemRow.test.tsx :: shows View Safety Number;
   src-tauri/src/rpc_guard.rs :: list_identities_takes_exactly_one_person;
   trust_takes_one_person_and_one_selector.
 
@@ -2049,8 +2086,12 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 
 - **Rule**: A remembered account that fails to load restarts signal-cli with backoff (2, 5, 15, 30 s),
   then reconnects every minute; the user is never routed to the link screen.
+- **The banner's copy promises only what happens**: nothing resends by itself when the connection
+  returns, so the offline line says a message that fails to send can be retried once it is back
+  (never that it "will go out").
 - **Why**: User bug: the link screen showed after a network blip.
-- **Pinned by**: core/services/services.test.ts :: retries account-unavailable automatically every
+- **Pinned by**: ui/features/chat/ConnectionBanner.test.tsx :: offline copy promises only what
+  happens: a failed message can be retried; core/services/services.test.ts :: retries account-unavailable automatically every
   60s, never routing to the link screen; a failed reconnect reports the error, and the next Retry
   tries again; platform/tauri/TauriTransport.test.ts :: retries a subscription while signal-cli is
   restarting, and gives up when it is missing; src-tauri/src/process.rs ::
@@ -2199,12 +2240,16 @@ Patch numbers have been squashed and renumbered over time; the numbers in code r
 
 - **Rule**: Unreadable stored messages don't block writes; unreadable outbox entries are skipped and
   kept; one outbox entry failing to restore doesn't stop the others. A send acknowledged but not
-  stored retries the commit, then shows as sent under its real id and is never resent.
+  stored retries the commit, then shows as sent under its real id and is never resent. A stored
+  version of any saved data (settings, local state) that is not a whole number from 0 (-1e300, 1.5) is
+  corrupt: a backup is kept and defaults are used, and the migration never loops on it.
 - **Why**: Data safety.
 - **Pinned by**: core/services/services.test.ts :: one outbox entry failing to restore does not stop
   the others; retries the commit, so a transient failure leaves a normal sent message; is shown as
   sent, never offered for resend, and is completed on the next start; is completed after a restart
-  even when the repository could not take the sent state; core/persistence/* tests.
+  even when the repository could not take the sent state; core/persistence/keyValue.test.ts ::
+  treats a stored version that is not a whole number from 0 as corrupt; treats a stored version far
+  below zero as corrupt; core/persistence/* tests.
 
 ### R2. Deleting a conversation
 

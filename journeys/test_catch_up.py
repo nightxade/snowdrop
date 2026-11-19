@@ -80,3 +80,14 @@ def catch_up_hold_survives_a_narrow_round_trip(page):
     quiet(page, 20)
     page.expect('__journey.state().catchingUp', 'the catch-up ended on its own')
     page.expect(f'{ORDER} === window.__held', 'the sidebar was not held')
+
+
+@journey()
+def a_brief_drop_starts_a_catch_up_too(page):
+    """The connection drops for a moment and comes back through "connecting" (as signal-cli's first retries report it), never "offline": the sidebar holds again, then shows the previews once it is quiet."""
+    page.wait_for(NONE_LOADING, 5000)  # the catch-up of the start is over
+    page.eval("__journey.emit('status', 'connecting')")
+    page.expect_stays(NONE_LOADING, 300)  # still no hold while it is only reconnecting
+    page.eval("__journey.emit('status', 'online')")
+    page.wait_for(ALL_LOADING, 1000)
+    page.wait_for(NONE_LOADING, 5000)

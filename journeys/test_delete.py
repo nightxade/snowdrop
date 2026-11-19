@@ -1,4 +1,4 @@
-from common import COMPOSER, LAST_MESSAGE, MESSAGE, emit, open_conversation, send, settle
+from common import COMPOSER, LAST_MESSAGE, MESSAGE, emit, forget_expected_send_failures, open_conversation, quiet, send, settle
 from harness import journey
 
 DELETE = '[data-snowdrop=hover-bar] button[aria-label^="Delete"]'
@@ -57,3 +57,22 @@ def edit_closes_when_its_message_is_deleted_on_another_device(page):
     page.wait_for('document.body.textContent.includes("This message was deleted")')
     page.wait_for(f'document.activeElement === document.querySelector({row!r})', 1500)
     page.expect_stays(f'document.activeElement === document.querySelector({row!r})', 500)
+
+
+@journey()
+def deleting_a_message_that_is_sending_discards_it_when_the_send_fails(page):
+    """Send to Annika (whose changed key refuses the send, after a moment) and delete the message while it is still sending: when the send fails, nothing is left to send, so no dialog asks about it and no failed row stays."""
+    page.eval('__journey.setSendDelay(700)')
+    open_conversation(page, 'dm-annika')
+    page.click(COMPOSER)
+    page.type('never mind')
+    page.key('Enter')
+    page.wait_for(f'{LAST_MESSAGE}?.hasAttribute("data-pending") === true')
+    page.eval(f'({LAST_MESSAGE}.focus(), 1)')
+    page.wait_for(f'document.activeElement === {LAST_MESSAGE}')
+    page.key('Delete', ['shift'])
+    page.wait_for(f'{LAST_MESSAGE}?.textContent.includes("You deleted this message")')
+    page.wait_for(f'!{LAST_MESSAGE}?.textContent.includes("Sending")', 5000)  # the send has ended (it failed)
+    quiet(page)
+    page.expect_stays(NO_DIALOG, 800)  # the failed-send dialog follows a moment after, once the failure is stored
+    forget_expected_send_failures(page)

@@ -8,7 +8,8 @@ import {
 } from '@/core/persistence';
 import { localSchema, settingsSchema, spacesSchema, spacesSelectors } from '@/core/stores';
 import { STYLE_IDS } from '@/core/themes';
-import { createSnowdrop } from './createSnowdrop';
+import type { MockBackend } from '@/core/backend/mock';
+import { createSnowdrop, type Snowdrop } from './createSnowdrop';
 import { scopedSchema } from './dataScope';
 
 /** The demo's own scope (src/app/dataScope.ts); every test here runs on the mock backend. */
@@ -81,6 +82,73 @@ describe('createSnowdrop', () => {
 
     await snowdrop.dispose();
     expect(stores.session.getState().link).toBe('offline');
+  });
+
+  describe('a send refused over a changed safety number', () => {
+    /** Annika's chat is open and a message to her is going out, taking 100 ms. */
+    async function sendingToAnnika() {
+      const scheduler = new ManualScheduler(NOW);
+      const snowdrop = createSnowdrop({
+        storage: createMemoryStorage(),
+        clock: scheduler,
+        scheduler,
+        mockLatencyMs: 0,
+      });
+      await snowdrop.start();
+      const mock = (await snowdrop.backendReady) as MockBackend;
+      Object.assign(mock, { latencyMs: 100 });
+      const id = mock.world.conversationIds.get('dm-annika')!;
+      snowdrop.stores.ui.getState().selectConversation(id, 'home');
+      const sending = snowdrop.send.send({
+        conversationId: id,
+        text: 'hi',
+        mentionIds: [],
+        attachments: [],
+      });
+      await snowdrop.sync.idle();
+      return { snowdrop, scheduler, sending, id };
+    }
+    /** Lets the send run to its end: every wait the demo makes (each takes 100 ms) is advanced. */
+    const finish = async (scheduler: ManualScheduler, sending: Promise<unknown>) => {
+      const state = { done: false };
+      void sending.then(() => {
+        state.done = true;
+      });
+      for (let i = 0; i < 10 && !state.done; i++) {
+        scheduler.advance(100);
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+      await sending;
+    };
+    const modal = (s: Snowdrop) => s.stores.ui.getState().modal;
+
+    it('opens the review dialog when the user has done nothing since', async () => {
+      const { snowdrop, scheduler, sending, id } = await sendingToAnnika();
+      await finish(scheduler, sending);
+      expect(modal(snowdrop)).toMatchObject({
+        type: 'safetyNumberChange',
+        props: { conversationId: id },
+      });
+      await snowdrop.dispose();
+    });
+
+    it('does not open it over a user who pressed a key meanwhile', async () => {
+      const { snowdrop, scheduler, sending } = await sendingToAnnika();
+      scheduler.advance(1);
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'a' }));
+      await finish(scheduler, sending);
+      expect(modal(snowdrop)).toBeNull();
+      await snowdrop.dispose();
+    });
+
+    it('does not open it over a pointer press either', async () => {
+      const { snowdrop, scheduler, sending } = await sendingToAnnika();
+      scheduler.advance(1);
+      window.dispatchEvent(new Event('pointerdown'));
+      await finish(scheduler, sending);
+      expect(modal(snowdrop)).toBeNull();
+      await snowdrop.dispose();
+    });
   });
 
   it('does not re-seed spaces the user deleted', async () => {

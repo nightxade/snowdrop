@@ -45,6 +45,9 @@ sidebar bottom-left, and Settings → Connection; docs/ENCRYPTION.md,
   the draft in Insert mode).
 - **Esc** closes the topmost menu, popover or dialog first; dialogs return
   focus to whatever opened them.
+- **Alt+T** moves focus into the toast list; **Esc** there returns focus to where it was before. When
+  the focused toast expires or is dismissed, focus goes to the next toast, else back to where it was
+  before, never the page.
 - A row that has focus and disappears (archived, deleted on the phone, a member
   removed) passes focus to the next row, else the one before; focus never falls
   to the page.

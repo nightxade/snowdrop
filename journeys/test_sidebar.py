@@ -1,3 +1,5 @@
+import json
+
 from common import (
     COMPOSER,
     IN_COMPOSER,
@@ -161,6 +163,19 @@ def archived_focused_row_hands_focus_to_the_next_row_else_the_previous(page):
     archive_row(page, last_chat)
     settle(page, 300)
     page.expect(f'document.activeElement === document.querySelector({row_button(before)!r})', 'focus did not go to the previous row')
+
+
+@journey(query='journeyCatchUp=held')
+def archiving_a_chat_while_catching_up_takes_effect_at_once(page):
+    """The sidebar is held for a catch-up and the user archives a chat: its row leaves at once (what the user does is not held), the others keep the order they held, and the hold itself goes on."""
+    rows = f'[...document.querySelectorAll({ROWS!r})].map((e) => e.getAttribute("data-conversation-id"))'
+    before = page.eval(rows)
+    page.expect('__journey.state().catchingUp', 'the catch-up is not on')
+    after = json.dumps(before[:2] + before[3:], separators=(',', ':'))
+    archive_row(page, before[2])
+    page.expect(f'JSON.stringify({rows}) === {json.dumps(after)}', 'the row did not leave, or the others moved')
+    page.expect('__journey.state().catchingUp', 'the archive ended the hold')
+    page.eval('__journey.caughtUp()')
 
 
 @journey()

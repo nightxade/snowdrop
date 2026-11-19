@@ -141,11 +141,14 @@ export interface SendServiceDeps {
    * A send stopped because someone's safety number changed (the message is now
    * `failed` and lists them in `blockedByIdentity`): the app opens the review
    * dialog. Called for sends the user just made or retried, never on restore.
+   * `startedAt` is when the user asked for that send (or its latest Retry), so the app can
+   * tell whether they have done anything since.
    */
   onIdentityBlocked?: (blocked: {
     conversationId: ConversationId;
     nonce: string;
     contactIds: string[];
+    startedAt: number;
   }) => void;
   /** Survives a repository that can't record a send (see `SentMarkers`); optional. */
   sentMarkers?: SentMarkers;
@@ -191,6 +194,10 @@ export class NotSignedInError extends Error {
 /** An operation on a message that must wait for its send to be acknowledged. */
 interface QueuedOp {
   context: string;
+  /** What a send that fails does with it: a delete discards the message, an edit rewrites it, anything else (a reaction, a pin) is dropped. */
+  kind?: 'edit' | 'react' | 'delete';
+  /** An edit's new text, which a retry of a failed send then sends. */
+  rewrite?: { body: string; ranges: BodyRange[] };
   apply: (m: Message) => Message;
   revert: (m: Message) => Message;
   commit: (target: Message) => Promise<void>;
@@ -203,6 +210,8 @@ interface Outgoing {
   input: SendInput;
   inFlight: boolean;
   queue: QueuedOp[];
+  /** When the user asked for this send (the send itself, or the latest Retry): what `onIdentityBlocked` reports as `startedAt`. */
+  requestedAt?: number;
   /** Its conversation was deleted while the send was in flight: nothing is recorded when it lands. */
   abandoned?: boolean;
 }
@@ -459,6 +468,7 @@ export class SendService {
       input,
       inFlight: false,
       queue: [],
+      requestedAt: now,
     });
     stores.messages.getState().appendLive(optimistic);
     stores.conversations.getState().bumpActivity(input.conversationId, now);
@@ -603,6 +613,7 @@ export class SendService {
     // (a double-click, or a manual retry racing an auto-retry) must not
     // both pass the guard above and both call attempt().
     out.inFlight = true;
+    out.requestedAt = this.deps.clock.now();
     try {
       const setPending = (m: Message): Message => {
         const { blockedByIdentity: _blocked, sendUnconfirmed: _unconfirmed, ...rest } = m;
@@ -657,6 +668,7 @@ export class SendService {
     const { repository, stores, backend, clock } = this.deps;
     const pendingId = pendingMessageId(nonce);
     out.inFlight = true;
+    const startedAt = out.requestedAt ?? clock.now();
     let result;
     // The conversation's timer as it is when the send goes out, which is what the
     // daemon applies (not whatever it becomes while the send is in flight).
@@ -665,22 +677,51 @@ export class SendService {
       result = await backend.send(out.input);
     } catch (error) {
       out.inFlight = false;
-      const blocked = untrustedRecipients(error);
       const unconfirmed = isUnconfirmedSend(error);
+      if (!unconfirmed && out.queue.some((op) => op.kind === 'delete')) {
+        // Deleted while it was sending, and it never went out: nothing is left to send or to ask about.
+        this.outgoing.delete(nonce);
+        stores.messages.getState().remove(out.conversationId, pendingId);
+        await repository.discardOutgoing(nonce);
+        this.onError(error, 'send failed');
+        return;
+      }
+      const blocked = untrustedRecipients(error);
       const markFailed = (m: Message): Message => ({
         ...m,
         status: 'failed',
         ...(unconfirmed ? { sendUnconfirmed: true as const } : {}),
         ...(blocked.length > 0 ? { blockedByIdentity: blocked } : {}),
       });
-      stores.messages.getState().update(out.conversationId, pendingId, markFailed);
-      await repository.update(pendingId, markFailed);
+      // Queued changes of a send that never went out: a reaction has nothing to react to (dropped),
+      // an edit rewrites what a retry will send. A send that may have gone out (unconfirmed) keeps
+      // what it sent: every queued change is undone, so the row shows what the recipient may have.
+      // Undone newest first: each `revert` restores the message as that change found it.
+      let rewrite: QueuedOp['rewrite'];
+      for (const op of [...out.queue].reverse()) {
+        stores.messages.getState().update(out.conversationId, pendingId, op.revert);
+        followPreview(stores.conversations, out.conversationId, pendingId, op.revert);
+        if (op.rewrite && !unconfirmed) rewrite ??= op.rewrite;
+      }
+      out.queue = [];
+      const rewritten = (m: Message): Message =>
+        rewrite ? { ...markFailed(m), ...rewrite } : markFailed(m);
+      if (rewrite) out.input = { ...out.input, ...rewrite };
+      stores.messages.getState().update(out.conversationId, pendingId, rewritten);
+      await repository.update(pendingId, rewritten);
+      const row = rewrite ? this.findLoaded(out.conversationId, pendingId) : undefined;
+      if (rewrite && row) {
+        await repository
+          .putOutbox({ nonce, input: out.input, createdAt: row.receivedAt })
+          .catch(ignored('the retry still sends the new text from memory'));
+      }
       this.onError(error, 'send failed');
       if (blocked.length > 0)
         this.deps.onIdentityBlocked?.({
           conversationId: out.conversationId,
           nonce,
           contactIds: blocked,
+          startedAt,
         });
       return;
     }
@@ -1010,6 +1051,8 @@ export class SendService {
         : undefined;
     return this.operate(conversationId, id, {
       context: 'edit failed',
+      kind: 'edit',
+      rewrite: { body, ranges },
       apply: (m) => applyEdit(m, { body, ranges, editedAt, ...(previews ? { previews } : {}) }),
       revert: (m) => restoreContent(m, original),
       commit: async (target) => {
@@ -1084,6 +1127,7 @@ export class SendService {
     const previous = target.reactions.find((r) => r.authorId === selfId);
     return this.operate(conversationId, target.id, {
       context: 'reaction failed',
+      kind: 'react',
       apply: (m) => ({ ...m, reactions: applyReaction(m.reactions, reaction, remove) }),
       revert: (m) => ({
         ...m,
@@ -1123,6 +1167,7 @@ export class SendService {
     if (!isWithinDeleteWindow(target, this.deps.clock.now(), this.selfId())) return false;
     return this.operate(conversationId, target.id, {
       context: 'delete failed',
+      kind: 'delete',
       apply: (m) => applyDelete(m),
       revert: (m) => restoreDeleted(m, target, this.reactionWatch.removed(target.id)),
       watchReactions: true,

@@ -79,7 +79,8 @@ export function fallbackFocus(): HTMLElement | null {
   const policy = conversationFocusPolicyActive();
   for (const el of [...history].reverse()) {
     if (policy && el.matches(COMPOSER)) continue;
-    if (el.isConnected && !el.closest('[role="dialog"], [role="menu"]')) return el;
+    if (el.isConnected && !el.closest('[role="dialog"], [role="menu"], [data-sonner-toaster]'))
+      return el;
   }
   const composer = document.querySelector<HTMLElement>(COMPOSER);
   return (

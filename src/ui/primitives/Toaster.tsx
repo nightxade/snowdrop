@@ -1,6 +1,7 @@
 import { Toaster as Sonner, toast } from 'sonner';
 import { useShellStyle } from '@/ui/hooks';
 import styles from './Toaster.module.css';
+import { useToastFocus } from './toastFocus';
 
 export type ToastTone = 'info' | 'success' | 'error';
 
@@ -21,6 +22,7 @@ export function Toaster() {
   // toasts would paint over it. See overlays.css for the chip and toast square
   // bordered-chip styling in TUI.
   const tui = useShellStyle();
+  useToastFocus();
   return (
     <Sonner
       position="bottom-right"

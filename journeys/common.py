@@ -140,3 +140,11 @@ def deliver_and_find(page, key, text):
     page.wait_for(f'{LAST_MESSAGE}?.textContent.includes({text!r})')
     author, _, sent = page.eval(f'{LAST_MESSAGE}.getAttribute("data-message-id")').rpartition(':')
     return author, int(sent)
+
+
+def forget_expected_send_failures(page):
+    """A journey that makes a send fail on purpose: the app logs it with `console.error`, which would fail the run."""
+    page.eval(
+        'const keep = window.__errors.filter((e) => !e.includes("[send] send failed"));'
+        ' window.__errors.length = 0; window.__errors.push(...keep); return 1'
+    )

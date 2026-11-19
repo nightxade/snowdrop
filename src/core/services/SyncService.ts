@@ -915,11 +915,14 @@ export class SyncService {
     on(
       'status',
       (status) => {
-        // A reconnect after being offline means signal-cli may have queued
-        // messages again; the initial `start()` call above already covers
-        // the very first connect (its status goes 'connecting' → 'online',
-        // never through 'offline').
-        if (status === 'online' && this.deps.stores.session.getState().link === 'offline') {
+        // Coming back online from any other state (the stream's first retries report
+        // `connecting`, a failed reconnect `error`) means signal-cli may have queued
+        // messages again. Not the very first connect (`connected` is still false): the
+        // `doStart` call above already covers it. Not a Retry that is reconnecting from
+        // an error either: `doReconnect` started that run itself.
+        const { link } = this.deps.stores.session.getState();
+        const retrying = link === 'error' && this.startPromise !== null;
+        if (status === 'online' && this.connected && link !== 'online' && !retrying) {
           // Our own stream dropped, which says nothing about whether signal-cli
           // reconnected too. If its `catchingUp` already started a strict run,
           // keep it: restarting would bring back a quiet period that could end

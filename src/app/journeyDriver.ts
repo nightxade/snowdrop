@@ -75,6 +75,9 @@ export interface JourneyDriver {
   setLoadDelay(ms: number): void;
   /** Every send from now on takes this many ms before the backend takes it (a message stays pending). */
   setSendDelay(ms: number): void;
+  /** Shows an info toast; returns its id. */
+  toast(message: string): string;
+  dismissToast(id: string): void;
   state(): JourneyState;
 }
 
@@ -217,6 +220,11 @@ export function createJourneyDriver(snowdrop: Snowdrop, backend: MockBackend): J
         };
       }
       sendDelayMs = ms;
+    },
+    toast: (message) =>
+      snowdrop.stores.ui.getState().pushToast({ message, kind: 'info', source: 'core' }),
+    dismissToast: (id) => {
+      snowdrop.stores.ui.getState().dismissToast(id);
     },
     emit: (event, payload) => {
       backend.emit(event as 'status', payload as never);

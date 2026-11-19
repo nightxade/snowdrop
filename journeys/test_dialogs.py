@@ -1,4 +1,4 @@
-from common import COMPOSER, click_text, emit, is_current, open_conversation, send, settle
+from common import COMPOSER, IN_COMPOSER, click_text, emit, forget_expected_send_failures, is_current, open_conversation, quiet, send, settle
 from harness import journey
 
 NEW_MESSAGE = '[data-snowdrop=sidebar-header] button[aria-label="New message"]'
@@ -129,3 +129,37 @@ def settings_nav_item_with_focus_hides_when_the_window_narrows(page):
     page.resize(700, 800)
     settle(page, 500)
     page.expect('document.activeElement?.hasAttribute("data-page-heading") === true', 'focus did not go to the page heading')
+
+
+DIALOG = '!!document.querySelector("[role=dialog]")'
+REVIEW = '[...document.querySelectorAll("[data-snowdrop=message] button")].some((b) => b.textContent.trim() === "Review safety number")'
+
+
+def send_to_annika(page, text):
+    """Sends to Annika, whose changed key refuses the message a moment after it is sent."""
+    page.eval('__journey.setSendDelay(500)')
+    open_conversation(page, 'dm-annika')
+    page.click(COMPOSER)
+    page.type(text)
+    page.key('Enter')
+    page.wait_for('!!document.querySelector("[data-snowdrop=message][data-pending]")')
+
+
+@journey()
+def a_failed_send_opens_the_safety_number_dialog_when_the_user_is_idle(page):
+    """Send to Annika (her safety number changed) and do nothing: when the send fails, the Safety Number Changes dialog opens by itself."""
+    send_to_annika(page, 'hello')
+    page.wait_for(DIALOG, 5000)
+    forget_expected_send_failures(page)
+
+
+@journey()
+def a_failed_send_does_not_take_focus_from_typing(page):
+    """Send to Annika and keep typing the next message: when the send fails, no dialog opens over it and focus stays in the composer with the text intact; the failed message says so and still offers Review safety number."""
+    send_to_annika(page, 'hello')
+    page.type('and more')
+    page.wait_for(REVIEW, 5000)
+    quiet(page)
+    page.expect_stays('!document.querySelector("[role=dialog]")', 800)
+    page.expect(f'{IN_COMPOSER} && document.querySelector({COMPOSER!r}).value === "and more"', 'focus or the typed text was taken')
+    forget_expected_send_failures(page)

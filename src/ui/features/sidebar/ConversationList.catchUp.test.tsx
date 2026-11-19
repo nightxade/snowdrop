@@ -186,6 +186,75 @@ describe('ConversationList: catching up', () => {
     await settle(snowdrop);
     expect(order()).toEqual([ana, bo]);
   });
+  it('applies what the user does here at once while catching up, and holds what arrives', async () => {
+    snowdrop = await bootSnowdrop();
+    const stores = snowdrop.stores;
+    const selfId = stores.session.getState().self?.id;
+    if (!selfId) throw new Error('no self id after boot');
+    const ana = directConversationId('ana');
+    const bo = directConversationId('bo');
+    const cass = directConversationId('cass');
+    const known = new Set<ConversationId>([ana, bo, cass]);
+    for (const id of known) stores.local.getState().markAccepted(id, 0);
+    act(() => {
+      stores.conversations.getState().upsertMany(
+        [ana, bo, cass].map((id, i) =>
+          makeConversation({
+            id,
+            kind: 'direct',
+            title: id,
+            memberIds: [selfId, id],
+            lastActivityAt: 3000 - i * 1000,
+          }),
+        ),
+      );
+      stores.local.getState().setArchived(cass, true);
+    });
+    await settle(snowdrop);
+    renderWithSnowdrop(snowdrop, <ConversationList />);
+    const order = () =>
+      screen
+        .queryAllByRole('button')
+        .map((r) => r.getAttribute('data-conversation-id'))
+        .filter((id) => known.has(id as ConversationId));
+    expect(order()).toEqual([ana, bo]);
+
+    act(() => {
+      stores.session.getState().setCatchingUp(true);
+    });
+    await settle(snowdrop);
+    // Pin to top: the row moves to Pinned now.
+    act(() => {
+      stores.local.getState().setPinned(bo, true);
+    });
+    await settle(snowdrop);
+    expect(order()).toEqual([bo, ana]);
+    // Archive: the row leaves now.
+    act(() => {
+      stores.local.getState().setArchived(bo, true);
+    });
+    await settle(snowdrop);
+    expect(order()).toEqual([ana]);
+    // Unarchive: it comes back (in its held place) now.
+    act(() => {
+      stores.local.getState().setArchived(bo, false);
+    });
+    await settle(snowdrop);
+    expect(order()).toEqual([ana, bo]);
+    // Something arrives in an archived chat: that is a live arrival, and the chat stays out until the end.
+    act(() => {
+      stores.conversations.getState().bumpActivity(cass, 9000);
+      stores.local.getState().unarchive(cass);
+    });
+    await settle(snowdrop);
+    expect(order()).toEqual([ana, bo]);
+    act(() => {
+      stores.session.getState().setCatchingUp(false);
+    });
+    await settle(snowdrop);
+    expect(order()).toEqual([cass, ana, bo]);
+  });
+
   it('keeps the freeze when the list is unmounted and mounted again during the catch-up', async () => {
     snowdrop = await bootSnowdrop();
     const stores = snowdrop.stores;

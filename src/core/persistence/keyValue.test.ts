@@ -43,6 +43,25 @@ describe('versioned key/value', () => {
     );
   });
 
+  it.each(['1.5', '-1', '1e999', '1e300', '"2"', 'null'])(
+    'treats a stored version that is not a whole number from 0 (%s) as corrupt: defaults, backup kept',
+    (v) => {
+      vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const raw = `{"v":${v},"data":{"name":"mine","size":1}}`;
+      const storage = createMemoryStorage({ test: raw });
+      expect(loadVersioned(storage, schema)).toEqual({ name: 'default', size: 10 });
+      expect(storage.getItem(backupKey('test'))).toBe(raw);
+    },
+  );
+
+  it('treats a stored version far below zero as corrupt, and does not loop up to the current one', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const raw = '{"v":-1e300,"data":{"name":"mine","size":1}}';
+    const storage = createMemoryStorage({ test: raw });
+    expect(loadVersioned(storage, schema)).toEqual({ name: 'default', size: 10 });
+    expect(storage.getItem(backupKey('test'))).toBe(raw);
+  });
+
   it('backs up data it cannot use before defaults overwrite it', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const future = JSON.stringify({ v: 9, data: { name: 'from the future' } });

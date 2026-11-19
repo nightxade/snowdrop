@@ -1915,6 +1915,93 @@ describe('SendService', () => {
     expect(s.stores.messages.getState().findByNonce(id, 'nonce-2')).toBeUndefined();
   });
 
+  describe('changes queued on a message whose send then fails', () => {
+    const untrusted = () =>
+      Object.assign(new Error('untrusted'), {
+        recipientFailures: [{ recipientId: 'peer', reason: 'untrusted-identity' }],
+      });
+
+    /** A send that stays in flight until `fail()` makes it fail (by default the way a changed safety number does). */
+    async function sendingUntilFailure(body: string, error: () => Error = untrusted) {
+      const onIdentityBlocked = vi.fn();
+      const s = await setup();
+      const id = s.conv('books');
+      await s.history.open(id);
+      let fail!: () => void;
+      const sendSpy = vi.spyOn(s.backend, 'send').mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            fail = () => {
+              reject(error());
+            };
+          }),
+      );
+      const send = new SendService({
+        backend: s.backend,
+        repository: s.repository,
+        stores: s.stores,
+        clock: s.scheduler,
+        onError: s.onError,
+        onIdentityBlocked,
+        newNonce: () => 'nonce-q',
+      });
+      const sending = send.send(draft(id, body));
+      await flush();
+      return { s, id, send, sending, fail, onIdentityBlocked, sendSpy };
+    }
+
+    it('a delete discards the message: no row, no outbox entry, no safety-number prompt', async () => {
+      const { s, id, send, sending, fail, onIdentityBlocked } = await sendingUntilFailure('oops');
+      expect(await send.deleteForEveryone(id, s.list(id).at(-1)!)).toBe(true);
+      fail();
+      await sending;
+      expect(s.stores.messages.getState().findByNonce(id, 'nonce-q')).toBeUndefined();
+      expect(s.list(id).some((m) => m.body === 'oops' || m.deleted)).toBe(false);
+      expect(await s.repository.listOutbox()).toEqual([]);
+      expect(onIdentityBlocked).not.toHaveBeenCalled();
+    });
+
+    it('an edit rewrites what a retry sends, and the failed row shows the new text', async () => {
+      const { s, id, send, sending, fail, onIdentityBlocked, sendSpy } =
+        await sendingUntilFailure('tpyo');
+      expect(await send.edit(id, s.list(id).at(-1)!.id, 'typo')).toBe(true);
+      fail();
+      await sending;
+      const row = s.stores.messages.getState().findByNonce(id, 'nonce-q')!;
+      expect(row).toMatchObject({ status: 'failed', body: 'typo' });
+      expect(row.editedAt).toBeUndefined();
+      expect((await s.repository.listOutbox())[0]?.input).toMatchObject({ body: 'typo' });
+      expect(onIdentityBlocked).toHaveBeenCalledTimes(1);
+      await send.retry(id, 'nonce-q');
+      expect(sendSpy.mock.calls.at(-1)?.[0]).toMatchObject({ body: 'typo' });
+      expect(s.backend.world.histories.get(id)!.at(-1)).toMatchObject({ body: 'typo' });
+    });
+
+    it('a send that may have gone out keeps what it sent: a queued edit and delete are undone', async () => {
+      const { s, id, send, sending, fail } = await sendingUntilFailure('sent?', () =>
+        Object.assign(new Error('no answer'), { kind: 'timeout' }),
+      );
+      const row = () => s.stores.messages.getState().findByNonce(id, 'nonce-q');
+      expect(await send.edit(id, row()!.id, 'edited')).toBe(true);
+      expect(await send.deleteForEveryone(id, row()!)).toBe(true);
+      fail();
+      await sending;
+      expect(row()).toMatchObject({ status: 'failed', sendUnconfirmed: true, body: 'sent?' });
+      expect(row()!.deleted).toBeFalsy();
+    });
+
+    it('a reaction is dropped: the failed row carries none', async () => {
+      const { s, id, send, sending, fail } = await sendingUntilFailure('react to me');
+      expect(await send.react(id, s.list(id).at(-1)!, '👍')).toBe(true);
+      expect(s.list(id).at(-1)!.reactions).toHaveLength(1);
+      fail();
+      await sending;
+      const row = s.stores.messages.getState().findByNonce(id, 'nonce-q')!;
+      expect(row.status).toBe('failed');
+      expect(row.reactions).toEqual([]);
+    });
+  });
+
   it('toggles reactions and keeps concurrent reactions on rollback', async () => {
     const { send, backend, sync, conv, selfId, list, history } = await setup();
     const id = conv('dm-ines');

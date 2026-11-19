@@ -484,3 +484,77 @@ def search_esc_closes_the_panel_after_enter_moved_focus_to_the_match(page):
     page.key('Escape')
     page.wait_for(NO_PANEL)
     page.wait_for(IN_COMPOSER, 2000)
+
+
+TOAST = '[data-sonner-toast]'
+IN_TOASTS = 'document.activeElement?.closest("[data-sonner-toaster]") !== null && document.activeElement !== document.body'
+
+
+@journey()
+def esc_in_the_toast_list_returns_focus_to_where_it_was(page):
+    """Focus is on a sidebar row, Alt+T moves it to the toasts and Esc puts it back on that row."""
+    open_conversation(page, 'dm-priya')
+    page.eval('(document.querySelector("[data-snowdrop=sidebar] [data-conversation-id][data-roving-item]").focus(), window.__row = document.activeElement, 1)')
+    page.wait_for('document.activeElement === window.__row')
+    page.eval('(__journey.toast("first"), __journey.toast("second"), 1)')
+    page.wait_for(f'document.querySelectorAll({TOAST!r}).length === 2')
+    page.key('t', ['alt'])
+    page.wait_for(IN_TOASTS)
+    page.key('Escape')
+    page.wait_for('document.activeElement === window.__row')
+    page.expect_stays('document.activeElement === window.__row', 300)
+
+
+@journey()
+def esc_in_the_toast_list_never_leaves_focus_on_the_page(page):
+    """Nothing has focus, Alt+T moves it to the toasts, Tab onto one and Esc: focus goes to the fallback (M15), not back on a toast and not to the page."""
+    open_conversation(page, 'dm-priya')
+    page.eval('(document.activeElement.blur(), 1)')
+    page.wait_for('document.activeElement === document.body')
+    page.eval('(__journey.toast("first"), __journey.toast("second"), 1)')
+    page.wait_for(f'document.querySelectorAll({TOAST!r}).length === 2')
+    page.key('t', ['alt'])
+    page.wait_for(IN_TOASTS)
+    page.key('Tab')
+    page.wait_for(f'document.activeElement?.matches({TOAST!r})')
+    page.key('Escape')
+    left = f'{NOT_ON_BODY} && !document.activeElement.closest("[data-sonner-toaster]")'
+    page.wait_for(left, 2000)
+    page.expect_stays(left, 300)
+
+
+@journey()
+def a_focused_toast_that_goes_hands_focus_to_the_next_toast_else_back(page):
+    """Focus is on the first toast of two and it is dismissed: focus goes to the other toast; when that one goes too, back to the composer. Never the page."""
+    open_conversation(page, 'dm-priya')
+    page.click(COMPOSER)
+    page.eval('(window.__ids = { first: __journey.toast("first"), second: __journey.toast("second") }, 1)')
+    page.wait_for(f'document.querySelectorAll({TOAST!r}).length === 2')
+    page.key('t', ['alt'])
+    page.wait_for(IN_TOASTS)
+    page.key('Tab')  # onto the first toast in the list
+    page.wait_for(f'document.activeElement?.matches({TOAST!r})')
+    page.eval('(window.__other = document.querySelectorAll("[data-sonner-toast]")[1], 1)')
+    page.eval('const t = document.activeElement.textContent; __journey.dismissToast(window.__ids[t.includes("first") ? "first" : "second"]); return 1')
+    page.wait_for('!document.body.contains(document.querySelector("[data-sonner-toast][data-removed=true]"))', 3000)
+    page.wait_for('document.activeElement === window.__other', 3000)
+    page.expect_stays('document.activeElement === window.__other', 300)
+    page.eval('const t = document.activeElement.textContent; __journey.dismissToast(window.__ids[t.includes("first") ? "first" : "second"]); return 1')
+    page.wait_for(IN_COMPOSER, 3000)
+
+
+BANNER = '[data-snowdrop=connection-banner]'
+
+
+@journey()
+def the_connection_banners_retry_hands_focus_on_when_it_goes(page):
+    """The connection drops and the banner offers Retry (and says a failed message can be retried, not that it will go out): pressing Retry reconnects and the banner goes; focus is not left on the page."""
+    open_conversation(page, 'dm-priya')
+    page.click(COMPOSER)
+    page.eval("__journey.emit('status', 'offline')")
+    page.wait_for(f'!!document.querySelector({BANNER!r})')
+    page.expect(f'document.querySelector({BANNER!r}).textContent.includes("can be retried once the demo backend is back")', 'the banner promises something else')
+    page.click(f'{BANNER} button')
+    page.wait_for(f'!document.querySelector({BANNER!r})', 5000)
+    page.wait_for(NOT_ON_BODY, 2000)
+    page.expect_stays(NOT_ON_BODY, 300)

@@ -211,6 +211,32 @@ describe('catching up after signal-cli reconnects by itself', () => {
     expect(ctx.session().notificationsHeld).toBe(true);
   });
 
+  it('a brief drop that only reports connecting before coming back holds notifications too', async () => {
+    const ctx = await setup();
+    expect(ctx.session().notificationsHeld).toBe(false);
+    ctx.backend.emit('status', 'connecting');
+    expect(ctx.session().notificationsHeld).toBe(false);
+    ctx.backend.emit('status', 'online');
+    expect(ctx.session().catchingUp).toBe(true);
+    expect(ctx.session().notificationsHeld).toBe(true);
+    ctx.scheduler.advance(CATCH_UP_QUIET_MS);
+    expect(ctx.session().notificationsHeld).toBe(false);
+  });
+
+  it('an online report while already online holds nothing', async () => {
+    const ctx = await setup();
+    ctx.backend.emit('status', 'online');
+    expect(ctx.session().catchingUp).toBe(false);
+    expect(ctx.session().notificationsHeld).toBe(false);
+  });
+
+  it('the first connect starts one catch-up, not a second one when the stream reports online', async () => {
+    const lines = await captureSyncLog(async () => {
+      await setup();
+    });
+    expect(lines.filter((l) => l.includes('catch-up started'))).toHaveLength(1);
+  });
+
   it('without the capability both end at the same short ceiling, as before', async () => {
     const ctx = await setup({ catchingUpSignal: false });
     ctx.backend.emit('status', 'offline');

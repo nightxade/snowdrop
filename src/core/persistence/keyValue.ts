@@ -74,7 +74,10 @@ function isEnvelope(value: unknown): value is Envelope {
   return (
     typeof value === 'object' &&
     value !== null &&
-    typeof (value as { v?: unknown }).v === 'number' &&
+    // A whole number from 0 up: anything else (-1e300, 1.5, NaN, 1e300) is corrupt, and would
+    // otherwise make the migration loop in `loadVersioned` run for ever or not at all.
+    Number.isSafeInteger((value as { v?: unknown }).v) &&
+    (value as { v: number }).v >= 0 &&
     'data' in value
   );
 }

@@ -52,4 +52,44 @@ describe('ConnectionBanner', () => {
     await settle(snowdrop);
     expect(screen.queryByRole('status')).toBeNull();
   });
+
+  it('offline copy promises only what happens: a failed message can be retried', async () => {
+    snowdrop = await bootSnowdrop();
+    renderWithSnowdrop(snowdrop, <ConnectionBanner />);
+    act(() => {
+      snowdrop!.stores.session.getState().markSynced();
+      snowdrop!.stores.session.getState().setLink('offline');
+    });
+    await settle(snowdrop);
+    const text = screen.getByRole('status').textContent;
+    expect(text).toMatch(/can be retried once the demo backend is back/u);
+    expect(text).not.toMatch(/will go out/u);
+  });
+
+  it('hands focus on, never to the page, when Retry is taken away', async () => {
+    snowdrop = await bootSnowdrop();
+    renderWithSnowdrop(
+      snowdrop,
+      <>
+        <ConnectionBanner />
+        <textarea data-snowdrop="composer-input" aria-label="Message" />
+      </>,
+    );
+    act(() => {
+      snowdrop!.stores.session.getState().markSynced();
+      snowdrop!.stores.session.getState().setLink('offline');
+    });
+    await settle(snowdrop);
+    const retry = screen.getByRole('button', { name: /retry/iu });
+    act(() => {
+      retry.focus();
+    });
+    expect(document.activeElement).toBe(retry);
+    act(() => {
+      snowdrop!.stores.session.getState().setLink('connecting');
+    });
+    await settle(snowdrop);
+    expect(screen.queryByRole('button', { name: /retry/iu })).toBeNull();
+    expect(document.activeElement).toBe(screen.getByLabelText('Message'));
+  });
 });

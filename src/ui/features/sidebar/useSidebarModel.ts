@@ -51,11 +51,32 @@ function homeLayout(stores: Stores): HomeLayout {
 }
 
 /**
+ * A frozen view with what the user chose here since the freeze: pinned, archived and muted come
+ * from the live view, so Pin to top, Archive and the rest apply at once (S1). Recency, kind and the
+ * rest stay frozen. A chat that came back from the archive because something arrived in it (the
+ * live view has newer activity) is that arrival and stays held, like any other.
+ */
+function withOwnChoices(frozen: ConversationView, live: ConversationView): ConversationView {
+  const arrivedBack =
+    frozen.archived &&
+    !live.archived &&
+    !live.pinned &&
+    live.lastActivityAt !== frozen.lastActivityAt;
+  return {
+    ...frozen,
+    pinned: live.pinned,
+    muted: live.muted,
+    archived: arrivedBack ? true : live.archived,
+  };
+}
+
+/**
  * While catching up, every conversation seen before it started keeps its
  * frozen view (so its position and whatever `buildHomeSections`/
- * `buildSpaceSections` derive from it — pinned/archived/kind, recency order
- * — hold still); a conversation that didn't exist yet is new activity and
- * still surfaces, ahead of the frozen ones.
+ * `buildSpaceSections` derive from it — kind, recency order — hold still),
+ * except what the user chose here meanwhile (`withOwnChoices`); a
+ * conversation that didn't exist yet is new activity and still surfaces,
+ * ahead of the frozen ones.
  */
 function useFrozenOrder(
   live: readonly ConversationView[],
@@ -65,10 +86,13 @@ function useFrozenOrder(
   const shelf = useCatchUpShelf();
   const frozen = useFrozenWhile(live, catchingUp, live.length > 0, { shelf, key: 'order' });
   if (!catchingUp) return live;
-  const liveIds = new Set(live.map((v) => v.id));
+  const liveById = new Map(live.map((v) => [v.id, v]));
   const frozenIds = new Set(frozen.map((v) => v.id));
   const fresh = live.filter((v) => !frozenIds.has(v.id));
-  const stillPresent = frozen.filter((v) => liveIds.has(v.id));
+  const stillPresent = frozen.flatMap((v) => {
+    const now = liveById.get(v.id);
+    return now ? [withOwnChoices(v, now)] : [];
+  });
   return fresh.length > 0 ? [...fresh, ...stillPresent] : stillPresent;
 }
 
