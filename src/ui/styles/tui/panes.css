@@ -58,6 +58,19 @@
 }
 
 /*
+ * A side sheet (the member list, search and the media panel when the window is narrow) is a pane
+ * like the rest: a drawer's content sits flush against the window, so inset it by the same gap
+ * (its titled border would sit half above the top of the window), and let the pane inside draw
+ * the one border rather than a second box around it.
+ */
+:root[data-shell='tui'] [role='dialog'][data-side='right'] {
+  top: var(--snowdrop-tui-gap);
+  right: var(--snowdrop-tui-gap);
+  bottom: var(--snowdrop-tui-gap);
+  border: 0;
+}
+
+/*
  * The full-screen Settings dialog (the only `[role='dialog']` that also
  * carries `data-pane-title`, set by FullScreenDialog.tsx) sits flush against
  * the viewport (`inset: 0`) with no room above it for its titled border to

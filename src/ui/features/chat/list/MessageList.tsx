@@ -13,7 +13,12 @@ import { Virtuoso, type Components, type VirtuosoHandle } from 'react-virtuoso';
 import { useStore } from 'zustand';
 import type { ConversationId, MessageId, RenderItem } from '@/core/domain';
 import { conversationsSelectors, sessionSelectors } from '@/core/stores';
-import { setConversationListFocusResolver, useShellStyle, useSnowdrop } from '@/ui/hooks';
+import {
+  neighbourOf,
+  setConversationListFocusResolver,
+  useShellStyle,
+  useSnowdrop,
+} from '@/ui/hooks';
 import { useChatController } from '../ChatController';
 import { MessageItem } from '../message/MessageItem';
 import { useRenderProbe } from '../lib/useRenderProbe';
@@ -318,6 +323,7 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
   // that was on the old row moves with it, so Esc right after Enter works.
   const newestId = useRef<MessageId | null>(null);
   const keysById = useRef<ReadonlyMap<MessageId, string>>(new Map());
+  const orderedIds = useRef<readonly MessageId[]>([]);
   const focusedRowId = useRef<MessageId | null>(null);
   // Whether focus is in this list (a row, or the scroller's own tab stop). It survives the focused
   // element being removed, which is what lets a remount hand focus on to the new list.
@@ -326,23 +332,31 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
   // Focus that has dropped to the page (its row was swapped, or the scroller was remounted) goes
   // to `find()` for a short while, counted from when it dropped: the new element is rendered and
   // settled a few frames later. Focus that is anywhere else is never taken.
-  const restoreFocus = useCallback((find: () => HTMLElement | null | undefined) => {
-    let frames = 0;
-    const tick = () => {
-      frames += 1;
-      const here = document.activeElement;
-      const target = find();
-      const lost = !here || here === document.body;
-      if ((!lost && here !== target) || frames > RESTORE_FOCUS_FRAMES) {
-        restoring.current = null;
-        return;
-      }
-      if (lost && target) target.focus({ preventScroll: true });
+  const restoreFocus = useCallback(
+    (find: () => HTMLElement | null | undefined, goneRow?: MessageId) => {
+      let frames = 0;
+      const tick = () => {
+        frames += 1;
+        const here = document.activeElement;
+        const target = find();
+        // `goneRow`: a row removed from the data that the virtualiser has not taken off the page yet.
+        const lost =
+          !here ||
+          here === document.body ||
+          (goneRow !== undefined &&
+            here.closest('[data-message-id]')?.getAttribute('data-message-id') === goneRow);
+        if ((!lost && here !== target) || frames > RESTORE_FOCUS_FRAMES) {
+          restoring.current = null;
+          return;
+        }
+        if (lost && target) target.focus({ preventScroll: true });
+        restoring.current = { frame: requestAnimationFrame(tick) };
+      };
+      if (restoring.current) cancelAnimationFrame(restoring.current.frame);
       restoring.current = { frame: requestAnimationFrame(tick) };
-    };
-    if (restoring.current) cancelAnimationFrame(restoring.current.frame);
-    restoring.current = { frame: requestAnimationFrame(tick) };
-  }, []);
+    },
+    [],
+  );
   useEffect(
     () => () => {
       if (restoring.current) cancelAnimationFrame(restoring.current.frame);
@@ -386,8 +400,10 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
     const previous = newestId.current;
     newestId.current = lastId;
     const previousKeys = keysById.current;
+    const previousOrder = orderedIds.current;
     const messages = items.filter((it) => it.type === 'message');
     keysById.current = new Map(messages.map((it) => [it.id, it.key]));
+    orderedIds.current = messages.map((it) => it.id);
     const active = rows.activeId;
     if (active !== null && !keysById.current.has(active)) {
       const key = previousKeys.get(active);
@@ -404,6 +420,24 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
         }
         return;
       }
+    }
+    // The focused row itself went (deleted for me on another device, expired): focus goes to the
+    // next message, else the previous one, else the list's own tab stop, never the page.
+    const lost = focusedRowId.current;
+    if (lost !== null && !keysById.current.has(lost)) {
+      const heir = neighbourOf(previousOrder, orderedIds.current, lost);
+      focusedRowId.current = heir ?? null;
+      if (heir !== undefined) rows.setActive(heir);
+      restoreFocus(() => {
+        const row =
+          heir === undefined
+            ? null
+            : scroller.current?.querySelector<HTMLElement>(
+                `[data-message-id="${CSS.escape(heir)}"]`,
+              );
+        return row ?? scroller.current;
+      }, lost);
+      return;
     }
     if (active !== null && items.some((it) => 'id' in it && it.id === active)) {
       const following = active === previous && lastId !== null && lastId !== active;
@@ -550,6 +584,9 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
           dividerLoaded={dividerIndex >= 0}
           dividerAbove={dividerPos === 'above'}
           dividerVisible={dividerPos === 'visible'}
+          onJumpToPresent={() => {
+            void jumpToPresent();
+          }}
           onJump={() => {
             if (dividerIndex >= 0)
               virtuoso.current?.scrollToIndex({

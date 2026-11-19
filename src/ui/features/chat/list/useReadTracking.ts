@@ -37,8 +37,15 @@ export function useReadTracking(
     [stores, conversationId],
   );
 
+  // A chat marked unread by hand is not read for the user while it holds (S8); once they interact
+  // with it the flag ends and what arrived meanwhile is read.
+  const held = useStore(
+    stores.local,
+    (s) => s.conversations[conversationId]?.markedUnread === true,
+  );
+
   useEffect(() => {
-    if (atPresent && newestInView && focused && (hasUnread || hasActivity))
+    if (!held && atPresent && newestInView && focused && (hasUnread || hasActivity))
       void sync.markConversationRead(conversationId);
-  }, [atPresent, newestInView, focused, hasUnread, hasActivity, sync, conversationId]);
+  }, [held, atPresent, newestInView, focused, hasUnread, hasActivity, sync, conversationId]);
 }

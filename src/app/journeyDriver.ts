@@ -67,6 +67,8 @@ export interface JourneyDriver {
   /** Receipts for every message the user sent in the conversation. */
   receipt(conversation: string, type: 'delivered' | 'read'): number;
   typing(conversation: string, typing: boolean, from?: string): void;
+  /** The group's record as another member's change would send it, without `memberId` (a member removed). */
+  removeMember(conversation: string, memberId: string): void;
   /** Any backend event, as if it came from the network (an edit, a delete, a reaction, a group change). */
   emit(event: string, payload: unknown): void;
   /** Every history load from now on takes this many ms longer (a slow real backend). */
@@ -218,6 +220,19 @@ export function createJourneyDriver(snowdrop: Snowdrop, backend: MockBackend): J
     },
     emit: (event, payload) => {
       backend.emit(event as 'status', payload as never);
+    },
+    removeMember: (conversation, memberId) => {
+      const id = conv(conversation);
+      const current = snowdrop.stores.conversations.getState().byId[id];
+      if (!current) throw new Error('journey: the conversation is not loaded');
+      backend.emit(
+        'conversationUpdated',
+        structuredClone({
+          ...current,
+          memberIds: current.memberIds.filter((m) => m !== memberId),
+          adminIds: current.adminIds.filter((m) => m !== memberId),
+        }),
+      );
     },
     typing: (conversation, typing, from) => {
       const id = conv(conversation);

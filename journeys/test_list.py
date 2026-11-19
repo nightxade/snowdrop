@@ -10,6 +10,7 @@ from common import (
     SCROLLER,
     SLACK,
     deliver_and_find,
+    click_text,
     emit,
     fill,
     is_current,
@@ -368,3 +369,77 @@ def late_reaction_does_not_show_on_a_deleted_message(page):
                             'reaction': {'authorId': author, 'emoji': '🎉', 'at': sent + 10}, 'remove': False})
     settle(page, 500)
     page.expect(f'!document.querySelector({row!r}).querySelector("[aria-label=Reactions]")', 'a reaction is shown on a deleted message')
+
+
+# ------------------------------------------------------------------ marked unread and the new-messages bar (S8)
+
+DINES = "__journey.state().conversations.find((c) => c.key === 'dm-ines')"
+PRIYA = "__journey.state().conversations.find((c) => c.key === 'dm-priya')"
+
+
+def mark_unread_from_its_row(page, key):
+    """The chat's own sidebar row, Shift+F10, "Mark as unread" (a keyboard user's way, focus staying out of the chat)."""
+    row = f'[data-snowdrop=sidebar] [data-conversation-id="{page.eval(f"__journey.conversationId({key!r})")}"]'
+    page.eval(f'(document.querySelector({row!r}).focus(), 1)')
+    page.wait_for(f'document.activeElement === document.querySelector({row!r})')
+    page.key('F10', ['shift'])
+    page.wait_for('!!document.querySelector("[role=menu]")')
+    click_text(page, '[role=menu] [role=menuitem]', 'Mark as unread')
+    page.wait_for('!document.querySelector("[role=menu]")')
+
+
+@journey()
+def marked_unread_open_chat_holds_until_the_reader_interacts(page):
+    """"Mark as unread" on the chat that is open holds while messages arrive in it (they are not read for the user); the first scroll, key in the list, or typing in the chat ends it, and what arrived is read then."""
+    open_conversation(page, 'dm-priya')
+    settle(page, 400)
+    steps = (
+        ('a scroll', lambda: page.scroll(SCROLLER, 50)),
+        ('a key in the list', lambda: (page.eval(f'([...document.querySelectorAll({MESSAGE!r})].at(-1).focus(), 1)'), page.key('ArrowDown'))),
+        ('typing', lambda: (page.eval(f'(document.querySelector({COMPOSER!r}).focus(), 1)'), page.type('x'))),
+    )
+    for name, interact in steps:
+        mark_unread_from_its_row(page, 'dm-priya')
+        page.wait_for(f'{PRIYA}.hasUnread === true')
+        page.eval("__journey.deliver({ conversation: 'dm-priya', text: 'arrives while marked unread' })")
+        page.wait_for(f'{LAST_MESSAGE}?.textContent.includes("arrives while marked unread")')
+        page.expect_stays(f'{PRIYA}.hasUnread === true', 800)
+        interact()
+        page.wait_for(f'{PRIYA}.hasUnread === false && {PRIYA}.unread === 0', 3000)
+        page.eval("new Promise((r) => setTimeout(r, 200))")
+
+
+@journey()
+def marked_unread_open_chat_is_cleared_by_reopening_it(page):
+    """"Mark as unread" on the open chat, then the chat is left and opened again: the flag is gone."""
+    open_conversation(page, 'dm-priya')
+    settle(page, 400)
+    mark_unread_from_its_row(page, 'dm-priya')
+    page.wait_for(f'{PRIYA}.hasUnread === true')
+    open_conversation(page, 'dm-ines')
+    open_conversation(page, 'dm-priya')
+    page.wait_for(f'{PRIYA}.hasUnread === false', 3000)
+
+
+BAR = '[data-snowdrop=new-messages-bar]'
+
+
+@journey()
+def new_messages_bar_comes_back_for_messages_that_arrive_after_mark_as_read(page):
+    """A chat opened at its 80 unread messages, scrolled past the divider: the bar says 80 new messages; "Mark as read" hides it; two more messages arrive while the reader is still scrolled up: the bar returns and says 2 (what is unread now)."""
+    page.eval("__journey.deliver({ conversation: 'dm-ines', count: 80, text: 'while you were away' })")
+    page.wait_for(f'{DINES}.unread >= 80')
+    open_conversation(page, 'dm-ines')
+    page.wait_for('!!document.querySelector("[data-snowdrop=new-divider]")')
+    page.wait_for(DIVIDER_NEAR_TOP)
+    settle(page, 1500)
+    page.eval(f'(document.querySelector({SCROLLER!r}).scrollTop += 700, 1)')
+    settle(page, 600)
+    page.wait_for(f'!!document.querySelector({BAR!r})', 3000)
+    page.expect(f'parseInt(document.querySelector({BAR!r}).textContent) === {DINES}.unread && {DINES}.unread >= 80', 'the bar does not count the unread messages')
+    click_text(page, f'{BAR} button', 'Mark as read')
+    page.wait_for(f'!document.querySelector({BAR!r}) && {DINES}.unread === 0', 3000)
+    page.eval("__journey.deliver({ conversation: 'dm-ines', count: 2, text: 'after you marked it read' })")
+    page.wait_for(f'{DINES}.unread === 2', 3000)
+    page.wait_for(f'!!document.querySelector({BAR!r})', 3000)
+    page.expect(f'document.querySelector({BAR!r}).textContent.startsWith("2 new messages")', 'the bar does not say how many are unread now')

@@ -18,6 +18,11 @@ export interface DrawerProps {
    * has gone. Usually the button that toggles the drawer.
    */
   returnFocus?: () => HTMLElement | null | undefined;
+  /**
+   * Where focus goes on close instead of the opener, when this names an element (the navigation
+   * drawer closed by picking a conversation: the conversation, not the button that opened it).
+   */
+  closeTarget?: () => HTMLElement | null | undefined;
 }
 
 const SWIPE_CLOSE_PX = 60;
@@ -50,6 +55,7 @@ export function Drawer({
   children,
   side = 'left',
   returnFocus,
+  closeTarget,
 }: DrawerProps) {
   const start = useRef<{ x: number; y: number } | null>(null);
   const content = useRef<HTMLDivElement | null>(null);
@@ -57,9 +63,11 @@ export function Drawer({
   const panel = useRef<HTMLDivElement | null>(null);
   const close = useRef(onOpenChange);
   const fallback = useRef(returnFocus);
+  const closeTo = useRef(closeTarget);
   useEffect(() => {
     close.current = onOpenChange;
     fallback.current = returnFocus;
+    closeTo.current = closeTarget;
   });
 
   const focus = useOpenerFocus(open);
@@ -85,9 +93,11 @@ export function Drawer({
         setTimeout(() => {
           const now = focusedElement();
           if (now?.isConnected && !panel.current?.contains(now)) return;
+          const named = closeTo.current?.();
           const opener = focus.opener();
-          const target = opener?.isConnected ? opener : fallback.current?.();
-          focusQuietly(target);
+          focusQuietly(
+            named?.isConnected ? named : opener?.isConnected ? opener : fallback.current?.(),
+          );
         }, 0);
       });
     };

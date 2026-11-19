@@ -493,34 +493,24 @@ describe('Vim mode: Esc returns to Normal mode from anywhere', () => {
     expect(onMessageList()).toBe(true);
   });
 
-  it('from an empty sidebar search field: focuses the message list', async () => {
-    const { snowdrop } = await bootVim();
-    await act(async () => {
-      await snowdrop.commands.execute(CoreCommand.SearchConversation);
-    });
-    const input = await screen.findByRole('searchbox', { name: 'Search messages' });
-    expect(focused()).toBe(input);
-    expect(press('Escape')).toBe(true);
-    await settle();
-    expect(onMessageList()).toBe(true);
-  });
-
-  it('from a non-empty sidebar search field: its own Escape clears it instead', async () => {
-    const { snowdrop } = await bootVim();
-    await act(async () => {
-      await snowdrop.commands.execute(CoreCommand.SearchConversation);
-    });
-    const input = await screen.findByRole<HTMLInputElement>('searchbox', {
-      name: 'Search messages',
-    });
-    fireEvent.change(input, { target: { value: 'orchard' } });
-    expect(press('Escape')).toBe(true); // SearchInput's own handler prevents default
-    expect(input.value).toBe('');
-    expect(focused()).toBe(input);
-    // A second, now-empty Escape reaches the message list like (1).
-    expect(press('Escape')).toBe(true);
-    await settle();
-    expect(onMessageList()).toBe(true);
+  it('from the chat search panel: Esc closes it, empty or not, and focuses the message list', async () => {
+    for (const typed of ['', 'orchard']) {
+      const { snowdrop } = await bootVim();
+      await act(async () => {
+        await snowdrop.commands.execute(CoreCommand.SearchConversation);
+      });
+      const input = await screen.findByRole<HTMLInputElement>('searchbox', {
+        name: 'Search messages',
+      });
+      expect(focused()).toBe(input);
+      if (typed) fireEvent.change(input, { target: { value: typed } });
+      // The panel owns Esc: Vim leaves it alone and the panel closes (M12, M15).
+      press('Escape');
+      await settle();
+      expect(screen.queryByRole('searchbox', { name: 'Search messages' })).toBeNull();
+      expect(onMessageList()).toBe(true);
+      cleanup();
+    }
   });
 });
 

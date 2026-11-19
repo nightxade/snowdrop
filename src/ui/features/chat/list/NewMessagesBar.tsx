@@ -24,30 +24,35 @@ export function NewMessagesBar({
   dividerAbove,
   dividerVisible,
   onJump,
+  onJumpToPresent,
 }: {
   conversationId: ConversationId;
   dividerLoaded: boolean;
   dividerAbove: boolean;
   dividerVisible: boolean;
   onJump: () => void;
+  /** The reader marked the old messages read: what is new now is at the end, not at the divider. */
+  onJumpToPresent: () => void;
 }) {
   const { stores, sync } = useSnowdrop();
   const marker = useStore(stores.ui, uiSelectors.unreadMarker(conversationId));
   const selfId = useStore(stores.session, sessionSelectors.selfId);
   const clock24h = useStore(stores.settings, (s) => s.appearance.clock24h);
-  const [count] = useState(
-    () => conversationsSelectors.unread(conversationId)(stores.conversations.getState()).count,
-  );
   const unreadNow = useStore(
     stores.conversations,
     (s) => conversationsSelectors.unread(conversationId)(s).count,
   );
-  // "Mark as read" hides it; having seen the divider hides it only while
-  // nothing is unread (new arrivals bring it back).
+  // What was unread when the chat opened counts until the reader has seen the divider or pressed
+  // "Mark as read"; after that, and for whatever arrives, the count is what is unread now.
+  const [openedWith] = useState(unreadNow);
+  // "Mark as read" hides it until the read lands; messages that arrive after that bring it back.
   const [dismissed, setDismissed] = useState(false);
+  const [released, setReleased] = useState(false);
   const [seen, setSeen] = useState(false);
+  if (dismissed && unreadNow === 0) setDismissed(false);
   const tui = useShellStyle();
   if (dividerVisible && !seen) setSeen(true);
+  const count = Math.max(unreadNow, seen || released ? 0 : openedWith);
   const since = useStore(stores.messages, (s) => {
     const w = s.windows[conversationId];
     if (!w || marker === undefined) return undefined;
@@ -59,22 +64,24 @@ export function NewMessagesBar({
     return undefined;
   });
 
-  const show =
-    !dismissed &&
-    count > 0 &&
-    marker !== undefined &&
-    (dividerAbove || !dividerLoaded) &&
-    (!seen || unreadNow > 0);
+  const show = !dismissed && count > 0 && marker !== undefined && (dividerAbove || !dividerLoaded);
   if (!show) return null;
   return (
     <div className={styles.bar} role="status" data-snowdrop="new-messages-bar">
-      <button type="button" className={styles.barJump} onClick={onJump}>
+      <button
+        type="button"
+        className={styles.barJump}
+        onClick={released ? onJumpToPresent : onJump}
+      >
         {tui ? (
           `[${count > 99 ? '99+' : count} new ↓]`
         ) : (
           <>
             {count > 99 ? '99+' : count} new message{count === 1 ? '' : 's'}
-            {since !== undefined && dividerLoaded && ` since ${formatClock(since, { clock24h })}`}
+            {since !== undefined &&
+              dividerLoaded &&
+              !released &&
+              ` since ${formatClock(since, { clock24h })}`}
           </>
         )}
       </button>
@@ -88,6 +95,7 @@ export function NewMessagesBar({
         className={styles.barRead}
         onClick={() => {
           setDismissed(true);
+          setReleased(true);
           void sync.markConversationRead(conversationId);
         }}
       >

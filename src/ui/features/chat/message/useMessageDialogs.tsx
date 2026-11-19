@@ -1,6 +1,6 @@
 import { useState, type ReactNode, type RefObject } from 'react';
 import type { Message, MessageId } from '@/core/domain';
-import { useSnowdrop } from '@/ui/hooks';
+import { conversationFocusPolicyActive, useSnowdrop } from '@/ui/hooks';
 import { useChatController } from '../ChatController';
 import { useRowState } from '../list/rowState';
 import * as act from './actions';
@@ -43,21 +43,28 @@ export function useMessageDialogs(
   const [endOpen, setEndOpen] = useState(false);
   const [emojiDialog, setEmojiDialog] = useState<string | null>(null);
 
-  /** After a delete, keep the keyboard somewhere sensible: the next message, else the composer. */
+  /**
+   * After a delete, keep the keyboard somewhere sensible: the next message, else the previous one,
+   * else the composer (with Vim's navigation keys on, the message list: M11).
+   */
   const focusAfterDelete = () => {
     const all = [
       ...(row.current
         ?.closest('[data-snowdrop="message-log"]')
         ?.querySelectorAll<HTMLElement>('[data-roving-item]') ?? []),
     ];
-    const next = all[all.indexOf(row.current as HTMLElement) + 1];
+    const at = all.indexOf(row.current as HTMLElement);
+    const around = [all[at + 1], all[at - 1]];
     // After the confirm dialog has closed and restored its own focus.
     setTimeout(() => {
-      const nextId = next?.dataset.messageId as MessageId | undefined;
-      if (next?.isConnected && nextId) {
-        rows.setActive(nextId);
-        next.focus();
-      } else chat.focusComposer();
+      const target =
+        at === -1 ? undefined : around.find((el) => el?.isConnected && el.dataset.messageId);
+      const id = target?.dataset.messageId as MessageId | undefined;
+      if (target && id) {
+        rows.setActive(id);
+        target.focus();
+      } else if (conversationFocusPolicyActive()) chat.navigation?.focus();
+      else chat.focusComposer();
     }, 60);
   };
   const runDelete = (kind: act.DeleteKind) => {

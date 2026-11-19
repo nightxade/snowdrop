@@ -22,6 +22,14 @@ export { useInView } from './useInView';
 export { useAvatarSrc, type AvatarSrcOptions } from './useAvatarSrc';
 export { useCatchUpShelf, useFrozenWhile } from './useFrozenWhile';
 export { useHandOffFocus } from './useHandOffFocus';
+export {
+  focusLost,
+  neighbourOf,
+  useHandOffRow,
+  useHandOffWhenGone,
+  type HandOffRow,
+  type HandOffWhenGone,
+} from './useHandOffWhenGone';
 export { useRovingFocus, type RovingOrientation } from './useRovingFocus';
 export { ShellLayoutProvider, useShellLayout, type ShellLayout } from './ShellLayout';
 export { useShellStyle } from './useShellStyle';

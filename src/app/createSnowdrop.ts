@@ -587,6 +587,8 @@ export function createSnowdrop(options: SnowdropOptions = {}): Snowdrop {
     clock,
     onConversationDeleted: (id) => {
       send.forgetConversation(id);
+      // Open when it went (the phone deleted it): the pane shows what it shows with nothing open.
+      stores.ui.getState().deselectConversation(id);
     },
     onError: (error, context) => {
       syncLog.error(context, error);

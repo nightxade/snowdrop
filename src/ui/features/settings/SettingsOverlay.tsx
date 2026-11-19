@@ -1,6 +1,12 @@
 import { ArrowLeft, Puzzle, X, type LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react';
-import { useBelowBreakpoint, useObservableList, useRovingFocus, useSnowdrop } from '@/ui/hooks';
+import {
+  useBelowBreakpoint,
+  useHandOffWhenGone,
+  useObservableList,
+  useRovingFocus,
+  useSnowdrop,
+} from '@/ui/hooks';
 import { AreaErrorBoundary } from '@/ui/lib/AreaErrorBoundary';
 import {
   FullScreenDialog,
@@ -62,6 +68,14 @@ export function SettingsOverlay({ onClose, initialPage }: SettingsOverlayProps) 
   // A fresh object per request, so the same target can be asked for twice.
   const [focusTo, setFocusTo] = useState<{ to: 'heading' | 'nav' } | null>(null);
   const onNavKeyDown = useRovingFocus('vertical');
+  // Narrowed below 760 px with focus on a section of the nav, which a page's screen hides: focus
+  // goes to that page's heading, the visible equivalent.
+  useHandOffWhenGone({
+    identify: (el) => (el.closest('[data-settings-nav]') ? 'nav' : null),
+    stillThere: () => !(narrow && !showNav),
+    replacement: () =>
+      document.querySelector<HTMLElement>('#snowdrop-settings-main [data-page-heading]'),
+  });
 
   // Plugins, commands (for their shortcuts) and plugin panels are searchable too.
   const pages = useMemo((): NavPage[] => {
@@ -204,7 +218,7 @@ export function SettingsOverlay({ onClose, initialPage }: SettingsOverlayProps) 
           data-view={narrow ? (showNav ? 'nav' : 'page') : 'both'}
           data-snowdrop="settings"
         >
-          <div className={styles.navColumn}>
+          <div className={styles.navColumn} data-settings-nav>
             <nav className={styles.nav} aria-label="Settings sections">
               {backToChats}
               <p className={styles.navTitle}>Settings</p>

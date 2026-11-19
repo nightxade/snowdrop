@@ -877,6 +877,10 @@ export class SyncService {
 
   private isViewing(conversationId: ConversationId): boolean {
     const ui = this.deps.stores.ui.getState();
+    // A chat the user marked unread by hand holds until they interact with it: what arrives meanwhile
+    // is not read for them (S8).
+    if (this.deps.stores.local.getState().conversations[conversationId]?.markedUnread === true)
+      return false;
     // Only when the newest messages are actually on screen (the list reports scrolling away).
     return (
       ui.windowFocused &&

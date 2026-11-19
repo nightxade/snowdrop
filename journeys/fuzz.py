@@ -1130,7 +1130,7 @@ class Fuzzer:
             self.fail(f'Vim: Esc from a {where} did not return focus to the message list (on {self.snap()["active"]["tag"]}) (M12)')
 
     def vim_search_escape(self):
-        self.say('Vim: / (search in the chat), type, Esc clears, Esc again returns to the message list')
+        self.say('Vim: / (search in the chat), type, Esc closes it and returns to the message list')
         if not self.vim_start_on_list():
             self.skip('Vim: could not put focus on the list for /')
             return
@@ -1144,15 +1144,11 @@ class Fuzzer:
             self.fail('Vim: / did not focus the chat search field')
         self.page.type('abc')
         self.page.key('Escape')
-        if not pump_wait(self.page, f'document.querySelector({field!r})?.value === "" && document.activeElement === document.querySelector({field!r})', 1500):
-            self.fail('Vim: the first Esc in a search field with text did not just clear it (M12)')
-        self.page.key('Escape')
-        if not pump_wait(self.page, 'document.activeElement?.matches("[data-snowdrop=message], [data-virtuoso-scroller]")', 2500):
-            self.fail(f'Vim: Esc in an empty search field did not return focus to the message list (on {self.snap()["active"]["tag"]}) (M12)')
-        # Esc in Vim mode leaves the panel open (it returns to the list); Ctrl+F toggles it shut.
-        self.page.key('f', ['ctrl'])
+        # The panel owns Esc (M15): it closes, text or not, and focus ends on the message list (M11).
         if not pump_wait(self.page, '!document.querySelector("[data-snowdrop=search-panel]")', 2000):
-            self.fail('Ctrl+F did not close the open search panel')
+            self.fail('Vim: Esc in the search panel did not close it (M15)')
+        if not pump_wait(self.page, 'document.activeElement?.matches("[data-snowdrop=message], [data-virtuoso-scroller]")', 2500):
+            self.fail(f'Vim: Esc in the search panel did not return focus to the message list (on {self.snap()["active"]["tag"]}) (M11)')
 
     # ------------------------------------------------------------ events
 

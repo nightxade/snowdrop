@@ -109,6 +109,8 @@ export interface UiState {
 
   selectSpace(space: SpaceSelection): void;
   selectConversation(conversationId: ConversationId, space?: SpaceSelection): void;
+  /** The conversation is gone (deleted on the phone): no space has it open any more. */
+  deselectConversation(conversationId: ConversationId): void;
   toggleMemberList(open?: boolean): void;
   openModal(modal: ModalState): void;
   closeModal(): void;
@@ -180,6 +182,17 @@ export function createUiStore(newId: () => string = () => createNonce('toast')):
             [target]: conversationId,
           },
           editing,
+        };
+      });
+    },
+    deselectConversation: (conversationId) => {
+      set((s) => {
+        const open = Object.entries(s.selectedConversationBySpace);
+        if (!open.some(([, id]) => id === conversationId)) return s;
+        return {
+          selectedConversationBySpace: Object.fromEntries(
+            open.filter(([, id]) => id !== conversationId),
+          ),
         };
       });
     },

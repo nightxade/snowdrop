@@ -7,6 +7,7 @@
 import { createContext, use, useSyncExternalStore } from 'react';
 import type { ConversationId, MessageId } from '@/core/domain';
 import { ignored } from '@/core/lib';
+import { conversationFocusPolicyActive } from '@/ui/hooks';
 import type { MessageAction } from './list/rowState';
 
 export interface RevealOptions {
@@ -137,6 +138,15 @@ export class ChatController {
 
   focusComposer(): void {
     this.composer?.focus();
+  }
+
+  /**
+   * Where focus goes when a panel the user closes hands it back (the search panel): the composer,
+   * or while Vim's navigation keys are on, the message list (M11).
+   */
+  focusAfterPanel(): void {
+    if (conversationFocusPolicyActive()) this.list?.focus();
+    else this.composer?.focus();
   }
 
   startVoiceNote(): void {

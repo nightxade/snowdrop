@@ -128,11 +128,17 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 ### S8. Mark as unread
 
 - **Rule**: "Mark as unread" is in the conversation menu and the command palette. It is local only
-  and sends nothing; opening the chat or marking it read clears it.
-- **Why**: Signal Desktop parity.
+  and sends nothing; opening the chat or marking it read clears it. On the open chat it holds until
+  the reader interacts with that chat (the first scroll, key, typing or press inside it,
+  `useReleaseMarkedUnread`) or reopens it: a message that arrives meanwhile does not clear it and is
+  not auto-read (`SyncService.isViewing`, `useReadTracking`); once the hold ends, what arrived is read.
+- **Why**: Signal Desktop parity; bug report (an arriving message cleared it at once).
 - **Pinned by**: app/markUnread.test.tsx :: shows one menu item, whichever applies, flags the row and
   sends nothing; is cleared by opening the chat, and stays while the chat is open until it is
-  reopened; lights the rail tile of its space.
+  reopened; lights the rail tile of its space; core/services/services.test.ts :: does not auto-read a
+  chat the user marked unread, while it is open; ui/features/chat/useReleaseMarkedUnread.test.tsx;
+  journeys/test_list.py :: marked_unread_open_chat_holds_until_the_reader_interacts,
+  marked_unread_open_chat_is_cleared_by_reopening_it.
 
 ### S9. Mark all read covers archived chats
 
@@ -283,7 +289,10 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 ### S20. Narrow-window navigation
 
 - **Rule**: Below 760 px the navigation is a drawer, open until a conversation is picked; picking the
-  conversation that is already open closes it. Widening the window past 760 px closes it, so
+  conversation that is already open closes it; focus then goes to the message list as opening by
+  keyboard does (the composer with "Focus the message box…" on, T7), not back to the menu button
+  (`Drawer`'s `closeTarget`). A window narrowed while focus is on a sidebar row (the drawer is closed
+  and the row leaves) hands focus to the fallback, the composer (M15). Widening the window past 760 px closes it, so
   narrowing again never brings it back over the chat. Below 1100 px the member list is an overlay sheet
   that Esc closes. Every breakpoint (760 and 1100 here, and the smaller ones in the stylesheets) is
   measured on the page as laid out, so it follows Zoom: at 150% a 1000 px window counts as 667 px.
@@ -302,7 +311,9 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   search_text_survives_narrowing_below_1100, search_text_survives_narrowing_below_760;
   test/shell.test.tsx :: breakpoints follow the Zoom setting; ui/hooks/useMediaQuery.test.tsx ::
   belowBreakpoint; journeys/test_list.py :: scrolling_up_loads_older_messages_without_a_jump (a container on body broke it); ui/features/chat/SearchSlot.test.tsx (all); journeys/test_appearance.py ::
-  zoomed_header_buttons_stay_inside_the_window.
+  zoomed_header_buttons_stay_inside_the_window; journeys/test_sidebar.py ::
+  drawer_pick_lands_on_the_message_list, drawer_pick_lands_on_the_composer_when_that_is_the_setting,
+  narrowing_hides_the_focused_sidebar_row_and_focus_goes_to_the_composer.
 - **Not pinned**: the stylesheets' `data-below-*` rules themselves (only the 760 px rules show in the
   zoom journey); a drawer left open while zooming.
 
@@ -707,6 +718,7 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   correction for the reader scrolling); journeys/test_list.py ::
   reaction_on_a_message_above_the_view_does_not_move_the_reader (reactions, two back to back, a tall
   edit and a delete on messages above a reader who scrolled up).
+- **Density switch**: Toggle compact mode changes every row's height; measured, the first message in view stays within a pixel (journeys/test_appearance.py :: density_switch_keeps_a_scrolled_up_readers_message_in_place), so the anchor already covers it. A reader within the follow slack of the end is pinned to it (C1), not anchored.
 - **Not pinned**: a list held at the divider or a jump target is left to C5, so a row above it
   changing size there still moves the view; a composer growing under a scrolled-up reader.
 
@@ -865,7 +877,7 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   not commands then): a letter typed away from a text field goes into the composer, which, if it
   would open in Normal mode, switches to Insert mode with the caret at the end of the draft first, so
   the letter is added after the draft and never replaces the character under the block cursor. A
-  composer already in Insert mode takes the letter as it is. Saving or cancelling a message edit puts focus on the message list, not the composer (P4).
+  composer already in Insert mode takes the letter as it is. Saving or cancelling a message edit puts focus on the message list, not the composer (P4). So does `dd` (the message list, the message before the deleted one) and the search panel's close button (`ChatController.focusAfterPanel`); without Vim they keep going to the composer, and the fallback of M15 stands in the list for the composer likewise.
 - **Why**: User request and bug report.
 - **Pinned by**: ui/plugins/vim/vim.integration.test.tsx :: a sidebar click with the composer focused
   lands on the message list, not the composer; J/K from the list lands on the list; J/K from a sidebar
@@ -878,6 +890,7 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   (a click from the composer, J, K, ]u, gt and gT, the switcher and a clicked notification, with
   "Focus the message box" on); journeys/test_vim.py ::
   vim_modal_editing_alone_keeps_the_draft_when_typing_from_the_list; journeys/test_vim.py ::
+  vim_dd_lands_on_the_list_after_deleting_the_newest_message, vim_search_close_button_lands_on_the_list; journeys/test_vim.py ::
   vim_edit_ends_on_the_message_list; ui/features/chat/message/MessageEditor.test.tsx :: is the message list, not
   the composer, with Vim navigation on (M11); the Vim random walk
   (`--mode vim`).
@@ -886,7 +899,8 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 ### M12. Vim: Esc returns to the message list
 
 - **Rule**: From any sidebar row, rail tile, header button or empty text field, Esc focuses the
-  message list so j/k and J/K work. A non-empty field clears first; with no conversation open it
+  message list so j/k and J/K work. A non-empty field clears first (not the chat search panel's field:
+  the panel owns Esc and closes, see M15); with no conversation open it
   blurs. In the composer's Normal mode Esc cancels a reply, then (empty draft) marks read and returns
   to the list; the first Esc in Insert mode never marks anything read. Where the app gives Esc a
   meaning of its own, that comes first: in the inline message editor (also when its text was cleared)
@@ -897,7 +911,7 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   open; ui/plugins/vim/vim.integration.test.tsx :: keeps Escape-marks-read for Normal mode on an empty
   draft, and returns to the messages; ui/plugins/vim/VimController.test.ts :: leaves Esc to what the
   app marked as owning it; ui/hooks/textSurfaces.test.ts :: describeFocus escapeOwned (all);
-  journeys/test_vim.py :: vim_escape_returns_to_the_list,
+  journeys/test_vim.py :: vim_escape_returns_to_the_list (the search panel part: Esc closes it),
   vim_escape_in_an_emptied_message_editor_cancels_the_edit, vim_escape_cancels_a_voice_recording; the
   Vim random walk (`--mode vim`).
 - **Not pinned**: nothing.
@@ -947,6 +961,19 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   descendant. A panel closed by its shortcut with focus inside hands focus on as its own close does:
   the search panel (a second Mod+F) to the composer, the wide member column (Mod+Shift+M) to its
   header toggle.
+- **A focused thing that leaves hands focus on**: a row with focus that disappears (a chat archived
+  or deleted on the phone, a member removed, a message deleted for me on the phone or expired) gives
+  focus to the next row of the same list, else the previous, else the list's own tab stop, else the
+  fallback (`useHandOffRow` / `useHandOffWhenGone`; the message list does the same by data,
+  `neighbourOf`); the fallback is what had focus before, the menu trigger, the composer (the message
+  list while Vim's navigation keys are on, M11), the message list, the conversation list's tab stop,
+  never the page. The same for a pane that leaves: the open chat deleted on the phone is unselected
+  (the pane shows what it shows with nothing open), the sidebar leaving for the closed drawer below
+  760 px (S20), and Settings' nav narrowed below 760 px (focus goes to the page's heading). Only focus
+  that was on the thing that left moves; focus the user put elsewhere is never taken.
+- **The search panel owns Esc**: Esc anywhere in it closes it, a field with text and a result
+  included, and so does Esc on the message that Enter (or a click on a result) moved focus to, until
+  focus goes elsewhere; focus then goes to the composer (the list in Vim mode).
 - **Shortcuts behind a dialog**: while a Modal, full-screen dialog or lightbox is open, none of the
   global shortcuts run (`primitives/modalOpen.ts`, `shell/useKeyboard.ts`): every one acts on the app
   behind the dialog (switching chats, toggling panels) or opens another dialog over it, and none is
@@ -961,7 +988,14 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   Open settings, Esc: back on that message), alt_arrow_in_settings_leaves_the_open_chat;
   test/shell.test.tsx :: panels closed by their shortcut keep focus (both); Alt+Up/Down,
   Ctrl+Shift+M, Ctrl+K and Ctrl+F do nothing behind Settings; they work again once it closes;
-  journeys/test_keyboard.py :: second_search_shortcut_keeps_focus, member_panel_shortcut_keeps_focus;
+  journeys/test_keyboard.py :: second_search_shortcut_keeps_focus, member_panel_shortcut_keeps_focus,
+  removed_member_with_focus_hands_it_to_the_next_member_else_the_previous,
+  message_removed_on_the_phone_hands_focus_to_the_next_message_else_the_previous,
+  search_esc_closes_the_panel_with_text_in_the_field_and_on_a_result,
+  search_esc_closes_the_panel_after_enter_moved_focus_to_the_match; journeys/test_sidebar.py ::
+  archived_focused_row_hands_focus_to_the_next_row_else_the_previous,
+  deleted_on_the_phone_open_chat_is_unselected; journeys/test_dialogs.py ::
+  settings_nav_item_with_focus_hides_when_the_window_narrows; ui/hooks/useHandOffWhenGone.test.tsx;
   ui/primitives/Modal.test.tsx :: modalDialogOpen; when its opener went with it, falls back to what
   had focus before, then to the composer; a popover whose trigger is removed under it hands focus to
   the fallback; when its opener went with it, leaves focus where the user put it; ui/primitives/
@@ -1579,7 +1613,7 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 
 ### T5. TUI layout
 
-- **Rule**: Settings > Appearance > Layout > TUI boxes every region with a titled border, monospace,
+- **Rule**: Settings > Appearance > Layout > TUI boxes every region with a titled border (the member, search and media sheets of a narrow window too: inset from the window's edge, title whole), monospace,
   square corners, one message per line in aligned columns, and a status line (conversation, unread,
   connection, Vim mode). Jump-to-latest and new-messages are small corner chips; unread counts read
   `[3]`; the standard shell is unaffected; boot paints the mirrored shell with no flash.
@@ -1589,7 +1623,8 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   stores/settings.test.ts :: defaults the TUI shell to standard; core/plugins/api.p6.test.ts ::
   registers and tears down a status-line item.
   journeys/test_appearance.py :: tui_regions_are_boxed_and_titled, tui_messages_sit_in_aligned_columns,
-  tui_jump_chip_sits_in_the_corner; the TUI random walk (`--mode tui`).
+  tui_jump_chip_sits_in_the_corner, tui_side_sheets_are_inset_panes_with_whole_titles; the TUI random
+  walk (`--mode tui`).
 - **Not pinned**: the boot paint with no flash (it happens before the runner can look).
 
 ### T6. Font size

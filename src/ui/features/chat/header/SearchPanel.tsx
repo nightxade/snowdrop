@@ -23,12 +23,15 @@ export function SearchPanel({
   query,
   onQueryChange,
   onClose,
+  onReveal,
 }: {
   conversation: ConversationView;
   /** What is typed in the field: kept by the owner, so it survives the panel moving between page and sheet. */
   query: string;
   onQueryChange: (query: string) => void;
   onClose: () => void;
+  /** A result was opened (Enter, a click): the owner jumps to the message; the default does so itself. */
+  onReveal?: (messageId: Message['id']) => void;
 }) {
   const { repository, stores } = useSnowdrop();
   const importing = useStore(
@@ -36,6 +39,10 @@ export function SearchPanel({
     (s) => sessionSelectors.historyImport(s).status === 'importing',
   );
   const chat = useChatController();
+  const reveal = (id: Message['id']) => {
+    if (onReveal) onReveal(id);
+    else void chat.reveal(conversation.id, id, { focus: true });
+  };
   const [state, setState] = useState<SearchState>({ status: 'idle' });
   const input = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLUListElement>(null);
@@ -101,12 +108,18 @@ export function SearchPanel({
       className={styles.panel}
       aria-label={`Search ${conversation.title}`}
       data-snowdrop="search-panel"
+      data-pane-title="search"
+      // Esc is this panel's (it closes it): Vim's Esc, and a narrow sheet's own, leave it alone.
+      data-owns-escape=""
+      // Esc closes the panel from anywhere in it, with text in the field too (which would clear
+      // it first) and on a result.
+      onKeyDownCapture={(e) => {
+        if (e.key !== 'Escape') return;
+        e.preventDefault();
+        e.stopPropagation();
+        onClose();
+      }}
       onKeyDown={(e) => {
-        if (e.key === 'Escape') {
-          e.preventDefault();
-          onClose();
-          return;
-        }
         // ↓ from the field into the results, ↑/↓ between them, ↑ from the first back to the field.
         if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
         const results = [
@@ -131,7 +144,7 @@ export function SearchPanel({
             // Enter opens the best (newest) match.
             if (e.key === 'Enter' && state.status === 'done' && current && state.results[0]) {
               e.preventDefault();
-              void chat.reveal(conversation.id, state.results[0].id, { focus: true });
+              reveal(state.results[0].id);
             }
           }}
         />
@@ -175,7 +188,7 @@ export function SearchPanel({
                   <MessageResult
                     message={m}
                     onOpen={() => {
-                      void chat.reveal(conversation.id, m.id, { focus: true });
+                      reveal(m.id);
                     }}
                   />
                 </li>

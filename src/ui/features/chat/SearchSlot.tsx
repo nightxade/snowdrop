@@ -1,7 +1,7 @@
-import { lazy, Suspense, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import type { ConversationId } from '@/core/domain';
 import { useConversationView } from '@/ui/features/conversation';
-import { useHandOffFocus } from '@/ui/hooks';
+import { overlayOwnsKeys, useHandOffFocus } from '@/ui/hooks';
 import { Drawer } from '@/ui/primitives';
 import { useChatController } from './ChatController';
 import styles from './ConversationArea.module.css';
@@ -26,19 +26,49 @@ export function SearchSlot({
   const [typed, setTyped] = useState({ conversationId, query: '' });
   const query = typed.conversationId === conversationId ? typed.query : '';
   // Closed by the shortcut (or any command) with focus in the panel: as closing it with Esc does,
-  // focus goes to the composer. The narrow sheet hands focus back itself.
+  // focus goes to the composer (the message list with Vim's navigation keys on). The narrow sheet
+  // hands focus back itself.
   useHandOffFocus(
     '[data-snowdrop="search-panel"]',
     () => {
-      chat.focusComposer();
+      chat.focusAfterPanel();
     },
     !narrow,
   );
-  if (!conversation) return null;
   const close = () => {
     chat.setSearchOpen(false);
-    chat.focusComposer();
+    chat.focusAfterPanel();
   };
+  // Enter on the field (or a click on a result) moves focus onto the matching message, outside the
+  // panel: Esc there still closes the search, until focus goes anywhere else.
+  const revealed = useRef(false);
+  const closeLatest = useRef(close);
+  useEffect(() => {
+    closeLatest.current = close;
+  });
+  useEffect(() => {
+    const onFocusIn = (event: FocusEvent) => {
+      const el = event.target;
+      if (!(el instanceof Element) || !el.closest('[data-message-scroller]'))
+        revealed.current = false;
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented || !revealed.current) return;
+      const active = document.activeElement;
+      if (!active?.closest('[data-message-scroller]') || overlayOwnsKeys(document)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      revealed.current = false;
+      closeLatest.current();
+    };
+    document.addEventListener('focusin', onFocusIn, true);
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => {
+      document.removeEventListener('focusin', onFocusIn, true);
+      window.removeEventListener('keydown', onKeyDown, true);
+    };
+  }, []);
+  if (!conversation) return null;
   const panel = (
     <Suspense fallback={null}>
       <SearchPanel
@@ -49,6 +79,10 @@ export function SearchSlot({
           setTyped({ conversationId, query: next });
         }}
         onClose={close}
+        onReveal={(messageId) => {
+          revealed.current = true;
+          void chat.reveal(conversationId, messageId, { focus: true });
+        }}
       />
     </Suspense>
   );

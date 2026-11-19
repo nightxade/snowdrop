@@ -1,4 +1,5 @@
 import { createContext, useContext, useLayoutEffect, useMemo, useRef, type ReactNode } from 'react';
+import { conversationFocusPolicyActive } from '@/ui/hooks/focusTargets';
 import { focusQuietly } from './focusQuietly';
 import { rememberedMenuOpener, resolveOpener } from './menuReturn';
 
@@ -56,19 +57,37 @@ export function trackFocusHistory(): () => void {
   };
 }
 
+const COMPOSER = '[data-snowdrop="composer-input"]';
+
+/** The message list's own tab stop: its current row, else the scroller. */
+function messageListStop(): HTMLElement | null {
+  return (
+    document.querySelector<HTMLElement>(
+      '[data-message-scroller] [data-roving-item][tabindex="0"]',
+    ) ?? document.querySelector<HTMLElement>('[data-message-scroller]')
+  );
+}
+
 /**
- * Where focus goes when what opened a dialog (or popover) is gone, never the page body: what had
- * focus before (outside any dialog or menu), else the trigger of the menu that was open, else the
- * composer, else the message list.
+ * Where focus goes when what opened a dialog (or popover) is gone, or the thing that had it left
+ * the page (a row removed, a pane that went): never the page body. What had focus before (outside
+ * any dialog or menu), else the trigger of the menu that was open, else the composer, else the
+ * message list, else the conversation list's tab stop. While a focus policy is active (Vim's
+ * navigation keys) the message list stands in for the composer, which only its own keys reach (M11).
  */
 export function fallbackFocus(): HTMLElement | null {
+  const policy = conversationFocusPolicyActive();
   for (const el of [...history].reverse()) {
+    if (policy && el.matches(COMPOSER)) continue;
     if (el.isConnected && !el.closest('[role="dialog"], [role="menu"]')) return el;
   }
+  const composer = document.querySelector<HTMLElement>(COMPOSER);
   return (
     rememberedMenuOpener() ??
-    document.querySelector<HTMLElement>('[data-snowdrop="composer-input"]') ??
-    document.querySelector<HTMLElement>('[data-snowdrop="message-log"]')
+    (policy ? (messageListStop() ?? composer) : (composer ?? messageListStop())) ??
+    document.querySelector<HTMLElement>(
+      '[data-snowdrop="sidebar"] [data-roving-item][tabindex="0"]',
+    )
   );
 }
 

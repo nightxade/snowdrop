@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import { CoreCommand } from '@/core/commands';
+import type { ConversationId } from '@/core/domain';
 import { uiSelectors } from '@/core/stores';
-import { useKeybindLabel, useShellLayout, useStores } from '@/ui/hooks';
+import { useHandOffWhenGone, useKeybindLabel, useShellLayout, useStores } from '@/ui/hooks';
 import { MembersPanel } from '@/ui/features/members';
 import { AreaErrorBoundary } from '@/ui/lib/AreaErrorBoundary';
 import { Drawer, Kbd, SnowdropMark } from '@/ui/primitives';
@@ -20,6 +21,7 @@ import { SearchSlot } from './SearchSlot';
 import { ConnectionBanner } from './ConnectionBanner';
 import { MiniPlayer } from './voice/MiniPlayer';
 import { useChatCommands } from './useChatCommands';
+import { useReleaseMarkedUnread } from './useReleaseMarkedUnread';
 import styles from './ChatColumn.module.css';
 
 /**
@@ -63,6 +65,15 @@ function ChatColumnInner() {
     selected ? s.byId[selected]?.title : undefined,
   );
   const membersOpen = useStore(stores.ui, uiSelectors.memberListOpen);
+  const column = useRef<HTMLElement | null>(null);
+  useReleaseMarkedUnread(column, selected);
+  // The open conversation went (deleted on the phone) with focus in its pane: focus goes to the
+  // fallback (M15), not the page.
+  useHandOffWhenGone({
+    identify: (el) => (el.closest('[data-snowdrop="chat"]') ? (selected ?? null) : null),
+    stillThere: (id) => stores.conversations.getState().byId[id as ConversationId] !== undefined,
+  });
+
   const showSearch = searchOpen && kind !== undefined && selected !== null;
   const showGallery = galleryOpen && !showSearch && kind !== undefined && selected !== null;
   const showMembers =
@@ -72,7 +83,7 @@ function ChatColumnInner() {
   };
 
   return (
-    <main className={styles.column} data-snowdrop="chat" aria-label="Chat">
+    <main ref={column} className={styles.column} data-snowdrop="chat" aria-label="Chat">
       {/* aria-hidden: the conversation's name is already the chat header's
           own heading; this is only the TUI shell's border title. */}
       <span className={styles.titleTag} data-snowdrop="chat-title-tag" aria-hidden="true">

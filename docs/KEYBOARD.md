@@ -45,6 +45,9 @@ sidebar bottom-left, and Settings → Connection; docs/ENCRYPTION.md,
   the draft in Insert mode).
 - **Esc** closes the topmost menu, popover or dialog first; dialogs return
   focus to whatever opened them.
+- A row that has focus and disappears (archived, deleted on the phone, a member
+  removed) passes focus to the next row, else the one before; focus never falls
+  to the page.
 - While a dialog is open, the shortcuts above don't run: they would act on
   the app behind it.
 - **Shift+F10**, the **Menu** key or **Mod+Enter** opens the context menu of
@@ -109,7 +112,9 @@ opens, Esc closes.
 ## Search panel (Mod+F)
 
 Enter opens the newest match; ↓ moves from the field into the results and
-↑ / ↓ between them (↑ on the first goes back to the field); Esc closes.
+↑ / ↓ between them (↑ on the first goes back to the field). Esc closes the panel from anywhere in it
+(text in the field included) and from the message Enter jumped to; focus goes to the composer (to the
+message list in Vim mode, as after its close button).
 
 ## Search all chats (Mod+Shift+F)
 

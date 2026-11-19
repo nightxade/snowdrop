@@ -3,7 +3,7 @@ import { Fragment, useEffect, useId, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import { markStartup } from '@/core/lib';
 import { HOME, sessionSelectors, type HomeSection } from '@/core/stores';
-import { useInView, useRovingFocus, useStores } from '@/ui/hooks';
+import { useHandOffRow, useInView, useRovingFocus, useStores } from '@/ui/hooks';
 import { EmptyState, IconButton, Scroller, Skeleton } from '@/ui/primitives';
 import { CategoryHeader } from './CategoryHeader';
 import { ConversationRow } from './ConversationRow';
@@ -46,6 +46,24 @@ export function ConversationList() {
   const allIds = rows.flatMap((r) => r.ids);
   // Alt+↑/↓ walks what is shown here (see `useRenderedOrder`): the archive's rows while it is open.
   useRenderedOrder(space, archiveOpen ? archived : allIds);
+  // A focused row that leaves (archived here, a chat deleted on the phone) hands focus to the next
+  // row, else the previous, else the list's tab stop.
+  useHandOffRow({
+    ids: archiveOpen ? archived : allIds,
+    scope: `${space}:${archiveOpen ? 'archive' : 'list'}`,
+    identify: (el) =>
+      el
+        .closest('[data-snowdrop="conversation-list"] [data-row-id]')
+        ?.getAttribute('data-row-id') ?? null,
+    find: (id) =>
+      document.querySelector<HTMLElement>(
+        `[data-snowdrop="conversation-list"] [data-row-id="${CSS.escape(id)}"] [data-roving-item]`,
+      ),
+    tabStop: () =>
+      document.querySelector<HTMLElement>(
+        '[data-snowdrop="conversation-list"] [data-roving-item][tabindex="0"]',
+      ),
+  });
 
   if (!ready) return <ListSkeleton />;
 

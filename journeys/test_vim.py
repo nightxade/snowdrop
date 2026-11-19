@@ -113,7 +113,7 @@ def focus_then_escape(page, selector, what):
 
 @journey(settings=VIM_SETTINGS)
 def vim_escape_returns_to_the_list(page):
-    """Vim mode on: Esc from a sidebar row, a rail tile, a header button, a search field (cleared first, then empty) and the composer (Insert, then Normal) ends on the message list; with no chat open it blurs."""
+    """Vim mode on: Esc from a sidebar row, a rail tile, a header button, the search panel (Esc closes it) and the composer (Insert, then Normal) ends on the message list; with no chat open it blurs."""
     # No chat open: Esc from a sidebar row blurs to the page.
     page.eval('(document.querySelector("[data-snowdrop=sidebar] [data-conversation-id]").focus(), true)')
     page.wait_for('!!document.activeElement.closest("[data-snowdrop=sidebar]")')
@@ -128,15 +128,15 @@ def vim_escape_returns_to_the_list(page):
     focus_then_escape(page, '[data-snowdrop=chat-header] button', 'a header button')
     page.expect_stays(ON_LIST, 400)
 
-    # A search field: the first Esc clears what is typed (and stays), the second, on an empty field, reaches the list.
-    page.key('/')
-    page.wait_for(f'document.activeElement === document.querySelector({SEARCH_FIELD!r})')
-    page.type('abc')
-    page.key('Escape')
-    page.wait_for(f'document.querySelector({SEARCH_FIELD!r}).value === ""')
-    page.expect_stays(f'document.activeElement === document.querySelector({SEARCH_FIELD!r})', 300)
-    page.key('Escape')
-    page.wait_for(ON_LIST, 3000)
+    # The chat's search panel owns Esc: it closes the panel (with text in the field too, empty or not) and ends on the list.
+    for typed in ('abc', ''):
+        page.key('/')
+        page.wait_for(f'document.activeElement === document.querySelector({SEARCH_FIELD!r})')
+        if typed:
+            page.type(typed)
+        page.key('Escape')
+        page.wait_for(f'!document.querySelector({SEARCH_FIELD!r})')
+        page.wait_for(ON_LIST, 3000)
 
     # The composer: the first Esc leaves Insert for Normal and keeps focus; Esc again on an empty draft returns to the list.
     page.click(COMPOSER)
@@ -346,3 +346,32 @@ def vim_edit_ends_on_the_message_list(page):
         page.key(ending)
         page.wait_for(f'!document.querySelector({EDITOR!r})')
         lands_on_the_list(page)
+
+
+@journey(settings=VIM_SETTINGS)
+def vim_search_close_button_lands_on_the_list(page):
+    """Vim navigation keys on: the search panel's close button leaves focus on the message list, never the composer (M11)."""
+    open_conversation(page, 'dm-priya')
+    lands_on_the_list(page)
+    page.key('/')
+    page.wait_for(f'document.activeElement === document.querySelector({SEARCH_FIELD!r})')
+    page.click('[data-snowdrop=search-panel] button[aria-label^="Close search"]')
+    page.wait_for(f'!document.querySelector({SEARCH_FIELD!r})')
+    lands_on_the_list(page)
+
+
+@journey(settings=VIM_SETTINGS)
+def vim_dd_lands_on_the_list_after_deleting_the_newest_message(page):
+    """Vim navigation keys on: dd on the newest message and Enter on the question delete it, and focus ends on the message list (the message before it), never the composer (M11)."""
+    open_conversation(page, 'dm-priya')
+    lands_on_the_list(page)
+    newest = page.eval(f'{LAST_MESSAGE}.getAttribute("data-message-id")')
+    page.key('d')
+    page.key('d')
+    page.wait_for('!!document.querySelector("[role=alertdialog], [role=dialog]")')
+    page.key('Enter')
+    page.wait_for(f'!document.querySelector(\'[data-message-id="{newest}"]\') || document.querySelector(\'[data-message-id="{newest}"]\').textContent.includes("deleted")', 3000)
+    page.wait_for('!document.querySelector("[role=alertdialog], [role=dialog]")')
+    lands_on_the_list(page)
+    settle(page, 400)
+    page.expect(ON_LIST, 'focus left the message list')

@@ -696,6 +696,22 @@ describe('SyncService: events', () => {
     expect(markRead.mock.calls[0]?.[1]).toHaveLength(5);
   });
 
+  it('does not auto-read a chat the user marked unread, while it is open', async () => {
+    const { stores, backend, sync, conv, memberOf } = await setup();
+    const id = conv('orchard-eng');
+    const markRead = vi.spyOn(backend, 'markRead');
+    stores.ui.getState().selectConversation(id);
+    stores.local.getState().setMarkedUnread(id, true);
+    backend.deliver(incoming(id, memberOf(id), NOW + 5));
+    await sync.idle();
+    expect(stores.local.getState().conversations[id]?.markedUnread).toBe(true);
+    expect(stores.conversations.getState().unread[id]?.count).toBe(5);
+    expect(markRead).not.toHaveBeenCalled();
+    // Reading it (the user's own act) ends the hold.
+    await sync.markConversationRead(id);
+    expect(stores.local.getState().conversations[id]?.markedUnread).toBeUndefined();
+  });
+
   it('skips read receipts when disabled', async () => {
     const { stores, backend, sync, conv } = await setup();
     stores.settings.getState().update('behaviour', { sendReadReceipts: false });

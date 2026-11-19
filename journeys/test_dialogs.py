@@ -117,3 +117,15 @@ def dialogs_of_a_message_close_when_it_is_deleted_for_everyone(page):
         page.wait_for(f'!{dialog}')
         settle(page, 500)
         page.expect('document.activeElement !== document.body', f'focus fell to the page when the {text} dialog closed under it')
+
+
+@journey()
+def settings_nav_item_with_focus_hides_when_the_window_narrows(page):
+    """Settings open with focus on a section of its nav and a page showing; the window narrows below 760 px, where a page shows without the nav: focus goes to the page's heading, not the page (M15)."""
+    page.key(',', ['ctrl'])
+    page.wait_for('!!document.querySelector("[role=dialog]")')
+    click_text(page, '[role=dialog] button', 'Appearance')
+    page.wait_for('document.activeElement?.getAttribute("data-page-id") === "appearance"')
+    page.resize(700, 800)
+    settle(page, 500)
+    page.expect('document.activeElement?.hasAttribute("data-page-heading") === true', 'focus did not go to the page heading')

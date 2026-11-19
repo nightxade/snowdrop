@@ -4,7 +4,7 @@ import { useStore } from 'zustand';
 import { canAddMembers, canManageGroup, type Contact, type ConversationId } from '@/core/domain';
 import { sessionSelectors } from '@/core/stores';
 import { openGroupModal } from '@/ui/features/conversation';
-import { useRovingFocus, useSnowdrop } from '@/ui/hooks';
+import { useHandOffRow, useRovingFocus, useSnowdrop } from '@/ui/hooks';
 import { Button, Scroller } from '@/ui/primitives';
 import {
   VIRTUAL_THRESHOLD,
@@ -157,6 +157,27 @@ export function MemberList({ conversationId }: { conversationId: ConversationId 
           .slice(range.first, range.last + 1)
           .flatMap((row) => (row.type === 'member' ? [row.contact.id] : []))[0];
   const tabStopId = mountedMember(lastFocused) ? lastFocused : (firstShown ?? firstId);
+  // A member removed while their row has focus: the next member's row, else the previous, else
+  // the list's tab stop.
+  const memberIdsShown = useMemo(
+    () => sections.flatMap((section) => section.members.map((c) => c.id)),
+    [sections],
+  );
+  useHandOffRow({
+    ids: memberIdsShown,
+    scope: conversationId,
+    identify: (el) =>
+      el.closest('[data-snowdrop="members"] [data-member-id]')?.getAttribute('data-member-id') ??
+      null,
+    find: (id) =>
+      document.querySelector<HTMLElement>(
+        `[data-snowdrop="members"] [data-member-id="${CSS.escape(id)}"]`,
+      ),
+    tabStop: () =>
+      document.querySelector<HTMLElement>(
+        '[data-snowdrop="members"] [data-roving-item][tabindex="0"]',
+      ),
+  });
   const onRange = useCallback((first: number, last: number) => {
     setRange((prev) => (prev?.first === first && prev.last === last ? prev : { first, last }));
   }, []);

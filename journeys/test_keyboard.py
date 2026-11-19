@@ -363,3 +363,124 @@ def search_results_drop_a_message_deleted_for_everyone(page):
     page.wait_for(f'document.querySelector(\'[data-message-id="{author}:{sent}"]\').textContent.includes("was deleted")')
     settle(page, 600)
     page.expect(f'!{panel}.textContent.includes("needle in the haystack")', 'the deleted message is still listed in the search results')
+
+
+# ------------------------------------------------------------------ a focused row that leaves hands focus on (M15)
+
+MEMBER_ROWS = '[data-snowdrop=members] [data-snowdrop=member-row]'
+
+
+def member_ids(page):
+    return page.eval(f'[...document.querySelectorAll({MEMBER_ROWS!r})].map((e) => e.getAttribute("data-member-id"))')
+
+
+def focus_member(page, member):
+    page.eval(f'(document.querySelector(\'{MEMBER_ROWS}[data-member-id="{member}"]\').focus(), 1)')
+    page.wait_for(f'document.activeElement?.getAttribute("data-member-id") === {member!r}')
+
+
+@journey()
+def removed_member_with_focus_hands_it_to_the_next_member_else_the_previous(page):
+    """Focus is on a member's row and that member is removed from the group (by another admin): focus goes to the next member row; removing the last one puts it on the one before; never the page (M15)."""
+    open_conversation(page, 'allotment')
+    page.wait_for(f'document.querySelectorAll({MEMBER_ROWS!r}).length >= 4')
+    me = page.eval('__journey.state().selfId')
+
+    def remove(member):
+        page.eval(f'__journey.removeMember("allotment", {member!r}), 1')
+        page.wait_for(f'!document.querySelector(\'{MEMBER_ROWS}[data-member-id="{member}"]\')')
+        settle(page, 300)
+
+    def focused_is(member):
+        return f'document.activeElement?.getAttribute("data-member-id") === {member!r}'
+
+    members = member_ids(page)
+    i = next(k for k in range(len(members) - 1) if members[k] != me)
+    focus_member(page, members[i])
+    remove(members[i])
+    page.expect(focused_is(members[i + 1]), 'focus did not go to the next member')
+    left = member_ids(page)
+    last = len(left) - 1 if left[-1] != me else len(left) - 2
+    assert last >= 1, 'the journey needs two members besides the user'
+    focus_member(page, left[last])
+    remove(left[last])
+    expected = left[last + 1] if last + 1 < len(left) else left[last - 1]
+    page.expect(focused_is(expected), 'focus did not go to a neighbour')
+
+
+@journey()
+def message_removed_on_the_phone_hands_focus_to_the_next_message_else_the_previous(page):
+    """Focus is on a message that is deleted for me on the phone: focus goes to the next message; deleting the newest one puts it on the one before; never the page (M15, a focused row that disappears)."""
+    open_conversation(page, 'dm-priya')
+    conversation = page.eval('__journey.conversationId("dm-priya")')
+    ids = []
+    for text in ('first of three', 'second of three', 'third of three'):
+        author, sent = deliver_and_find(page, 'dm-priya', text)
+        ids.append(f'{author}:{sent}')
+    settle(page, 500)
+
+    def delete_on_the_phone(message):
+        author, _, sent = message.rpartition(':')
+        emit(page, 'deleteForMe', {'messages': [{'conversationId': conversation, 'authorId': author, 'sentAt': int(sent)}], 'conversations': []})
+        page.wait_for(f'!document.querySelector(\'[data-message-id="{message}"]\')')
+        settle(page, 300)
+
+    def focused_is(message):
+        return f'document.activeElement === document.querySelector(\'[data-message-id="{message}"]\')'
+
+    page.click(f'[data-message-id="{ids[1]}"]')
+    page.wait_for(focused_is(ids[1]))
+    delete_on_the_phone(ids[1])
+    page.expect(focused_is(ids[2]), 'focus did not go to the next message')
+    delete_on_the_phone(ids[2])
+    page.expect(focused_is(ids[0]), 'focus did not go to the previous message')
+
+
+# ------------------------------------------------------------------ search panel: Esc closes it from anywhere in it
+
+
+def open_search_with_results(page, word):
+    page.click(COMPOSER)
+    page.key('f', ['ctrl'])
+    page.wait_for('document.activeElement?.closest("[data-snowdrop=search-panel]") !== null')
+    page.type(word)
+    page.wait_for('!!document.querySelector("[data-snowdrop=search-panel] [data-search-result]")')
+
+
+NO_PANEL = '!document.querySelector("[data-snowdrop=search-panel]")'
+
+
+@journey()
+def search_esc_closes_the_panel_with_text_in_the_field_and_on_a_result(page):
+    """Ctrl+F, a word typed: one Esc closes the panel (it does not clear the field first) and focus goes to the composer; the same from a result reached with Down; the panel's close button also ends in the composer (M15)."""
+    open_conversation(page, 'dm-priya')
+    deliver_and_find(page, 'dm-priya', 'needle in the haystack')
+    open_search_with_results(page, 'needle')
+    page.key('Escape')
+    page.wait_for(NO_PANEL)
+    page.wait_for(IN_COMPOSER, 2000)
+    open_search_with_results(page, 'needle')
+    page.key('ArrowDown')
+    page.wait_for('document.activeElement?.hasAttribute("data-search-result")')
+    page.key('Escape')
+    page.wait_for(NO_PANEL)
+    page.wait_for(IN_COMPOSER, 2000)
+    open_search_with_results(page, 'needle')
+    page.click('[data-snowdrop=search-panel] button[aria-label^="Close search"]')
+    page.wait_for(NO_PANEL)
+    page.wait_for(IN_COMPOSER, 2000)
+    page.expect_stays(IN_COMPOSER, 400)
+
+
+@journey()
+def search_esc_closes_the_panel_after_enter_moved_focus_to_the_match(page):
+    """Ctrl+F, a word, Enter: focus moves to the newest match in the list; Esc there closes the search panel (and does not mark the chat read), and focus goes to the composer."""
+    open_conversation(page, 'dm-priya')
+    author, sent = deliver_and_find(page, 'dm-priya', 'needle in the haystack')
+    open_search_with_results(page, 'needle')
+    page.key('Enter')
+    row = f'[data-message-id="{author}:{sent}"]'
+    page.wait_for(f'document.activeElement === document.querySelector({row!r})', 3000)
+    page.key('Escape')
+    page.wait_for(NO_PANEL)
+    page.wait_for(IN_COMPOSER, 2000)

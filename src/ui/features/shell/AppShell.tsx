@@ -1,9 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from 'zustand';
+import type { ConversationId } from '@/core/domain';
 import { uiSelectors } from '@/core/stores';
 import {
+  conversationFocusTarget,
   ShellLayoutProvider,
   useBelowBreakpoint,
+  useHandOffWhenGone,
   useShellStyle,
   useStores,
   type ShellLayout,
@@ -41,14 +44,32 @@ export function AppShell() {
   // React's recommended alternative to a syncing effect).
   const picks = useStore(stores.ui, (s) => s.selectedConversationBySpace);
   const [lastSeen, setLastSeen] = useState({ selected, picks });
+  // The conversation whose pick closed the drawer: focus goes to it (S20), not back to the button.
+  const [pickedId, setPickedId] = useState<ConversationId | null>(null);
   if (selected !== lastSeen.selected || picks !== lastSeen.picks) {
     setLastSeen({ selected, picks });
-    if (selected) setNavOpen(false);
+    if (selected) {
+      setNavOpen(false);
+      if (navOpen) setPickedId(selected);
+    }
   }
+  if (navOpen && pickedId !== null) setPickedId(null);
 
   // The drawer only exists in drawer mode: leaving it closes it, so narrowing again never
   // brings it back over the chat.
   if (!drawer && navOpen) setNavOpen(false);
+
+  // The window narrowed and the sidebar went into a closed drawer with focus on a row (or the
+  // rail): focus goes to the fallback (the composer), never the page.
+  const wasDrawer = useRef(drawer);
+  useHandOffWhenGone({
+    identify: (el) => (el.closest('[data-shell-nav]') ? 'nav' : null),
+    // Only the render that turned the sidebar into a drawer: the drawer hands focus back itself.
+    stillThere: () => wasDrawer.current || !drawer || navOpen,
+  });
+  useLayoutEffect(() => {
+    wasDrawer.current = drawer;
+  });
 
   const layout = useMemo<ShellLayout>(
     () => ({ narrow, drawer, navOpen, setNavOpen }),
@@ -71,14 +92,23 @@ export function AppShell() {
                 onOpenChange={setNavOpen}
                 label="Navigation"
                 returnFocus={navToggle}
+                closeTarget={() => {
+                  if (pickedId === null) return null;
+                  const target = conversationFocusTarget(
+                    pickedId,
+                    stores.settings.getState().behaviour.focusComposerOnOpen,
+                  );
+                  // The row it falls back to is in the drawer that is going away.
+                  return target?.closest('[data-snowdrop="sidebar"]') ? null : target;
+                }}
               >
-                <div className={styles.nav} data-snowdrop="drawer">
+                <div className={styles.nav} data-snowdrop="drawer" data-shell-nav>
                   <Rail />
                   <SidebarArea />
                 </div>
               </Drawer>
             ) : (
-              <div className={styles.nav}>
+              <div className={styles.nav} data-shell-nav>
                 <Rail />
                 <SidebarArea />
               </div>

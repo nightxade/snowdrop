@@ -5,6 +5,8 @@ from common import (
     JUMP_PILL,
     DISTANCE,
     SCROLLER,
+    COMPOSER,
+    MESSAGE,
     SLACK,
     TUI_SETTINGS,
     click_text,
@@ -155,7 +157,7 @@ def tui_messages_sit_in_aligned_columns(page):
 def tui_jump_chip_sits_in_the_corner(page):
     """The TUI shell: with the list scrolled up and a new message in, the jump-to-latest control is a small chip in the message pane's bottom-right corner, not a bar."""
     open_conversation(page, 'dm-priya')
-    fill(page, count=120)
+    fill(page, count=60)
     # (The TUI list has padding below its last row, so its resting distance from the end is not 0.)
     page.eval(f'const s = document.querySelector({SCROLLER!r}); s.scrollTop = s.scrollHeight - s.clientHeight - {page.eval(SLACK)} - 100; return 1;')
     page.wait_for(f'{DISTANCE} > {page.eval(SLACK)} + 50')
@@ -194,3 +196,58 @@ def zoomed_header_buttons_stay_inside_the_window(page):
     settle(page, 600)
     inside = '[...document.querySelectorAll("[data-snowdrop=chat-header] button")].every((b) => b.getBoundingClientRect().right <= innerWidth + 1)'
     page.expect(inside, 'a header button is outside the window')
+
+
+
+@journey(settings=TUI_SETTINGS)
+def tui_side_sheets_are_inset_panes_with_whole_titles(page):
+    """The TUI shell in a window under 1100 px: the member list and the search panel are sheets; each is a bordered pane inset from the window's edges with its title chip whole (the members title was cut off at the top of the window, the search sheet had no title or pane border)."""
+    page.resize(1000, 800)
+    open_conversation(page, 'allotment')
+    page.click('[data-snowdrop=member-toggle]')
+    page.wait_for('!!document.querySelector("[data-snowdrop=members]")')
+    settle(page, 500)
+    page.key('Escape')
+    page.wait_for('!document.querySelector("[data-snowdrop=members]")')
+    for pane, sel in (('members', '[data-snowdrop=members]'), ('search', '[data-snowdrop=search-panel]')):
+        if pane == 'members':
+            page.click('[data-snowdrop=member-toggle]')
+        else:
+            page.click(COMPOSER)
+            page.key('f', ['ctrl'])
+        page.wait_for(f'!!document.querySelector({sel!r})')
+        settle(page, 500)
+        page.expect(
+            f"""(() => {{ const a = document.querySelector({sel!r}), s = getComputedStyle(a), t = getComputedStyle(a, '::before'), r = a.getBoundingClientRect();
+              return a.getAttribute('data-pane-title') === {pane!r} && s.borderTopWidth === '1px' && s.borderLeftWidth === '1px'
+                && r.top + parseFloat(t.top) >= 0 && r.top >= 4 && innerHeight - r.bottom >= 4 && innerWidth - r.right >= 4; }})()""",
+            f'the {pane} sheet is not an inset titled pane',
+        )
+        page.key('Escape')
+        page.wait_for(f'!document.querySelector({sel!r})')
+
+
+@journey()
+def density_switch_keeps_a_scrolled_up_readers_message_in_place(page):
+    """Scrolled well up a chat, Toggle compact mode (palette) and back: the first message in view stays where it was (C25, a density switch changes every row's height)."""
+    open_conversation(page, 'dm-priya')
+    fill(page, 'dm-priya', 80)
+    page.scroll(SCROLLER, -1500)
+    settle(page, 700)
+    first = f"""(() => {{ const top = document.querySelector({SCROLLER!r}).getBoundingClientRect().top;
+      const m = [...document.querySelectorAll({MESSAGE!r})].find((e) => e.getBoundingClientRect().top >= top);
+      return [m.getAttribute('data-message-id'), m.getBoundingClientRect().top - top]; }})()"""
+    reading, offset = page.eval(first)
+    for _ in range(2):
+        page.key('k', ['ctrl'])
+        page.wait_for('!!document.querySelector("[role=dialog]")')
+        page.type('>toggle compact')
+        settle(page, 300)
+        page.key('Enter')
+        page.wait_for('!document.querySelector("[role=dialog]")')
+        settle(page, 800)
+        page.expect(
+            f"""(() => {{ const m = document.querySelector('[data-message-id="{reading}"]');
+              return !!m && Math.abs(m.getBoundingClientRect().top - document.querySelector({SCROLLER!r}).getBoundingClientRect().top - {offset}) < 3; }})()""",
+            'the message being read moved when the density changed',
+        )
