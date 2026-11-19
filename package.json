@@ -13,6 +13,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "journeys": "node scripts/journeys.mjs",
+    "journeys:full": "node scripts/journeys.mjs --full",
     "typecheck": "tsc -b --noEmit",
     "lint": "eslint . && node scripts/verify-boundaries.mjs",
     "format": "prettier --write .",

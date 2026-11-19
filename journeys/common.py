@@ -85,6 +85,16 @@ def settle(page, ms):
     page.eval(f'new Promise((r) => setTimeout(r, {int(ms)}))')
 
 
+def quiet(page, frames=8):
+    """Waits for the page to stop moving: every animation and transition finished, then `frames` painted
+    frames (layout observers, a virtualised list's re-measure and a debounce of a frame or two have run).
+    Use it in place of `settle` where the thing being waited for is the page catching up with a change."""
+    page.eval(
+        'const running = document.getAnimations(); await Promise.all(running.map((a) => a.finished.catch(() => 0)));'
+        f' for (let i = 0; i < {int(frames)}; i++) await new Promise((r) => requestAnimationFrame(r)); return 1;'
+    )
+
+
 def colour_of(css):
     """JS: the computed `rgb()` text of any CSS colour (a `var(--...)` too), as the page paints it."""
     return (

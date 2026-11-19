@@ -3,7 +3,7 @@ A patched signal-cli replays its backlog in bursts, with pauses, and says
 "caught up" only when it is done (the demo acts like it: `journeyCatchUp=held`).
 The sidebar must hold still for the whole catch-up, however long the pauses.
 """
-from common import PREVIEW, settle
+from common import PREVIEW, quiet, settle
 from harness import journey
 
 ROW_BUTTONS = '[data-snowdrop=conversation-row] [data-conversation-id]'
@@ -34,7 +34,10 @@ def burst(page, conversation, text, count=4):
     page.eval(f'void __journey.deliver({{ conversation: {conversation!r}, count: {count}, spacingMs: 150, text: {text!r} }})')
 
 
-@journey(query='journeyCatchUp=held')
+# Slow tier: the run has to outlast the 20 s plain ceiling on the page's real clock. The tracker's
+# strict-run and ceiling rules are pinned in CatchUpTracker.test.ts, and the sidebar holding through
+# a catch-up is pinned at short scale by the two journeys below.
+@journey(query='journeyCatchUp=held', slow=True)
 def catch_up_holds_the_sidebar(page):
     """Bursts with long pauses, caught-up after more than 20 s: previews read Loading…, and the order and badges hold throughout; real previews appear after."""
     page.expect(ALL_LOADING, 'the sidebar is not on Loading… at the start')
@@ -72,8 +75,8 @@ def catch_up_hold_survives_a_narrow_round_trip(page):
     page.eval("void __journey.deliver({ conversation: 'dm-ines', count: 3, spacingMs: 100, text: 'backlog' })")
     page.expect_stays(f'{ORDER} === window.__held', 1200)
     page.resize(700, 800)
-    settle(page, 800)
+    quiet(page, 20)
     page.resize(1280, 800)
-    settle(page, 800)
+    quiet(page, 20)
     page.expect('__journey.state().catchingUp', 'the catch-up ended on its own')
     page.expect(f'{ORDER} === window.__held', 'the sidebar was not held')

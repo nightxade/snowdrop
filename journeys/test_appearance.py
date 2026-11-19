@@ -13,6 +13,7 @@ from common import (
     colour_of,
     fill,
     open_conversation,
+    quiet,
     settle,
 )
 from harness import journey
@@ -233,19 +234,21 @@ def density_switch_keeps_a_scrolled_up_readers_message_in_place(page):
     open_conversation(page, 'dm-priya')
     fill(page, 'dm-priya', 80)
     page.scroll(SCROLLER, -1500)
-    settle(page, 700)
+    quiet(page)
     first = f"""(() => {{ const top = document.querySelector({SCROLLER!r}).getBoundingClientRect().top;
       const m = [...document.querySelectorAll({MESSAGE!r})].find((e) => e.getBoundingClientRect().top >= top);
       return [m.getAttribute('data-message-id'), m.getBoundingClientRect().top - top]; }})()"""
     reading, offset = page.eval(first)
     for _ in range(2):
+        density = page.eval('document.documentElement.dataset.density')
         page.key('k', ['ctrl'])
         page.wait_for('!!document.querySelector("[role=dialog]")')
         page.type('>toggle compact')
-        settle(page, 300)
+        page.wait_for('document.querySelector("[role=dialog] [role=option][aria-selected=true]")?.textContent.includes("Toggle compact mode")')
         page.key('Enter')
         page.wait_for('!document.querySelector("[role=dialog]")')
-        settle(page, 800)
+        page.wait_for(f'document.documentElement.dataset.density !== {density!r}')
+        quiet(page)
         page.expect(
             f"""(() => {{ const m = document.querySelector('[data-message-id="{reading}"]');
               return !!m && Math.abs(m.getBoundingClientRect().top - document.querySelector({SCROLLER!r}).getBoundingClientRect().top - {offset}) < 3; }})()""",

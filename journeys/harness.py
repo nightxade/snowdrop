@@ -6,6 +6,7 @@ Needs only the system PyGObject (Gtk 3, WebKit2 4.1). Nothing here touches the
 user's data: every journey gets a fresh webview with an ephemeral data manager.
 """
 import functools
+import gc
 import json
 import os
 import re
@@ -45,7 +46,7 @@ MAIN_CTX = GLib.MainContext.default()
 IGNORED_PAGE_ERRORS = ('ResizeObserver loop',)
 
 WIDTH, HEIGHT = 1280, 800
-POLL_S = 0.05
+POLL_S = 0.025
 
 
 def one_line(js, limit=240):
@@ -93,7 +94,7 @@ def pump_until(predicate, timeout_ms):
 JOURNEYS = []
 
 
-def journey(query='', known_bug=None, fails_at=None, settings=None, notifications=False, microphone=None):
+def journey(query='', known_bug=None, fails_at=None, settings=None, notifications=False, microphone=None, slow=False, motion=False):
     """Registers a journey: `def name(page)`. `query` is added to the app's URL
     (for example `journeyCatchUp=held`, a demo that acts like a patched signal-cli).
 
@@ -110,9 +111,20 @@ def journey(query='', known_bug=None, fails_at=None, settings=None, notification
     fails there, by an expectation (never a script error, a missing element, a
     page error or a timeout elsewhere); any other failure fails the run. The run
     also fails when the journey starts passing, so the marker goes with the fix.
+
+    `slow=True` puts the journey in the full tier: `npm run journeys` (the commit gate) skips it and
+    `npm run journeys -- --full` runs it. Only for a journey that is very slow and whose rule is also
+    pinned elsewhere, or a random walk; naming a journey on the command line runs it whatever its tier.
+
+    Journeys run with the app's own "Reduce motion" setting on (`BASE_SETTINGS`), so animations and
+    smooth scrolling cost no waiting. `motion=True` runs the journey with it off, as most users have it:
+    for the journeys about scrolling, jumps and anything that animates.
     """
     if known_bug is not None and not fails_at:
         raise ValueError('a known_bug journey must say where it fails (fails_at=...)')
+
+    if motion:
+        settings = _merged(settings or {}, {'appearance': {'reducedMotion': 'off'}})
 
     def register(fn):
         JOURNEYS.append(
@@ -126,6 +138,7 @@ def journey(query='', known_bug=None, fails_at=None, settings=None, notification
                 'settings': settings,
                 'notifications': notifications,
                 'microphone': microphone,
+                'slow': slow,
             }
         )
         return fn
@@ -209,7 +222,7 @@ if (__NOTIFICATIONS__) {
 """
 
 BASE_SETTINGS = {
-    'appearance': {'themeId': 'dusk'},
+    'appearance': {'themeId': 'dusk', 'reducedMotion': 'on'},
     'connection': {'backend': 'mock', 'mockLiveliness': False, 'daemonUrl': '/signal-cli', 'account': None},
 }
 
@@ -282,6 +295,44 @@ def _step(fn):
     return wrapper
 
 
+# One web context (and so one web process and one memory cache) with an ephemeral data manager per
+# runner process, reused by every journey that process runs: each journey still gets its own webview
+# and a fresh page load (nothing of the app is reset in place), and everything the previous journey
+# stored (local and session storage, IndexedDB, cookies, caches) is cleared when it closes.
+_CONTEXT = {}
+
+
+def _shared_context():
+    if 'context' not in _CONTEXT:
+        manager = WebKit2.WebsiteDataManager.new_ephemeral()
+        _CONTEXT['manager'] = manager
+        _CONTEXT['context'] = WebKit2.WebContext.new_with_website_data_manager(manager)
+    return _CONTEXT['context']
+
+
+_TYPES = (WebKit2.WebsiteDataTypes.LOCAL_STORAGE | WebKit2.WebsiteDataTypes.SESSION_STORAGE
+          | WebKit2.WebsiteDataTypes.INDEXEDDB_DATABASES | WebKit2.WebsiteDataTypes.COOKIES)
+
+
+def _clear_website_data():
+    manager = _CONTEXT.get('manager')
+    if manager is None:
+        return
+    done = {}
+
+    def cb(mgr, task, _data):
+        try:
+            mgr.clear_finish(task)
+        except GLib.Error as e:
+            done['error'] = str(e)
+        done['done'] = True
+
+    manager.clear(_TYPES, 0, None, cb, None)
+    pump_until(lambda: 'done' in done, 5000)
+    if 'done' not in done or 'error' in done:
+        raise JourneyFailure(f'could not clear the website data between journeys: {done.get("error", "timed out")}')
+
+
 class Page:
     """One webview showing the app. Everything a journey does goes through here."""
 
@@ -295,8 +346,7 @@ class Page:
         self._keyboard = seat.get_keyboard()
         self._pointer = seat.get_pointer()
 
-        data_manager = WebKit2.WebsiteDataManager.new_ephemeral()
-        context = WebKit2.WebContext.new_with_website_data_manager(data_manager)
+        context = _shared_context()
         settings = WebKit2.Settings()
         settings.set_property('hardware-acceleration-policy', WebKit2.HardwareAccelerationPolicy.NEVER)
         content = WebKit2.UserContentManager()
@@ -319,7 +369,7 @@ class Page:
         self.window.set_default_size(WIDTH, HEIGHT)
         self.window.add(self.webview)
         self.window.show_all()
-        pump(200)
+        pump(60)
 
     # ------------------------------------------------------------ window
 
@@ -351,7 +401,7 @@ class Page:
         # An offscreen window never becomes the active window, so the page
         # would never count as focused and WebKit drops keyboard input.
         self.webview.grab_focus()
-        pump(50)
+        pump(10)
         self.window_focus(True)
         self.wait_for('!!window.__journey && !!document.querySelector("[data-snowdrop=conversation-row]")', 20000)
 
@@ -365,11 +415,15 @@ class Page:
         ev.send_event = True
         ev.in_ = bool(focused)
         self.webview.emit('focus-in-event' if focused else 'focus-out-event', ev)
-        pump(80)
+        pump(40)
 
     def close(self):
         self.window.destroy()
+        # Let go of the webview before clearing: a view that is still referenced holds the clear up for seconds.
+        self.webview = self.window = None
+        gc.collect()
         pump(50)
+        _clear_website_data()
 
     # ------------------------------------------------------------ JavaScript
 
@@ -535,7 +589,7 @@ class Page:
         gdk_name = Gdk.keyval_name(kv)
         if gdk_name in KEY_MOD_BITS:
             self.mods |= KEY_MOD_BITS[gdk_name]
-        pump(40)
+        pump(20)
         self._input_barrier(base, 1)
 
     @_step
@@ -547,7 +601,7 @@ class Page:
         gdk_name = Gdk.keyval_name(kv)
         if gdk_name in KEY_MOD_BITS:
             self.mods &= ~KEY_MOD_BITS[gdk_name]
-        pump(40)
+        pump(20)
         self._input_barrier(base, 1)
 
     @_step
@@ -565,7 +619,7 @@ class Page:
         self._input_barrier(base, self._tap(_keyval(name)))
         for _bit, mod_key in reversed(chord):
             self.key_up(mod_key)
-        pump(60)
+        pump(30)
 
     @_step
     def type(self, text):
@@ -576,7 +630,7 @@ class Page:
             sent += self._tap(_keyval('Return' if ch == '\n' else ch))
             pump(8)
         self._input_barrier(base, sent)
-        pump(60)
+        pump(30)
 
     # ------------------------------------------------------------ pointer
 
@@ -598,9 +652,9 @@ class Page:
     def _move_to(self, x, y):
         # Approach in two steps so the page sees the pointer enter, as a hand would.
         self._pointer_event(Gdk.EventType.MOTION_NOTIFY, x - 6, y - 4)
-        pump(20)
+        pump(10)
         self._pointer_event(Gdk.EventType.MOTION_NOTIFY, x, y)
-        pump(60)
+        pump(30)
 
     @_step
     def hover(self, selector):
@@ -614,11 +668,11 @@ class Page:
         self._move_to(x, y)
         base = self._input_seen()
         self._pointer_event(Gdk.EventType.BUTTON_PRESS, x, y, button=1)
-        pump(30)
+        pump(15)
         self._pointer_event(
             Gdk.EventType.BUTTON_RELEASE, x, y, button=1, state=self.mods | Gdk.ModifierType.BUTTON1_MASK
         )
-        pump(80)
+        pump(20)
         self._input_barrier(base, 2)
 
     @_step

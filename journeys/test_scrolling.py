@@ -1,5 +1,10 @@
 from common import JUMP_PILL, MESSAGE, SCROLLER, LAST_MESSAGE, open_conversation
-from harness import journey
+from functools import partial
+
+from harness import journey as _journey
+
+# These journeys are about scrolling, jumps and rows that move: they run with motion on.
+journey = partial(_journey, motion=True)
 
 # The message whose top edge is nearest the scroller's middle, remembered by id.
 PICK_ANCHOR = f"""(() => {{
@@ -32,7 +37,7 @@ def receive_while_scrolled_up(page):
     before = page.eval(top_of(anchor))
     page.eval("__journey.deliver({ conversation: 'dm-priya', count: 3, spacingMs: 250, text: 'while away' })")
     page.wait_for(f'!!document.querySelector({JUMP_PILL!r})')
-    page.expect_stays(f'Math.abs({top_of(anchor)} - {before}) < 2', 1500)
+    page.expect_stays(f'Math.abs({top_of(anchor)} - {before}) < 2', 1000)
 
     page.click(JUMP_PILL)
     page.wait_for(at_bottom())
@@ -59,9 +64,8 @@ def scrolled_part_way_back_stays_unread(page):
 
     # Back down to just short of the end (inside the follow slack, newest messages out of view).
     slack = page.eval(f'Math.round(document.querySelector({SCROLLER!r}).clientHeight / 2)')
-    while page.eval(DISTANCE) > slack:
-        page.scroll(SCROLLER, 80)
-    page.expect(f'{DISTANCE} > 10', 'the scroll reached the end; the journey needs to stop short of it')
+    page.scroll(SCROLLER, page.eval(DISTANCE) - slack + 60)
+    page.expect(f'{DISTANCE} > 10 && {DISTANCE} <= {slack}', 'the scroll reached the end; the journey needs to stop short of it')
     page.expect_stays(f'{UNREAD} === 3', 1500)
 
     page.scroll(SCROLLER, 600)

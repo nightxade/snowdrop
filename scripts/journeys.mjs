@@ -8,7 +8,8 @@
 // are in the runner's group) and is stopped by signalling that group through
 // the child's PID. Nothing is ever stopped by name.
 //
-//   npm run journeys                      all journeys
+//   npm run journeys                      the fast tier (the commit gate)
+//   npm run journeys -- --full            every journey, the slow tier too
 //   npm run journeys -- esc_from_composer one or more, by name
 //   npm run journeys -- --no-build        reuse dist-journey/ as it is
 import { spawn } from 'node:child_process';

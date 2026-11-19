@@ -667,17 +667,35 @@ the bugs the jsdom suites can't see: those that depend on layout, scrolling,
 focus, timing or real input, or on events arriving in the middle of what the user
 is doing. The page clock starts at the same local moment on every run (10 June 2026, 15:00) and
 then runs normally, because the demo world is built from the current time: without it the chats
-hold different messages at different hours. Run it before every commit (about two and a half
-minutes).
+hold different messages at different hours. Run it before every commit (the fast tier: about
+two and a quarter minutes; the full tier about two and three quarters).
 
 Journeys run four at a time (`--jobs N`, or `JOURNEY_JOBS`; `--jobs 1` runs them in turn): each
-worker is its own WebKit process with ephemeral pages, taking journeys from one queue, slowest
-first by the last run's times (`journeys/shots/timings.json`). Every input step waits until the page
+worker is its own WebKit process, taking journeys from one queue, slowest first by the last run's
+times (`journeys/shots/timings.json`, pruned to the journeys that exist). A worker shares one web
+context (one web process and memory cache, one ephemeral data manager) across its journeys, but each
+journey gets a new webview and a fresh page load, and the website data (local and session storage,
+IndexedDB, cookies) is cleared when it closes, so nothing carries over. Every input step waits until the page
 has received its own key and pointer events (the page counts them), so under load a step never
 returns with keys still queued for the next step to overtake.
 
+Two tiers. `npm run journeys` runs the fast tier, the commit gate: every journey except those
+marked `slow=True` (`@journey(slow=True)`): the fixed-seed random walks (`test_fuzz.py`), and
+`catch_up_holds_the_sidebar`, which has to outlast the 20 s catch-up ceiling on the page's real clock
+(the tracker's ceiling and strict-run rules are pinned in `CatchUpTracker.test.ts`, and the sidebar
+holding through a catch-up at short scale by the other `catch_up_*` journeys). `--full` (or
+`npm run journeys:full`) runs everything. Naming journeys runs those, whatever their tier. A run ends
+by printing its five slowest journeys.
+
+Journeys run with the app's own Reduce motion setting on (`BASE_SETTINGS`), so animations and smooth
+scrolling cost no waiting; `@journey(motion=True)` runs one with motion on, as most users have it
+(all of `test_list.py` and `test_scrolling.py`, and the keyboard journeys about the painted current
+message and Page Up). Prefer `quiet(page)` (animations finished, a few painted frames) or a condition
+wait over `settle(page, ms)`; keep a fixed wait only where the check is that something does not happen.
+
 ```sh
-npm run journeys                        # build the journey bundle, serve it, run every journey
+npm run journeys                        # build the journey bundle, serve it, run the fast tier
+npm run journeys -- --full              # the fast and the slow tier (also: npm run journeys:full)
 npm run journeys -- esc_from_the_composer send_a_message   # only these
 npm run journeys -- --no-build          # reuse dist-journey/
 npm run journeys -- --jobs 1            # one at a time
@@ -712,7 +730,7 @@ run itself.
 **Random walks.** `journeys/fuzz.py` plays a seeded random walk of real user
 actions (clicks, keys, wheel, resizes, dialogs, send, reply, edit, delete) mixed with live
 events (arrivals, receipts, typing, a catch-up with backlog) and checks the invariants listed
-at the top of that file after every step. `npm run journeys` runs short fixed seeds, three in the
+at the top of that file after every step. `npm run journeys -- --full` runs short fixed seeds, three in the
 standard mode and one in each other mode (`journeys/test_fuzz.py`); `npm run journeys -- --fuzz --seed 7 --steps 300` (or `--seeds 1-30`)
 runs longer ones. A failure prints the seed, the step and the last actions, and saves a
 screenshot; the same seed and step count replays the walk (timing can still make a replay differ).

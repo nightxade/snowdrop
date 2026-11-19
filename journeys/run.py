@@ -2,7 +2,10 @@
 """
 Runs the user journeys (journeys/test_*.py) against a served journey build.
 
-    python3 journeys/run.py --url http://127.0.0.1:4173/ [name ...]
+    python3 journeys/run.py --url http://127.0.0.1:4173/ [--full] [name ...]
+
+Without names it runs the fast tier (the commit gate); `--full` adds the journeys marked `slow=True`.
+Naming journeys runs exactly those, whatever their tier.
 
 Each journey gets a fresh webview. One line per journey; a failure prints the
 journeys/ line that failed and saves a screenshot under journeys/shots/.
@@ -106,6 +109,8 @@ def remember_timings(took_by_name):
     try:
         known = json.loads(TIMINGS.read_text()) if TIMINGS.exists() else {}
         known.update({name: round(took, 1) for name, took in took_by_name.items()})
+        current = {entry['name'] for entry in harness.JOURNEYS}
+        known = {name: took for name, took in known.items() if name in current}  # a removed journey's time goes too
         TIMINGS.parent.mkdir(parents=True, exist_ok=True)
         TIMINGS.write_text(json.dumps(known, indent=1, sort_keys=True))
     except (OSError, ValueError):
@@ -249,6 +254,7 @@ def main():
     ap.add_argument('--steps', type=int, default=300, help='fuzz: steps per seed (default 300)')
     ap.add_argument('--jobs', type=int, default=int(os.environ.get('JOURNEY_JOBS', '4')),
                     help='journeys run at once, each in its own WebKit (default 4, or $JOURNEY_JOBS; 1 runs them in turn)')
+    ap.add_argument('--full', action='store_true', help='also run the slow tier (journeys marked slow=True)')
     ap.add_argument('--worker', action='store_true', help=argparse.SUPPRESS)
     args = ap.parse_args()
 
@@ -266,7 +272,12 @@ def main():
     if unknown:
         print(f'unknown journey(s): {", ".join(unknown)}; known: {", ".join(sorted(known))}')
         return 2
-    selected = [j for j in journeys if not args.names or j['name'] in args.names]
+    if args.names:
+        selected = [j for j in journeys if j['name'] in args.names]
+        skipped = 0
+    else:
+        selected = [j for j in journeys if args.full or not j['slow']]
+        skipped = len(journeys) - len(selected)
 
     shots = HERE / 'shots'
     started = time.monotonic()
@@ -285,7 +296,11 @@ def main():
     total = time.monotonic() - started
     remember_timings(took_by_name)
     passed = len(selected) - failed - still_known
-    print(f'{passed} passed, {failed} failed, {still_known} known bugs in {total:.1f}s', flush=True)
+    slowest = sorted(took_by_name.items(), key=lambda item: -item[1])[:5]
+    if len(took_by_name) > 5:
+        print('slowest: ' + ', '.join(f'{name} {took:.1f}s' for name, took in slowest), flush=True)
+    tier = f' ({skipped} slow journeys not run: --full runs them)' if skipped else ''
+    print(f'{passed} passed, {failed} failed, {still_known} known bugs in {total:.1f}s{tier}', flush=True)
     return 1 if failed else 0
 
 

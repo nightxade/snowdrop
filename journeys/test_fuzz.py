@@ -1,5 +1,5 @@
 """
-Short fixed-seed random walks (journeys/fuzz.py), so the gate is deterministic. Longer or other
+Short fixed-seed random walks (journeys/fuzz.py), deterministic, in the full tier (`npm run journeys -- --full`). Longer or other
 walks: `npm run journeys -- --fuzz --seed N --steps M` (or `--seeds A-B`, and `--mode NAME`).
 """
 import fuzz
@@ -14,7 +14,7 @@ def walk(seed, mode='standard'):
 
     run.__name__ = f'fuzz_seed_{seed}' if mode == 'standard' else f'fuzz_{mode}_seed_{seed}'
     run.__doc__ = f'A random walk of {STEPS} user actions and live events (seed {seed}, mode {mode}) that keeps every invariant.'
-    return journey(query='journeyCatchUp=held', settings=fuzz.MODES[mode])(run)
+    return journey(query='journeyCatchUp=held', settings=fuzz.MODES[mode], slow=True)(run)
 
 
 for _seed in (1, 2, 3):

@@ -19,7 +19,12 @@ from common import (
     scroll_to_distance,
     settle,
 )
-from harness import journey
+from functools import partial
+
+from harness import journey as _journey
+
+# These journeys are about scrolling, jumps and rows that move: they run with motion on.
+journey = partial(_journey, motion=True)
 
 
 def top_of(message_id):

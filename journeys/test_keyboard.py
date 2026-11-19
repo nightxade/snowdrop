@@ -256,7 +256,7 @@ ACCENT = """(() => { const p = document.createElement('span'); p.style.color = '
   document.body.appendChild(p); const c = getComputedStyle(p).color; p.remove(); return c; })()"""
 
 
-@journey()
+@journey(motion=True)
 def current_message_is_painted(page):
     """The current message is painted (an accent bar and a background) while focus is on the list, in WebKitGTK where :focus-visible does not show for script focus; the row before it is not, and the paint moves with the arrows."""
     open_conversation(page, 'dm-priya')
@@ -275,7 +275,7 @@ def current_message_is_painted(page):
     page.wait_for(f'{painted(2)}.shadow.includes({ACCENT})')
 
 
-@journey()
+@journey(motion=True)
 def page_up_keeps_focus_on_the_list(page):
     """On the current message, PageUp a few screens up through a long chat: focus stays on the message list (a row, or the list itself), so the arrows keep working."""
     open_conversation(page, 'dm-priya')
