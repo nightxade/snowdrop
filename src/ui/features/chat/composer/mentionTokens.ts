@@ -38,21 +38,6 @@ export function encodeMentions(
   return { text: out, mentionIds };
 }
 
-/**
- * Tokens for mentions already present in some text (a restored draft): any
- * "@Name" of a known member counts, as if picked from autocomplete.
- */
-export function tokensInText(
-  text: string,
-  people: readonly { id: string; name: string }[],
-): MentionToken[] {
-  if (!text.includes('@')) return [];
-  return people.flatMap((p) => {
-    const label = `@${p.name}`;
-    return text.includes(label) ? [{ id: p.id, label }] : [];
-  });
-}
-
 /** Adds a token unless an identical one is known. */
 export function addToken(tokens: readonly MentionToken[], token: MentionToken): MentionToken[] {
   return tokens.some((t) => t.id === token.id && t.label === token.label)

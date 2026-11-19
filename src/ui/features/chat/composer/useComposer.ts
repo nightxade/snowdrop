@@ -14,7 +14,7 @@ import { useEffectivePrivacy, useSnowdrop } from '@/ui/hooks';
 import { useChatController } from '../ChatController';
 import type { PendingAttachment } from './AttachmentTray';
 import { encodeMentions, type MentionToken } from './mentionTokens';
-import { useAttachments, voicePending } from './useAttachments';
+import { stagedFilesOf, useAttachments, voicePending } from './useAttachments';
 import { useDraft } from './useDraft';
 import { replyTargetOf, useReplyGuard } from './useReplyTarget';
 import { useLinkPreview, type LinkPreviewView } from './useLinkPreview';
@@ -87,7 +87,7 @@ export function useComposer(conversation: ConversationView): ComposerState {
     addVoiceNote,
     clearAttachments,
     restoreAttachments,
-  } = useAttachments(setError);
+  } = useAttachments(conversationId, stagedFilesOf(stores.ui), setError);
   // The phone's link-preview setting wins when known (and nothing is fetched
   // until it has been read).
   const linkPreviewsEnabled = useEffectivePrivacy().linkPreviews && app.linkPreviewFetch !== null;
@@ -161,7 +161,11 @@ export function useComposer(conversation: ConversationView): ComposerState {
     format?: 'markdown' | 'plain',
     outgoing: readonly PendingAttachment[] = attachments,
   ) => {
-    const encoded = encodeMentions(raw, tokens);
+    // Leading and trailing blanks and empty lines are not part of the message.
+    const body = raw.trim();
+    // Nothing to send (a voice note or files go without text).
+    if (body === '' && outgoing.length === 0) return;
+    const encoded = encodeMentions(body, tokens);
     const reply = takeReply();
     if (reply === 'gone') return;
     const replyId = reply?.id;

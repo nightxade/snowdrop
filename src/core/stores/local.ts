@@ -102,8 +102,10 @@ export interface LocalState extends LocalData {
   unarchive(id: ConversationId): void;
   /** Local only. Clearing a conversation that isn't marked changes nothing. */
   setMarkedUnread(id: ConversationId, markedUnread: boolean): void;
-  /** Empty/whitespace-only drafts are removed. */
+  /** Empty/whitespace-only drafts are removed (with their mentions). */
   setDraft(id: ConversationId, draft: string): void;
+  /** The mentions picked for the draft; no-op without a draft. */
+  setDraftMentions(id: ConversationId, mentions: readonly { id: string; label: string }[]): void;
   /** Empty notes are removed. */
   setNote(contactId: string, note: string): void;
   noteReactionUsed(emoji: string): void;
@@ -170,7 +172,11 @@ export function createLocalStore(initial: LocalData = defaultLocalData()): Local
       set((s) => {
         const current = s.conversations[id] ?? DEFAULT_LOCAL_CONVERSATION;
         const next: LocalConversationState = { ...current, ...patch };
-        if (patch.draft !== undefined && patch.draft.trim() === '') delete next.draft;
+        if (patch.draft !== undefined && patch.draft.trim() === '') {
+          delete next.draft;
+          delete next.draftMentions;
+        }
+        if (patch.draftMentions?.length === 0) delete next.draftMentions;
         if (patch.markedUnread === false) delete next.markedUnread;
         return { conversations: { ...s.conversations, [id]: next } };
       });
@@ -195,6 +201,17 @@ export function createLocalStore(initial: LocalData = defaultLocalData()): Local
       const current = get().conversations[id]?.draft ?? '';
       if (current === draft || (current === '' && draft.trim() === '')) return;
       get().patchConversation(id, { draft });
+    },
+    setDraftMentions: (id, mentions) => {
+      const current = get().conversations[id];
+      if (!current?.draft) return;
+      const held = current.draftMentions ?? [];
+      if (
+        held.length === mentions.length &&
+        held.every((t, i) => t.id === mentions.at(i)?.id && t.label === mentions.at(i)?.label)
+      )
+        return;
+      get().patchConversation(id, { draftMentions: mentions });
     },
     setNote: (contactId, note) => {
       set((s) => {
@@ -319,6 +336,7 @@ export const localSelectors = {
   conversation: (id: ConversationId) => (s: LocalState) =>
     s.conversations[id] ?? DEFAULT_LOCAL_CONVERSATION,
   draft: (id: ConversationId) => (s: LocalState) => s.conversations[id]?.draft ?? '',
+  draftMentions: (id: ConversationId) => (s: LocalState) => s.conversations[id]?.draftMentions,
   voiceNotePlayed: (key: string) => (s: LocalState) => s.playedVoiceNotes[key] !== undefined,
   hasUnreadActivity: (id: ConversationId) => (s: LocalState) => s.unreadActivity[id] !== undefined,
   acceptedHere: (id: ConversationId) => (s: LocalState) => s.acceptedChats[id] !== undefined,
@@ -477,6 +495,15 @@ function parseChatTimes(value: unknown): Record<ConversationId, number> {
   return out;
 }
 
+function parseDraftMentions(value: unknown): { id: string; label: string }[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((t: unknown) =>
+    isRecord(t) && typeof t.id === 'string' && typeof t.label === 'string'
+      ? [{ id: t.id, label: t.label }]
+      : [],
+  );
+}
+
 function parseUnreadActivity(value: unknown): Record<ConversationId, number[]> {
   const out: Record<ConversationId, number[]> = {};
   if (!isRecord(value)) return out;
@@ -515,7 +542,11 @@ export const localSchema: VersionedSchema<LocalData> = {
           archived: raw.archived === true,
         };
         if (raw.markedUnread === true) entry.markedUnread = true;
-        if (typeof raw.draft === 'string' && raw.draft.trim() !== '') entry.draft = raw.draft;
+        if (typeof raw.draft === 'string' && raw.draft.trim() !== '') {
+          entry.draft = raw.draft;
+          const mentions = parseDraftMentions(raw.draftMentions);
+          if (mentions.length > 0) entry.draftMentions = mentions;
+        }
         conversations[id] = entry;
       }
     }

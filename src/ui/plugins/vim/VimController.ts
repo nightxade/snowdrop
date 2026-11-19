@@ -302,7 +302,12 @@ export class VimController {
       this.commit(surface, before, before, false);
       return true;
     }
-    const result = feed(before, stroke.token);
+    // Shift+Enter is a new line in Normal mode; Enter sends, whatever the send-key setting.
+    const token =
+      before.mode === 'normal' && stroke.token === '<CR>' && stroke.event.shiftKey
+        ? '<S-CR>'
+        : stroke.token;
+    const result = feed(before, token);
     this.commit(surface, before, result.state, result.handled);
     this.runEffects(surface, result);
     if (!result.rejected || before.mode !== 'normal') return result.handled;

@@ -82,7 +82,7 @@ Clicking a quoted message (or Enter on it) jumps to the original and focuses it.
 | Keys                        | Action                                                                                                                       |
 | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | Enter                       | Send (Shift+Enter: new line; swap them in Settings → Behaviour)                                                              |
-| ↑ in an empty composer      | Edit your last message                                                                                                       |
+| ↑ in an empty composer      | Edit your last message (on the one already open in the editor: back to it, with what you typed)                              |
 | Esc                         | Close suggestions → cancel the reply → mark read (when empty and unread) → leave the field for the message list (draft kept) |
 | Esc (while recording)       | Cancel the voice message and return to the field (with Vim mode on too)                                                      |
 | Mod+B / Mod+I / Mod+Shift+X | Bold / italic / strikethrough the selection                                                                                  |
@@ -95,7 +95,9 @@ The composer's buttons all sit to the right of the field: Stickers, Emoji and
 send, with its Mod+Shift+Y shortcut beside it); the menu is a normal one
 (↑ / ↓, Enter, Esc). Files can still be dragged or pasted into the field.
 
-Inline message editor: Enter saves (same send-key setting), Esc cancels.
+Inline message editor: Enter saves (same send-key setting), Esc cancels. Either way focus goes to the
+composer (with Vim's navigation keys on, to the message list). Text typed in an editor is kept if you
+switch chats and come back.
 
 ## Quick switcher (Mod+K)
 
@@ -206,7 +208,8 @@ Insert mode_, on by default), so typing works as usual: suggestions, IME,
 spellcheck and native undo are untouched. **Esc** or **Ctrl+[** switches to
 Normal mode.
 
-- **Normal mode:** **Enter sends**. **Esc** runs the composer's own Escape:
+- **Normal mode:** **Enter sends** and **Shift+Enter** makes a new line, whatever the send-key
+  setting says. **Esc** runs the composer's own Escape:
   it cancels a reply first; on an empty draft it marks the conversation read
   **and returns focus to the message list** (in Vim mode that move belongs to
   Normal-mode Esc, so a first Esc in Insert mode never marks anything read).

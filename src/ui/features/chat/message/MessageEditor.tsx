@@ -97,8 +97,10 @@ export function MessageEditor({ message, onDone }: { message: Message; onDone: (
   };
   const save = async () => {
     if (saving.current) return;
-    const encoded = encodeMentions(text, tokens);
-    if (text.trim() === '' || text === initial.text) {
+    // Leading and trailing blanks and empty lines are not part of the message.
+    const body = text.trim();
+    const encoded = encodeMentions(body, tokens);
+    if (body === '' || body === initial.text.trim()) {
       close();
       return;
     }

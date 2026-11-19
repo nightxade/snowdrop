@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MENTION_PLACEHOLDER, parseMarkdownToRanges } from '@/core/domain';
-import { encodeMentions, tokensInText } from '../composer/mentionTokens';
+import { encodeMentions } from '../composer/mentionTokens';
 import { findTrigger } from '../composer/triggers';
 import { formattingMarker } from '../composer/formatting';
 import { typingText } from '../composer/TypingLine';
@@ -77,14 +77,6 @@ describe('mention tokens', () => {
   it('sends an edited label as plain text', () => {
     const out = encodeMentions('@Sa Lee', [{ id: 'saml', label: '@Sam Lee' }]);
     expect(out).toEqual({ text: '@Sa Lee', mentionIds: [] });
-  });
-
-  it('recovers tokens from a restored draft', () => {
-    const people = [
-      { id: 'a', name: 'Ada' },
-      { id: 'b', name: 'Bo' },
-    ];
-    expect(tokensInText('hey @Ada', people)).toEqual([{ id: 'a', label: '@Ada' }]);
   });
 });
 

@@ -546,6 +546,29 @@ describe('Vim mode: composer', () => {
     expect(send.mock.calls[0]?.[0].text).toBe('hello vim');
   });
 
+  it.each([true, false])(
+    'sends on Enter and makes a new line on Shift+Enter in Normal mode, whatever the send key (enterToSend %s)',
+    async (enterToSend) => {
+      const { snowdrop } = await bootVim();
+      snowdrop.stores.settings.getState().update('behaviour', { enterToSend });
+      const send = vi.spyOn(snowdrop.send, 'send');
+      blur();
+      press('i');
+      typeIn('hello');
+      press('Escape');
+      expect(pill()).toBe('NORMAL');
+      expect(press('Enter', { shiftKey: true })).toBe(true);
+      await settle();
+      expect(send).not.toHaveBeenCalled();
+      expect(composer().value).toBe('hell\no');
+      expect(pill()).toBe('NORMAL');
+      press('Enter');
+      await settle();
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(send.mock.calls[0]?.[0].text).toBe('hell\no');
+    },
+  );
+
   it('edits with operators and undoes through the field', async () => {
     await bootVim();
     blur();

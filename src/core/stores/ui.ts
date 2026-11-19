@@ -75,6 +75,11 @@ export interface UiState {
    */
   replySource: Record<ConversationId, Message>;
   editing: EditingTarget | null;
+  /**
+   * Edits with typed text whose chat was left: opening that chat again reopens the editor with
+   * the text. Only until the app closes (like the open edit itself).
+   */
+  parkedEdits: Record<ConversationId, EditingTarget>;
   scrollAnchors: Record<ConversationId, ScrollAnchor>;
   windowFocused: boolean;
   /** Consumed (and cleared) by the chat column, which owns the message list. */
@@ -142,6 +147,7 @@ export function createUiStore(newId: () => string = () => createNonce('toast')):
     replyTo: {},
     replySource: {},
     editing: null,
+    parkedEdits: {},
     scrollAnchors: {},
     windowFocused: true,
     toasts: [],
@@ -155,13 +161,25 @@ export function createUiStore(newId: () => string = () => createNonce('toast')):
     selectConversation: (conversationId, space) => {
       set((s) => {
         const target = space ?? s.selectedSpace;
+        // An edit with typed text waits for its chat; the chat being opened gets its own back.
+        const leaving = s.editing && s.editing.conversationId !== conversationId ? s.editing : null;
+        const { [conversationId]: back, ...others } = s.parkedEdits;
+        const parkedEdits =
+          leaving?.draft === undefined ? others : { ...others, [leaving.conversationId]: leaving };
+        const editing =
+          s.editing?.conversationId === conversationId
+            ? s.editing
+            : back
+              ? { ...back, session: ++editSessions }
+              : null;
         return {
+          parkedEdits,
           selectedSpace: target,
           selectedConversationBySpace: {
             ...s.selectedConversationBySpace,
             [target]: conversationId,
           },
-          editing: null,
+          editing,
         };
       });
     },

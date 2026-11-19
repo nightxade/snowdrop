@@ -825,7 +825,8 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   from the hover bar's button returns to that button). When the message you stepped into (or whose
   reaction picker you opened) is deleted for everyone meanwhile, its buttons go and focus goes back to
   the row, as Esc would, but only when focus was in the row or its picker until then (not after the
-  reader clicked or tabbed elsewhere). When the focused message scrolls out of the
+  reader clicked or tabbed elsewhere). A message open in the inline editor that is deleted for everyone closes the editor, with a
+  "This message was deleted" toast (P4). When the focused message scrolls out of the
   rendered range (PageUp, the wheel), the list's scroller takes focus, unless focus went somewhere
   else, and the arrows continue from that message. A message row is an article labelled by author
   and time.
@@ -840,7 +841,8 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   ui/features/chat/message/MessageItem.test.tsx :: Esc closes a picker opened with + onto the message;
   one opened from the bar button returns to that button; keeps focus on the row when the message is
   deleted for everyone while it is stepped into, and leaves it alone after a click elsewhere (both); journeys/test_keyboard.py ::
-  remote_delete_of_the_message_you_stepped_into_keeps_focus; the random walk does the same on random rows (journeys/fuzz.py).
+  remote_delete_of_the_message_you_stepped_into_keeps_focus; journeys/test_delete.py ::
+  edit_closes_when_its_message_is_deleted_on_another_device; the random walk does the same on random rows (journeys/fuzz.py).
 - **Not pinned**: Shift+F10 and the Menu key through the app's own code: WebKitGTK turns both into a
   `contextmenu` event itself, so the journey stays green with those two branches of
   `isContextMenuKey` removed (Ctrl+Enter is the app's alone and is pinned). Mod+Enter with the Meta
@@ -863,7 +865,7 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   not commands then): a letter typed away from a text field goes into the composer, which, if it
   would open in Normal mode, switches to Insert mode with the caret at the end of the draft first, so
   the letter is added after the draft and never replaces the character under the block cursor. A
-  composer already in Insert mode takes the letter as it is.
+  composer already in Insert mode takes the letter as it is. Saving or cancelling a message edit puts focus on the message list, not the composer (P4).
 - **Why**: User request and bug report.
 - **Pinned by**: ui/plugins/vim/vim.integration.test.tsx :: a sidebar click with the composer focused
   lands on the message list, not the composer; J/K from the list lands on the list; J/K from a sidebar
@@ -875,7 +877,9 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   ui/hooks/focusTargets.test.ts (all); journeys/test_vim.py :: vim_every_open_path_lands_on_the_list
   (a click from the composer, J, K, ]u, gt and gT, the switcher and a clicked notification, with
   "Focus the message box" on); journeys/test_vim.py ::
-  vim_modal_editing_alone_keeps_the_draft_when_typing_from_the_list; the Vim random walk
+  vim_modal_editing_alone_keeps_the_draft_when_typing_from_the_list; journeys/test_vim.py ::
+  vim_edit_ends_on_the_message_list; ui/features/chat/message/MessageEditor.test.tsx :: is the message list, not
+  the composer, with Vim navigation on (M11); the Vim random walk
   (`--mode vim`).
 - **Not pinned**: nothing beyond the walk's coverage.
 
@@ -903,7 +907,9 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 - **Rule**: The composer starts in Insert mode (setting); suggestions show only in Insert; IME input in
   Normal mode switches to Insert as one undo step; the Normal and Visual caret is an always-visible
   block (hollow when unfocused); a mode pill and accessible description show the mode; the mode
-  survives a voice recording; the mode shows on the TUI status line.
+  survives a voice recording; the mode shows on the TUI status line. In Normal mode Enter sends and
+  Shift+Enter makes a new line before the character under the cursor (one undo step, still Normal
+  mode), whatever the send-key setting says: the swap in Settings is for the Insert-mode field.
 - **Why**: User request.
 - **Pinned by**: ui/plugins/vim/vim.integration.test.tsx :: starts in Insert mode; turns IME input in
   Normal mode into one Insert change; enters Insert mode on the IME keydown (keyCode 229) before
@@ -911,7 +917,11 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   unfocused; shows its NORMAL/INSERT mode on the TUI shell status line; ui/plugins/vim/caret/
   caretCell.test.ts (all); ui/features/chat/composer/Composer.voice.test.tsx :: keeps key layers (Vim
   mode) attached to the text field across a recording; journeys/test_vim.py ::
-  vim_composer_modes_and_caret (the block's painted pixel), vim_mode_shows_on_the_tui_status_line.
+  vim_composer_modes_and_caret (the block's painted pixel), vim_mode_shows_on_the_tui_status_line,
+  vim_normal_mode_enter_sends_and_shift_enter_makes_a_new_line,
+  vim_normal_mode_enter_sends_whatever_the_send_key_setting; ui/plugins/vim/engine/engine.test.ts :: makes a new
+  line on Shift+Enter in Normal mode, sending nothing and staying put; ui/plugins/vim/vim.integration.test.tsx ::
+  sends on Enter and makes a new line on Shift+Enter in Normal mode, whatever the send key.
 - **Not pinned**: IME input in WebKitGTK (the runner cannot compose).
 
 ### M14. Vim counts and sequences
@@ -1048,20 +1058,34 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 ### P3. Enter sends
 
 - **Rule**: Enter sends and Shift+Enter inserts a newline (swappable in settings); Enter is ignored
-  during IME composition.
+  during IME composition. The text is sent without its leading and trailing blanks and empty lines
+  (an edit is saved the same way); a body that is only blanks sends no text, so it goes out with
+  staged files and with nothing staged does nothing (the field is left as it was). Vim's Normal mode
+  is not swapped by the setting (M13).
 - **Why**: Signal parity and user request.
 - **Pinned by**: ui/features/chat/composer/Composer.test.tsx :: sends on Enter and inserts a newline on
   Shift+Enter; swaps Enter and Shift+Enter with the setting; ignores Enter while an IME is composing
-  (isComposing or keyCode 229).
+  (isComposing or keyCode 229); ui/features/chat/composer/Composer.test.tsx :: sends the text without its leading and
+  trailing blanks and empty lines; sends no text with files when the body is only blanks, and nothing with
+  neither; ui/features/chat/message/MessageEditor.test.tsx :: sends the edit without leading and trailing
+  blanks and empty lines; closes without sending when only blanks were added; journeys/test_composer.py ::
+  a_sent_message_is_trimmed, an_edit_is_trimmed_too.
 
 ### P4. Up in an empty composer edits your newest editable message
 
 - **Rule**: Up in an empty composer edits your newest editable message, skipping stickers and
   messages past the window; it does nothing if all are past, or if there is text. A message still
   sending is skipped too, so Up edits the one before it.
+  Up on the message that is already open in the editor goes back to it with what was typed. Text typed in
+  an editor survives switching chats: coming back reopens the editor with it (only until the app
+  closes; an editor nothing was typed in is simply closed). Saving or cancelling an edit puts focus in
+  the composer, as Discord and Signal Desktop do (with Vim's navigation keys on, on the message list:
+  M11). An edit open on a message that is deleted for everyone (here or from another device) closes
+  with a "This message was deleted" toast; focus moves only if it was in the editor, to the message's
+  row (a deleted message keeps its row), or to the composer when the row went too.
 - **Why**: Signal parity, except for the sending message: Desktop opens the editor on it; here a
-  message can't be edited until it has been sent (decided against matching Desktop).
-- **Not pinned**: skipping a message still sending.
+  message can't be edited until it has been sent (decided against matching Desktop). The rest: user
+  decisions.
 - **Pinned by**: ui/features/chat/composer/Composer.test.tsx :: edits the last own message with Up in
   an empty composer; opens the newest message that can be edited, skipping stickers and ones too old;
   opens nothing on ArrowUp when every own message is past the window; does not start editing when
@@ -1069,7 +1093,16 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   edit_the_same_message_twice (the editor takes focus every time, also for the same message);
   core/stores/ui.test.ts :: gives every edit of the same message a session of its own;
   ui/features/chat/message/MessageEditor.test.tsx :: takes focus each time the same message is
-  edited again.
+  edited again; ui/features/chat/composer/Composer.test.tsx :: keeps the text typed in its editor (Up on the
+  message being edited); closes, saying so, when it is deleted for everyone; closes, and focuses the
+  composer, when the message is removed under the editor; core/stores/ui.test.ts :: comes back with its
+  text when its chat is opened again; is dropped when nothing was typed, and stays when the same chat is
+  opened again; ui/features/chat/message/MessageEditor.test.tsx :: is the composer after a save and after a
+  cancel; journeys/test_keyboard.py :: saving_or_cancelling_an_edit_returns_focus_to_the_composer,
+  unsaved_edit_text_survives_a_chat_switch, up_on_the_message_being_edited_keeps_its_text;
+  journeys/test_delete.py :: edit_closes_when_its_message_is_deleted_on_another_device.
+- **Not pinned**: skipping a message still sending; where focus lands in a restored edit (the editor
+  reopens, but opening a chat moves focus as it always does); the "row went" focus is a unit test only.
 
 ### P5. A failed send restores the draft
 
@@ -1122,13 +1155,24 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 
 ### P7. Drafts
 
-- **Rule**: Drafts persist per conversation. A dismissed link preview stays dismissed for that URL
-  while composing and returns when the URL leaves the text and is pasted again.
+- **Rule**: Drafts persist per conversation. Staged files are part of the draft: they are still there
+  when the user switches chats and comes back, and go out when it is sent. Text and the mentions
+  picked for it are saved on the device and survive a restart; files are kept in memory for the session
+  only (a File cannot be stored with the text), so a restart drops them. A staged file's preview stays
+  valid while the chat is away; sending or removing the file releases it. Removing a staged file puts
+  focus in the composer. A dismissed link preview stays dismissed for that URL while composing and
+  returns when the URL leaves the text and is pasted again.
 - **Why**: Plan; bug report.
 - **Pinned by**: ui/features/chat/composer/Composer.test.tsx :: persists the draft per conversation;
   ui/features/chat/composer/chatSmallFixes.test.tsx :: forgets a dismissed link once it is out of the
   text, so pasting it again previews it; ui/features/chat/composer/ComposerLinkPreview.test.tsx ::
-  dismisses the card, which stays hidden for that url while composing.
+  dismisses the card, which stays hidden for that url while composing; ui/features/chat/composer/Composer.test.tsx :: keeps staged files when the user leaves the chat
+  and comes back; puts focus in the composer when a staged file is removed; ui/features/chat/composer/
+  useAttachments.test.ts :: keeps what is staged for the chat while it is away, previews still valid;
+  journeys/test_composer.py :: staged_file_survives_a_chat_switch,
+  staged_image_keeps_its_preview_across_a_chat_switch, a_staged_file_is_sent_once_and_not_staged_again,
+  removing_a_staged_file_puts_focus_in_the_composer.
+- **Not pinned**: files across an app restart (dropped by design).
 
 ### P8. Link previews when sending
 
@@ -1222,11 +1266,18 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 - **Rule**: CommonMark-style inline styles (bold, italic, strike, mono, spoiler `||`); `~~` and `||`
   never intraword; fenced code; URLs atomic. Offsets are UTF-16 code units (Signal's wire units); body
   ranges are capped at 500; mentions attach after markdown parsing; the draft format is honoured
-  regardless of the markdown setting.
+  regardless of the markdown setting. Only a member picked from the "@" list is a mention: a typed
+  "@Name" is plain text. The picked mentions are saved with the draft (not worked out again from its
+  text), so a restored draft has exactly the mentions it had; emptying the field forgets them.
 - **Why**: Plan; security audit.
 - **Pinned by**: core/domain/markdown.test.ts (all); core/domain/segments.test.ts (all);
   core/services/services.test.ts :: attaches mentions after markdown parsing; honours the draft
-  format regardless of the markdown setting.
+  format regardless of the markdown setting; ui/features/chat/composer/Composer.test.tsx :: sends a typed @Name as plain text, and a
+  restored draft as it was; keeps the mentions picked from the list with the draft; forgets the picked
+  mentions when the draft is emptied; core/stores/local.test.ts :: keeps the mentions picked for a
+  draft, and drops them with it; round-trips a draft with its picked mentions, and ignores malformed
+  ones; journeys/test_composer.py :: picked_mention_stays_a_mention_when_the_draft_comes_back,
+  typed_name_stays_plain_text_even_when_the_draft_comes_back.
 
 ---
 

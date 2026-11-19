@@ -24,6 +24,14 @@ export function command(
     case '<CR>':
       x.effects.push({ type: 'submit' });
       return;
+    case '<S-CR>':
+      // A new line before the character under the cursor, which stays on that character; Enter
+      // sends whatever the send-key setting says.
+      x.change(() => {
+        x.replace(from, from, '\n');
+        x.setCursor(from + 1);
+      });
+      return;
     case '<C-v>':
     case '<C-x>':
       // Swallowed: the block cursor is a selection, and paste/cut would replace it.

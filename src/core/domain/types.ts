@@ -157,6 +157,11 @@ export interface LocalConversationState {
    */
   markedUnread?: boolean;
   draft?: string;
+  /**
+   * The mentions picked from the list for `draft` (only those are mentions; a typed "@Name" is
+   * plain text). Absent when the draft has none.
+   */
+  draftMentions?: readonly { id: string; label: string }[];
 }
 
 /** What the UI renders: protocol state + local state. */

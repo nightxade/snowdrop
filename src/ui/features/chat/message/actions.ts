@@ -51,7 +51,13 @@ export function startEdit(app: AppServices, m: Message): boolean {
     report(app, reason);
     return false;
   }
-  app.stores.ui.getState().setEditing({ conversationId: m.conversationId, messageId: m.id });
+  const ui = app.stores.ui.getState();
+  const open = ui.editing;
+  if (open?.conversationId === m.conversationId && open.messageId === m.id) {
+    // Already being edited: keep what was typed (a new session only brings the editor focus).
+    const { session: _spent, ...same } = open;
+    ui.setEditing(same);
+  } else ui.setEditing({ conversationId: m.conversationId, messageId: m.id });
   return true;
 }
 

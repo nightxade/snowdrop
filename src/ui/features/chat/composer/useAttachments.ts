@@ -1,5 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { attachmentProblem, rejectedFilesMessage, type AttachmentProblem } from '@/core/domain';
+import { useCallback, useState } from 'react';
+import {
+  attachmentProblem,
+  rejectedFilesMessage,
+  type AttachmentProblem,
+  type ConversationId,
+} from '@/core/domain';
 import type { VoiceRecording } from '../voice/recorder';
 import type { PendingAttachment } from './AttachmentTray';
 
@@ -25,28 +30,50 @@ function isPreviewable(file: File): boolean {
 }
 
 /**
- * The composer's pending attachments: the list, the object-URL previews (released when an
- * attachment goes and on unmount), the voice-alone rule and image measuring.
+ * Staged files per conversation, kept for the session (a File cannot be stored with the text
+ * drafts, so a reload drops them). Held by whoever owns the app's stores, so a new app starts empty.
  */
-export function useAttachments(setError: (error: string | null) => void) {
-  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
-  const latest = useRef(attachments);
-  useEffect(() => {
-    latest.current = attachments;
-  }, [attachments]);
-  // Previews are object URLs: release whatever is still pending on unmount.
-  useEffect(
-    () => () => {
-      for (const a of latest.current) if (a.previewUrl) URL.revokeObjectURL(a.previewUrl);
+export type StagedFiles = Map<ConversationId, PendingAttachment[]>;
+
+const memory = new WeakMap<object, StagedFiles>();
+
+/** The staged files of the app that owns `owner`. */
+export function stagedFilesOf(owner: object): StagedFiles {
+  let held = memory.get(owner);
+  if (!held) memory.set(owner, (held = new Map<ConversationId, PendingAttachment[]>()));
+  return held;
+}
+
+/**
+ * The composer's pending attachments: the list, the object-URL previews (released when an
+ * attachment goes or is sent, kept valid while the chat is away), the voice-alone rule and image
+ * measuring. What is staged belongs to the conversation's draft: it is still there when the user
+ * comes back to the chat.
+ */
+export function useAttachments(
+  conversationId: ConversationId,
+  held: StagedFiles,
+  setError: (error: string | null) => void,
+) {
+  const [attachments, setAttachments] = useState<PendingAttachment[]>(
+    () => held.get(conversationId) ?? [],
+  );
+  /** What is staged right now (the memory is the truth: it outlives this composer). */
+  const current = useCallback(() => held.get(conversationId) ?? [], [held, conversationId]);
+  const commit = useCallback(
+    (next: PendingAttachment[]) => {
+      if (next.length === 0) held.delete(conversationId);
+      else held.set(conversationId, next);
+      setAttachments(next);
     },
-    [],
+    [held, conversationId],
   );
 
   const addFiles = useCallback(
     (files: readonly File[]) => {
       if (files.length === 0) return;
       // Signal sends a voice message alone.
-      if (latest.current.some((a) => a.voiceNote)) {
+      if (current().some((a) => a.voiceNote)) {
         setError(VOICE_ALONE);
         return;
       }
@@ -64,14 +91,16 @@ export function useAttachments(setError: (error: string | null) => void) {
         file,
         ...(isPreviewable(file) ? { previewUrl: URL.createObjectURL(file) } : {}),
       }));
-      setAttachments((current) => [...current, ...added]);
+      commit([...current(), ...added]);
       // Measure images so the sent message reserves the right box before it loads.
       for (const a of added) {
         if (!a.previewUrl || typeof Image === 'undefined') continue;
         const img = new Image();
         img.onload = () => {
-          setAttachments((current) =>
-            current.map((x) =>
+          // Still staged? (it may have been removed or sent meanwhile.)
+          if (!current().some((x) => x.id === a.id)) return;
+          commit(
+            current().map((x) =>
               x.id === a.id ? { ...x, width: img.naturalWidth, height: img.naturalHeight } : x,
             ),
           );
@@ -79,45 +108,43 @@ export function useAttachments(setError: (error: string | null) => void) {
         img.src = a.previewUrl;
       }
     },
-    [setError],
+    [setError, current, commit],
   );
 
-  const removeAttachment = useCallback((id: string) => {
-    setAttachments((current) => {
-      const gone = current.find((a) => a.id === id);
+  const removeAttachment = useCallback(
+    (id: string) => {
+      const gone = current().find((a) => a.id === id);
       if (gone?.previewUrl) URL.revokeObjectURL(gone.previewUrl);
-      return current.filter((a) => a.id !== id);
-    });
-  }, []);
+      commit(current().filter((a) => a.id !== id));
+    },
+    [current, commit],
+  );
 
   /** Empties the tray, releasing its previews. */
   const clearAttachments = () => {
-    for (const a of attachments) if (a.previewUrl) URL.revokeObjectURL(a.previewUrl);
-    latest.current = [];
-    setAttachments([]);
+    for (const a of current()) if (a.previewUrl) URL.revokeObjectURL(a.previewUrl);
+    commit([]);
   };
 
   /** Puts back what a send that did not go out took (never over files added meanwhile). */
-  const restoreAttachments = (held: readonly PendingAttachment[]) => {
-    if (latest.current.length > 0 || held.length === 0) return;
+  const restoreAttachments = (back: readonly PendingAttachment[]) => {
+    if (current().length > 0 || back.length === 0) return;
     // The files are still held; their previews were released with the tray, so make new ones.
-    const back = held.map((a) => ({
-      ...a,
-      ...(a.previewUrl !== undefined || a.voiceNote === true
-        ? { previewUrl: URL.createObjectURL(a.file) }
-        : {}),
-    }));
-    latest.current = back;
-    setAttachments(back);
+    commit(
+      back.map((a) => ({
+        ...a,
+        ...(a.previewUrl !== undefined || a.voiceNote === true
+          ? { previewUrl: URL.createObjectURL(a.file) }
+          : {}),
+      })),
+    );
   };
 
   /** A voice note goes alone: it replaces the tray, releasing what it replaces. */
   const addVoiceNote = (recording: VoiceRecording) => {
     const pending = voicePending(recording);
-    for (const a of latest.current) if (a.previewUrl) URL.revokeObjectURL(a.previewUrl);
-    const next = [{ ...pending, previewUrl: URL.createObjectURL(pending.file) }];
-    latest.current = next;
-    setAttachments(next);
+    for (const a of current()) if (a.previewUrl) URL.revokeObjectURL(a.previewUrl);
+    commit([{ ...pending, previewUrl: URL.createObjectURL(pending.file) }]);
   };
 
   return {

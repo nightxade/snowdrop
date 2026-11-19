@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useStore } from 'zustand';
 import type { ConversationView } from '@/core/domain';
-import { contactsSelectors, localSelectors } from '@/core/stores';
+import { localSelectors } from '@/core/stores';
 import { useSnowdrop } from '@/ui/hooks';
-import { addToken, tokensInText, type MentionToken } from './mentionTokens';
+import { addToken, type MentionToken } from './mentionTokens';
 
 /**
  * The composer's draft for one conversation: the text (persisted per conversation, and
@@ -12,17 +11,20 @@ import { addToken, tokensInText, type MentionToken } from './mentionTokens';
 export function useDraft(conversation: ConversationView, setError: (error: string | null) => void) {
   const { stores, send } = useSnowdrop();
   const conversationId = conversation.id;
-  const contacts = useStore(stores.contacts, contactsSelectors.byId);
   const [text, setTextState] = useState(() =>
     localSelectors.draft(conversationId)(stores.local.getState()),
   );
-  const [tokens, setTokens] = useState<MentionToken[]>(() =>
-    tokensInText(
-      text,
-      conversation.memberIds.flatMap((id) =>
-        contacts[id] ? [{ id, name: contacts[id].name }] : [],
-      ),
-    ),
+  // Only the mentions picked from the list are mentions: they are kept with the draft, never
+  // worked out again from the text (a typed "@Name" is plain text).
+  const [tokens, setTokensState] = useState<MentionToken[]>(() => [
+    ...(localSelectors.draftMentions(conversationId)(stores.local.getState()) ?? []),
+  ]);
+  const setTokens = useCallback(
+    (next: MentionToken[]) => {
+      setTokensState(next);
+      stores.local.getState().setDraftMentions(conversationId, next);
+    },
+    [stores, conversationId],
   );
   // What the field holds right now, readable after an await (a failed send puts the draft
   // back only if nothing has been typed meanwhile).
@@ -34,9 +36,11 @@ export function useDraft(conversation: ConversationView, setError: (error: strin
       setTextState(next);
       setError(null);
       stores.local.getState().setDraft(conversationId, next);
+      // Nothing left to mention: a mention picked earlier must not turn a retyped name into one.
+      if (next === '') setTokens([]);
       void send.setTyping(conversationId, next.trim() !== '');
     },
-    [stores, send, conversationId, setError],
+    [stores, send, conversationId, setError, setTokens],
   );
 
   useEffect(
@@ -62,7 +66,7 @@ export function useDraft(conversation: ConversationView, setError: (error: strin
     tokens,
     setTokens,
     addMention: (token: MentionToken) => {
-      setTokens((current) => addToken(current, token));
+      setTokens(addToken(tokens, token));
     },
     restoreDraft,
   };

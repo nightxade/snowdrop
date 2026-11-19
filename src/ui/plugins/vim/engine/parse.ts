@@ -106,6 +106,7 @@ const NORMAL_COMMANDS = new Set([
   'v',
   'V',
   '<CR>',
+  '<S-CR>',
   '<Esc>',
   '<C-[>',
   '<Del>',

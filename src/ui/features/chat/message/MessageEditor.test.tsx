@@ -6,6 +6,7 @@ import type { OutgoingLinkPreview } from '@/core/backend';
 import type { Message } from '@/core/domain';
 import { bootForward } from '@/test/forwardKit';
 import { renderWithSnowdrop, settle } from '@/test/renderWithSnowdrop';
+import { setConversationFocusPolicy } from '@/ui/hooks';
 import { ChatController, ChatControllerProvider } from '../ChatController';
 import { RowState, RowStateProvider } from '../list/rowState';
 import { MessageItem } from './MessageItem';
@@ -46,10 +47,11 @@ async function editing(
     snowdrop.stores.ui.getState().setEditing({ conversationId, messageId: kit.message.id });
   });
   const edit = vi.spyOn(snowdrop.send, 'edit').mockResolvedValue(true);
+  const chat = new ChatController();
   const mount = () =>
     renderWithSnowdrop(
       snowdrop,
-      <ChatControllerProvider value={new ChatController()}>
+      <ChatControllerProvider value={chat}>
         <RowStateProvider value={new RowState()}>
           <div data-snowdrop="message-log">
             <MessageItem
@@ -74,10 +76,76 @@ async function editing(
   const save = () => {
     fireEvent.keyDown(field(), { key: 'Enter' });
   };
-  return { snowdrop, kit, edit, view, mount, field, type, save };
+  return { snowdrop, kit, edit, view, mount, field, type, save, chat };
 }
 
 describe('<MessageEditor />', () => {
+  it('sends the edit without leading and trailing blanks and empty lines', async () => {
+    const { edit, type, save } = await editing({ body: 'hello' });
+    type('\n  hello there \n\n');
+    save();
+    await vi.waitFor(() => {
+      expect(edit).toHaveBeenCalled();
+    });
+    expect(edit.mock.calls[0]?.[2]).toBe('hello there');
+  });
+
+  it('closes without sending when only blanks were added', async () => {
+    const { edit, type, save } = await editing({ body: 'hello' });
+    type('hello \n');
+    save();
+    await vi.waitFor(() => {
+      expect(screen.queryByRole('textbox', { name: 'Edit message' })).toBeNull();
+    });
+    expect(edit).not.toHaveBeenCalled();
+  });
+
+  describe('where focus goes when the edit ends', () => {
+    const withComposer = (chat: ChatController, conversationId: Message['conversationId']) => {
+      const focus = vi.fn();
+      chat.registerComposer({
+        conversationId,
+        addFiles: () => undefined,
+        focus,
+        startVoiceNote: () => undefined,
+      });
+      return focus;
+    };
+
+    it('is the composer after a save and after a cancel', async () => {
+      const { kit, chat, field, type, save } = await editing({ body: 'hello' });
+      const focus = withComposer(chat, kit.conversationId);
+      fireEvent.keyDown(field(), { key: 'Escape' });
+      expect(focus).toHaveBeenCalledTimes(1);
+      act(() => {
+        kit.snowdrop.stores.ui.getState().setEditing({
+          conversationId: kit.conversationId,
+          messageId: kit.message.id,
+        });
+      });
+      type('hello again');
+      save();
+      await vi.waitFor(() => {
+        expect(focus).toHaveBeenCalledTimes(2);
+      });
+    });
+
+    it('is the message list, not the composer, with Vim navigation on (M11)', async () => {
+      const unset = setConversationFocusPolicy(() => true);
+      try {
+        const { kit, chat, field } = await editing({ body: 'hello' });
+        const focus = withComposer(chat, kit.conversationId);
+        fireEvent.keyDown(field(), { key: 'Escape' });
+        expect(focus).not.toHaveBeenCalled();
+        expect(document.activeElement).toBe(
+          document.querySelector(`[data-message-id="${kit.message.id}"]`),
+        );
+      } finally {
+        unset();
+      }
+    });
+  });
+
   it('takes focus each time the same message is edited again', async () => {
     const { snowdrop, kit, field } = await editing({ body: 'hello' });
     const target = { conversationId: kit.conversationId, messageId: kit.message.id };

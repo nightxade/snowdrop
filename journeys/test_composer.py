@@ -1,5 +1,5 @@
 """The composer's buttons (DECISIONS P2) and voice notes as far as a runner with no microphone can take them (P13)."""
-from common import COMPOSER, IN_COMPOSER, LAST_MESSAGE, TUI_SETTINGS, is_current, open_conversation, settle
+from common import COMPOSER, IN_COMPOSER, LAST_MESSAGE, MESSAGE, TUI_SETTINGS, is_current, open_conversation, settle
 from harness import journey
 
 FIELD = f'{COMPOSER}'
@@ -132,7 +132,7 @@ def esc_on_the_cancel_reply_button_cancels_the_reply(page):
     page.wait_for('!document.querySelector("[data-snowdrop=reply-bar]")', 1500)
 
 
-# ------------------------------------------------------------------ known bugs found by exploring
+# ------------------------------------------------------------------ drafts, sending and mentions
 
 LISTBOX = '!!document.querySelector("[role=listbox]")'
 
@@ -187,22 +187,174 @@ def suggestions_stay_shut_when_a_draft_comes_back(page):
     page.expect(f'!({IN_COMPOSER}) && !({LISTBOX})', 'the suggestions opened on their own')
 
 
-@journey(
-    known_bug='Files staged in the composer are dropped when you switch chats, though the typed draft is kept (attachments live in the composer component only, useAttachments). A judgment call: DECISIONS P7 says only that drafts persist.',
-    fails_at='the staged file was dropped',
-)
-def staged_file_survives_a_chat_switch(page):
-    """A file staged next to a draft is still staged when the user comes back to the chat, as the text is."""
-    open_conversation(page, 'dm-priya')
-    page.click(COMPOSER)
-    page.type('with a file')
+TRAY = '[data-snowdrop=attachment-tray]'
+# A one-pixel PNG, so the tray draws a real preview from an object URL.
+PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
+
+
+def stage_file(page, name='a.txt', image=False):
+    """Hands a file to the composer through its file input (the "Upload a file" route)."""
+    make = (
+        f"new File([Uint8Array.from(atob('{PNG}'), (c) => c.charCodeAt(0))], {name!r}, {{ type: 'image/png' }})"
+        if image
+        else f"new File(['abc'], {name!r}, {{ type: 'text/plain' }})"
+    )
     page.eval(
-        "(() => { const dt = new DataTransfer(); dt.items.add(new File(['abc'], 'a.txt', { type: 'text/plain' }));"
+        f"(() => {{ const dt = new DataTransfer(); dt.items.add({make});"
         " const i = document.querySelector('[data-snowdrop=composer] input[type=file]'); i.files = dt.files;"
         " i.dispatchEvent(new Event('change', { bubbles: true })); return 1; })()"
     )
-    page.wait_for('!!document.querySelector("[data-snowdrop=attachment-tray]")')
+    page.wait_for(f'!!document.querySelector({TRAY!r})')
+
+
+@journey()
+def staged_file_survives_a_chat_switch(page):
+    """A file staged next to a draft is still staged when the user comes back to the chat, as the text is (P7)."""
+    open_conversation(page, 'dm-priya')
+    page.click(COMPOSER)
+    page.type('with a file')
+    stage_file(page)
     open_conversation(page, 'allotment')
+    page.expect(f'!document.querySelector({TRAY!r})', "the other chat shows the first chat's file")
     open_conversation(page, 'dm-priya')
     page.wait_for(f'document.querySelector({COMPOSER!r})?.value === "with a file"')  # the draft is back
-    page.expect('!!document.querySelector("[data-snowdrop=attachment-tray]")', 'the staged file was dropped')
+    page.expect(f'!!document.querySelector({TRAY!r}) && document.querySelector({TRAY!r}).textContent.includes("a.txt")', 'the staged file was dropped')
+
+
+@journey()
+def staged_image_keeps_its_preview_across_a_chat_switch(page):
+    """A staged image still draws its preview (a live object URL, not a released one) when the user comes back to the chat."""
+    open_conversation(page, 'dm-priya')
+    stage_file(page, 'p.png', image=True)
+    page.wait_for(f'(() => {{ const i = document.querySelector({TRAY!r} + " img"); return !!i && i.complete && i.naturalWidth > 0; }})()')
+    open_conversation(page, 'allotment')
+    open_conversation(page, 'dm-priya')
+    page.wait_for(f'!!document.querySelector({TRAY!r} + " img")')
+    page.expect_stays(f'(() => {{ const i = document.querySelector({TRAY!r} + " img"); return !!i && i.complete && i.naturalWidth > 0; }})()', 500)
+
+
+@journey()
+def a_staged_file_is_sent_once_and_not_staged_again(page):
+    """The file staged before a chat switch goes out with the message when it is sent, and is not staged again after another switch."""
+    open_conversation(page, 'dm-priya')
+    page.click(COMPOSER)
+    page.type('here it is')
+    stage_file(page)
+    open_conversation(page, 'allotment')
+    open_conversation(page, 'dm-priya')
+    page.wait_for(f'!!document.querySelector({TRAY!r})')
+    page.click(COMPOSER)
+    page.key('Enter')
+    page.wait_for(f'{LAST_MESSAGE}?.textContent.includes("here it is") && {LAST_MESSAGE}.textContent.includes("a.txt")')
+    page.wait_for(f'!document.querySelector({TRAY!r})')
+    open_conversation(page, 'allotment')
+    open_conversation(page, 'dm-priya')
+    settle(page, 300)
+    page.expect(f'!document.querySelector({TRAY!r})', 'a sent file came back as staged')
+
+
+@journey()
+def removing_a_staged_file_puts_focus_in_the_composer(page):
+    """The Remove button of a staged file takes the file away and focus goes to the composer, not the page."""
+    open_conversation(page, 'dm-priya')
+    stage_file(page)
+    page.click(f'{TRAY} button[aria-label="Remove a.txt"]')
+    page.wait_for(f'!document.querySelector({TRAY!r})')
+    page.expect(IN_COMPOSER, 'focus is not in the composer after removing a staged file')
+
+
+def body_of_last_message(page):
+    return page.eval(f'[...{LAST_MESSAGE}.querySelectorAll("[id$=-body]")].map((e) => e.textContent).join("|")')
+
+
+@journey()
+def a_sent_message_is_trimmed(page):
+    """Blanks and empty lines around the text are not sent: "  hello", two empty lines and trailing spaces go out as "hello"; a body of only blanks sends nothing and stays in the field."""
+    open_conversation(page, 'dm-priya')
+    page.click(COMPOSER)
+    page.type('   ')
+    page.key('Enter', ['shift'])
+    page.type('  trim me  ')
+    page.key('Enter', ['shift'])
+    page.key('Enter', ['shift'])
+    page.key('Enter')
+    page.wait_for(f'{LAST_MESSAGE}.textContent.includes("trim me") && !{LAST_MESSAGE}.hasAttribute("data-pending")')
+    assert body_of_last_message(page) == 'trim me', f'the sent body is {body_of_last_message(page)!r}'
+    page.expect(f'document.querySelector({COMPOSER!r}).value === ""', 'the field kept the sent text')
+    count = page.eval(f'document.querySelectorAll({MESSAGE!r}).length')
+    page.type('  ')
+    page.key('Enter', ['shift'])
+    page.key('Enter')
+    settle(page, 500)
+    page.expect(f'document.querySelectorAll({MESSAGE!r}).length === {count}', 'a body of only blanks was sent')
+    page.expect(f'document.querySelector({COMPOSER!r}).value.trim() === ""', 'the blanks were cleared')
+
+
+@journey()
+def an_edit_is_trimmed_too(page):
+    """Saving an edit with blank lines added around the text stores the text without them."""
+    open_conversation(page, 'dm-priya')
+    page.click(COMPOSER)
+    page.type('edit trimmed')
+    page.key('Enter')
+    page.wait_for(f'{LAST_MESSAGE}?.textContent.includes("edit trimmed") && !{LAST_MESSAGE}.hasAttribute("data-pending")')
+    page.key('ArrowUp')
+    page.wait_for('document.activeElement?.matches("[data-snowdrop=message] textarea")')
+    page.type(' now')
+    page.key('Enter', ['shift'])
+    page.key('Enter', ['shift'])
+    page.key('Enter')
+    page.wait_for(f'{LAST_MESSAGE}.textContent.includes("edit trimmed now") && !document.querySelector("[data-snowdrop=message] textarea")')
+    # The body, then the row's "(edited)" tag: nothing (no blank line) in between.
+    assert body_of_last_message(page) == 'edit trimmed now(edited)', f'the edited body is {body_of_last_message(page)!r}'
+
+
+PILL = '[class*="_mention_"]'
+
+
+def pick_first_member(page, lead):
+    """Types `lead` + "@", takes the first suggestion with Tab; returns the field's text ("lead @Name ")."""
+    page.type(lead + '@')
+    page.wait_for('!!document.querySelector("[role=listbox]")')
+    page.key('Tab')
+    page.wait_for(f'document.querySelector({COMPOSER!r}).value.length > {len(lead) + 1}')
+    return page.eval(f'document.querySelector({COMPOSER!r}).value')
+
+
+@journey()
+def picked_mention_stays_a_mention_when_the_draft_comes_back(page):
+    """A member picked from the "@" list is still a mention after switching chats and back, and goes out as one (P7, P15)."""
+    open_conversation(page, 'allotment')
+    page.click(COMPOSER)
+    pick_first_member(page, 'hi ')
+    open_conversation(page, 'dm-priya')
+    open_conversation(page, 'allotment')
+    page.wait_for(f'document.querySelector({COMPOSER!r}).value.startsWith("hi @")')
+    page.click(COMPOSER)
+    page.key('End', ['ctrl'])
+    page.type('there')
+    page.key('Enter')
+    page.wait_for(f'{LAST_MESSAGE}.textContent.includes("there") && !{LAST_MESSAGE}.hasAttribute("data-pending")')
+    page.expect(f'!!{LAST_MESSAGE}.querySelector({PILL!r})', 'the picked mention went out as plain text')
+
+
+@journey()
+def typed_name_stays_plain_text_even_when_the_draft_comes_back(page):
+    """"@Name" typed out by hand (after a mention was picked and the field emptied) is plain text: it is not a mention when sent, nor after switching chats and back (P15)."""
+    open_conversation(page, 'allotment')
+    page.click(COMPOSER)
+    label = pick_first_member(page, 'x ').split('@', 1)[1].strip()
+    page.key('a', ['ctrl'])
+    page.key('BackSpace')
+    page.expect(f'document.querySelector({COMPOSER!r}).value === ""')
+    page.type(f'by hand @{label} ')
+    page.key('Escape')  # closes a suggestion list the typing may have left open
+    open_conversation(page, 'dm-priya')
+    open_conversation(page, 'allotment')
+    page.wait_for(f'document.querySelector({COMPOSER!r}).value.startsWith("by hand @")')
+    page.click(COMPOSER)
+    page.key('End', ['ctrl'])
+    page.type('plain')
+    page.key('Enter')
+    page.wait_for(f'{LAST_MESSAGE}.textContent.includes("plain") && !{LAST_MESSAGE}.hasAttribute("data-pending")')
+    page.expect(f'!{LAST_MESSAGE}.querySelector({PILL!r})', 'a typed @Name was sent as a mention')

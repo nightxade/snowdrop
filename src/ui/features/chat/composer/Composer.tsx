@@ -34,6 +34,7 @@ import { VoiceDraftBar, VoiceRecorderBar } from '../voice/VoiceBars';
 import { useAutocompleteField } from './useAutocompleteField';
 import { useAutoGrow } from './useAutoGrow';
 import { useComposer } from './useComposer';
+import { useEditGuard } from './useEditGuard';
 import { useComposerSurface } from './useComposerSurface';
 import { usePasteFiles } from './usePasteFiles';
 import { useTypeToFocus } from './useTypeToFocus';
@@ -147,6 +148,8 @@ function ComposerInner({ conversation }: { conversation: ConversationView }) {
   const focus = useCallback(() => {
     textarea.current?.focus();
   }, []);
+
+  useEditGuard(conversationId, focus);
 
   const voice = useVoiceRecorder({
     onRecorded: (recording, outcome, limit) => {
@@ -333,7 +336,14 @@ function ComposerInner({ conversation }: { conversation: ConversationView }) {
             />
           ) : (
             <>
-              <AttachmentTray attachments={state.attachments} onRemove={state.removeAttachment} />
+              <AttachmentTray
+                attachments={state.attachments}
+                onRemove={(id) => {
+                  state.removeAttachment(id);
+                  // The button that was pressed goes with the file: keep the user in the composer.
+                  focus();
+                }}
+              />
               <div className={styles.field}>
                 <input
                   ref={fileInput}

@@ -298,18 +298,51 @@ def vim_modal_editing_alone_keeps_the_draft_when_typing_from_the_list(page):
     page.expect(f'document.querySelector({MODE_PILL!r}).getAttribute("data-vim-mode") === "insert"', 'the composer is not in Insert mode')
 
 
-@journey(
-    settings={**VIM_SETTINGS, 'behaviour': {'enterToSend': False}},
-    known_bug='In Normal mode Enter sends even when Settings > Behaviour says Shift+Enter sends and Enter starts a new line (P3): the engine\'s submit effect calls surface.submit() without asking the setting (VimController.runEffects). KEYBOARD.md says only "Normal mode: Enter sends". A judgment call.',
-    fails_at='Normal-mode Enter sent the draft',
-)
-def vim_normal_mode_enter_follows_the_send_key_setting(page):
-    """Vim mode with "Send with: Shift+Enter": Enter in Normal mode does not send the draft."""
+def enter_and_shift_enter_in_normal_mode(page):
     open_conversation(page, 'dm-priya')
     page.click(COMPOSER)
     page.type('hello')
     page.key('Escape')
     page.wait_for(f'document.querySelector({MODE_PILL!r}).getAttribute("data-vim-mode") === "normal"')
+    count = page.eval(f'document.querySelectorAll({MESSAGE!r}).length')
+    page.key('Enter', ['shift'])
+    settle(page, 500)
+    page.expect(f'document.querySelector({COMPOSER!r}).value === "hell\\no"', 'Shift+Enter did not make a new line in Normal mode')
+    page.expect(f'document.querySelectorAll({MESSAGE!r}).length === {count}', 'Shift+Enter sent the draft')
+    page.expect(f'document.querySelector({MODE_PILL!r}).getAttribute("data-vim-mode") === "normal"', 'the mode changed')
     page.key('Enter')
-    settle(page, 700)
-    page.expect(f'document.querySelector({COMPOSER!r}).value === "hello"', 'Normal-mode Enter sent the draft')
+    page.wait_for(f'document.querySelector({COMPOSER!r}).value === ""')
+    page.wait_for(f'{LAST_MESSAGE}?.textContent.includes("hell") && {LAST_MESSAGE}.textContent.includes("o")')
+    page.expect(f'document.querySelectorAll({MESSAGE!r}).length === {count + 1}', 'Enter did not send the draft')
+
+
+@journey(settings=VIM_SETTINGS)
+def vim_normal_mode_enter_sends_and_shift_enter_makes_a_new_line(page):
+    """Vim mode, default send key: in Normal mode Shift+Enter puts a new line in the draft (nothing sent, still Normal) and Enter sends it."""
+    enter_and_shift_enter_in_normal_mode(page)
+
+
+@journey(settings={**VIM_SETTINGS, 'behaviour': {'enterToSend': False}})
+def vim_normal_mode_enter_sends_whatever_the_send_key_setting(page):
+    """Vim mode with "Send with: Shift+Enter": Normal mode is the same, Enter sends and Shift+Enter makes a new line (M13)."""
+    enter_and_shift_enter_in_normal_mode(page)
+
+
+@journey(settings=VIM_SETTINGS)
+def vim_edit_ends_on_the_message_list(page):
+    """Vim mode with its navigation keys on: saving an edit with Enter, and cancelling one with Esc, leave focus on the message list, never in the composer (M11)."""
+    open_conversation(page, 'dm-priya')
+    page.click(COMPOSER)
+    page.type('to be edited')
+    page.key('Enter')
+    page.wait_for(f'{LAST_MESSAGE}?.textContent.includes("to be edited") && !{LAST_MESSAGE}.hasAttribute("data-pending")')
+    page.key('Escape')
+    page.key('Escape')
+    page.wait_for(ON_LIST)
+    for ending in ('Enter', 'Escape'):
+        page.key('e')
+        page.wait_for(f'!!document.querySelector({EDITOR!r})')
+        page.type(' x')
+        page.key(ending)
+        page.wait_for(f'!document.querySelector({EDITOR!r})')
+        lands_on_the_list(page)

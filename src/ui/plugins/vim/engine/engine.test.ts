@@ -517,6 +517,15 @@ describe('host bridge', () => {
     expect(r.state.pending).toEqual([]);
   });
 
+  it('makes a new line on Shift+Enter in Normal mode, sending nothing and staying put', () => {
+    const r = press(start('a|bc'), '<S-CR>');
+    expect(show(r.state)).toBe('a\n|bc');
+    expect(r.state.mode).toBe('normal');
+    expect(r.effects).toEqual([]);
+    // One undo step.
+    expect(show(press(r.state, 'u').state)).toBe('a|bc');
+  });
+
   it('reports mode changes as effects', () => {
     expect(press(start('|hi'), 'i').effects).toEqual([{ type: 'mode', mode: 'insert' }]);
     expect(press(start('|hi'), 'v').effects).toEqual([{ type: 'mode', mode: 'visual' }]);

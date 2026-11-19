@@ -1,4 +1,4 @@
-from common import COMPOSER, MESSAGE, open_conversation, send, settle
+from common import COMPOSER, LAST_MESSAGE, MESSAGE, emit, open_conversation, send, settle
 from harness import journey
 
 DELETE = '[data-snowdrop=hover-bar] button[aria-label^="Delete"]'
@@ -39,3 +39,21 @@ def shift_delete_on_a_message_focused_by_click(page):
     settle(page, 600)
     page.expect(NO_DIALOG, 'Shift+Delete asked for confirmation')
     page.wait_for(f'document.querySelector({row!r})?.textContent.includes("You deleted this message")', 3000)
+
+
+@journey()
+def edit_closes_when_its_message_is_deleted_on_another_device(page):
+    """Your message is open in the editor with text typed; the same message is deleted for everyone from another device: the editor closes with a "This message was deleted" toast and focus goes to the message's row, not the page (M9)."""
+    open_conversation(page, 'dm-priya')
+    send(page, 'about to vanish')
+    page.click(COMPOSER)
+    page.key('ArrowUp')
+    page.wait_for('document.activeElement?.matches("[data-snowdrop=message] textarea")')
+    page.type(' and more')
+    author, _, sent = page.eval(f'{LAST_MESSAGE}.getAttribute("data-message-id")').rpartition(':')
+    row = f'[data-message-id="{author}:{sent}"]'
+    emit(page, 'messageDeleted', {'conversationId': page.eval('__journey.conversationId("dm-priya")'), 'authorId': author, 'targetSentAt': int(sent)})
+    page.wait_for('!document.querySelector("[data-snowdrop=message] textarea")')
+    page.wait_for('document.body.textContent.includes("This message was deleted")')
+    page.wait_for(f'document.activeElement === document.querySelector({row!r})', 1500)
+    page.expect_stays(f'document.activeElement === document.querySelector({row!r})', 500)

@@ -27,6 +27,21 @@ describe('localStore', () => {
     expect(store.getState().conversations).toBe(before);
   });
 
+  it('keeps the mentions picked for a draft, and drops them with it', () => {
+    const store = createLocalStore();
+    const picked = [{ id: 'u1', label: '@Ada' }];
+    store.getState().setDraftMentions(a, picked);
+    expect(localSelectors.draftMentions(a)(store.getState())).toBeUndefined(); // no draft yet
+    store.getState().setDraft(a, 'hi @Ada');
+    store.getState().setDraftMentions(a, picked);
+    expect(localSelectors.draftMentions(a)(store.getState())).toEqual(picked);
+    store.getState().setDraftMentions(a, []);
+    expect(store.getState().conversations[a]?.draftMentions).toBeUndefined();
+    store.getState().setDraftMentions(a, picked);
+    store.getState().setDraft(a, '  ');
+    expect(store.getState().conversations[a]?.draftMentions).toBeUndefined();
+  });
+
   it('stores notes, pins, mutes and archive flags', () => {
     const store = createLocalStore();
     store.getState().setNote('c1', 'met at the crag');
@@ -148,6 +163,30 @@ describe('localStore', () => {
     store.getState().setPinned(a, false);
     store.getState().seedDefaults({ pinned: [a] });
     expect(localSelectors.conversation(a)(store.getState()).pinned).toBe(false);
+  });
+
+  it('round-trips a draft with its picked mentions, and ignores malformed ones', () => {
+    const store = createLocalStore();
+    store.getState().setDraft(a, 'hi @Ada');
+    store.getState().setDraftMentions(a, [{ id: 'u1', label: '@Ada' }]);
+    const storage = createMemoryStorage();
+    saveVersioned(storage, localSchema, selectLocalData(store.getState()));
+    expect(loadVersioned(storage, localSchema).conversations[a]?.draftMentions).toEqual([
+      { id: 'u1', label: '@Ada' },
+    ]);
+    const odd = createMemoryStorage({
+      [localSchema.key]: JSON.stringify({
+        v: 1,
+        data: {
+          conversations: {
+            'group:x': { draft: 'hi', draftMentions: [{ id: 1 }, 'x', { id: 'a', label: '@A' }] },
+          },
+        },
+      }),
+    });
+    expect(
+      loadVersioned(odd, localSchema).conversations['group:x' as typeof a]?.draftMentions,
+    ).toEqual([{ id: 'a', label: '@A' }]);
   });
 
   it('round-trips through storage and repairs bad data', () => {

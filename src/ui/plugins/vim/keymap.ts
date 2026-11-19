@@ -192,6 +192,7 @@ export function vimHelp(leader: string): KeyHelpGroup[] {
       items: rows(leader, [
         ['<Esc>|<C-[>', 'Leave Insert / Visual mode; again on an empty draft: back to messages'],
         ['<CR>', 'Send'],
+        ['<S-CR>', 'New line'],
         ['i|a|I|A|o|O', 'Insert before / after / line start / line end / new line'],
         ['h|j|k|l', 'Left / down / up / right'],
         ['w|b|e|W|B|E', 'Word motions'],

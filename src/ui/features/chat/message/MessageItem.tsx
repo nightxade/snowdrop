@@ -23,7 +23,13 @@ import {
   type MessageId,
 } from '@/core/domain';
 import { messagesSelectors, sessionSelectors } from '@/core/stores';
-import { overlayOwnsKeys, useBackendFeature, useBelowBreakpoint, useSnowdrop } from '@/ui/hooks';
+import {
+  conversationFocusPolicyActive,
+  overlayOwnsKeys,
+  useBackendFeature,
+  useBelowBreakpoint,
+  useSnowdrop,
+} from '@/ui/hooks';
 import { ContextMenu, Drawer, EmojiPicker, VisuallyHidden } from '@/ui/primitives';
 import { useMessageRequestState } from '@/ui/features/conversation';
 import { useChatController } from '../ChatController';
@@ -288,6 +294,15 @@ export const MessageItem = memo(function MessageItem({
     rows.enter(null);
     row.current?.focus();
   };
+  // After a save or a cancel the user goes on writing (Discord, Signal Desktop); with Vim's
+  // navigation on, the composer is never taken unasked and the list keeps focus (M11).
+  const editDone = () => {
+    if (conversationFocusPolicyActive()) leaveRow();
+    else {
+      rows.enter(null);
+      chat.focusComposer();
+    }
+  };
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.nativeEvent.isComposing) return;
@@ -443,7 +458,7 @@ export const MessageItem = memo(function MessageItem({
         pending={pending}
         menuOpen={contextOpen}
         bodyId={bodyId}
-        onEditDone={leaveRow}
+        onEditDone={editDone}
         onViewPollVotes={dialog.openPollVotes}
         onOpenStickerPack={hasStickers ? dialog.openStickerPack : undefined}
       />

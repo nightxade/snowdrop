@@ -808,4 +808,190 @@ describe('<Composer />', () => {
       expect(await screen.findByRole('listbox')).toBeTruthy();
     });
   });
+
+  /** Leaves the chat and comes back: a fresh composer over the same app. */
+  function comeBack(t: Awaited<ReturnType<typeof setup>>) {
+    cleanup();
+    renderWithSnowdrop(
+      t.snowdrop,
+      <ChatControllerProvider value={t.chat}>
+        <Composer conversationId={t.conv.id} />
+      </ChatControllerProvider>,
+    );
+    return screen.getByRole<HTMLTextAreaElement>('textbox');
+  }
+
+  describe('the draft', () => {
+    it('keeps staged files when the user leaves the chat and comes back', async () => {
+      const t = await setup();
+      t.typeText('with a file');
+      act(() => {
+        t.chat.addFiles([new File(['abc'], 'a.txt', { type: 'text/plain' })]);
+      });
+      const back = comeBack(t);
+      expect(back.value).toBe('with a file');
+      expect(screen.getByRole('button', { name: 'Remove a.txt' })).toBeTruthy();
+      // Still sendable: the file goes out with the message.
+      const send = vi.spyOn(t.snowdrop.send, 'send');
+      fireEvent.keyDown(back, { key: 'Enter' });
+      await settle(t.snowdrop);
+      expect(send.mock.calls[0]?.[0].attachments.map((a) => a.fileName)).toEqual(['a.txt']);
+      expect(screen.queryByRole('list', { name: 'Attachments to send' })).toBeNull();
+      comeBack(t);
+      expect(screen.queryByRole('list', { name: 'Attachments to send' })).toBeNull();
+    });
+
+    it('puts focus in the composer when a staged file is removed', async () => {
+      const { input, chat } = await setup();
+      act(() => {
+        chat.addFiles([new File(['abc'], 'a.txt', { type: 'text/plain' })]);
+      });
+      const remove = screen.getByRole('button', { name: 'Remove a.txt' });
+      remove.focus();
+      fireEvent.click(remove);
+      expect(document.activeElement).toBe(input);
+    });
+
+    it('sends the text without its leading and trailing blanks and empty lines', async () => {
+      const { snowdrop, input, typeText } = await setup();
+      const send = vi.spyOn(snowdrop.send, 'send');
+      typeText('\n  hello\n\nworld \n\n');
+      fireEvent.keyDown(input, { key: 'Enter' });
+      await settle(snowdrop);
+      expect(send.mock.calls[0]?.[0].text).toBe('hello\n\nworld');
+    });
+
+    it('sends no text with files when the body is only blanks, and nothing with neither', async () => {
+      const { snowdrop, input, typeText, chat } = await setup();
+      const send = vi.spyOn(snowdrop.send, 'send');
+      typeText(' \n ');
+      fireEvent.keyDown(input, { key: 'Enter' });
+      await settle(snowdrop);
+      expect(send).not.toHaveBeenCalled();
+      act(() => {
+        chat.addFiles([new File(['abc'], 'a.txt', { type: 'text/plain' })]);
+      });
+      fireEvent.keyDown(input, { key: 'Enter' });
+      await settle(snowdrop);
+      expect(send.mock.calls[0]?.[0]).toMatchObject({ text: '' });
+      expect(send.mock.calls[0]?.[0].attachments).toHaveLength(1);
+    });
+
+    const nameOf = (t: Awaited<ReturnType<typeof setup>>) => {
+      const selfId = t.snowdrop.stores.session.getState().self!.id;
+      const id = t.conv.memberIds.find((m) => m !== selfId)!;
+      return t.snowdrop.stores.contacts.getState().byId[id]!.name;
+    };
+
+    it('sends a typed @Name as plain text, and a restored draft as it was', async () => {
+      const t = await setup();
+      const send = vi.spyOn(t.snowdrop.send, 'send');
+      t.typeText(`hey @${nameOf(t)}`);
+      fireEvent.keyDown(t.input, { key: 'Enter' });
+      await settle(t.snowdrop);
+      expect(send.mock.calls[0]?.[0].mentionIds).toEqual([]);
+      // A draft left with no mentions comes back with none (it is not worked out from the text).
+      t.snowdrop.stores.local.getState().setDraft(t.conv.id, `again @${nameOf(t)}`);
+      const back = comeBack(t);
+      fireEvent.keyDown(back, { key: 'Enter' });
+      await settle(t.snowdrop);
+      expect(send.mock.calls[1]?.[0].mentionIds).toEqual([]);
+    });
+
+    it('keeps the mentions picked from the list with the draft', async () => {
+      const t = await setup();
+      t.typeText('hey @');
+      const list = await screen.findByRole('listbox');
+      expect(within(list).getAllByRole('option').length).toBeGreaterThan(0);
+      fireEvent.keyDown(t.input, { key: 'Tab' });
+      expect(
+        t.snowdrop.stores.local.getState().conversations[t.conv.id]?.draftMentions,
+      ).toHaveLength(1);
+      const back = comeBack(t);
+      const send = vi.spyOn(t.snowdrop.send, 'send');
+      fireEvent.keyDown(back, { key: 'Enter' });
+      await settle(t.snowdrop);
+      expect(send.mock.calls[0]?.[0].mentionIds).toHaveLength(1);
+    });
+
+    it('forgets the picked mentions when the draft is emptied', async () => {
+      const t = await setup();
+      t.typeText('hey @');
+      await screen.findByRole('listbox');
+      fireEvent.keyDown(t.input, { key: 'Tab' });
+      const label = t.input.value.trim();
+      t.typeText('');
+      t.typeText(label);
+      const send = vi.spyOn(t.snowdrop.send, 'send');
+      fireEvent.keyDown(t.input, { key: 'Enter' });
+      await settle(t.snowdrop);
+      expect(send.mock.calls[0]?.[0].mentionIds).toEqual([]);
+    });
+  });
+
+  describe('Up on the message already being edited', () => {
+    it('keeps the text typed in its editor', async () => {
+      const t = await setup();
+      t.typeText('to be edited');
+      fireEvent.keyDown(t.input, { key: 'Enter' });
+      await settle(t.snowdrop);
+      const own = lastOwn(t.snowdrop, t.conv.id)!;
+      const ui = t.snowdrop.stores.ui;
+      act(() => {
+        ui.getState().setEditing({ conversationId: t.conv.id, messageId: own.id });
+        ui.getState().setEditDraft('half-written change');
+      });
+      const session = ui.getState().editing?.session;
+      fireEvent.keyDown(t.input, { key: 'ArrowUp' });
+      expect(ui.getState().editing).toMatchObject({
+        messageId: own.id,
+        draft: 'half-written change',
+      });
+      // Still a new session, which is what brings the editor focus.
+      expect(ui.getState().editing?.session).not.toBe(session);
+    });
+  });
+
+  describe('an edit open on a message that is deleted', () => {
+    async function editingOwn() {
+      const t = await setup();
+      t.typeText('to be edited');
+      fireEvent.keyDown(t.input, { key: 'Enter' });
+      await settle(t.snowdrop);
+      const own = lastOwn(t.snowdrop, t.conv.id)!;
+      act(() => {
+        t.snowdrop.stores.ui
+          .getState()
+          .setEditing({ conversationId: t.conv.id, messageId: own.id });
+      });
+      return { ...t, own };
+    }
+
+    it('closes, saying so, when it is deleted for everyone', async () => {
+      const { snowdrop, conv, own } = await editingOwn();
+      act(() => {
+        snowdrop.stores.messages.getState().update(conv.id, own.id, (m) => applyDelete(m));
+      });
+      expect(snowdrop.stores.ui.getState().editing).toBeNull();
+      expect(snowdrop.stores.ui.getState().toasts.map((x) => x.message)).toContain(
+        'This message was deleted',
+      );
+    });
+
+    it('closes, and focuses the composer, when the message is removed under the editor', async () => {
+      const { snowdrop, conv, own, input } = await editingOwn();
+      const editor = document.createElement('textarea');
+      const row = document.createElement('div');
+      row.setAttribute('data-message-id', own.id);
+      row.append(editor);
+      document.body.append(row);
+      editor.focus();
+      act(() => {
+        snowdrop.stores.messages.getState().remove(conv.id, own.id);
+      });
+      expect(snowdrop.stores.ui.getState().editing).toBeNull();
+      expect(document.activeElement).toBe(input);
+      row.remove();
+    });
+  });
 });

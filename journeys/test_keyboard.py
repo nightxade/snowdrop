@@ -148,6 +148,60 @@ def edit_the_same_message_twice(page):
     page.wait_for(IN_EDITOR, 1500)
 
 
+def start_edit(page, text):
+    """Sends `text`, then Up in the empty composer opens its editor with focus in it."""
+    send(page, text)
+    page.click(COMPOSER)
+    page.key('ArrowUp')
+    page.wait_for(IN_EDITOR)
+
+
+EDITOR_TEXT = 'document.querySelector("[data-snowdrop=message] textarea")?.value'
+
+
+@journey()
+def saving_or_cancelling_an_edit_returns_focus_to_the_composer(page):
+    """Save an edit with Enter, then edit again and cancel with Esc: focus goes to the composer both times, as in Discord and Signal Desktop (P4), so typing goes on at once."""
+    open_conversation(page, 'dm-priya')
+    start_edit(page, 'edit then write')
+    page.type(' more')
+    page.key('Enter')
+    page.wait_for('!document.querySelector("[data-snowdrop=message] textarea")')
+    page.wait_for(IN_COMPOSER)
+    page.expect_stays(IN_COMPOSER, 500)
+    page.key('ArrowUp')
+    page.wait_for(IN_EDITOR)
+    page.key('Escape')
+    page.wait_for('!document.querySelector("[data-snowdrop=message] textarea")')
+    page.wait_for(IN_COMPOSER)
+    page.expect_stays(IN_COMPOSER, 500)
+
+
+@journey()
+def unsaved_edit_text_survives_a_chat_switch(page):
+    """Type into an open editor, switch chats and come back: the editor is open again with the typed text."""
+    open_conversation(page, 'dm-priya')
+    start_edit(page, 'edit me')
+    page.type(' and more')
+    open_conversation(page, 'allotment')
+    page.expect('!document.querySelector("[data-snowdrop=message] textarea")', 'the editor stayed open in the other chat')
+    open_conversation(page, 'dm-priya')
+    page.wait_for(f'{EDITOR_TEXT} === "edit me and more"')
+
+
+@journey()
+def up_on_the_message_being_edited_keeps_its_text(page):
+    """Up in the empty composer while that same message is open in the editor goes back to the editor with what was typed, not to a fresh copy of the message."""
+    open_conversation(page, 'dm-priya')
+    start_edit(page, 'edit me again')
+    page.type(' typed')
+    page.click(COMPOSER)
+    page.wait_for(IN_COMPOSER)
+    page.key('ArrowUp')
+    page.wait_for(IN_EDITOR, 1500)
+    page.expect(f'{EDITOR_TEXT} === "edit me again typed"', 'the typed text was replaced')
+
+
 MENU = '[role=menu]'
 IN_HOVER_BAR = 'document.activeElement?.closest("[data-snowdrop=hover-bar]") !== null'
 
