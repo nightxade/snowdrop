@@ -123,8 +123,10 @@ VIM_CARET = '[data-snowdrop=vim-caret]'
 
 def fill(page, key='dm-priya', count=40):
     """A conversation long enough to scroll."""
-    page.eval(f"__journey.deliver({{ conversation: {key!r}, count: {count}, spacingMs: 20, text: 'filler' }})")
-    page.wait_for(f'{LAST_MESSAGE}?.textContent.includes("filler {count}")')
+    # Not awaited inside the script (its 10 s limit would count a slow machine's timers against the journey):
+    # the wait below polls for the last message instead.
+    page.eval(f"return (void __journey.deliver({{ conversation: {key!r}, count: {count}, spacingMs: 20, text: 'filler' }}), 1)")
+    page.wait_for(f'{LAST_MESSAGE}?.textContent.includes("filler {count}")', 30000)
 
 
 # ---------------------------------------------------------------- live events from the network

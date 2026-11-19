@@ -175,10 +175,14 @@ PRELOAD_JS = r"""
   window.Date = JourneyDate;
 })();
 Object.freeze(Object.prototype);
-// Input the page has received (see Page._input_barrier): a step returns once its own events arrived.
+// Input the page has received (see Page._input_barrier): a step returns once its own events arrived. The
+// count is posted to the runner as each event comes in (the first listener on the window, ahead of the app's).
 window.__inputSeen = 0;
 ['keydown', 'keyup', 'pointerdown', 'pointerup'].forEach(function (type) {
-  window.addEventListener(type, function () { window.__inputSeen++; }, true);
+  window.addEventListener(type, function () {
+    window.__inputSeen++;
+    try { window.webkit.messageHandlers.inputseen.postMessage(window.__inputSeen); } catch (e) { /* counted anyway */ }
+  }, true);
 });
 window.__errors = [];
 window.addEventListener('error', function (e) { window.__errors.push(String(e.message)); });
@@ -342,6 +346,8 @@ class Page:
         self.base_url = base_url
         self.query = query
         self.mods = Gdk.ModifierType(0)  # modifier keys currently held down
+        self._seen_mark = 0  # the page's input count when the last step's barrier returned
+        self._seen = 0  # the page's input count as last posted by the page
         display = Gdk.Display.get_default()
         seat = display.get_default_seat()
         self._keymap = Gdk.Keymap.get_for_display(display)
@@ -361,6 +367,8 @@ class Page:
                 None,
             )
         )
+        content.register_script_message_handler('inputseen')
+        content.connect('script-message-received::inputseen', self._on_input_seen)
         self.webview = WebKit2.WebView(web_context=context, user_content_manager=content, settings=settings)
         # Nothing in the runner has a microphone, camera or location to give: a permission prompt that reaches
         # here is answered "no". (In practice a microphone request in the offscreen window is never answered at all;
@@ -371,7 +379,7 @@ class Page:
         self.window.set_default_size(WIDTH, HEIGHT)
         self.window.add(self.webview)
         self.window.show_all()
-        pump(60)
+        pump(25)
 
     # ------------------------------------------------------------ window
 
@@ -424,7 +432,7 @@ class Page:
         # Let go of the webview before clearing: a view that is still referenced holds the clear up for seconds.
         self.webview = self.window = None
         gc.collect()
-        pump(50)
+        pump(20)
         _clear_website_data()
 
     # ------------------------------------------------------------ JavaScript
@@ -537,19 +545,28 @@ class Page:
 
     # ------------------------------------------------------------ input barrier
 
-    def _input_seen(self):
-        return self._run('return window.__inputSeen || 0;', 10000)
+    def _on_input_seen(self, _manager, message):
+        self._seen = int(message.get_js_value().to_double())
 
-    def _input_barrier(self, base, sent):
+    def _input_barrier(self, sent):
         """Waits until the page has received the `sent` key or pointer events this step synthesised
-        (counted since `base`). WebKit takes them asynchronously, so under load a step could otherwise
-        return with keys still queued and the next step (a script, a click elsewhere) overtake them.
-        A reload resets the page's count: then it gives up after a few seconds and goes on."""
+        (counted from where the previous step's barrier left the page's count). WebKit takes them
+        asynchronously, so under load a step could otherwise return with keys still queued and the next
+        step (a script, a click elsewhere) overtake them. A reload resets the page's count, which a
+        count below the mark shows: the step then counts from zero. Events that never arrive end the
+        wait after a few seconds."""
         if sent == 0:
             return
+        base = self._seen_mark
         deadline = time.monotonic() + 3.0
-        while self._input_seen() < base + sent and time.monotonic() < deadline:
-            pump(5)
+        while True:
+            seen = self._seen
+            if seen < base:
+                base = 0
+            if seen >= base + sent or time.monotonic() >= deadline:
+                break
+            pump(2)
+        self._seen_mark = seen
 
     # ------------------------------------------------------------ keyboard
 
@@ -586,25 +603,23 @@ class Page:
     def key_down(self, name):
         """Presses a key and leaves it down (hold Shift across several steps)."""
         kv = _keyval(name)
-        base = self._input_seen()
         self._key_event(kv, Gdk.EventType.KEY_PRESS, self.mods)
         gdk_name = Gdk.keyval_name(kv)
         if gdk_name in KEY_MOD_BITS:
             self.mods |= KEY_MOD_BITS[gdk_name]
         pump(20)
-        self._input_barrier(base, 1)
+        self._input_barrier(1)
 
     @_step
     def key_up(self, name):
         """Releases a key. A modifier's own release still carries its bit, as on a keyboard."""
         kv = _keyval(name)
-        base = self._input_seen()
         self._key_event(kv, Gdk.EventType.KEY_RELEASE, self.mods)
         gdk_name = Gdk.keyval_name(kv)
         if gdk_name in KEY_MOD_BITS:
             self.mods &= ~KEY_MOD_BITS[gdk_name]
         pump(20)
-        self._input_barrier(base, 1)
+        self._input_barrier(1)
 
     @_step
     def key(self, name, mods=()):
@@ -617,8 +632,7 @@ class Page:
             chord.append(MOD_BITS[m])
         for _bit, mod_key in chord:
             self.key_down(mod_key)
-        base = self._input_seen()
-        self._input_barrier(base, self._tap(_keyval(name)))
+        self._input_barrier(self._tap(_keyval(name)))
         for _bit, mod_key in reversed(chord):
             self.key_up(mod_key)
         pump(30)
@@ -626,12 +640,11 @@ class Page:
     @_step
     def type(self, text):
         """Types text one key at a time."""
-        base = self._input_seen()
         sent = 0
         for ch in text:
             sent += self._tap(_keyval('Return' if ch == '\n' else ch))
             pump(8)
-        self._input_barrier(base, sent)
+        self._input_barrier(sent)
         pump(30)
 
     # ------------------------------------------------------------ pointer
@@ -668,14 +681,13 @@ class Page:
         """Moves to the element's centre and clicks the left button."""
         x, y = self._centre(selector)
         self._move_to(x, y)
-        base = self._input_seen()
         self._pointer_event(Gdk.EventType.BUTTON_PRESS, x, y, button=1)
         pump(15)
         self._pointer_event(
             Gdk.EventType.BUTTON_RELEASE, x, y, button=1, state=self.mods | Gdk.ModifierType.BUTTON1_MASK
         )
         pump(20)
-        self._input_barrier(base, 2)
+        self._input_barrier(2)
 
     @_step
     def scroll(self, selector, dy):
@@ -687,8 +699,8 @@ class Page:
         start = self._run(f'return document.querySelector({sel}).scrollTop;', 10000)
         target = start + dy
         stalled = 0
+        now = start
         for _ in range(400):
-            now = self._run(f'return document.querySelector({sel}).scrollTop;', 10000)
             remaining = target - now
             if abs(remaining) < 2:
                 return self._settle(sel)
@@ -702,10 +714,28 @@ class Page:
             )
             pump(30)
             after = self._run(f'return document.querySelector({sel}).scrollTop;', 10000)
+            if abs(target - after) < 300:
+                # Close to the target: let each wheel event's smooth animation finish before the next, so a
+                # slow machine (frames late) cannot have several still owing their distance and overshoot.
+                after = self._scroll_still(sel, after)
+                if abs(target - after) <= 45:  # within half a wheel step: no event can land nearer
+                    return self._settle(sel)
             stalled = stalled + 1 if after == now else 0
+            now = after
             if stalled >= 4:
                 return self._settle(sel)  # at the end of the scroller
         raise JourneyFailure('scrolling did not settle')
+
+    def _scroll_still(self, sel, now):
+        """The scrollTop once two reads 30 ms apart agree (at most 1 s)."""
+        end = time.monotonic() + 1.0
+        while time.monotonic() < end:
+            pump(30)
+            later = self._run(f'return document.querySelector({sel}).scrollTop;', 10000)
+            if later == now:
+                break
+            now = later
+        return now
 
     def _settle(self, sel):
         """Waits for smooth-scroll animation to finish: scrollTop unchanged for 200 ms."""

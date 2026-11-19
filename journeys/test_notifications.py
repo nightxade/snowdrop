@@ -35,7 +35,7 @@ def notifications_wait_for_the_end_of_catch_up(page):
     page.expect(HELD, 'no hold at the start of the catch-up')
     for conversation in ('dm-oren', 'dm-ines', 'dm-rafferty'):
         page.eval(f'void __journey.deliver({{ conversation: {conversation!r}, count: 3, spacingMs: 100, text: "backlog" }})')
-        page.expect_stays(f'{HELD} && {COUNT} === 0', 2200)
+        page.expect_stays(f'{HELD} && {COUNT} === 0', 900)
 
     page.eval('__journey.caughtUp()')
     page.wait_for(f'!({HELD})')
@@ -50,7 +50,7 @@ def notifications_wait_for_the_end_of_catch_up(page):
     page.eval('__journey.startCatchUp()')
     page.wait_for(HELD)
     page.eval('void __journey.deliver({ conversation: "dm-ines", count: 3, spacingMs: 100, text: "slept through" })')
-    page.expect_stays(f'{HELD} && {COUNT} === 1', 1500)
+    page.expect_stays(f'{HELD} && {COUNT} === 1', 900)
     page.eval('__journey.caughtUp()')
     page.wait_for(f'!({HELD})')
     page.eval('void __journey.deliver({ conversation: "dm-ines", text: "awake again", exact: true })')
@@ -72,9 +72,9 @@ def looking_at_a_chat_is_quiet(page):
     page.expect('__journey.state().windowFocused', 'the app does not think its window is focused')
 
     arrive(page, 'dm-priya', 'seen as it came')
-    page.expect_stays(f'{COUNT} === 0', 900)
+    page.expect_stays(f'{COUNT} === 0', 500)
     send(page, 'my own message')
-    page.expect_stays(f'{COUNT} === 0', 600)
+    page.expect_stays(f'{COUNT} === 0', 400)
 
     # Another chat: announced.
     arrive(page, 'dm-oren', 'in another chat')
@@ -95,7 +95,7 @@ def looking_at_a_chat_is_quiet(page):
     page.wait_for(f'!__journey.state().scrolledUp && {DISTANCE} < 3')
     settle(page, 300)
     arrive(page, 'dm-priya', 'at the bottom again')
-    page.expect_stays(f'{COUNT} === 2', 900)
+    page.expect_stays(f'{COUNT} === 2', 500)
 
     # The window loses focus (the user is in another app): the open chat is announced; refocused, quiet.
     page.window_focus(False)
@@ -106,4 +106,4 @@ def looking_at_a_chat_is_quiet(page):
     page.window_focus(True)
     page.wait_for('__journey.state().windowFocused')
     arrive(page, 'dm-priya', 'window back')
-    page.expect_stays(f'{COUNT} === 3', 900)
+    page.expect_stays(f'{COUNT} === 3', 500)

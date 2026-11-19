@@ -174,7 +174,7 @@ def scrolling_up_loads_older_messages_without_a_jump(page):
         height = page.eval(f'{scroller}.scrollHeight')
         anchor = page.eval(MIDDLE_MESSAGE)
         before = page.eval(top_of(anchor))
-        page.wait_for(f'{scroller}.scrollHeight > {height} + 500', 6000)
+        page.wait_for(f'{scroller}.scrollHeight > {height} + 500', 20000)
         page.eval('new Promise((r) => setTimeout(r, 400))')  # the new rows settle
         page.expect(f'Math.abs({top_of(anchor)} - {before}) < 3', f'page {page_no}: the message being read moved when older ones arrived')
         page.expect(f'{scroller}.scrollTop > 300', f'page {page_no}: the view was thrown to the top')

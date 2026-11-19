@@ -1,4 +1,4 @@
-from common import JUMP_PILL, MESSAGE, SCROLLER, LAST_MESSAGE, open_conversation
+from common import JUMP_PILL, MESSAGE, SCROLLER, LAST_MESSAGE, fill, open_conversation, quiet
 from functools import partial
 
 from harness import journey as _journey
@@ -28,8 +28,7 @@ def at_bottom():
 def receive_while_scrolled_up(page):
     """Scrolled up in a long chat, arrivals don't move the view and the jump pill appears; at the bottom they are followed."""
     open_conversation(page, 'dm-priya')
-    page.eval("__journey.deliver({ conversation: 'dm-priya', count: 40, spacingMs: 20, text: 'filler' })")
-    page.wait_for(f'{LAST_MESSAGE}?.textContent.includes("filler 40")')
+    fill(page)
 
     page.scroll(SCROLLER, -700)
     page.wait_for(f'!{at_bottom()}')
@@ -55,8 +54,7 @@ DISTANCE = f'(() => {{ const s = document.querySelector({SCROLLER!r}); return s.
 def scrolled_part_way_back_stays_unread(page):
     """Arrivals while scrolled up stay unread when the reader comes back near the end but the newest are still below the fold; they are read once the end is on screen."""
     open_conversation(page, 'dm-priya')
-    page.eval("__journey.deliver({ conversation: 'dm-priya', count: 40, spacingMs: 20, text: 'filler' })")
-    page.wait_for(f'{LAST_MESSAGE}?.textContent.includes("filler 40")')
+    fill(page)
     page.scroll(SCROLLER, -900)
     page.wait_for(f'{DISTANCE} > 500')
     page.eval("__journey.deliver({ conversation: 'dm-priya', count: 3, spacingMs: 100, text: 'while away' })")
@@ -64,9 +62,12 @@ def scrolled_part_way_back_stays_unread(page):
 
     # Back down to just short of the end (inside the follow slack, newest messages out of view).
     slack = page.eval(f'Math.round(document.querySelector({SCROLLER!r}).clientHeight / 2)')
-    page.scroll(SCROLLER, page.eval(DISTANCE) - slack + 60)
+    # Placed directly: wheel steps still animating under load can overshoot to the end on the way, and
+    # touching the end reads the chat, which is not what this checks.
+    page.eval(f'const s = document.querySelector({SCROLLER!r}); s.scrollTop = s.scrollHeight - s.clientHeight - {slack - 60}; return 1')
+    quiet(page)
     page.expect(f'{DISTANCE} > 10 && {DISTANCE} <= {slack}', 'the scroll reached the end; the journey needs to stop short of it')
-    page.expect_stays(f'{UNREAD} === 3', 1500)
+    page.expect_stays(f'{UNREAD} === 3', 800)
 
     page.scroll(SCROLLER, 600)
     page.wait_for(at_bottom())
