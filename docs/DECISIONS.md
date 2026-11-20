@@ -253,8 +253,7 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 - **Pinned by**: core/services/sidebarPreviewOwnOps.test.ts (all five: edit and delete with their
   rollbacks, an older message, a preview that moved on, an edit from the user's other device);
   journeys/test_sidebar.py :: sidebar_preview_follows_an_edit and
-  sidebar_preview_follows_a_delete_for_everyone; the journeys fuzz walk checks previews after edits
-  and deletes.
+  sidebar_preview_follows_a_delete_for_everyone.
 
 ### S16. Previews that are not messages
 
@@ -289,7 +288,7 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   frames); journeys/test_keyboard.py :: alt_arrow_from_the_composer_into_a_new_chat,
   alt_arrow_into_a_slow_loading_chat (a 2.5 s load); ui/features/sidebar/ConversationList.archive.
   test.tsx :: Alt+Up/Down walk the archive rows while the archive is open, the list rows again after;
-  journeys/test_sidebar.py :: archive_list_alt_arrows_stay_on_the_rows_shown; the journey random walks. A list that remounts
+  journeys/test_sidebar.py :: archive_list_alt_arrows_stay_on_the_rows_shown. A list that remounts
   after the keys landed (see C11) hands focus on itself, so a slow load is covered.
 
 ### S19. Clicked conversation rows take focus (WebKitGTK)
@@ -604,8 +603,7 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 - **Pinned by**: journeys/test_list.py :: hover_follows_a_pointer_the_list_scrolls_under (a still
   pointer, real wheel, then the hovered row carried out of the rendered range and back: one hover bar,
   on the row under the pointer), one_row_flashes_after_a_jump (a second quote click moves the flash:
-  never two rows); the random walk holds one flashing row and at most one hovered row (plus the
-  keyboard-focused one) at every step (journeys/fuzz.py); ui/features/chat/message/
+  never two rows); ui/features/chat/message/
   MessageItem.focusLoss.test.tsx :: goes out when focus turns up elsewhere without the row being
   blurred.
 - **Not pinned**: no unit test drives `rowState`. WebKitGTK sends the leave of a row that scrolls out
@@ -913,7 +911,7 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   one opened from the bar button returns to that button; keeps focus on the row when the message is
   deleted for everyone while it is stepped into, and leaves it alone after a click elsewhere (both); journeys/test_keyboard.py ::
   remote_delete_of_the_message_you_stepped_into_keeps_focus; journeys/test_delete.py ::
-  edit_closes_when_its_message_is_deleted_on_another_device; the random walk does the same on random rows (journeys/fuzz.py).
+  edit_closes_when_its_message_is_deleted_on_another_device.
 - **Not pinned**: Shift+F10 and the Menu key through the app's own code: WebKitGTK turns both into a
   `contextmenu` event itself, so the journey stays green with those two branches of
   `isContextMenuKey` removed (Ctrl+Enter is the app's alone and is pinned). Mod+Enter with the Meta
@@ -951,9 +949,8 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   vim_modal_editing_alone_keeps_the_draft_when_typing_from_the_list; journeys/test_vim.py ::
   vim_dd_lands_on_the_list_after_deleting_the_newest_message, vim_search_close_button_lands_on_the_list; journeys/test_vim.py ::
   vim_edit_ends_on_the_message_list; ui/features/chat/message/MessageEditor.test.tsx :: is the message list, not
-  the composer, with Vim navigation on (M11); the Vim random walk
-  (`--mode vim`).
-- **Not pinned**: nothing beyond the walk's coverage.
+  the composer, with Vim navigation on (M11).
+- **Not pinned**: nothing.
 
 ### M12. Vim: Esc returns to the message list
 
@@ -971,8 +968,7 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   draft, and returns to the messages; ui/plugins/vim/VimController.test.ts :: leaves Esc to what the
   app marked as owning it; ui/hooks/textSurfaces.test.ts :: describeFocus escapeOwned (all);
   journeys/test_vim.py :: vim_escape_returns_to_the_list (the search panel part: Esc closes it),
-  vim_escape_in_an_emptied_message_editor_cancels_the_edit, vim_escape_cancels_a_voice_recording; the
-  Vim random walk (`--mode vim`).
+  vim_escape_in_an_emptied_message_editor_cancels_the_edit, vim_escape_cancels_a_voice_recording.
 - **Not pinned**: nothing.
 
 ### M13. Vim: composer
@@ -1176,8 +1172,7 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   remember the item as its opener, which is gone when the dialog closes: it uses what the menu was
   opened from (`primitives/menuReturn.ts`; a dropdown's trigger, or what had focus when a context
   menu opened), so focus returns to the message or button. Pinned by primitives/menuReturn.test.tsx
-  and journeys/test_dialogs.py :: message_menu_dialog_returns_focus_to_the_message; the fuzz walk
-  has a Message details action.
+  and journeys/test_dialogs.py :: message_menu_dialog_returns_focus_to_the_message.
 - **Not pinned**: drawers in real WebKitGTK.
 
 ### M16. Menus and lists
@@ -1257,7 +1252,7 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   while there is a draft to send; ui/features/chat/composer/StickerPicker.test.tsx :: puts the sticker
   button right before the emoji button; journeys/test_composer.py ::
   composer_buttons_sit_right_of_the_field, composer_buttons_sit_right_of_the_field_in_tui (by
-  bounding boxes); every random walk checks the order after each step.
+  bounding boxes).
 - **Not pinned**: nothing.
 
 ### P3. Enter sends
@@ -1799,8 +1794,7 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   stores/settings.test.ts :: defaults the TUI shell to standard; core/plugins/api.p6.test.ts ::
   registers and tears down a status-line item.
   journeys/test_appearance.py :: tui_regions_are_boxed_and_titled, tui_messages_sit_in_aligned_columns,
-  tui_jump_chip_sits_in_the_corner, tui_side_sheets_are_inset_panes_with_whole_titles; the TUI random
-  walk (`--mode tui`).
+  tui_jump_chip_sits_in_the_corner, tui_side_sheets_are_inset_panes_with_whole_titles.
 - **Not pinned**: the boot paint with no flash (it happens before the runner can look).
 
 ### T6. Font size

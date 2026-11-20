@@ -680,7 +680,7 @@ has received its own key and pointer events (the page counts them), so under loa
 returns with keys still queued for the next step to overtake.
 
 Two tiers. `npm run journeys` runs the fast tier, the commit gate: every journey except those
-marked `slow=True` (`@journey(slow=True)`): the fixed-seed random walks (`test_fuzz.py`), and
+marked `slow=True` (`@journey(slow=True)`), today only
 `catch_up_holds_the_sidebar`, which has to outlast the 20 s catch-up ceiling on the page's real clock
 (the tracker's ceiling and strict-run rules are pinned in `CatchUpTracker.test.ts`, and the sidebar
 holding through a catch-up at short scale by the other `catch_up_*` journeys). `--full` (or
@@ -730,9 +730,8 @@ run itself.
 **Random walks.** `journeys/fuzz.py` plays a seeded random walk of real user
 actions (clicks, keys, wheel, resizes, dialogs, send, reply, edit, delete) mixed with live
 events (arrivals, receipts, typing, a catch-up with backlog) and checks the invariants listed
-at the top of that file after every step. `npm run journeys -- --full` runs short fixed seeds, three in the
-standard mode and one in each other mode (`journeys/test_fuzz.py`); `npm run journeys -- --fuzz --seed 7 --steps 300` (or `--seeds 1-30`)
-runs longer ones. A failure prints the seed, the step and the last actions, and saves a
+at the top of that file after every step. No walk is part of either tier; they run only on request:
+`npm run journeys -- --fuzz --seed 7 --steps 300` (or `--seeds 1-30`). A failure prints the seed, the step and the last actions, and saves a
 screenshot; the same seed and step count replays the walk (timing can still make a replay differ).
 Where the walk meets a bug that is already a `known_bug` journey, it steps around it (the places
 say which) so it can keep looking; an exemption is exactly as wide as that bug, and an action that

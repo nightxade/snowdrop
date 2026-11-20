@@ -114,7 +114,7 @@ def journey(query='', known_bug=None, fails_at=None, settings=None, notification
 
     `slow=True` puts the journey in the full tier: `npm run journeys` (the commit gate) skips it and
     `npm run journeys -- --full` runs it. Only for a journey that is very slow and whose rule is also
-    pinned elsewhere, or a random walk; naming a journey on the command line runs it whatever its tier.
+    pinned elsewhere; naming a journey on the command line runs it whatever its tier.
 
     Journeys run with the app's own "Reduce motion" setting on (`BASE_SETTINGS`), so animations and
     smooth scrolling cost no waiting. `motion=True` runs the journey with it off, as most users have it:
