@@ -6,6 +6,7 @@ import { sessionSelectors } from '@/core/stores';
 import { useSnowdrop } from '@/ui/hooks';
 import { IconButton, SearchInput, Skeleton } from '@/ui/primitives';
 import { useChatController } from '../ChatController';
+import { chatSignature } from './chatSignature';
 import { MessageResult } from './MessageResult';
 import styles from './SearchPanel.module.css';
 
@@ -55,12 +56,7 @@ export function SearchPanel({
   // What decides the results: which messages there are, whether each is deleted, and its edit
   // count. A new message, a delete, an expiry or an edit changes it and the results follow (they
   // are searched again, quietly); a receipt, a status or a reaction does not.
-  const messages = useStore(stores.messages, (s) => {
-    let signature = '';
-    for (const m of Object.values(s.windows[conversation.id]?.byId ?? {}))
-      signature += `${m.id}:${m.deleted ? 1 : 0}:${m.edits ?? 0};`;
-    return signature;
-  });
+  const messages = useStore(stores.messages, (s) => chatSignature(s, conversation.id));
   /** The query the results on screen were found for. */
   const shown = useRef<string | null>(null);
 

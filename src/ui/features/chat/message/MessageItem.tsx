@@ -45,7 +45,7 @@ import {
 import * as act from './actions';
 import { HoverBar } from './HoverBar';
 import { MessageActionSheet } from './MessageActionSheet';
-import { MessageContent } from './MessageContent';
+import { deletedText, MessageContent } from './MessageContent';
 import { buildMessageMenu } from './messageMenu';
 import { useMessageDialogs } from './useMessageDialogs';
 import { QuoteHeader } from './QuoteHeader';
@@ -72,6 +72,8 @@ const KEY_ACTIONS: Partial<Record<string, act.MessageActionId>> = {
   delete: 'delete',
   backspace: 'delete',
 };
+
+const HOVER_BAR = '[data-snowdrop="hover-bar"]';
 
 const MAX_TIMER_MS = 2 ** 31 - 1;
 
@@ -104,6 +106,13 @@ export const MessageItem = memo(function MessageItem({
   if (stored && stored !== lastStored) setLastStored(stored);
   const m = stored ?? lastStored;
   const nameFor = useMessageNames(m);
+  // A quote of a message deleted for everyone stops showing its text, also in a reply received
+  // before the deletion (the quote keeps the text it arrived with).
+  const quotedId = m?.quote ? messageId(m.quote.authorId, m.quote.sentAt) : undefined;
+  const quotedDeleted = useStore(stores.messages, (s) => {
+    const original = quotedId === undefined ? undefined : s.windows[conversationId]?.byId[quotedId];
+    return original?.deleted === true ? original : undefined;
+  });
   const selfId = useStore(stores.session, sessionSelectors.selfId);
   // Re-render the row when the conversation is accepted or the user may (no longer) write in it,
   // so its actions (permissionsFor) unlock and lock.
@@ -268,6 +277,18 @@ export const MessageItem = memo(function MessageItem({
     rows.enter(null);
     row.current?.focus();
   }, [deleted, rows]);
+  // The bar going while focus is in it (an edit starts, the message is deleted): focus goes to the
+  // row, never to the page; focus the user put elsewhere is left (`focusHere`, as above).
+  const hadBar = useRef(false);
+  useLayoutEffect(() => {
+    const hasBar = row.current?.querySelector(HOVER_BAR) != null;
+    const at = document.activeElement;
+    if (hadBar.current && !hasBar && focusHere.current && (!at || at === document.body)) {
+      rows.enter(null);
+      row.current?.focus();
+    }
+    hadBar.current = hasBar;
+  });
 
   if (!m || !perms) return null;
   const name = nameFor(m.authorId);
@@ -323,15 +344,11 @@ export const MessageItem = memo(function MessageItem({
     const ctx = actionContext(m, live, {
       requestDelete: e.shiftKey ? dialog.runDelete : dialog.confirmDelete,
     });
-    // Enabled means handled, even if the action then declines (an edit says why not).
-    const run = (action: act.MessageActionId) => {
-      if (!act.messageActionEnabled(action, live, m)) return false;
-      act.runMessageAction(action, ctx);
-      return true;
-    };
+    const run = (action: act.MessageActionId) => act.runMessageAction(action, ctx, 'command');
     // Signal Desktop's shortcut for forwarding the focused message.
     if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && e.key.toLowerCase() === 's') {
-      if (!run('forward')) return;
+      if (!act.messageActionEnabled('forward', live, m)) return;
+      run('forward');
       e.preventDefault();
       return;
     }
@@ -344,7 +361,11 @@ export const MessageItem = memo(function MessageItem({
       return;
     }
     const action = Object.hasOwn(KEY_ACTIONS, key) ? KEY_ACTIONS[key] : undefined;
-    if (action && run(action)) e.preventDefault();
+    if (!action) return;
+    // One of the row's keys is always handled, even when the action is refused (an edit says why):
+    // it must not fall through to the composer as text.
+    e.preventDefault();
+    run(action);
   };
 
   // The row's own context menu replaces the bar (and the time tooltip) while it's open.
@@ -392,8 +413,9 @@ export const MessageItem = memo(function MessageItem({
       }}
       onFocus={(e) => {
         if (e.target === e.currentTarget) rows.setActive(id);
-        // Keyboard focus shows the hover bar; a mouse click inside the row doesn't pin it.
-        setFocused(e.target.matches(':focus-visible'));
+        // Keyboard focus shows the hover bar; a mouse click inside the row doesn't pin it, but
+        // focus inside the bar itself (a clicked button) keeps it, whatever the pointer does.
+        setFocused(e.target.matches(':focus-visible') || e.target.closest(HOVER_BAR) !== null);
       }}
       onBlur={(e) => {
         if (e.currentTarget.contains(e.relatedTarget)) return;
@@ -436,6 +458,7 @@ export const MessageItem = memo(function MessageItem({
             nameFor={nameFor}
             compact={compact}
             conversationId={conversationId}
+            {...(quotedDeleted ? { deleted: deletedText(quotedDeleted, selfId, nameFor) } : {})}
             onJump={() => {
               const quoted = m.quote;
               if (quoted)

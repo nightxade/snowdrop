@@ -135,4 +135,50 @@ describe('messagePermissions', () => {
         .canDeleteForEveryone,
     ).toBe(false);
   });
+
+  it('offers no sending action where the chat cannot send: left, blocked or announcement-only', () => {
+    const announcement = makeConversation({
+      ...group,
+      adminIds: ['ana'],
+      permissions: {
+        sendMessages: 'only-admins',
+        addMember: 'every-member',
+        editDetails: 'every-member',
+      },
+    });
+    const left = makeConversation({ ...group, left: true });
+    const asAdmin = makeConversation({ ...group, adminIds: ['me'], left: true });
+    const sending = {
+      canReact: false,
+      canEdit: false,
+      canPin: false,
+      canDeleteForEveryone: false,
+      canReply: false,
+    };
+    const states: Partial<MessageActionFacts>[] = [
+      { conversation: left },
+      { conversation: announcement },
+      { accepted: false }, // blocked chats are not accepted either
+    ];
+    for (const state of states) {
+      expect(messagePermissions(mine(), facts(state))).toMatchObject({
+        ...sending,
+        canCopy: true,
+        canDelete: true,
+        canForward: state.accepted !== false,
+        canShowDetails: true,
+      });
+      expect(messagePermissions(theirs(), facts(state))).toMatchObject({
+        canReact: false,
+        canPin: false,
+        canReply: false,
+        canCopy: true,
+        canDelete: true,
+      });
+    }
+    // Delete for everyone by an admin is a sending action too.
+    expect(messagePermissions(theirs(), facts({ conversation: asAdmin })).canAdminDelete).toBe(
+      false,
+    );
+  });
 });

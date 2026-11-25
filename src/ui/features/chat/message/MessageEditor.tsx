@@ -100,15 +100,17 @@ export function MessageEditor({ message, onDone }: { message: Message; onDone: (
     // Leading and trailing blanks and empty lines are not part of the message.
     const body = text.trim();
     const encoded = encodeMentions(body, tokens);
-    if (body === '' || body === initial.text.trim()) {
-      close();
-      return;
-    }
-    // The window may have closed (or the message changed) while this was open.
+    // What the message says now (another device may have edited it since this opened).
     const current = messagesSelectors.message(
       message.conversationId,
       message.id,
     )(stores.messages.getState());
+    const now = current ?? message;
+    if (body === '' || body === toMarkdown(now.body, now.ranges, nameResolver(app)).text.trim()) {
+      close();
+      return;
+    }
+    // The window may have closed (or the message changed) while this was open.
     const refusal =
       current &&
       editRefusal(current, {

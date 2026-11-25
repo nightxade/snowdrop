@@ -15,17 +15,28 @@ export interface QuoteHeaderProps {
   compact?: boolean;
   /** The conversation the reply is in (a stranger's photo stays hidden until it's accepted). */
   conversationId?: ConversationId;
+  /** Set when the quoted message was deleted for everyone: said instead of its text (author kept). */
+  deleted?: string;
 }
 
 /** "↱ (avatar) Name  snippet" above a reply; click jumps to and flashes the original. */
-export function QuoteHeader({ quote, nameFor, onJump, compact, conversationId }: QuoteHeaderProps) {
+export function QuoteHeader({
+  quote,
+  nameFor,
+  onJump,
+  compact,
+  conversationId,
+  deleted,
+}: QuoteHeaderProps) {
   const stores = useStores();
   const author = useStore(stores.contacts, contactsSelectors.contact(quote.authorId));
   const name = author?.name ?? UNKNOWN_CONTACT_NAME;
-  const text = bodyToPlainText(quote.text, quote.ranges ?? [], nameFor, { hideSpoilers: true })
-    .replace(/\s+/gu, ' ')
-    .trim();
-  const firstAttachment = quote.attachments?.[0];
+  const text =
+    deleted ??
+    bodyToPlainText(quote.text, quote.ranges ?? [], nameFor, { hideSpoilers: true })
+      .replace(/\s+/gu, ' ')
+      .trim();
+  const firstAttachment = deleted === undefined ? quote.attachments?.[0] : undefined;
   return (
     <div
       className={styles.quote}
@@ -40,7 +51,7 @@ export function QuoteHeader({ quote, nameFor, onJump, compact, conversationId }:
           e.stopPropagation();
           onJump();
         }}
-        aria-label={`Reply to ${name}: ${clip(text || (quote.sticker ? 'sticker' : 'attachment'), 80)} (jump to message)`}
+        aria-label={`Reply to ${name}: ${clip(text || (quote.sticker && deleted === undefined ? 'sticker' : 'attachment'), 80)} (jump to message)`}
       >
         <PersonAvatar
           size={16}
@@ -59,10 +70,12 @@ export function QuoteHeader({ quote, nameFor, onJump, compact, conversationId }:
           {name}
         </span>
         {text ? (
-          <span className={styles.text}>{text}</span>
+          <span className={styles.text} data-italic={deleted === undefined ? undefined : ''}>
+            {text}
+          </span>
         ) : (
           <span className={styles.text} data-italic="">
-            {quote.sticker ? (
+            {quote.sticker && deleted === undefined ? (
               <>
                 {quote.sticker.emoji ? (
                   <span aria-hidden>{quote.sticker.emoji}</span>

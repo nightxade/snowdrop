@@ -42,6 +42,36 @@ const sentInputs = () => {
 
 const text = (value: string): ForwardItem => ({ kind: 'message', text: value, files: [] });
 
+describe('forwardToTarget re-checks the chat at send', () => {
+  it('skips a group that was left after it was picked, sending nothing into it', async () => {
+    await openChat(kit.snowdrop, kit.chat('crux'));
+    const picked = target('crux');
+    expect(picked.unavailable).toBeUndefined();
+    const { conversations } = kit.snowdrop.stores;
+    conversations.getState().upsert({ ...conversations.getState().byId[picked.id]!, left: true });
+    const inputs = sentInputs();
+    const result = await forwardToTarget(kit.snowdrop, picked, [text('into a left group')]);
+    expect(result).toMatchObject({
+      ok: false,
+      skipped: true,
+      reason: 'You left this group.',
+      sent: 0,
+    });
+    expect(inputs()).toEqual([]);
+  });
+
+  it('skips a chat that was blocked after it was picked', async () => {
+    const picked = target('dm-ines');
+    const peer = picked.contact!;
+    const { contacts } = kit.snowdrop.stores;
+    contacts.setState((s) => ({ byId: { ...s.byId, [peer.id]: { ...peer, blocked: true } } }));
+    const inputs = sentInputs();
+    const result = await forwardToTarget(kit.snowdrop, picked, [text('to a blocked chat')]);
+    expect(result).toMatchObject({ ok: false, skipped: true, reason: 'Blocked.' });
+    expect(inputs()).toEqual([]);
+  });
+});
+
 describe('forwardToTarget', () => {
   it('sends one ordinary message per chat, in order, as markdown text (no quote)', async () => {
     await openChat(kit.snowdrop, kit.chat('dm-ines'));

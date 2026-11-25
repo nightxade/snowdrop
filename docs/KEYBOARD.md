@@ -98,6 +98,12 @@ The list is one tab stop (the newest message by default).
 | Mod+Shift+S                | Forward (Signal Desktop's shortcut): pick up to five chats, edit, send                                |
 | Shift+F10, Menu, Mod+Enter | Message menu (copy, copy as Markdown, pin, …)                                                         |
 
+R, E, +, = and Delete are always the message's keys: when one is refused (E past the 24 hour
+window says why; R or + in a chat you cannot write in; Delete on a failed message) nothing is typed
+into the composer. In a chat that cannot send (a group you left, a blocked chat, an announcement
+group) React, Edit, Pin and Delete for everyone are not offered on the bar, the menu or the keys.
+Picking an emoji you already reacted with removes your reaction.
+
 Clicking a quoted message (or Enter on it) jumps to the original and focuses it.
 
 ## Composer
@@ -120,7 +126,7 @@ send, with its Mod+Shift+Y shortcut beside it); the menu is a normal one
 
 Inline message editor: Enter saves (same send-key setting), Esc cancels. Either way focus goes to the
 composer (with Vim's navigation keys on, to the message list). Text typed in an editor is kept if you
-switch chats and come back.
+switch chats or start editing another message, and come back.
 
 ## Quick switcher (Mod+K)
 

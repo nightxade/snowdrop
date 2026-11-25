@@ -15,6 +15,32 @@ describe('uiStore', () => {
     expect(uiSelectors.selectedConversation(store.getState())).toBe(a);
   });
 
+  it('keeps the typed text of an edit that gives way to the edit of another message', () => {
+    const ui = createUiStore();
+    const conversationId = conversationIdFor('a');
+    const first = { conversationId, messageId: 'm-1' as MessageId };
+    const second = { conversationId, messageId: 'm-2' as MessageId };
+    ui.getState().setEditing(first);
+    ui.getState().setEditDraft('typed in the first');
+    ui.getState().setEditing(second);
+    expect(ui.getState().editing).toMatchObject({ messageId: 'm-2' });
+    expect(ui.getState().editing?.draft).toBeUndefined();
+    ui.getState().setEditDraft('typed in the second');
+    const before = ui.getState().editing?.session;
+    // Back to the first: it reopens with its text, in a session of its own, and the second keeps its text.
+    ui.getState().setEditing(first);
+    expect(ui.getState().editing).toMatchObject({ messageId: 'm-1', draft: 'typed in the first' });
+    expect(ui.getState().editing?.session).not.toBe(before);
+    ui.getState().setEditing(second);
+    expect(ui.getState().editing).toMatchObject({ messageId: 'm-2', draft: 'typed in the second' });
+    // Closing an edit (save, cancel) drops it rather than parking it.
+    ui.getState().setEditing(null);
+    ui.getState().setEditing(first);
+    expect(ui.getState().editing?.draft).toBe('typed in the first');
+    ui.getState().setEditing(null);
+    expect(ui.getState().parkedDrafts).toEqual({});
+  });
+
   it('caps the toast queue', () => {
     let n = 0;
     const store = createUiStore(() => `t${++n}`);

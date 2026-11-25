@@ -225,19 +225,18 @@ export function MessageContent({
             }}
           />
         )}
-        {m.reactions.length > 0 && (
-          <Reactions
-            reactions={m.reactions}
-            selfId={selfId}
-            nameFor={nameFor}
-            onToggle={(emoji) => {
-              act.toggleReaction(app, m, emoji);
-            }}
-            onAdd={(emoji) => {
-              act.react(app, m, emoji);
-            }}
-          />
-        )}
+        {/* Always mounted (it shows nothing without pills): a focused pill that goes hands focus on. */}
+        <Reactions
+          reactions={m.reactions}
+          selfId={selfId}
+          nameFor={nameFor}
+          onToggle={(emoji) => {
+            act.toggleReaction(app, m, emoji);
+          }}
+          onAdd={(emoji) => {
+            act.react(app, m, emoji);
+          }}
+        />
         {accessories.length > 0 && (
           <Slot name="message.accessories" entries={accessories} props={{ message: m }} />
         )}
@@ -262,7 +261,12 @@ function PendingMark() {
   );
 }
 
-function deletedText(m: Message, selfId: string | null, nameFor: (id: string) => string): string {
+/** What a deleted message says in its row, and in a quote of it. */
+export function deletedText(
+  m: Message,
+  selfId: string | null,
+  nameFor: (id: string) => string,
+): string {
   if (m.deletedBy !== undefined) {
     return `This message was deleted by ${m.deletedBy === selfId ? 'you' : nameFor(m.deletedBy)} (admin).`;
   }

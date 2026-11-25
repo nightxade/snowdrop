@@ -116,6 +116,21 @@ export function ForwardDialog({ conversationId, messageIds, onClose }: ForwardDi
       alive.current = false;
     };
   }, []);
+  // A message being forwarded that is deleted for everyone (or expires) meanwhile closes the dialog,
+  // with a short toast: its text must never go out (M15, a dialog whose subject disappears closes).
+  const subjectGone = useStore(stores.messages, (s) =>
+    messageIds.some((id) => {
+      const m = s.windows[conversationId]?.byId[id];
+      return m ? m.deleted === true : s.gone[id] === true;
+    }),
+  );
+  useEffect(() => {
+    if (!subjectGone) return;
+    stores.ui
+      .getState()
+      .pushToast({ message: 'This message was deleted', kind: 'info', source: 'core' });
+    onClose();
+  }, [subjectGone, stores, onClose]);
   // Nothing left to forward (the messages are gone): nothing to show.
   const empty = drafts.length === 0;
   useEffect(() => {
@@ -259,17 +274,26 @@ export function ForwardDialog({ conversationId, messageIds, onClose }: ForwardDi
     }
     // The names the chat list shows, taken from the chats picked (they stay known if a chat goes).
     const titleOf = (id: ConversationId) => picked.find((t) => t.id === id)?.title || 'this chat';
+    // A chat that became unavailable after it was picked is skipped and named, while others went;
+    // when nothing went at all it is a failure like any other, so the dialog stays for another pick.
+    const wentTo = results.filter((r) => r.ok).length;
+    const skipped = wentTo > 0 ? results.flatMap((r) => (!r.ok && r.skipped ? [r] : [])) : [];
     const failed = results.flatMap((r) =>
-      r.ok ? [] : [{ id: r.id, title: titleOf(r.id), reason: r.reason, got: r.sent }],
+      r.ok || skipped.includes(r)
+        ? []
+        : [{ id: r.id, title: titleOf(r.id), reason: r.reason, got: r.sent }],
     );
     const ui = stores.ui.getState();
     if (failed.length === 0) {
+      const sentTo = results.flatMap((r) => (r.ok ? [titleOf(r.id)] : []));
+      const skippedNote = skipped.map((r) => `${titleOf(r.id)} (${r.reason.replace(/\.$/u, '')})`);
       ui.pushToast({
         message:
-          picked.length === 1
-            ? `Forwarded to ${picked[0]?.title ?? 'the chat'}`
-            : `Forwarded to ${picked.length} chats`,
-        kind: 'success',
+          (sentTo.length === 1
+            ? `Forwarded to ${sentTo[0] ?? 'the chat'}`
+            : `Forwarded to ${sentTo.length} chats`) +
+          (skippedNote.length > 0 ? `. Not sent to ${nameList(skippedNote)}.` : ''),
+        kind: skipped.length > 0 ? 'info' : 'success',
         source: 'core',
       });
       if (alive.current) onClose();
@@ -305,7 +329,7 @@ export function ForwardDialog({ conversationId, messageIds, onClose }: ForwardDi
     if (canPrimary) primary();
   };
 
-  if (empty) return null;
+  if (empty || subjectGone) return null;
 
   const row = ({ target, indices }: TargetMatch): PaletteRow => ({
     type: 'item',
@@ -383,11 +407,14 @@ export function ForwardDialog({ conversationId, messageIds, onClose }: ForwardDi
     </div>
   );
 
-  const names = nameList(picked.map((t) => t.title));
+  const gone = picked.filter((t) => t.unavailable);
+  const names = nameList(picked.map((t) => (t.unavailable ? `${t.title} (unavailable)` : t.title)));
   let hint: string | null = null;
   if (!goesOn && waiting) hint = 'Waiting for the attachments to download.';
   else if (broken) hint = 'Remove the attachment that couldn’t be downloaded to go on.';
   else if (!goesOn && !complete) hint = 'There is nothing left to send.';
+  else if (gone.length > 0)
+    hint = `${gone[0]?.title ?? ''}: ${gone[0]?.unavailable ?? ''}. It will be skipped.`;
   else if (picked.some((t) => t.request)) hint = 'Forwarding to a message request accepts it.';
   const combo = isMacPlatform() ? '⌘↩' : 'Ctrl+Enter';
 

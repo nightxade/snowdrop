@@ -1,4 +1,4 @@
-from common import COMPOSER, IN_COMPOSER, LAST_MESSAGE, MESSAGE, ON_LIST, deliver_and_find, emit, fill, is_current, open_conversation, quiet, send, settle
+from common import COMPOSER, IN_COMPOSER, LAST_MESSAGE, MESSAGE, ON_LIST, click_menu_item, deliver_and_find, emit, fill, is_current, open_conversation, open_menu, quiet, send, settle
 from harness import journey
 
 NOT_ON_BODY = 'document.activeElement !== document.body'
@@ -587,3 +587,149 @@ def next_space_key_from_a_sidebar_row_keeps_focus_off_the_page(page):
     page.wait_for('document.querySelector("[data-snowdrop=rail] button[aria-label^=\\"Home\\"]")?.getAttribute("aria-current") !== "true"')
     quiet(page)
     page.expect(NOT_ON_BODY, 'focus fell to the page when the space changed under the focused row')
+
+
+# ------------------------------------------------------------------ message actions that take their own control away (M15)
+
+HOVER_BAR = '[data-snowdrop=hover-bar]'
+
+
+def react_from_the_bar(page):
+    """Sends a message, hovers it and clicks the first quick reaction; returns the row's selector and its own reaction pill's."""
+    open_conversation(page, 'dm-priya')
+    send(page, 'react to me')
+    row = '[data-message-id="%s"]' % page.eval(f'{LAST_MESSAGE}.getAttribute("data-message-id")')
+    page.hover(row)
+    page.wait_for(f'!!document.querySelector({HOVER_BAR!r})')
+    page.click(f'{HOVER_BAR} button[aria-label^="React with"]')
+    pill = f'{row} [aria-label=Reactions] button[aria-pressed=true]'
+    page.wait_for(f'!!document.querySelector({pill!r})')
+    return row, pill
+
+
+@journey()
+def removing_your_only_reaction_with_its_pill_keeps_focus_off_the_page(page):
+    """Your only reaction on a message is its pill: Enter on the focused pill removes the reaction (and the pill), and focus must not fall to the page (M15: a focused thing that leaves hands focus on)."""
+    _, pill = react_from_the_bar(page)
+    page.eval(f'(document.querySelector({pill!r}).focus(), 1)')
+    page.wait_for(f'document.activeElement === document.querySelector({pill!r})')
+    page.key('Enter')
+    page.wait_for(f'!document.querySelector({pill!r})')
+    quiet(page)
+    page.expect(NOT_ON_BODY, 'focus fell to the page when its own pill was removed')
+
+
+@journey()
+def hover_bar_button_clicked_then_pointer_leaves_keeps_focus_off_the_page(page):
+    """Click a quick reaction in a message's hover bar, then move the pointer off the message: the bar stays while focus is inside it, so focus does not fall to the page (M15)."""
+    row, _ = react_from_the_bar(page)
+    page.expect(f'document.activeElement?.closest({HOVER_BAR!r}) !== null', 'the clicked bar button did not take focus (nothing to check)')
+    page.hover('[data-snowdrop=sidebar]')
+    quiet(page)
+    page.expect(f'document.activeElement?.closest({HOVER_BAR!r}) != null', 'the hover bar went (or focus left it) with the pointer')
+
+
+@journey()
+def pinned_list_drops_a_message_deleted_for_everyone(page):
+    """The Pinned messages list is open; the sender deletes a pinned message for everyone: its old text is no longer listed, as in the chat search (C14)."""
+    open_conversation(page, 'dm-priya')
+    author, sent = deliver_and_find(page, 'dm-priya', 'pinned and then deleted')
+    row = f'[data-message-id="{author}:{sent}"]'
+    open_menu(page, row)
+    page.wait_for('[...document.querySelectorAll("[role^=menuitem]")].some((e) => e.textContent.includes("Pin message"))')
+    click_menu_item(page, 'Pin message')
+    page.wait_for('[...document.querySelectorAll("[data-snowdrop=system-message]")].some((e) => e.textContent.includes("pinned a message"))')
+    page.click('[data-snowdrop=chat-header] button[aria-label="Pinned messages"]')
+    listed = 'document.querySelector("[role=dialog]")?.textContent.includes("pinned and then deleted") === true'
+    page.wait_for(listed)
+    emit(page, 'messageDeleted', {'conversationId': page.eval('__journey.conversationId("dm-priya")'), 'authorId': author, 'targetSentAt': sent})
+    page.wait_for(f'document.querySelector({row!r}).textContent.includes("was deleted")')
+    quiet(page)
+    page.expect(f'!({listed})', 'the deleted message is still listed in the pinned messages')
+
+
+@journey()
+def e_on_an_own_message_past_the_edit_window_says_why(page):
+    """Your own message is older than 24 hours; E on it does not open an editor and says why ("Messages can only be edited for 24 hours", M2), instead of typing an "e" into the composer."""
+    open_conversation(page, 'dm-priya')
+    own = page.eval(
+        f"""(() => {{ const me = __journey.state().selfId, now = Date.now();
+          const old = [...document.querySelectorAll({MESSAGE!r})].filter((e) => e.getAttribute('data-message-id').startsWith(me + ':')
+            && now - Number(e.getAttribute('data-message-id').split(':').pop()) > 25 * 3600 * 1000);
+          return old.length ? old[old.length - 1].getAttribute('data-message-id') : null; }})()"""
+    )
+    page.expect(f'{own!r} !== null', 'the demo chat has no message of yours older than a day')
+    row = f'[data-message-id="{own}"]'
+    page.click(row)
+    page.wait_for(f'document.activeElement === document.querySelector({row!r})')
+    page.key('e')
+    quiet(page)
+    page.expect(f'document.querySelector({COMPOSER!r}).value === "" && !document.querySelector("[data-snowdrop=message] textarea")', 'E typed into the composer on a message that cannot be edited')
+    page.expect('document.body.textContent.includes("can only be edited for 24 hours")', 'E gave no reason')
+
+
+@journey()
+def picking_the_emoji_you_reacted_with_removes_it(page):
+    """Your reaction is on a message; picking the same emoji again from the hover bar removes it, as in Signal Desktop and Discord."""
+    _, pill = react_from_the_bar(page)
+    page.click(f'{HOVER_BAR} button[aria-label^="React with"]')
+    page.wait_for(f'!document.querySelector({pill!r})', 3000)
+
+
+@journey()
+def starting_another_edit_keeps_the_first_editors_text(page):
+    """Text typed in one message's editor is kept when you start editing another message: editing the first again reopens it with that text (P4)."""
+    open_conversation(page, 'dm-priya')
+    send(page, 'first one')
+    first = f'[data-message-id="{page.eval(f"{LAST_MESSAGE}.getAttribute(\"data-message-id\")")}"]'
+    send(page, 'second one')
+    second = f'[data-message-id="{page.eval(f"{LAST_MESSAGE}.getAttribute(\"data-message-id\")")}"]'
+    editor = 'document.querySelector("[data-snowdrop=message] textarea")'
+    page.click(COMPOSER)
+    page.key('ArrowUp')
+    page.wait_for(f'{editor}?.value === "second one"')
+    page.type(' plus')
+    page.click(first)
+    page.wait_for(f'document.activeElement === document.querySelector({first!r})')
+    page.key('e')
+    page.wait_for(f'{editor}?.value === "first one"')
+    page.click(second)
+    page.wait_for(f'document.activeElement === document.querySelector({second!r})')
+    page.key('e')
+    page.wait_for(f'{editor}?.value === "second one plus"', 3000)
+
+
+@journey()
+def a_quote_of_a_message_deleted_for_everyone_stops_showing_its_text(page):
+    """You replied to a message and its sender then deletes it for everyone: your reply's quote says "This message was deleted" instead of showing the text it had."""
+    open_conversation(page, 'dm-priya')
+    author, sent = deliver_and_find(page, 'dm-priya', 'quoted words')
+    row = f'[data-message-id="{author}:{sent}"]'
+    page.click(row)
+    page.wait_for(f'document.activeElement === document.querySelector({row!r})')
+    page.key('r')
+    page.wait_for(IN_COMPOSER)
+    send(page, 'my answer')
+    quote = f'{LAST_MESSAGE}.querySelector("[data-snowdrop=message-quote]")'
+    page.expect(f'{quote}?.textContent.includes("quoted words") === true', 'the reply does not quote the message (nothing to check)')
+    emit(page, 'messageDeleted', {'conversationId': page.eval('__journey.conversationId("dm-priya")'), 'authorId': author, 'targetSentAt': sent})
+    page.wait_for(f'document.querySelector({row!r}).textContent.includes("was deleted")')
+    quiet(page)
+    page.expect(f'{quote}.textContent.includes("was deleted") && !{quote}.textContent.includes("quoted words")', 'the quote still shows the deleted message')
+
+
+@journey()
+def an_edit_saved_after_another_device_edited_the_message_is_sent(page):
+    """The editor is open with the text it opened with; another device edits the message; saving the editor's text (which differs from the message now) sends the edit instead of closing as if nothing changed."""
+    open_conversation(page, 'dm-priya')
+    send(page, 'alpha')
+    author, _, sent = page.eval(f'{LAST_MESSAGE}.getAttribute("data-message-id")').rpartition(':')
+    page.click(COMPOSER)
+    page.key('ArrowUp')
+    page.wait_for('document.activeElement?.matches("[data-snowdrop=message] textarea")')
+    page.type(' ')  # a draft that still says "alpha" once trimmed: what the editor opened with
+    emit(page, 'messageEdited', {'conversationId': page.eval('__journey.conversationId("dm-priya")'), 'authorId': author, 'targetSentAt': int(sent), 'body': 'beta', 'ranges': [], 'editedAt': int(sent) - 1})
+    page.wait_for('document.body.textContent.includes("beta")')  # the sidebar preview has the other device's text
+    page.key('Enter')
+    page.wait_for('!document.querySelector("[data-snowdrop=message] textarea")')
+    page.wait_for(f'{LAST_MESSAGE}.textContent.includes("alpha") && !{LAST_MESSAGE}.textContent.includes("beta")', 3000)

@@ -43,10 +43,11 @@ export function forward(app: AppServices, m: Message): void {
  * window): otherwise says why, rather than letting someone type text that can't be sent.
  */
 export function startEdit(app: AppServices, m: Message): boolean {
-  const reason = editRefusal(m, {
-    selfId: app.stores.session.getState().self?.id ?? null,
-    now: Date.now(),
-  });
+  const reason =
+    editRefusal(m, {
+      selfId: app.stores.session.getState().self?.id ?? null,
+      now: Date.now(),
+    }) ?? (permissionsFor(app, m).canEdit ? undefined : "You can't edit messages in this chat.");
   if (reason !== undefined) {
     report(app, reason);
     return false;
@@ -61,13 +62,9 @@ export function startEdit(app: AppServices, m: Message): boolean {
   return true;
 }
 
-/** Adds (or switches to) a reaction; Signal allows one per person. */
+/** Picking an emoji you already reacted with removes it (Signal Desktop, Discord); another one switches to it. */
 export function react(app: AppServices, m: Message, emoji: string): void {
-  app.stores.local.getState().noteReactionUsed(emoji);
-  const selfId = app.stores.session.getState().self?.id;
-  const mine = m.reactions.find((r) => r.authorId === selfId);
-  if (mine?.emoji === emoji) return;
-  void app.send.react(m.conversationId, m, emoji);
+  toggleReaction(app, m, emoji);
 }
 
 export function toggleReaction(app: AppServices, m: Message, emoji: string): void {

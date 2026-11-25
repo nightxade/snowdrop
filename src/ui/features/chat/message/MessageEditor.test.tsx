@@ -100,6 +100,37 @@ describe('<MessageEditor />', () => {
     expect(edit).not.toHaveBeenCalled();
   });
 
+  it('compares with the message as it is now: another device edited it meanwhile', async () => {
+    const { snowdrop, kit, edit, type, save } = await editing({ body: 'hello' });
+    // Text equal to what the editor opened with, typed in (so it is a draft of its own).
+    type('hello ');
+    act(() => {
+      snowdrop.stores.messages
+        .getState()
+        .update(kit.conversationId, kit.message.id, (m) => ({ ...m, body: 'changed elsewhere' }));
+    });
+    save();
+    await vi.waitFor(() => {
+      expect(edit).toHaveBeenCalled();
+    });
+    expect(edit.mock.calls[0]?.[2]).toBe('hello');
+  });
+
+  it('closes without sending when the text equals the message as it is now', async () => {
+    const { snowdrop, kit, edit, type, save } = await editing({ body: 'hello' });
+    type('changed elsewhere');
+    act(() => {
+      snowdrop.stores.messages
+        .getState()
+        .update(kit.conversationId, kit.message.id, (m) => ({ ...m, body: 'changed elsewhere' }));
+    });
+    save();
+    await vi.waitFor(() => {
+      expect(screen.queryByRole('textbox', { name: 'Edit message' })).toBeNull();
+    });
+    expect(edit).not.toHaveBeenCalled();
+  });
+
   describe('where focus goes when the edit ends', () => {
     const withComposer = (chat: ChatController, conversationId: Message['conversationId']) => {
       const focus = vi.fn();

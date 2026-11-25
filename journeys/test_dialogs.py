@@ -1,6 +1,6 @@
 import json
 
-from common import COMPOSER, IN_COMPOSER, click_menu_item, click_text, emit, forget_expected_send_failures, is_current, open_conversation, open_menu, quiet, select_space, send, settle
+from common import COMPOSER, IN_COMPOSER, click_menu_item, click_text, deliver_and_find, emit, forget_expected_send_failures, is_current, open_conversation, open_menu, quiet, select_space, send, settle
 from harness import journey
 
 NEW_MESSAGE = '[data-snowdrop=sidebar-header] button[aria-label="New message"]'
@@ -552,3 +552,64 @@ def the_shortcut_recorder_refuses_a_plain_enter_key(page):
     page.key('Enter')
     page.wait_for('document.querySelector("[role=dialog]").textContent.includes("Enter, Space and plain keys")')
     page.expect('!document.querySelector("[aria-label=\\"Reset Open settings to default\\"]")', 'Enter was recorded as the shortcut')
+
+
+# ------------------------------------------------------------------ the forward dialog and its subjects (M5, M15)
+
+FORWARD_DIALOG = 'document.querySelector("[role=dialog]")'
+
+
+def open_forward_on_incoming(page, text):
+    """A message arrives in Priya's chat and Ctrl+Shift+S opens Forward on it; returns its author, sent time and row selector."""
+    open_conversation(page, 'dm-priya')
+    author, sent = deliver_and_find(page, 'dm-priya', text)
+    row = f'[data-message-id="{author}:{sent}"]'
+    page.click(row)
+    page.wait_for(f'document.activeElement === document.querySelector({row!r})')
+    page.key('s', ['ctrl', 'shift'])
+    page.wait_for(f'!!{FORWARD_DIALOG}')
+    return author, sent, row
+
+
+@journey()
+def forward_closes_when_its_message_is_deleted_for_everyone(page):
+    """Forward is open on a message; its sender deletes it for everyone: the dialog goes with the message (M15, a dialog whose subject disappears closes), instead of staying open to forward the deleted text."""
+    author, sent, row = open_forward_on_incoming(page, 'forward then delete')
+    emit(page, 'messageDeleted', {'conversationId': page.eval('__journey.conversationId("dm-priya")'), 'authorId': author, 'targetSentAt': sent})
+    page.wait_for(f'document.querySelector({row!r}).textContent.includes("was deleted")')
+    quiet(page)
+    page.expect(f'!{FORWARD_DIALOG}', 'Forward is still open for a message that was deleted for everyone')
+
+
+@journey()
+def forward_does_not_send_to_a_group_left_after_it_was_picked(page):
+    """A group is picked in Forward, then you leave it on the phone: the message must not be sent into the group you left (the dialog refuses to pick such a chat in the first place, M5)."""
+    details = group_details(page, 'allotment')
+    open_forward_on_incoming(page, 'forward into a group')
+    page.type('allotment')
+    page.key('Enter')
+    page.wait_for(f'{FORWARD_DIALOG}.textContent.includes("1 of 5 chosen")')
+    update_group(page, details, [], {}, left=True)
+    quiet(page)
+    page.key('Enter', ['ctrl'])  # on to the editor step
+    quiet(page)
+    if page.eval(f'!!{FORWARD_DIALOG}'):
+        page.key('Enter', ['ctrl'])  # send
+    settle(page, 500)  # the send, if there is one, runs on the demo backend
+    page.expect('!__journey.state().conversations.find((c) => c.key === "allotment").expectedPreview.includes("forward into a group")', 'a message was forwarded into a group you left')
+
+
+@journey()
+def a_group_you_left_offers_no_sending_actions_on_a_message(page):
+    """In a group you left, a message's menu keeps Copy and Delete for me but offers no sending action: no reaction, pin, reply or edit (M1)."""
+    details = group_details(page, 'allotment')
+    author, sent = deliver_and_find(page, 'allotment', 'read only now')
+    row = f'[data-message-id="{author}:{sent}"]'
+    update_group(page, details, [], {}, left=True)
+    page.wait_for('!document.querySelector("[data-snowdrop=composer-input]")')
+    quiet(page)
+    open_menu(page, row)
+    labels = 'JSON.stringify([...document.querySelectorAll("[role^=menuitem]")].map((e) => e.textContent.trim()))'
+    page.expect(f'{labels}.includes("Copy text") && {labels}.includes("Delete for me")', 'the menu lost Copy text or Delete for me')
+    for gone in ('Add reaction', 'Pin message', 'Reply', 'Edit message', 'Delete for everyone'):
+        page.expect(f'!{labels}.includes({gone!r})', f'a group you left still offers {gone}')

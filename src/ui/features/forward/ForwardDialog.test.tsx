@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { VirtuosoMockContext } from 'react-virtuoso';
 import { axe } from 'vitest-axe';
 import type { Snowdrop } from '@/app/createSnowdrop';
-import { colorForId, type Message } from '@/core/domain';
+import { applyDelete, colorForId, type Message } from '@/core/domain';
 import { bootForward, openChat, ownMessages, type ForwardKit } from '@/test/forwardKit';
 import { renderWithSnowdrop, settle } from '@/test/renderWithSnowdrop';
 import { ForwardDialog } from './ForwardDialog';
@@ -671,5 +671,63 @@ describe('Forward dialog: a large address book', () => {
     });
     expect(options[0]?.getAttribute('aria-checked')).toBe('true');
     expect((await axe(screen.getByRole('dialog'), { rules })).violations).toEqual([]);
+  });
+});
+
+describe('Forward dialog: its message goes', () => {
+  it('closes with a short toast when the message is deleted for everyone, forwarding nothing', async () => {
+    const { snowdrop, conversationId, message, onClose, sent } = await open();
+    pick('Ines');
+    act(() => {
+      snowdrop.stores.messages.getState().update(conversationId, message.id, (m) => applyDelete(m));
+    });
+    await flush(snowdrop);
+    expect(onClose).toHaveBeenCalled();
+    expect(snowdrop.stores.ui.getState().toasts.at(-1)?.message).toBe('This message was deleted');
+    expect(sent()).toEqual([]);
+  });
+
+  it('closes when the message expires (it leaves the window as removed)', async () => {
+    const { snowdrop, conversationId, message, onClose } = await open();
+    act(() => {
+      snowdrop.stores.messages.getState().remove(conversationId, message.id);
+    });
+    await flush(snowdrop);
+    expect(onClose).toHaveBeenCalled();
+  });
+});
+
+describe('Forward dialog: a picked chat that becomes unavailable', () => {
+  it('says so in the footer while open, and names the skipped chat in the toast when another went', async () => {
+    const { snowdrop, chat, onClose, sent } = await open();
+    pick('Ines');
+    pick('Priya');
+    const { contacts } = snowdrop.stores;
+    const ines = snowdrop.stores.conversations
+      .getState()
+      .byId[chat('dm-ines')]!.memberIds.find(
+        (id) => id !== snowdrop.stores.session.getState().self!.id,
+      )!;
+    act(() => {
+      contacts.setState((s) => ({
+        byId: { ...s.byId, [ines]: { ...s.byId[ines]!, blocked: true } },
+      }));
+    });
+    await flush(snowdrop);
+    expect(screen.getByText(/It will be skipped\./u)).toBeTruthy();
+    // A single text message goes through the editor step first.
+    act(() => {
+      fireEvent.click(primary());
+    });
+    await flush(snowdrop);
+    act(() => {
+      fireEvent.click(primary());
+    });
+    await flush(snowdrop);
+    expect(sent()).toHaveLength(1);
+    expect(onClose).toHaveBeenCalled();
+    expect(snowdrop.stores.ui.getState().toasts.at(-1)?.message).toMatch(
+      /^Forwarded to .*\. Not sent to .*Blocked\)\.$/u,
+    );
   });
 });

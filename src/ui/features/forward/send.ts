@@ -14,7 +14,7 @@ import { createLogger } from '@/core/lib';
 import { selectMessageRequestState } from '@/core/stores';
 import { ensureDirectConversation } from '@/ui/features/conversation';
 import type { AppServices } from '@/ui/hooks';
-import type { ForwardTarget } from './model';
+import { unavailableReason, type ForwardTarget } from './model';
 
 const log = createLogger('ui');
 
@@ -53,7 +53,15 @@ export const itemKey = (item: ForwardItem, index: number): string => item.id ?? 
  */
 export type TargetResult =
   | { id: ConversationId; ok: true; sent: number; delivered: string[] }
-  | { id: ConversationId; ok: false; reason: string; sent: number; delivered: string[] };
+  | {
+      id: ConversationId;
+      ok: false;
+      reason: string;
+      sent: number;
+      delivered: string[];
+      /** Nothing was tried: the chat is unavailable now (left, blocked, announcement-only). */
+      skipped?: true;
+    };
 
 /** A raster image or a voice note shows its own picture on the unsent message, as the composer's do. */
 const showsLocalPreview = (file: ForwardFile): boolean =>
@@ -103,7 +111,7 @@ const fail = (
   id: ConversationId,
   reason: string,
   delivered: ReadonlySet<string>,
-): TargetResult => ({
+): Extract<TargetResult, { ok: false }> => ({
   id,
   ok: false,
   reason,
@@ -128,6 +136,16 @@ export async function forwardToTarget(
   const delivered = new Set(keys.filter((k) => alreadySent.has(k)));
   try {
     let id = target.id;
+    // A chat can become unavailable after it was picked (left, blocked, made announcement-only).
+    const current = app.stores.conversations.getState().byId[id];
+    const reason =
+      current &&
+      unavailableReason(
+        current,
+        app.stores.contacts.getState().byId,
+        app.stores.session.getState().self?.id ?? null,
+      );
+    if (reason) return { ...fail(id, `${reason}.`, delivered), skipped: true };
     if (!target.view && !app.stores.conversations.getState().byId[id]) {
       if (!target.contact) return fail(id, "This chat isn't available.", delivered);
       id = ensureDirectConversation(app, target.contact);

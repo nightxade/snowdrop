@@ -19,6 +19,7 @@ export interface MessagePermissions {
   /** Reply fills the composer's quote, so it needs one (not a request, blocked or read-only chat). */
   canReply: boolean;
   canEdit: boolean;
+  /** Reacting needs a chat that can send, as do edit, pin and delete for everyone. */
   canReact: boolean;
   /** Forwarding needs the message's files, so (like reacting) not before the chat is accepted. */
   canForward: boolean;
@@ -97,17 +98,24 @@ export function messagePermissions(m: Message, facts: MessageActionFacts): Messa
     pending,
     canCompose,
     canReply: normal && !failed && canCompose,
-    canEdit: canEditMessage(m, { selfId, now: facts.now }),
-    // Reacting and pinning send something to the other side: not before the
-    // user has accepted them (a message request is read-only).
-    canReact: normal && !failed && accepted,
+    // Editing, reacting, pinning and deleting for everyone send something to the other side: not
+    // before the user has accepted them (a message request is read-only), and not where the chat
+    // cannot send (a group left or announcement-only, a blocked chat).
+    canEdit: canCompose && canEditMessage(m, { selfId, now: facts.now }),
+    canReact: normal && !failed && canCompose,
     canForward: accepted && isForwardable(m),
     canCopy: normal && m.body !== '',
     canDelete: !failed,
-    canDeleteForEveryone: own && normal && deletable,
+    canDeleteForEveryone: own && normal && deletable && canCompose,
     canAdminDelete:
-      normal && !own && admin && conversation?.kind === 'group' && caps.adminDelete && deletable,
-    canPin: normal && !failed && accepted && caps.pin,
+      normal &&
+      !own &&
+      admin &&
+      canCompose &&
+      conversation?.kind === 'group' &&
+      caps.adminDelete &&
+      deletable,
+    canPin: normal && !failed && canCompose && caps.pin,
     canShowDetails: own && !failed && normal,
     canVotePoll: openPoll && accepted && caps.polls,
     canEndPoll: openPoll && own && caps.polls,

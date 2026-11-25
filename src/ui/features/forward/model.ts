@@ -66,6 +66,32 @@ function peerOf(view: ConversationView, selfId: string | null): string | undefin
 }
 
 /**
+ * Why nothing can be sent to this conversation right now (undefined when something can): a group
+ * left, blocked, announcement-only for a non-admin, or a contact no longer on Signal. Read again at
+ * send, since a chat can become unavailable after it was picked.
+ */
+export function unavailableReason(
+  conversation: Pick<
+    ConversationView,
+    'id' | 'kind' | 'left' | 'blocked' | 'memberIds' | 'adminIds' | 'permissions'
+  >,
+  contacts: Readonly<Record<string, Contact>>,
+  selfId: string | null,
+): string | undefined {
+  const blocked = isConversationBlocked(conversation, (id) => contacts[id]);
+  if (conversation.kind === 'group') {
+    if (conversation.left) return 'You left this group';
+    if (blocked) return 'Blocked';
+    if (!canSendToGroup(conversation, selfId)) return 'Only admins can send here';
+    return undefined;
+  }
+  if (blocked) return 'Blocked';
+  const peerId = conversation.memberIds.find((id) => id !== selfId) ?? conversation.memberIds[0];
+  if (peerId && contacts[peerId]?.unregistered) return 'No longer on Signal';
+  return undefined;
+}
+
+/**
  * Every chat a message can be forwarded to: the conversations (unarchived
  * first, each in recency order), then contacts with no chat yet. Chats the
  * user can't write to are listed with the reason rather than hidden.
@@ -89,18 +115,15 @@ export function buildForwardTargets(sources: ForwardTargetSources): ForwardTarge
     };
     if (view.kind === 'group') {
       target.meta = view.left ? 'Left group' : plural(view.memberIds.length, 'member', 'members');
-      if (view.left) target.unavailable = 'You left this group';
-      else if (isConversationBlocked(view, (id) => contacts[id])) target.unavailable = 'Blocked';
-      else if (!canSendToGroup(view, selfId)) target.unavailable = 'Only admins can send here';
     } else {
       const peerId = peerOf(view, selfId);
       const peer = peerId ? contacts[peerId] : undefined;
       target.meta = peer?.isSelf === true || peerId === selfId ? '' : 'Direct message';
       if (peer?.number) target.number = peer.number;
       if (peer) target.contact = peer;
-      if (isConversationBlocked(view, (id) => contacts[id])) target.unavailable = 'Blocked';
-      else if (peer?.unregistered) target.unavailable = 'No longer on Signal';
     }
+    const unavailable = unavailableReason(view, contacts, selfId);
+    if (unavailable) target.unavailable = unavailable;
     if (view.archived) target.meta = `${target.meta} · Archived`;
     out.push(target);
   }

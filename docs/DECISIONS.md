@@ -630,6 +630,12 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   test_keyboard.py :: search_results_drop_a_message_deleted_for_everyone. Not pinned: a message
   outside the loaded window (an old one deleted on the phone) stays listed until the search runs
   again.
+- **The Pinned messages list follows the chat the same way** (`header/chatSignature.ts`, shared with
+  the search): while the popover is open, a pin removed, a pinned message deleted for everyone or
+  expired leaves the list and a new pin joins it, quietly (no loading skeleton). Pinned by
+  ui/features/chat/header/PinnedPopover.test.tsx; journeys/test_keyboard.py ::
+  pinned_list_drops_a_message_deleted_for_everyone. Not pinned: a message outside the loaded window
+  stays listed until the popover is opened again.
 
 ### C15. Dates follow the system locale
 
@@ -776,24 +782,43 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 - **Rule**: One pure rule set (`messagePermissions` / `MESSAGE_ACTIONS`) gates every action for the key
   handler, command handler, context menu, hover bar and ArrowUp. Reply needs a chat you can write in;
   Edit is hidden on failed or pending messages; failed sends offer only Retry and Discard.
+  The actions that send something to the other side (React, Edit, Pin and Unpin, Delete for
+  everyone, an admin's delete) follow whether the chat can send (`canCompose`: accepted, not blocked,
+  not a group you left, not an announcement group you cannot write in), the same in all three
+  states, on the bar, the menu, the keys and Vim; Copy, Delete for me, Message details, Forward and
+  Reply where the chat allows it stay.
 - **Why**: Bug report: the surfaces disagreed about what was allowed.
 - **Pinned by**: core/domain/messageActions.test.ts (all nine); ui/features/chat/message/
   actions.test.tsx :: drives the menu from the table entry, not from its own gate; ui/features/chat/
   message/MessageItem.rules.test.tsx :: offers reply from the key, the menu and the bar where there is
-  a composer; does not edit a failed message from the key either (the menu never offered it).
+  a composer; does not edit a failed message from the key either (the menu never offered it);
+  core/domain/messageActions.test.ts :: offers no sending action where the chat cannot send;
+  ui/features/chat/message/MessageItem.refusals.test.tsx :: offers no reaction, edit, pin or delete
+  for everyone where you cannot send; journeys/test_dialogs.py ::
+  a_group_you_left_offers_no_sending_actions_on_a_message.
 
 ### M2. Edit limits
 
 - **Rule**: Own messages with text can be edited within 24 hours, up to 10 edits; note-to-self is
   exempt; stickers, polls and voice messages are not editable. The editor keeps its text and says why
   when refused; the Edit button disappears when the window closes while the row is on screen.
-  Incoming edits to messages older than 48 hours are dropped.
+  E on a message that cannot be edited says why (a toast: "Messages can only be edited for 24
+  hours.", "This message can't be edited.", "You can't edit messages in this chat.") and types
+  nothing into the composer. The inline editor compares what is saved with the message as it is now,
+  not as the editor opened it: after another device edits the message, text that differs from its
+  current body is sent, text equal to it closes without sending. Incoming edits to messages older
+  than 48 hours are dropped.
 - **Why**: Signal parity.
 - **Pinned by**: core/domain/editing.test.ts (all); ui/features/chat/message/MessageItem.rules.test.tsx
   :: stops offering Edit in the bar once the window closes while the row is on screen; says why when
   Edit is pressed on a stale row, and does not open the editor; core/services/services.test.ts ::
   refuses an edit once the 24 hour window has closed; drops an edit that reaches the server more than
-  48 hours after its message.
+  48 hours after its message; ui/features/chat/message/MessageItem.refusals.test.tsx :: says why E does
+  nothing on your own message past the window, and types nothing; ui/features/chat/message/
+  MessageEditor.test.tsx :: compares with the message as it is now; closes without sending when the text
+  equals the message as it is now; journeys/test_keyboard.py ::
+  e_on_an_own_message_past_the_edit_window_says_why,
+  an_edit_saved_after_another_device_edited_the_message_is_sent.
 
 ### M3. Delete
 
@@ -817,6 +842,13 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   that arrives afterwards (edits and poll votes were already refused). Pinned by core/services/
   services.test.ts :: ignores a reaction or a pin that arrives after the message was deleted for
   everyone; journeys/test_list.py :: late_reaction_does_not_show_on_a_deleted_message.
+- **A quote of a deleted message**: a reply whose quoted message was deleted for everyone stops
+  showing the quoted text, also when the reply arrived (and stored the text) before the deletion: the
+  quote shows what the deleted row shows ("This message was deleted."), with the author kept. It is
+  resolved when the row renders, from the messages loaded in the chat; a quoted message outside the
+  loaded window keeps showing its stored text until it is loaded. Pinned by ui/features/chat/message/
+  MessageItem.refusals.test.tsx :: a quote of a message deleted for everyone; journeys/
+  test_keyboard.py :: a_quote_of_a_message_deleted_for_everyone_stops_showing_its_text.
 
 ### M4. Failed and unconfirmed sends
 
@@ -844,11 +876,20 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   previews and drops quotes, reactions and edit history. Polls, deleted, system and empty messages and
   unsent or failed own messages are not forwardable; stickers and voice messages are not editable
   when forwarded. Forwarding to a request accepts it (with a warning); retry sends only what didn't
-  go; oversize or empty files are refused before sending.
+  go; oversize or empty files are refused before sending. A chat that becomes unavailable after it was
+  picked (a group left, blocked, announcement-only) is shown as unavailable in the footer while the
+  dialog is open and is checked again at send (`forwardToTarget`): it is skipped, never sent to, and
+  named in the result toast ("Forwarded to Ines. Not sent to Crux (You left this group)."); when
+  nothing else went, the dialog stays open with the reason. A message being forwarded that is deleted
+  for everyone or expires meanwhile closes the dialog with a "This message was deleted" toast (M15);
+  nothing deleted is ever forwarded.
 - **Why**: Signal Desktop parity.
 - **Pinned by**: core/domain/forward.test.ts; ui/features/forward/model.test.ts, media.test.ts and
-  send.test.ts; ui/features/forward/ForwardDialog.test.tsx (all); ui/features/chat/message/
-  MessageItem.forward.test.tsx (all).
+  send.test.ts (including forwardToTarget re-checks the chat at send); ui/features/forward/
+  ForwardDialog.test.tsx (all, including its message goes and a picked chat that becomes
+  unavailable); ui/features/chat/message/MessageItem.forward.test.tsx (all); journeys/test_dialogs.py ::
+  forward_closes_when_its_message_is_deleted_for_everyone,
+  forward_does_not_send_to_a_group_left_after_it_was_picked.
 
 ### M6. Message request actions
 
@@ -898,7 +939,11 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   "This message was deleted" toast (P4). When the focused message scrolls out of the
   rendered range (PageUp, the wheel), the list's scroller takes focus, unless focus went somewhere
   else, and the arrows continue from that message. A message row is an article labelled by author
-  and time.
+  and time. The row's own keys (R, E, +, =, Delete, Backspace) are always the row's: when the action
+  is refused (a reply in a chat you cannot write in, a delete of a failed message, an edit past the
+  window, which says why) the key is still consumed and never falls through to the composer as typed
+  text. Picking the emoji you already reacted with (the picker, a quick reaction, the menu) removes
+  your reaction, as in Signal Desktop and Discord.
 - **Why**: User request (keyboard-first).
 - **Pinned by**: ui/features/chat/message/MessageItem.test.tsx :: is an article labelled by author and
   time, described by its body; keeps inner controls out of the tab order until the row is entered; R
@@ -911,7 +956,10 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   one opened from the bar button returns to that button; keeps focus on the row when the message is
   deleted for everyone while it is stepped into, and leaves it alone after a click elsewhere (both); journeys/test_keyboard.py ::
   remote_delete_of_the_message_you_stepped_into_keeps_focus; journeys/test_delete.py ::
-  edit_closes_when_its_message_is_deleted_on_another_device.
+  edit_closes_when_its_message_is_deleted_on_another_device;
+  ui/features/chat/message/MessageItem.refusals.test.tsx :: keeps R, Delete and + from falling through
+  to the composer when they are refused, and picking the emoji you reacted with (removes your
+  reaction); journeys/test_keyboard.py :: picking_the_emoji_you_reacted_with_removes_it.
 - **Not pinned**: Shift+F10 and the Menu key through the app's own code: WebKitGTK turns both into a
   `contextmenu` event itself, so the journey stays green with those two branches of
   `isContextMenuKey` removed (Ctrl+Enter is the app's alone and is pinned). Mod+Enter with the Meta
@@ -1117,6 +1165,15 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   behind the dialog (switching chats, toggling panels) or opens another dialog over it, and none is
   needed inside one. The dialog's own keys and Esc still work; drawers and popovers don't count.
   Vim's layer decides by its own focus context.
+- **A reaction pill that leaves hands focus on**: removing your reaction (or another's going) while its
+  pill has focus gives focus to the next pill, else the previous, else the message row
+  (`Reactions`, `useHandOffRow`). Pinned by ui/features/chat/message/Reactions.test.tsx (both);
+  journeys/test_keyboard.py :: removing_your_only_reaction_with_its_pill_keeps_focus_off_the_page.
+- **The hover bar holds focus**: the bar stays while focus is inside it (a clicked button, its More
+  menu), whatever the pointer does; when it does go (the message changes under it) focus goes to the
+  row, unless the user put it elsewhere. Pinned by ui/features/chat/message/
+  MessageItem.refusals.test.tsx :: the hover bar while focus is inside it; journeys/test_keyboard.py ::
+  hover_bar_button_clicked_then_pointer_leaves_keeps_focus_off_the_page.
 - **Why**: Bug reports: focus was lost to the page body.
 - **Pinned by**: ui/features/shell/ModalHost.focus.test.tsx (all); ui/primitives/Modal.test.tsx (all
   seven, and describe "the layer that owns focus"); ui/primitives/Button.test.tsx (disabled while it
@@ -1189,6 +1246,11 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   ui/features/sidebar/ConversationList.collapsed.test.tsx :: has its first heading as the one tab
   stop while no row shows; journeys/test_sidebar.py ::
   collapsed_category_with_nothing_showing_can_be_reached_by_tab.
+- **A message menu follows its data while open**: entries that depend on the chat's state (Pin,
+  Reply, React and Forward need it accepted, which comes from contacts and accepted chats that load
+  after the first paint) appear in a menu that is already open once that data arrives. Pinned by
+  ui/features/chat/message/MessageItem.refusals.test.tsx :: an open menu follows the data it was
+  built from.
 
 ### M17. "Message" in a profile card focuses the opened chat
 
@@ -1282,7 +1344,9 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   the composer, as Discord and Signal Desktop do (with Vim's navigation keys on, on the message list:
   M11). An edit open on a message that is deleted for everyone (here or from another device) closes
   with a "This message was deleted" toast; focus moves only if it was in the editor, to the message's
-  row (a deleted message keeps its row), or to the composer when the row went too.
+  row (a deleted message keeps its row), or to the composer when the row went too. Starting an edit of
+  another message parks the first editor's typed text the way a chat switch does (`parkedDrafts`):
+  editing the first message again reopens it with that text.
 - **Why**: Signal parity, except for the sending message: Desktop opens the editor on it; here a
   message can't be edited until it has been sent (decided against matching Desktop). The rest: user
   decisions.
@@ -1300,7 +1364,9 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   opened again; ui/features/chat/message/MessageEditor.test.tsx :: is the composer after a save and after a
   cancel; journeys/test_keyboard.py :: saving_or_cancelling_an_edit_returns_focus_to_the_composer,
   unsaved_edit_text_survives_a_chat_switch, up_on_the_message_being_edited_keeps_its_text;
-  journeys/test_delete.py :: edit_closes_when_its_message_is_deleted_on_another_device.
+  journeys/test_delete.py :: edit_closes_when_its_message_is_deleted_on_another_device;
+  core/stores/ui.test.ts :: keeps the typed text of an edit that gives way to the edit of another
+  message; journeys/test_keyboard.py :: starting_another_edit_keeps_the_first_editors_text.
 - **Not pinned**: skipping a message still sending; where focus lands in a restored edit (the editor
   reopens, but opening a chat moves focus as it always does); the "row went" focus is a unit test only.
 

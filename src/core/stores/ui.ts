@@ -80,6 +80,11 @@ export interface UiState {
    * the text. Only until the app closes (like the open edit itself).
    */
   parkedEdits: Record<ConversationId, EditingTarget>;
+  /**
+   * Edits with typed text that gave way to an edit of another message: editing that message again
+   * reopens it with the text (keyed by chat and message; only until the app closes).
+   */
+  parkedDrafts: Record<string, EditingTarget>;
   scrollAnchors: Record<ConversationId, ScrollAnchor>;
   windowFocused: boolean;
   /** Consumed (and cleared) by the chat column, which owns the message list. */
@@ -136,6 +141,8 @@ export interface UiState {
   dismissToast(id: string): void;
 }
 
+const draftKey = (t: EditingTarget): string => `${t.conversationId}|${t.messageId}`;
+
 export type UiStore = StoreApi<UiState>;
 
 export function createUiStore(newId: () => string = () => createNonce('toast')): UiStore {
@@ -152,6 +159,7 @@ export function createUiStore(newId: () => string = () => createNonce('toast')):
     replySource: {},
     editing: null,
     parkedEdits: {},
+    parkedDrafts: {},
     scrollAnchors: {},
     windowFocused: true,
     toasts: [],
@@ -242,11 +250,25 @@ export function createUiStore(newId: () => string = () => createNonce('toast')):
     setEditing: (editing) => {
       // Every edit started gets a session of its own, for the app's lifetime (autofocus once per
       // edit); a caller that passes `session` keeps its draft's session.
-      set(
-        editing === null
-          ? { editing: null }
-          : { editing: { ...editing, session: editing.session ?? ++editSessions } },
-      );
+      set((s) => {
+        if (editing === null) return { editing: null };
+        const open = s.editing;
+        const same =
+          open?.conversationId === editing.conversationId && open.messageId === editing.messageId;
+        // Another message's edit starts: the open one keeps its typed text for when it is edited again.
+        const { [draftKey(editing)]: back, ...rest } = s.parkedDrafts;
+        const leaving = open && !same && open.draft !== undefined ? open : null;
+        const parkedDrafts = leaving ? { ...rest, [draftKey(leaving)]: leaving } : rest;
+        const fresh = editing.session === undefined && editing.draft === undefined;
+        const target = fresh && back ? back : editing;
+        return {
+          parkedDrafts,
+          editing: {
+            ...target,
+            session: fresh && back ? ++editSessions : (editing.session ?? ++editSessions),
+          },
+        };
+      });
     },
     setEditDraft: (draft) => {
       set((s) => (s.editing ? { editing: { ...s.editing, draft } } : s));
