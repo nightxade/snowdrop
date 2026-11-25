@@ -116,7 +116,7 @@ export function ContactChecklist({
           aria-label={label}
           count={shown.length}
           rowHeight={44}
-          maxHeight="min(320px, 40vh)"
+          maxHeight="min(320px, calc(40 * var(--snowdrop-vh)))"
           itemKey={(index) => shown[index]?.id ?? String(index)}
           itemContent={(index) => {
             const c = shown[index];

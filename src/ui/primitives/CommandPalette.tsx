@@ -352,7 +352,7 @@ export function CommandPaletteRows({ rows }: { rows: readonly PaletteRow[] }) {
       handleRef={handle}
       count={rows.length}
       rowHeight={40}
-      maxHeight="calc(min(380px, 52vh) - 2 * var(--snowdrop-space-3))"
+      maxHeight="calc(min(380px, calc(52 * var(--snowdrop-vh))) - 2 * var(--snowdrop-space-3))"
       itemKey={(index) => rows[index]?.key ?? String(index)}
       itemContent={(index) => {
         const row = rows[index];

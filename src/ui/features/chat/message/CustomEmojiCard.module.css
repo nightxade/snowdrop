@@ -2,7 +2,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--snowdrop-space-4);
-  width: min(264px, calc(100vw - 48px));
+  width: min(264px, calc(calc(100 * var(--snowdrop-vw)) - 48px));
   outline: none;
 }
 

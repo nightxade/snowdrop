@@ -10,7 +10,34 @@ body,
   height: 100%;
 }
 
+/*
+ * Zoom scales the html box, and a percentage height resolves against the window as the zoomed page sees it,
+ * so the three fill the window at any zoom. Viewport units do not follow the zoom: `100dvh` is the window in
+ * unscaled px, which the zoom then scales (at 125% the page was 1.25 windows tall, the composer below the
+ * fold), so the page is not sized with them and everything else uses the tokens below.
+ */
 html {
+  zoom: var(--snowdrop-zoom);
+}
+
+/* One window percent in layout px (`1vw` is in window px, which the zoom would scale): `calc(60 * var(--snowdrop-vh))`. */
+:root {
+  --snowdrop-vw: calc(1vw / var(--snowdrop-zoom));
+  --snowdrop-vh: calc(1dvh / var(--snowdrop-zoom));
+}
+
+/*
+ * Radix (floating-ui) places a floating surface with a `translate()` computed in window px, but under the
+ * zoom above that translate is scaled again, so at 125% a popover lands 25% too far right and down. The
+ * placement wrapper is therefore un-zoomed and the surface inside it zoomed again: the translate then is
+ * in window px, and the surface keeps its size. The window-px values Radix hands the surface (available
+ * height) and the viewport units are divided by the zoom where they are used, see `--snowdrop-vw`.
+ */
+[data-radix-popper-content-wrapper] {
+  zoom: calc(1 / var(--snowdrop-zoom));
+}
+
+[data-radix-popper-content-wrapper] > * {
   zoom: var(--snowdrop-zoom);
 }
 

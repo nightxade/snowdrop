@@ -119,7 +119,7 @@ describe('Member list of a large group', () => {
     const { snowdrop, id } = await bootGroup(600);
     await show(snowdrop, id);
     expect(scroller().hasAttribute('tabindex')).toBe(false);
-    expect(scroller().style.maxHeight).toContain('dvh');
+    expect(scroller().style.maxHeight).toContain('--snowdrop-vh');
   });
 
   it('keeps exactly one tab stop, on a mounted row, after the tab stop row scrolls away', async () => {

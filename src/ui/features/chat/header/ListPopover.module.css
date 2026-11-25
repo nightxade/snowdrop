@@ -1,8 +1,8 @@
 .frame {
   display: flex;
   flex-direction: column;
-  width: min(440px, calc(100vw - 24px));
-  max-height: min(560px, 70vh);
+  width: min(440px, calc(calc(100 * var(--snowdrop-vw)) - 24px));
+  max-height: min(560px, calc(70 * var(--snowdrop-vh)));
 }
 
 .header {

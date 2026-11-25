@@ -1,7 +1,7 @@
 .content {
   z-index: 50;
-  max-width: calc(100vw - 24px);
-  max-height: var(--radix-popover-content-available-height);
+  max-width: calc(calc(100 * var(--snowdrop-vw)) - 24px);
+  max-height: calc(var(--radix-popover-content-available-height) / var(--snowdrop-zoom));
   padding: var(--snowdrop-space-5);
   overflow: auto;
   border-radius: var(--snowdrop-radius-md);

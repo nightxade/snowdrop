@@ -14,7 +14,7 @@
   bottom: 0;
   left: 0;
   display: flex;
-  max-width: calc(100vw - 48px);
+  max-width: calc(calc(100 * var(--snowdrop-vw)) - 48px);
   box-shadow: var(--snowdrop-shadow-modal);
   animation: slide var(--snowdrop-duration-slow) var(--snowdrop-ease);
   touch-action: pan-y;
@@ -47,7 +47,7 @@
   right: 0;
   left: 0;
   max-width: none;
-  max-height: 85vh;
+  max-height: calc(85 * var(--snowdrop-vh));
   border-radius: var(--snowdrop-radius-lg) var(--snowdrop-radius-lg) 0 0;
   animation-name: slide-up;
   touch-action: pan-x;

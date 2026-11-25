@@ -23,7 +23,7 @@
 }
 
 .list {
-  max-height: min(300px, 36vh);
+  max-height: min(300px, calc(36 * var(--snowdrop-vh)));
   margin: 0 calc(-1 * var(--snowdrop-space-3));
   padding: 0 var(--snowdrop-space-3);
   overflow-y: auto;

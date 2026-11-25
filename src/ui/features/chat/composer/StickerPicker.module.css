@@ -7,8 +7,8 @@
 .root {
   display: flex;
   flex-direction: column;
-  width: min(336px, calc(100vw - 24px));
-  height: min(392px, 60vh);
+  width: min(336px, calc(calc(100 * var(--snowdrop-vw)) - 24px));
+  height: min(392px, calc(60 * var(--snowdrop-vh)));
   isolation: isolate;
 }
 

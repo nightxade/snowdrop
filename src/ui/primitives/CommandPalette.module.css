@@ -43,7 +43,7 @@
 }
 
 .list {
-  height: min(var(--cmdk-list-height, 380px), 52vh);
+  height: min(var(--cmdk-list-height, 380px), calc(52 * var(--snowdrop-vh)));
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;

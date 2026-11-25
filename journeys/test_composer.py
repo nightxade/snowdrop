@@ -1,5 +1,5 @@
 """The composer's buttons (DECISIONS P2) and voice notes as far as a runner with no microphone can take them (P13)."""
-from common import COMPOSER, IN_COMPOSER, LAST_MESSAGE, MESSAGE, TUI_SETTINGS, is_current, open_conversation, settle
+from common import COMPOSER, IN_COMPOSER, LAST_MESSAGE, MESSAGE, SCROLLER, TUI_SETTINGS, fill, is_current, open_conversation, settle
 from harness import journey
 
 FIELD = f'{COMPOSER}'
@@ -358,3 +358,23 @@ def typed_name_stays_plain_text_even_when_the_draft_comes_back(page):
     page.key('Enter')
     page.wait_for(f'{LAST_MESSAGE}.textContent.includes("plain") && !{LAST_MESSAGE}.hasAttribute("data-pending")')
     page.expect(f'!{LAST_MESSAGE}.querySelector({PILL!r})', 'a typed @Name was sent as a mention')
+
+
+PICKER_VIEWPORT = '[data-snowdrop=sticker-picker] [role=tabpanel]'
+
+
+@journey()
+def wheel_over_the_sticker_picker_scrolls_it_not_the_chat(page):
+    """In a short window with the chat scrolled up a little, the wheel over the sticker picker's grid scrolls the picker and leaves the chat where it was (P16: WebKit's threaded scrolling picked the chat under the popover on a real touchpad; the harness's synthetic events cannot show that, so this pins the result, not the routing)."""
+    open_conversation(page, 'dm-priya')
+    fill(page)
+    page.resize(1280, 520)
+    page.scroll(SCROLLER, -400)
+    chat = f'document.querySelector({SCROLLER!r}).scrollTop'
+    before = page.eval(chat)
+    page.click('[data-snowdrop=composer] button[aria-label="Stickers"]')
+    page.wait_for(f'!!document.querySelector({PICKER_VIEWPORT!r}) && document.querySelectorAll("[data-snowdrop=sticker-cell]").length > 0')
+    page.wait_for(f'(() => {{ const v = document.querySelector({PICKER_VIEWPORT!r}); return v.scrollHeight > v.clientHeight + 20; }})()')
+    page.scroll(PICKER_VIEWPORT, 40)
+    page.expect(f'document.querySelector({PICKER_VIEWPORT!r}).scrollTop > 20', 'the wheel did not scroll the sticker picker')
+    page.expect(f'Math.abs({chat} - {before}) < 1', 'the wheel over the sticker picker scrolled the chat behind it')

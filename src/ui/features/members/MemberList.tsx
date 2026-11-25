@@ -276,7 +276,7 @@ export function MemberList({ conversationId }: { conversationId: ConversationId 
           onRange={onRange}
           count={rows.length}
           rowHeight={42}
-          maxHeight="calc(100dvh - 2 * var(--snowdrop-header-height))"
+          maxHeight="calc(calc(100 * var(--snowdrop-vh)) - 2 * var(--snowdrop-header-height))"
           itemKey={(index) => rows[index]?.key ?? String(index)}
           itemContent={(index) => {
             const row = rows[index];

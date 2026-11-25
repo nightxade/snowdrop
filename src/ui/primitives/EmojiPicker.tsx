@@ -1,5 +1,6 @@
 import * as RadixPopover from '@radix-ui/react-popover';
 import { lazy, Suspense, useRef, useState, type ReactNode, type ReactElement } from 'react';
+import { useContainedWheel } from '@/ui/hooks/useContainedWheel';
 import { Button } from './Button';
 import { focusQuietly } from './focusQuietly';
 import { EMOJIBASE_URL, type EmojiPickerProps } from './emojiPickerTypes';
@@ -56,6 +57,7 @@ export function EmojiPickerPopover({
   returnFocus,
 }: EmojiPickerPopoverProps) {
   const [custom, setCustom] = useState(false);
+  const containWheel = useContainedWheel();
   const trigger = useRef<HTMLButtonElement | null>(null);
   return (
     <RadixPopover.Root open={open} onOpenChange={onOpenChange}>
@@ -64,6 +66,7 @@ export function EmojiPickerPopover({
       </RadixPopover.Trigger>
       <RadixPopover.Portal>
         <RadixPopover.Content
+          ref={containWheel}
           className={styles.popover}
           side={side}
           align={align}

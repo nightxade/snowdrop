@@ -199,6 +199,127 @@ def zoomed_header_buttons_stay_inside_the_window(page):
     page.expect(inside, 'a header button is outside the window')
 
 
+# The page at a zoom: as tall and wide as the window (nothing to scroll, nothing cut off or left empty),
+# the composer near the window's bottom edge, the chat reaching its right edge (the TUI insets its panes ~12 px).
+FILLS_WINDOW = """(() => {
+  const d = document.documentElement, app = document.querySelector('[data-snowdrop=app]').getBoundingClientRect();
+  const pane = document.querySelector('[data-snowdrop=message-pane]').getBoundingClientRect();
+  const composer = document.querySelector('[data-snowdrop=composer]').getBoundingClientRect();
+  const problems = [];
+  if (d.scrollHeight !== d.clientHeight) problems.push('page scrolls vertically: ' + d.scrollHeight + ' > ' + d.clientHeight);
+  if (d.scrollWidth !== d.clientWidth) problems.push('page scrolls sideways: ' + d.scrollWidth + ' > ' + d.clientWidth);
+  if (Math.abs(app.bottom - innerHeight) > 1 || Math.abs(app.right - innerWidth) > 1) problems.push('app is ' + app.right + ' x ' + app.bottom + ' in a ' + innerWidth + ' x ' + innerHeight + ' window');
+  if (composer.bottom > innerHeight + 1 || innerHeight - composer.bottom > 48) problems.push('composer bottom is ' + composer.bottom + ' in a window ' + innerHeight + ' tall');
+  if (pane.right > innerWidth + 1 || innerWidth - pane.right > 16) problems.push('chat right edge is ' + pane.right + ' in a window ' + innerWidth + ' wide');
+  return problems.join('; ');
+})()"""
+
+
+def fills_window(page, width, height):
+    open_conversation(page, 'dm-priya')
+    page.resize(width, height)
+    quiet(page)
+    page.expect(f'{FILLS_WINDOW} === ""', 'the page does not fill the window: ' + str(page.eval(FILLS_WINDOW)))
+
+
+@journey(settings={'appearance': {'zoom': 1.25}})
+def zoomed_in_page_fills_the_window(page):
+    """Zoom 125% in a 1280 x 800 window: the page is exactly the window (no scroll), the composer sits at its bottom edge, the chat at its right edge (T18: body's `min-height: 100dvh` is in unscaled px, which the zoom then scaled, so the page was 1.25 windows tall and the composer below the fold)."""
+    fills_window(page, 1280, 800)
+
+
+@journey(settings={'appearance': {'zoom': 0.8}})
+def zoomed_out_page_fills_the_window(page):
+    """Zoom 80% in a 1280 x 800 window: the page is exactly the window, with no empty band at the bottom or the right (T18)."""
+    fills_window(page, 1280, 800)
+
+
+@journey(settings={'appearance': {'zoom': 1.5}})
+def zoomed_page_fills_a_narrow_window(page):
+    """Zoom 150% in an 800 x 800 window (the narrow layout): the page is exactly the window (T18)."""
+    fills_window(page, 800, 800)
+
+
+@journey(settings={'appearance': {'zoom': 1.25, 'shell': 'tui'}})
+def tui_zoomed_in_page_fills_the_window(page):
+    """The TUI shell at zoom 125%: the page is exactly the window (T18)."""
+    fills_window(page, 1280, 800)
+
+
+@journey(settings={'appearance': {'zoom': 0.8, 'shell': 'tui'}})
+def tui_zoomed_out_page_fills_the_window(page):
+    """The TUI shell at zoom 80%: the page is exactly the window (T18)."""
+    fills_window(page, 1280, 800)
+
+
+# How far a floating surface is from its trigger: 0 when the boxes touch or overlap, else the gap's size.
+NEXT_TO_TRIGGER = """(floating, trigger) => {
+  const f = floating.getBoundingClientRect(), t = trigger.getBoundingClientRect();
+  const inside = f.left >= -1 && f.top >= -1 && f.right <= innerWidth + 1 && f.bottom <= innerHeight + 1;
+  const dx = Math.max(f.left - t.right, t.left - f.right, 0), dy = Math.max(f.top - t.bottom, t.top - f.bottom, 0);
+  return inside && dx + dy <= 24 * parseFloat(getComputedStyle(document.documentElement).zoom);
+}"""
+
+
+def lands_next_to(page, floating, trigger, what):
+    """The floating surface is inside the window and within a few px of its trigger (Radix measures in window px under the CSS zoom)."""
+    page.expect(
+        f'({NEXT_TO_TRIGGER})(document.querySelector({floating!r}), document.querySelector({trigger!r}))',
+        f'{what} is outside the window or away from its trigger',
+    )
+
+
+STICKERS_BUTTON = '[data-snowdrop=composer] button[aria-label="Stickers"]'
+
+
+def popovers_land_next_to_their_triggers(page):
+    open_conversation(page, 'dm-priya')
+    page.resize(1280, 800)
+    quiet(page)
+    page.click(STICKERS_BUTTON)
+    page.wait_for('!!document.querySelector("[data-snowdrop=sticker-picker]")')
+    quiet(page)
+    lands_next_to(page, '[data-radix-popper-content-wrapper]', STICKERS_BUTTON, 'the sticker picker')
+    page.key('Escape')
+    page.wait_for('!document.querySelector("[data-snowdrop=sticker-picker]")')
+    # A message in the middle of the window (the last may sit under the composer while the list settles).
+    middle = page.eval(
+        f'[...document.querySelectorAll({MESSAGE!r})].find((e) => {{ const r = e.getBoundingClientRect(); return r.top > innerHeight * 0.3 && r.bottom < innerHeight * 0.6; }})?.getAttribute("data-message-id")'
+    )
+    page.hover(f'[data-message-id="{middle}"]')
+    more = '[data-snowdrop=hover-bar] button[aria-label="More"]'
+    page.wait_for(f'!!document.querySelector({more!r})')
+    page.click(more)
+    page.wait_for('!!document.querySelector("[role=menu]")')
+    quiet(page)
+    lands_next_to(page, '[role=menu]', more, "the message's menu")
+    page.key('Escape')
+    page.wait_for('!document.querySelector("[role=menu]")')
+    emoji = '[data-snowdrop=composer] button[aria-label="Emoji"]'
+    page.click(emoji)
+    page.wait_for('!!document.querySelector("[aria-label=\'Emoji picker\']")')
+    quiet(page)
+    lands_next_to(page, "[aria-label='Emoji picker']", emoji, 'the emoji picker')
+    page.key('Escape')
+    page.wait_for('!document.querySelector("[aria-label=\'Emoji picker\']")')
+    page.click(COMPOSER)
+    page.type(':smi')  # emoji suggestions, in any chat
+    page.wait_for('!!document.querySelector("[data-snowdrop=autocomplete]")')
+    quiet(page)
+    lands_next_to(page, '[data-snowdrop=autocomplete]', COMPOSER, 'the emoji suggestions')
+
+
+@journey(settings={'appearance': {'zoom': 1.25}})
+def popovers_land_next_to_their_triggers_zoomed_in(page):
+    """Zoom 125%: the sticker picker, a message's More menu, the emoji picker and the emoji suggestions are inside the window and next to their triggers (T18)."""
+    popovers_land_next_to_their_triggers(page)
+
+
+@journey(settings={'appearance': {'zoom': 0.8}})
+def popovers_land_next_to_their_triggers_zoomed_out(page):
+    """Zoom 80%: the sticker picker, a message's More menu, the emoji picker and the emoji suggestions are inside the window and next to their triggers (T18)."""
+    popovers_land_next_to_their_triggers(page)
+
 
 @journey(settings=TUI_SETTINGS)
 def tui_side_sheets_are_inset_panes_with_whole_titles(page):
@@ -254,3 +375,15 @@ def density_switch_keeps_a_scrolled_up_readers_message_in_place(page):
               return !!m && Math.abs(m.getBoundingClientRect().top - document.querySelector({SCROLLER!r}).getBoundingClientRect().top - {offset}) < 3; }})()""",
             'the message being read moved when the density changed',
         )
+
+
+
+@journey(settings={'appearance': {'zoom': 1.25}})
+def clicking_the_composer_zoomed_in_places_the_caret(page):
+    """Zoom 125%: a click that moves focus from a button into the composer leaves a caret there, so typing
+    goes in (WebKitGTK focuses a field clicked above 100% zoom without placing a selection; P17)."""
+    open_conversation(page, 'dm-priya')
+    page.eval('(() => { document.querySelector(\'[data-snowdrop=composer] button[aria-label="Emoji"]\').focus(); return 1; })()')
+    page.click(COMPOSER)
+    page.type('hello')
+    page.wait_for(f'document.querySelector({COMPOSER!r}).value === "hello"', 3000)

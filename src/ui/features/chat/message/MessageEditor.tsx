@@ -63,7 +63,7 @@ export function MessageEditor({ message, onDone }: { message: Message; onDone: (
   const saving = useRef(false);
   const ref = useRef<HTMLTextAreaElement>(null);
   const [frame, setFrame] = useState<HTMLDivElement | null>(null);
-  useAutoGrow(ref, text, '40vh');
+  useAutoGrow(ref, text, 'calc(40 * var(--snowdrop-vh))');
   const setText = (next: string) => {
     stores.ui.getState().setEditDraft(next);
   };

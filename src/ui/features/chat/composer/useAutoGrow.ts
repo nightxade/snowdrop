@@ -4,7 +4,7 @@ import { useLayoutEffect, type RefObject } from 'react';
 export function useAutoGrow(
   ref: RefObject<HTMLTextAreaElement | null>,
   value: string,
-  maxHeight = '50vh',
+  maxHeight = 'calc(50 * var(--snowdrop-vh))',
 ): void {
   useLayoutEffect(() => {
     const el = ref.current;

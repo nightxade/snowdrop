@@ -2,7 +2,13 @@
   z-index: 50;
   min-width: 200px;
   max-width: 300px;
-  max-height: var(--radix-context-menu-content-available-height, 70vh);
+  max-height: calc(
+    var(
+        --radix-context-menu-content-available-height,
+        calc(70 * var(--snowdrop-vh) * var(--snowdrop-zoom))
+      ) /
+      var(--snowdrop-zoom)
+  );
   padding: 6px;
   overflow-y: auto;
   border-radius: var(--snowdrop-radius-sm);

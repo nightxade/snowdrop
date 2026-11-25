@@ -1545,6 +1545,35 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   ones; journeys/test_composer.py :: picked_mention_stays_a_mention_when_the_draft_comes_back,
   typed_name_stays_plain_text_even_when_the_draft_comes_back.
 
+### P16. The wheel stays inside a popover
+
+- **Rule**: A wheel over a popover, picker, suggestion list or menu scrolls that surface's own scroll
+  area and nothing behind it, also at the end of its range (like `overscroll-behavior: contain`, which
+  WebKit's threaded scrolling bypassed: on a touchpad the chat behind the sticker picker scrolled and
+  the picker did not). `useContainedWheel` puts a non-passive `wheel` listener on the surface (the
+  `Popover`, `EmojiPickerPopover` and `Menu` primitives, the autocomplete list), which scrolls the
+  nearest scrollable element under the pointer itself. Pinch zoom (ctrl) and mostly sideways wheels
+  are left alone; mouse-wheel steps jump instead of animating.
+- **Why**: User report (installed app, touchpad).
+- **Pinned by**: ui/hooks/useContainedWheel.test.tsx (all); journeys/test_composer.py ::
+  wheel_over_the_sticker_picker_scrolls_it_not_the_chat (passes on the old code too: the harness's
+  synthetic events cannot reproduce the routing bug).
+- **Not pinned**: the routing on a real touchpad; modals' own lists (their overlay covers the page).
+
+### P17. A clicked text field has a caret
+
+- **Rule**: A click into a text field leaves a caret in it, so typing goes in. Above 100% zoom (the Zoom
+  setting or WebKit's own page zoom), WebKitGTK focuses a textarea or input clicked from elsewhere
+  without placing a selection, and keys then insert nothing. `useCaretOnClick` (called by `App`)
+  checks on mouseup: a clicked text field with focus and no selection gets its caret at the end of
+  its text, where a programmatic focus puts it.
+- **Why**: Found by the zoom journeys (T18): at 125% the composer took focus from a click and dropped
+  every key.
+- **Pinned by**: ui/hooks/useCaretOnClick.test.tsx (all); journeys/test_appearance.py ::
+  clicking_the_composer_zoomed_in_places_the_caret.
+- **Not pinned**: where in the text a zoomed click puts the caret when the field already had one (the
+  click is WebKit's).
+
 ---
 
 ## N. Notifications and catch-up
@@ -1977,6 +2006,25 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 - **Pinned by**: ui/features/onboarding/linkFlow.test.ts :: is plain "Snowdrop" in the desktop app,
   whatever the user agent says; ui/features/onboarding/LinkDevice.test.tsx (tab and window cases);
   ui/features/onboarding/Welcome.test.tsx (both); ui/features/shell/DemoBanner.test.tsx (all three).
+
+### T18. The page fills the window at any zoom
+
+- **Rule**: Zoom (0.8 to 1.5) is a CSS `zoom` on `html`. The page is exactly the window at every zoom:
+  no page scroll, the composer at the window's bottom edge. Nothing sizes the page or a surface with
+  `vw`, `vh` or `dvh` (window px, which the zoom scales again; `body { min-height: 100dvh }` made the
+  page 1.25 windows tall at 125%): the stylesheets use `calc(N * var(--snowdrop-vh))` and
+  `--snowdrop-vw` (a window percent in layout px). Radix (and the autocomplete list) place a surface
+  with a translate in window px, so the placement wrapper is un-zoomed and the surface inside it
+  zoomed back (`[data-radix-popper-content-wrapper]` in `styles/global.css`); Radix's available height
+  is divided by the zoom where used. Popovers and menus land next to their triggers at any zoom.
+- **Why**: User report (at 125% in an 800 px window the composer was below the fold).
+- **Pinned by**: journeys/test_appearance.py :: zoomed_in_page_fills_the_window,
+  zoomed_out_page_fills_the_window, zoomed_page_fills_a_narrow_window,
+  tui_zoomed_in_page_fills_the_window, tui_zoomed_out_page_fills_the_window,
+  popovers_land_next_to_their_triggers_zoomed_in, popovers_land_next_to_their_triggers_zoomed_out
+  (the zoomed-out ones pass on the old code too); ui/features/members/MemberList.test.tsx (the sheet's
+  height uses the token).
+- **Not pinned**: modals, drawers and toasts at other zooms than the popover journeys' (CSS only).
 
 ---
 

@@ -1,5 +1,6 @@
 import * as RadixPopover from '@radix-ui/react-popover';
 import { useRef, type ReactElement, type ReactNode } from 'react';
+import { useContainedWheel } from '@/ui/hooks/useContainedWheel';
 import { focusQuietly } from './focusQuietly';
 import { fallbackFocus } from './openerFocus';
 import styles from './Popover.module.css';
@@ -41,6 +42,7 @@ export function Popover({
   onCloseAutoFocus,
 }: PopoverProps) {
   const anchor = useRef<HTMLButtonElement | null>(null);
+  const containWheel = useContainedWheel();
   return (
     <RadixPopover.Root
       {...(open !== undefined ? { open } : {})}
@@ -51,6 +53,7 @@ export function Popover({
       </RadixPopover.Trigger>
       <RadixPopover.Portal>
         <RadixPopover.Content
+          ref={containWheel}
           className={[styles.content, className].filter(Boolean).join(' ')}
           data-flush={flush ? '' : undefined}
           side={side}

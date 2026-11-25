@@ -3,8 +3,8 @@
   flex-direction: column;
   gap: var(--snowdrop-space-3);
   padding: var(--snowdrop-space-4);
-  width: min(352px, calc(100vw - 24px));
-  height: min(380px, 60vh);
+  width: min(352px, calc(calc(100 * var(--snowdrop-vw)) - 24px));
+  height: min(380px, calc(60 * var(--snowdrop-vh)));
 }
 .hint {
   color: var(--snowdrop-text-muted);

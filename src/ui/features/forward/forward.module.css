@@ -180,7 +180,7 @@
 .textarea {
   width: 100%;
   min-height: 112px;
-  max-height: 40vh;
+  max-height: calc(40 * var(--snowdrop-vh));
   padding: var(--snowdrop-space-4);
   border: 1px solid var(--snowdrop-border-strong);
   border-radius: var(--snowdrop-radius-sm);

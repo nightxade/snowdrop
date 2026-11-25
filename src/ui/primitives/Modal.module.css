@@ -13,8 +13,8 @@
   left: 50%;
   display: flex;
   flex-direction: column;
-  width: min(440px, calc(100vw - 32px));
-  max-height: min(720px, calc(100dvh - 48px));
+  width: min(440px, calc(calc(100 * var(--snowdrop-vw)) - 32px));
+  max-height: min(720px, calc(calc(100 * var(--snowdrop-vh)) - 48px));
   overflow: hidden;
   border-radius: var(--snowdrop-radius-lg);
   background: var(--snowdrop-bg-elevated);
@@ -28,19 +28,19 @@
 }
 
 .content[data-size='sm'] {
-  width: min(360px, calc(100vw - 32px));
+  width: min(360px, calc(calc(100 * var(--snowdrop-vw)) - 32px));
 }
 
 .content[data-size='lg'] {
-  width: min(600px, calc(100vw - 32px));
+  width: min(600px, calc(calc(100 * var(--snowdrop-vw)) - 32px));
 }
 
 .content[data-size='xl'] {
-  width: min(680px, calc(100vw - 32px));
+  width: min(680px, calc(calc(100 * var(--snowdrop-vw)) - 32px));
 }
 
 .content[data-placement='top'] {
-  top: 14vh;
+  top: calc(14 * var(--snowdrop-vh));
   transform: translate(-50%, 0);
   animation-name: rise-top;
 }

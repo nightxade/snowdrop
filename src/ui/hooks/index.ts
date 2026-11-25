@@ -19,6 +19,8 @@ export { useKeybindLabel } from './useKeybindLabel';
 export { useNow } from './useNow';
 export { useEffectivePrivacy } from './useEffectivePrivacy';
 export { useInView } from './useInView';
+export { useCaretOnClick } from './useCaretOnClick';
+export { useContainedWheel } from './useContainedWheel';
 export { useAvatarSrc, type AvatarSrcOptions } from './useAvatarSrc';
 export { useCatchUpShelf, useFrozenWhile } from './useFrozenWhile';
 export { useHandOffFocus } from './useHandOffFocus';

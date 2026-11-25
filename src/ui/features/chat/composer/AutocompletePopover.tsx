@@ -9,6 +9,7 @@ import {
 } from '@floating-ui/react';
 import { Slash } from 'lucide-react';
 import { useEffect, useRef } from 'react';
+import { useContainedWheel } from '@/ui/hooks/useContainedWheel';
 import { initialsFor, type ConversationId } from '@/core/domain';
 import { PersonAvatar } from '@/ui/features/conversation';
 import { optionId } from './optionId';
@@ -69,6 +70,9 @@ export function AutocompletePopover({
     ],
   });
   const list = useRef<HTMLDivElement | null>(null);
+  const containWheel = useContainedWheel();
+
+  useEffect(() => (list.current ? containWheel(list.current) : undefined), [containWheel]);
 
   useEffect(() => {
     list.current
@@ -84,42 +88,44 @@ export function AutocompletePopover({
           list.current = el;
         }}
         style={floatingStyles}
-        className={styles.popover}
+        className={styles.placement}
         data-snowdrop="autocomplete"
         // Portalled to <body>: a labelled region keeps it inside a landmark.
         role="region"
         aria-label="Suggestions"
       >
-        <div className={styles.title} aria-hidden>
-          {TITLES[kind]}
-          {kind === 'emoji' && <span className={styles.query}> :{query}</span>}
-        </div>
-        <div id={id} role="listbox" aria-label={TITLES[kind]} className={styles.list}>
-          {suggestions.map((s, i) => (
-            <div
-              key={s.key}
-              id={optionId(id, i)}
-              role="option"
-              aria-selected={i === active}
-              data-index={i}
-              className={styles.option}
-              onPointerMove={() => {
-                if (i !== active) onHover(i);
-              }}
-              onPointerDown={(e) => {
-                // Keep focus (and the caret) in the textarea.
-                e.preventDefault();
-                onPick(i);
-              }}
-            >
-              <SuggestionRow suggestion={s} conversationId={conversationId} />
-            </div>
-          ))}
-        </div>
-        <div className={styles.footer} aria-hidden>
-          <kbd>↑</kbd>
-          <kbd>↓</kbd> to navigate · <kbd>Tab</kbd> or <kbd>Enter</kbd> to pick · <kbd>Esc</kbd> to
-          dismiss
+        <div className={styles.popover}>
+          <div className={styles.title} aria-hidden>
+            {TITLES[kind]}
+            {kind === 'emoji' && <span className={styles.query}> :{query}</span>}
+          </div>
+          <div id={id} role="listbox" aria-label={TITLES[kind]} className={styles.list}>
+            {suggestions.map((s, i) => (
+              <div
+                key={s.key}
+                id={optionId(id, i)}
+                role="option"
+                aria-selected={i === active}
+                data-index={i}
+                className={styles.option}
+                onPointerMove={() => {
+                  if (i !== active) onHover(i);
+                }}
+                onPointerDown={(e) => {
+                  // Keep focus (and the caret) in the textarea.
+                  e.preventDefault();
+                  onPick(i);
+                }}
+              >
+                <SuggestionRow suggestion={s} conversationId={conversationId} />
+              </div>
+            ))}
+          </div>
+          <div className={styles.footer} aria-hidden>
+            <kbd>↑</kbd>
+            <kbd>↓</kbd> to navigate · <kbd>Tab</kbd> or <kbd>Enter</kbd> to pick · <kbd>Esc</kbd>{' '}
+            to dismiss
+          </div>
         </div>
       </div>
     </FloatingPortal>

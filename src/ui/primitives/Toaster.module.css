@@ -2,7 +2,7 @@
   display: flex;
   align-items: flex-start;
   gap: var(--snowdrop-space-4);
-  width: min(360px, calc(100vw - 32px));
+  width: min(360px, calc(calc(100 * var(--snowdrop-vw)) - 32px));
   padding: var(--snowdrop-space-4) var(--snowdrop-space-5);
   border-left: 3px solid var(--snowdrop-text-muted);
   border-radius: var(--snowdrop-radius-sm);

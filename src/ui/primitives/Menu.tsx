@@ -9,6 +9,7 @@ import {
   type ReactElement,
   type Ref,
 } from 'react';
+import { useContainedWheel } from '@/ui/hooks/useContainedWheel';
 import { forgetMenuOpener, rememberMenuOpener } from './menuReturn';
 import { tidyMenu, type MenuEntry } from './menuModel';
 import styles from './Menu.module.css';
@@ -21,6 +22,7 @@ import styles from './Menu.module.css';
 type Parts = typeof RadixContext | typeof RadixDropdown;
 
 function Entries({ parts: P, entries }: { parts: Parts; entries: readonly MenuEntry[] }) {
+  const containWheel = useContainedWheel();
   return tidyMenu(entries).map((entry) => {
     switch (entry.kind) {
       case 'separator':
@@ -65,7 +67,12 @@ function Entries({ parts: P, entries }: { parts: Parts; entries: readonly MenuEn
               <ChevronRight className={styles.chevron} size={16} aria-hidden />
             </P.SubTrigger>
             <P.Portal>
-              <P.SubContent className={styles.content} sideOffset={6} alignOffset={-6}>
+              <P.SubContent
+                ref={containWheel}
+                className={styles.content}
+                sideOffset={6}
+                alignOffset={-6}
+              >
                 <Entries parts={P} entries={entry.items} />
               </P.SubContent>
             </P.Portal>
@@ -151,6 +158,7 @@ export function ContextMenu({
   onContextMenu,
   ...trigger
 }: ContextMenuProps) {
+  const containWheel = useContainedWheel();
   // The element right-clicked (or keyed), for when nothing had focus as the menu opened.
   const target = useRef<HTMLElement | null>(null);
   return (
@@ -178,6 +186,7 @@ export function ContextMenu({
       </RadixContext.Trigger>
       <RadixContext.Portal>
         <RadixContext.Content
+          ref={containWheel}
           className={styles.content}
           collisionPadding={8}
           {...(label ? { 'aria-label': label } : {})}
@@ -211,6 +220,7 @@ export function DropdownMenu({
   onKeyDown,
   ...trigger
 }: DropdownMenuProps) {
+  const containWheel = useContainedWheel();
   // Uncontrolled by default; tracked here so the context-menu keys can open it too.
   const [ownOpen, setOwnOpen] = useState(false);
   const isOpen = open ?? ownOpen;
@@ -237,6 +247,7 @@ export function DropdownMenu({
       </RadixDropdown.Trigger>
       <RadixDropdown.Portal>
         <RadixDropdown.Content
+          ref={containWheel}
           className={styles.content}
           side={side}
           align={align}

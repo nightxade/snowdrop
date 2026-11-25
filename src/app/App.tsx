@@ -12,7 +12,7 @@ const ConnectionSetup = lazy(() =>
   import('@/ui/features/onboarding').then((m) => ({ default: m.ConnectionSetup })),
 );
 import { AppShell } from '@/ui/features/shell';
-import { useBackendFeature, useBreakpointAttributes } from '@/ui/hooks';
+import { useBackendFeature, useBreakpointAttributes, useCaretOnClick } from '@/ui/hooks';
 import { friendlyAppError } from '@/ui/lib/connectionErrors';
 import type { Snowdrop } from './createSnowdrop';
 import { screenFor, setupReasonFor } from './routing';
@@ -46,6 +46,7 @@ export interface AppProps {
 export function App({ onBackendChange }: AppProps) {
   const snowdrop = useSnowdrop();
   useBreakpointAttributes();
+  useCaretOnClick();
   const canLink = useBackendFeature('deviceLinking');
   const savedChoice = useStore(snowdrop.stores.settings, (s) => s.connection.backend);
   // A sign-out clears the saved choice before it finishes; keep showing the
