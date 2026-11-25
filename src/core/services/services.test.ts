@@ -1219,6 +1219,31 @@ describe('SendService', () => {
     expect(await repository.listOutbox()).toEqual([]);
   });
 
+  it('a retry sends the failed message again with its file', async () => {
+    const { stores, send, backend, conv, history } = await setup();
+    const id = conv('orchard-eng');
+    await history.open(id);
+    const data = new Blob(['hello']);
+    backend.failNext();
+    await send.send(
+      draft(id, '', {
+        attachments: [
+          { fileName: 'notes.txt', contentType: 'text/plain', data, previewUrl: 'blob:local' },
+        ],
+      }),
+    );
+    const failed = stores.messages.getState().findByNonce(id, 'nonce-1');
+    expect(failed?.status).toBe('failed');
+    expect(failed?.attachments[0]).toMatchObject({ fileName: 'notes.txt', url: 'blob:local' });
+    const sendSpy = vi.spyOn(backend, 'send');
+    await send.retry(id, 'nonce-1');
+    expect(sendSpy.mock.calls[0]?.[0].attachments?.[0]).toMatchObject({
+      fileName: 'notes.txt',
+      data,
+    });
+    expect(stores.messages.getState().findByNonce(id, 'nonce-1')?.status).toBe('sent');
+  });
+
   it('a send that timed out is marked unconfirmed, and a retry clears that', async () => {
     const { stores, send, backend, conv, repository, history } = await setup();
     const id = conv('orchard-eng');

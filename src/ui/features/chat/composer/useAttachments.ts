@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react';
 import {
+  MAX_ATTACHMENTS,
   attachmentProblem,
   rejectedFilesMessage,
   type AttachmentProblem,
@@ -79,9 +80,12 @@ export function useAttachments(
       }
       // A file that can never be sent never becomes a pending attachment; the rest of a drop stays.
       const rejected: { name: string; problem: AttachmentProblem }[] = [];
+      // A message carries at most MAX_ATTACHMENTS: the files that fit stay, in order.
+      let room = MAX_ATTACHMENTS - current().length;
       const accepted = files.filter((file) => {
-        const problem = attachmentProblem(file);
+        const problem = attachmentProblem(file) ?? (room <= 0 ? 'too-many' : null);
         if (problem) rejected.push({ name: file.name, problem });
+        else room -= 1;
         return problem === null;
       });
       if (rejected.length > 0) setError(rejectedFilesMessage(rejected));

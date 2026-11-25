@@ -119,6 +119,8 @@ export interface ContextMenuProps extends TriggerPassthrough {
   children: ReactElement;
   onOpenChange?: (open: boolean) => void;
   label?: string;
+  /** Opens no menu, but keeps the element tree the same (so the trigger is not rebuilt). */
+  disabled?: boolean;
 }
 
 /** Keys that open an item's context menu from the keyboard (PLAN §4.11). */
@@ -154,6 +156,7 @@ export function ContextMenu({
   children,
   onOpenChange,
   label,
+  disabled = false,
   onKeyDown,
   onContextMenu,
   ...trigger
@@ -172,6 +175,7 @@ export function ContextMenu({
     >
       <RadixContext.Trigger
         asChild
+        disabled={disabled}
         {...trigger}
         onContextMenu={(e) => {
           target.current = e.currentTarget;
@@ -179,7 +183,7 @@ export function ContextMenu({
         }}
         onKeyDown={(e) => {
           onKeyDown?.(e);
-          if (!e.defaultPrevented) openFromKeyboard(e);
+          if (!e.defaultPrevented && !disabled) openFromKeyboard(e);
         }}
       >
         {children}

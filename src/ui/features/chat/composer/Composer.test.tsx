@@ -138,6 +138,17 @@ describe('<Composer />', () => {
     expect(send.mock.calls[0]?.[0].attachments[0]?.fileName).toBe('notes.txt');
   });
 
+  it('gives every sent file, not only images, a local URL for its pending row', async () => {
+    const { input, snowdrop } = await setup();
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:local-file');
+    const file = new File(['hello'], 'notes.txt', { type: 'text/plain' });
+    fireEvent.paste(input, { clipboardData: { files: [file], items: [] } });
+    const send = vi.spyOn(snowdrop.send, 'send');
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await settle(snowdrop);
+    expect(send.mock.calls[0]?.[0].attachments[0]?.previewUrl).toBe('blob:local-file');
+  });
+
   it('does not attach a file twice when both clipboard lists expose it', async () => {
     const { input } = await setup();
     const file = new File(['hello'], 'notes.txt', { type: 'text/plain' });

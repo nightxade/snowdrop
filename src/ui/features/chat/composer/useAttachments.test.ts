@@ -52,4 +52,31 @@ describe('useAttachments', () => {
     expect(revoke).toHaveBeenCalledWith(url);
     expect(held.get(chat)).toBeUndefined();
   });
+
+  it('keeps the files that fit under the per-message limit and refuses the rest, saying so', () => {
+    vi.spyOn(URL, 'createObjectURL').mockImplementation(() => 'blob:x');
+    const errors: (string | null)[] = [];
+    const held: StagedFiles = new Map();
+    const { result } = renderHook(() => useAttachments(chat, held, (e) => errors.push(e)));
+    const file = (n: number) => new File(['x'], `f${n}.txt`, { type: 'text/plain' });
+    act(() => {
+      result.current.addFiles(Array.from({ length: 30 }, (_, i) => file(i)));
+    });
+    expect(result.current.attachments).toHaveLength(30);
+    act(() => {
+      result.current.addFiles([file(30), file(31), file(32)]);
+    });
+    expect(result.current.attachments).toHaveLength(32);
+    expect(result.current.attachments.at(-1)?.file.name).toBe('f31.txt');
+    expect(errors.at(-1)).toBe(
+      '\u201cf32.txt\u201d isn\u2019t added: a message has at most 32 files.',
+    );
+    act(() => {
+      result.current.addFiles([file(40), file(41)]);
+    });
+    expect(result.current.attachments).toHaveLength(32);
+    expect(errors.at(-1)).toBe(
+      '\u201cf40.txt\u201d and \u201cf41.txt\u201d aren\u2019t added: a message has at most 32 files.',
+    );
+  });
 });

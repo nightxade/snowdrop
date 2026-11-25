@@ -613,3 +613,37 @@ def a_group_you_left_offers_no_sending_actions_on_a_message(page):
     page.expect(f'{labels}.includes("Copy text") && {labels}.includes("Delete for me")', 'the menu lost Copy text or Delete for me')
     for gone in ('Add reaction', 'Pin message', 'Reply', 'Edit message', 'Delete for everyone'):
         page.expect(f'!{labels}.includes({gone!r})', f'a group you left still offers {gone}')
+
+
+@journey()
+def photo_viewer_stays_open_when_the_window_narrows_below_760(page):
+    """A photo is open in the viewer; the window is made narrower than 760 px (a tiled window, a drag of the edge): the viewer stays open on the same photo, as it does for every width above."""
+    select_space(page, 'Work')
+    open_conversation(page, 'orchard-design')
+    tile = '[data-open-attachment]'
+    page.wait_for(f'!!document.querySelector({tile!r})')
+    page.eval(f'(document.querySelector({tile!r}).scrollIntoView({{ block: "center" }}), 1)')
+    quiet(page)
+    settle(page, 400)
+    page.eval(f'(document.querySelector({tile!r}).focus(), 1)')
+    page.key('Enter')  # from the keyboard: a click can land while the list is still settling
+    page.wait_for('!!document.querySelector("[role=dialog] img")')
+    page.resize(800, 800)  # above the breakpoint: nothing changes
+    quiet(page)
+    page.expect('!!document.querySelector("[role=dialog] img")', 'the viewer closed at 800 px')
+    page.resize(700, 800)
+    quiet(page)
+    page.expect('!!document.querySelector("[role=dialog] img")', 'the viewer closed when the window went below 760 px')
+
+
+@journey()
+def a_focused_message_keeps_focus_when_the_window_narrows_below_760(page):
+    """A message has focus (clicked); the window is made narrower than 760 px: the message still has focus, not the page (M15: focus is never left on the page)."""
+    open_conversation(page, 'dm-priya')
+    last = page.eval('(() => { const m = document.querySelectorAll("[data-snowdrop=message]"); return m[m.length - 1].getAttribute("data-message-id"); })()')
+    row = f'[data-message-id="{last}"]'
+    page.click(row)
+    page.wait_for(f'document.activeElement === document.querySelector({row!r})')
+    page.resize(700, 800)
+    quiet(page)
+    page.expect(f'document.activeElement === document.querySelector({row!r})', 'focus fell to the page when the window went below 760 px')

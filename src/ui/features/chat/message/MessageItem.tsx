@@ -7,7 +7,6 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
-  type ReactElement,
 } from 'react';
 import { useStore } from 'zustand';
 import {
@@ -488,17 +487,18 @@ export const MessageItem = memo(function MessageItem({
     </div>
   );
 
-  let wrapped: ReactElement = article;
-  if (!touch)
-    wrapped = (
-      <ContextMenu entries={menu} onOpenChange={setContextOpen} label="Message actions">
-        {article}
-      </ContextMenu>
-    );
-
+  // Always wrapped, and switched off on touch: a different tree above the breakpoint would build
+  // the row again when the window crosses it, closing its photo viewer and dropping its focus.
   return (
     <>
-      {wrapped}
+      <ContextMenu
+        entries={menu}
+        onOpenChange={setContextOpen}
+        label="Message actions"
+        disabled={touch}
+      >
+        {article}
+      </ContextMenu>
       {touch && <MessageActionSheet open={sheetOpen} onOpenChange={setSheetOpen} entries={menu} />}
       {touch && picker && (
         // No hover bar to anchor to on touch: the full picker comes up as a sheet.

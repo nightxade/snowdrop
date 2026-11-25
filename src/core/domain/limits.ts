@@ -6,7 +6,10 @@
 /** Largest file we send or download through the daemon's JSON API. */
 export const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
 
-export type AttachmentProblem = 'too-large' | 'empty';
+/** Most files one message carries (the same number Signal Desktop's composer allows). */
+export const MAX_ATTACHMENTS = 32;
+
+export type AttachmentProblem = 'too-large' | 'empty' | 'too-many';
 
 /** Why a file can't be attached, or null when it can. */
 export function attachmentProblem(file: {
@@ -22,6 +25,7 @@ export function attachmentProblem(file: {
 const quoted = (name: string | undefined): string =>
   name === undefined || name === '' ? 'This file' : `“${name}”`;
 
+const COUNT_TEXT = `a message has at most ${MAX_ATTACHMENTS} files`;
 const SIZE_TEXT = `${MAX_ATTACHMENT_BYTES / (1024 * 1024)} MB`;
 
 /** The sentence for one refused file. */
@@ -29,6 +33,7 @@ export function attachmentProblemMessage(
   name: string | undefined,
   problem: AttachmentProblem,
 ): string {
+  if (problem === 'too-many') return `${quoted(name)} isn’t added: ${COUNT_TEXT}.`;
   return problem === 'too-large'
     ? `${quoted(name)} is over ${SIZE_TEXT}, so it can’t be sent.`
     : `${quoted(name)} is empty.`;
@@ -56,5 +61,8 @@ export function rejectedFilesMessage(
   }
   if (empty.length === 1) parts.push(attachmentProblemMessage(empty[0], 'empty'));
   else if (empty.length > 1) parts.push(`${nameList(empty).text} are empty.`);
+  const extra = rejected.filter((r) => r.problem === 'too-many').map((r) => r.name);
+  if (extra.length === 1) parts.push(attachmentProblemMessage(extra[0], 'too-many'));
+  else if (extra.length > 1) parts.push(`${nameList(extra).text} aren’t added: ${COUNT_TEXT}.`);
   return parts.join(' ');
 }

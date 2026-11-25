@@ -1230,6 +1230,11 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   opened from (`primitives/menuReturn.ts`; a dropdown's trigger, or what had focus when a context
   menu opened), so focus returns to the message or button. Pinned by primitives/menuReturn.test.tsx
   and journeys/test_dialogs.py :: message_menu_dialog_returns_focus_to_the_message.
+- **A message row is not rebuilt when the window crosses 760 px**: the row is always inside its
+  context menu, which is switched off on touch (`ContextMenu` `disabled`), so a photo viewer open from
+  the row stays open and a focused row keeps focus when the window narrows (the sidebar, which does
+  become a drawer, is the separate S20 rule). Pinned by journeys/test_dialogs.py ::
+  photo_viewer_stays_open_when_the_window_narrows_below_760; a_focused_message_keeps_focus_when_the_window_narrows_below_760.
 - **Not pinned**: drawers in real WebKitGTK.
 
 ### M16. Menus and lists
@@ -1456,8 +1461,19 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
 
 - **Rule**: The limit is 100 MB. Oversize or empty files are refused when attached (a mixed drop keeps
   the valid ones) and again before forwarding or staging, with a message naming up to three files.
+- **Count**: at most 32 files in one message, as in Signal Desktop's composer (it refuses the 33rd
+  with a "maximum attachments" toast). The composer keeps the files that fit, in order, and refuses
+  the rest with a message in the same style ("isn't added: a message has at most 32 files"); the
+  send service refuses more than 32 too.
+- **Your own file stays a file**: every file sent gets a local URL for its row, not only images, so
+  while it is pending or after a failed send the row shows the file normally (name, size, Download)
+  instead of "Not available on this device"; Retry sends the original bytes again.
 - **Why**: Bug: rows and blobs were stored for files that could never go out.
-- **Pinned by**: core/domain/limits.test.ts (all); ui/features/chat/composer/Composer.test.tsx ::
+- **Pinned by**: ui/features/chat/composer/useAttachments.test.ts :: keeps the files that fit under the
+  per-message limit; Composer.test.tsx :: gives every sent file, not only images, a local URL;
+  services.test.ts :: a retry sends the failed message again with its file; journeys/test_composer.py ::
+  a_failed_send_of_a_file_still_shows_the_file_and_retry_sends_it_again;
+  core/domain/limits.test.ts (all); ui/features/chat/composer/Composer.test.tsx ::
   refuses a too-large file with a message and keeps the rest of the drop; adds no attachment for an
   empty file, and counts many refused files; core/services/services.test.ts :: refuses an oversize or
   empty file before staging anything.

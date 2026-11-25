@@ -35,6 +35,7 @@ import {
   applyPollTerminate,
   attachmentProblem,
   attachmentProblemMessage,
+  MAX_ATTACHMENTS,
   applyPollVote,
   applyReaction,
   attachMentions,
@@ -309,6 +310,10 @@ export class SendService {
     if (body.trim() === '' && transformed.attachments.length === 0) return null;
     // The composer already refuses these; this is the net for the paths that skip it. Nothing is
     // staged, so no row or Blob is stored for a file that can never go out.
+    if (transformed.attachments.length > MAX_ATTACHMENTS)
+      throw new AppError('user', attachmentProblemMessage(undefined, 'too-many'), {
+        outcome: 'not-sent',
+      });
     for (const a of transformed.attachments) {
       const problem = attachmentProblem({
         size: a.data.size,

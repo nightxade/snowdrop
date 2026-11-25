@@ -49,4 +49,12 @@ describe('the sentences', () => {
       ]),
     ).toBe('“a” is over 100 MB, so it can’t be sent. “b” is empty.');
   });
+
+  it('says which files were left out for the count', () => {
+    const r = (name: string) => ({ name, problem: 'too-many' as const });
+    expect(rejectedFilesMessage([r('a')])).toBe('“a” isn’t added: a message has at most 32 files.');
+    expect(rejectedFilesMessage([r('a'), r('b')])).toBe(
+      '“a” and “b” aren’t added: a message has at most 32 files.',
+    );
+  });
 });

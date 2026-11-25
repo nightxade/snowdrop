@@ -172,19 +172,18 @@ export function useComposer(conversation: ConversationView): ComposerState {
     const replyTarget = reply?.target;
     const files = outgoing.map((a) => {
       // A fresh URL for the sent message (the tray's own is released below);
-      // SendService releases it once the transport supplies its own.
-      const previewUrl =
-        a.previewUrl !== undefined || a.voiceNote === true
-          ? URL.createObjectURL(a.file)
-          : undefined;
+      // SendService releases it once the transport supplies its own. Every file gets one, not
+      // only images: the user's own file is on this device, so its row can show it (and let it
+      // be saved) while it is pending or if the send fails.
+      const previewUrl = URL.createObjectURL(a.file);
       // The recorder already knows the waveform: the sent note needn't decode its own file.
-      if (a.voiceNote && previewUrl && a.levels && a.duration !== undefined)
+      if (a.voiceNote && a.levels && a.duration !== undefined)
         rememberWaveform([`url:${previewUrl}`], { levels: a.levels, duration: a.duration });
       return {
         fileName: a.file.name,
         contentType: a.file.type || 'application/octet-stream',
         data: a.file,
-        ...(previewUrl ? { previewUrl } : {}),
+        previewUrl,
         ...(a.voiceNote ? { voiceNote: true } : {}),
         ...(a.width !== undefined && a.height !== undefined
           ? { width: a.width, height: a.height }

@@ -1,5 +1,5 @@
 """The composer's buttons (DECISIONS P2) and voice notes as far as a runner with no microphone can take them (P13)."""
-from common import COMPOSER, IN_COMPOSER, LAST_MESSAGE, MESSAGE, SCROLLER, TUI_SETTINGS, fill, is_current, open_conversation, settle
+from common import COMPOSER, click_text, forget_expected_send_failures, IN_COMPOSER, LAST_MESSAGE, MESSAGE, SCROLLER, TUI_SETTINGS, fill, is_current, open_conversation, quiet, settle
 from harness import journey
 
 FIELD = f'{COMPOSER}'
@@ -378,3 +378,23 @@ def wheel_over_the_sticker_picker_scrolls_it_not_the_chat(page):
     page.scroll(PICKER_VIEWPORT, 40)
     page.expect(f'document.querySelector({PICKER_VIEWPORT!r}).scrollTop > 20', 'the wheel did not scroll the sticker picker')
     page.expect(f'Math.abs({chat} - {before}) < 1', 'the wheel over the sticker picker scrolled the chat behind it')
+
+
+@journey()
+def a_failed_send_of_a_file_still_shows_the_file_and_retry_sends_it_again(page):
+    """A text file is sent to Annika (whose changed key refuses it): the failed message shows the file's name, not "Not available on this device"; Retry sends it again, still with the file."""
+    page.eval('__journey.setSendDelay(300)')
+    open_conversation(page, 'dm-annika')
+    stage_file(page, 'report.txt')
+    page.click(COMPOSER)
+    page.key('Enter')
+    failed = f'{LAST_MESSAGE}?.textContent.includes("report.txt") && [...{LAST_MESSAGE}.querySelectorAll("button")].some((b) => b.textContent.trim() === "Retry")'
+    page.wait_for(failed, 5000)
+    quiet(page)
+    page.expect(f'!{LAST_MESSAGE}.textContent.includes("Not available")', 'a failed file said it is not available on this device')
+    click_text(page, f'{MESSAGE} button', 'Retry')
+    page.wait_for(f'{LAST_MESSAGE}?.hasAttribute("data-pending") === true')
+    page.expect(f'{LAST_MESSAGE}.textContent.includes("report.txt")', 'the retried message lost its file')
+    page.wait_for(failed, 5000)  # refused again, still with the file
+    page.expect(f'!{LAST_MESSAGE}.textContent.includes("Not available")', 'the file said it is not available after a retry')
+    forget_expected_send_failures(page)
