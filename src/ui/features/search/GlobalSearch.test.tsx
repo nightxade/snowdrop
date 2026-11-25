@@ -128,6 +128,85 @@ describe('Search all chats', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
+  it('finds an archived chat by name and marks it archived, as the quick switcher does (S21)', async () => {
+    const snowdrop = await bootDemo();
+    const groups = Object.values(snowdrop.stores.conversations.getState().byId).filter(
+      (c) => c.kind === 'group',
+    );
+    const group = groups[0]!;
+    const title = snowdrop.stores.conversations.getState().byId[group.id]!.title;
+    const { input, dialog } = await open();
+    type(input, title.slice(0, 5));
+    await within(dialog).findAllByRole('option');
+    expect(within(dialog).queryByText('Archived')).toBeNull();
+    act(() => {
+      snowdrop.stores.local.getState().setArchived(group.id, true);
+    });
+    await waitFor(() => {
+      expect(within(dialog).getByText('Archived')).toBeTruthy();
+    });
+  });
+
+  it('follows live changes from the stores without searching storage again', async () => {
+    const snowdrop = await bootDemo();
+    const [keep, gone] = await seed(snowdrop, ['kept zebrafish', 'gone zebrafish']);
+    const flags = { hasMoreBefore: false, hasMoreAfter: false };
+    snowdrop.stores.messages.getState().replaceWindow(keep!.conversationId, [keep!], flags);
+    snowdrop.stores.messages.getState().replaceWindow(gone!.conversationId, [gone!], flags);
+    const search = vi.spyOn(snowdrop.repository, 'search');
+    const { input, dialog } = await open();
+    type(input, 'zebrafish');
+    await within(dialog).findByText('gone');
+    // The second result (the older, "kept") is the highlighted one; deleting the first leaves it.
+    key({ key: 'ArrowDown' }, input);
+    const scans = search.mock.calls.length;
+    act(() => {
+      snowdrop.stores.messages.getState().remove(gone!.conversationId, gone!.id);
+    });
+    await waitFor(() => {
+      expect(within(dialog).queryByText('gone')).toBeNull();
+    });
+    expect(within(dialog).getByText('kept')).toBeTruthy();
+    expect(document.activeElement).toBe(input);
+    expect(
+      within(dialog)
+        .getAllByRole('option')
+        .some((o) => o.getAttribute('aria-selected') === 'true'),
+    ).toBe(true);
+
+    // A new matching message joins, newest first; one that does not match stays out.
+    const fresh = makeMessage({
+      conversationId: keep!.conversationId,
+      authorId: 'seed-author',
+      sentAt: 9_000_000_000_100,
+      body: 'fresh zebrafish',
+    });
+    const other = makeMessage({
+      conversationId: keep!.conversationId,
+      authorId: 'seed-author',
+      sentAt: 9_000_000_000_200,
+      body: 'unrelated words',
+    });
+    act(() => {
+      snowdrop.stores.messages.getState().appendLive(fresh);
+      snowdrop.stores.messages.getState().appendLive(other);
+    });
+    await within(dialog).findByText('fresh');
+    expect(within(dialog).queryByText(/unrelated/u)).toBeNull();
+    expect(within(dialog).getAllByRole('option')[0]!.textContent).toContain('fresh');
+
+    // An edit that no longer matches removes it.
+    act(() => {
+      snowdrop.stores.messages
+        .getState()
+        .update(fresh.conversationId, fresh.id, (m) => ({ ...m, body: 'fresh carp', edits: 1 }));
+    });
+    await waitFor(() => {
+      expect(within(dialog).queryByText('fresh')).toBeNull();
+    });
+    expect(search.mock.calls.length).toBe(scans);
+  });
+
   it('opens a chat found by name the way every other opener does, so the focus policy is told', async () => {
     const snowdrop = await bootDemo();
     const { input, dialog } = await open();

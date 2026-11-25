@@ -40,6 +40,7 @@ import { plaintextCipher, utf8Decode, utf8Encode, type RecordCipher } from './cr
 import {
   droppedOriginals,
   matchesSearch,
+  newestSentFirst,
   originalIds,
   searchTerms,
   type MergeFn,
@@ -1227,19 +1228,24 @@ export class IdbMessageRepository implements MessageRepository {
 
   async search(
     text: string,
-    { conversationId, limit, signal, onPartial }: SearchQuery,
+    { conversationId, limit, signal, onPartial, nameFor }: SearchQuery,
   ): Promise<Message[]> {
     const terms = searchTerms(text);
     if (terms.length === 0 || limit <= 0) return [];
     signal?.throwIfAborted();
     const key =
       conversationId === undefined ? undefined : await this.cipher.blindId(conversationId);
-    const found: Message[] = [];
+    // Within a conversation the matches are in arrival order, newest first, so the walk stops at
+    // `limit`. Across conversations they are ordered by the time sent, which a row does not show
+    // (it is encrypted; only `seq` is plain), so a later row can be newer than one already
+    // found, an imported one for a start: the walk goes through the whole history and keeps the
+    // `limit` most recent.
+    const scoped = key !== undefined;
+    let found: Message[] = [];
     // Body text is only readable once decrypted, so every row is a candidate:
     // walk newest first in slices of SEARCH_SLICE (a bounded read, then a
-    // decrypt, then a turn for the event loop) and stop at `limit` matches.
-    // `upper` resumes just below the previous slice; rows sharing its seq
-    // are skipped by id rather than lost.
+    // decrypt, then a turn for the event loop). `upper` resumes just below the
+    // previous slice; rows sharing its seq are skipped by id rather than lost.
     let upper = Infinity;
     let tail = new Set<string>();
     for (;;) {
@@ -1253,11 +1259,20 @@ export class IdbMessageRepository implements MessageRepository {
       upper = last.seq;
       signal?.throwIfAborted();
       const before = found.length;
+      let changed = false;
       for (const message of await this.fromRows(slice)) {
-        if (found.length < limit && matchesSearch(message, terms)) found.push(message);
+        if (!matchesSearch(message, terms, nameFor)) continue;
+        if (scoped) {
+          if (found.length < limit) found.push(message);
+        } else {
+          found.push(message);
+          changed = true;
+        }
       }
-      if (found.length >= limit || slice.length < SEARCH_SLICE) break;
-      if (found.length > before) onPartial?.([...found]);
+      if (!scoped && changed) found = found.sort(newestSentFirst).slice(0, limit);
+      if (scoped && found.length >= limit) break;
+      if (slice.length < SEARCH_SLICE) break;
+      if (scoped ? found.length > before : changed) onPartial?.([...found]);
       await yieldToEventLoop();
       signal?.throwIfAborted();
     }

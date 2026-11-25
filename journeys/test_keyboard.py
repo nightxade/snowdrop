@@ -436,6 +436,64 @@ def message_removed_on_the_phone_hands_focus_to_the_next_message_else_the_previo
     page.expect(focused_is(ids[0]), 'focus did not go to the previous message')
 
 
+@journey()
+def search_result_with_focus_that_leaves_hands_focus_on(page):
+    """Ctrl+F finds two messages; Down twice puts focus on the second; its sender deletes it for everyone: the result leaves the list and focus goes to another result or the field, never the page (M15)."""
+    open_conversation(page, 'dm-priya')
+    author, sent = deliver_and_find(page, 'dm-priya', 'needle first')
+    deliver_and_find(page, 'dm-priya', 'needle second')
+    page.click(COMPOSER)
+    page.key('f', ['ctrl'])
+    page.wait_for('document.activeElement?.closest("[data-snowdrop=search-panel]") !== null')
+    page.type('needle')
+    page.wait_for('document.querySelectorAll("[data-snowdrop=search-panel] [data-search-result]").length === 2')
+    page.key('ArrowDown')
+    page.key('ArrowDown')
+    page.wait_for('document.activeElement?.hasAttribute("data-search-result") && document.activeElement.textContent.includes("needle first")')
+    emit(page, 'messageDeleted', {'conversationId': page.eval('__journey.conversationId("dm-priya")'), 'authorId': author, 'targetSentAt': sent})
+    page.wait_for('document.querySelectorAll("[data-snowdrop=search-panel] [data-search-result]").length === 1')
+    settle(page, 400)
+    page.expect(NOT_ON_BODY, 'focus fell to the page when the result it was on left the results')
+
+
+@journey()
+def search_finds_a_message_by_the_name_it_mentions(page):
+    """A message reading "hey @Juniper Hale about lunchtime" (the name is a mention) arrives: Ctrl+F finds it by "lunchtime", and also by "Juniper", the name the message and the result both show."""
+    conversation = open_conversation(page, 'dm-priya')
+    me = page.eval('__journey.state().selfId')
+    sent = page.eval('Date.now()')
+    emit(page, 'message', {'id': f'{me}:{sent}', 'conversationId': conversation, 'authorId': me, 'sentAt': sent, 'receivedAt': sent,
+                           'body': 'hey \ufffc about lunchtime', 'ranges': [{'start': 4, 'length': 1, 'mentionId': me}],
+                           'attachments': [], 'reactions': [], 'status': 'read', 'kind': 'normal'})
+    page.wait_for(f'{LAST_MESSAGE}?.textContent.includes("lunchtime")')
+    page.click(COMPOSER)
+    page.key('f', ['ctrl'])
+    page.wait_for('document.activeElement?.closest("[data-snowdrop=search-panel]") !== null')
+    page.type('lunchtime')
+    page.wait_for('document.querySelectorAll("[data-snowdrop=search-panel] [data-search-result]").length === 1')
+    page.key('a', ['ctrl'])
+    page.key('BackSpace')
+    page.type('Juniper')
+    settle(page, 800)
+    page.expect('document.querySelectorAll("[data-snowdrop=search-panel] [data-search-result]").length === 1', 'a message mentioning Juniper is not found by searching for Juniper')
+
+
+@journey()
+def search_no_match_text_stays_inside_the_panel(page):
+    """Ctrl+F, a 150-character link with no spaces pasted into the field: "No messages match" shows it within the panel, not running past its edge."""
+    open_conversation(page, 'dm-priya')
+    page.click(COMPOSER)
+    page.key('f', ['ctrl'])
+    page.wait_for('document.activeElement?.closest("[data-snowdrop=search-panel]") !== null')
+    page.eval(
+        'const i = document.querySelector("[data-snowdrop=search-panel] input"); const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;'
+        ' set.call(i, "https://example.test/" + "a".repeat(130)); i.dispatchEvent(new Event("input", { bubbles: true })); return 1'
+    )
+    page.wait_for('!!document.querySelector("[data-snowdrop=search-panel] svg") && document.querySelector("[data-snowdrop=search-panel]").textContent.includes("No messages match")')
+    quiet(page)
+    page.expect('(() => { const p = document.querySelector("[data-snowdrop=search-panel]"); return [...p.querySelectorAll("p")].every((e) => e.getBoundingClientRect().right <= p.getBoundingClientRect().right + 1); })()', 'the query text runs out of the search panel')
+
+
 # ------------------------------------------------------------------ search panel: Esc closes it from anywhere in it
 
 

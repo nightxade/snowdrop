@@ -319,7 +319,7 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   `useBreakpointAttributes` from the same window-limit-times-zoom queries; not `@container`, whose
   container on `body` changed how WebKit lays out the message list and so where a chat opens), the
   code with `belowBreakpoint` / `useBelowBreakpoint`; at 100% both equal the old window-width rules. The search text typed in the chat's search panel stays when it moves
-  between the page and a sheet at either breakpoint.
+  between the page and a sheet at either breakpoint. Picking a result in the sheet (below 1100 px) closes it so the message is in view, with focus on that message; opening the search again shows the same query and results.
 - **Why**: Responsive rules from the plan, plus bug reports (re-picking the open chat left the
   drawer up; at 150% zoom the wide layout was used in a window too narrow for it, so header buttons
   ran out of the window; narrowing the window emptied the search field).
@@ -332,7 +332,7 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   belowBreakpoint; journeys/test_list.py :: scrolling_up_loads_older_messages_without_a_jump (a container on body broke it); ui/features/chat/SearchSlot.test.tsx (all); journeys/test_appearance.py ::
   zoomed_header_buttons_stay_inside_the_window; journeys/test_sidebar.py ::
   drawer_pick_lands_on_the_message_list, drawer_pick_lands_on_the_composer_when_that_is_the_setting,
-  narrowing_hides_the_focused_sidebar_row_and_focus_goes_to_the_composer.
+  narrowing_hides_the_focused_sidebar_row_and_focus_goes_to_the_composer; ui/features/chat/SearchSlot.test.tsx (picking a result closes the sheet); journeys/test_sidebar.py :: picking_a_search_result_in_the_narrow_sheet_closes_it_and_focuses_the_message.
 - **Not pinned**: the stylesheets' `data-below-*` rules themselves (only the 760 px rules show in the
   zoom journey); a drawer left open while zooming.
 
@@ -462,7 +462,7 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   unread divider or a jump target does not, even when its end lies within the follow slack: until the
   reader moves it (wheel, touch, a key in the list, its scroll bar), reaches the very bottom or jumps
   there, it is held where it opened, and is not "at the bottom" for read tracking either (C7). A list
-  held at the divider also requests no older page (C6) until it is released: the divider is the first
+  held at the divider or a jump target (C14) also requests no older page (C6) until it is released: the divider is the first
   row of the loaded unread run, so an older page moves it, and putting the view back on it by
   scrolling lands wherever the unmeasured rows above happen to settle. It re-pins when the composer
   grows only if it was holding the bottom.
@@ -630,6 +630,48 @@ desktop shell and startup; **G** signal-cli patches and their wire rules; **R** 
   test_keyboard.py :: search_results_drop_a_message_deleted_for_everyone. Not pinned: a message
   outside the loaded window (an old one deleted on the phone) stays listed until the search runs
   again.
+- **A jump target stays where the list opened**: a window opened around a quoted, pinned or found
+  message (`HistoryService.jumpTo` replaces the window with a page around it; nothing between it and
+  the present is loaded) is held there like the unread divider (C5): no older page is requested until
+  the reader moves the list. A page prepended while the virtualiser is still settling on the target's
+  index moved the index it landed on, so a far-back target (the second of two found messages) ended
+  off screen, not flashed or focused. Pinned by ui/features/chat/list/MessageList.test.tsx :: a jump
+  target stays where the list opened (C14); journeys/test_list.py ::
+  second_far_back_search_result_is_reached.
+- **What the searches match**: the message as displayed, a mention as `@name` (found with or without
+  the `@`, in the chat and in all chats; the result marks the same text), case, diacritics and
+  Unicode normal forms ignored ("cafe" finds "Café", an NFC query an NFD message and back; the
+  result marks the original characters). The text is folded a code point at a time with a small
+  cache (`core/domain/searchText.ts`). Pinned by core/domain/searchText.test.ts;
+  core/persistence/MessageRepository.test.ts (mention, diacritics); ui/features/search/model.test.ts;
+  journeys/test_keyboard.py :: search_finds_a_message_by_the_name_it_mentions.
+- **Search all chats (Mod+Shift+F)**: matches chats by name including archived ones, marked
+  "Archived" and ranked after live ones as in the quick switcher (S21); message results are newest
+  first by the time sent (an imported or late message sorts by when it was sent, and the 50 results
+  are the 50 most recent matches, which means the whole history is scanned, results streaming in as
+  it goes); the results follow live changes (a message deleted or edited out of the match leaves, an
+  edited one updates its snippet, a new match joins in sent-time order, cut to 50) from the
+  messages the stores hold, with no new scan of storage (one scan per query; a result outside every
+  loaded window stays as found, and a dropped result is not replaced by a 51st match until the
+  query changes), and the highlighted result moves to the next, else the previous, when it leaves. A long
+  unbroken query wraps inside the "No results for" line. Pinned by ui/features/search/
+  GlobalSearch.test.tsx (archived, live changes with no second search); ui/features/search/model.test.ts :: followMemory; ui/features/switcher/model.test.ts ::
+  searchConversations; core/persistence/MessageRepository.test.ts :: orders matches across
+  conversations by the time sent; IdbMessageRepository.search.test.ts; journeys/test_dialogs.py ::
+  global_search_no_results_text_stays_inside_the_dialog.
+- **The chat search panel and focus**: a result with focus that leaves the results (deleted for
+  everyone, edited out of the match) hands focus to the next result, else the previous, else the
+  field, never the page (M15). The field takes focus when the user opens the search, not when the
+  panel remounts between the page and a sheet (focus stays where it was; from inside the panel it
+  moves to the same element). A long unbroken query wraps inside "No messages match". The search is
+  the chat's own: another chat opening (sidebar, switcher, the open chat deleted) closes it and
+  forgets what was typed, as in Signal Desktop. The panel's chunk is requested when the app is idle
+  after boot, so the first Mod+F of a session opens it at once and keeps the keys typed after it.
+  Pinned by ui/features/chat/header/SearchPanel.test.tsx (hand-off, opening vs moving);
+  ui/features/chat/SearchSlot.preload.test.tsx; src/test/shell.test.tsx :: the chat search closes when
+  another chat opens; journeys/test_keyboard.py :: search_result_with_focus_that_leaves_hands_focus_on,
+  search_no_match_text_stays_inside_the_panel; journeys/test_sidebar.py ::
+  narrowing_with_search_open_keeps_focus_in_the_composer.
 - **The Pinned messages list follows the chat the same way** (`header/chatSignature.ts`, shared with
   the search): while the popover is open, a pin removed, a pinned message deleted for everyone or
   expired leaves the list and a new pin joins it, quietly (no loading skeleton). Pinned by

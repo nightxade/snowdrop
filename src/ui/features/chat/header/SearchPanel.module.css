@@ -62,6 +62,13 @@
   text-align: center;
 }
 
+/* A pasted link is one long word: break it inside the panel, not past its edge. */
+.none p {
+  max-width: 100%;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 .count {
   margin-bottom: var(--snowdrop-space-3);
   color: var(--snowdrop-text-muted);

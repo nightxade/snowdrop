@@ -35,7 +35,13 @@ export function MessageResult({
   // A poll has no body text: it reads as its question, as in the chat list.
   const asPoll = m.body === '' && m.poll !== undefined;
   return (
-    <button type="button" className={styles.result} onClick={onOpen} data-search-result>
+    <button
+      type="button"
+      className={styles.result}
+      onClick={onOpen}
+      data-search-result
+      data-result-id={m.id}
+    >
       {context && <span className={styles.context}>{context}</span>}
       <span className={styles.row}>
         <PersonAvatar

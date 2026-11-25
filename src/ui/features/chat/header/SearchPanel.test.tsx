@@ -136,6 +136,69 @@ describe('<SearchPanel />', () => {
     await screen.findByText('meeting at five');
   });
 
+  it('hands focus to the next result, else the previous, else the field, when the focused result leaves (M15)', async () => {
+    const one = makeMessage({ authorId: 'ana', sentAt: 1, body: 'meeting one' });
+    const two = makeMessage({ authorId: 'ana', sentAt: 2, body: 'meeting two' });
+    const three = makeMessage({ authorId: 'ana', sentAt: 3, body: 'meeting three' });
+    let found = [one, two, three];
+    const { snowdrop, conv, input, type } = await setup(() => Promise.resolve(found));
+    snowdrop.stores.messages
+      .getState()
+      .replaceWindow(conv.id, [one, two, three], { hasMoreBefore: false, hasMoreAfter: false });
+    type('meeting');
+    await screen.findByText('meeting two');
+    const row = (text: string) =>
+      screen.getByText(text).closest<HTMLElement>('[data-search-result]')!;
+    const drop = async (gone: Message, text: string) => {
+      found = found.filter((m) => m !== gone);
+      act(() => {
+        snowdrop.stores.messages.getState().remove(conv.id, gone.id);
+      });
+      await vi.waitFor(
+        () => {
+          expect(screen.queryByText(text)).toBeNull();
+        },
+        { timeout: 4000 },
+      );
+    };
+    row('meeting two').focus();
+    await drop(two, 'meeting two');
+    expect(document.activeElement).toBe(row('meeting three'));
+    await drop(three, 'meeting three');
+    expect(document.activeElement).toBe(row('meeting one'));
+    await drop(one, 'meeting one');
+    await vi.waitFor(() => {
+      expect(document.activeElement).toBe(input);
+    });
+  });
+
+  it('takes focus only when the user opened the search, not when it moved from the page to a sheet', async () => {
+    const snowdrop = await bootSnowdrop();
+    snowdrops.push(snowdrop);
+    const conv = Object.values(snowdrop.stores.conversations.getState().byId)[0]!;
+    const chat = new ChatController();
+    const outside = document.createElement('button');
+    document.body.append(outside);
+    outside.focus();
+    const panel = (opened: boolean) => (
+      <ChatControllerProvider value={chat}>
+        <SearchPanel
+          conversation={conv as unknown as ConversationView}
+          query=""
+          onQueryChange={vi.fn()}
+          onClose={vi.fn()}
+          onArrive={() => ({ opened, held: null })}
+        />
+      </ChatControllerProvider>
+    );
+    const view = renderWithSnowdrop(snowdrop, panel(false));
+    expect(document.activeElement).toBe(outside);
+    view.unmount();
+    renderWithSnowdrop(snowdrop, panel(true));
+    expect(document.activeElement).toBe(screen.getByRole('searchbox', { name: 'Search messages' }));
+    outside.remove();
+  });
+
   it('does not search again for a change that cannot alter the results (a receipt, a reaction)', async () => {
     const one = hit('meeting at noon');
     const search = vi.fn(() => Promise.resolve([one]));

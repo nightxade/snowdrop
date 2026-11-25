@@ -38,7 +38,7 @@ async function withHistory(snowdrop: Snowdrop, count: number) {
     kind: 'normal',
   }));
   await snowdrop.repository.upsertMany(messages, { backfill: true, merge: mergeDuplicate });
-  return { conv, oldest: messages[0]! };
+  return { conv, oldest: messages[0]!, messages };
 }
 
 describe('jump to message', () => {
@@ -184,6 +184,60 @@ describe('jump to message', () => {
     });
     expect(ok).toBe(false);
     expect(snowdrop.stores.ui.getState().toasts.at(-1)?.message).toMatch(/isn't available/u);
+  });
+});
+
+describe('a jump target stays where the list opened (C14)', () => {
+  it('requests no older page until the reader moves the list, then does', async () => {
+    const snowdrop = await bootSnowdrop();
+    snowdrops.push(snowdrop);
+    const { conv, messages } = await withHistory(snowdrop, 300);
+    await act(async () => {
+      snowdrop.stores.ui.getState().selectConversation(conv.id);
+      await snowdrop.history.open(conv.id);
+    });
+    const chat = new ChatController();
+    renderWithSnowdrop(
+      snowdrop,
+      <VirtuosoMockContext.Provider value={{ viewportHeight: 800, itemHeight: 48 }}>
+        <ChatControllerProvider value={chat}>
+          <MessagePane conversationId={conv.id} />
+        </ChatControllerProvider>
+      </VirtuosoMockContext.Provider>,
+    );
+    await settle(snowdrop);
+    const loadOlder = vi.spyOn(snowdrop.history, 'loadOlder');
+    const target = messages[150]!;
+    await act(async () => {
+      await chat.reveal(conv.id, target.id);
+    });
+    await settle(snowdrop);
+    loadOlder.mockClear();
+    const scroller = document.querySelector<HTMLElement>('[data-message-scroller]')!;
+    // happy-dom has no layout: give the list a length, so it is not at its bottom (which would
+    // release it from where it opened).
+    Object.defineProperty(scroller, 'scrollHeight', { value: 20_000 });
+    Object.defineProperty(scroller, 'clientHeight', { value: 800 });
+    // Virtuoso's mock only renders rows once its scroller sees a scroll event.
+    await waitFor(
+      () => {
+        act(() => {
+          scroller.dispatchEvent(new Event('scroll'));
+        });
+        expect(document.querySelectorAll('[data-message-id]').length).toBeGreaterThan(0);
+      },
+      { timeout: 3000 },
+    );
+    // The window opened around the target with older history left. A page prepended while the
+    // virtualiser is still settling on the target's index would move the index it lands on.
+    expect(
+      messagesSelectors.window(conv.id)(snowdrop.stores.messages.getState()).hasMoreBefore,
+    ).toBe(true);
+    expect(loadOlder).not.toHaveBeenCalled();
+    act(() => {
+      scroller.dispatchEvent(new Event('wheel'));
+    });
+    expect(loadOlder).toHaveBeenCalledWith(conv.id);
   });
 });
 

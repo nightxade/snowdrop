@@ -9,6 +9,7 @@ export * from './color';
 export * from './time';
 export * from './groupMessages';
 export * from './mentions';
+export * from './searchText';
 export * from './messageOps';
 export * from './messageRequests';
 export * from './poll';

@@ -15,7 +15,7 @@ import {
   spacesSelectors,
   UNKNOWN_CONTACT_NAME,
 } from '@/core/stores';
-import { conversationFocusTarget, useNow, useSnowdrop } from '@/ui/hooks';
+import { conversationFocusTarget, neighbourOf, useNow, useSnowdrop } from '@/ui/hooks';
 import { ConversationAvatarById, openConversation, PersonAvatar } from '@/ui/features/conversation';
 import { Kbd, Modal, Skeleton, VisuallyHidden } from '@/ui/primitives';
 import {
@@ -27,7 +27,7 @@ import {
   highlight,
 } from '@/ui/primitives/CommandPalette';
 import { searchConversations, type SwitcherItem } from '@/ui/features/switcher';
-import { queryTerms, resultText, snippetParts } from './model';
+import { followMemory, messagesInMemory, queryTerms, resultText, snippetParts } from './model';
 import styles from './GlobalSearch.module.css';
 
 const MESSAGE_LIMIT = 50;
@@ -66,38 +66,95 @@ export function GlobalSearch({ onClose }: { onClose: () => void }) {
   /** Where focus goes when the dialog closes after opening a chat or message. */
   const focusAfterClose = useRef<(() => HTMLElement | null) | null>(null);
 
+  const nameFor = useMemo(() => {
+    const read = () => stores.contacts.getState().byId;
+    return (id: string): string => read()[id]?.name ?? UNKNOWN_CONTACT_NAME;
+  }, [stores]);
+  // The stores' in-memory messages. A live change (a message arriving, edited, deleted) updates the
+  // results from these, with no search of storage: see `followMemory`.
+  const windows = useStore(stores.messages, (s) => s.windows);
+  const gone = useStore(stores.messages, (s) => s.gone);
+  const lastMessages = useStore(stores.conversations, (s) => s.lastMessage);
+  const shownSearch = useRef(search);
+  /** The messages already accounted for in the results (found by the scan, or followed since). */
+  const seen = useRef<Map<string, Message>>(new Map());
+
+  useEffect(() => {
+    shownSearch.current = search;
+  });
+
+  /** Brings the results on screen up to date with the stores, when they are for what is typed. */
+  const follow = useRef<() => void>(() => undefined);
+  useEffect(() => {
+    follow.current = () => {
+      const current = shownSearch.current;
+      if (current.status !== 'done' || current.query !== trimmed) return;
+      const memory = messagesInMemory(windows, lastMessages);
+      const changed: Message[] = [];
+      for (const [id, m] of memory) if (seen.current.get(id) !== m) changed.push(m);
+      seen.current = memory;
+      if (changed.length === 0 && Object.keys(gone).length === 0) return;
+      const results = followMemory(
+        current.results,
+        memory,
+        changed,
+        gone,
+        queryTerms(trimmed),
+        nameFor,
+        MESSAGE_LIMIT,
+      );
+      if (results !== current.results) {
+        shownSearch.current = { ...current, results };
+        setSearch({ status: 'done', query: trimmed, results });
+      }
+    };
+  });
+  useEffect(() => {
+    follow.current();
+  }, [windows, gone, lastMessages]);
+
+  // One scan of the whole history per query (debounced, abortable, streaming what it finds).
   useEffect(() => {
     if (trimmed === '') return;
     const controller = new AbortController();
     const timer = setTimeout(() => {
       setSearch({ status: 'searching', query: trimmed, results: [] });
+      seen.current = messagesInMemory(
+        stores.messages.getState().windows,
+        stores.conversations.getState().lastMessage,
+      );
       repository
         .search(trimmed, {
           limit: MESSAGE_LIMIT,
           signal: controller.signal,
+          nameFor,
           onPartial: (results) => {
             if (!controller.signal.aborted)
               setSearch({ status: 'searching', query: trimmed, results });
           },
         })
         .then((results) => {
-          if (!controller.signal.aborted) setSearch({ status: 'done', query: trimmed, results });
+          if (controller.signal.aborted) return;
+          shownSearch.current = { status: 'done', query: trimmed, results };
+          setSearch({ status: 'done', query: trimmed, results });
+          // What changed in the stores while the scan ran.
+          follow.current();
         })
         .catch(() => {
           // Aborted (a newer query took over) or unreadable storage: show what we have.
-          if (!controller.signal.aborted)
-            setSearch((s) => ({
-              status: 'done',
-              query: trimmed,
-              results: s.status === 'idle' ? [] : s.results,
-            }));
+          if (controller.signal.aborted) return;
+          setSearch((s) => ({
+            status: 'done',
+            query: trimmed,
+            results: s.status === 'idle' ? [] : s.results,
+          }));
         });
     }, DEBOUNCE_MS);
     return () => {
       clearTimeout(timer);
       controller.abort();
     };
-  }, [trimmed, repository]);
+  }, [trimmed, repository, nameFor, stores]);
 
   const names = useMemo(() => {
     if (trimmed === '') return { groups: [], people: [] };
@@ -138,8 +195,6 @@ export function GlobalSearch({ onClose }: { onClose: () => void }) {
   const spaceFor = (id: ConversationId): string =>
     byId[id]?.kind === 'group' ? (spaceOf.get(id) ?? HOME) : HOME;
 
-  const nameFor = (id: string): string => contacts[id]?.name ?? UNKNOWN_CONTACT_NAME;
-
   const openChat = (item: Extract<SwitcherItem, { kind: 'conversation' }>) => {
     openConversation(app, item.id, { space: spaceFor(item.id) });
     const preferComposer = stores.settings.getState().behaviour.focusComposerOnOpen;
@@ -164,6 +219,21 @@ export function GlobalSearch({ onClose }: { onClose: () => void }) {
   const current = view && view.query === trimmed ? view : null;
   const searching = trimmed !== '' && (current === null || current.status === 'searching');
   const messages = current?.results ?? [];
+  // A result that leaves the list (deleted, edited so it no longer matches) while it is the
+  // highlighted one hands the highlight to the next result, else the previous: focus stays in the
+  // field either way.
+  const resultKeys = useRef<string[]>([]);
+  const found = current?.results;
+  useEffect(() => {
+    const keys = (found ?? []).map((m) => `message:${m.id}`);
+    const before = resultKeys.current;
+    resultKeys.current = keys;
+    if (!active.startsWith('message:') || keys.includes(active) || !before.includes(active)) return;
+    const next = neighbourOf(before, keys, active);
+    if (next !== undefined) setActive(next);
+    // `active` is read as it was when the results changed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [found]);
   const hasNames = names.groups.length + names.people.length > 0;
   const nothing = trimmed !== '' && !searching && !hasNames && messages.length === 0;
   const status =
@@ -317,6 +387,7 @@ function NameItem({
         onChoose(item);
       }}
       icon={<ConversationAvatarById id={item.id} size={24} />}
+      meta={item.archived ? <span>Archived</span> : undefined}
     >
       {highlight(item.title, item.indices)}
     </CommandPaletteItem>

@@ -9,6 +9,7 @@ from common import (
     PREVIEW,
     click_menu_item,
     click_text_starting,
+    deliver_and_find,
     emit,
     open_conversation,
     open_menu,
@@ -134,6 +135,39 @@ def search_text_survives_narrowing_below_760(page):
         page.resize(width, 800)
         settle(page, 700)
         page.expect('document.querySelector("[data-snowdrop=search-panel] input")?.value === "lunch"', f'the search text was lost at {width} px')
+
+
+@journey()
+def narrowing_with_search_open_keeps_focus_in_the_composer(page):
+    """Conversation search open beside the chat, a message being typed in the composer; the window narrows to 1099 px (the panel becomes a sheet): focus stays in the composer, and the next keys go on with the message, not into the search field."""
+    open_conversation(page, 'dm-priya')
+    page.key('f', ['ctrl'])
+    page.wait_for('document.activeElement?.closest("[data-snowdrop=search-panel]") !== null')
+    page.click(COMPOSER)
+    page.type('ab')
+    page.resize(1099, 800)
+    settle(page, 700)
+    page.expect(IN_COMPOSER, 'focus left the composer when the window narrowed')
+
+
+@journey()
+def picking_a_search_result_in_the_narrow_sheet_closes_it_and_focuses_the_message(page):
+    """Window narrower than 1100 px, Ctrl+F finds a message: opening it closes the search sheet and focus is on that message; Ctrl+F again shows the same query and result."""
+    open_conversation(page, 'dm-priya')
+    page.resize(1000, 800)
+    deliver_and_find(page, 'dm-priya', 'needle in a haystack')
+    page.key('f', ['ctrl'])
+    page.wait_for('document.activeElement?.closest("[data-snowdrop=search-panel]") !== null')
+    page.type('needle')
+    page.wait_for('document.querySelectorAll("[data-snowdrop=search-panel] [data-search-result]").length === 1')
+    page.click('[data-snowdrop=search-panel] [data-search-result]')
+    page.wait_for('!document.querySelector("[data-snowdrop=search-panel]")')
+    page.wait_for(f'document.activeElement?.closest({MESSAGE!r}) != null')
+    quiet(page)
+    page.expect(f'document.activeElement?.closest({MESSAGE!r}) != null', 'focus left the message the result opened')
+    page.key('f', ['ctrl'])
+    page.wait_for('document.querySelector("[data-snowdrop=search-panel] input")?.value === "needle"')
+    page.wait_for('document.querySelectorAll("[data-snowdrop=search-panel] [data-search-result]").length === 1')
 
 
 # ------------------------------------------------------------------ a focused row that leaves hands focus on (M15)

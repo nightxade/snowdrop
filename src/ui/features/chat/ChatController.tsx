@@ -65,12 +65,28 @@ export class ChatController {
   /** The in-conversation search panel (Ctrl+F), shared by the header button and the column. */
   isSearchOpen = (): boolean => this.searchOpen;
 
-  /** Opening search closes the gallery: both live in the one side slot. */
-  setSearchOpen(open: boolean): void {
+  /**
+   * Opening search closes the gallery: both live in the one side slot. Closing forgets what was
+   * typed, unless `keepQuery`: a narrow sheet closed to show the message a result jumped to comes
+   * back with the same query.
+   */
+  setSearchOpen(open: boolean, options?: { keepQuery?: boolean }): void {
     if (this.searchOpen === open) return;
     this.searchOpen = open;
     if (open) this.galleryOpen = false;
+    else if (!options?.keepQuery) this.searchTyped = null;
     for (const fn of this.listeners) fn();
+  }
+
+  /** What is typed in the search field, and in which conversation (it does not follow to another). */
+  private searchTyped: { conversationId: ConversationId; query: string } | null = null;
+
+  searchQueryFor(conversationId: ConversationId): string {
+    return this.searchTyped?.conversationId === conversationId ? this.searchTyped.query : '';
+  }
+
+  setSearchQuery(conversationId: ConversationId, query: string): void {
+    this.searchTyped = { conversationId, query };
   }
 
   /** The "Media, files & links" panel, shown in the same side slot as search. */

@@ -13,6 +13,7 @@ import {
 import {
   droppedOriginals,
   matchesSearch,
+  newestSentFirst,
   originalIds,
   searchTerms,
   type MergeFn,
@@ -185,7 +186,10 @@ export class MemoryMessageRepository implements MessageRepository {
     return Promise.resolve(this.timelines.get(conversationId)?.length ?? 0);
   }
 
-  search(text: string, { conversationId, limit, signal }: SearchQuery): Promise<Message[]> {
+  search(
+    text: string,
+    { conversationId, limit, signal, nameFor }: SearchQuery,
+  ): Promise<Message[]> {
     if (signal?.aborted) return Promise.reject(new DOMException('Search aborted', 'AbortError'));
     const terms = searchTerms(text);
     if (terms.length === 0) return Promise.resolve([]);
@@ -195,8 +199,8 @@ export class MemoryMessageRepository implements MessageRepository {
         : [...(this.timelines.get(conversationId) ?? [])];
     return Promise.resolve(
       pool
-        .filter((m) => matchesSearch(m, terms))
-        .sort((a, b) => bySeq(b, a))
+        .filter((m) => matchesSearch(m, terms, nameFor))
+        .sort(conversationId === undefined ? newestSentFirst : (a, b) => bySeq(b, a))
         .slice(0, limit)
         .map(clone),
     );

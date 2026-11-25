@@ -180,6 +180,49 @@ def scrolling_up_loads_older_messages_without_a_jump(page):
         page.expect(f'{scroller}.scrollTop > 300', f'page {page_no}: the view was thrown to the top')
 
 
+@journey(query='mockBulkMessages=400')
+def second_far_back_search_result_is_reached(page):
+    """History loaded back through a long chat, Ctrl+F finds 18 messages; the oldest result is clicked and the list lands on it; the field is used again and a middle result is clicked: the list lands on that one too, with focus on it (C14)."""
+    open_via_switcher(page, 'Engineering')
+    scroller = f'document.querySelector({SCROLLER!r})'
+    last = -1
+    for _ in range(40):
+        page.eval(f'const _ = 0; {scroller}.scrollTop = 0; return 1')
+        settle(page, 400)
+        height = page.eval(f'{scroller}.scrollHeight')
+        if height == last:
+            break
+        last = height
+    page.eval(f'const _ = 0; {scroller}.scrollTop = {scroller}.scrollHeight; return 1')
+    settle(page, 800)
+    results = 'document.querySelectorAll("[data-snowdrop=search-panel] [data-search-result]")'
+    for pick in (-1, 12):
+        if pick == -1:
+            page.key('f', ['ctrl'])
+        else:
+            page.click('[data-snowdrop=search-panel] input')
+        field = 'document.querySelector("[data-snowdrop=search-panel] input")'
+        page.wait_for(f'document.activeElement === {field}')
+        # The old query is selected outright: a Ctrl+A under load could arrive before the field had it.
+        page.eval(f'const _ = 0; {field}.select(); return 1')
+        page.key('BackSpace')
+        page.wait_for(f'{field}.value === ""')
+        page.type('quick recap')
+        page.wait_for(f'{results}.length === 18')
+        page.eval(f'const r = [...{results}].at({pick}); r.setAttribute("data-journey-pick", ""); r.scrollIntoView({{ block: "center" }}); return 1')
+        settle(page, 200)
+        page.click('[data-journey-pick]')
+        page.eval('const _ = 0; document.querySelector("[data-journey-pick]")?.removeAttribute("data-journey-pick"); return 1')
+        settle(page, 2000)
+        if pick == -1:
+            page.expect(ON_A_MESSAGE, 'the oldest found message was not reached')
+        else:
+            page.expect(ON_A_MESSAGE, 'the second found message was not reached')
+
+
+ON_A_MESSAGE = f'document.activeElement?.closest({MESSAGE!r}) != null'
+
+
 HOVER_BAR = '[data-snowdrop=hover-bar]'
 
 

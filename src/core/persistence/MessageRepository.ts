@@ -12,7 +12,15 @@
  * everything already stored so it lands before it.
  */
 import type { SendInput } from '@/core/backend';
-import type { ConversationId, GalleryKind, Message, MessageId } from '@/core/domain';
+import {
+  displayedText,
+  foldedTerms,
+  foldText,
+  type ConversationId,
+  type GalleryKind,
+  type Message,
+  type MessageId,
+} from '@/core/domain';
 
 /** Seq bounds are exclusive. With neither bound, returns the newest page. */
 export interface PageQuery {
@@ -35,6 +43,11 @@ export type MergeFn = (existing: Message, incoming: Message) => Message;
 export interface SearchQuery {
   conversationId?: ConversationId;
   limit: number;
+  /**
+   * The name a mention shows (`@name`): the text searched is the text as displayed, so a message
+   * is found by the name of someone it mentions. Without it a mention is not searchable.
+   */
+  nameFor?: (id: string) => string;
   /** Abandons the scan; the promise then rejects with the signal's reason. */
   signal?: AbortSignal;
   /**
@@ -131,12 +144,16 @@ export interface MessageRepository {
   count(conversationId: ConversationId): Promise<number>;
 
   /**
-   * Case-insensitive search: every whitespace-separated term must appear in
-   * the body (a poll's question, for a poll). Newest first, across every
-   * conversation unless `conversationId` is given. A scan that stops at
-   * `limit` matches; implementations that must decrypt rows work in slices,
-   * yielding between them, and honour `signal` and `onPartial` (see
-   * SearchQuery).
+   * Search that ignores case, diacritics and Unicode normal forms: every
+   * whitespace-separated term must appear in the message as displayed (the
+   * body with mentions as `@name`, a poll's question for a poll). Across
+   * every conversation unless `conversationId` is given. Within a
+   * conversation: newest first by arrival, a scan that stops at `limit`
+   * matches. Across conversations: newest first by sent time, the `limit`
+   * most recent matches of the whole history (so the scan reads all of it,
+   * reporting what it has found as it goes). Implementations that must
+   * decrypt rows work in slices, yielding between them, and honour
+   * `signal` and `onPartial` (see SearchQuery).
    */
   search(text: string, query: SearchQuery): Promise<Message[]>;
   /**
@@ -240,23 +257,36 @@ export function originalIds(message: Message): string[] {
   return message.attachments.filter((a) => a.original === true).map((a) => a.id);
 }
 
-/** The text a search matches: the body, or a poll's question (a poll has no body). */
-export function searchableText(message: Message): string {
-  return message.poll && message.body === '' ? message.poll.question : message.body;
+/**
+ * The text a search matches: the message as it reads on screen (a mention as `@name` when
+ * `nameFor` is given, a poll's question for a poll), see `displayedText`.
+ */
+export function searchableText(message: Message, nameFor?: (id: string) => string): string {
+  return displayedText(message, nameFor);
 }
 
-/** Search matching shared by implementations. */
-export function matchesSearch(message: Message, terms: readonly string[]): boolean {
+/**
+ * Search matching shared by implementations: every term (see `searchTerms`) appears in the
+ * folded text of the message (case, diacritics and Unicode normal forms ignored).
+ */
+export function matchesSearch(
+  message: Message,
+  terms: readonly string[],
+  nameFor?: (id: string) => string,
+): boolean {
   if (message.deleted || message.kind !== 'normal') return false;
-  const text = searchableText(message).toLowerCase();
+  const text = foldText(searchableText(message, nameFor));
   return terms.every((t) => text.includes(t));
 }
 
+/** Newest sent first, arrival order breaking a tie: how a search across every conversation orders its matches. */
+export function newestSentFirst(a: Message, b: Message): number {
+  return b.sentAt - a.sentAt || (b.seq ?? 0) - (a.seq ?? 0);
+}
+
+/** The folded words of a query (`foldedTerms`). */
 export function searchTerms(text: string): string[] {
-  return text
-    .toLowerCase()
-    .split(/\s+/u)
-    .filter((t) => t.length > 0);
+  return foldedTerms(text);
 }
 
 /** Newest-first batches; one round trip answers almost every conversation. */

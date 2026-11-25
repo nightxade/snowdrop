@@ -282,10 +282,11 @@ export function MessageList({ conversationId }: { conversationId: ConversationId
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [epoch]);
 
-  // Held where it opened, at the divider: no older page until the reader moves the list (C5, C8).
+  // Held where it opened, at the divider or a jump target: no older page until the reader moves the
+  // list (C5, C8, C14). A page prepended while the virtualiser is still settling on its initial
+  // index shifts the index it lands on by the page's length, so the target ends up off screen.
   // Read when the virtualiser reports, not at render: the reader can release the list in between.
-  const holdsOlder = () =>
-    pin.isHeldAway && initialIndex.index !== 'LAST' && initialIndex.align === 'start';
+  const holdsOlder = () => pin.isHeldAway && initialIndex.index !== 'LAST';
 
   // Each (re)mount decides once whether to hold the bottom — never on later renders.
   useLayoutEffect(() => {

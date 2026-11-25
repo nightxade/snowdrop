@@ -213,9 +213,9 @@ function scoreConversations(
 }
 
 /**
- * Chats of one kind whose title matches `text`, best first: what the `#`
- * (groups) and `@` (people) scopes show, without going through the query
- * syntax. Nothing is returned for empty text.
+ * Chats of one kind whose title matches `text`, best first (archived ones
+ * after live ones of equal score): what the `#` (groups) and `@` (people)
+ * scopes show, without going through the query syntax. Nothing is returned for empty text.
  */
 export function searchConversations(
   text: string,
@@ -226,12 +226,15 @@ export function searchConversations(
   if (!needle) return [];
   const spaceOf = new Map<string, SwitcherSpace>();
   for (const space of input.spaces) for (const id of space.conversationIds) spaceOf.set(id, space);
-  const views = input.views.filter((v) => !v.archived && v.kind === kind);
+  // Archived chats are findable, after live ones of equal score (as in the quick switcher).
+  const views = input.views.filter((v) => v.kind === kind);
   const scored = scoreConversations(needle, views, input, spaceOf).map((entry, order) => ({
     ...entry,
     order,
   }));
-  scored.sort((a, b) => b.score - a.score || a.order - b.order);
+  const archived = (s: { item: SwitcherItem }) =>
+    s.item.kind === 'conversation' && s.item.archived ? 1 : 0;
+  scored.sort((a, b) => b.score - a.score || archived(a) - archived(b) || a.order - b.order);
   const best = scored[0]?.score ?? 0;
   return scored
     .filter((s) => best <= 0 || s.score >= best * RELATIVE_FLOOR)

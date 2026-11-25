@@ -23,7 +23,7 @@ import {
 } from './ChatController';
 import { ConversationArea } from './ConversationArea';
 import { GallerySlot } from './GallerySlot';
-import { SearchSlot } from './SearchSlot';
+import { SearchSlot, usePreloadSearchPanel } from './SearchSlot';
 import { ConnectionBanner } from './ConnectionBanner';
 import { MiniPlayer } from './voice/MiniPlayer';
 import { useChatCommands } from './useChatCommands';
@@ -65,6 +65,7 @@ export function ChatColumn() {
 function ChatColumnInner() {
   const stores = useStores();
   useChatCommands();
+  usePreloadSearchPanel();
   const searchOpen = useSearchOpen();
   const galleryOpen = useGalleryOpen();
   const chat = useChatController();
@@ -104,6 +105,12 @@ function ChatColumnInner() {
   useLayoutEffect(() => {
     rowsBefore.current = listedRowIds();
   });
+
+  // The in-conversation search belongs to the chat it was opened in: another chat opening (a
+  // sidebar click, the switcher, the open chat deleted) closes it, as in Signal Desktop.
+  useEffect(() => {
+    chat.setSearchOpen(false);
+  }, [selected, chat]);
 
   const showSearch = searchOpen && kind !== undefined && selected !== null;
   const showGallery = galleryOpen && !showSearch && kind !== undefined && selected !== null;

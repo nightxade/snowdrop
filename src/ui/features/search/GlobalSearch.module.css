@@ -102,5 +102,8 @@
 }
 
 .none p {
+  max-width: 100%;
   margin: 0;
+  /* A pasted link is one long word: break it inside the box. */
+  overflow-wrap: anywhere;
 }

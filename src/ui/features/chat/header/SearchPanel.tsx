@@ -1,9 +1,9 @@
 import { SearchX, X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import type { ConversationView, Message } from '@/core/domain';
-import { sessionSelectors } from '@/core/stores';
-import { useSnowdrop } from '@/ui/hooks';
+import { contactsSelectors, sessionSelectors, UNKNOWN_CONTACT_NAME } from '@/core/stores';
+import { useHandOffRow, useSnowdrop } from '@/ui/hooks';
 import { IconButton, SearchInput, Skeleton } from '@/ui/primitives';
 import { useChatController } from '../ChatController';
 import { chatSignature } from './chatSignature';
@@ -12,6 +12,18 @@ import styles from './SearchPanel.module.css';
 
 const LIMIT = 50;
 const DEBOUNCE_MS = 200;
+
+/** What a panel that has just mounted is told about its arrival (see `SearchPanel`'s `onArrive`). */
+export interface PanelArrival {
+  /** The user opened the search, as opposed to the panel moving between the page and a sheet. */
+  opened: boolean;
+  /** What had focus in the panel that went, when it was this panel's own. */
+  held: PanelFocus | null;
+}
+
+export type PanelFocus = { kind: 'field' } | { kind: 'close' } | { kind: 'result'; id: string };
+
+const NO_IDS: readonly string[] = [];
 
 type SearchState =
   | { status: 'idle' }
@@ -25,6 +37,7 @@ export function SearchPanel({
   onQueryChange,
   onClose,
   onReveal,
+  onArrive,
 }: {
   conversation: ConversationView;
   /** What is typed in the field: kept by the owner, so it survives the panel moving between page and sheet. */
@@ -33,6 +46,12 @@ export function SearchPanel({
   onClose: () => void;
   /** A result was opened (Enter, a click): the owner jumps to the message; the default does so itself. */
   onReveal?: (messageId: Message['id']) => void;
+  /**
+   * The panel has mounted: the owner says what this is, a search the user just opened (focus goes
+   * to the field), or the panel moved between the page and a sheet (focus stays where it was, or
+   * goes to the same element here when it was in the panel).
+   */
+  onArrive?: () => PanelArrival;
 }) {
   const { repository, stores } = useSnowdrop();
   const importing = useStore(
@@ -49,9 +68,35 @@ export function SearchPanel({
   const list = useRef<HTMLUListElement>(null);
   const trimmed = query.trim();
 
+  /** The result that had focus before the panel moved: focused again once the results are back. */
+  const heldResult = useRef<string | null>(null);
+  const arrive = useRef(onArrive);
   useEffect(() => {
-    input.current?.focus();
+    const arrival = arrive.current?.() ?? { opened: true, held: null };
+    if (arrival.opened) {
+      input.current?.focus();
+      return;
+    }
+    const root = input.current?.closest('[data-snowdrop="search-panel"]');
+    const held = arrival.held;
+    if (!root || held === null || document.activeElement !== document.body) return;
+    const same =
+      held.kind === 'close'
+        ? root.querySelector<HTMLElement>('[aria-label^="Close search"]')
+        : input.current;
+    same?.focus();
+    if (held.kind === 'result') heldResult.current = held.id;
   }, []);
+
+  const contacts = useStore(stores.contacts, contactsSelectors.byId);
+  const names = useRef(contacts);
+  useEffect(() => {
+    names.current = contacts;
+  });
+  const nameFor = useMemo(
+    () => (id: string) => names.current[id]?.name ?? UNKNOWN_CONTACT_NAME,
+    [],
+  );
 
   // What decides the results: which messages there are, whether each is deleted, and its edit
   // count. A new message, a delete, an expiry or an edit changes it and the results follow (they
@@ -70,7 +115,7 @@ export function SearchPanel({
     const timer = setTimeout(() => {
       if (!refresh) setState({ status: 'searching', query: trimmed });
       repository
-        .search(trimmed, { conversationId: conversation.id, limit: LIMIT })
+        .search(trimmed, { conversationId: conversation.id, limit: LIMIT, nameFor })
         .then((results) => {
           if (cancelled) return;
           shown.current = trimmed;
@@ -86,7 +131,7 @@ export function SearchPanel({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [trimmed, repository, conversation.id, messages]);
+  }, [trimmed, repository, conversation.id, messages, nameFor]);
 
   // Results (and "no match") belong to the query they were found for. While the field has moved
   // on, old results stay up until the new ones land, but an old "no match" is no answer to the
@@ -98,6 +143,26 @@ export function SearchPanel({
       : state.status === 'done' && !current && state.results.length === 0
         ? { status: 'searching', query: trimmed }
         : state;
+
+  // A result with focus that leaves the list (deleted for everyone, an edit that no longer matches)
+  // hands focus to the next result, else the previous, else the field: never the page (M15).
+  const shownIds = view.status === 'done' ? view.results.map((m) => m.id) : NO_IDS;
+  useHandOffRow({
+    ids: shownIds,
+    scope: conversation.id,
+    identify: (el) =>
+      el
+        .closest('[data-snowdrop="search-panel"] [data-search-result]')
+        ?.getAttribute('data-result-id') ?? null,
+    find: (id) => list.current?.querySelector<HTMLElement>(`[data-result-id="${CSS.escape(id)}"]`),
+    tabStop: () => input.current,
+  });
+  useEffect(() => {
+    const id = heldResult.current;
+    if (id === null || view.status !== 'done') return;
+    heldResult.current = null;
+    list.current?.querySelector<HTMLElement>(`[data-result-id="${CSS.escape(id)}"]`)?.focus();
+  });
 
   return (
     <aside

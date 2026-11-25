@@ -97,14 +97,12 @@ describe('a space in the switcher shows what the rail shows', () => {
 describe('searchConversations', () => {
   it('finds the same chats as the @ and # scopes, without the query syntax', () => {
     const data = input();
-    // The global search's people and groups sections keep leaving archived chats out.
-    const live = { ...data, views: data.views.filter((v) => !v.archived) };
     for (const [kind, prefix] of [
       ['direct', '@'],
       ['group', '#'],
     ] as const) {
       for (const text of ['c', 'cl', 'li']) {
-        const viaQuery = searchSwitcher(`${prefix}${text}`, live).flatMap((s) => s.items);
+        const viaQuery = searchSwitcher(`${prefix}${text}`, data).flatMap((s) => s.items);
         expect(searchConversations(text, kind, data)).toEqual(viaQuery);
       }
     }
@@ -113,12 +111,24 @@ describe('searchConversations', () => {
     ]);
   });
 
-  it('returns nothing for empty text, hides archived chats and honours the limit', () => {
+  it('finds archived chats too, after live ones of equal score', () => {
+    const data = input({
+      views: [
+        view('group:a', 'Cabin', 'group', 1, { archived: true }),
+        view('group:b', 'Cabin', 'group', 2),
+      ],
+    });
+    const items = searchConversations('cabin', 'group', data);
+    expect(items.map((i) => i.key)).toEqual(['conversation:group:b', 'conversation:group:a']);
+    expect(items.map((i) => i.archived)).toEqual([false, true]);
+    expect(searchConversations('clubhouse', 'group', input()).map((i) => i.archived)).toEqual([
+      true,
+    ]);
+  });
+
+  it('returns nothing for empty text and honours the limit', () => {
     const data = input();
     expect(searchConversations('  ', 'group', data)).toEqual([]);
-    expect(searchConversations('club', 'group', data).map((i) => i.id)).toEqual([
-      asConversationId('group:climb'),
-    ]);
     expect(searchConversations('c', 'group', { ...data, limit: 1 })).toHaveLength(1);
   });
 

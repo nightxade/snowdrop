@@ -18,9 +18,11 @@ export interface PrefetchFlags {
   hasMoreBefore: boolean;
   anchoredToPresent: boolean;
   /**
-   * The list is held where it opened, at the unread divider (C5): the older page waits for the reader
-   * to move it. The divider is the first row of the loaded unread run, so a page of older unread
-   * messages moves it relative to the rows, and the view would have to be put back on it.
+   * The list is held where it opened, at the unread divider (C5) or a jump target (C14): the older
+   * page waits for the reader to move it. The divider is the first row of the loaded unread run, so a
+   * page of older unread messages moves it relative to the rows, and the view would have to be put
+   * back on it; a page prepended while the virtualiser settles on a jump target's index moves the
+   * index it lands on, so the target is off screen.
    */
   holdOlder?: boolean;
 }

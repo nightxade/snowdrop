@@ -266,6 +266,85 @@ describe.each(implementations)('MessageRepository (%s)', (_name, create) => {
     },
   );
 
+  it('finds a message by the name of someone it mentions, as displayed', async () => {
+    await repo.upsert(
+      incoming({
+        conversationId: a,
+        authorId: 'y',
+        sentAt: 80,
+        body: 'hey \ufffc about lunchtime',
+        ranges: [{ start: 4, length: 1, mentionId: 'jun' }],
+      }),
+      mergeDuplicate,
+    );
+    const nameFor = (id: string) => (id === 'jun' ? 'Juniper Hale' : id);
+    for (const query of ['juniper', '@Juniper', 'hale lunchtime', '@juniper hale']) {
+      expect((await repo.search(query, { limit: 5, nameFor })).map((m) => m.sentAt)).toEqual([80]);
+      expect(
+        (await repo.search(query, { conversationId: a, limit: 5, nameFor })).map((m) => m.sentAt),
+      ).toEqual([80]);
+    }
+    // Without a name for the mention, only the rest of the text is there to find.
+    expect(await repo.search('juniper', { limit: 5 })).toEqual([]);
+    expect((await repo.search('lunchtime', { limit: 5 })).map((m) => m.sentAt)).toEqual([80]);
+  });
+
+  it('ignores case, diacritics and the composed or decomposed form', async () => {
+    await repo.upsert(
+      incoming({
+        conversationId: a,
+        authorId: 'y',
+        sentAt: 81,
+        body: 'Caf\u00e9 and r\u00e9sum\u00e9',
+      }),
+      mergeDuplicate,
+    );
+    await repo.upsert(
+      incoming({
+        conversationId: b,
+        authorId: 'y',
+        sentAt: 82,
+        body: 'cafe\u0301 with re\u0301sume\u0301',
+      }),
+      mergeDuplicate,
+    );
+    for (const query of ['cafe', 'CAF\u00c9', 'caf\u0065\u0301', 'resume', 'r\u00e9sum\u00e9']) {
+      expect((await repo.search(query, { limit: 5 })).map((m) => m.sentAt)).toEqual([82, 81]);
+    }
+    expect(await repo.search('caff', { limit: 5 })).toEqual([]);
+  });
+
+  it('orders matches across conversations by the time sent, not by arrival', async () => {
+    // Arrives last, was sent first: imported history, a message delivered late.
+    await repo.upsert(
+      incoming({
+        conversationId: a,
+        authorId: 'y',
+        sentAt: 500,
+        body: 'late arrival of old needle',
+      }),
+      mergeDuplicate,
+    );
+    await repo.upsert(
+      incoming({ conversationId: b, authorId: 'y', sentAt: 900, body: 'recent needle' }),
+      mergeDuplicate,
+    );
+    await repo.upsert(
+      incoming({
+        conversationId: a,
+        authorId: 'y',
+        sentAt: 100,
+        body: 'later arrival of older needle',
+      }),
+      mergeDuplicate,
+    );
+    expect((await repo.search('needle', { limit: 10 })).map((m) => m.sentAt)).toEqual([
+      900, 500, 100,
+    ]);
+    // The limit keeps the most recent matches, whatever order they arrived in.
+    expect((await repo.search('needle', { limit: 2 })).map((m) => m.sentAt)).toEqual([900, 500]);
+  });
+
   it("matches a poll's question, not its options", async () => {
     const poll = {
       question: 'Where shall we eat?',

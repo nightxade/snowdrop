@@ -258,6 +258,25 @@ describe('panels closed by their shortcut keep focus', () => {
     expect(document.activeElement?.closest('[data-snowdrop="composer"]')).not.toBeNull();
   });
 
+  it('the chat search closes when another chat opens, and the new chat gets no search field focus', async () => {
+    const snowdrop = await bootDemo();
+    const { stores } = snowdrop;
+    const spaceId = spacesSelectors.orderedIds(stores.spaces.getState())[0]!;
+    const [first, second] =
+      stores.spaces.getState().spaces[spaceId]!.categories[0]!.conversationIds;
+    act(() => {
+      stores.ui.getState().selectConversation(first!, spaceId);
+    });
+    await settle();
+    key({ key: 'f', code: 'KeyF', ctrlKey: true });
+    await screen.findByRole('searchbox', { name: 'Search messages' });
+    act(() => {
+      stores.ui.getState().selectConversation(second!, spaceId);
+    });
+    await settle();
+    expect(screen.queryByRole('searchbox', { name: 'Search messages' })).toBeNull();
+  });
+
   it('Ctrl+Shift+M closes the wide member panel from inside it and focus goes to its toggle', async () => {
     const snowdrop = await bootDemo();
     const { stores } = snowdrop;

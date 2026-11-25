@@ -1,6 +1,6 @@
 import json
 
-from common import COMPOSER, IN_COMPOSER, click_menu_item, click_text, deliver_and_find, emit, forget_expected_send_failures, is_current, open_conversation, open_menu, quiet, select_space, send, settle
+from common import TUI_SETTINGS, COMPOSER, IN_COMPOSER, click_menu_item, click_text, deliver_and_find, emit, forget_expected_send_failures, is_current, open_conversation, open_menu, quiet, select_space, send, settle
 from harness import journey
 
 NEW_MESSAGE = '[data-snowdrop=sidebar-header] button[aria-label="New message"]'
@@ -647,3 +647,17 @@ def a_focused_message_keeps_focus_when_the_window_narrows_below_760(page):
     page.resize(700, 800)
     quiet(page)
     page.expect(f'document.activeElement === document.querySelector({row!r})', 'focus fell to the page when the window went below 760 px')
+
+
+@journey(settings=TUI_SETTINGS)
+def global_search_no_results_text_stays_inside_the_dialog(page):
+    """Search all chats (TUI shell), a 150-character link with no spaces typed into the field: the "No results for" line shows it inside the dialog, not running past its edge."""
+    page.key('F', ['ctrl', 'shift'])
+    page.wait_for('!!document.querySelector("[role=dialog] input")')
+    page.eval(
+        'const i = document.querySelector("[role=dialog] input"); const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;'
+        ' set.call(i, "https://example.test/" + "a".repeat(130)); i.dispatchEvent(new Event("input", { bubbles: true })); return 1'
+    )
+    page.wait_for('document.querySelector("[role=dialog]").textContent.includes("No results for")')
+    quiet(page)
+    page.expect('(() => { const d = document.querySelector("[role=dialog]"); const r = d.getBoundingClientRect().right; return [...d.querySelectorAll("p")].every((e) => e.getBoundingClientRect().right <= r + 1); })()', 'the query text runs out of the search dialog')

@@ -23,6 +23,12 @@ export interface DrawerProps {
    * drawer closed by picking a conversation: the conversation, not the button that opened it).
    */
   closeTarget?: () => HTMLElement | null | undefined;
+  /**
+   * Whether opening moves focus into the drawer (default). False for a drawer that appears
+   * without the user asking for it (a panel moving from the page to a sheet as the window
+   * narrows): focus stays where it was.
+   */
+  autoFocus?: boolean | (() => boolean);
 }
 
 const SWIPE_CLOSE_PX = 60;
@@ -56,6 +62,7 @@ export function Drawer({
   side = 'left',
   returnFocus,
   closeTarget,
+  autoFocus = true,
 }: DrawerProps) {
   const start = useRef<{ x: number; y: number } | null>(null);
   const content = useRef<HTMLDivElement | null>(null);
@@ -120,7 +127,8 @@ export function Drawer({
             // Focus the panel itself rather than its first button, so opening
             // the drawer doesn't pop that button's tooltip; Tab/arrows go on from here.
             e.preventDefault();
-            (e.currentTarget as HTMLElement | null)?.focus();
+            if (typeof autoFocus === 'function' ? autoFocus() : autoFocus)
+              (e.currentTarget as HTMLElement | null)?.focus();
           }}
           onCloseAutoFocus={(e) => {
             // Restored by the effect above (it also covers unmounting while open).

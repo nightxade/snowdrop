@@ -50,7 +50,7 @@ describe('IdbMessageRepository.search (sliced scan)', { timeout: 30_000 }, () =>
     expect(yielded.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
-  it('streams matches as slices finish, newest first, and stops at the limit', async () => {
+  it('streams matches as slices finish and, across conversations, reads the whole history for the most recent', async () => {
     const r = await seeded(1500, 600);
     const yielded = vi.spyOn(lib, 'yieldToEventLoop');
     const partials: string[][] = [];
@@ -61,6 +61,39 @@ describe('IdbMessageRepository.search (sliced scan)', { timeout: 30_000 }, () =>
     expect(final.map((m) => m.body)).toEqual(['needle 1200', 'needle 600']);
     // The newest match sits in the first slice: reported before the scan ends.
     expect(partials[0]).toEqual(['needle 1200']);
+    // Messages sent later can sit in later slices (arrival is not sent order): all were read.
+    expect(yielded.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('keeps a match sent later that sits in an older slice, when the limit is reached earlier', async () => {
+    const r = await seeded(1500, 10_000);
+    // Imported history lands below everything stored (the lowest seq, the last slice) even when it
+    // was sent after what is stored.
+    const { seq: _seq, ...imported } = makeMessage({
+      conversationId: conversationIdFor('c1'),
+      authorId: 'z',
+      sentAt: 9_999_999,
+      body: 'needle imported late',
+    });
+    await r.upsertMany([imported], { backfill: true, merge: mergeDuplicate });
+    for (let i = 1; i <= 3; i++) {
+      const { seq: _s, ...m } = makeMessage({
+        conversationId: conversationIdFor('c1'),
+        authorId: 'z',
+        sentAt: 5000 + i,
+        body: `needle recent ${i}`,
+      });
+      await r.upsert(m, mergeDuplicate);
+    }
+    const found = await r.search('needle', { limit: 2 });
+    expect(found.map((m) => m.body)).toEqual(['needle imported late', 'needle recent 3']);
+  });
+
+  it('stops a conversation-scoped scan at its limit', async () => {
+    const r = await seeded(1500, 600);
+    const yielded = vi.spyOn(lib, 'yieldToEventLoop');
+    const final = await r.search('needle', { conversationId: conversationIdFor('c0'), limit: 2 });
+    expect(final.map((m) => m.body)).toEqual(['needle 1200', 'needle 600']);
     // The limit ended the scan in the second slice, so it never reached the third.
     expect(yielded.mock.calls.length).toBeLessThanOrEqual(1);
   });
