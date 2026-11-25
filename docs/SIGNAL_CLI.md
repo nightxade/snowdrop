@@ -125,8 +125,9 @@ On a single-account daemon `connection.account` is required (Snowdrop reports
 - Your own sent images keep only a small (≤ 512 px) preview locally; files over 100 MB
   can't be sent or opened through the daemon.
 - **Edits** re-send the original reply quote (signal-cli rebuilds the whole message from
-  the edit's parameters). Attachments can't be re-sent with an edit; official Signal
-  clients keep the original's attachments, but this is unverified with signal-cli.
+  the edit's parameters). Attachments are not sent with an edit: official Signal clients
+  (Desktop and Android, recipients and linked devices) take an edit's attachments from
+  the original message, so it keeps them everywhere.
 - Changing a **1:1 disappearing-message timer** uses `updateContact`, which also un-hides
   the contact if you had hidden it on your phone.
 - **Message requests.** A chat from someone who isn't a saved contact and doesn't share a

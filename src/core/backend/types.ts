@@ -166,8 +166,8 @@ export interface EditInput {
   /**
    * The original message's quote. signal-cli builds the edit's whole data
    * message from the call's params, so without it the edit would drop the
-   * reply context on recipients' devices. (Attachments can't be re-sent with
-   * an edit; Signal clients keep the original's attachments.)
+   * reply context on recipients' devices. (Attachments are not sent with an
+   * edit: Signal clients take them from the original message.)
    */
   quote?: Quote;
   /** Deduplicated custom emoji used in `body`; only sent when the backend supports it. */

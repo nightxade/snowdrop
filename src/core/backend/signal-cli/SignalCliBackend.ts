@@ -1311,8 +1311,9 @@ export class SignalCliBackend implements ChatBackend {
   /**
    * signal-cli builds the edit's *entire* data message from these params, so
    * the original's quote is re-sent (from the input, or remembered from this
-   * session). Attachments can't be re-sent cheaply; Signal clients keep the
-   * original's attachments for an edit, but this is unverified for signal-cli.
+   * session). Attachments are not sent: official Signal clients take an edit's
+   * attachments from the original message (Desktop copies them, Android keeps
+   * only a long-text body from the edit), here and on our linked devices.
    */
   async edit(input: EditInput): Promise<EditResult> {
     this.assertAccount();

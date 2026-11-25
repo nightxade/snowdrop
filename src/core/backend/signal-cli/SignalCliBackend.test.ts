@@ -1135,6 +1135,8 @@ describe('SignalCliBackend: commands', () => {
       message: 'fixed',
       editTimestamp: T0,
     });
+    // Signal clients take an edit's attachments from the original message: none are sent.
+    expect(daemon.callsTo('send').at(-1)).not.toHaveProperty('attachment');
 
     await backend.react({
       conversationId: dm,
